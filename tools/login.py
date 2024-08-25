@@ -13,7 +13,7 @@ api_key = st.session_state["access_token"]
 # Configurações do Facebook
 client_id = '1013320407465551'
 client_secret = 'aff296e102fc1692b97c6c859f314963'
-redirect_uri = 'http://localhost:8501/?callback'
+redirect_uri = 'https://hookify.streamlit.app/?callback'
 auth_base_url = 'https://www.facebook.com/v20.0/dialog/oauth'
 token_url = 'https://graph.facebook.com/v20.0/oauth/access_token'
 permissions = 'email,public_profile,business_management,ads_management,ads_read,read_insights,pages_show_list,pages_read_engagement'
@@ -103,7 +103,7 @@ else:
         #st.markdown(f'Please <a href="{auth_url}" target="_self">click here to login on Facebook.</a>', unsafe_allow_html=True)
         st.markdown(f"""<a
                     href="{auth_url}"
-                    target="_self"
+                    target="_blank"
                     style="
                         display: flex;
                         align-items: center;
