@@ -1,0 +1,214 @@
+:root {
+    --green-300: #85e0ba; /**/
+    --green-500: #3ecf8e; /**/
+    --green-600: #1B6447; /**/
+    --green-700: #006239; /**/
+    --green-800: #00311d; /**/
+    --green-900: #04260f; /**/
+    --green-500-bg: #3ecf8e80; /**/
+    --green-500-border: #3ecf8e4d; /**/
+    --blue-50: #eff6ff;
+    --blue-100: #dbeafe;
+    --blue-200: #bfdcfe;
+    --blue-300: #94c6fc;
+    --blue-400: #61a7f9;
+    --blue-500: #3c84f5;
+    --blue-600: #2665ea;
+    --blue-700: #1e51d7;
+    --blue-800: #1f43ae;
+    --blue-900: #1f3b89;
+    --blue-950: #172654;    
+    --grey-300: #A8A8A8;
+    --grey-500: #757575;
+    --grey-700: #525252;
+    --black-100: #454545; /**/
+    --black-300: #424242; /**/
+    --black-400: #363636; /**/
+    --black-500: #242424; /**/
+    --black-700: #171717; /**/
+    --black-900: #121212; /**/
+    --box-shadow: #0D0D0D50;
+}
+
+h1{
+    color: #ffffff;
+}
+
+/* CONTENT WRAPPER */
+div[data-testid="stAppViewBlockContainer"]{
+    padding-top: 3rem;
+}
+
+/* SIDEBAR LOGO WRAPPER */
+div[data-testid="stSidebarHeader"]{
+    border-bottom: 1px solid var(--black-400);
+}
+
+/* SIDEBAR NAV ITEMS WRAPPER */
+ul[data-testid="stSidebarNavItems"]{
+    padding-top: 1.25rem;
+    padding-bottom: .5rem;
+}
+a[data-testid="stSidebarNavLink"]{
+    padding: .25rem .5rem;
+    border-radius: 6px;
+    background-color: var(--black-500);
+}
+a[data-testid="stSidebarNavLink"]:hover{
+    background-color: var(--black-300);
+    display: 'relative';
+    z-index: 99;
+    filter: grayscale(0%);
+}
+
+/* SIDEBAR NAV-LINK SELECTED */
+.st-emotion-cache-1hlr6jw{
+    background-color: var(--green-700);
+    display: 'relative';
+    z-index: 99;
+    -webkit-box-shadow: 0px 10px 8px -2px #000000c0;
+    -moz-box-shadow: 0px 10px 8px -2px #000000c0;
+    box-shadow: 0px 10px 8px -2px #000000c0;
+    filter: grayscale(0%);
+}
+.st-emotion-cache-1hlr6jw:hover{
+    background-color: var(--green-700);
+}
+
+/* CONTAINERS */
+.st-emotion-cache-16h9saz.e1f1d6gn0{
+    background: var(--black-700);
+    border: solid 1px var(--black-500);
+    border-radius: 6px;
+}
+
+/* METRICS CARD */
+div[data-testid="stMetric"]{
+    background-color: var(--black-500);
+    border: solid 1px var(--black-300);
+    border-radius: 16px;
+    padding: 1rem;
+    box-shadow: 0 8px 12px -2px var(--black-900);
+}
+/* METRICS CARD WRAPPER: CENTER */
+div[data-testid="stMetric"] > *{
+    display: flex;
+    justify-content: center;
+    width: auto;
+}
+/* METRICS CARD CONTENT: CENTER */
+div[data-testid="stMetric"] > * > *{
+    width: auto;
+}
+
+
+/* RADIO GROUP MENU */
+div[data-testid="stRadio"] div[role="radiogroup"]{
+    background: var(--black-700);
+    border: solid 1px var(--black-500);
+    border-radius: 6px;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+}
+/* RADIO BUTTON: DEFAULT */
+div[data-testid="stRadio"] label[data-baseweb="radio"]{
+    border-radius: 6px;
+    border: solid 1px #ffffff00;
+    flex: 1;
+    justify-content: center;
+    padding: 0.5em 1em;
+    margin: 0;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+div[data-testid="stRadio"] label[data-baseweb="radio"]:hover{
+    border-radius: 6px;
+    flex: 1;
+    justify-content: center;
+    padding: 0.5em 1em;
+    margin: 0;
+    background-color: var(--black-500);
+    border: solid 1px var(--black-400);
+}
+
+/* EXPANDER SIDEBAR */
+[data-testid="stSidebarContent"] [data-testid="stExpander"] details{
+    background: var(--black-400);
+    border: solid 1px var(--black-400);
+    border-radius: 6px;
+}
+/* EXPANDER DEFAULT */
+[data-testid="stExpander"] details{
+    background: var(--black-500);
+    border: solid 1px var(--black-400);
+    border-radius: 6px;
+}
+
+/* INPUTS SIDEBAR */
+[data-testid="stSidebarContent"] [data-baseweb="input"]{
+    border: solid 1px var(--black-500);
+    border-radius: 6px;
+}
+
+/* BUTTON DEFAULT */
+button[data-testid]{
+    border-radius: 6px;
+    transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+/* RADIO BUTTON: SELECTED */
+button[kind="primary"], label[data-baseweb="radio"]:has(input[tabindex="0"]), button[kind="primaryFormSubmit"]{
+    background-color: var(--green-700);
+    border: solid 1px var(--green-500-border);
+    font-weight: 700;
+}
+button[kind="primary"]:hover, label[data-baseweb="radio"]:has(input[tabindex="0"]):hover, button[kind="primaryFormSubmit"]:hover{
+    background-color: var(--green-500-bg);
+    border: solid 1px var(--green-500);
+    font-weight: 700;
+}
+/* SECONDARY BUTTON */
+button[kind="secondary"]{
+    background-color: var(--black-500);
+    border: solid 1px var(--black-400);
+}
+button[kind="secondary"]:hover{
+    background-color: var(--black-500);
+    border: solid 1px var(--green-300);
+    color: var(--green-300);
+}
+
+
+/** BACKUP
+
+/* RADIO BUTTON: SELECTED
+button[kind="primary"], label[data-baseweb="radio"]:has(input[tabindex="0"]), button[kind="primaryFormSubmit"]{
+    background-image: linear-gradient(90deg, var(--green-300) 0%, var(--green-500) 100%);
+    border: solid 1px var(--green-300);
+    font-weight: 700;
+}
+
+:root {
+    --green-300: #21D691;
+    --green-500: #1D9265;
+    --green-700: #1B6447;
+    --blue-50: #eff6ff;
+    --blue-100: #dbeafe;
+    --blue-200: #bfdcfe;
+    --blue-300: #94c6fc;
+    --blue-400: #61a7f9;
+    --blue-500: #3c84f5;
+    --blue-600: #2665ea;
+    --blue-700: #1e51d7;
+    --blue-800: #1f43ae;
+    --blue-900: #1f3b89;
+    --blue-950: #172654;    
+    --grey-300: #A8A8A8;
+    --grey-500: #757575;
+    --grey-700: #525252;
+    --black-100: #424242;
+    --black-300: #292929;
+    --black-500: #181818;
+    --black-700: #121212;
+    --black-900: #0D0D0D;
+    --box-shadow: #0D0D0D50;
+}*/
