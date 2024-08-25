@@ -1,3 +1,8 @@
 streamlit
 pandas
 requests
+matplotlib
+st_aggrid
+altair
+numpy
+google-cloud-vision
