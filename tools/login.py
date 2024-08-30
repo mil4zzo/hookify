@@ -14,12 +14,10 @@ api_key = st.session_state["access_token"]
 # Configurações do Facebook
 client_id = '1013320407465551'
 client_secret = 'aff296e102fc1692b97c6c859f314963'
-redirect_uri = 'http://localhost:8501/?callback'
+redirect_uri = 'https://hookify.streamlit.app/?callback'
 auth_base_url = 'https://www.facebook.com/v20.0/dialog/oauth'
 token_url = 'https://graph.facebook.com/v20.0/oauth/access_token'
 permissions = 'email,public_profile,business_management,ads_management,ads_read,read_insights,pages_show_list,pages_read_engagement'
-
-HARD_CODED_URL = 'https://www.facebook.com/v20.0/dialog/oauth?client_id=1013320407465551&redirect_uri=https://localhost:8501/?callback&scope=email,public_profile,business_management,ads_management,ads_read,read_insights,pages_show_list,pages_read_engagement&response_type=code'
 
 # Função para gerar a URL de autenticação
 def get_auth_url():
