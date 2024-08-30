@@ -333,12 +333,12 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                 ## MAIN METRICS
                 col2a, col2b, col2c = st.columns(3)
                 with col2a:
-                    st.metric(':sparkle: Hook retention', value=f'{int(round(selected_row_data['retention_at_3']))}%', delta=f'{int(round(((selected_row_data['retention_at_3']/avg_retention_at_3)-1)*100))}%')
+                    st.metric(':sparkle: Hook retention', value=f"{int(round(selected_row_data['retention_at_3']))}%", delta=f"{int(round(((selected_row_data['retention_at_3']/avg_retention_at_3)-1)*100))}%")
                 with col2b:
-                    st.metric(':eight_pointed_black_star: CTR', value=f'{selected_row_data['ctr']:.2f}%', delta=f'{int(round(((selected_row_data['ctr']/avg_ctr)-1)*100))}%')
+                    st.metric(':eight_pointed_black_star: CTR', value=f"{selected_row_data['ctr']:.2f}%", delta=f"{int(round(((selected_row_data['ctr']/avg_ctr)-1)*100))}%")
                 with col2c:
                     if conversion_event is not None:
-                        st.metric(f':black_circle_for_record: {conversion_event.split(".")[-1]}', value=f'$ {selected_row_data[conversion_event]:.2f}', delta=f'${abs(selected_row_data[conversion_event]-avg_cost):.2f}' if selected_row_data[conversion_event]-avg_cost > 0 else f'-${abs(selected_row_data[conversion_event]-avg_cost):.2f}', delta_color='inverse')
+                        st.metric(f':black_circle_for_record: {conversion_event.split(".")[-1]}', value=f"$ {selected_row_data[conversion_event]:.2f}", delta=f"${abs(selected_row_data[conversion_event]-avg_cost):.2f}" if selected_row_data[conversion_event]-avg_cost > 0 else f"-${abs(selected_row_data[conversion_event]-avg_cost):.2f}", delta_color='inverse')
                     else:
                         st.metric(':black_circle_for_record: Plays', value=selected_row_data['total_plays'], delta='0')
 
@@ -352,9 +352,9 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                         st.write('➡️ Spendings')
                         money = st.columns(2)
                         with money[0]:
-                            st.metric(label="Total spend", value=f'$ {selected_row_data["spend"]:.2f}')
+                            st.metric(label="Total spend", value=f"$ {selected_row_data['spend']:.2f}")
                         with money[1]:
-                            st.metric(label="CPM", value=f'$ {selected_row_data["cpm"]:.2f}')
+                            st.metric(label="CPM", value=f"$ {selected_row_data['cpm']:.2f}")
                     
                     with st.container(border=False):
                         st.write('➡️ Audience')
@@ -364,7 +364,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                         with audience[1]:
                             st.metric(label="Reach", value=selected_row_data['reach'])
                         with audience[2]:
-                            st.metric(label="Frequency", value=f'{selected_row_data["frequency"]:.2f}')
+                            st.metric(label="Frequency", value=f"{selected_row_data['frequency']:.2f}")
 
                     with st.container(border=False):
                         st.write('➡️ Views')
@@ -380,9 +380,9 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                         with clicks[0]:
                             st.metric(label="Total clicks", value=selected_row_data['clicks'], delta='TOTAL CLICKS')
                         with clicks[1]:
-                            st.metric(label="Profile CTR", value=f'{selected_row_data["profile_ctr"]:.2f}%', delta=f'{selected_row_data["clicks"]-selected_row_data["inline_link_clicks"]:.0f} clicks', delta_color='off')
+                            st.metric(label="Profile CTR", value=f"{selected_row_data['profile_ctr']:.2f}%", delta=f"{selected_row_data['clicks']-selected_row_data['inline_link_clicks']:.0f} clicks", delta_color='off')
                         with clicks[2]:
-                            st.metric(label="Website CTR", value=f'{selected_row_data["website_ctr"]:.2f}%', delta=f'{selected_row_data["inline_link_clicks"]:.0f} clicks', delta_color='off')
+                            st.metric(label="Website CTR", value=f"{selected_row_data['website_ctr']:.2f}%", delta=f"{selected_row_data['inline_link_clicks']:.0f} clicks", delta_color='off')
 
 
 
@@ -392,13 +392,13 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                     with campaign_name_c1:
                         st.write('CAMPAIGN')
                     with campaign_name_c2:
-                        st.write(f'{selected_row_data["campaign_name"]}')
+                        st.write(f"{selected_row_data['campaign_name']}")
 
                     # ADSET NAME
                     adset_namec1, adset_namec2 = st.columns([2, 3])
                     with adset_namec1:
                         st.write('ADSET')
                     with adset_namec2:
-                        st.write(f'{selected_row_data["adset_name"]}')
+                        st.write(f"{selected_row_data['adset_name']}")
 else:
     st.warning('⬅️ First, load ADs in the sidebar.')

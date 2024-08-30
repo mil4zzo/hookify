@@ -26,7 +26,7 @@ class GraphAPI:
             pages = response.json().get('data', [])
             for page in pages:
                 if page['name'] == page_name:
-                    self.page_token = f'?access_token={page['access_token']}'
+                    self.page_token = f"?access_token={page['access_token']}"
                     print('PAGE TOKEN:', self.page_token)
                     return self.page_token
             raise Exception(f"Page with ID {page_name} not found")
@@ -135,8 +135,8 @@ class GraphAPI:
                 status_response.raise_for_status()
                 status_data = status_response.json()
                 
-                print(f'{ad_report_id} STATUS', status_data['async_status'])
-                print(f'{ad_report_id} PERCENT', status_data['async_percent_completion'])
+                print(f"{ad_report_id} STATUS", status_data['async_status'])
+                print(f"{ad_report_id} PERCENT", status_data['async_percent_completion'])
 
                 loading_status = status_data['async_status']
                 loading_progress_value = status_data['async_percent_completion']
@@ -153,7 +153,7 @@ class GraphAPI:
             data = insights_response.json()['data']
 
             while 'paging' in insights_response.json() and 'next' in insights_response.json()['paging']:
-                print(f'{ad_report_id} PAGINANDO...')
+                print(f"{ad_report_id} PAGINANDO...")
                 insights_response = requests.get(insights_response.json()['paging']['next'])
                 insights_response.raise_for_status()
                 data.extend(insights_response.json()['data'])
@@ -177,10 +177,10 @@ class GraphAPI:
         except requests.exceptions.HTTPError as http_err:
             decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
             decoded_text = urllib.parse.unquote(http_err.response.text)
-            print(f'HTTP error occurred: {http_err.response.status_code} {decoded_text} \n\nfor URL: {decoded_url}')  # Handle HTTP errors
+            print(f"HTTP error occurred: {http_err.response.status_code} {decoded_text} \n\nfor URL: {decoded_url}")  # Handle HTTP errors
             return None
         except Exception as err:
-            print(f'Other error occurred: {err}')  # Handle other errors
+            print(f"Other error occurred: {err}")  # Handle other errors
             return None
 
     ## GET VIDEO SOURCE URL
@@ -213,11 +213,11 @@ class GraphAPI:
         except requests.exceptions.HTTPError as http_err:
             decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
             decoded_text = urllib.parse.unquote(http_err.response.text)
-            print(f'HTTP error occurred: {http_err.response.status_code} {decoded_text} for URL: {decoded_url}')
+            print(f"HTTP error occurred: {http_err.response.status_code} {decoded_text} for URL: {decoded_url}")
             if http_err.response.json().get('error', {}).get('code') == 190:
                 return {'status': 'auth_error', 'message': decoded_text}
             return {'status': 'http_error', 'message': decoded_text}
         
         except Exception as err:
-            print(f'Other error occurred: {err}')
+            print(f"Other error occurred: {err}")
             return {'status': 'error', 'message': str(err)}
