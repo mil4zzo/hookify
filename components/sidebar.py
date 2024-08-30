@@ -76,4 +76,4 @@ def render(api_key):
                     st.error(f'😵‍💫 Failed to fetch data from Meta API: {ads_data_response}')
 
         if 'ads_data' in st.session_state and len(st.session_state['ads_data']) > 0:
-            st.info(f'✅ {len(st.session_state['ads_data'])} ads ready and loaded.')
+            st.info(f"✅ {len(st.session_state['ads_data'])} ads ready and loaded.")
