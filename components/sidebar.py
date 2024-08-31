@@ -34,8 +34,22 @@ def render(api_key):
 
     accounts_data = st.session_state['accounts_data']
     accounts_list = {info['label']: info['act_id'] for info in accounts_data} # type: ignore
+    account_info = st.session_state['account_info']
 
     with st.sidebar:
+
+        st.markdown(f"""
+            <div style="display: flex; flex-direction: row; align-items: center; gap: 1em; margin-bottom: 1.5rem">
+                <div style="width: 2.5em; height: 2.5em">
+                    <img src="{account_info['picture']['data']['url']}" style="width: 100%; height: 100%; border-radius: 4px">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 0.25em;">
+                    <span style="font-weight: bold; line-height: 1em">{account_info['name']}</span>
+                    <span style="opacity: 0.67;font-size: 0.8em; line-height: 1em">{account_info['email']}</span>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+
         selected_account = create_account_selector(accounts_list)
 
         with st.expander("Time range"):
