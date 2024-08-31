@@ -18,6 +18,30 @@ class GraphAPI:
         self.use_account_attribution_setting = "true"
         self.action_breakdowns = "action_type"
         
+    def get_account_info(self):
+        url = self.base_url + 'me' + self.user_token
+        payload = {
+            'fields': 'email,first_name,last_name,name,picture{url}',
+        }
+        try:
+            # Debugging: Print the URL and payload
+            print('Request URL:', url)
+            print('Request Payload:', json.dumps(payload, indent=2))
+            response = requests.get(url, params=payload)
+            print('response:', response.json())
+            response.raise_for_status()  # Check for HTTP errors
+            return {'status': 'success', 'data': response.json()}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            print(f'HTTP error occurred: {http_err.response.status_code} {decoded_text} for URL: {decoded_url}')  # Handle HTTP errors
+            if http_err.response.json()['error']['code'] == 190:
+                return {'status': 'auth_error', 'message': decoded_text}
+            return {'status': 'http_error', 'message': decoded_text}
+        except Exception as err:
+            print(f'Other error occurred: {err}')  # Handle other errors
+            return {'status': 'error', 'message': str(err)}
+
     def get_page_access_token(self, page_name):
         url = self.base_url + 'me/accounts' + self.user_token
         try:

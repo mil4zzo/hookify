@@ -14,10 +14,11 @@ api_key = st.session_state["access_token"]
 # Configurações do Facebook
 client_id = '1013320407465551'
 client_secret = 'aff296e102fc1692b97c6c859f314963'
-redirect_uri = 'https://hookify.onrender.com/?callback'
+redirect_uri = 'http://localhost:8501/?callback'
 auth_base_url = 'https://www.facebook.com/v20.0/dialog/oauth'
 token_url = 'https://graph.facebook.com/v20.0/oauth/access_token'
-permissions = 'email,public_profile,business_management,ads_management,ads_read,read_insights,pages_show_list,pages_read_engagement'
+#permissions = 'email,public_profile,business_management,ads_management,ads_read,read_insights,pages_show_list,pages_read_engagement'
+permissions = 'email,public_profile,ads_read,read_insights,pages_show_list,pages_read_engagement'
 
 # Função para gerar a URL de autenticação
 def get_auth_url():
@@ -56,6 +57,17 @@ def cached_get_adaccounts(api_key):
     else:
         return {'status': response['status'], 'message': response['message']}
 
+@st.cache_data
+def cached_get_account_info(api_key):
+    """Cache the ad accounts retrieval."""
+    graph_api = GraphAPI(api_key)
+    response = graph_api.get_account_info()
+    if response['status'] == 'success':
+        account_info = response['data']
+        return {'status': 'success', 'data': account_info}
+    else:
+        return {'status': response['status'], 'message': response['message']}
+
 # THROW ERROR CASO API FALHE
 def throw_error(message):
     """Display an error message."""
@@ -74,24 +86,19 @@ if api_key:
             throw_error(response['message'])
             st.stop()
 else:
-    # Interface do Streamlit
-    st.image('res/img/logo-hookify-alpha.png')
-    st.divider()
-    st.title('Log in to your Account')
-    st.write('Welcome back! Select method to log in:')
-
     # 2. POPUP DE AUTENTICAÇÃO
     # Verifica se popup foi concluido com sucesso e dispara mensagem de callback
     if 'callback' in st.query_params:
-        st.write('CALLBACK PRESENT')
         query_params = st.query_params
         if 'code' in query_params:
             auth_code = query_params['code']
+            st.success('Successfully connected! You can close this window.')
             components.html("""
                 <script>
                     let response = { 'status': 200, 'code': '"""+auth_code+"""' };
                     console.log(response)
                     window.parent.opener.postMessage(response, '*');
+                    window.parent.close();
                 </script>
                 """)
         else:
@@ -100,13 +107,13 @@ else:
                     let response = {'status': 401, 'code': null};
                     console.log(response)
                     window.parent.opener.postMessage(response, '*');
+                    window.parent.close();
                 </script>
                 """)
             
     # 3. STREAMLIT PÓS POPUP
     # Verifica se recebemos code do callback
     elif 'code' in st.query_params:
-        st.write('CODE PRESENT')
         auth_code = st.query_params['code']
         token_info = get_access_token(auth_code)
         access_token = token_info.get('access_token')
@@ -115,27 +122,45 @@ else:
             st.success('Login bem-sucedido!')
             st.write('Access Token:', access_token)
             st.session_state['access_token'] = access_token
+
+            account_info = cached_get_account_info(access_token)
+            if account_info['status'] == 'success':
+                st.session_state['account_info'] = account_info['data']
+                st.rerun()
+            else:
+                throw_error(account_info['message'])
+                st.stop()
             st.rerun()
         else:
             st.error('Erro ao obter o Access Token.')
 
     # 1. TELA DE LOGIN NORMAL
     else:
-        st.write('LOGIN NORMAL')
+        # Interface do Streamlit
+        st.image('res/img/logo-hookify-alpha.png')
+        st.divider()
+        st.title('Log in to your Account')
+        st.write('Welcome back! Select method to log in:')
+
         auth_url = get_auth_url()
+        
         # CRIAR BOTÃO + POPUP DE AUTENTICAÇÃO + LISTENER DO CALLBACK
         components.html(
             """
             <script>
                 document.addEventListener('DOMContentLoaded', function() {
                     document.getElementById('alerta').addEventListener('click', function() {
-                        window.open('"""+auth_url+"""', 'facebook', 'width=600,height=600');
+                        var width = 650;
+                        var height = 750;
+                        var top = parseInt((screen.availHeight / 2) - (height / 2));
+                        var left = parseInt((screen.availWidth / 2) - (width / 2));
+                        var features = "width=" + width + ", height=" + height + ", top=" + top + ", left=" + left;
+                        window.open('"""+auth_url+"""', 'facebook', features);
                     })
                 });
 
                 window.addEventListener("message",(event) => {
                         if (event.data.status == 200) {
-                            console.log('deu bom, code:', event.data.code)
                             const url = new URL(window.parent.location);
                             url.searchParams.set('code', event.data.code);
                             window.parent.history.pushState({}, '', url);
@@ -151,24 +176,39 @@ else:
                 );
             </script>
 
-            <div
-                id="alerta"
-                style="
+            <div id="alerta">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+                    <path fill="currentColor" d="M12 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm3 8h-1.35c-.538 0-.65.221-.65.778v1.222h2l-.209 2h-1.791v7h-3v-7h-2v-2h2v-2.308c0-1.769.931-2.692 3.029-2.692h1.971v3z"/>
+                </svg>
+                Continue with Facebook
+            </div>
+
+            <style>
+                body{
+                    margin: 0;
+                    padding: 0;
+                }
+
+                #alerta {
                     display: flex;
-                    align-items: center;
-                    gap: 0.5rem;
                     margin-top: 1rem;
                     padding: 0.75rem 1rem;
+                    align-items: center;
+                    gap: 0.5rem;
                     background-color: white;
                     color: #0863f7;
                     border-radius: 6px;
                     text-decoration: none;
                     font-weight: bold;
-                    font-size: 1.25rem;">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
-                    <path fill="currentColor" d="M12 0c-6.627 0-12 5.373-12 12s5.373 12 12 12 12-5.373 12-12-5.373-12-12-12zm3 8h-1.35c-.538 0-.65.221-.65.778v1.222h2l-.209 2h-1.791v7h-3v-7h-2v-2h2v-2.308c0-1.769.931-2.692 3.029-2.692h1.971v3z"/>
-                </svg>
-                Facebook
-            </div>
+                    font-size: 1rem;
+                    font-family: sans-serif;
+                    cursor: pointer;
+                    transition: background-color 0.25s ease-out;
+                }
+
+                #alerta:hover{
+                    background-color: #dbeafe;
+                }
+            </style>
             """
         )

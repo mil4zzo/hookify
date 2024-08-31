@@ -6,6 +6,8 @@ st.title('📊 Dashboard')
 st.write('See the summary of your loaded ADs.')
 st.divider()
 
+st.query_params.clear()
+
 if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame):
     ads_data = st.session_state['ads_data']
     
