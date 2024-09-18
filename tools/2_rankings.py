@@ -3,9 +3,8 @@ import altair as alt
 import streamlit as st
 import streamlit.components.v1 as components
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
-
 from libs.graph_api import GraphAPI
-from libs.dataformatter import create_agg_rules
+from libs.dataformatter import aggregate_dataframe, create_agg_rules
 from styles.styler import AGGRID_THEME, COLORS
 from components.components import component_adinfo, component_adinfo_byad
 
@@ -77,22 +76,43 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     def show_video_dialog(selected_row):
         st.subheader(selected_row['ad_name'])
         with st.spinner('Loading video, please wait...'):
-            video_source_url = get_cached_video_source_url(selected_row['creative.video_id'])
-            if video_source_url is not None:
-                st.markdown(
-                    f"""<iframe
-                        width='100%'
-                        height='auto'
-                        style='border:none;border-radius:6px;overflow:hidden;aspect-ratio:9/16'
-                        src='{video_source_url}'
-                        allow='clipboard-write; encrypted-media; picture-in-picture; web-share'
-                        allowfullscreen='true'
-                        frameborder='0'
-                        scrolling='no'>
-                    </iframe>"""
-                ,unsafe_allow_html=True)
-            else:
-                st.error('Falha ao carregar o vídeo')
+            if 'video_id' in selected_row:
+                video_id = selected_row['video_id']
+                video_source_url = get_cached_video_source_url(video_id)
+                if video_source_url is not None:
+                    st.markdown(
+                        f"""<iframe
+                            width='100%'
+                            height='auto'
+                            style='border:none;border-radius:6px;overflow:hidden;aspect-ratio:9/16'
+                            src='{video_source_url}'
+                            allow='clipboard-write; encrypted-media; picture-in-picture; web-share'
+                            allowfullscreen='true'
+                            frameborder='0'
+                            scrolling='no'>
+                        </iframe>"""
+                    ,unsafe_allow_html=True)
+                else:
+                    st.error('Falha ao carregar o vídeo')
+            elif 'adcreatives_videos_ids':
+                video_id = selected_row['adcreatives_videos_ids']
+                for video in video_id:
+                    video_source_url = get_cached_video_source_url(video)
+                    if video_source_url is not None:
+                        st.markdown(
+                            f"""<iframe
+                                width='100%'
+                                height='auto'
+                                style='border:none;border-radius:6px;overflow:hidden;aspect-ratio:9/16'
+                                src='{video_source_url}'
+                                allow='clipboard-write; encrypted-media; picture-in-picture; web-share'
+                                allowfullscreen='true'
+                                frameborder='0'
+                                scrolling='no'>
+                            </iframe>"""
+                        ,unsafe_allow_html=True)
+                    else:
+                        st.error('Falha ao carregar o vídeo')
 
     # SORT AGGRID
     def resort_by(df, column_name):
@@ -180,9 +200,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     df_ads_data = st.session_state['ads_data'].copy()
 
     # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
-    agg_rules = create_agg_rules(df_ads_data)
-    df_grouped = df_ads_data.groupby('ad_name').agg(agg_rules)
-    df_grouped = df_grouped.reset_index(drop=True)
+    df_grouped = aggregate_dataframe(df_ads_data, group_by='ad_name')
     if group_by_ad:
         df_ads_data = df_grouped
 

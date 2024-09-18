@@ -23,8 +23,10 @@ if 'ads_data' in st.session_state:
     if isinstance(ads_data, pd.DataFrame):
         with st.expander('All existing columns'):
             st.write(ads_data.columns)
-        with st.expander('All loaded ads'):
+        with st.expander('All loaded ADs'):
             st.dataframe(ads_data)
+        with st.expander('RAW data'):
+            st.dataframe(st.session_state['raw_data'])
         with st.expander('JSON sample'):
             json_string = json.dumps((ads_data.head(5).fillna('')).to_dict(orient='records'), ensure_ascii=False, default=str)
             st.write(json_string)
