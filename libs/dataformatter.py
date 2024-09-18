@@ -92,7 +92,7 @@ def create_agg_rules(df):
     type_first = ['ad_name', 'account_id', 'creative.thumbnail_url', 'creative.video_id', 'creative.body', 'creative.call_to_action_type', 'creative.instagram_permalink_url', 'creative.object_type', 'creative.status', 'creative.title']
     type_sum = ['clicks', 'impressions', 'inline_link_clicks', 'reach', 'spend', 'total_plays', 'total_thruplays']
     type_unique_list = ['ad_id', 'adset_id', 'adset_name', 'campaign_id', 'campaign_name']
-    #type_mean = ['cpm']
+    type_agg_unique_list = [ 'adcreatives_videos_ids', 'adcreatives_videos_thumbs' ]
 
     for col in all_columns:
         if col.startswith('actions.') or col.startswith('conversions.'):
@@ -119,115 +119,58 @@ def create_agg_rules(df):
             aggs[col] = lambda x: df.loc[x.index, 'inline_link_clicks'].sum() / df.loc[x.index, 'impressions'].sum() * 100
         elif col == 'profile_ctr':
             aggs[col] = lambda x: (df.loc[x.index, 'clicks'].sum() - df.loc[x.index, 'inline_link_clicks'].sum()) / df.loc[x.index, 'impressions'].sum() * 100
+        elif col == 'connect_rate':
+            aggs[col] = lambda x: df.loc[x.index, 'actions.landing_page_view'].sum() / df.loc[x.index, 'inline_link_clicks'].sum() * 100
         elif col in type_first:
             aggs[col] = 'first'
         elif col in type_sum:
             aggs[col] = 'sum'
         elif col in type_unique_list:
             aggs[col] = lambda x: list(set(x))
+        elif col in type_agg_unique_list:
+            aggs[col] = lambda x: list(set([item for sublist in x for item in sublist]))
 
     return aggs
 
-### COLUMNS CONFIG ###
-# RANKING
-colcfg_ranking = {
-    "ad_name": st.column_config.TextColumn(
-        "Ad Name",
-        width="medium",
-        help="The ad_name value",
-        max_chars=50,
-    ),
-    "retention_at_3": st.column_config.NumberColumn(
-        "Hook retention",
-        help="The retention in percentage at second 3",
-        min_value=0,
-        max_value=100,
-        format='%d%%',
-    ),
-    "spend": st.column_config.NumberColumn(
-        "Spend",
-        help="Total amount spend",
-        format='$ %.2f',
-    ),
-    "total_plays": st.column_config.NumberColumn(
-        "Plays",
-        width="small",
-        help="Total plays",
-        format='%d',
-    ),
-    "total_thruplays": st.column_config.NumberColumn(
-        "Thruplays",
-        width="small",
-        help="Total thruplays",
-        format='%d',
-    ),
-    "ctr": st.column_config.NumberColumn(
-        "CTR",
-        width="small",
-        help="Click through rate",
-        format='%.2f%%',
-    ),
-    "video_play_curve_actions": st.column_config.AreaChartColumn(
-        "Retention graph",
-        width="medium",
-        help="Retention in percent",
-        y_min=0,
-        y_max=100
-        ),
-}
+def aggregate_dataframe(df, group_by):
+    agg_rules = create_agg_rules(df)
 
-colorder_ranking2 = [
-    'ad_name',
-    'retention_at_3',
-    'spend',
-    'ctr',
-    'video_play_curve_actions',
-    'total_plays',
-    'total_thruplays',
-]
+    # Check if the group_by column exists
+    if group_by not in df.columns:
+        raise KeyError(f"The column '{group_by}' does not exist in the DataFrame.")
+    
+    # Group by the specified column(s)
+    df_grouped = df.groupby(group_by).agg(agg_rules)
+    
+    # Reset index without dropping the group_by column
+    df_grouped = df_grouped.reset_index(drop=True)
+    
+    # If group_by column exists both as index and as a regular column, drop the regular column
+    if group_by in df_grouped.columns and df_grouped.index.name == group_by:
+        df_grouped = df_grouped.drop(columns=[group_by])
+    
+    return df_grouped
 
-colcfg_ranking2 = {
-    "ad_name": st.column_config.TextColumn(
-        "Ad Name",
-        width="medium",
-        help="The ad_name value",
-        max_chars=50,
-    ),
-    "retention_at_3": st.column_config.NumberColumn(
-        "Hook retention",
-        help="The retention in percentage at second 3",
-        min_value=0,
-        max_value=100,
-        format='%d%%',
-    ),
-    "ctr": st.column_config.NumberColumn(
-        "CTR",
-        width="small",
-        help="Click through rate",
-        format='%.2f%%',
-    ),
-    "spend": st.column_config.NumberColumn(
-        "Total spend",
-        help="Total amount spend",
-        format='$ %.2f',
-    ),
-    "video_play_curve_actions": st.column_config.AreaChartColumn(
-        "Retention graph",
-        width="medium",
-        help="Retention in percent",
-        y_min=0,
-        y_max=100
-    ),
-    "total_plays": st.column_config.NumberColumn(
-        "Plays",
-        width="small",
-        help="Total plays",
-        format='%d',
-    ),
-    "total_thruplays": st.column_config.NumberColumn(
-        "Thruplays",
-        width="small",
-        help="Total thruplays",
-        format='%d',
-    )
-}
+def abbreviate_number(number, decimals=0):
+    if number >= 1_000_000_000:
+        return f"{number / 1_000_000_000:.{decimals if decimals > 0 else 2}f}B"
+    elif number >= 1_000_000:
+        return f"{number / 1_000_000:.{decimals if decimals > 0 else 2}f}M"
+    elif number >= 10_000:
+        return f"{number / 1_000:.{decimals if decimals > 0 else 2}f}K"
+    else:
+        return f"{number:.{decimals}f}"
+
+
+def capitalize(s):
+    if not s:
+        return s  # Return the original string if it's empty or None
+    return s[0].upper() + s[1:]
+
+def getInitials(s):
+    name_parts = s.split(" ")
+    if len(name_parts) > 1:
+        initials = name_parts[0][0] + name_parts[1][0]
+    else:
+        initials = name_parts[0][0]
+    return initials

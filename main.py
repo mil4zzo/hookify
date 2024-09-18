@@ -15,14 +15,7 @@ api_key = st.session_state["access_token"]
 with open('styles/stStyles.css', 'r') as f:
     st.markdown(f'<style>{f.read()}</style>', unsafe_allow_html=True)
 
-# PAGES (logged out)
-pages = {
-    "SETUP": [
-        st.Page("tools/login.py", title="Your Access Token")
-    ]
-}
-
-# PAGES (logged in)
+# LOGGED AND CONNECTED FB
 if 'accounts_data' in st.session_state:
     new_pages = {
         "": [
@@ -33,7 +26,25 @@ if 'accounts_data' in st.session_state:
         ]
     }
     pages = new_pages
-    sidebar.render(api_key)
+    sidebar.render()
+else:
+    # LOGGED BUT NO FACEBOOK
+    if 'supabase_session' in st.session_state or 'code' in st.query_params:
+        pages = {
+            "FACEBOOK": [
+                st.Page("tools/fb_connect.py", title="Connect to Facebook", icon="🔀"),
+            ]
+        }
+        if 'supabase_session' in st.session_state and 'code' not in st.query_params:
+            sidebar.render()
+    else:
+        # NOT LOGGED
+        pages = {
+            "SETUP": [
+                st.Page("tools/login.py", title="Log in to Hookify", icon="➡️"),
+                st.Page("tools/signup.py", title="Sign up to Hookify", icon="📝")
+            ]
+        }
 
 nav = st.navigation(pages)
 nav.run()
