@@ -20,11 +20,11 @@ class Supa:
             response = self.supabase.auth.sign_in_with_password(
                 {"email": email, "password": password}
             )
+
             if response.session and response.user:
                 st.session_state['supabase_session'] = response.session
-                return response
-            else:
-                st.error('Login failed.')
+                
+            return response
         except Exception as e:
             st.error(f"""Error creating account: 
                         

@@ -1,13 +1,12 @@
 import pandas as pd
 import altair as alt
 import streamlit as st
-import streamlit.components.v1 as components
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
+from components.advanced_options import AdvancedOptions
 from libs.graph_api import GraphAPI
 from libs.dataformatter import aggregate_dataframe, create_agg_rules
 from styles.styler import AGGRID_THEME, COLORS
 from components.components import component_adinfo, component_adinfo_byad
-
 
 # CRIA BARRA DE TITULO
 cols = st.columns([2,1])
@@ -47,20 +46,6 @@ def build_retention_chart(video_play_curve_actions):
 # SE JÁ TEM DADOS DE ANÚNCIOS
 if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame):
 
-    with st.expander('Advanced options', expanded=False):
-        with st.form("options", border=False):
-            with st.container(border=True):
-                controls = st.columns([1,2], gap='large')
-                with controls[0]:
-                    st.subheader('Settings')
-                    select_conversion = st.empty()
-                    thresholds = st.empty()
-                with controls[1]:
-                    st.subheader('Filters')
-                    filters = st.empty()
-                    
-                st.form_submit_button('Apply filters', type='primary', use_container_width=True)
-
     # INICIALIZA API KEY E GRAPH API
     api_key = st.session_state["access_token"]
     graph_api = GraphAPI(api_key)
@@ -75,6 +60,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     @st.experimental_dialog("AD preview")
     def show_video_dialog(selected_row):
         st.subheader(selected_row['ad_name'])
+        st.text(selected_row['adcreatives_videos_ids'])
         with st.spinner('Loading video, please wait...'):
             if 'video_id' in selected_row:
                 video_id = selected_row['video_id']
@@ -197,21 +183,16 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         )
 
     # PREPARA DATASET
-    df_ads_data = st.session_state['ads_data'].copy()
+    advanced_options = AdvancedOptions()
+    advanced_options.build()
+    options = advanced_options.apply_filters()
+    conversion_event = options['cost_column']
+    df_ads_data = options['df_ads_data'].copy()
 
     # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
     df_grouped = aggregate_dataframe(df_ads_data, group_by='ad_name')
     if group_by_ad:
         df_ads_data = df_grouped
-
-    # Filter columns containing 'cost_per_'
-    cost_columns = [col for col in df_ads_data.columns if 'cost_per_' in col]
-
-    cols = select_conversion.columns([1,2])
-    with cols[0]:
-        st.write('Conversion event')
-    with cols[1]:
-        conversion_event = st.selectbox('Conversion event:', cost_columns, format_func=lambda x: x.split(".")[-1], label_visibility='collapsed')
 
     interest_columns = [
         '#',
@@ -232,63 +213,6 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     # TOTAL METRICS
     total_plays = df_ads_data['total_plays'].sum()
     total_thruplays = df_ads_data['total_thruplays'].sum()
-
-    # FILTERS
-    with filters.container():
-        campaign_list = list(st.session_state['ads_data']['campaign_name'].unique())
-        adset_list = list(st.session_state['ads_data']['adset_name'].unique())
-        ad_list = list(st.session_state['ads_data']['ad_name'].unique())
-        cols = st.columns([1,6], gap='small')
-        with cols[0]:
-            st.write('Campaign')
-        with cols[1]:
-            select_campaign = st.multiselect('Select campaign:', campaign_list, label_visibility='collapsed')
-        cols = st.columns([1,6], gap='small')
-        with cols[0]:
-            st.write('Adset')
-        with cols[1]:
-            select_adset = st.multiselect('Select adset:', adset_list, label_visibility='collapsed')
-        cols = st.columns([1,6], gap='small')
-        with cols[0]:
-            st.write('Ad name')
-        with cols[1]:
-            select_ad = st.multiselect('Select ad:', ad_list, label_visibility='collapsed')
-
-        def match_filter(campaign_name, column_name):
-            if column_name == 'campaign':
-                select_filter = select_campaign
-            elif column_name == 'adset':
-                select_filter = select_adset
-            elif column_name == 'ad':
-                select_filter = select_ad
-
-            if isinstance(campaign_name, list) and select_filter:
-                return any(campaign in campaign_name for campaign in select_filter)
-            elif isinstance(campaign_name, str) and select_filter:
-                return campaign_name in select_filter
-
-        if select_campaign:
-            df_ads_data = df_ads_data[df_ads_data['campaign_name'].apply(lambda x: match_filter(x, 'campaign'))]
-        if select_adset:
-            df_ads_data = df_ads_data[df_ads_data['adset_name'].apply(lambda x: match_filter(x, 'adset'))]
-        if select_ad:
-            df_ads_data = df_ads_data[df_ads_data['ad_name'].apply(lambda x: match_filter(x, 'ad'))]
-
-    # THRESHOLDS ON SIDEBAR
-    with thresholds.container():
-        cols = st.columns([1,2], gap='small')
-        with cols[0]:
-            st.write('Minimum Plays')
-        with cols[1]:
-            min_plays = st.number_input("Minimum Plays", min_value=0, max_value=200, value=25, step=5, label_visibility='collapsed')
-        cols = st.columns([1,2], gap='small')
-        with cols[0]:
-            st.write('Minimum Spend')
-        with cols[1]:
-            min_spend = st.number_input("Minimum Spend", min_value=0, max_value=2000, value=50, step=10, label_visibility='collapsed')
-                
-        df_ads_data = df_ads_data[df_ads_data['total_plays'] >= min_plays]
-        df_ads_data = df_ads_data[df_ads_data['spend'] >= min_spend]
 
     ### INICIA INTERFACE ###
     col1, col2 = st.columns([5, 4], gap='medium')

@@ -59,11 +59,7 @@ class GraphAPI:
             return None
         
     def get_ads_details(self, act_id, time_range, ads_ids):
-        # Verifica token de página (ads_read)
-        if not self.page_token:
-            new_page_token = self.get_page_access_token('Lucas Rufino - Simpla Invest')
-
-        url = self.base_url + act_id + '/ads' + self.page_token
+        url = self.base_url + act_id + '/ads' + self.user_token
         payload = {
             'fields': 'name,creative{body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
             'limit': self.limit,
@@ -138,12 +134,10 @@ class GraphAPI:
 
         try:
             # Debugging: Print the URL and payload
-            req = requests.Request('GET', url, params=payload)
-            prepared = req.prepare()
-            # Debugging: Print the exact URL
-            print('Request URL:', prepared.url)
-
+            print('Request URL:', url)
+            print('Request Payload:', json.dumps(payload, indent=2))
             response = requests.post(url, params=payload)
+            print('request_url:', response.url)
             response.raise_for_status()  # Check for HTTP errors
             ad_report_id = response.json().get('report_run_id')
             print('Current AD_REPORT_ID:', ad_report_id)
@@ -182,26 +176,44 @@ class GraphAPI:
                 insights_response.raise_for_status()
                 data.extend(insights_response.json()['data'])
 
-            # Create a set of unique ad_ids
-            unique_ads = {ad['ad_id'] for ad in data}
+
+            # Create a set of unique ad_name
+            unique_ads = {}
+
+            # Iterate over the list of ads
+            for ad in data:
+                ad_name = ad["ad_name"]
+                ad_id = ad["ad_id"]
+                
+                # If ad_name is not already in the dictionary, add it with its id
+                if ad_name not in unique_ads:
+                    unique_ads[ad_name] = ad_id
+
+            # Convert the unique ads to a list of ids
+            unique_ids = list(unique_ads.values())
 
             # Get details for unique ads
-            ads_details = self.get_ads_details(act_id, time_range, unique_ads)
+            ads_details = self.get_ads_details(act_id, time_range, unique_ids)
 
             if ads_details is not None:
                 # Create a dictionary of ad details
-                ads_details_dict = {detail['name']: detail['creative'] for detail in ads_details}
-                videos_list = {detail['name']: detail['adcreatives']['data'][0]['asset_feed_spec']['videos'] for detail in ads_details}
+                creative_list = {detail['name']: detail['creative'] for detail in ads_details}
+                videos_list = {
+                    detail['name']: detail['adcreatives']['data'][0]['asset_feed_spec']['videos']
+                    for detail in ads_details
+                    if 'asset_feed_spec' in detail['adcreatives']['data'][0] and detail['adcreatives']['data'][0]['asset_feed_spec'] is not None
+                }
 
                 # Update data with creative details
                 for ad in data:
-                    ad['creative'] = ads_details_dict.get(ad['ad_name'], None)
+                    ad['creative'] = creative_list.get(ad['ad_name'], None)
                     adcreatives = videos_list.get(ad['ad_name'], None)
                     video_ids = []
                     video_thumbs = []
-                    for video in adcreatives:
-                        video_ids.append(video.get('video_id'))
-                        video_thumbs.append(video.get('thumbnail_url'))
+                    if adcreatives is not None:
+                        for video in adcreatives:
+                            video_ids.append(video.get('video_id'))
+                            video_thumbs.append(video.get('thumbnail_url'))
                     ad['adcreatives_videos_ids'] = video_ids
                     ad['adcreatives_videos_thumbs'] = video_thumbs
 
@@ -211,19 +223,24 @@ class GraphAPI:
             decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
             decoded_text = urllib.parse.unquote(http_err.response.text)
             print(f"HTTP error occurred: {http_err.response.status_code} {decoded_text} \n\nfor URL: {decoded_url}")  # Handle HTTP errors
-            return None
+            return decoded_text
         except Exception as err:
             print(f"Other error occurred: {err}")  # Handle other errors
             return None
 
     ## GET VIDEO SOURCE URL
-    def get_video_source_url(self, video_id):
-        # Verifica token de página (ads_read)
-        if not self.page_token:
-            new_page_token = self.get_page_access_token('Lucas Rufino - Simpla Invest')            
+    def get_video_source_url(self, video_id, source_type):       
+
+        token = None
+
+        if source_type == 'creative':
+            token = None
+        elif source_type == 'adcreative':
+            token = ''
+
 
         # Busca VIDEO SOURCE URL
-        video_url = self.base_url + video_id + self.page_token
+        video_url = self.base_url + video_id + token
         video_payload = {
             'fields': 'source',
         }
