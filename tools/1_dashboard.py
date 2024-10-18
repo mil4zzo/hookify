@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 import altair as alt
+from components.advanced_options import AdvancedOptions
 from libs.dataformatter import abbreviate_number, aggregate_dataframe
 from styles.styler import COLORS
 
@@ -36,73 +37,14 @@ def build_retention_chart(video_play_curve_actions):
     return st.altair_chart(play_curve_chart, use_container_width=True, theme=None)
 
 if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame):
-    df_ads_data = st.session_state['ads_data'].copy()
-
-    # Filter columns containing 'cost_per_'
-    cost_columns = [col for col in df_ads_data.columns if 'cost_per_' in col]
-    conversions_columns = [col for col in df_ads_data.columns if 'conversions' in col]
-
-    with st.expander('Advanced options', expanded=False):
-        with st.form("options", border=False):
-            with st.container(border=True):
-                controls = st.columns([1,2], gap='large')
-                with controls[0]:
-                    st.subheader('Settings')
-                    if cost_columns:
-                        cols = st.columns([1,2])
-                        with cols[0]:
-                            st.write('Conversion event')
-                        with cols[1]:
-                            cost_column = st.selectbox('Conversion event:', cost_columns, format_func=lambda x: x.split(".")[-1], label_visibility='collapsed')
-                            event_name = cost_column.split('.')[-1] if cost_column else None
-                            results_column = [col for col in conversions_columns if event_name in col][0]
-                    thresholds = st.empty()
-                with controls[1]:
-                    st.subheader('Filters')
-                    filters = st.empty()
-                    
-                st.form_submit_button('Apply filters', type='primary', use_container_width=True)
-
-    # FILTERS
-    with filters.container():
-        campaign_list = list(st.session_state['ads_data']['campaign_name'].unique())
-        adset_list = list(st.session_state['ads_data']['adset_name'].unique())
-        ad_list = list(st.session_state['ads_data']['ad_name'].unique())
-        cols = st.columns([1,6], gap='small')
-        with cols[0]:
-            st.write('Campaign')
-        with cols[1]:
-            select_campaign = st.multiselect('Select campaign:', campaign_list, label_visibility='collapsed')
-        cols = st.columns([1,6], gap='small')
-        with cols[0]:
-            st.write('Adset')
-        with cols[1]:
-            select_adset = st.multiselect('Select adset:', adset_list, label_visibility='collapsed')
-        cols = st.columns([1,6], gap='small')
-        with cols[0]:
-            st.write('Ad name')
-        with cols[1]:
-            select_ad = st.multiselect('Select ad:', ad_list, label_visibility='collapsed')
-
-        def match_filter(campaign_name, column_name):
-            if column_name == 'campaign':
-                select_filter = select_campaign
-            elif column_name == 'adset':
-                select_filter = select_adset
-            elif column_name == 'ad':
-                select_filter = select_ad
-
-            if isinstance(campaign_name, list) and select_filter:
-                return any(campaign in campaign_name for campaign in select_filter)
-            elif isinstance(campaign_name, str) and select_filter:
-                return campaign_name in select_filter
-
-        if select_campaign:
-            df_ads_data = df_ads_data[df_ads_data['campaign_name'].apply(lambda x: match_filter(x, 'campaign'))]
-        if select_adset:
-            df_ads_data = df_ads_data[df_ads_data['adset_name'].apply(lambda x: match_filter(x, 'adset'))]
-        if select_ad:
-            df_ads_data = df_ads_data[df_ads_data['ad_name'].apply(lambda x: match_filter(x, 'ad'))]
+    
+    # PREPARA DATASET
+    advanced_options = AdvancedOptions()
+    advanced_options.build()
+    options = advanced_options.apply_filters()
+    cost_column = options['cost_column']
+    results_column = options['results_column']
+    df_ads_data = options['df_ads_data'].copy()
 
     df_ads_data['unify'] = 1
     agg_df = aggregate_dataframe(df_ads_data, group_by='unify')

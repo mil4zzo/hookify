@@ -76,8 +76,8 @@ def format_ads_data(json_data):
     # PROFILE CTR
     df['profile_ctr'] = df['ctr'] - df['website_ctr']
     # CONVERSÃO DA PÁGINA
-    df['page_conversion'] = df.apply(lambda row: row['actions.landing_page_view'] / row['inline_link_clicks'] if row['inline_link_clicks'] != 0 else pd.NA, axis=1)
-    df['page_conversion'] = pd.to_numeric(df['connect_rate'], errors='coerce', downcast='float')
+    #df['page_conversion'] = df.apply(lambda row: row['actions.landing_page_view'] / row['inline_link_clicks'] if row['inline_link_clicks'] != 0 else pd.NA, axis=1)
+    #df['page_conversion'] = pd.to_numeric(df['connect_rate'], errors='coerce', downcast='float')
 
     ######################## FILL NaNs ############################
     columns_to_fill = [col for col in df.columns if not col.startswith('cost_per_') and not col.startswith('connect_rate')]
@@ -120,7 +120,7 @@ def create_agg_rules(df):
         elif col == 'profile_ctr':
             aggs[col] = lambda x: (df.loc[x.index, 'clicks'].sum() - df.loc[x.index, 'inline_link_clicks'].sum()) / df.loc[x.index, 'impressions'].sum() * 100
         elif col == 'connect_rate':
-            aggs[col] = lambda x: df.loc[x.index, 'actions.landing_page_view'].sum() / df.loc[x.index, 'inline_link_clicks'].sum() * 100
+            aggs[col] = lambda x: df.loc[x.index, 'actions.landing_page_view'].sum() / df.loc[x.index, 'inline_link_clicks'].sum() * 100 # PROBLEMÁTICA
         elif col in type_first:
             aggs[col] = 'first'
         elif col in type_sum:
