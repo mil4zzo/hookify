@@ -9,9 +9,9 @@ class GraphAPI:
         self.base_url = "https://graph.facebook.com/v20.0/"
         self.user_token = "?access_token=" + fb_api
         self.page_token = None
-        self.api_fields = "actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_curve_actions,website_ctr"
+        self.api_fields = ""
         self.limit = 2000
-        self.time_range = "{'since':'2024-06-22','until':'2024-06-22'}"
+        self.time_range = ""
         self.filtering = "[{'field':'video_play_actions', 'operator':'GREATER_THAN', 'value':0}]"
         self.level = "ad"
         self.action_attribution_windows = "['7d_click','1d_view']"
