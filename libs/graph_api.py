@@ -42,18 +42,18 @@ class GraphAPI:
             print(f'Other error occurred: {err}')  # Handle other errors
             return {'status': 'error', 'message': str(err)}
 
-    def get_page_access_token(self, page_name):
+    def get_page_access_token(self, actor_id):
         url = self.base_url + 'me/accounts' + self.user_token
         try:
             response = requests.get(url)
             response.raise_for_status()
             pages = response.json().get('data', [])
             for page in pages:
-                if page['name'] == page_name:
+                if page['id'] == actor_id:
                     self.page_token = f"?access_token={page['access_token']}"
                     print('PAGE TOKEN:', self.page_token)
                     return self.page_token
-            raise Exception(f"Page with ID {page_name} not found")
+            raise Exception(f"Page with ID {actor_id} not found")
         except requests.exceptions.RequestException as e:
             print(f"Error getting page access token: {e}")
             return None
@@ -61,7 +61,7 @@ class GraphAPI:
     def get_ads_details(self, act_id, time_range, ads_ids):
         url = self.base_url + act_id + '/ads' + self.user_token
         payload = {
-            'fields': 'name,creative{body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
+            'fields': 'name,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
             'limit': self.limit,
             'level': self.level,
             'action_attribution_windows': self.action_attribution_windows,
@@ -229,18 +229,17 @@ class GraphAPI:
             return None
 
     ## GET VIDEO SOURCE URL
-    def get_video_source_url(self, video_id, source_type):       
+    def get_video_source_url(self, video_id, actor_id):       
 
-        token = None
-
-        if source_type == 'creative':
-            token = None
-        elif source_type == 'adcreative':
-            token = ''
+        # token = None
+        # if source_type == 'creative':
+        #     token = self.user_token
+        # elif source_type == 'adcreative':
+        #     token = self.user_token
 
 
         # Busca VIDEO SOURCE URL
-        video_url = self.base_url + video_id + token
+        video_url = self.base_url + video_id + self.get_page_access_token(actor_id)
         video_payload = {
             'fields': 'source',
         }

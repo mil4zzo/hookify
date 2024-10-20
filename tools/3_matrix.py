@@ -1,10 +1,12 @@
+from unittest import result
 from altair import layer
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
+from components.advanced_options import AdvancedOptions
 
 from libs.dataformatter import aggregate_dataframe
-from styles.styler import BLACK_100, BLACK_300, BLACK_400, BLACK_500, BLACK_700, GREY_300, GREY_700
+from styles.styler import BLACK_100, BLACK_300, BLACK_400, BLACK_500, BLACK_700, BLUE_300, BLUE_500, GREEN_500, GREY_300, GREY_700
 
 # CRIA BARRA DE TITULO
 cols = st.columns([2,1])
@@ -18,7 +20,30 @@ with cols[1]:
 st.divider()
 
 
-def build_matrix(df):
+def build_matrix(df, cost_column, results_column):
+
+    # Calculate image sizes and colors based on RESULTS
+    max_results = df[results_column].max()
+    min_results = df[results_column].min()
+    
+    def normalize_size(results, min_size=1, max_size=5):
+        if max_results == min_results:
+            return (min_size + max_size) / 2
+        normalized = (results - min_results) / (max_results - min_results)
+        return min_size + normalized * (max_size - min_size)
+
+    # Calculate image sizes and colors based on CPR
+    max_cpr = df[cost_column].max()
+    min_cpr = df[cost_column].min()
+
+    def get_color(cpr):
+        if max_cpr == min_cpr:
+            return "yellow"
+        normalized = (cpr - min_cpr) / (max_cpr - min_cpr)
+        r = int(255 * normalized)
+        g = int(255 * (1 - normalized))
+        return f"rgb({r}, {g}, 0)"
+
     # Create the scatter plot
     fig = go.Figure(layout=dict(height=600))
 
@@ -27,17 +52,32 @@ def build_matrix(df):
         y=df['ctr'],
         mode='markers',
         marker=dict(
-            size=10,
+            size=normalize_size(df[results_column], 10, 50),
             symbol='circle',
-            opacity=.2
+            opacity=.5
         ),
-        text=[f"Ad Name: {ad}<br>CTR: {ctr:.2f}%<br>Hook Retention: {hr:.0f}%" 
-            for ad, ctr, hr in zip(df['ad_name'], df['ctr'], df['retention_at_3'])],
+        text=[f"Ad Name: {ad}<br>CTR: {ctr:.2f}%<br>Hook Retention: {hr:.0f}%<br>Leads: {leads:.0f}<br>CPR: R$ {cpr:.2f}" 
+            for ad, ctr, hr, leads, cpr in zip(df['ad_name'], df['ctr'], df['retention_at_3'], df[results_column], df[cost_column])],
         hoverinfo='text'
     ))
 
     # Add images
     for index, row in df.iterrows():
+        image_size = normalize_size(row[results_column], 1, 4)
+        image_color = get_color(row[cost_column])
+
+        # Add colored rectangle
+        fig.add_shape(
+            type="rect",
+            x0=row['retention_at_3'] - image_size/2,
+            y0=row['ctr'] - image_size/21,
+            x1=row['retention_at_3'] + image_size/2,
+            y1=row['ctr'] + image_size/21,
+            fillcolor=image_color,
+            line=dict(width=0),
+            layer="below"
+        )
+
         fig.add_layout_image(
             dict(
                 source=row['creative.thumbnail_url'],
@@ -45,14 +85,56 @@ def build_matrix(df):
                 yref="y",
                 x=row['retention_at_3'],
                 y=row['ctr'],
-                sizex=2,
-                sizey=2,  # Adjust this value to change image size
+                sizex=image_size,
+                sizey=image_size,  # Adjust this value to change image size
                 xanchor="center",
                 yanchor="middle",
                 layer="below",
-                opacity=1
+                opacity=.8
             )
         )
+
+    # Good CTR
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=1.0,
+        x1=100,
+        y1=1.0,
+        line=dict(
+            color=BLUE_500,
+            width=2,
+            dash="dash",
+        )
+    )
+
+    # Mean CTR
+    fig.add_shape(
+        type="line",
+        x0=0,
+        y0=df['ctr'].mean(),
+        x1=100,
+        y1=df['ctr'].mean(),
+        line=dict(
+            color=GREEN_500,
+            width=2,
+            dash="dash",
+        )
+    )
+
+    # Mean Hook
+    fig.add_shape(
+        type="line",
+        x0=df['retention_at_3'].mean(),
+        y0=0,
+        x1=df['retention_at_3'].mean(),
+        y1=df['ctr'].max() * 1.1,
+        line=dict(
+            color=GREEN_500,
+            width=2,
+            dash="dash",
+        )
+    )
 
     # Customize the layout
     max_ctr = df['ctr'].max() * 1.1
@@ -71,6 +153,9 @@ def build_matrix(df):
             ticksuffix='%',
             color='white',  # Set x-axis color
             title_font=dict(color='white'),  # Set x-axis title color
+            zeroline=True,
+            zerolinecolor='yellow',
+            zerolinewidth=2
         ),
         yaxis=dict(
             range=[0, max_ctr_rounded],
@@ -81,6 +166,9 @@ def build_matrix(df):
             ticksuffix='%',
             color='white',  # Set y-axis color
             title_font=dict(color='white'),  # Set y-axis title color
+            zeroline=True,
+            zerolinecolor='yellow',
+            zerolinewidth=2
         ),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor=BLACK_500,
@@ -123,13 +211,19 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     api_key = st.session_state["access_token"]
 
     # PREPARA DATASET
-    df_ads_data = st.session_state['ads_data'].copy()
+    # PREPARA DATASET
+    advanced_options = AdvancedOptions()
+    advanced_options.build()
+    options = advanced_options.apply_filters()
+    cost_column = options['cost_column']
+    results_column = options['results_column']
+    df_ads_data = options['df_ads_data'].copy()
 
     # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
     df_grouped = aggregate_dataframe(df_ads_data, group_by='ad_name')
     if group_by_ad:
         df_ads_data = df_grouped
 
-    build_matrix(df_ads_data)
+    build_matrix(df_ads_data, cost_column, results_column)
 else:
     st.warning('⬅️ First, load ADs in the sidebar.')
