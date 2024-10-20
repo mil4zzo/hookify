@@ -52,19 +52,19 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
 
     # BUSCA VIDEO SOURCE URL
     @st.cache_data(show_spinner=False)
-    def get_cached_video_source_url(video_id):
-        response = graph_api.get_video_source_url(video_id)
+    def get_cached_video_source_url(video_id, actor_id):
+        response = graph_api.get_video_source_url(video_id, actor_id)
         return response
 
     # DIALOG PREVIEW VIDEO
     @st.experimental_dialog("AD preview")
     def show_video_dialog(selected_row):
         st.subheader(selected_row['ad_name'])
-        st.text(selected_row['adcreatives_videos_ids'])
         with st.spinner('Loading video, please wait...'):
-            if 'video_id' in selected_row:
-                video_id = selected_row['video_id']
-                video_source_url = get_cached_video_source_url(video_id)
+            if 'creative.video_id' in selected_row:
+                video_id = selected_row['creative.video_id']
+                actor_id = selected_row['creative.actor_id']
+                video_source_url = get_cached_video_source_url(video_id, actor_id)
                 if video_source_url is not None:
                     st.markdown(
                         f"""<iframe
@@ -82,8 +82,9 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                     st.error('Falha ao carregar o vídeo')
             elif 'adcreatives_videos_ids':
                 video_id = selected_row['adcreatives_videos_ids']
+                actor_id = selected_row['creative.actor_id']
                 for video in video_id:
-                    video_source_url = get_cached_video_source_url(video)
+                    video_source_url = get_cached_video_source_url(video, actor_id)
                     if video_source_url is not None:
                         st.markdown(
                             f"""<iframe

@@ -89,7 +89,7 @@ def create_agg_rules(df):
     all_columns = df.columns
     aggs = {}
 
-    type_first = ['ad_name', 'account_id', 'creative.thumbnail_url', 'creative.video_id', 'creative.body', 'creative.call_to_action_type', 'creative.instagram_permalink_url', 'creative.object_type', 'creative.status', 'creative.title']
+    type_first = ['ad_name', 'account_id', 'creative.actor_id', 'creative.thumbnail_url', 'creative.video_id', 'creative.body', 'creative.call_to_action_type', 'creative.instagram_permalink_url', 'creative.object_type', 'creative.status', 'creative.title']
     type_sum = ['clicks', 'impressions', 'inline_link_clicks', 'reach', 'spend', 'total_plays', 'total_thruplays']
     type_unique_list = ['ad_id', 'adset_id', 'adset_name', 'campaign_id', 'campaign_name']
     type_agg_unique_list = [ 'adcreatives_videos_ids', 'adcreatives_videos_thumbs' ]
