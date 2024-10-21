@@ -222,8 +222,8 @@ class GraphAPI:
                         for video in adcreatives:
                             video_ids.append(video.get('video_id'))
                             video_thumbs.append(video.get('thumbnail_url'))
-                            print(f'ad {ad_name}: video_ids.append {video.get('video_id')}')
-                            print(f'ad {ad_name}: video_thumbs.append {video.get('thumbnail_url')}')
+                            # print(f'ad {ad_name}: video_ids.append {video.get('video_id')}')
+                            # print(f'ad {ad_name}: video_thumbs.append {video.get('thumbnail_url')}')
                     ad['adcreatives_videos_ids'] = video_ids
                     ad['adcreatives_videos_thumbs'] = video_thumbs
                     # print(f'ad {ad_name}: finish ad["creative"] = {ad.creative} ')
