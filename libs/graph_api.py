@@ -216,8 +216,8 @@ class GraphAPI:
                     adcreatives = videos_list.get(ad['ad_name'], None)
                     video_ids = []
                     video_thumbs = []
-                    print(f'ad {ad_name}: ad["creative"] = {ad.creative} ')
-                    print(f'ad {ad_name}: adcreatives = {adcreatives} ')
+                    # print(f'ad {ad_name}: ad["creative"] = {ad.creative} ')
+                    # print(f'ad {ad_name}: adcreatives = {adcreatives} ')
                     if adcreatives is not None:
                         for video in adcreatives:
                             video_ids.append(video.get('video_id'))
@@ -226,8 +226,8 @@ class GraphAPI:
                             print(f'ad {ad_name}: video_thumbs.append {video.get('thumbnail_url')}')
                     ad['adcreatives_videos_ids'] = video_ids
                     ad['adcreatives_videos_thumbs'] = video_thumbs
-                    print(f'ad {ad_name}: finish ad["creative"] = {ad.creative} ')
-                    print(f'ad {ad_name}: finish adcreatives = {adcreatives} ')
+                    # print(f'ad {ad_name}: finish ad["creative"] = {ad.creative} ')
+                    # print(f'ad {ad_name}: finish adcreatives = {adcreatives} ')
 
             return data
         
