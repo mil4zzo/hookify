@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 import altair as alt
 import streamlit as st
@@ -109,7 +110,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         return df_sorted
 
     # CRIA AGGRID
-    def create_aggrid(conversion_event, results_column):
+    def create_aggrid(cost_column, results_column):
         builder = GridOptionsBuilder.from_dataframe(df_ads_data[interest_columns])
         builder.configure_selection(selection_mode='single')
         builder.configure_grid_options(
@@ -137,8 +138,9 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
             minWidth=240
         )
         builder.configure_column('retention_at_3', header_name='Hook', valueFormatter='Math.round(x) + "%"')
-        builder.configure_column(conversion_event, header_name='CPR', valueFormatter='`$ ${x.toFixed(2)}`')
+        builder.configure_column(cost_column, header_name='CPR', valueFormatter='`$ ${x.toFixed(2)}`')
         builder.configure_column(results_column, header_name='Results')
+        builder.configure_column('page_conversion', header_name='Página %', valueFormatter='`${x.toFixed(1)}%`')
         builder.configure_column('spend', header_name='Spend', valueFormatter='`$ ${x.toFixed(2)}`')
         builder.configure_column('total_plays', header_name='Plays')
         builder.configure_column('ctr', header_name='CTR', valueFormatter='`${x.toFixed(2)}%`')
@@ -188,7 +190,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     advanced_options = AdvancedOptions()
     advanced_options.build()
     options = advanced_options.apply_filters()
-    conversion_event = options['cost_column']
+    cost_column = options['cost_column']
     results_column = options['results_column']
     df_ads_data = options['df_ads_data'].copy()
 
@@ -197,15 +199,19 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     if group_by_ad:
         df_ads_data = df_grouped
 
+    # CALCULA CONVERSAO DA PÁGINA
+    df_ads_data['page_conversion'] = np.divide(df_ads_data[results_column], df_ads_data["actions.landing_page_view"], out=np.zeros_like(df_ads_data[results_column]), where=df_ads_data["actions.landing_page_view"]!=0) * 100
+
     interest_columns = [
         '#',
         'ad_name',
         'retention_at_3',
-        conversion_event,
-        results_column,
         'spend',
-        'total_plays',
+        cost_column,
+        results_column,
         'ctr',
+        'page_conversion',
+        'total_plays',
         'video_play_curve_actions'
     ]
 
@@ -213,9 +219,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     avg_retention_at_3 = df_grouped['retention_at_3'].mean()
     avg_ctr = df_grouped['ctr'].mean()
     avg_spend = df_grouped['spend'].mean()
-    avg_cost = df_grouped[df_grouped[conversion_event] > 0][conversion_event].mean()
-    print(f'conversion_event: {conversion_event}')
-    print(f'avg_cost: {avg_cost}')
+    avg_cost = df_grouped[df_grouped[cost_column] > 0][cost_column].mean()
     # TOTAL METRICS
     total_plays = df_ads_data['total_plays'].sum()
     total_thruplays = df_ads_data['total_thruplays'].sum()
@@ -230,7 +234,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
             'Top Hooks': 'retention_at_3',
             'Top CTRs': 'ctr',
             'Top Spend': 'spend',
-            'Top CPR': conversion_event
+            'Top CPR': cost_column
         }
         # TABS MENU (SELECT TOP RANKING)
         sorting_option = st.radio(
@@ -245,7 +249,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         df_ads_data = resort_by(df_ads_data, selected_column)
 
         # SETUP AGGRID
-        grid_response = create_aggrid(conversion_event, results_column)
+        grid_response = create_aggrid(cost_column, results_column)
 
         # INIT SELECTED ROW
         selected_row_data = None
@@ -285,8 +289,8 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                 with col2b:
                     st.metric(':eight_pointed_black_star: CTR', value=f"{selected_row_data['ctr']:.2f}%", delta=f"{int(round(((selected_row_data['ctr']/avg_ctr)-1)*100))}%")
                 with col2c:
-                    if conversion_event is not None:
-                        st.metric(f':black_circle_for_record: {conversion_event.split(".")[-1]}', value=f"$ {selected_row_data[conversion_event]:.2f}", delta=f"${abs(selected_row_data[conversion_event]-avg_cost):.2f}" if selected_row_data[conversion_event]-avg_cost > 0 else f"-${abs(selected_row_data[conversion_event]-avg_cost):.2f}", delta_color='inverse')
+                    if cost_column is not None:
+                        st.metric(f':black_circle_for_record: {cost_column.split(".")[-1]}', value=f"$ {selected_row_data[cost_column]:.2f}", delta=f"${abs(selected_row_data[cost_column]-avg_cost):.2f}" if selected_row_data[cost_column]-avg_cost > 0 else f"-${abs(selected_row_data[cost_column]-avg_cost):.2f}", delta_color='inverse')
                     else:
                         st.metric(':black_circle_for_record: Plays', value=selected_row_data['total_plays'], delta='0')
 
