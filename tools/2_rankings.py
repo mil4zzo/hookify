@@ -211,6 +211,8 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     avg_ctr = df_grouped['ctr'].mean()
     avg_spend = df_grouped['spend'].mean()
     avg_cost = df_grouped[df_grouped[conversion_event] > 0][conversion_event].mean()
+    print(f'conversion_event: {conversion_event}')
+    print(f'avg_cost: {avg_cost}')
     # TOTAL METRICS
     total_plays = df_ads_data['total_plays'].sum()
     total_thruplays = df_ads_data['total_thruplays'].sum()

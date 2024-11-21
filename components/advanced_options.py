@@ -45,7 +45,7 @@ class AdvancedOptions:
                             st.write('Conversion event')
                         with cols[1]:
                             cost_column = st.selectbox('Conversion event:', cost_columns, 
-                                                    format_func=lambda x: x.split(".")[-1], 
+                                                    format_func=lambda x: (x.split(".")[-1]), 
                                                     label_visibility='collapsed',
                                                     key='cost_column')
 
@@ -131,9 +131,12 @@ class AdvancedOptions:
             event_name = cost_column.split('.')[-1]
             conversions_columns = [col for col in df_ads_data.columns if 'conversions' in col]
             results_column = next((col for col in conversions_columns if event_name in col), None)
-        
+    
         # Reset the apply_filters flag
         st.session_state.apply_filters = False
+
+        print(f'cost_column: {cost_column}')
+        print(f'results_column: {results_column}')
 
         return {
             'cost_column': cost_column,

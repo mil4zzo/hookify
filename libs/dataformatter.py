@@ -75,9 +75,14 @@ def format_ads_data(json_data):
     df['connect_rate'] = pd.to_numeric(df['connect_rate'], errors='coerce', downcast='float')
     # PROFILE CTR
     df['profile_ctr'] = df['ctr'] - df['website_ctr']
-    # CONVERSÃO DA PÁGINA
-    #df['page_conversion'] = df.apply(lambda row: row['actions.landing_page_view'] / row['inline_link_clicks'] if row['inline_link_clicks'] != 0 else pd.NA, axis=1)
-    #df['page_conversion'] = pd.to_numeric(df['connect_rate'], errors='coerce', downcast='float')
+    # CONVERSÃO DA PÁGINA (ESPECÍFICO DE ACORDO COM O EVENTO DE CONVERSÃO ESCOLHIDO)
+    # df['page_conversion'] = df.apply(lambda row: row['actions.landing_page_view'] / row['inline_link_clicks'] if row['inline_link_clicks'] != 0 else pd.NA, axis=1)
+    # df['page_conversion'] = pd.to_numeric(df['connect_rate'], errors='coerce', downcast='float')
+    # COST PER CONVERSION
+    df['cost_per_conversion.purchase'] = df['spend'] / df['actions.purchase'] if 'actions.purchase' in df.columns else np.nan
+    df['cost_per_conversion.initiate_checkout'] = df['spend'] / df['actions.initiate_checkout'] if 'actions.initiate_checkout' in df.columns else np.nan
+    df['conversions.purchase'] = df['actions.purchase'] if 'actions.purchase' in df.columns else np.nan
+    df['conversions.initiate_checkout'] = df['actions.initiate_checkout'] if 'actions.initiate_checkout' in df.columns else np.nan
 
     ######################## FILL NaNs ############################
     columns_to_fill = [col for col in df.columns if not col.startswith('cost_per_') and not col.startswith('connect_rate')]
