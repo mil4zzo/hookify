@@ -52,6 +52,11 @@ def format_ads_data(json_data):
     df_play_actions.rename(columns={'video_play_actions': 'total_plays'}, inplace=True)
     df_play_actions['total_plays'] = pd.to_numeric(df_play_actions['total_plays'], errors='coerce', downcast='integer').fillna(0)
 
+    # 50% PLAY ACTIONS
+    df_p50_watched = pd.DataFrame(df['video_p50_watched_actions'].apply(lambda x: x[0]['value'] if isinstance(x, list) and len(x) > 0 and isinstance(x[0], dict) and 'value' in x[0] else 0))
+    df_p50_watched.rename(columns={'video_p50_watched_actions': 'video_watched_p50'}, inplace=True)
+    df_p50_watched['video_watched_p50'] = pd.to_numeric(df_p50_watched['video_watched_p50'], errors='coerce', downcast='integer').fillna(0)
+    
     # THRUPLAY ACTIONS
     df_thruplay_actions = pd.DataFrame(df['video_thruplay_watched_actions'].apply(lambda x: x[0]['value'] if isinstance(x, list) and len(x) > 0 and isinstance(x[0], dict) and 'value' in x[0] else 0))
     df_thruplay_actions.rename(columns={'video_thruplay_watched_actions': 'total_thruplays'}, inplace=True)
@@ -62,8 +67,8 @@ def format_ads_data(json_data):
     df_website_ctr['website_ctr'] = pd.to_numeric(df_website_ctr['website_ctr'], errors='coerce', downcast='float').fillna(0)
 
     ######################## CONCATENA NOVAS COLUNAS ########################
-    df = df.drop(columns=['video_play_actions', 'video_thruplay_watched_actions', 'website_ctr'])
-    df = pd.concat([df, df_play_curve_actions, df_play_actions, df_thruplay_actions, df_website_ctr], axis=1)
+    df = df.drop(columns=['video_play_actions', 'video_thruplay_watched_actions', 'website_ctr', 'video_p50_watched_actions'])
+    df = pd.concat([df, df_play_curve_actions, df_play_actions, df_p50_watched, df_thruplay_actions, df_website_ctr], axis=1)
 
     ######################## EXPLODE COLUNAS DE ARRAY ########################
     df = df.apply(lambda row: expand_conversions(row, ['actions', 'conversions', 'cost_per_conversion', 'creative']), axis=1)
@@ -75,14 +80,13 @@ def format_ads_data(json_data):
     df['connect_rate'] = pd.to_numeric(df['connect_rate'], errors='coerce', downcast='float')
     # PROFILE CTR
     df['profile_ctr'] = df['ctr'] - df['website_ctr']
-    # CONVERSÃO DA PÁGINA (ESPECÍFICO DE ACORDO COM O EVENTO DE CONVERSÃO ESCOLHIDO)
-    # df['page_conversion'] = df.apply(lambda row: row['actions.landing_page_view'] / row['inline_link_clicks'] if row['inline_link_clicks'] != 0 else pd.NA, axis=1)
-    # df['page_conversion'] = pd.to_numeric(df['connect_rate'], errors='coerce', downcast='float')
     # COST PER CONVERSION
     df['cost_per_conversion.purchase'] = df['spend'] / df['actions.purchase'] if 'actions.purchase' in df.columns else np.nan
     df['cost_per_conversion.initiate_checkout'] = df['spend'] / df['actions.initiate_checkout'] if 'actions.initiate_checkout' in df.columns else np.nan
     df['conversions.purchase'] = df['actions.purchase'] if 'actions.purchase' in df.columns else np.nan
     df['conversions.initiate_checkout'] = df['actions.initiate_checkout'] if 'actions.initiate_checkout' in df.columns else np.nan
+    # RETENTION
+    df['video_watched_p50'] = df['video_watched_p50'] / df['total_plays'] * 100
 
     ######################## FILL NaNs ############################
     columns_to_fill = [col for col in df.columns if not col.startswith('cost_per_') and not col.startswith('connect_rate')]
@@ -110,7 +114,7 @@ def create_agg_rules(df):
                 )
             else:
                 print(f"Warning: No corresponding conversions column found for {col}. This column will be excluded from the aggregation.")
-        elif col.startswith('retention_'):
+        elif col.startswith('retention_') or col == 'video_watched_p50':
             aggs[col] = lambda x: np.average(x, weights=df.loc[x.index, 'total_plays'])
         elif col == 'video_play_curve_actions':
             aggs[col] = lambda x: np.average(x.tolist(), axis=0, weights=df.loc[x.index, 'total_plays'])

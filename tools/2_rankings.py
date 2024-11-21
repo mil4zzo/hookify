@@ -138,6 +138,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
             minWidth=240
         )
         builder.configure_column('retention_at_3', header_name='Hook', valueFormatter='Math.round(x) + "%"')
+        builder.configure_column('video_watched_p50', header_name='Corpo', valueFormatter='Math.round(x) + "%"')
         builder.configure_column(cost_column, header_name='CPR', valueFormatter='`$ ${x.toFixed(2)}`')
         builder.configure_column(results_column, header_name='Results')
         builder.configure_column('page_conversion', header_name='Página %', valueFormatter='`${x.toFixed(1)}%`')
@@ -206,6 +207,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         '#',
         'ad_name',
         'retention_at_3',
+        'video_watched_p50',
         'spend',
         cost_column,
         results_column,
