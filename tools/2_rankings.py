@@ -109,7 +109,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         return df_sorted
 
     # CRIA AGGRID
-    def create_aggrid(conversion_event):
+    def create_aggrid(conversion_event, results_column):
         builder = GridOptionsBuilder.from_dataframe(df_ads_data[interest_columns])
         builder.configure_selection(selection_mode='single')
         builder.configure_grid_options(
@@ -138,6 +138,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         )
         builder.configure_column('retention_at_3', header_name='Hook', valueFormatter='Math.round(x) + "%"')
         builder.configure_column(conversion_event, header_name='CPR', valueFormatter='`$ ${x.toFixed(2)}`')
+        builder.configure_column(results_column, header_name='Results')
         builder.configure_column('spend', header_name='Spend', valueFormatter='`$ ${x.toFixed(2)}`')
         builder.configure_column('total_plays', header_name='Plays')
         builder.configure_column('ctr', header_name='CTR', valueFormatter='`${x.toFixed(2)}%`')
@@ -188,6 +189,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     advanced_options.build()
     options = advanced_options.apply_filters()
     conversion_event = options['cost_column']
+    results_column = options['results_column']
     df_ads_data = options['df_ads_data'].copy()
 
     # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
@@ -200,6 +202,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         'ad_name',
         'retention_at_3',
         conversion_event,
+        results_column,
         'spend',
         'total_plays',
         'ctr',
@@ -242,7 +245,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         df_ads_data = resort_by(df_ads_data, selected_column)
 
         # SETUP AGGRID
-        grid_response = create_aggrid(conversion_event)
+        grid_response = create_aggrid(conversion_event, results_column)
 
         # INIT SELECTED ROW
         selected_row_data = None
