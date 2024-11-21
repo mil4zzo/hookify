@@ -119,7 +119,8 @@ class GraphAPI:
 
     def get_ads(self, act_id, time_range, filters):
         url = self.base_url + act_id + '/insights' + self.user_token
-        filters.append("{'field': 'video_play_actions', 'operator': 'GREATER_THAN', 'value': '0'}")
+        #filters.append("{'field': 'video_play_actions', 'operator': 'GREATER_THAN', 'value': '0'}")
+        #filters.append("{'field': 'ad_name', 'operator': 'GREATER_THAN', 'value': '0'}")
         json_filters = [json.dumps(filter_dict) for filter_dict in filters]
         payload = {
             'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,website_ctr',
@@ -211,7 +212,7 @@ class GraphAPI:
 
                 # Update data with creative details
                 for ad in data:
-                    print(f'ad {ad_name}: start')
+                    #print(f'ad {ad['ad_name']}: start')
                     ad['creative'] = creative_list.get(ad['ad_name'], None)
                     adcreatives = videos_list.get(ad['ad_name'], None)
                     video_ids = []
@@ -226,8 +227,8 @@ class GraphAPI:
                             # print(f'ad {ad_name}: video_thumbs.append {video.get('thumbnail_url')}')
                     ad['adcreatives_videos_ids'] = video_ids
                     ad['adcreatives_videos_thumbs'] = video_thumbs
-                    # print(f'ad {ad_name}: finish ad["creative"] = {ad.creative} ')
-                    # print(f'ad {ad_name}: finish adcreatives = {adcreatives} ')
+                    #print(f'ad {ad['ad_name']}: finish ad["creative"] = {ad['creative']} ')
+                    #print(f'ad {ad['ad_name']}: finish adcreatives = {adcreatives} ')
 
             return data
         
