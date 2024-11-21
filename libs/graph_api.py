@@ -123,7 +123,7 @@ class GraphAPI:
         #filters.append("{'field': 'ad_name', 'operator': 'GREATER_THAN', 'value': '0'}")
         json_filters = [json.dumps(filter_dict) for filter_dict in filters]
         payload = {
-            'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,website_ctr',
+            'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,website_ctr',
             'limit': self.limit,
             'level': self.level,
             'action_attribution_windows': self.action_attribution_windows,
