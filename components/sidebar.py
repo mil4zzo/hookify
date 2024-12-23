@@ -17,10 +17,10 @@ def render(api_key=None):
                 df_filter_options.loc[len(df_filter_options)] = ['Goal', filter_values['cost_column'].split(".")[-1]]
 
             if filter_values['min_impressions'] > 0:
-                df_filter_options.loc[len(df_filter_options)] = ['Impressions', filter_values['min_impressions']]
+                df_filter_options.loc[len(df_filter_options)] = ['Impressions', "> " + str(filter_values['min_impressions']) if filter_values['min_impressions'] > 0 else filter_values['min_impressions']]
 
             if filter_values['min_spend'] > 0:
-                df_filter_options.loc[len(df_filter_options)] = ['Spend', filter_values['min_spend']]
+                df_filter_options.loc[len(df_filter_options)] = ['Spend', "> " + str(filter_values['min_spend']) if filter_values['min_spend'] > 0 else filter_values['min_spend']]
 
             if filter_values['filters_campaign'] and filter_values['filters_campaign'] != []:
                 df_filter_options.loc[len(df_filter_options)] = ['Campaigns', filter_values['filters_campaign']]
