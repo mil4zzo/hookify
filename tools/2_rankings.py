@@ -188,10 +188,9 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         )
 
     # PREPARA DATASET
+    df_ads_data = st.session_state['ads_original_data'].copy()
     advanced_options = AdvancedOptions()
     advanced_options.build()
-
-    df_ads_data = st.session_state['ads_original_data'].copy()
 
     options = advanced_options.apply_filters(df_ads_data)
     if options is None:

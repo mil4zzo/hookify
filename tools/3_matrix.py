@@ -211,19 +211,22 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     api_key = st.session_state["access_token"]
 
     # PREPARA DATASET
-    # PREPARA DATASET
+    df_ads_data = st.session_state['ads_original_data'].copy()
     advanced_options = AdvancedOptions()
     advanced_options.build()
-    options = advanced_options.apply_filters()
-    cost_column = options['cost_column']
-    results_column = options['results_column']
-    df_ads_data = options['df_ads_data'].copy()
+    options = advanced_options.apply_filters(df_ads_data)
+    if options is None:
+        st.error('Erro ao aplicar filtro.')
+    else:
+        cost_column = options['cost_column']
+        results_column = options['results_column']
+        df_ads_data = options['df_ads_data'].copy()
 
-    # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
-    df_grouped = aggregate_dataframe(df_ads_data, group_by='ad_name')
-    if group_by_ad:
-        df_ads_data = df_grouped
+        # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
+        df_grouped = aggregate_dataframe(df_ads_data, group_by='ad_name')
+        if group_by_ad:
+            df_ads_data = df_grouped
 
-    build_matrix(df_ads_data, cost_column, results_column)
+        build_matrix(df_ads_data, cost_column, results_column)
 else:
     st.warning('⬅️ First, load ADs in the sidebar.')

@@ -113,7 +113,6 @@ class AdvancedOptions:
 
                 if submitted:
                     # Update our persistent filter values
-                    st.write('filter_values submitted.')
                     st.session_state["filter_values"] = {
                         'cost_column': cost_column,
                         'filters_campaign': filter_campaigns,
