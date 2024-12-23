@@ -338,9 +338,6 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                         with clicks[2]:
                             st.metric(label="Website CTR", value=f"{selected_row_data['website_ctr']:.2f}%", delta=f"{selected_row_data['inline_link_clicks']:.0f} clicks", delta_color='off')
 
-
-
-
                     # CAMPAIGN NAME
                     campaign_name_c1, campaign_name_c2 = st.columns([2, 3])
                     with campaign_name_c1:
