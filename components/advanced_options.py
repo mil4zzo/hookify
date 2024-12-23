@@ -3,7 +3,7 @@ import streamlit as st
 
 class AdvancedOptions:
     def __init__(self):
-        self.df_ads_data = st.session_state['ads_original_data'].copy()
+        #self.df_ads_data = st.session_state['ads_original_data'].copy()
         
         # Initialize session state with default values if not exists
         self.initialize_session_state()
@@ -39,7 +39,7 @@ class AdvancedOptions:
                         filters = st.empty()
 
                     # EVENT COST COLUMNS
-                    cost_columns = [col for col in self.df_ads_data.columns if 'cost_per_' in col]
+                    cost_columns = [col for col in st.session_state["ads_original_data"].columns if 'cost_per_' in col]
 
                     # EVENT COST SELECTOR
                     with select_conversion.container():
@@ -93,7 +93,7 @@ class AdvancedOptions:
                             st.write('Min. Impressions')
                         with cols[1]:
                             filter_min_impressions = st.number_input("Minimum Impressions", 
-                                                        min_value=100,
+                                                        min_value=0,
                                                         step=100,
                                                         label_visibility='collapsed',
                                                         value=st.session_state.filter_values['min_impressions'] if 'filter_values' in st.session_state and st.session_state.filter_values['min_impressions'] != 0 else 3000,
@@ -104,7 +104,7 @@ class AdvancedOptions:
                         with cols[1]:
                             filter_min_spend = st.number_input("Minimum Spend", 
                                                         min_value=0, max_value=2000, 
-                                                        step=10, 
+                                                        step=5, 
                                                         label_visibility='collapsed',
                                                         value=st.session_state.filter_values['min_spend'] if 'filter_values' in st.session_state and st.session_state.filter_values['min_spend'] != 0 else 25,
                                                         key='temp_min_spend')
@@ -124,9 +124,8 @@ class AdvancedOptions:
                     }
                     st.session_state.apply_filters = True
 
-    def apply_filters(self):
-        try:
-            df_ads_data = self.df_ads_data.copy()
+    def apply_filters(self, df_ads_data):
+        # try:
             cost_column = None
             results_column = None
 
@@ -135,8 +134,8 @@ class AdvancedOptions:
 
             # Apply filters here
             if filters:
-                if 'filters_campaign' in filters and filters['filters_campaign'] != []:
-                    df_ads_data = df_ads_data[df_ads_data['campaign_name'].isin(filters.filters_campaign)]
+                if filters['filters_campaign'] and filters['filters_campaign'] != []:
+                    df_ads_data = df_ads_data[df_ads_data['campaign_name'].isin(filters['filters_campaign'])]
                 if filters['filters_adset'] and filters['filters_adset'] != []:
                     df_ads_data = df_ads_data[df_ads_data['adset_name'].isin(filters['filters_adset'])]
                 if filters['filters_adname'] and filters['filters_adname'] != []:
@@ -161,6 +160,6 @@ class AdvancedOptions:
                 'results_column': results_column,
                 'df_ads_data': df_ads_data
             }
-        except Exception as e:
-            st.error(f"Error applying filters: {str(e)}")
-            return None
+        # except Exception as e:
+        #     st.error(f"Error applying filters: {str(e)}")
+        #     return None
