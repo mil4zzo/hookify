@@ -36,18 +36,20 @@ def build_retention_chart(video_play_curve_actions):
     )
     return st.altair_chart(play_curve_chart, use_container_width=True, theme=None)
 
-if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame):
+if 'ads_original_data' in st.session_state and isinstance(st.session_state['ads_original_data'], pd.DataFrame):
     
+    df_ads_data = st.session_state['ads_original_data'].copy()
+
     # PREPARA DATASET
     advanced_options = AdvancedOptions()
     advanced_options.build()
-    options = advanced_options.apply_filters()
+    options = advanced_options.apply_filters(df_ads_data)
     if options is None:
         st.error('Erro ao aplicar filtro.')
     else:
         cost_column = options['cost_column']
         results_column = options['results_column']
-        df_ads_data = options['df_ads_data'].copy()
+        df_ads_data = options['df_ads_data']
 
         df_ads_data['unify'] = 1
         agg_df = aggregate_dataframe(df_ads_data, group_by='unify')
