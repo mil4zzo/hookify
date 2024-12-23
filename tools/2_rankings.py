@@ -135,13 +135,13 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
                 'thumbnail_url': 'thumbnail_url',
             },
             valueGetter='{"ad_name": data.ad_name, "adset_name": data.adset_name, "thumbnail_url": data["creative.thumbnail_url"] ? data["creative.thumbnail_url"] : "https://cdns.iconmonstr.com/wp-content/releases/preview/7.8.0/240/iconmonstr-quote-right-filled.png"}',
-            minWidth=240
+            minWidth=125, width=150
         )
         builder.configure_column('retention_at_3', header_name='Hook', valueFormatter='Math.round(x) + "%"')
         builder.configure_column('video_watched_p50', header_name='Corpo', valueFormatter='Math.round(x) + "%"')
         builder.configure_column(cost_column, header_name='CPR', valueFormatter='`$ ${x.toFixed(2)}`')
         builder.configure_column(results_column, header_name='Results')
-        builder.configure_column('page_conversion', header_name='Página %', valueFormatter='`${x.toFixed(1)}%`')
+        builder.configure_column('page_conversion', header_name='Page %', valueFormatter='`${x.toFixed(1)}%`')
         builder.configure_column('spend', header_name='Spend', valueFormatter='`$ ${x.toFixed(2)}`')
         builder.configure_column('total_plays', header_name='Plays')
         builder.configure_column('ctr', header_name='CTR', valueFormatter='`${x.toFixed(2)}%`')

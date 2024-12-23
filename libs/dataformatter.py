@@ -115,9 +115,9 @@ def create_agg_rules(df):
             else:
                 print(f"Warning: No corresponding conversions column found for {col}. This column will be excluded from the aggregation.")
         elif col.startswith('retention_') or col == 'video_watched_p50':
-            aggs[col] = lambda x: np.average(x, weights=df.loc[x.index, 'total_plays'])
+            aggs[col] = lambda x: np.average(x, weights=df.loc[x.index, 'total_plays']) if df.loc[x.index, 'total_plays'].sum() != 0 else 0
         elif col == 'video_play_curve_actions':
-            aggs[col] = lambda x: np.average(x.tolist(), axis=0, weights=df.loc[x.index, 'total_plays'])
+            aggs[col] = lambda x: np.average(x.tolist(), axis=0, weights=df.loc[x.index, 'total_plays']) if df.loc[x.index, 'total_plays'].sum() != 0 else 0
         elif col == 'ctr':
             aggs[col] = lambda x: df.loc[x.index, 'clicks'].sum() / df.loc[x.index, 'impressions'].sum() * 100
         elif col == 'cpm':
