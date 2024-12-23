@@ -191,165 +191,168 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     advanced_options = AdvancedOptions()
     advanced_options.build()
     options = advanced_options.apply_filters()
-    cost_column = options['cost_column']
-    results_column = options['results_column']
-    df_ads_data = options['df_ads_data'].copy()
+    if options is None:
+        st.error('Erro ao aplicar filtro.')
+    else:
+        cost_column = options['cost_column']
+        results_column = options['results_column']
+        df_ads_data = options['df_ads_data'].copy()
 
-    # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
-    df_grouped = aggregate_dataframe(df_ads_data, group_by='ad_name')
-    if group_by_ad:
-        df_ads_data = df_grouped
+        # CRIA AGRUPAMENTO POR NOME DO ANÚNCIO (ad_name)
+        df_grouped = aggregate_dataframe(df_ads_data, group_by='ad_name')
+        if group_by_ad:
+            df_ads_data = df_grouped
 
-    # CALCULA CONVERSAO DA PÁGINA
-    df_ads_data['page_conversion'] = np.divide(df_ads_data[results_column], df_ads_data["actions.landing_page_view"], out=np.zeros_like(df_ads_data[results_column]), where=df_ads_data["actions.landing_page_view"]!=0) * 100
+        # CALCULA CONVERSAO DA PÁGINA
+        df_ads_data['page_conversion'] = np.divide(df_ads_data[results_column], df_ads_data["actions.landing_page_view"], out=np.zeros_like(df_ads_data[results_column]), where=df_ads_data["actions.landing_page_view"]!=0) * 100
 
-    interest_columns = [
-        '#',
-        'ad_name',
-        'retention_at_3',
-        'video_watched_p50',
-        'spend',
-        cost_column,
-        results_column,
-        'ctr',
-        'page_conversion',
-        'total_plays',
-        'video_play_curve_actions'
-    ]
+        interest_columns = [
+            '#',
+            'ad_name',
+            'retention_at_3',
+            'video_watched_p50',
+            'spend',
+            cost_column,
+            results_column,
+            'ctr',
+            'page_conversion',
+            'total_plays',
+            'video_play_curve_actions'
+        ]
 
-    # AVERAGE METRICS
-    avg_retention_at_3 = df_grouped['retention_at_3'].mean()
-    avg_ctr = df_grouped['ctr'].mean()
-    avg_spend = df_grouped['spend'].mean()
-    avg_cost = df_grouped[df_grouped[cost_column] > 0][cost_column].mean()
-    # TOTAL METRICS
-    total_plays = df_ads_data['total_plays'].sum()
-    total_thruplays = df_ads_data['total_thruplays'].sum()
+        # AVERAGE METRICS
+        avg_retention_at_3 = df_grouped['retention_at_3'].mean()
+        avg_ctr = df_grouped['ctr'].mean()
+        avg_spend = df_grouped['spend'].mean()
+        avg_cost = df_grouped[df_grouped[cost_column] > 0][cost_column].mean()
+        # TOTAL METRICS
+        total_plays = df_ads_data['total_plays'].sum()
+        total_thruplays = df_ads_data['total_thruplays'].sum()
 
-    ### INICIA INTERFACE ###
-    col1, col2 = st.columns([5, 4], gap='medium')
+        ### INICIA INTERFACE ###
+        col1, col2 = st.columns([5, 4], gap='medium')
 
-    ## TABS AND AGGRID
-    with col1:
-        # SORTING TABS
-        sorting_columns = {
-            'Top Hooks': 'retention_at_3',
-            'Top CTRs': 'ctr',
-            'Top Spend': 'spend',
-            'Top CPR': cost_column
-        }
-        # TABS MENU (SELECT TOP RANKING)
-        sorting_option = st.radio(
-            "Sort by:",
-            list(sorting_columns.keys()),
-            horizontal=True,
-            label_visibility='collapsed',
-        )
-        # SORT INIT
-        if sorting_option is not None:
-            selected_column = sorting_columns[sorting_option]
-        df_ads_data = resort_by(df_ads_data, selected_column)
+        ## TABS AND AGGRID
+        with col1:
+            # SORTING TABS
+            sorting_columns = {
+                'Top Hooks': 'retention_at_3',
+                'Top CTRs': 'ctr',
+                'Top Spend': 'spend',
+                'Top CPR': cost_column
+            }
+            # TABS MENU (SELECT TOP RANKING)
+            sorting_option = st.radio(
+                "Sort by:",
+                list(sorting_columns.keys()),
+                horizontal=True,
+                label_visibility='collapsed',
+            )
+            # SORT INIT
+            if sorting_option is not None:
+                selected_column = sorting_columns[sorting_option]
+            df_ads_data = resort_by(df_ads_data, selected_column)
 
-        # SETUP AGGRID
-        grid_response = create_aggrid(cost_column, results_column)
+            # SETUP AGGRID
+            grid_response = create_aggrid(cost_column, results_column)
 
-        # INIT SELECTED ROW
-        selected_row_data = None
-        if not df_ads_data.empty:
-            selected_row_data = df_ads_data.head(1).to_dict(orient='records')[0]
-        if grid_response and 'selected_rows' in grid_response and grid_response.selected_rows is not None:
-            selected_row_data = grid_response.selected_rows.iloc[0]
-            selected_row_data['#'] = grid_response.selected_rows.iloc[0].index
+            # INIT SELECTED ROW
+            selected_row_data = None
+            if not df_ads_data.empty:
+                selected_row_data = df_ads_data.head(1).to_dict(orient='records')[0]
+            if grid_response and 'selected_rows' in grid_response and grid_response.selected_rows is not None:
+                selected_row_data = grid_response.selected_rows.iloc[0]
+                selected_row_data['#'] = grid_response.selected_rows.iloc[0].index
 
-    ## DETAILED INFO
-    with col2:
-        with st.container(border=True):
-            if selected_row_data is not None:
-                ## MAIN INFO
-                cols = st.columns([5,2])
-                with cols[0]:
-                    st.markdown(
-                            f"""
-                            <div style='display: flex; flex-direction: row; align-items: center; justify-content: start; margin-bottom: 1.5rem'>
-                                <img
-                                    width='64px'
-                                    height='64px'
-                                    style='border-radius:100%'
-                                    src='{selected_row_data['creative.thumbnail_url']}'>
-                                </img>
-                                <span style='margin-left: 1rem; margin-right: 2rem; font-size: 1.5rem; line-height: 1.4rem; color: white; font-weight: 700; font-family: "Source Sans Pro", sans-serif;'>{selected_row_data['ad_name']}</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                with cols[1]:
-                    if st.button('Watch videoㅤ▶', type='primary', use_container_width=True):
-                        show_video_dialog(selected_row_data)
+        ## DETAILED INFO
+        with col2:
+            with st.container(border=True):
+                if selected_row_data is not None:
+                    ## MAIN INFO
+                    cols = st.columns([5,2])
+                    with cols[0]:
+                        st.markdown(
+                                f"""
+                                <div style='display: flex; flex-direction: row; align-items: center; justify-content: start; margin-bottom: 1.5rem'>
+                                    <img
+                                        width='64px'
+                                        height='64px'
+                                        style='border-radius:100%'
+                                        src='{selected_row_data['creative.thumbnail_url']}'>
+                                    </img>
+                                    <span style='margin-left: 1rem; margin-right: 2rem; font-size: 1.5rem; line-height: 1.4rem; color: white; font-weight: 700; font-family: "Source Sans Pro", sans-serif;'>{selected_row_data['ad_name']}</span>
+                                </div>
+                                """, unsafe_allow_html=True)
+                    with cols[1]:
+                        if st.button('Watch videoㅤ▶', type='primary', use_container_width=True):
+                            show_video_dialog(selected_row_data)
 
-                ## MAIN METRICS
-                col2a, col2b, col2c = st.columns(3)
-                with col2a:
-                    st.metric(':sparkle: Hook retention', value=f"{int(round(selected_row_data['retention_at_3']))}%", delta=f"{int(round(((selected_row_data['retention_at_3']/avg_retention_at_3)-1)*100))}%")
-                with col2b:
-                    st.metric(':eight_pointed_black_star: CTR', value=f"{selected_row_data['ctr']:.2f}%", delta=f"{int(round(((selected_row_data['ctr']/avg_ctr)-1)*100))}%")
-                with col2c:
-                    if cost_column is not None:
-                        st.metric(f':black_circle_for_record: {cost_column.split(".")[-1]}', value=f"$ {selected_row_data[cost_column]:.2f}", delta=f"${abs(selected_row_data[cost_column]-avg_cost):.2f}" if selected_row_data[cost_column]-avg_cost > 0 else f"-${abs(selected_row_data[cost_column]-avg_cost):.2f}", delta_color='inverse')
-                    else:
-                        st.metric(':black_circle_for_record: Plays', value=selected_row_data['total_plays'], delta='0')
+                    ## MAIN METRICS
+                    col2a, col2b, col2c = st.columns(3)
+                    with col2a:
+                        st.metric(':sparkle: Hook retention', value=f"{int(round(selected_row_data['retention_at_3']))}%", delta=f"{int(round(((selected_row_data['retention_at_3']/avg_retention_at_3)-1)*100))}%")
+                    with col2b:
+                        st.metric(':eight_pointed_black_star: CTR', value=f"{selected_row_data['ctr']:.2f}%", delta=f"{int(round(((selected_row_data['ctr']/avg_ctr)-1)*100))}%")
+                    with col2c:
+                        if cost_column is not None:
+                            st.metric(f':black_circle_for_record: {cost_column.split(".")[-1]}', value=f"$ {selected_row_data[cost_column]:.2f}", delta=f"${abs(selected_row_data[cost_column]-avg_cost):.2f}" if selected_row_data[cost_column]-avg_cost > 0 else f"-${abs(selected_row_data[cost_column]-avg_cost):.2f}", delta_color='inverse')
+                        else:
+                            st.metric(':black_circle_for_record: Plays', value=selected_row_data['total_plays'], delta='0')
 
-                ## GRÁFICO RETENÇÃO
-                build_retention_chart(selected_row_data['video_play_curve_actions'])
+                    ## GRÁFICO RETENÇÃO
+                    build_retention_chart(selected_row_data['video_play_curve_actions'])
 
-                ## MAIS DETALHES
-                with st.expander('More info'):
-                    
-                    with st.container(border=False):
-                        st.write('➡️ Spendings')
-                        money = st.columns(2)
-                        with money[0]:
-                            st.metric(label="Total spend", value=f"$ {selected_row_data['spend']:.2f}")
-                        with money[1]:
-                            st.metric(label="CPM", value=f"$ {selected_row_data['cpm']:.2f}")
-                    
-                    with st.container(border=False):
-                        st.write('➡️ Audience')
-                        audience = st.columns(3)
-                        with audience[0]:
-                            st.metric(label="Impressions", value=selected_row_data['impressions'])
-                        with audience[1]:
-                            st.metric(label="Reach", value=selected_row_data['reach'])
-                        with audience[2]:
-                            st.metric(label="Frequency", value=f"{selected_row_data['frequency']:.2f}")
+                    ## MAIS DETALHES
+                    with st.expander('More info'):
+                        
+                        with st.container(border=False):
+                            st.write('➡️ Spendings')
+                            money = st.columns(2)
+                            with money[0]:
+                                st.metric(label="Total spend", value=f"$ {selected_row_data['spend']:.2f}")
+                            with money[1]:
+                                st.metric(label="CPM", value=f"$ {selected_row_data['cpm']:.2f}")
+                        
+                        with st.container(border=False):
+                            st.write('➡️ Audience')
+                            audience = st.columns(3)
+                            with audience[0]:
+                                st.metric(label="Impressions", value=selected_row_data['impressions'])
+                            with audience[1]:
+                                st.metric(label="Reach", value=selected_row_data['reach'])
+                            with audience[2]:
+                                st.metric(label="Frequency", value=f"{selected_row_data['frequency']:.2f}")
 
-                    with st.container(border=False):
-                        st.write('➡️ Views')
-                        views = st.columns(2)
-                        with views[0]:
-                            st.metric(label="Plays", value=selected_row_data['total_plays'])
-                        with views[1]:
-                            st.metric(label="Thruplays", value=selected_row_data["total_thruplays"])
+                        with st.container(border=False):
+                            st.write('➡️ Views')
+                            views = st.columns(2)
+                            with views[0]:
+                                st.metric(label="Plays", value=selected_row_data['total_plays'])
+                            with views[1]:
+                                st.metric(label="Thruplays", value=selected_row_data["total_thruplays"])
 
-                    with st.container(border=False):
-                        st.write('➡️ Clicks')
-                        clicks = st.columns(3)
-                        with clicks[0]:
-                            st.metric(label="Total clicks", value=selected_row_data['clicks'], delta='TOTAL CLICKS')
-                        with clicks[1]:
-                            st.metric(label="Profile CTR", value=f"{selected_row_data['profile_ctr']:.2f}%", delta=f"{selected_row_data['clicks']-selected_row_data['inline_link_clicks']:.0f} clicks", delta_color='off')
-                        with clicks[2]:
-                            st.metric(label="Website CTR", value=f"{selected_row_data['website_ctr']:.2f}%", delta=f"{selected_row_data['inline_link_clicks']:.0f} clicks", delta_color='off')
+                        with st.container(border=False):
+                            st.write('➡️ Clicks')
+                            clicks = st.columns(3)
+                            with clicks[0]:
+                                st.metric(label="Total clicks", value=selected_row_data['clicks'], delta='TOTAL CLICKS')
+                            with clicks[1]:
+                                st.metric(label="Profile CTR", value=f"{selected_row_data['profile_ctr']:.2f}%", delta=f"{selected_row_data['clicks']-selected_row_data['inline_link_clicks']:.0f} clicks", delta_color='off')
+                            with clicks[2]:
+                                st.metric(label="Website CTR", value=f"{selected_row_data['website_ctr']:.2f}%", delta=f"{selected_row_data['inline_link_clicks']:.0f} clicks", delta_color='off')
 
-                    # CAMPAIGN NAME
-                    campaign_name_c1, campaign_name_c2 = st.columns([2, 3])
-                    with campaign_name_c1:
-                        st.write('CAMPAIGN')
-                    with campaign_name_c2:
-                        st.write(f"{selected_row_data['campaign_name']}")
+                        # CAMPAIGN NAME
+                        campaign_name_c1, campaign_name_c2 = st.columns([2, 3])
+                        with campaign_name_c1:
+                            st.write('CAMPAIGN')
+                        with campaign_name_c2:
+                            st.write(f"{selected_row_data['campaign_name']}")
 
-                    # ADSET NAME
-                    adset_namec1, adset_namec2 = st.columns([2, 3])
-                    with adset_namec1:
-                        st.write('ADSET')
-                    with adset_namec2:
-                        st.write(f"{selected_row_data['adset_name']}")
+                        # ADSET NAME
+                        adset_namec1, adset_namec2 = st.columns([2, 3])
+                        with adset_namec1:
+                            st.write('ADSET')
+                        with adset_namec2:
+                            st.write(f"{selected_row_data['adset_name']}")
 else:
     st.warning('⬅️ First, load ADs in the sidebar.')
