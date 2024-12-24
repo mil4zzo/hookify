@@ -1,7 +1,7 @@
 import streamlit as st
 from components import sidebar
 
-if 'adaccounts' in st.session_state:
+if 'ads_data' in st.session_state:
     st.set_page_config(layout="wide")
 else:
     st.set_page_config(layout="centered")

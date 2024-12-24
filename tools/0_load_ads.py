@@ -83,7 +83,9 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
     # CTA - GET ADs!
     if st.button('Get ADs!', type='primary', use_container_width=True):
         selected_act_id = adaccounts_list[selected_adaccount]
-        st.session_state['act_selected'] = selected_act_id
+        st.session_state['act_selected'] = selected_adaccount
+        st.session_state['time_range'] = time_range
+        st.session_state['filters'] = filters
         with st.spinner('Loading your ADs, please wait...'):
             ads_data = cached_get_ads(api_key, selected_act_id, time_range, filters)
             if ads_data:
