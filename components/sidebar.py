@@ -24,7 +24,7 @@ def render(api_key=None):
                         with cols_time_range[0]:
                             st.caption('Date:')
                         with cols_time_range[1]:
-                            st.markdown(f"{pd.to_datetime(time_range["since"]).strftime('%d/%m/%Y') + " ➡️ " + pd.to_datetime(time_range["until"]).strftime('%d/%m/%Y')}")
+                            st.markdown(f"{pd.to_datetime(time_range["since"]).strftime('%d/%m/%Y') + " to " + pd.to_datetime(time_range["until"]).strftime('%d/%m/%Y')}")
 
                     if 'filters' in st.session_state:
                         filters = st.session_state['filters']
