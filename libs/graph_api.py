@@ -3,6 +3,7 @@ from matplotlib.font_manager import json_load
 import requests
 import json
 import urllib.parse
+import streamlit as st
 
 class GraphAPI:
     def __init__(self, fb_api):
@@ -118,6 +119,7 @@ class GraphAPI:
             return {'status': 'error', 'message': str(err)}
 
     def get_ads(self, act_id, time_range, filters):
+        progressBar = st.progress(0, 'get_ads() > Getting ads...')
         url = self.base_url + act_id + '/insights' + self.user_token
         #filters.append("{'field': 'video_play_actions', 'operator': 'GREATER_THAN', 'value': '0'}")
         #filters.append("{'field': 'ad_name', 'operator': 'GREATER_THAN', 'value': '0'}")
@@ -145,6 +147,7 @@ class GraphAPI:
             
             if not ad_report_id:
                 print('get_ads() > Failed to get ad_report_id')
+                progressBar.error('Failed to get ad_report_id')
                 return None
             
             # Polling for job completion
@@ -159,6 +162,7 @@ class GraphAPI:
 
                 loading_status = status_data['async_status']
                 loading_progress_value = status_data['async_percent_completion']
+                progressBar.progress(loading_progress_value/125, 'get_ads() > Polling for job completion...')
 
                 if loading_status == 'Job Completed' and loading_progress_value == 100:
                     break
@@ -173,6 +177,7 @@ class GraphAPI:
 
             while 'paging' in insights_response.json() and 'next' in insights_response.json()['paging']:
                 print(f"get_ads() > {ad_report_id} PAGINANDO...")
+                progressBar.text('get_ads() > Paginando...')
                 insights_response = requests.get(insights_response.json()['paging']['next'])
                 insights_response.raise_for_status()
                 data.extend(insights_response.json()['data'])
@@ -194,6 +199,7 @@ class GraphAPI:
             unique_ids = list(unique_ads.values())
 
             # Get details for unique ads
+            progressBar.progress(90, 'get_ads() > Buscando detalhes dos anúncios...')
             ads_details = self.get_ads_details(act_id, time_range, unique_ids)
             print('got ads_details')
 
@@ -212,6 +218,7 @@ class GraphAPI:
 
                 # Update data with creative details
                 for ad in data:
+                    progressBar.text('get_ads() > Concatenando detalhes aos anúncios...')
                     #print(f'ad {ad['ad_name']}: start')
                     ad['creative'] = creative_list.get(ad['ad_name'], None)
                     adcreatives = videos_list.get(ad['ad_name'], None)
@@ -229,6 +236,8 @@ class GraphAPI:
                     ad['adcreatives_videos_thumbs'] = video_thumbs
                     #print(f'ad {ad['ad_name']}: finish ad["creative"] = {ad['creative']} ')
                     #print(f'ad {ad['ad_name']}: finish adcreatives = {adcreatives} ')
+
+                    progressBar.progress(100, 'get_ads() > Concluído com sucesso')
 
             return data
         

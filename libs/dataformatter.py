@@ -1,41 +1,75 @@
+from enum import unique
 import streamlit as st
 import pandas as pd
 import numpy as np
 
-# Função para transformar 'object lists' em colunas
+def add_ads_pack(unique_id, pack):
+    ## FORMATA NO PADRÃO UNIVERSAL
+    ads_data = format_ads_data(pack)
+    ## MARCA O PACK COM O UNIQUE_ID
+    ads_data["from_pack"] = unique_id
+
+    ## REGISTRA PACK INDIVIDUAL
+    if "loaded_ads" not in st.session_state:
+        st.session_state["loaded_ads"] = []
+    st.session_state["loaded_ads"].append(unique_id)
+    ## SALVA DATAFRAME DO PACK
+    st.session_state[f"{unique_id}_ads_data"] = ads_data.copy()
+
+    if "ads_data" in st.session_state:
+        dfmerged_ads_data = pd.concat([st.session_state["ads_data"], ads_data], ignore_index=True, join="outer")
+        st.session_state["ads_data"] = dfmerged_ads_data
+        st.session_state["ads_original_data"] = dfmerged_ads_data
+    else:
+        st.session_state["ads_data"] = ads_data
+        st.session_state["ads_original_data"] = ads_data
+
+def remove_ads_pack(item_index):
+    ## PROCURA PACK INDIVIDUAL
+    if "loaded_ads" in st.session_state:
+        unique_id = st.session_state["loaded_ads"][item_index]
+        st.session_state['loaded_ads'].remove(unique_id)
+        ads_original_data = st.session_state["ads_original_data"]
+        ads_data = ads_original_data[ads_original_data["from_pack"] != unique_id]
+        ads_data = ads_data.reset_index(drop=True)
+        st.session_state["ads_data"] = ads_data.copy()
+        st.session_state["ads_original_data"] = ads_data.copy()
+
+
+# Função para transformar "object lists" em colunas
 def expand_conversions(row, columns):
     for column in columns:
         if isinstance(row[column], list):
             for conversion in row[column]:
-                column_name = f"{column}.{conversion['action_type']}"
-                row[column_name] = pd.to_numeric(conversion['value'], errors='coerce')
+                column_name = f"{column}.{conversion["action_type"]}"
+                row[column_name] = pd.to_numeric(conversion["value"], errors="coerce")
         elif isinstance(row[column], dict):
             for key, value in row[column].items():
                 column_name = f"{column}.{key}"
-                row[column_name] = pd.to_numeric(value, errors='coerce') if isinstance(value, (int, float)) else value
+                row[column_name] = pd.to_numeric(value, errors="coerce") if isinstance(value, (int, float)) else value
     return row
 
 def format_ads_data(json_data):
     df = pd.DataFrame(json_data)
     # STRINGS
-    df['ad_name'] = df['ad_name'].astype(str)
-    df['adset_name'] = df['adset_name'].astype(str)
-    df['campaign_name'] = df['campaign_name'].astype(str)
-    df['ad_id'] = df['ad_id'].astype(str)
-    df['adset_id'] = df['adset_id'].astype(str)
-    df['campaign_id'] = df['campaign_id'].astype(str)
+    df["ad_name"] = df["ad_name"].astype(str)
+    df["adset_name"] = df["adset_name"].astype(str)
+    df["campaign_name"] = df["campaign_name"].astype(str)
+    df["ad_id"] = df["ad_id"].astype(str)
+    df["adset_id"] = df["adset_id"].astype(str)
+    df["campaign_id"] = df["campaign_id"].astype(str)
     
     # INTEGERS
-    df['clicks'] = pd.to_numeric(df['clicks'], errors='coerce', downcast='integer').fillna(0)
-    df['impressions'] = pd.to_numeric(df['impressions'], errors='coerce', downcast='integer').fillna(0)
-    df['inline_link_clicks'] = pd.to_numeric(df['inline_link_clicks'], errors='coerce', downcast='integer').fillna(0)
-    df['reach'] = pd.to_numeric(df['reach'], errors='coerce', downcast='integer').fillna(0)
+    df["clicks"] = pd.to_numeric(df["clicks"], errors="coerce", downcast="integer").fillna(0)
+    df["impressions"] = pd.to_numeric(df["impressions"], errors="coerce", downcast="integer").fillna(0)
+    df["inline_link_clicks"] = pd.to_numeric(df["inline_link_clicks"], errors="coerce", downcast="integer").fillna(0)
+    df["reach"] = pd.to_numeric(df["reach"], errors="coerce", downcast="integer").fillna(0)
 
     # FLOATS
-    df['cpm'] = pd.to_numeric(df['cpm'], errors='coerce', downcast='float').fillna(0)
-    df['ctr'] = pd.to_numeric(df['ctr'], errors='coerce', downcast='float').fillna(0)
-    df['frequency'] = pd.to_numeric(df['frequency'], errors='coerce', downcast='float').fillna(0)
-    df['spend'] = pd.to_numeric(df['spend'], errors='coerce', downcast='float').fillna(0)
+    df["cpm"] = pd.to_numeric(df["cpm"], errors="coerce", downcast="float").fillna(0)
+    df["ctr"] = pd.to_numeric(df["ctr"], errors="coerce", downcast="float").fillna(0)
+    df["frequency"] = pd.to_numeric(df["frequency"], errors="coerce", downcast="float").fillna(0)
+    df["spend"] = pd.to_numeric(df["spend"], errors="coerce", downcast="float").fillna(0)
 
     # PLAY CURVE ACTIONS
     play_curve_actions = df['video_play_curve_actions'].apply(lambda x: x[0]['value'] if isinstance(x, list) and len(x) > 0 and isinstance(x[0], dict) and 'value' in x[0] else [0] * 22)
@@ -169,7 +203,6 @@ def abbreviate_number(number, decimals=0):
         return f"{number / 1_000:.{decimals if decimals > 0 else 2}f}K"
     else:
         return f"{number:.{decimals}f}"
-
 
 def capitalize(s):
     if not s:

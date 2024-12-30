@@ -1,7 +1,7 @@
 import streamlit as st
 from components import sidebar
 
-if 'ads_data' in st.session_state:
+if 'adaccounts' in st.session_state:
     st.set_page_config(layout="wide")
 else:
     st.set_page_config(layout="centered")
@@ -20,7 +20,8 @@ if 'adaccounts' in st.session_state:
     if 'ads_data' in st.session_state:
         new_pages = {
             "": [
-                st.Page("tools/0_load_ads.py", title="Load ADs", icon="⬇️"),
+                st.Page("tools/0_ads_loader.py", title="ADs Loader", icon="📔", ),
+                #st.Page("tools/0_gold.py", title="G.O.L.D.", icon="🪙"),
                 st.Page("tools/1_dashboard.py", title="Dashboard", icon="📊"),
                 st.Page("tools/2_rankings.py", title="Rankings", icon="⭐"),
                 st.Page("tools/3_matrix.py", title="Matrix", icon="💊"),
@@ -31,7 +32,8 @@ if 'adaccounts' in st.session_state:
     else:
         new_pages = {
             "": [
-                st.Page("tools/0_load_ads.py", title="Load ADs", icon="⬇️"),
+                st.Page("tools/0_ads_loader.py", title="ADs Loader", icon="📔", ),
+                st.Page("tools/5_loaded_ads.py", title="Loaded ADs", icon="🗂️"),
             ]
         }
     pages = new_pages

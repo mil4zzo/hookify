@@ -176,7 +176,10 @@ button[kind="secondary"]:hover{
     border: solid 1px var(--green-300);
     color: var(--green-300);
 }
-
+/* DELETE BUTTON */
+.st-key-bt_delete{
+    text-align: end !important;
+}
 
 /** BACKUP
 
