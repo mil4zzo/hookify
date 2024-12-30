@@ -2,9 +2,7 @@ from unittest import result
 import streamlit as st
 
 class AdvancedOptions:
-    def __init__(self):
-        #self.df_ads_data = st.session_state['ads_original_data'].copy()
-        
+    def __init__(self):        
         # Initialize session state with default values if not exists
         self.initialize_session_state()
 
@@ -14,8 +12,8 @@ class AdvancedOptions:
             cost_columns = [col for col in st.session_state["ads_original_data"].columns if 'cost_per_' in col]
             filter_values = {
                 'cost_column': cost_columns[0] if cost_columns else None,
-                'min_impressions': 3000,
-                'min_spend': 25,
+                'min_impressions': 1,
+                'min_spend': 1,
                 'filters_campaign': [],
                 'filters_adset': [],
                 'filters_adname': [],
@@ -124,7 +122,7 @@ class AdvancedOptions:
                     st.session_state.apply_filters = True
 
     def apply_filters(self, df_ads_data):
-        # try:
+        try:
             cost_column = None
             results_column = None
 
@@ -159,6 +157,6 @@ class AdvancedOptions:
                 'results_column': results_column,
                 'df_ads_data': df_ads_data
             }
-        # except Exception as e:
-        #     st.error(f"Error applying filters: {str(e)}")
-        #     return None
+        except Exception as e:
+            st.error(f"Error applying filters: {str(e)}")
+            return None

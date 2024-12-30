@@ -147,10 +147,7 @@ class GraphAPI:
             
             if not ad_report_id:
                 print('get_ads() > Failed to get ad_report_id')
-<<<<<<< HEAD
                 progressBar.error('Failed to get ad_report_id')
-=======
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
                 return None
             
             # Polling for job completion
@@ -165,7 +162,7 @@ class GraphAPI:
 
                 loading_status = status_data['async_status']
                 loading_progress_value = status_data['async_percent_completion']
-                progressBar.progress(loading_progress_value/125, 'get_ads() > Polling for job completion...')
+                progressBar.progress(loading_progress_value/125, 'get_ads() > Waiting Meta data...')
 
                 if loading_status == 'Job Completed' and loading_progress_value == 100:
                     break
@@ -179,11 +176,7 @@ class GraphAPI:
             data = insights_response.json()['data']
 
             while 'paging' in insights_response.json() and 'next' in insights_response.json()['paging']:
-                print(f"get_ads() > {ad_report_id} PAGINANDO...")
-<<<<<<< HEAD
-                progressBar.text('get_ads() > Paginando...')
-=======
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
+                progressBar.progress(85, 'get_ads() > Paginating...')
                 insights_response = requests.get(insights_response.json()['paging']['next'])
                 insights_response.raise_for_status()
                 data.extend(insights_response.json()['data'])
@@ -205,10 +198,7 @@ class GraphAPI:
             unique_ids = list(unique_ads.values())
 
             # Get details for unique ads
-<<<<<<< HEAD
-            progressBar.progress(90, 'get_ads() > Buscando detalhes dos anúncios...')
-=======
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
+            progressBar.progress(90, 'get_ads() > Collecting ads details...')
             ads_details = self.get_ads_details(act_id, time_range, unique_ids)
             print('got ads_details')
 
@@ -227,10 +217,7 @@ class GraphAPI:
 
                 # Update data with creative details
                 for ad in data:
-<<<<<<< HEAD
-                    progressBar.text('get_ads() > Concatenando detalhes aos anúncios...')
-=======
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
+                    progressBar.text('get_ads() > Mixing everything up...')
                     #print(f'ad {ad['ad_name']}: start')
                     ad['creative'] = creative_list.get(ad['ad_name'], None)
                     adcreatives = videos_list.get(ad['ad_name'], None)
@@ -248,11 +235,8 @@ class GraphAPI:
                     ad['adcreatives_videos_thumbs'] = video_thumbs
                     #print(f'ad {ad['ad_name']}: finish ad["creative"] = {ad['creative']} ')
                     #print(f'ad {ad['ad_name']}: finish adcreatives = {adcreatives} ')
-<<<<<<< HEAD
 
-                    progressBar.progress(100, 'get_ads() > Concluído com sucesso')
-=======
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
+                    progressBar.progress(100, 'get_ads() > Sucessfully loaded!')
 
             return data
         

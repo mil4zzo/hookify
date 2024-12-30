@@ -41,21 +41,12 @@ def expand_conversions(row, columns):
     for column in columns:
         if isinstance(row[column], list):
             for conversion in row[column]:
-<<<<<<< HEAD
                 column_name = f"{column}.{conversion["action_type"]}"
                 row[column_name] = pd.to_numeric(conversion["value"], errors="coerce")
         elif isinstance(row[column], dict):
             for key, value in row[column].items():
                 column_name = f"{column}.{key}"
                 row[column_name] = pd.to_numeric(value, errors="coerce") if isinstance(value, (int, float)) else value
-=======
-                column_name = f"{column}.{conversion['action_type']}"
-                row[column_name] = pd.to_numeric(conversion['value'], errors='coerce')
-        elif isinstance(row[column], dict):
-            for key, value in row[column].items():
-                column_name = f"{column}.{key}"
-                row[column_name] = pd.to_numeric(value, errors='coerce') if isinstance(value, (int, float)) else value
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
     return row
 
 def format_ads_data(json_data):
@@ -213,10 +204,6 @@ def abbreviate_number(number, decimals=0):
     else:
         return f"{number:.{decimals}f}"
 
-<<<<<<< HEAD
-=======
-
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
 def capitalize(s):
     if not s:
         return s  # Return the original string if it's empty or None

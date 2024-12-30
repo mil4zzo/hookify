@@ -36,11 +36,7 @@ def build_retention_chart(video_play_curve_actions):
     )
     return st.altair_chart(play_curve_chart, use_container_width=True, theme=None)
 
-<<<<<<< HEAD
 if 'ads_original_data' in st.session_state and isinstance(st.session_state['ads_original_data'], pd.DataFrame) and len(st.session_state['ads_data']) > 0:
-=======
-if 'ads_original_data' in st.session_state and isinstance(st.session_state['ads_original_data'], pd.DataFrame):
->>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
 
     # PREPARA DATASET
     df_ads_data = st.session_state['ads_original_data'].copy()
