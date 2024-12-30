@@ -1,7 +1,6 @@
 import pandas as pd
 import streamlit as st
 from ast import literal_eval
-from streamlit_extras.tags import tagger_component
 
 def render():
     st.logo('res/img/logo-hookify-alpha.png')
@@ -13,51 +12,31 @@ def render():
                 num_items = len(st.session_state['loaded_ads'])
                 
                 for item_index in range(num_items):
-                        
+                    
                     # Check if we still have items to display
                     if item_index < num_items:
                         with st.container(border=True):
                             cols_header = st.columns([4, 1])
                             with cols_header[0]:
                                 st.markdown(f'#### Pack {item_index + 1}')
-                            # with cols_header[1]:
-                                #button = bt_delete(item_index, remove_ads_pack)
 
                             unique_id = st.session_state['loaded_ads'][item_index]
                             info = unique_id.split('&')
                             df_pack_ads = st.session_state[f"{unique_id}_ads_data"]
-                            
-                            # LOADED ADS
-                            cols_loaded_ads = st.columns([2,5])
-                            with cols_loaded_ads[0]:
-                                st.caption("ADs:")
-                            with cols_loaded_ads[1]:
-                                st.markdown(f"{len(df_pack_ads)}")
 
-                            # LOADED ADS
-                            cols_loaded_adsets = st.columns([2,5])
-                            with cols_loaded_adsets[0]:
-                                st.caption("Adsets:")
-                            with cols_loaded_adsets[1]:
-                                st.markdown(f"{df_pack_ads["adset_name"].nunique()}")
+                            # COUNTS
+                            st.dataframe(
+                                pd.DataFrame([{
+                                "Campaigns": df_pack_ads["campaign_name"].nunique(), 
+                                "Adsets": df_pack_ads["adset_name"].nunique(), 
+                                "ADs": len(df_pack_ads)
+                            }]), hide_index=True, use_container_width=True )
 
-                            # AD ACCOUNT
-                            cols_act = st.columns([2,5])
-                            with cols_act[0]:
-                                st.caption("Account:")
-                            with cols_act[1]:
-                                st.markdown(f"{info[0]}")
-
-                            # AD ACCOUNT ID
-                            # cols_act_id = st.columns([2,5])
-                            # with cols_act_id[0]:
-                            #     st.caption("ID:")
-                            # with cols_act_id[1]:
-                            #     st.markdown(f"{info[1]}")
+                            st.caption(F"{info[0]} ({info[1]})")
 
                             # TIME RANGE
                             item_time_range = literal_eval(info[2])
-                            cols_time_range = st.columns([2,5])
+                            cols_time_range = st.columns([1,3])
                             with cols_time_range[0]:
                                 st.caption("Date:")
                             with cols_time_range[1]:
@@ -65,15 +44,14 @@ def render():
 
                             # FILTERS
                             item_filters = literal_eval(info[3])
-                            cols_filters = st.columns([2,5])
+                            cols_filters = st.columns([1,3])
                             with cols_filters[0]:
                                 st.caption("Filters:")
                             with cols_filters[1]:
                                 if item_filters != []:
-                                    st.markdown(" \n\n ".join(f'{str(filter["field"].split(".")[0]).capitalize()} *:gray[{str(filter["operator"]).lower()}]* **{filter["value"]}**' for filter in item_filters))
+                                    st.markdown("\n".join(f'{str(filter["field"].split(".")[0]).capitalize()} *:gray[{str(filter["operator"]).lower()}]* **{filter["value"]}**' for filter in item_filters))
                                 else:
-                                    st.markdown("None")
-                        
+                                    st.caption("None")
 
     if "filter_values" in st.session_state:
         filter_values = st.session_state["filter_values"]
