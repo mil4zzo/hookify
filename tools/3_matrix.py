@@ -205,8 +205,12 @@ def build_matrix(df, cost_column, results_column):
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
 
 
+<<<<<<< HEAD
 # SE JÁ TEM DADOS DE ANÚNCIOS
 if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame) and len(st.session_state['ads_data']) > 0:
+=======
+if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame):
+>>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
     
     # INICIALIZA API KEY E GRAPH API
     api_key = st.session_state["access_token"]

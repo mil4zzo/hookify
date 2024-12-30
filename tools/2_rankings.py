@@ -45,7 +45,11 @@ def build_retention_chart(video_play_curve_actions):
     return st.altair_chart(play_curve_chart, use_container_width=True, theme=None)
 
 # SE JÁ TEM DADOS DE ANÚNCIOS
+<<<<<<< HEAD
 if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame) and len(st.session_state['ads_data']) > 0:
+=======
+if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame):
+>>>>>>> 5da38fc41aa7bde96a2a9dda6ef5c566f7eaea98
 
     # INICIALIZA API KEY E GRAPH API
     api_key = st.session_state["access_token"]
