@@ -172,4 +172,4 @@ cython_debug/
 
 ## Custom deletions
 build.py
-autorizador.json
+autorizador
