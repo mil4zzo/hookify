@@ -16,7 +16,7 @@ def render():
                         
                     # Check if we still have items to display
                     if item_index < num_items:
-                        with st.container(border=True, key=("bt_delete_" + f"{item_index}")):
+                        with st.container(border=True):
                             cols_header = st.columns([4, 1])
                             with cols_header[0]:
                                 st.markdown(f'#### Pack {item_index + 1}')
