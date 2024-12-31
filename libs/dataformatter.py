@@ -41,7 +41,7 @@ def expand_conversions(row, columns):
     for column in columns:
         if isinstance(row[column], list):
             for conversion in row[column]:
-                column_name = f"{column}.{conversion["action_type"]}"
+                column_name = (f"""{column}.{conversion["action_type"]}""")
                 row[column_name] = pd.to_numeric(conversion["value"], errors="coerce")
         elif isinstance(row[column], dict):
             for key, value in row[column].items():
