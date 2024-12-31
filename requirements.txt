@@ -7,7 +7,7 @@ protobuf==5.28.2
 pyinstaller==6.11.0
 python-dotenv==1.0.1
 requests==2.32.3
-streamlit==1.36.0
-streamlit-aggrid==1.0.5
+streamlit
+streamlit-aggrid
 streamlit-extras
 supabase==2.9.1
