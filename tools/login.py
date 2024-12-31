@@ -1,7 +1,7 @@
 import time
 import streamlit as st
 from libs.supa import Supa
-from libs.dataformatter import capitalize, getInitials
+from libs.dataformatter import capitalize
 
 ### INICIA INTERFACE ###
 st.title('Welcome to Hookify! ✌️👽')
@@ -27,7 +27,7 @@ with st.form('login', clear_on_submit=False):
                 supa = Supa()
                 response = supa.login(input_email, input_pass)
                 if response and response.session and response.user:
-                    st.success(f"""Welcome, {capitalize(response.user.user_metadata['name'].split(" ")[0])}! Let's make your hook roll stuff...""")
+                    st.success(f"""Welcome, {capitalize(response.user.user_metadata["name"].split(" ")[0])}! Let's make your hook roll stuff...""")
                     time.sleep(3)
                     st.rerun()
                 else:

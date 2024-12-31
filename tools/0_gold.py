@@ -1,8 +1,39 @@
+from ast import literal_eval
 from collections import Counter
 import pandas as pd
 import streamlit as st
 from components.advanced_options import AdvancedOptions
 from libs.gsheet_loader import K_CENTRAL_CAPTURA, K_CENTRAL_VENDAS, K_GRUPOS_WPP, K_PCOPY_DADOS, K_PTRAFEGO_DADOS, get_df
+
+# TICKET LÍQUIDO
+TICKET_LIQUIDO = {
+    "EI21": 1029.0
+}
+
+# MARGENS DE LANÇAMENTO
+TAXAS_PATRIMONIO = {
+    "EI21": {
+        "Acima de R$1 milhão": 0.0694,
+        "Entre R$500 mil e R$1 milhão": 0.0653,
+        "Entre R$250 mil e R$500 mil": 0.0466,
+        "Entre R$100 mil e R$250 mil": 0.0345,
+        "Entre R$20 mil e R$100 mil": 0.0224,
+        "Entre R$5 mil e R$20 mil": 0.0214,
+        "Menos de R$5 mil": 0.01,
+    }
+}
+				 	
+# MARGENS DE LANÇAMENTO
+TAXAS_RENDA_MENSAL = {
+    "EI21": {
+        "Acima de R$20.000": 0.0265,
+        "Entre R$10.000 e R$20.000": 0.0279,
+        "Entre R$5.000 e R$10.000": 0.02,
+        "Entre R$2.500 e R$5.000": 0.0147,
+        "Entre R$1.500 e R$2.500": 0.0083,
+        "Até R$1.500": 0.0059,
+    }
+}
 
 # CRIA BARRA DE TITULO
 cols = st.columns([2,1])
@@ -77,6 +108,25 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     df_qualificacao_agg['PATRIMONIO'] = df_qualificacao_agg['PATRIMONIO'].apply(lambda x: create_count_dict(x, 'PATRIMONIO'))
 
     df_teste = df_ads_data.merge(df_qualificacao_agg, how='left', on='unique_id')
+
+    def calculate_cplmax(val):
+        if pd.isna(val):
+            return None
+        try:
+            con_1 = val["Menos de R$5 mil"] * TAXAS_PATRIMONIO["EI21"]["Menos de R$5 mil"]
+            con_2 = val["Entre R$5 mil e R$20 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$5 mil e R$20 mil"]
+            con_3 = val["Entre R$20 mil e R$100 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$20 mil e R$100 mil"]
+            con_4 = val["Entre R$100 mil e R$250 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$100 mil e R$250 mil"]
+            con_5 = val["Entre R$250 mil e R$500 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$250 mil e R$500 mil"]
+            con_6 = val["Entre R$500 mil e R$1 milhão"] * TAXAS_PATRIMONIO["EI21"]["Entre R$500 mil e R$1 milhão"]
+            con_7 = val["Acima de R$1 milhão"] * TAXAS_PATRIMONIO["EI21"]["Acima de R$1 milhão"]
+
+            cplmax = (con_1 + con_2 + con_3 + con_4 + con_5 + con_6 + con_7) * TICKET_LIQUIDO["EI21"]
+            return cplmax
+        except:
+            return {}
+
+    df_teste['CPL_MAX_PATRIMONIO'] = df_teste['PATRIMONIO'].apply(calculate_cplmax)
 
     with st.expander("Dados finais"):
         st.dataframe(df_teste)
