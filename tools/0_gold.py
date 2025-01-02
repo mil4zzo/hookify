@@ -3,7 +3,7 @@ from collections import Counter
 import pandas as pd
 import streamlit as st
 from components.advanced_options import AdvancedOptions
-from libs.gsheet_loader import K_CENTRAL_CAPTURA, K_CENTRAL_VENDAS, K_GRUPOS_WPP, K_PCOPY_DADOS, K_PTRAFEGO_DADOS, get_df
+from libs.gsheet_loader import K_CENTRAL_CAPTURA, K_CENTRAL_VENDAS, K_GRUPOS_WPP, K_PCOPY_DADOS, K_PTRAFEGO_DADOS, clear_df, get_df
 
 # TICKET LÍQUIDO
 TICKET_LIQUIDO = {
@@ -12,39 +12,38 @@ TICKET_LIQUIDO = {
 
 # MARGENS DE LANÇAMENTO
 TAXAS_PATRIMONIO = {
-    "EI21": {
-        "Acima de R$1 milhão": 0.0694,
-        "Entre R$500 mil e R$1 milhão": 0.0653,
-        "Entre R$250 mil e R$500 mil": 0.0466,
-        "Entre R$100 mil e R$250 mil": 0.0345,
-        "Entre R$20 mil e R$100 mil": 0.0224,
-        "Entre R$5 mil e R$20 mil": 0.0214,
-        "Menos de R$5 mil": 0.01,
-    }
+    "Acima de R$1 milhão": 0.0694,
+    "Entre R$500 mil e R$1 milhão": 0.0653,
+    "Entre R$250 mil e R$500 mil": 0.0466,
+    "Entre R$100 mil e R$250 mil": 0.0345,
+    "Entre R$20 mil e R$100 mil": 0.0224,
+    "Entre R$5 mil e R$20 mil": 0.0214,
+    "Menos de R$5 mil": 0.01,
 }
 				 	
 # MARGENS DE LANÇAMENTO
 TAXAS_RENDA_MENSAL = {
-    "EI21": {
-        "Acima de R$20.000": 0.0265,
-        "Entre R$10.000 e R$20.000": 0.0279,
-        "Entre R$5.000 e R$10.000": 0.02,
-        "Entre R$2.500 e R$5.000": 0.0147,
-        "Entre R$1.500 e R$2.500": 0.0083,
-        "Até R$1.500": 0.0059,
-    }
+    "Acima de R$20.000": 0.0265,
+    "Entre R$10.000 e R$20.000": 0.0279,
+    "Entre R$5.000 e R$10.000": 0.02,
+    "Entre R$2.500 e R$5.000": 0.0147,
+    "Entre R$1.500 e R$2.500": 0.0083,
+    "Até R$1.500": 0.0059,
 }
 
 # CRIA BARRA DE TITULO
 cols = st.columns([2,1])
 with cols[0]:
-    st.title('🪙 G.O.L.D.')
+    st.title('✨ GOLD')
     st.write('Comprehensive ad analysis view.')
-# with cols[1]:
+with cols[1]:
+    if st.button('Clear'):
+        get_df.clear()
     # with st.container(border=True):
     #     group_by_ad = st.toggle("Group ADs by name", value=True)
 
 st.divider()
+
 
 # Carregar DataFrames para lançamento selecionado
 loading_container = st.empty()
@@ -63,8 +62,8 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     # PREPARA DATASET
     df_ads_data = st.session_state['ads_original_data'].copy()
 
-    df_ads_data["unique_id"] = df_ads_data["adset_name"] + "&" + df_ads_data["ad_name"]
-    DF_PTRAFEGO_DADOS["unique_id"] = DF_PTRAFEGO_DADOS["UTM_ADSET"] + "&" + DF_PTRAFEGO_DADOS["UTM_TERM"]
+    df_ads_data["unique_id"] = df_ads_data["ad_name"] + "&" + df_ads_data["adset_name"]
+    DF_PTRAFEGO_DADOS["unique_id"] = DF_PTRAFEGO_DADOS["UTM_TERM"] + "&" + DF_PTRAFEGO_DADOS["UTM_ADSET"]
     df_ptrafego_dados_pago = DF_PTRAFEGO_DADOS[DF_PTRAFEGO_DADOS["UTM_MEDIUM"] == "pago"]
 
     with st.expander("Dados de Anúncios:"):
@@ -109,24 +108,59 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
 
     df_teste = df_ads_data.merge(df_qualificacao_agg, how='left', on='unique_id')
 
-    def calculate_cplmax(val):
+    def calculate_cplmax(val, question):
         if pd.isna(val):
             return None
         try:
-            con_1 = val["Menos de R$5 mil"] * TAXAS_PATRIMONIO["EI21"]["Menos de R$5 mil"]
-            con_2 = val["Entre R$5 mil e R$20 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$5 mil e R$20 mil"]
-            con_3 = val["Entre R$20 mil e R$100 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$20 mil e R$100 mil"]
-            con_4 = val["Entre R$100 mil e R$250 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$100 mil e R$250 mil"]
-            con_5 = val["Entre R$250 mil e R$500 mil"] * TAXAS_PATRIMONIO["EI21"]["Entre R$250 mil e R$500 mil"]
-            con_6 = val["Entre R$500 mil e R$1 milhão"] * TAXAS_PATRIMONIO["EI21"]["Entre R$500 mil e R$1 milhão"]
-            con_7 = val["Acima de R$1 milhão"] * TAXAS_PATRIMONIO["EI21"]["Acima de R$1 milhão"]
-
-            cplmax = (con_1 + con_2 + con_3 + con_4 + con_5 + con_6 + con_7) * TICKET_LIQUIDO["EI21"]
+            cplmax = 0
+            # Para cada opção da pergunta
+            for option in question.keys():
+                # Calcula o CPLMAX para a opção
+                temp = val[option] * question[option]
+                # Agrega o valor
+                cplmax += temp
+            # Ao final, multiplca pelo ticket liquido
+            cplmax = cplmax * TICKET_LIQUIDO["EI21"]
             return cplmax
         except:
             return {}
 
-    df_teste['CPL_MAX_PATRIMONIO'] = df_teste['PATRIMONIO'].apply(calculate_cplmax)
+    # CPL MAX: PATRIMONIO
+    df_teste['CPL_MAX_PATRIMONIO'] = df_teste['PATRIMONIO'].apply(calculate_cplmax, question=TAXAS_PATRIMONIO)
+    df_teste['MARGEM_ABS_PATRIMONIO'] = df_teste['CPL_MAX_PATRIMONIO'] - df_teste['cost_per_conversion.offsite_conversion.fb_pixel_custom.TYP_Captacao_Evento']
+    df_teste['MARGEM_PERCENT_PATRIMONIO'] = df_teste['MARGEM_ABS_PATRIMONIO'] / df_teste['CPL_MAX_PATRIMONIO'] if df_teste['CPL_MAX_PATRIMONIO'] is not None else None
+
+    # CPL MAX: RENDA MENSAL
+    df_teste['CPL_MAX_RENDA_MENSAL'] = df_teste['RENDA MENSAL'].apply(calculate_cplmax, question=TAXAS_RENDA_MENSAL)
+    df_teste['MARGEM_ABS_RENDA_MENSAL'] = df_teste['CPL_MAX_RENDA_MENSAL'] - df_teste['cost_per_conversion.offsite_conversion.fb_pixel_custom.TYP_Captacao_Evento']
+    df_teste['MARGEM_PERCENT_RENDA_MENSAL'] = df_teste['MARGEM_ABS_RENDA_MENSAL'] / df_teste['CPL_MAX_RENDA_MENSAL'] if df_teste['CPL_MAX_RENDA_MENSAL'] is not None else None
+
+    # CPL MAX: MÉDIO
+    df_teste['CPL_MAX_MEDIO'] = (df_teste['CPL_MAX_PATRIMONIO'] + df_teste['CPL_MAX_RENDA_MENSAL']) / 2
+    df_teste['MARGEM_ABS_MEDIO'] = df_teste['CPL_MAX_MEDIO'] - df_teste['cost_per_conversion.offsite_conversion.fb_pixel_custom.TYP_Captacao_Evento']
+    df_teste['MARGEM_PERCENT_MEDIO'] = df_teste['MARGEM_ABS_MEDIO'] / df_teste['CPL_MAX_MEDIO'] if df_teste['CPL_MAX_MEDIO'] is not None else None
+
+    columns_otimizacao = [
+        'creative.status', # STATUS
+        'unique_id', # UNIQUE ID
+        'ad_name', # ANÚNCIO
+        'adset_name', # CONJUNTO
+        'conversions.offsite_conversion.fb_pixel_custom.TYP_Captacao_Evento', # LEADS
+        # , # TOTAL DE PESQUISA
+        'cost_per_conversion.offsite_conversion.fb_pixel_custom.TYP_Captacao_Evento', # CPL ATUAL
+        'CPL_MAX_MEDIO', # PRECO MAX MEDIO
+        'MARGEM_ABS_MEDIO', # MEDIA DIFERENCA
+        'MARGEM_PERCENT_MEDIO', # MEDIA MARGEM
+        'impressions', # IMPRESSOES
+        'spend', # VALOR USADO
+        'cpm', # CPM
+        'ctr', # CTR
+        'connect_rate', # CONNECT RATE
+        # df_ads_data['page_conversion'] = np.divide(df_ads_data[results_column], df_ads_data["actions.landing_page_view"], out=np.zeros_like(df_ads_data[results_column]), where=df_ads_data["actions.landing_page_view"]!=0) * 100, # CONVERSAO PAGINA
+        # , # options[patrimonio]
+        # , # options[renda_mensal]
+        # , # TAXA DE RESPOSTA
+    ]
 
     with st.expander("Dados finais"):
-        st.dataframe(df_teste)
+        st.dataframe(df_teste[columns_otimizacao])

@@ -21,12 +21,12 @@ if 'adaccounts' in st.session_state:
         new_pages = {
             "": [
                 st.Page("tools/0_ads_loader.py", title="ADs Loader", icon="📔", ),
-                # st.Page("tools/0_gold.py", title="G.O.L.D.", icon="🪙"),
+                st.Page("tools/0_gold.py", title="G.O.L.D.", icon="✨"),
                 st.Page("tools/1_dashboard.py", title="Dashboard", icon="📊"),
                 st.Page("tools/2_rankings.py", title="Rankings", icon="⭐"),
                 st.Page("tools/3_matrix.py", title="Matrix", icon="💊"),
                 st.Page("tools/4_image_analyzer.py", title="Image Analyzer", icon="🔍"),
-                st.Page("tools/5_loaded_ads.py", title="Loaded ADs", icon="🗂️"),
+                #st.Page("tools/5_loaded_ads.py", title="Loaded ADs", icon="🗂️"),
             ]
         }
     else:
