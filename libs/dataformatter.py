@@ -18,8 +18,9 @@ def add_ads_pack(unique_id, pack):
     ## SALVA DATAFRAME DO PACK
     st.session_state[f"{unique_id}_ads_data"] = ads_data.copy()
 
-    if not get_session_ads_data():
-        dfmerged_ads_data = pd.concat([st.session_state["ads_data"], ads_data], ignore_index=True, join="outer")
+    df_ads_data = get_session_ads_data()
+    if df_ads_data is not None:
+        dfmerged_ads_data = pd.concat([df_ads_data, ads_data], ignore_index=True, join="outer")
         st.session_state["ads_data"] = dfmerged_ads_data
         st.session_state["ads_original_data"] = dfmerged_ads_data
     else:

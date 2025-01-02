@@ -64,7 +64,7 @@ if df_ads_data is not None:
     def show_video_dialog(selected_row):
         st.subheader(selected_row['ad_name'])
         with st.spinner('Loading video, please wait...'):
-            if 'creative.video_id' in selected_row and 'creative.actor_id' != 0:
+            if 'creative.video_id' in selected_row and selected_row['creative.video_id'] != 0:
                 video_id = selected_row['creative.video_id']
                 actor_id = selected_row['creative.actor_id']
                 video_source_url = get_cached_video_source_url(video_id, actor_id)
@@ -87,9 +87,8 @@ if df_ads_data is not None:
                 else:
                     st.error("Couldn't load the video.\n\n Error: video_source_url is None")
             elif 'adcreatives_videos_ids':
-                video_id = selected_row['adcreatives_videos_ids'][0]
+                video_id = selected_row['adcreatives_videos_ids']
                 actor_id = selected_row['creative.actor_id']
-                print('video_id', video_id)
                 for video in video_id:
                     video_source_url = get_cached_video_source_url(video, actor_id)
                     if video_source_url is not None:
@@ -291,8 +290,9 @@ if df_ads_data is not None:
                                 </div>
                                 """, unsafe_allow_html=True)
                     with cols[1]:
-                        if st.button('Watch videoㅤ▶', type='primary', use_container_width=True):
-                            show_video_dialog(selected_row_data)
+                        if (selected_row_data['creative.video_id'] is not None and selected_row_data['creative.video_id'] != 0) or (selected_row_data['adcreatives_videos_ids'] is not None and len(selected_row_data['adcreatives_videos_ids']) > 0):
+                            if st.button('Watch videoㅤ▶', type='primary', use_container_width=True):
+                                show_video_dialog(selected_row_data)
 
                     ## MAIN METRICS
                     col2a, col2b, col2c = st.columns(3)
