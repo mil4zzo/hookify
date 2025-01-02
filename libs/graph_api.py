@@ -290,9 +290,7 @@ class GraphAPI:
                 error_code = http_err.response.json().get('error', {}).get('code')
                 error_message = literal_eval(decoded_text)['error']['message']
                 print(f"get_video_source_url() > HTTP error occurred: {http_err.response.status_code} {decoded_text} for URL: {decoded_url}")
-                if error_code == 190:
-                    return {'status': f"auth_error ({error_code})", 'message': error_message}
-                return {'status': f"http_error ({error_code})", 'message': error_message}
+                return {'status': f"Status: {http_err.response.status_code} - http_error ({error_code})", 'message': error_message}
             
             except Exception as err:
                 print(f"get_video_source_url() > Other error occurred: {err}")
