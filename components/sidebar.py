@@ -2,10 +2,12 @@ import pandas as pd
 import streamlit as st
 from ast import literal_eval
 
+from libs.session_manager import has_session_ads_data
+
 def render():
     st.logo('res/img/logo-hookify-alpha.png')
 
-    if "ads_data" in st.session_state and isinstance(st.session_state["ads_data"], pd.DataFrame):
+    if has_session_ads_data():
         with st.sidebar:
             with st.expander("🗂️ Loaded ADs"):
 

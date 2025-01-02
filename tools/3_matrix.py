@@ -6,6 +6,7 @@ import pandas as pd
 from components.advanced_options import AdvancedOptions
 
 from libs.dataformatter import aggregate_dataframe
+from libs.session_manager import get_session_access_token, get_session_ads_data
 from styles.styler import BLACK_100, BLACK_300, BLACK_400, BLACK_500, BLACK_700, BLUE_300, BLUE_500, GREEN_500, GREY_300, GREY_700
 
 # CRIA BARRA DE TITULO
@@ -18,7 +19,6 @@ with cols[1]:
         group_by_ad = st.toggle("Group ADs by name", value=True)
 
 st.divider()
-
 
 def build_matrix(df, cost_column, results_column):
 
@@ -204,15 +204,14 @@ def build_matrix(df, cost_column, results_column):
     fig.update_yaxes(range=[0, None])
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True})
 
-
 # SE JÁ TEM DADOS DE ANÚNCIOS
-if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame) and len(st.session_state['ads_data']) > 0:
+df_ads_data = get_session_ads_data()
+if df_ads_data is not None:
     
     # INICIALIZA API KEY E GRAPH API
-    api_key = st.session_state["access_token"]
+    api_key = get_session_access_token()
 
     # PREPARA DATASET
-    df_ads_data = st.session_state['ads_original_data'].copy()
     advanced_options = AdvancedOptions()
     advanced_options.build()
     options = advanced_options.apply_filters(df_ads_data)

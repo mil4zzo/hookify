@@ -1,3 +1,4 @@
+from ast import literal_eval
 import time
 from matplotlib.font_manager import json_load
 import requests
@@ -57,7 +58,7 @@ class GraphAPI:
             raise Exception(f"Page with ID {actor_id} not found")
         except requests.exceptions.RequestException as e:
             print(f"get_page_access_token() > Error getting page access token: {e}")
-            return None
+            raise Exception(f"get_page_access_token() > Error getting page access token: {e}")
         
     def get_ads_details(self, act_id, time_range, ads_ids):
         url = self.base_url + act_id + '/ads' + self.user_token
@@ -258,36 +259,41 @@ class GraphAPI:
         # elif source_type == 'adcreative':
         #     token = self.user_token
 
+        if actor_id is None or video_id is None:
+            st.error("Actor ID or Video ID is None")
+            raise Exception("Actor ID or Video ID is None")
+        else:
+            try:
+                # Busca VIDEO SOURCE URL
+                video_url = self.base_url + str(video_id) + self.get_page_access_token(actor_id)
+                video_payload = {
+                    'fields': 'source',
+                }
 
-        # Busca VIDEO SOURCE URL
-        video_url = self.base_url + video_id + self.get_page_access_token(actor_id)
-        video_payload = {
-            'fields': 'source',
-        }
+                # Debugging: Print the URL and payload
+                req = requests.Request('GET', video_url, params=video_payload)
+                prepared = req.prepare()
+                # Debugging: Print the exact URL
+                print('get_video_source_url() > Request URL:', prepared.url)
 
-        try:
-            # Debugging: Print the URL and payload
-            req = requests.Request('GET', video_url, params=video_payload)
-            prepared = req.prepare()
-            # Debugging: Print the exact URL
-            print('get_video_source_url() > Request URL:', prepared.url)
+                video_response = requests.get(video_url, params=video_payload)
+                video_response.raise_for_status()
+                video_source = video_response.json().get('source')
 
-            video_response = requests.get(video_url, params=video_payload)
-            video_response.raise_for_status()
-            video_source = video_response.json().get('source')
-
-            if video_source:
-                print('get_video_source_url() > Video source:', video_source)
-                return video_source
+                if video_source:
+                    print('get_video_source_url() > Video source:', video_source)
+                    return video_source
+                
+            except requests.exceptions.HTTPError as http_err:
+                decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
+                decoded_text = urllib.parse.unquote(http_err.response.text)
+                error_code = http_err.response.json().get('error', {}).get('code')
+                error_message = literal_eval(decoded_text)['error']['message']
+                print(f"get_video_source_url() > HTTP error occurred: {http_err.response.status_code} {decoded_text} for URL: {decoded_url}")
+                if error_code == 190:
+                    return {'status': f"auth_error ({error_code})", 'message': error_message}
+                return {'status': f"http_error ({error_code})", 'message': error_message}
             
-        except requests.exceptions.HTTPError as http_err:
-            decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
-            decoded_text = urllib.parse.unquote(http_err.response.text)
-            print(f"get_video_source_url() > HTTP error occurred: {http_err.response.status_code} {decoded_text} for URL: {decoded_url}")
-            if http_err.response.json().get('error', {}).get('code') == 190:
-                return {'status': 'auth_error', 'message': decoded_text}
-            return {'status': 'http_error', 'message': decoded_text}
-        
-        except Exception as err:
-            print(f"get_video_source_url() > Other error occurred: {err}")
-            return {'status': 'error', 'message': str(err)}
+            except Exception as err:
+                print(f"get_video_source_url() > Other error occurred: {err}")
+                return {'status': 'error', 'message': str(err)}

@@ -3,6 +3,7 @@ import streamlit as st
 import altair as alt
 from components.advanced_options import AdvancedOptions
 from libs.dataformatter import abbreviate_number, aggregate_dataframe
+from libs.session_manager import get_session_ads_data
 from styles.styler import COLORS
 
 ### INICIA INTERFACE ###
@@ -36,10 +37,11 @@ def build_retention_chart(video_play_curve_actions):
     )
     return st.altair_chart(play_curve_chart, use_container_width=True, theme=None)
 
-if 'ads_original_data' in st.session_state and isinstance(st.session_state['ads_original_data'], pd.DataFrame) and len(st.session_state['ads_data']) > 0:
+# SE JÁ TEM DADOS DE ANÚNCIOS
+df_ads_data = get_session_ads_data()
+if df_ads_data is not None:
 
     # PREPARA DATASET
-    df_ads_data = st.session_state['ads_original_data'].copy()
     advanced_options = AdvancedOptions()
     advanced_options.build()
     options = advanced_options.apply_filters(df_ads_data)

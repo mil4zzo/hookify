@@ -8,10 +8,10 @@ from libs.graph_api import GraphAPI
 from libs.dataformatter import add_ads_pack, format_ads_data, getInitials, remove_ads_pack
 from streamlit_extras.mandatory_date_range import date_range_picker
 
+from libs.session_manager import get_session_access_token, get_session_ads_data
+
 # Initialize ACCESS TOKEN (api_key)
-if "access_token" not in st.session_state:
-    st.session_state["access_token"] = None
-api_key = st.session_state["access_token"]
+api_key = get_session_access_token()
 
 if 'loaded_ads' not in st.session_state:
     st.session_state['loaded_ads'] = []
@@ -115,13 +115,14 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
                     add_ads_pack(unique_id, ads_data)
                     st.rerun()
                 elif ads_data == []:
-                    # st.session_state['ads_data'] = []
+                    st.session_state['ads_data'] = []
                     st.error(f'⛔ No ADs found with these filters.')
                 else:
                     st.error(f'😵‍💫 Failed to fetch data from Meta API: {ads_data}')
 
-        if 'ads_data' in st.session_state and len(st.session_state['ads_data']) > 0:
-            st.info(f"✅ {len(st.session_state['ads_data'])} ads ready and loaded.")
+        df_ads_data = get_session_ads_data()
+        if df_ads_data:
+            st.info(f"✅ {len(df_ads_data)} ads ready and loaded.")
 
     # Calculate number of rows needed
     num_items = len(st.session_state['loaded_ads'])

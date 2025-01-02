@@ -6,6 +6,7 @@ from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 from components.advanced_options import AdvancedOptions
 from libs.graph_api import GraphAPI
 from libs.dataformatter import aggregate_dataframe, create_agg_rules
+from libs.session_manager import get_session_access_token, get_session_ads_data
 from styles.styler import AGGRID_THEME, COLORS
 from components.components import component_adinfo, component_adinfo_byad
 
@@ -45,10 +46,11 @@ def build_retention_chart(video_play_curve_actions):
     return st.altair_chart(play_curve_chart, use_container_width=True, theme=None)
 
 # SE JÁ TEM DADOS DE ANÚNCIOS
-if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame) and len(st.session_state['ads_data']) > 0:
+df_ads_data = get_session_ads_data()
+if df_ads_data is not None:
 
     # INICIALIZA API KEY E GRAPH API
-    api_key = st.session_state["access_token"]
+    api_key = get_session_access_token()
     graph_api = GraphAPI(api_key)
 
     # BUSCA VIDEO SOURCE URL
@@ -62,28 +64,32 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
     def show_video_dialog(selected_row):
         st.subheader(selected_row['ad_name'])
         with st.spinner('Loading video, please wait...'):
-            if 'creative.video_id' in selected_row:
+            if 'creative.video_id' in selected_row and 'creative.actor_id' != 0:
                 video_id = selected_row['creative.video_id']
                 actor_id = selected_row['creative.actor_id']
                 video_source_url = get_cached_video_source_url(video_id, actor_id)
                 if video_source_url is not None:
-                    st.markdown(
-                        f"""<iframe
-                            width='100%'
-                            height='auto'
-                            style='border:none;border-radius:6px;overflow:hidden;aspect-ratio:9/16'
-                            src='{video_source_url}'
-                            allow='clipboard-write; encrypted-media; picture-in-picture; web-share'
-                            allowfullscreen='true'
-                            frameborder='0'
-                            scrolling='no'>
-                        </iframe>"""
-                    ,unsafe_allow_html=True)
+                    if 'status' not in video_source_url:
+                        st.markdown(
+                            f"""<iframe
+                                width='100%'
+                                height='auto'
+                                style='border:none;border-radius:6px;overflow:hidden;aspect-ratio:9/16'
+                                src='{video_source_url}'
+                                allow='clipboard-write; encrypted-media; picture-in-picture; web-share'
+                                allowfullscreen='true'
+                                frameborder='0'
+                                scrolling='no'>
+                            </iframe>"""
+                        ,unsafe_allow_html=True)
+                    else:
+                        st.error("Couldn't load the video.\n\n Error: " + video_source_url['status'] + '\n\n' + video_source_url['message'])
                 else:
-                    st.error('Falha ao carregar o vídeo')
+                    st.error("Couldn't load the video.\n\n Error: video_source_url is None")
             elif 'adcreatives_videos_ids':
-                video_id = selected_row['adcreatives_videos_ids']
+                video_id = selected_row['adcreatives_videos_ids'][0]
                 actor_id = selected_row['creative.actor_id']
+                print('video_id', video_id)
                 for video in video_id:
                     video_source_url = get_cached_video_source_url(video, actor_id)
                     if video_source_url is not None:
@@ -110,7 +116,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         return df_sorted
 
     # CRIA AGGRID
-    def create_aggrid(cost_column, results_column):
+    def create_aggrid(df_ads_data, cost_column, results_column):
         builder = GridOptionsBuilder.from_dataframe(df_ads_data[interest_columns])
         builder.configure_selection(selection_mode='single')
         builder.configure_grid_options(
@@ -188,7 +194,6 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
         )
 
     # PREPARA DATASET
-    df_ads_data = st.session_state['ads_original_data'].copy()
     advanced_options = AdvancedOptions()
     advanced_options.build()
 
@@ -256,7 +261,7 @@ if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], p
             df_ads_data = resort_by(df_ads_data, selected_column)
 
             # SETUP AGGRID
-            grid_response = create_aggrid(cost_column, results_column)
+            grid_response = create_aggrid(df_ads_data, cost_column, results_column)
 
             # INIT SELECTED ROW
             selected_row_data = None

@@ -2,12 +2,10 @@ import json
 import pandas as pd
 import streamlit as st
 
-# Initialize session state for access_token if not already initialized
-if 'access_token' not in st.session_state:
-    st.session_state['access_token'] = None
+from libs.session_manager import get_session_access_token, get_session_ads_data
 
-# Set api_key from session state
-api_key = st.session_state['access_token']
+# Initialize session state for access_token if not already initialized
+api_key = get_session_access_token()
 
 # CRIA BARRA DE TITULO
 cols = st.columns([2,1])
@@ -17,21 +15,20 @@ with cols[0]:
 
 st.divider()
 
-
-if 'ads_data' in st.session_state:
-    ads_data = st.session_state['ads_data']
-    if isinstance(ads_data, pd.DataFrame):
-        with st.expander('All existing columns'):
-            st.write(ads_data.columns)
-        with st.expander('All loaded ADs'):
-            st.dataframe(ads_data)
-        if 'raw_data' in st.session_state:
-            with st.expander('RAW data'):
-                st.dataframe(st.session_state['raw_data'])
-        with st.expander('JSON sample'):
-            json_string = json.dumps((ads_data.head(5).fillna('')).to_dict(orient='records'), ensure_ascii=False, default=str)
-            st.write(json_string)
-    else:
-        st.warning('🙅‍♂️ No ADs found with these filters.')
+df_ads_data = get_session_ads_data()
+if df_ads_data is not None:
+    
+    with st.expander('All existing columns'):
+        st.write(df_ads_data.columns)
+    with st.expander('All loaded ADs'):
+        st.dataframe(df_ads_data)
+    if 'raw_data' in st.session_state:
+        with st.expander('RAW data'):
+            st.dataframe(st.session_state['raw_data'])
+    with st.expander('JSON sample'):
+        json_string = json.dumps((df_ads_data.head(5).fillna('')).to_dict(orient='records'), ensure_ascii=False, default=str)
+        st.write(json_string)
+elif df_ads_data == []:
+    st.warning('🙅‍♂️ No ADs found with these filters.')
 else:
     st.warning('⬅️ First, load ADs in the sidebar.')

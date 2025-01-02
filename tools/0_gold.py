@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from components.advanced_options import AdvancedOptions
 from libs.gsheet_loader import K_CENTRAL_CAPTURA, K_CENTRAL_VENDAS, K_GRUPOS_WPP, K_PCOPY_DADOS, K_PTRAFEGO_DADOS, clear_df, get_df
+from libs.session_manager import get_session_ads_data, has_session_ads_data
 
 # TICKET LÍQUIDO
 TICKET_LIQUIDO = {
@@ -57,10 +58,8 @@ with loading_container:
 loading_container.empty()
 
 # SE JÁ TEM DADOS DE ANÚNCIOS
-if 'ads_data' in st.session_state and isinstance(st.session_state['ads_data'], pd.DataFrame):
-
-    # PREPARA DATASET
-    df_ads_data = st.session_state['ads_original_data'].copy()
+df_ads_data = get_session_ads_data()
+if df_ads_data is not None:
 
     df_ads_data["unique_id"] = df_ads_data["ad_name"] + "&" + df_ads_data["adset_name"]
     DF_PTRAFEGO_DADOS["unique_id"] = DF_PTRAFEGO_DADOS["UTM_TERM"] + "&" + DF_PTRAFEGO_DADOS["UTM_ADSET"]

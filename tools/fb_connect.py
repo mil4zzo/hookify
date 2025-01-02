@@ -3,12 +3,10 @@ import streamlit.components.v1 as components
 import requests
 from urllib.parse import urlencode
 from libs.graph_api import GraphAPI
+from libs.session_manager import get_session_access_token
 
 # Initialize session state for access_token if not already initialized
-if "access_token" not in st.session_state:
-    st.session_state["access_token"] = None
-# Set api_key from session state
-api_key = st.session_state["access_token"]
+api_key = get_session_access_token()
 
 # Configurações do Facebook
 client_id = '1013320407465551'

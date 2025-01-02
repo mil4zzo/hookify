@@ -1,5 +1,6 @@
 import streamlit as st
 from components import sidebar
+from libs.session_manager import get_session_access_token
 
 if 'adaccounts' in st.session_state:
     st.set_page_config(layout="wide")
@@ -7,9 +8,7 @@ else:
     st.set_page_config(layout="centered")
 
 # Initialize ACCESS TOKEN (api_key)
-if "access_token" not in st.session_state:
-    st.session_state["access_token"] = None
-api_key = st.session_state["access_token"]
+api_key = get_session_access_token()
 
 # LOAD CSS
 with open('styles/stStyles.css', 'r') as f:
