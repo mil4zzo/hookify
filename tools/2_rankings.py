@@ -307,7 +307,8 @@ if df_ads_data is not None:
                             st.metric(':black_circle_for_record: Plays', value=selected_row_data['total_plays'], delta='0')
 
                     ## GRÁFICO RETENÇÃO
-                    build_retention_chart(selected_row_data['video_play_curve_actions'])
+                    if selected_row_data['video_play_curve_actions'] is not None and isinstance(selected_row_data['video_play_curve_actions'], list):
+                        build_retention_chart(selected_row_data['video_play_curve_actions'])
 
                     ## MAIS DETALHES
                     with st.expander('More info'):
