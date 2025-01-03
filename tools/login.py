@@ -10,9 +10,9 @@ st.divider()
 
 with st.form('login', clear_on_submit=False):
     st.subheader('Login to your account')
-    input_email = st.text_input("✉️ Email", key="email")
+    input_email = st.text_input("✉️ Email", key="email", value="vm@hookify.com")
     error_email = st.empty()
-    input_pass = st.text_input("🔒 Password", type="password", key="password")
+    input_pass = st.text_input("🔒 Password", type="password", key="password", value="123456")
     error_pass = st.empty()
 
     submit_button = st.form_submit_button("Log in", type="primary", use_container_width=True)

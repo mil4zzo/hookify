@@ -38,7 +38,6 @@ def remove_ads_pack(item_index):
         st.session_state["ads_data"] = ads_data.copy()
         st.session_state["ads_original_data"] = ads_data.copy()
 
-
 # Função para transformar "object lists" em colunas
 def expand_conversions(row, columns):
     for column in columns:
