@@ -1,11 +1,12 @@
 from ast import literal_eval
-from enum import unique
+from datetime import datetime, timedelta
+from time import sleep
 import pandas as pd
 import streamlit as st
 from datetime import date
 from components.elements import bt_delete
 from libs.graph_api import GraphAPI
-from libs.dataformatter import add_ads_pack, format_ads_data, getInitials, remove_ads_pack
+from libs.dataformatter import add_ads_pack, format_ads_data, getInitials, remove_ads_pack, split_date_range
 from streamlit_extras.mandatory_date_range import date_range_picker
 
 from libs.session_manager import get_session_access_token, get_session_ads_data
@@ -99,30 +100,26 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
                     operator = st.selectbox(f'Operator', operator_options, key=f'operator_{filter_name}', label_visibility='collapsed')
                     value = st.text_input(f'Value', key=f'value_{filter_name}')
                     if value:
+                        filters.clear()
                         filters.append(construct_filter(filter_field, operator, value))
         create_filters()
 
         # CTA - GET ADs!
         if st.button('Get ADs!', type='primary', use_container_width=True):
             selected_act_id = adaccounts_list[selected_adaccount]
-            st.session_state['act_selected'] = selected_adaccount
-            st.session_state['time_range'] = time_range
-            st.session_state['filters'] = filters
             with st.spinner('Loading your ADs, please wait...'):
                 ads_data = cached_get_ads(api_key, selected_act_id, time_range, filters)
-                if ads_data:
+                if len(ads_data) > 0:
                     unique_id = f"{selected_adaccount}&{selected_act_id}&{time_range}&{filters}"
                     add_ads_pack(unique_id, ads_data)
+                    st.info(f"✅ {len(ads_data)} ads ready and loaded.")
+                    sleep(3)
                     st.rerun()
                 elif ads_data == []:
                     st.session_state['ads_data'] = []
                     st.error(f'⛔ No ADs found with these filters.')
                 else:
                     st.error(f'😵‍💫 Failed to fetch data from Meta API: {ads_data}')
-
-        df_ads_data = get_session_ads_data()
-        if df_ads_data:
-            st.info(f"✅ {len(df_ads_data)} ads ready and loaded.")
 
     # Calculate number of rows needed
     num_items = len(st.session_state['loaded_ads'])
@@ -169,26 +166,19 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
                             # COUNTS
                             st.dataframe(
                                 pd.DataFrame([{
-                                "Campaigns": df_pack_ads["campaign_name"].nunique(), 
-                                "Adsets": df_pack_ads["adset_name"].nunique(), 
-                                "ADs": len(df_pack_ads)
+                                "Campaigns": len(set(df_pack_ads["campaign_id"])), 
+                                "Adsets": len(set(df_pack_ads["adset_id"])), 
+                                "ADs": len(set(df_pack_ads["ad_id"]))
                             }]), hide_index=True, use_container_width=True )
 
-                            st.caption(F"{info[0]} ({info[1]})")
+                            #st.caption(F"{info[0]} ({info[1]})")
 
-                            # # AD ACCOUNT
-                            # cols_act = st.columns([1,3])
-                            # with cols_act[0]:
-                            #     st.caption("Account:")
-                            # with cols_act[1]:
-                            #     st.markdown(f"{info[0]}")
-
-                            # # AD ACCOUNT ID
-                            # cols_act_id = st.columns([1,3])
-                            # with cols_act_id[0]:
-                            #     st.caption("ID:")
-                            # with cols_act_id[1]:
-                            #     st.markdown(f"{info[1]}")
+                            # ACCOUNT
+                            cols_act = st.columns([1,3])
+                            with cols_act[0]:
+                                st.caption("Account:")
+                            with cols_act[1]:
+                                st.markdown(f"{info[0]} :gray[({info[1]})]")
 
                             # TIME RANGE
                             item_time_range = literal_eval(info[2])
@@ -208,3 +198,11 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
                                     st.markdown("\n".join(f'{str(filter["field"].split(".")[0]).capitalize()} *:gray[{str(filter["operator"]).lower()}]* **{filter["value"]}**' for filter in item_filters))
                                 else:
                                     st.caption("None")
+
+                            # SPENT
+                            extra_data = st.columns([1,3])
+                            with extra_data[0]:
+                                st.caption("Total spent:")
+                            with extra_data[1]:
+                                    st.markdown("$ " + "{:,.2f}".format(df_pack_ads["spend"].sum()))
+                            

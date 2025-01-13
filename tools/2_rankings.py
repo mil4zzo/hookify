@@ -7,6 +7,7 @@ from components.advanced_options import AdvancedOptions
 from libs.graph_api import GraphAPI
 from libs.dataformatter import aggregate_dataframe, create_agg_rules
 from libs.session_manager import get_session_access_token, get_session_ads_data
+from libs.utils import show_video_dialog
 from styles.styler import AGGRID_THEME, COLORS
 from components.components import component_adinfo, component_adinfo_byad
 
@@ -52,60 +53,6 @@ if df_ads_data is not None:
     # INICIALIZA API KEY E GRAPH API
     api_key = get_session_access_token()
     graph_api = GraphAPI(api_key)
-
-    # BUSCA VIDEO SOURCE URL
-    @st.cache_data(show_spinner=False)
-    def get_cached_video_source_url(video_id, actor_id):
-        response = graph_api.get_video_source_url(video_id, actor_id)
-        return response
-
-    # DIALOG PREVIEW VIDEO
-    @st.dialog("AD preview")
-    def show_video_dialog(selected_row):
-        st.subheader(selected_row['ad_name'])
-        with st.spinner('Loading video, please wait...'):
-            if 'creative.video_id' in selected_row and selected_row['creative.video_id'] != 0:
-                video_id = selected_row['creative.video_id']
-                actor_id = selected_row['creative.actor_id']
-                video_source_url = get_cached_video_source_url(video_id, actor_id)
-                if video_source_url is not None:
-                    if 'status' not in video_source_url:
-                        st.markdown(
-                            f"""<iframe
-                                width='100%'
-                                height='auto'
-                                style='border:none;border-radius:6px;overflow:hidden;aspect-ratio:9/16'
-                                src='{video_source_url}'
-                                allow='clipboard-write; encrypted-media; picture-in-picture; web-share'
-                                allowfullscreen='true'
-                                frameborder='0'
-                                scrolling='no'>
-                            </iframe>"""
-                        ,unsafe_allow_html=True)
-                    else:
-                        st.error("Couldn't load the video.\n\n Error: " + video_source_url['status'] + '\n\n' + video_source_url['message'])
-                else:
-                    st.error("Couldn't load the video.\n\n Error: video_source_url is None")
-            elif 'adcreatives_videos_ids':
-                video_id = selected_row['adcreatives_videos_ids']
-                actor_id = selected_row['creative.actor_id']
-                for video in video_id:
-                    video_source_url = get_cached_video_source_url(video, actor_id)
-                    if video_source_url is not None:
-                        st.markdown(
-                            f"""<iframe
-                                width='100%'
-                                height='auto'
-                                style='border:none;border-radius:6px;overflow:hidden;aspect-ratio:9/16'
-                                src='{video_source_url}'
-                                allow='clipboard-write; encrypted-media; picture-in-picture; web-share'
-                                allowfullscreen='true'
-                                frameborder='0'
-                                scrolling='no'>
-                            </iframe>"""
-                        ,unsafe_allow_html=True)
-                    else:
-                        st.error('Falha ao carregar o vídeo')
 
     # SORT AGGRID
     def resort_by(df, column_name):
@@ -290,8 +237,11 @@ if df_ads_data is not None:
                                 </div>
                                 """, unsafe_allow_html=True)
                     with cols[1]:
-                        if (selected_row_data['creative.video_id'] is not None and selected_row_data['creative.video_id'] != 0) or (selected_row_data['adcreatives_videos_ids'] is not None and len(selected_row_data['adcreatives_videos_ids']) > 0):
+                        if ('creative.video_id' in selected_row_data and selected_row_data['creative.video_id'] is not None and selected_row_data['creative.video_id'] != 0) or ('adcreatives_videos_ids' in selected_row_data and selected_row_data['adcreatives_videos_ids'] is not None and len(selected_row_data['adcreatives_videos_ids']) > 0):
                             if st.button('Watch videoㅤ▶', type='primary', use_container_width=True):
+                                show_video_dialog(selected_row_data)
+                        else:
+                            if st.button('Open imageㅤ▶', type='primary', use_container_width=True):
                                 show_video_dialog(selected_row_data)
 
                     ## MAIN METRICS

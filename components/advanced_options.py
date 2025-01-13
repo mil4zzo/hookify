@@ -91,9 +91,9 @@ class AdvancedOptions:
                         with cols[1]:
                             filter_min_impressions = st.number_input("Minimum Impressions", 
                                                         min_value=0,
-                                                        step=100,
+                                                        step=500,
                                                         label_visibility='collapsed',
-                                                        value=st.session_state.filter_values['min_impressions'] if 'filter_values' in st.session_state and st.session_state.filter_values['min_impressions'] != 0 else 3000,
+                                                        value=st.session_state.filter_values['min_impressions'] if 'filter_values' in st.session_state else 3000,
                                                         key='temp_min_impressions')
                         cols = st.columns([1,2], gap='small')
                         with cols[0]:
@@ -103,7 +103,7 @@ class AdvancedOptions:
                                                         min_value=0, max_value=2000, 
                                                         step=5, 
                                                         label_visibility='collapsed',
-                                                        value=st.session_state.filter_values['min_spend'] if 'filter_values' in st.session_state and st.session_state.filter_values['min_spend'] != 0 else 25,
+                                                        value=st.session_state.filter_values['min_spend'] if 'filter_values' in st.session_state else 0,
                                                         key='temp_min_spend')
                             
                 submitted = st.form_submit_button('Apply filters', type='primary', use_container_width=True)

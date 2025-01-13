@@ -1,10 +1,12 @@
 from ast import literal_eval
 import time
-from matplotlib.font_manager import json_load
 import requests
 import json
 import urllib.parse
 import streamlit as st
+from libs.dataformatter import split_date_range, timer_decorator
+
+from libs.session_manager import get_session_access_token
 
 class GraphAPI:
     def __init__(self, fb_api):
@@ -12,9 +14,9 @@ class GraphAPI:
         self.user_token = "?access_token=" + fb_api
         self.page_token = None
         self.api_fields = ""
-        self.limit = 2000
+        self.limit = 5000
         self.time_range = ""
-        self.filtering = "[{'field':'video_play_actions', 'operator':'GREATER_THAN', 'value':0}]"
+        self.filtering = ""
         self.level = "ad"
         self.action_attribution_windows = "['7d_click','1d_view']"
         self.use_account_attribution_setting = "true"
@@ -119,146 +121,191 @@ class GraphAPI:
             print(f'get_adaccounts() > Other error occurred: {err}')  # Handle other errors
             return {'status': 'error', 'message': str(err)}
 
+    @timer_decorator
     def get_ads(self, act_id, time_range, filters):
-        progressBar = st.progress(0, 'get_ads() > Getting ads...')
+        # INIT PROGRESS
+        current_progress = 0
+        progressBar = st.progress(current_progress, 'get_ads() > Initializing...')
+
+        # INIT DATE RANGE VARS
+        total_data = []
+        chunks_date_range = split_date_range(literal_eval(time_range), max_days=7)
+        current_chunk = 1
+        total_chunks = len(chunks_date_range)
+
+        # PREPARA DADOS DA REQUISIÇÃO
         url = self.base_url + act_id + '/insights' + self.user_token
-        #filters.append("{'field': 'video_play_actions', 'operator': 'GREATER_THAN', 'value': '0'}")
-        #filters.append("{'field': 'ad_name', 'operator': 'GREATER_THAN', 'value': '0'}")
         json_filters = [json.dumps(filter_dict) for filter_dict in filters]
-        payload = {
-            'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,website_ctr',
-            'limit': self.limit,
-            'level': self.level,
-            'action_attribution_windows': self.action_attribution_windows,
-            'use_account_attribution_setting': self.use_account_attribution_setting,
-            'action_breakdowns': self.action_breakdowns,
-            'time_range': time_range if time_range else self.time_range,
-            'filtering': '[' + ','.join(json_filters) + ']' if filters else '',
-        }
+            
+        # PARA CADA DATE RANGE DE (7 DIAS MÁX)
+        for dates in chunks_date_range:
 
-        try:
-            # Debugging: Print the URL and payload
-            print('get_ads() > Request URL:', url)
-            print('get_ads() > Request Payload:', json.dumps(payload, indent=2))
-            response = requests.post(url, params=payload)
-            print('get_ads() > request_url:', response.url)
-            response.raise_for_status()  # Check for HTTP errors
-            ad_report_id = response.json().get('report_run_id')
-            print('get_ads() > Current AD_REPORT_ID:', ad_report_id)
+            #🔄️ SET PROGRESS
+            current_progress = 0
+            progressBar.progress(current_progress, f"get_ads() > Loading week {current_chunk} of {total_chunks}...")
+
+            # PREPARA DADOS DA REQUISIÇÃO
+            payload = {
+                'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,website_ctr',
+                'limit': self.limit,
+                'level': self.level,
+                'action_attribution_windows': self.action_attribution_windows,
+                'use_account_attribution_setting': self.use_account_attribution_setting,
+                'action_breakdowns': self.action_breakdowns,
+                'time_range': json.dumps(dates) if dates else self.time_range,
+                'filtering': '[' + ','.join(json_filters) + ']' if filters else '',
+            }
             
-            if not ad_report_id:
-                print('get_ads() > Failed to get ad_report_id')
-                progressBar.error('Failed to get ad_report_id')
-                return None
-            
-            # Polling for job completion
-            status_url = self.base_url + ad_report_id
-            while True:
-                status_response = requests.get(status_url + self.user_token)
-                status_response.raise_for_status()
-                status_data = status_response.json()
+            # --- ETAPA 1: BUSCAR MÉTRICAS PRINCIPAIS DOS ANÚNCIOS
+            try:
+                ## ENVIAR REQUISIÇÃO
+                print('get_ads() > Request URL:', url)
+                print('get_ads() > Request Payload:', json.dumps(payload, indent=2))
+                response = requests.post(url, params=payload)
+                print('get_ads() > request_url:', response.url)
+                response.raise_for_status()  # Check for HTTP errors
+                ad_report_id = response.json().get('report_run_id')
+                print('get_ads() > Current AD_REPORT_ID:', ad_report_id)
+
+                #🔄️ SET PROGRESS
+                current_progress = 5
+                progressBar.progress(current_progress, f"get_ads() > Getting ads... (week {current_chunk} of {total_chunks})")
                 
-                print(f"get_ads() > {ad_report_id} STATUS", status_data['async_status'])
-                print(f"get_ads() > {ad_report_id} PERCENT", status_data['async_percent_completion'])
-
-                loading_status = status_data['async_status']
-                loading_progress_value = status_data['async_percent_completion']
-                progressBar.progress(loading_progress_value/125, 'get_ads() > Waiting Meta data...')
-
-                if loading_status == 'Job Completed' and loading_progress_value == 100:
-                    break
+                ## SE DER ERRO NA REQUISIÇÃO
+                if not ad_report_id:
+                    print('get_ads() > Failed to get ad_report_id')
+                    progressBar.error('Failed to get ad_report_id')
+                    return None
                 
-                time.sleep(5)  # Wait before polling again
-            
-            # Fetch insights
-            insights_url = self.base_url + ad_report_id + '/insights' + self.user_token
-            insights_response = requests.get(insights_url)
-            insights_response.raise_for_status()
-            data = insights_response.json()['data']
+                ## VERIFICANDO STATUS DA REQUISIÇÃO
+                status_url = self.base_url + ad_report_id
+                while True:
+                    status_response = requests.get(status_url + self.user_token)
+                    status_response.raise_for_status()
+                    status_data = status_response.json()
+                    
+                    print(f"get_ads() > {ad_report_id} STATUS", status_data['async_status'])
+                    print(f"get_ads() > {ad_report_id} PERCENT", status_data['async_percent_completion'])
 
-            while 'paging' in insights_response.json() and 'next' in insights_response.json()['paging']:
-                progressBar.progress(85, 'get_ads() > Paginating...')
-                insights_response = requests.get(insights_response.json()['paging']['next'])
+                    loading_status = status_data['async_status']
+                    loading_progress_value = status_data['async_percent_completion']
+
+                    #🔄️ SET PROGRESS
+                    current_progress = (5 + loading_progress_value/200) ### DELTA = 80 (varia de 5 à 55)
+                    progressBar.progress(current_progress, f"get_ads() > Waiting Meta data... (week {current_chunk} of {total_chunks})")
+
+                    ### REQUISIÇÃO COMPLETA => QUEBRANDO CICLO
+                    if loading_status == 'Job Completed' and loading_progress_value == 100:
+                        break
+                    time.sleep(5)  ### DELAY PARA TENTAR NOVAMENTE
+                
+                ## BUSCA DADOS RESULTADOS DA REQUISIÇÃO
+                insights_url = self.base_url + ad_report_id + '/insights' + self.user_token + '&limit=500'
+                insights_response = requests.get(insights_url)
                 insights_response.raise_for_status()
-                data.extend(insights_response.json()['data'])
+                data = insights_response.json()['data']
+
+                ## PAGINA RESULTADOS, ACUMULANDO DADOS EM 'data'
+                while 'paging' in insights_response.json() and 'next' in insights_response.json()['paging']:
+                    #🔄️ SET PROGRESS
+                    current_progress = 60
+                    progressBar.progress(current_progress, f"get_ads() > Paginating... (week {current_chunk} of {total_chunks})")
+
+                    insights_response = requests.get(insights_response.json()['paging']['next'])
+                    insights_response.raise_for_status()
+                    data.extend(insights_response.json()['data'])
+
+                ## CASO NÃO ENCONTRE NENHUM AD
+                if not data or len(data) == 0:
+                    progressBar.progress(100, 'No ads found with these filters')
+                    return []
 
 
-            # Create a set of unique ad_name
-            unique_ads = {}
+                # --- ETAPA 2: BUSCAR DETALHES DOS ANÚNCIOS
 
-            # Iterate over the list of ads
-            for ad in data:
-                ad_name = ad["ad_name"]
-                ad_id = ad["ad_id"]
-                
-                # If ad_name is not already in the dictionary, add it with its id
-                if ad_name not in unique_ads:
-                    unique_ads[ad_name] = ad_id
-
-            # Convert the unique ads to a list of ids
-            unique_ids = list(unique_ads.values())
-
-            # Get details for unique ads
-            progressBar.progress(90, 'get_ads() > Collecting ads details...')
-            ads_details = self.get_ads_details(act_id, time_range, unique_ids)
-            print('got ads_details')
-
-            if ads_details is not None:
-                print('ads_details is not None')
-                # Create a dictionary of ad details
-                creative_list = {detail['name']: detail['creative'] for detail in ads_details}
-                videos_list = {
-                    detail['name']: detail['adcreatives']['data'][0]['asset_feed_spec']['videos']
-                    for detail in ads_details
-                    if 'asset_feed_spec' in detail['adcreatives']['data'][0] and 'videos' in detail['adcreatives']['data'][0]['asset_feed_spec']
-                }
-
-                print(f'creative list {creative_list}')
-                print(f'video list {videos_list}')
-
-                # Update data with creative details
+                ## CRIA DICT DE ANÚNCIOS ÚNICOS {ad_name: ad_id}
+                unique_ads = {}
                 for ad in data:
-                    progressBar.text('get_ads() > Mixing everything up...')
-                    #print(f'ad {ad['ad_name']}: start')
-                    ad['creative'] = creative_list.get(ad['ad_name'], None)
-                    adcreatives = videos_list.get(ad['ad_name'], None)
-                    video_ids = []
-                    video_thumbs = []
-                    # print(f'ad {ad_name}: ad["creative"] = {ad.creative} ')
-                    # print(f'ad {ad_name}: adcreatives = {adcreatives} ')
-                    if adcreatives is not None:
-                        for video in adcreatives:
-                            video_ids.append(video.get('video_id'))
-                            video_thumbs.append(video.get('thumbnail_url'))
-                            # print(f'ad {ad_name}: video_ids.append {video.get('video_id')}')
-                            # print(f'ad {ad_name}: video_thumbs.append {video.get('thumbnail_url')}')
-                    ad['adcreatives_videos_ids'] = video_ids
-                    ad['adcreatives_videos_thumbs'] = video_thumbs
-                    #print(f'ad {ad['ad_name']}: finish ad["creative"] = {ad['creative']} ')
-                    #print(f'ad {ad['ad_name']}: finish adcreatives = {adcreatives} ')
+                    ad_name = ad["ad_name"]
+                    ad_id = ad["ad_id"]
+                    ### SE AINDA NÃO EXISTE NO UNIQUE ADS
+                    if ad_name not in unique_ads:
+                        ### ADICIONA AO UNIQUE ADS
+                        unique_ads[ad_name] = ad_id
 
-                    progressBar.progress(100, 'get_ads() > Sucessfully loaded!')
+                ## CRIA LISTA DE IDs ÚNICOS
+                unique_ids = list(unique_ads.values())
 
-            return data
-        
-        except requests.exceptions.HTTPError as http_err:
-            decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
-            decoded_text = urllib.parse.unquote(http_err.response.text)
-            print(f"get_ads() > HTTP error occurred: {http_err.response.status_code} {decoded_text} \n\nfor URL: {decoded_url}")  # Handle HTTP errors
-            return decoded_text
-        except Exception as err:
-            print(f"get_ads() > Other error occurred: {err} or {err.args}")  # Handle other errors
-            return None
+                #🔄️ SET PROGRESS
+                current_progress = 75
+                progressBar.progress(current_progress, f"get_ads() > Collecting ads details... (week {current_chunk} of {total_chunks})")
+
+                ## FAZ REQUEST BUSCANDO DETALHES DOS ANÚNCIOS
+                ads_details = self.get_ads_details(act_id, time_range, unique_ids)
+
+                ## SE DETALHES FORAM ENCONTRADOS
+                if ads_details is not None:
+                    ## CRIA LISTA DE 'ad.creative'
+                    creative_list = {detail['name']: detail['creative'] for detail in ads_details}
+                    ## CRIA LISTA DE 'adcreatives.data.asset_feed_spec.videos'
+                    videos_list = {
+                        detail['name']: detail['adcreatives']['data'][0]['asset_feed_spec']['videos']
+                        for detail in ads_details
+                        if 'asset_feed_spec' in detail['adcreatives']['data'][0] and 'videos' in detail['adcreatives']['data'][0]['asset_feed_spec']
+                    }
+
+                    ## ATUALIZA CADA ANÚNCIO EM 'data' COM SEUS DETALHES
+                    for ad in data:
+                        #🔄️ SET PROGRESS
+                        current_progress = 90
+                        progressBar.progress(current_progress, f"get_ads() > Matching ads details... (week {current_chunk} of {total_chunks})")
+                        
+                        ### CRIA COLUNA 'creative' COM 'ad.creative'
+                        ad['creative'] = creative_list.get(ad['ad_name'], None)
+
+                        ### BUSCA INFORMAÇÕES RELEVANTES DE 'adcreatives' (aka 'adcreatives.asset_feed_spec.videos' content)
+                        adcreatives = videos_list.get(ad['ad_name'], None)
+                        video_ids = []
+                        video_thumbs = []
+                        if adcreatives is not None:
+                            for video in adcreatives:
+                                video_ids.append(video.get('video_id'))
+                                video_thumbs.append(video.get('thumbnail_url'))
+
+                        ### CRIA COLUNA 'adcreatives_videos_ids' COM 'adcreatives.data.asset_feed_spec.videos.video_id'
+                        ad['adcreatives_videos_ids'] = video_ids
+
+                        ### CRIA COLUNA 'adcreatives_videos_thumbs' COM 'adcreatives.data.asset_feed_spec.videos.thumbnail_url'
+                        ad['adcreatives_videos_thumbs'] = video_thumbs
+                        
+                        ### SET PROGRESS
+                        progressBar.progress(100, 'get_ads() > Sucessfully loaded!')
+
+
+                #🔄️ SET PROGRESS
+                current_progress = 100
+                progressBar.progress(current_progress, f"get_ads() > Sucessfully loaded! (week {current_chunk} of {total_chunks})")
+                current_chunk += 1
+
+                # --- ETAPA 3: AGREGA RESULTADOS (anúncios + detalhes) EM 'total_data'
+                total_data.extend(data)
+
+            except requests.exceptions.HTTPError as http_err:
+                decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
+                decoded_text = urllib.parse.unquote(http_err.response.text)
+                print(f"get_ads() > HTTP error occurred: {http_err.response.status_code} {decoded_text} \n\nfor URL: {decoded_url}")  # Handle HTTP errors
+                return decoded_text
+            except Exception as err:
+                decoded_url = urllib.parse.unquote(err.request.url) # type: ignore
+                decoded_text = err.args
+                print(f"get_ads() > Other error occurred: {err} or {err.args}")
+                return decoded_text
+
+        # RETORNA RESULTADOS
+        return total_data
 
     ## GET VIDEO SOURCE URL
     def get_video_source_url(self, video_id, actor_id):       
-
-        # token = None
-        # if source_type == 'creative':
-        #     token = self.user_token
-        # elif source_type == 'adcreative':
-        #     token = self.user_token
-
         if actor_id is None or video_id is None:
             st.error("Actor ID or Video ID is None")
             raise Exception("Actor ID or Video ID is None")
@@ -295,3 +342,12 @@ class GraphAPI:
             except Exception as err:
                 print(f"get_video_source_url() > Other error occurred: {err}")
                 return {'status': 'error', 'message': str(err)}
+            
+# BUSCA VIDEO SOURCE URL
+@st.cache_data(show_spinner=False)
+def get_cached_video_source_url(video_id, actor_id):
+    # INICIALIZA API KEY E GRAPH API
+    api_key = get_session_access_token()
+    graph_api = GraphAPI(api_key)
+    response = graph_api.get_video_source_url(video_id, actor_id)
+    return response

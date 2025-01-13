@@ -1,22 +1,38 @@
-from enum import unique
+from datetime import datetime, timedelta
+from functools import wraps
+import time
 import streamlit as st
 import pandas as pd
 import numpy as np
 
 from libs.session_manager import get_session_ads_data
 
+def timer_decorator(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        print(f"{func.__name__} took {end_time - start_time:.4f} seconds to run")
+        return result
+    return wrapper
+
 def add_ads_pack(unique_id, pack):
+    print("add_ads_pack() > pack len", len(pack))
     ## FORMATA NO PADRÃO UNIVERSAL
     ads_data = format_ads_data(pack)
     ## MARCA O PACK COM O UNIQUE_ID
     ads_data["from_pack"] = unique_id
 
+    print("add_ads_pack() > formatted ads pack len", len(ads_data))
     ## REGISTRA PACK INDIVIDUAL
     if "loaded_ads" not in st.session_state:
         st.session_state["loaded_ads"] = []
     st.session_state["loaded_ads"].append(unique_id)
     ## SALVA DATAFRAME DO PACK
     st.session_state[f"{unique_id}_ads_data"] = ads_data.copy()
+    st.write()
+    print(f"add_ads_pack() > pack {unique_id} has {len(ads_data)} ads")
 
     df_ads_data = get_session_ads_data()
     if df_ads_data is not None:
@@ -218,3 +234,32 @@ def getInitials(s):
     else:
         initials = name_parts[0][0]
     return initials
+
+def split_date_range(date_range: dict, max_days: int = 7):
+    # Parse the dates
+    start_date = datetime.strptime(date_range["since"], "%Y-%m-%d")
+    end_date = datetime.strptime(date_range["until"], "%Y-%m-%d")
+    
+    # List to store all date ranges
+    date_ranges = []
+    
+    # Current date pointer
+    current_date = start_date
+    
+    while current_date < end_date:
+        # Calculate the chunk end date
+        chunk_end = min(
+            current_date + timedelta(days=max_days - 1),  # -1 because we want inclusive ranges
+            end_date
+        )
+        
+        # Add the date range chunk
+        date_ranges.append({
+            "since": current_date.strftime("%Y-%m-%d"),
+            "until": chunk_end.strftime("%Y-%m-%d")
+        })
+        
+        # Move to next chunk
+        current_date = chunk_end + timedelta(days=1)
+    
+    return date_ranges

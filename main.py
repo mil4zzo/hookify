@@ -25,7 +25,7 @@ if 'adaccounts' in st.session_state:
                 st.Page("tools/2_rankings.py", title="Rankings", icon="⭐"),
                 st.Page("tools/3_matrix.py", title="Matrix", icon="💊"),
                 st.Page("tools/4_image_analyzer.py", title="Image Analyzer", icon="🔍"),
-                #st.Page("tools/5_loaded_ads.py", title="Loaded ADs", icon="🗂️"),
+                st.Page("tools/5_loaded_ads.py", title="Loaded ADs", icon="🗂️"),
             ]
         }
     else:
