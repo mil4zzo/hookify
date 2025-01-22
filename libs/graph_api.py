@@ -168,7 +168,7 @@ class GraphAPI:
                 print('get_ads() > Current AD_REPORT_ID:', ad_report_id)
 
                 #🔄️ SET PROGRESS
-                current_progress = 5
+                current_progress = 0.05
                 progressBar.progress(current_progress, f"get_ads() > Getting ads... (week {current_chunk} of {total_chunks})")
                 
                 ## SE DER ERRO NA REQUISIÇÃO
@@ -191,7 +191,7 @@ class GraphAPI:
                     loading_progress_value = status_data['async_percent_completion']
 
                     #🔄️ SET PROGRESS
-                    current_progress = (5 + loading_progress_value/200) ### DELTA = 80 (varia de 5 à 55)
+                    current_progress = (0.05 + loading_progress_value/200) ### DELTA = 80 (varia de 5 à 55)
                     progressBar.progress(current_progress, f"get_ads() > Waiting Meta data... (week {current_chunk} of {total_chunks})")
 
                     ### REQUISIÇÃO COMPLETA => QUEBRANDO CICLO
@@ -208,7 +208,7 @@ class GraphAPI:
                 ## PAGINA RESULTADOS, ACUMULANDO DADOS EM 'data'
                 while 'paging' in insights_response.json() and 'next' in insights_response.json()['paging']:
                     #🔄️ SET PROGRESS
-                    current_progress = 60
+                    current_progress = 0.60
                     progressBar.progress(current_progress, f"get_ads() > Paginating... (week {current_chunk} of {total_chunks})")
 
                     insights_response = requests.get(insights_response.json()['paging']['next'])
@@ -237,7 +237,7 @@ class GraphAPI:
                 unique_ids = list(unique_ads.values())
 
                 #🔄️ SET PROGRESS
-                current_progress = 75
+                current_progress = 0.75
                 progressBar.progress(current_progress, f"get_ads() > Collecting ads details... (week {current_chunk} of {total_chunks})")
 
                 ## FAZ REQUEST BUSCANDO DETALHES DOS ANÚNCIOS
@@ -257,7 +257,7 @@ class GraphAPI:
                     ## ATUALIZA CADA ANÚNCIO EM 'data' COM SEUS DETALHES
                     for ad in data:
                         #🔄️ SET PROGRESS
-                        current_progress = 90
+                        current_progress = 0.90
                         progressBar.progress(current_progress, f"get_ads() > Matching ads details... (week {current_chunk} of {total_chunks})")
                         
                         ### CRIA COLUNA 'creative' COM 'ad.creative'
@@ -283,7 +283,7 @@ class GraphAPI:
 
 
                 #🔄️ SET PROGRESS
-                current_progress = 100
+                current_progress = 1.00
                 progressBar.progress(current_progress, f"get_ads() > Sucessfully loaded! (week {current_chunk} of {total_chunks})")
                 current_chunk += 1
 
