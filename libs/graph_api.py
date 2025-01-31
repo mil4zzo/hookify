@@ -216,79 +216,75 @@ class GraphAPI:
                     data.extend(insights_response.json()['data'])
 
                 ## CASO NÃO ENCONTRE NENHUM AD
-                if not data or len(data) == 0:
-                    progressBar.progress(100, 'No ads found with these filters')
-                    return []
+                if data and len(data) > 0:
+                    # --- ETAPA 2: BUSCAR DETALHES DOS ANÚNCIOS
 
-
-                # --- ETAPA 2: BUSCAR DETALHES DOS ANÚNCIOS
-
-                ## CRIA DICT DE ANÚNCIOS ÚNICOS {ad_name: ad_id}
-                unique_ads = {}
-                for ad in data:
-                    ad_name = ad["ad_name"]
-                    ad_id = ad["ad_id"]
-                    ### SE AINDA NÃO EXISTE NO UNIQUE ADS
-                    if ad_name not in unique_ads:
-                        ### ADICIONA AO UNIQUE ADS
-                        unique_ads[ad_name] = ad_id
-
-                ## CRIA LISTA DE IDs ÚNICOS
-                unique_ids = list(unique_ads.values())
-
-                #🔄️ SET PROGRESS
-                current_progress = 0.75
-                progressBar.progress(current_progress, f"get_ads() > Collecting ads details... (week {current_chunk} of {total_chunks})")
-
-                ## FAZ REQUEST BUSCANDO DETALHES DOS ANÚNCIOS
-                ads_details = self.get_ads_details(act_id, time_range, unique_ids)
-
-                ## SE DETALHES FORAM ENCONTRADOS
-                if ads_details is not None:
-                    ## CRIA LISTA DE 'ad.creative'
-                    creative_list = {detail['name']: detail['creative'] for detail in ads_details}
-                    ## CRIA LISTA DE 'adcreatives.data.asset_feed_spec.videos'
-                    videos_list = {
-                        detail['name']: detail['adcreatives']['data'][0]['asset_feed_spec']['videos']
-                        for detail in ads_details
-                        if 'asset_feed_spec' in detail['adcreatives']['data'][0] and 'videos' in detail['adcreatives']['data'][0]['asset_feed_spec']
-                    }
-
-                    ## ATUALIZA CADA ANÚNCIO EM 'data' COM SEUS DETALHES
+                    ## CRIA DICT DE ANÚNCIOS ÚNICOS {ad_name: ad_id}
+                    unique_ads = {}
                     for ad in data:
-                        #🔄️ SET PROGRESS
-                        current_progress = 0.90
-                        progressBar.progress(current_progress, f"get_ads() > Matching ads details... (week {current_chunk} of {total_chunks})")
-                        
-                        ### CRIA COLUNA 'creative' COM 'ad.creative'
-                        ad['creative'] = creative_list.get(ad['ad_name'], None)
+                        ad_name = ad["ad_name"]
+                        ad_id = ad["ad_id"]
+                        ### SE AINDA NÃO EXISTE NO UNIQUE ADS
+                        if ad_name not in unique_ads:
+                            ### ADICIONA AO UNIQUE ADS
+                            unique_ads[ad_name] = ad_id
 
-                        ### BUSCA INFORMAÇÕES RELEVANTES DE 'adcreatives' (aka 'adcreatives.asset_feed_spec.videos' content)
-                        adcreatives = videos_list.get(ad['ad_name'], None)
-                        video_ids = []
-                        video_thumbs = []
-                        if adcreatives is not None:
-                            for video in adcreatives:
-                                video_ids.append(video.get('video_id'))
-                                video_thumbs.append(video.get('thumbnail_url'))
+                    ## CRIA LISTA DE IDs ÚNICOS
+                    unique_ids = list(unique_ads.values())
 
-                        ### CRIA COLUNA 'adcreatives_videos_ids' COM 'adcreatives.data.asset_feed_spec.videos.video_id'
-                        ad['adcreatives_videos_ids'] = video_ids
+                    #🔄️ SET PROGRESS
+                    current_progress = 0.75
+                    progressBar.progress(current_progress, f"get_ads() > Collecting ads details... (week {current_chunk} of {total_chunks})")
 
-                        ### CRIA COLUNA 'adcreatives_videos_thumbs' COM 'adcreatives.data.asset_feed_spec.videos.thumbnail_url'
-                        ad['adcreatives_videos_thumbs'] = video_thumbs
-                        
-                        ### SET PROGRESS
-                        progressBar.progress(100, 'get_ads() > Sucessfully loaded!')
+                    ## FAZ REQUEST BUSCANDO DETALHES DOS ANÚNCIOS
+                    ads_details = self.get_ads_details(act_id, time_range, unique_ids)
+
+                    ## SE DETALHES FORAM ENCONTRADOS
+                    if ads_details is not None:
+                        ## CRIA LISTA DE 'ad.creative'
+                        creative_list = {detail['name']: detail['creative'] for detail in ads_details}
+                        ## CRIA LISTA DE 'adcreatives.data.asset_feed_spec.videos'
+                        videos_list = {
+                            detail['name']: detail['adcreatives']['data'][0]['asset_feed_spec']['videos']
+                            for detail in ads_details
+                            if 'asset_feed_spec' in detail['adcreatives']['data'][0] and 'videos' in detail['adcreatives']['data'][0]['asset_feed_spec']
+                        }
+
+                        ## ATUALIZA CADA ANÚNCIO EM 'data' COM SEUS DETALHES
+                        for ad in data:
+                            #🔄️ SET PROGRESS
+                            current_progress = 0.90
+                            progressBar.progress(current_progress, f"get_ads() > Matching ads details... (week {current_chunk} of {total_chunks})")
+                            
+                            ### CRIA COLUNA 'creative' COM 'ad.creative'
+                            ad['creative'] = creative_list.get(ad['ad_name'], None)
+
+                            ### BUSCA INFORMAÇÕES RELEVANTES DE 'adcreatives' (aka 'adcreatives.asset_feed_spec.videos' content)
+                            adcreatives = videos_list.get(ad['ad_name'], None)
+                            video_ids = []
+                            video_thumbs = []
+                            if adcreatives is not None:
+                                for video in adcreatives:
+                                    video_ids.append(video.get('video_id'))
+                                    video_thumbs.append(video.get('thumbnail_url'))
+
+                            ### CRIA COLUNA 'adcreatives_videos_ids' COM 'adcreatives.data.asset_feed_spec.videos.video_id'
+                            ad['adcreatives_videos_ids'] = video_ids
+
+                            ### CRIA COLUNA 'adcreatives_videos_thumbs' COM 'adcreatives.data.asset_feed_spec.videos.thumbnail_url'
+                            ad['adcreatives_videos_thumbs'] = video_thumbs
+                            
+                            ### SET PROGRESS
+                            progressBar.progress(100, 'get_ads() > Sucessfully loaded!')
 
 
-                #🔄️ SET PROGRESS
-                current_progress = 1.00
-                progressBar.progress(current_progress, f"get_ads() > Sucessfully loaded! (week {current_chunk} of {total_chunks})")
-                current_chunk += 1
+                    #🔄️ SET PROGRESS
+                    current_progress = 1.00
+                    progressBar.progress(current_progress, f"get_ads() > Sucessfully loaded! (week {current_chunk} of {total_chunks})")
+                    current_chunk += 1
 
-                # --- ETAPA 3: AGREGA RESULTADOS (anúncios + detalhes) EM 'total_data'
-                total_data.extend(data)
+                    # --- ETAPA 3: AGREGA RESULTADOS (anúncios + detalhes) EM 'total_data'
+                    total_data.extend(data)
 
             except requests.exceptions.HTTPError as http_err:
                 decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
@@ -301,7 +297,12 @@ class GraphAPI:
                 print(f"get_ads() > Other error occurred: {err} or {err.args}")
                 return decoded_text
 
+            current_chunk += 1
+
         # RETORNA RESULTADOS
+        if not total_data or total_data == []:
+            progressBar.progress(100, 'No ads found with these filters')
+            return []
         return total_data
 
     ## GET VIDEO SOURCE URL

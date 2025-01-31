@@ -27,7 +27,7 @@ def create_account_selector(adaccounts_list):
 
 def get_time_range():
     """Get the time range from the sidebar input."""
-    start_date, end_date = date_range_picker('Select a date range', default_start=date(year=2024, month=12, day=16), default_end= date.today())
+    start_date, end_date = date_range_picker('Select a date range', default_start=date(year=2024, month=12, day=29), default_end= date.today())
     # start_date = st.date_input('🢖 Start Date', key='start_date')
     # end_date = st.date_input('🢖 End Date', key='end_date')
     if start_date and end_date and isinstance(start_date, date) and isinstance(end_date, date):
@@ -82,6 +82,7 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
         # TIME RANGE
         with st.expander("Time range"):
             time_range = get_time_range()
+            st.write(time_range)
 
         # FILTERS
         def create_filters():

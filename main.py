@@ -32,7 +32,7 @@ if 'adaccounts' in st.session_state:
         new_pages = {
             "": [
                 st.Page("tools/0_ads_loader.py", title="ADs Loader", icon="📔", ),
-                st.Page("tools/5_loaded_ads.py", title="Loaded ADs", icon="🗂️"),
+                st.Page("tools/6_loaded_ads.py", title="Loaded ADs", icon="🗂️"),
             ]
         }
     pages = new_pages
