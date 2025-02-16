@@ -63,6 +63,10 @@ class GraphAPI:
             raise Exception(f"get_page_access_token() > Error getting page access token: {e}")
         
     def get_ads_details(self, act_id, time_range, ads_ids):
+        # Base case: if no ads_ids, return empty list
+        if not ads_ids:
+            return []
+
         url = self.base_url + act_id + '/ads' + self.user_token
         payload = {
             'fields': 'name,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
@@ -76,25 +80,42 @@ class GraphAPI:
         }
 
         try:
-            # Debugging: Print the URL and payload
-            req = requests.Request('get_ads_details() > GET', url, params=payload)
+            req = requests.Request('GET', url, params=payload)
             prepared = req.prepare()
-            # Debugging: Print the exact URL
             print('get_ads_details() > Request URL:', prepared.url)
 
             insights_response = requests.get(url, params=payload)
             insights_response.raise_for_status()
-            data = insights_response.json()['data']
+            return insights_response.json()['data']
 
-            return data
-        
         except requests.exceptions.HTTPError as http_err:
-            decoded_url = urllib.parse.unquote(http_err.request.url) # type: ignore
             decoded_text = urllib.parse.unquote(http_err.response.text)
-            print(f'get_ads_details() > HTTP error occurred: {http_err.response.status_code} {decoded_text} \n\nfor URL: {decoded_url}')  # Handle HTTP errors
+            
+            # Check if the error is about too much data
+            if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
+                print(f'get_ads_details() > Splitting request due to data volume...')
+                
+                # Split ads_ids into two halves
+                mid = len(ads_ids) // 2
+                first_half = ads_ids[:mid]
+                second_half = ads_ids[mid:]
+                
+                # Recursively call with each half and combine results
+                first_results = self.get_ads_details(act_id, time_range, first_half)
+                second_results = self.get_ads_details(act_id, time_range, second_half)
+                
+                # Combine results, handling None cases
+                if first_results is None and second_results is None:
+                    return None
+                return (first_results or []) + (second_results or [])
+                
+            # For other HTTP errors, handle as before
+            decoded_url = urllib.parse.unquote(http_err.request.url) if http_err.request.url else '$$ error in decoding url $$'
+            print(f'get_ads_details() > HTTP error occurred: {http_err.response.status_code} {decoded_text} \n\nfor URL: {decoded_url}')
             return None
+            
         except Exception as err:
-            print(f'get_ads_details() > Other error occurred aqui: {err}')  # Handle other errors
+            print(f'get_ads_details() > Other error occurred: {err}')
             return None
 
     def get_adaccounts(self):
@@ -281,7 +302,6 @@ class GraphAPI:
                     #🔄️ SET PROGRESS
                     current_progress = 1.00
                     progressBar.progress(current_progress, f"get_ads() > Sucessfully loaded! (week {current_chunk} of {total_chunks})")
-                    current_chunk += 1
 
                     # --- ETAPA 3: AGREGA RESULTADOS (anúncios + detalhes) EM 'total_data'
                     total_data.extend(data)

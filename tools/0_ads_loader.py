@@ -100,15 +100,18 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
                 with st.expander(filter_name):
                     operator = st.selectbox(f'Operator', operator_options, key=f'operator_{filter_name}', label_visibility='collapsed')
                     value = st.text_input(f'Value', key=f'value_{filter_name}')
-                    if value:
-                        filters.clear()
-                        filters.append(construct_filter(filter_field, operator, value))
+                    filter_built = construct_filter(filter_field, operator, value)
+                    if value and len(value) > 0 and filter_built not in filters:
+                        filters.append(filter_built)
         create_filters()
 
         # CTA - GET ADs!
         if st.button('Get ADs!', type='primary', use_container_width=True):
             selected_act_id = adaccounts_list[selected_adaccount]
             with st.spinner('Loading your ADs, please wait...'):
+                st.write('selected_act_id', selected_act_id)
+                st.write('time_range', time_range)
+                st.write('filters', filters)
                 ads_data = cached_get_ads(api_key, selected_act_id, time_range, filters)
                 if len(ads_data) > 0:
                     unique_id = f"{selected_adaccount}&{selected_act_id}&{time_range}&{filters}"
@@ -196,7 +199,7 @@ if api_key and 'account_info' in st.session_state and 'adaccounts' in st.session
                                 st.caption("Filters:")
                             with cols_filters[1]:
                                 if item_filters != []:
-                                    st.markdown("\n".join(f'{str(filter["field"].split(".")[0]).capitalize()} *:gray[{str(filter["operator"]).lower()}]* **{filter["value"]}**' for filter in item_filters))
+                                    st.markdown("<br>".join(f'{str(filter["field"].split(".")[0]).capitalize()} *:gray[{str(filter["operator"]).lower()}]* **{filter["value"]}**' for filter in item_filters), unsafe_allow_html=True)
                                 else:
                                     st.caption("None")
 

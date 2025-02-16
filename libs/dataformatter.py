@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from functools import wraps
 import time
+from tracemalloc import start
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -240,6 +241,10 @@ def split_date_range(date_range: dict, max_days: int = 7):
     start_date = datetime.strptime(date_range["since"], "%Y-%m-%d")
     end_date = datetime.strptime(date_range["until"], "%Y-%m-%d")
     
+    # Se for no mesmo dia
+    if start_date == end_date:
+        return date_range
+
     # List to store all date ranges
     date_ranges = []
     
