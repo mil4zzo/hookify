@@ -65,7 +65,7 @@ def show_video_dialog(selected_row):
                     ,unsafe_allow_html=True)
                 
 # CRIA AGGRID
-def create_aggrid(df_ads_data, interest_columns, cost_column, results_column, group_by_ad):
+def create_aggrid(df_ads_data, interest_columns, cost_column, results_column, group_by_ad, key=None):
 
     SPARKLINE_CONFIG = {
                         'sparklineOptions': {
@@ -149,7 +149,8 @@ def create_aggrid(df_ads_data, interest_columns, cost_column, results_column, gr
         gridOptions=builder.build(),
         update_mode=GridUpdateMode.MODEL_CHANGED,
         fit_columns_on_grid_load=True,
-        allow_unsafe_jscode=True
+        allow_unsafe_jscode=True,
+        key=key or f"grid_{id(df_ads_data)}"
     )
 
 def build_retention_chart(video_play_curve_actions):

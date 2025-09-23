@@ -10,26 +10,26 @@ from libs.utils import build_retention_chart, create_aggrid, resort_by, show_vid
 
 # TICKET LÍQUIDO
 TICKET_LIQUIDO = {
-    "EI21": 1029.0
+    "EI_1997": 1379.0
 }
 # MARGENS DE LANÇAMENTO
 TAXAS_PATRIMONIO = {
-    "Acima de R$1 milhão": 0.0694,
-    "Entre R$500 mil e R$1 milhão": 0.0653,
-    "Entre R$250 mil e R$500 mil": 0.0466,
-    "Entre R$100 mil e R$250 mil": 0.0345,
-    "Entre R$20 mil e R$100 mil": 0.0224,
-    "Entre R$5 mil e R$20 mil": 0.0214,
-    "Menos de R$5 mil": 0.01,
+    "Acima de R$1 milhão": 0.0109,
+    "Entre R$500 mil e R$1 milhão": 0.0292,
+    "Entre R$250 mil e R$500 mil": 0.0192   ,
+    "Entre R$100 mil e R$250 mil": 0.0212,
+    "Entre R$20 mil e R$100 mil": 0.0142,
+    "Entre R$5 mil e R$20 mil": 0.0132,
+    "Menos de R$5 mil": 0.0079,
 }			 	
 # MARGENS DE LANÇAMENTO
 TAXAS_RENDA_MENSAL = {
-    "Acima de R$20.000": 0.0265,
-    "Entre R$10.000 e R$20.000": 0.0279,
-    "Entre R$5.000 e R$10.000": 0.02,
-    "Entre R$2.500 e R$5.000": 0.0147,
-    "Entre R$1.500 e R$2.500": 0.0083,
-    "Até R$1.500": 0.0059,
+    "Acima de R$20.000": 0.0186,
+    "Entre R$10.000 e R$20.000": 0.0174,
+    "Entre R$5.000 e R$10.000": 0.0138,
+    "Entre R$2.500 e R$5.000": 0.0095,
+    "Entre R$1.500 e R$2.500": 0.0062,
+    "Até R$1.500": 0.0039,
 }
 # PERGUNTAS DA PESQUISA
 QUESTIONS_DICT = {
@@ -130,7 +130,7 @@ if df_ads_data is not None:
                     # Agrega o valor
                     cplmax += temp
                 # Ao final, multiplca pelo ticket liquido
-                cplmax = cplmax * TICKET_LIQUIDO["EI21"]
+                cplmax = cplmax * TICKET_LIQUIDO["EI_1997"]
                 return cplmax
             except:
                 return {}
@@ -161,7 +161,7 @@ if df_ads_data is not None:
             return ad_medio
 
         # CARREGA PESQUISA DE TRÁFEGO
-        df_ptrafego_dados = load_df_ptrafego_dados("EI", 21)
+        df_ptrafego_dados = load_df_ptrafego_dados("EI", 22)
 
         # FILTRA APENAS PESQUISAS DE ANÚNCIOS
         df_ptrafego_dados_pago = df_ptrafego_dados[df_ptrafego_dados["UTM_MEDIUM"] == "pago"]
@@ -428,5 +428,112 @@ if df_ads_data is not None:
                             st.write('ADSET')
                         with adset_namec2:
                             st.write(f"{selected_row_data['adset_name']}")
+        
+        ####### new layout #############################################################################################################
+        
+        # GANHADORES
+        with st.expander(f'Ganhadores ({len(df_ganhadores)})'):
+            ganhadores_cols = st.columns(2)
+            with ganhadores_cols[0]:
+                st.subheader('Ganhadores')
+                st.markdown('##### ADs validados: :green[margem boa] e :green[métricas boas]')
+                st.markdown('1. Margem positiva\n 2. Todas as métricas acima da média')
+                st.info('*Copiar ao máximo, fazendo leves mutações e regravar (trocar roupa, cenário, etc).*')
+
+            # TABS MENU (SELECT TOP RANKING)
+            ganhadores_sorting_option = st.radio(
+                "Sort by:",
+                list(sorting_columns.keys()),
+                horizontal=True,
+                label_visibility='collapsed',
+                key='ganhadores_sorting_option'
+            )
+
+            # # SORT INIT
+            if ganhadores_sorting_option is not None:
+                ganhadores_selected_column = sorting_columns[ganhadores_sorting_option]
+            df_ganhadores = resort_by(df_ganhadores, ganhadores_selected_column)
+
+            # CONFIGURA AGGRID
+            ganhadores_grid_response = create_aggrid(df_ganhadores, interest_columns, cost_column, results_column, group_by_ad)
+
+        # OTIMIZÁVEIS
+        with st.expander(f'Otimizáveis ({len(df_otimizaveis)})'):
+            otimizaveis_cols = st.columns(2)
+            with otimizaveis_cols[0]:
+                st.subheader('Otimizáveis')
+                st.markdown('##### ADs com :green[margem boa] e alguma :red[métrica ruim]')
+                st.markdown('1. Margem positiva\n 2. Pelo menos uma métrica abaixo da média')
+                st.info('*Analisar as piores métricas e melhorá-las. Pegar ideias nos ADs com a métrica boa.*')
+
+            # TABS MENU (SELECT TOP RANKING)
+            otimizaveis_sorting_option = st.radio(
+                "Sort by:",
+                list(sorting_columns.keys()),
+                horizontal=True,
+                label_visibility='collapsed',
+                key='otimizaveis_sorting_option'
+            )
+
+            # # SORT INIT
+            if otimizaveis_sorting_option is not None:
+                otimizaveis_selected_column = sorting_columns[otimizaveis_sorting_option]
+            df_otimizaveis = resort_by(df_otimizaveis, otimizaveis_selected_column)
+
+            # CONFIGURA AGGRID
+            otimizaveis_grid_response = create_aggrid(df_otimizaveis, interest_columns, cost_column, results_column, group_by_ad)
+
+        # LIÇÕES
+        with st.expander(f'Lições ({len(df_licoes)})'):
+            licoes_cols = st.columns(2)
+            with licoes_cols[0]:
+                st.subheader('Lições')  
+                st.markdown('##### ADs com :red[margem ruim] e alguma :green[métrica boa]')
+                st.markdown('1. Margem negativa\n 2. Pelo menos uma métrica acima da média')
+                st.info('*Identificar o que fez a métrica estar boa e aprender / salvar o bloco (ex: hook).*')
+
+            # TABS MENU (SELECT TOP RANKING)
+            licoes_sorting_option = st.radio(
+                "Sort by:",
+                list(sorting_columns.keys()),
+                horizontal=True,
+                label_visibility='collapsed',
+                key='licoes_sorting_option'
+            )
+
+            # # SORT INIT
+            if licoes_sorting_option is not None:
+                licoes_selected_column = sorting_columns[licoes_sorting_option]
+            df_licoes = resort_by(df_licoes, licoes_selected_column)
+
+            # CONFIGURA AGGRID
+            licoes_grid_response = create_aggrid(df_licoes, interest_columns, cost_column, results_column, group_by_ad)
+
+        # DESCARTADOS
+        with st.expander(f'Descartados ({len(df_descartados)})'):
+            descartados_cols = st.columns(2)
+            with descartados_cols[0]:
+                st.subheader('Descartados')  
+                st.markdown('##### ADs com :red[margem ruim] e :red[métricas ruins]')
+                st.markdown('1. Margem negativa\n 2. Todas as métrica abaixo da média')
+                st.info('*Identificar o estilo de anúncio e/ou comunicação que não funciona e aprender.*')
+
+            # TABS MENU (SELECT TOP RANKING)
+            descartados_sorting_option = st.radio(
+                "Sort by:",
+                list(sorting_columns.keys()),
+                horizontal=True,
+                label_visibility='collapsed',
+                key='descartados_sorting_option'
+            )
+
+            # # SORT INIT
+            if descartados_sorting_option is not None:
+                descartados_selected_column = sorting_columns[descartados_sorting_option]
+            df_descartados = resort_by(df_descartados, descartados_selected_column)
+
+            # CONFIGURA AGGRID
+            descartados_grid_response = create_aggrid(df_descartados, interest_columns, cost_column, results_column, group_by_ad)
+
 else:
     st.warning('⬅️ First, load ADs in the sidebar.')
