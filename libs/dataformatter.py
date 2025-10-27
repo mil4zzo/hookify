@@ -20,6 +20,7 @@ def timer_decorator(func):
 
 def add_ads_pack(unique_id, pack):
     print("add_ads_pack() > pack len", len(pack))
+    print("add_ads_pack() > pack", pack)
     ## FORMATA NO PADRÃO UNIVERSAL
     ads_data = format_ads_data(pack)
     ## MARCA O PACK COM O UNIQUE_ID
