@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root[data-theme="dark"] {
+  --bg: #111315;
+  --surface: #1A1D21;
+  --surface-2: #23272B;
+  --text: #E5E7EB;
+  --muted: #9CA3AF;
+}
+
+html, body { height: 100%; }
+
+/* focus styles */
+*:focus-visible {
+  outline: 2px solid #3B82F6;
+  outline-offset: 2px;
+}
+
+

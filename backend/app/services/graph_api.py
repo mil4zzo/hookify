@@ -1,0 +1,494 @@
+import json
+import time
+import urllib.parse
+import logging
+from typing import Any, Dict, List, Optional, Union
+import requests
+from app.services.dataformatter import split_date_range, format_ads_for_api
+
+logger = logging.getLogger(__name__)
+
+# Armazena metadados temporários de jobs para enriquecimento posterior
+JOBS_META: Dict[str, Dict[str, Any]] = {}
+
+class GraphAPI:
+    def __init__(self, access_token: str):
+        self.base_url = "https://graph.facebook.com/v22.0/"
+        self.user_token = f"?access_token={access_token}"
+        self.page_token: Optional[str] = None
+        self.limit = 5000
+        self.level = "ad"
+        self.action_attribution_windows = '["7d_click","1d_view"]'
+        self.use_account_attribution_setting = "true"
+        self.action_breakdowns = "action_type"
+
+    def get_account_info(self) -> Dict[str, Any]:
+        url = self.base_url + 'me' + self.user_token
+        payload = {'fields': 'email,first_name,last_name,name,picture{url}'}
+        try:
+            logger.debug("get_account_info url=%s payload=%s", url, payload)
+            response = requests.get(url, params=payload)
+            response.raise_for_status()
+            data = response.json()
+            
+            # DEBUG: Log da resposta real do Meta
+            logger.info("=== META API DEBUG - /me ===")
+            logger.info(f"URL: {url}")
+            logger.info(f"Payload: {payload}")
+            logger.info(f"Status Code: {response.status_code}")
+            logger.info(f"Response Headers: {dict(response.headers)}")
+            logger.info(f"Response Body: {json.dumps(data, indent=2)}")
+            logger.info("=== END DEBUG ===")
+            
+            return {'status': 'success', 'data': data}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_url = urllib.parse.unquote(http_err.request.url)  # type: ignore
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            logger.error("get_account_info http_error: %s %s for %s", http_err.response.status_code, decoded_text, decoded_url)
+            if http_err.response.json().get('error', {}).get('code') == 190:
+                return {'status': 'auth_error', 'message': decoded_text}
+            return {'status': 'http_error', 'message': decoded_text}
+        except Exception as err:
+            logger.exception("get_account_info error: %s", err)
+            return {'status': 'error', 'message': str(err)}
+
+    def get_adaccounts(self) -> Dict[str, Any]:
+        url = self.base_url + 'me/adaccounts' + self.user_token
+        payload = {'fields': 'name,id,account_status,user_tasks,instagram_accounts{username,id},business{name,id}'}
+        try:
+            logger.debug("get_adaccounts url=%s payload=%s", url, payload)
+            response = requests.get(url, params=payload)
+            response.raise_for_status()
+            data = response.json()
+            
+            # DEBUG: Log da resposta real do Meta
+            logger.info("=== META API DEBUG - /me/adaccounts ===")
+            logger.info(f"URL: {url}")
+            logger.info(f"Payload: {payload}")
+            logger.info(f"Status Code: {response.status_code}")
+            logger.info(f"Response Headers: {dict(response.headers)}")
+            logger.info(f"Response Body: {json.dumps(data, indent=2)}")
+            logger.info("=== END DEBUG ===")
+            
+            return {'status': 'success', 'data': data.get('data', [])}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_url = urllib.parse.unquote(http_err.request.url)  # type: ignore
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            logger.error("get_adaccounts http_error: %s %s for %s", http_err.response.status_code, decoded_text, decoded_url)
+            if http_err.response.json().get('error', {}).get('code') == 190:
+                return {'status': 'auth_error', 'message': decoded_text}
+            return {'status': 'http_error', 'message': decoded_text}
+        except Exception as err:
+            logger.exception("get_adaccounts error: %s", err)
+            return {'status': 'error', 'message': str(err)}
+
+    def get_page_access_token(self, actor_id: str) -> str:
+        url = self.base_url + 'me/accounts' + self.user_token
+        response = requests.get(url)
+        response.raise_for_status()
+        pages = response.json().get('data', [])
+        for page in pages:
+            if page['id'] == actor_id:
+                self.page_token = f"?access_token={page['access_token']}"
+                return self.page_token
+        raise RuntimeError(f"Page with ID {actor_id} not found")
+
+    def get_ads_details(self, act_id: str, time_range: Dict[str, str], ads_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
+        if not ads_ids:
+            return []
+        url = self.base_url + act_id + '/ads' + self.user_token
+        payload = {
+            'fields': 'name,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
+            'limit': self.limit,
+            'filtering': "[{'field':'id','operator':'IN','value':['" + "','".join(ads_ids) +"']}]",
+        }
+        try:
+            response = requests.get(url, params=payload)
+            response.raise_for_status()
+            return response.json().get('data', [])
+        except requests.exceptions.HTTPError as http_err:
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            # Meta error: reduce the amount of data → fazer split recursivo
+            if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
+                mid = len(ads_ids) // 2
+                first = self.get_ads_details(act_id, time_range, ads_ids[:mid])
+                second = self.get_ads_details(act_id, time_range, ads_ids[mid:])
+                if first is None and second is None:
+                    return None
+                return (first or []) + (second or [])
+            decoded_url = urllib.parse.unquote(http_err.request.url) if http_err.request.url else 'decode-error'
+            logger.error("get_ads_details http_error: %s %s for %s", http_err.response.status_code, decoded_text, decoded_url)
+            return None
+        except Exception as err:
+            logger.exception("get_ads_details error: %s", err)
+            return None
+
+    def get_ads(self, act_id: str, time_range: Dict[str, str], filters: List[Dict[str, Any]]) -> Union[List[Dict[str, Any]], Any]:
+        total_data: List[Dict[str, Any]] = []
+        chunks = split_date_range(time_range, max_days=7)
+
+        url = self.base_url + act_id + '/insights' + self.user_token
+        json_filters = [json.dumps(f) for f in filters] if filters else []
+        
+        logger.info(f"=== FILTROS DEBUG ===")
+        logger.info(f"Filtros recebidos: {filters}")
+        logger.info(f"Filtros JSON: {json_filters}")
+        logger.info(f"Total de chunks de data: {len(chunks)}")
+        logger.info(f"Chunks: {chunks}")
+
+        for chunk_index, dates in enumerate(chunks, start=1):
+            payload = {
+                'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,website_ctr',
+                'limit': self.limit,
+                'level': self.level,
+                'action_attribution_windows': self.action_attribution_windows,
+                'use_account_attribution_setting': self.use_account_attribution_setting,
+                'action_breakdowns': self.action_breakdowns,
+                'time_range': json.dumps(dates),
+                'async': 'true',
+            }
+            # incluir filtering apenas quando houver filtros
+            if json_filters:
+                payload['filtering'] = '[' + ','.join(json_filters) + ']'
+            try:
+                # DEBUG: Log da requisição de insights
+                logger.info("=== META API DEBUG - /insights (POST) ===")
+                logger.info(f"URL: {url}")
+                logger.info(f"Payload: {json.dumps(payload, indent=2)}")
+                
+                # 1) inicia job
+                resp = requests.post(url, params=payload)
+                resp.raise_for_status()
+                resp_data = resp.json()
+                
+                logger.info(f"Status Code: {resp.status_code}")
+                logger.info(f"Response Headers: {dict(resp.headers)}")
+                logger.info(f"Response Body: {json.dumps(resp_data, indent=2)}")
+                logger.info("=== END DEBUG ===")
+                
+                report_run_id = resp_data.get('report_run_id')
+                if not report_run_id:
+                    return {"status": "error", "message": "Failed to get report_run_id"}
+
+                # 2) polling com logs de progresso
+                status_url = self.base_url + report_run_id
+                poll_count = 0
+                max_polls = 60  # 5 minutos máximo (60 * 5s)
+                
+                logger.info(f"Iniciando polling para report_run_id: {report_run_id}")
+                
+                while poll_count < max_polls:
+                    status_resp = requests.get(status_url + self.user_token)
+                    status_resp.raise_for_status()
+                    status_data = status_resp.json()
+                    
+                    async_status = status_data.get('async_status', 'Unknown')
+                    percent_completion = status_data.get('async_percent_completion', 0)
+                    
+                    logger.info(f"Poll #{poll_count + 1}: Status={async_status}, Progress={percent_completion}%")
+                    
+                    if async_status == 'Job Completed' and percent_completion == 100:
+                        logger.info("Job completado com sucesso!")
+                        break
+                    elif async_status == 'Job Failed':
+                        error_msg = status_data.get('error', 'Job failed without specific error')
+                        logger.error(f"Job falhou: {error_msg}")
+                        return {"status": "job_failed", "message": f"Meta API job failed: {error_msg}"}
+                    
+                    poll_count += 1
+                    time.sleep(5)
+                
+                if poll_count >= max_polls:
+                    logger.error(f"Timeout no polling após {max_polls} tentativas")
+                    return {"status": "timeout", "message": "Meta API job timeout - processamento demorou mais que 5 minutos"}
+
+                # 3) coleta resultados
+                insights_url = self.base_url + report_run_id + '/insights' + self.user_token + '&limit=500'
+                insights_resp = requests.get(insights_url)
+                insights_resp.raise_for_status()
+                insights_data = insights_resp.json()
+                
+                # DEBUG: Log da resposta de insights
+                logger.info("=== META API DEBUG - /insights (GET) ===")
+                logger.info(f"URL: {insights_url}")
+                logger.info(f"Status Code: {insights_resp.status_code}")
+                logger.info(f"Response Headers: {dict(insights_resp.headers)}")
+                logger.info(f"Response Body: {json.dumps(insights_data, indent=2)}")
+                logger.info("=== END DEBUG ===")
+                
+                data = insights_data.get('data', [])
+                while 'paging' in insights_resp.json() and 'next' in insights_resp.json()['paging']:
+                    insights_resp = requests.get(insights_resp.json()['paging']['next'])
+                    insights_resp.raise_for_status()
+                    data.extend(insights_resp.json().get('data', []))
+
+                if data:
+                    # enriquecer com detalhes
+                    unique_ads = {}
+                    for ad in data:
+                        ad_name = ad.get("ad_name")
+                        ad_id = ad.get("ad_id")
+                        if ad_name and ad_name not in unique_ads:
+                            unique_ads[ad_name] = ad_id
+                    unique_ids = list(unique_ads.values())
+                    ads_details = self.get_ads_details(act_id, time_range, unique_ids)
+                    if ads_details is not None:
+                        creative_list = {d['name']: d.get('creative') for d in ads_details}
+                        videos_list = {
+                            d['name']: d['adcreatives']['data'][0]['asset_feed_spec']['videos']
+                            for d in ads_details
+                            if 'adcreatives' in d and d['adcreatives']['data'] and 'asset_feed_spec' in d['adcreatives']['data'][0] and 'videos' in d['adcreatives']['data'][0]['asset_feed_spec']
+                        }
+                        for ad in data:
+                            ad_name = ad.get('ad_name')
+                            ad['creative'] = creative_list.get(ad_name)
+                            adcreatives = videos_list.get(ad_name)
+                            video_ids, video_thumbs = [], []
+                            if adcreatives:
+                                for v in adcreatives:
+                                    video_ids.append(v.get('video_id'))
+                                    video_thumbs.append(v.get('thumbnail_url'))
+                            ad['adcreatives_videos_ids'] = video_ids
+                            ad['adcreatives_videos_thumbs'] = video_thumbs
+
+                    total_data.extend(data)
+
+            except requests.exceptions.HTTPError as http_err:
+                decoded_url = urllib.parse.unquote(http_err.request.url)  # type: ignore
+                decoded_text = urllib.parse.unquote(http_err.response.text)
+                
+                # DEBUG: Log detalhado do erro HTTP
+                logger.error("=== META API ERROR - /insights ===")
+                logger.error(f"HTTP Status: {http_err.response.status_code}")
+                logger.error(f"Request URL: {decoded_url}")
+                logger.error(f"Request Headers: {dict(http_err.request.headers) if http_err.request else 'N/A'}")
+                logger.error(f"Response Headers: {dict(http_err.response.headers)}")
+                logger.error(f"Response Body: {decoded_text}")
+                logger.error("=== END ERROR DEBUG ===")
+                
+                return {"status": "http_error", "message": f"Meta API Error {http_err.response.status_code}: {decoded_text}"}
+            except requests.exceptions.ConnectionError as conn_err:
+                logger.error("=== CONNECTION ERROR ===")
+                logger.error(f"Connection Error: {str(conn_err)}")
+                logger.error(f"URL: {url}")
+                logger.error("=== END CONNECTION ERROR ===")
+                return {"status": "connection_error", "message": f"Falha de conexão com Meta API: {str(conn_err)}"}
+            except requests.exceptions.Timeout as timeout_err:
+                logger.error("=== TIMEOUT ERROR ===")
+                logger.error(f"Timeout Error: {str(timeout_err)}")
+                logger.error(f"URL: {url}")
+                logger.error("=== END TIMEOUT ERROR ===")
+                return {"status": "timeout_error", "message": f"Timeout na Meta API: {str(timeout_err)}"}
+            except Exception as err:
+                logger.exception("get_ads error: %s", err)
+                return {"status": "error", "message": str(err)}
+
+        return total_data
+
+    def start_ads_job(self, act_id: str, time_range: Dict[str, str], filters: List[Dict[str, Any]]) -> Union[str, Dict[str, Any]]:
+        """Start async ads job and return report_run_id."""
+        url = self.base_url + act_id + '/insights' + self.user_token
+        json_filters = [json.dumps(f) for f in filters] if filters else []
+        
+        payload = {
+            'fields': 'actions,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,clicks,conversions,cost_per_conversion,cpm,ctr,frequency,impressions,inline_link_clicks,reach,spend,video_play_actions,video_thruplay_watched_actions,video_play_curve_actions,video_p50_watched_actions,website_ctr',
+            'limit': self.limit,
+            'level': self.level,
+            'action_attribution_windows': self.action_attribution_windows,
+            'use_account_attribution_setting': self.use_account_attribution_setting,
+            'action_breakdowns': self.action_breakdowns,
+            'time_range': json.dumps(time_range),
+            'async': 'true',
+        }
+        if json_filters:
+            payload['filtering'] = '[' + ','.join(json_filters) + ']'
+        
+        try:
+            resp = requests.post(url, params=payload)
+            resp.raise_for_status()
+            resp_data = resp.json()
+            
+            report_run_id = resp_data.get('report_run_id')
+            if not report_run_id:
+                return {"status": "error", "message": "Failed to get report_run_id"}
+            
+            # Guardar metadados do job para enriquecimento posterior
+            JOBS_META[report_run_id] = {"act_id": act_id, "time_range": time_range}
+
+            return report_run_id
+            
+        except requests.exceptions.HTTPError as http_err:
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            return {"status": "http_error", "message": f"Meta API Error {http_err.response.status_code}: {decoded_text}"}
+        except Exception as err:
+            logger.exception("start_ads_job error: %s", err)
+            return {"status": "error", "message": str(err)}
+
+    def get_job_progress(self, report_run_id: str) -> Dict[str, Any]:
+        """Get progress of async job."""
+        try:
+            status_url = self.base_url + report_run_id + self.user_token
+            status_resp = requests.get(status_url)
+            status_resp.raise_for_status()
+            status_data = status_resp.json()
+            
+            async_status = status_data.get('async_status', 'Unknown')
+            percent_completion = status_data.get('async_percent_completion', 0)
+            
+            if async_status == 'Job Completed' and percent_completion == 100:
+                # Job completed, get results
+                insights_url = self.base_url + report_run_id + '/insights' + self.user_token + '&limit=500'
+                logger.info(f"=== PAGINAÇÃO DEBUG - Iniciando coleta de dados ===")
+                logger.info(f"URL inicial: {insights_url}")
+                
+                insights_resp = requests.get(insights_url)
+                insights_resp.raise_for_status()
+                insights_data = insights_resp.json()
+                
+                data = insights_data.get('data', [])
+                logger.info(f"Página 1: {len(data)} anúncios coletados")
+                
+                # Handle pagination
+                page_count = 1
+                total_collected = len(data)
+                
+                while 'paging' in insights_resp.json() and 'next' in insights_resp.json()['paging']:
+                    page_count += 1
+                    next_url = insights_resp.json()['paging']['next']
+                    logger.info(f"Página {page_count}: Coletando dados de {next_url}")
+                    
+                    insights_resp = requests.get(next_url)
+                    insights_resp.raise_for_status()
+                    page_data = insights_resp.json().get('data', [])
+                    
+                    data.extend(page_data)
+                    total_collected += len(page_data)
+                    logger.info(f"Página {page_count}: {len(page_data)} anúncios coletados (Total: {total_collected})")
+                    
+                    # Safety check para evitar loops infinitos
+                    if page_count > 100:
+                        logger.warning(f"PAGINAÇÃO: Parando após {page_count} páginas para evitar loop infinito")
+                        break
+                
+                logger.info(f"=== PAGINAÇÃO COMPLETA ===")
+                logger.info(f"Total de páginas processadas: {page_count}")
+                logger.info(f"Total de anúncios coletados: {total_collected}")
+                logger.info(f"Tamanho final do array data: {len(data)}")
+                
+                # Enriquecimento com detalhes do anúncio (creative e asset_feed_spec videos)
+                job_meta = JOBS_META.get(report_run_id)
+                if job_meta and data:
+                    try:
+                        logger.info(f"=== ENRIQUECIMENTO DEBUG - Iniciando processo ===")
+                        logger.info(f"Total de anúncios antes da deduplicação: {len(data)}")
+                        
+                        unique_ads: Dict[str, str] = {}
+                        for ad in data:
+                            ad_name = ad.get('ad_name')
+                            ad_id = ad.get('ad_id')
+                            if ad_name and ad_name not in unique_ads:
+                                unique_ads[ad_name] = ad_id
+                        
+                        unique_ids = list(unique_ads.values())
+                        logger.info(f"Anúncios únicos após deduplicação por nome: {len(unique_ids)}")
+                        logger.info(f"Anúncios removidos na deduplicação: {len(data) - len(unique_ids)}")
+                        
+                        ads_details = self.get_ads_details(job_meta['act_id'], job_meta['time_range'], unique_ids)
+                        logger.info(f"Detalhes de anúncios coletados: {len(ads_details) if ads_details else 0}")
+                        if ads_details is not None:
+                            creative_list = {d['name']: d.get('creative') for d in ads_details}
+                            videos_list = {
+                                d['name']: d['adcreatives']['data'][0]['asset_feed_spec']['videos']
+                                for d in ads_details
+                                if 'adcreatives' in d and d['adcreatives']['data'] and 'asset_feed_spec' in d['adcreatives']['data'][0] and 'videos' in d['adcreatives']['data'][0]['asset_feed_spec']
+                            }
+                            for ad in data:
+                                ad_name = ad.get('ad_name')
+                                ad['creative'] = creative_list.get(ad_name)
+                                adcreatives = videos_list.get(ad_name)
+                                video_ids, video_thumbs = [], []
+                                if adcreatives:
+                                    for v in adcreatives:
+                                        video_ids.append(v.get('video_id'))
+                                        video_thumbs.append(v.get('thumbnail_url'))
+                                ad['adcreatives_videos_ids'] = video_ids
+                                ad['adcreatives_videos_thumbs'] = video_thumbs
+                    except Exception:
+                        logger.exception("Erro no enriquecimento de detalhes dos anúncios")
+                
+                logger.info(f"=== RESULTADO FINAL (RAW) ===")
+                logger.info(f"Anúncios coletados (raw): {len(data)}")
+
+                # Formatar para o schema do frontend antes de retornar
+                try:
+                    act_id = job_meta.get('act_id') if job_meta else ''
+                    formatted = format_ads_for_api(data, act_id or '')
+                    logger.info(f"=== RESULTADO FINAL (FORMATADO) ===")
+                    logger.info(f"Anúncios formatados: {len(formatted)}")
+                    if formatted:
+                        sample = formatted[0]
+                        logger.info(f"Campos exemplo: {list(sample.keys())[:12]} ... total={len(sample.keys())}")
+                        # Tipos de alguns campos chave
+                        logger.info(f"Tipos exemplo: clicks={type(sample.get('clicks'))}, ctr={type(sample.get('ctr'))}, actions={type(sample.get('actions'))}")
+                    return {
+                        "status": "completed",
+                        "progress": 100,
+                        "message": f"Job completado! {len(formatted)} anúncios encontrados.",
+                        "data": formatted
+                    }
+                except Exception:
+                    logger.exception("Falha ao formatar anúncios para resposta do frontend")
+                    # Fallback: retornar raw
+                    return {
+                        "status": "completed",
+                        "progress": 100,
+                        "message": f"Job completado! {len(data)} anúncios encontrados (raw).",
+                        "data": data
+                    }
+            elif async_status == 'Job Failed':
+                error_msg = status_data.get('error', 'Job failed without specific error')
+                return {
+                    "status": "failed",
+                    "progress": 100,
+                    "message": f"Job falhou: {error_msg}"
+                }
+            else:
+                return {
+                    "status": "running",
+                    "progress": percent_completion,
+                    "message": f"Processando... {percent_completion}%"
+                }
+                
+        except Exception as err:
+            logger.exception("get_job_progress error: %s", err)
+            return {
+                "status": "error",
+                "progress": 0,
+                "message": str(err)
+            }
+
+    def get_video_source_url(self, video_id: Union[str, int], actor_id: str) -> Union[str, Dict[str, Any]]:
+        if not actor_id or not video_id:
+            raise ValueError("actor_id and video_id are required")
+
+        try:
+            video_url = self.base_url + str(video_id) + self.get_page_access_token(actor_id)
+            payload = {'fields': 'source'}
+            resp = requests.get(video_url, params=payload)
+            resp.raise_for_status()
+            source = resp.json().get('source')
+            if source:
+                return source
+            return {"status": "not_found", "message": "No video source returned"}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_url = urllib.parse.unquote(http_err.request.url)  # type: ignore
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            try:
+                error_message = json.loads(decoded_text)['error']['message']
+            except Exception:
+                error_message = decoded_text
+            logger.error("get_video_source_url http_error: %s %s for %s", http_err.response.status_code, decoded_text, decoded_url)
+            return {'status': f"Status: {http_err.response.status_code} - http_error", 'message': error_message}
+        except Exception as err:
+            logger.exception("get_video_source_url error: %s", err)
+            return {'status': 'error', 'message': str(err)}
