@@ -13,13 +13,13 @@ git pull origin main || echo "⚠️  Git pull falhou, continuando com código l
 
 echo "🐳 Parando containers existentes..."
 cd $DEPLOY_DIR
-docker-compose down || echo "⚠️  Nenhum container rodando"
+docker compose down || echo "⚠️  Nenhum container rodando"
 
 echo "🔨 Fazendo build das imagens..."
-docker-compose build --no-cache
+docker compose build --no-cache
 
 echo "🚀 Iniciando containers..."
-docker-compose up -d
+docker compose up -d
 
 echo "⏳ Aguardando containers iniciarem..."
 sleep 5
@@ -27,15 +27,15 @@ sleep 5
 echo "✅ Deploy concluído!"
 echo ""
 echo "📊 Status dos containers:"
-docker-compose ps
+docker compose ps
 
 echo ""
 echo "📝 Logs recentes do backend:"
-docker-compose logs --tail=20 backend
+docker compose logs --tail=20 backend
 
 echo ""
 echo "📝 Logs recentes do frontend:"
-docker-compose logs --tail=20 frontend
+docker compose logs --tail=20 frontend
 
 echo ""
 echo "🔍 Verificando saúde dos serviços..."

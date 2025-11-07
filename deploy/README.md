@@ -76,18 +76,18 @@ cd /var/www/hookify/deploy
 
 ### Ver logs em tempo real:
 ```bash
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### Ver logs de um serviço específico:
 ```bash
-docker-compose logs -f backend
-docker-compose logs -f frontend
+docker compose logs -f backend
+docker compose logs -f frontend
 ```
 
 ### Verificar status:
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 ### Health checks:
@@ -103,19 +103,19 @@ curl https://hookifyads.com
 
 ### Parar serviços:
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Reiniciar um serviço específico:
 ```bash
-docker-compose restart backend
-docker-compose restart frontend
+docker compose restart backend
+docker compose restart frontend
 ```
 
 ### Rebuild sem cache:
 ```bash
-docker-compose build --no-cache
-docker-compose up -d
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ### Ver uso de recursos:
@@ -127,7 +127,7 @@ docker stats
 
 ### Container não inicia:
 ```bash
-docker-compose logs nome-do-container
+docker compose logs nome-do-container
 ```
 
 ### Problemas de rede:
@@ -138,9 +138,9 @@ docker network inspect hookify-network
 
 ### Limpar tudo e recomeçar:
 ```bash
-docker-compose down -v
-docker-compose build --no-cache
-docker-compose up -d
+docker compose down -v
+docker compose build --no-cache
+docker compose up -d
 ```
 
 ## 📝 Notas

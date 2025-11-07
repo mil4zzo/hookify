@@ -37,6 +37,6 @@ if docker ps | grep -q hookify-backend; then
 else
     echo ""
     echo "⚠️  Containers do Hookify não estão rodando ainda"
-    echo "   Execute: cd /var/www/hookify/deploy && docker-compose up -d"
+    echo "   Execute: cd /var/www/hookify/deploy && docker compose up -d"
 fi
 

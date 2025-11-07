@@ -4,25 +4,25 @@
 
 ### 1. Arquivos .env configurados no VPS
 
-- [ ] `backend/.env` criado com todas as variáveis
-- [ ] `frontend/.env.local` criado com todas as variáveis
-- [ ] Todas as credenciais preenchidas (não deixar valores vazios)
+- [x] `backend/.env` criado com todas as variáveis
+- [x] `frontend/.env.local` criado com todas as variáveis
+- [x] Todas as credenciais preenchidas (não deixar valores vazios)
 
 ### 2. DNS configurado
 
-- [ ] Domínio `hookifyads.com` apontando para `77.37.126.210`
-- [ ] Verificar com: `dig hookifyads.com` ou `nslookup hookifyads.com`
+- [x] Domínio `hookifyads.com` apontando para `77.37.126.210`
+- [x] Verificar com: `dig hookifyads.com` ou `nslookup hookifyads.com`
 
 ### 3. Arquivos no VPS
 
-- [ ] Código do projeto em `/var/www/hookify`
-- [ ] Diretório `deploy/` com todos os arquivos
-- [ ] Scripts com permissão de execução: `chmod +x deploy.sh`
+- [x] Código do projeto em `/var/www/hookify`
+- [x] Diretório `deploy/` com todos os arquivos
+- [x] Scripts com permissão de execução: `chmod +x deploy.sh`
 
 ### 4. Facebook OAuth
 
-- [ ] Redirect URI configurado: `https://hookifyads.com/callback`
-- [ ] Domínio válido adicionado: `hookifyads.com`
+- [x] Redirect URI configurado: `https://hookifyads.com/callback`
+- [x] Domínio válido adicionado: `hookifyads.com`
 
 ## 🟡 RECOMENDADO - Para melhor experiência
 
@@ -43,10 +43,10 @@ cd /var/www/hookify/deploy
 
 ```bash
 # 1. Verificar containers
-docker-compose ps
+docker compose ps
 
 # 2. Verificar logs
-docker-compose logs -f
+docker compose logs -f
 
 # 3. Testar backend localmente
 curl http://localhost:8000/health
@@ -59,7 +59,7 @@ curl https://hookifyads.com/health
 
 ### Container não inicia
 
-- Verificar logs: `docker-compose logs backend`
+- Verificar logs: `docker compose logs backend`
 - Verificar variáveis de ambiente: `docker exec hookify-backend env`
 
 ### Traefik não detecta containers

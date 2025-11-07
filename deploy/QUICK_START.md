@@ -46,8 +46,8 @@ chmod +x check-traefik-network.sh
 ```bash
 # Aguardar alguns minutos para build e SSL
 # Depois verificar:
-docker-compose ps
-docker-compose logs -f
+docker compose ps
+docker compose logs -f
 
 # Testar
 curl https://hookifyads.com/health
