@@ -17,6 +17,8 @@ RUN npm ci
 COPY app/ ./app/
 COPY components/ ./components/
 COPY lib/ ./lib/
+# Garantir que public existe e copiar
+RUN mkdir -p ./public
 COPY public/ ./public/
 COPY middleware.ts ./
 COPY next-env.d.ts ./
