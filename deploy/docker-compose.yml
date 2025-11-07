@@ -36,6 +36,12 @@ services:
     build:
       context: ../frontend
       dockerfile: ../deploy/Dockerfile.frontend
+      args:
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://hookifyads.com/api}
+        - NEXT_PUBLIC_FB_REDIRECT_URI=${NEXT_PUBLIC_FB_REDIRECT_URI:-https://hookifyads.com/callback}
+        - NEXT_PUBLIC_USE_REMOTE_API=${NEXT_PUBLIC_USE_REMOTE_API:-true}
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     container_name: hookify-frontend
     restart: unless-stopped
     environment:
@@ -61,7 +67,5 @@ services:
 
 networks:
   hookify-network:
-    driver: bridge
-    # O Traefik detecta automaticamente containers na mesma rede Docker
-    # Não precisa ser external, mas pode conectar manualmente se necessário
+    external: true
 
