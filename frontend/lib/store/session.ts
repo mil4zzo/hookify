@@ -145,7 +145,7 @@ export const useSessionStore = create<SessionStore>()(
     {
       name: STORAGE_KEY,
       version: STORAGE_VERSION,
-      storage: hybridStorage,
+      storage: hybridStorage as any,
       partialize: (state) => ({
         accessToken: state.accessToken,
         user: state.user,

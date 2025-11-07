@@ -28,7 +28,7 @@ function getComputedColorValue(varName: string): string {
 }
 
 export default function ComponentsShowcase() {
-  const [dateRange, setDateRange] = useState({ start: "2024-01-01", end: "2024-12-31" });
+  const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({ start: "2024-01-01", end: "2024-12-31" });
   const [progressValue, setProgressValue] = useState(45);
   const [toggleState, setToggleState] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -59,18 +59,18 @@ export default function ComponentsShowcase() {
       { name: "--border", value: "", category: "Bordas" },
       { name: "--input", value: "", category: "Formulários" },
       { name: "--ring", value: "", category: "Foco" },
-      
+
       // Sidebar
       { name: "--sidebar", value: "", category: "Sidebar" },
       { name: "--sidebar-foreground", value: "", category: "Sidebar" },
       { name: "--sidebar-primary", value: "", category: "Sidebar" },
       { name: "--sidebar-primary-foreground", value: "", category: "Sidebar" },
-      
+
       // Cores customizadas
       { name: "--text", value: "", category: "Customizadas" },
       { name: "--surface", value: "", category: "Customizadas" },
       { name: "--surface-2", value: "", category: "Customizadas" },
-      
+
       // Chart colors (se existirem)
       { name: "--chart-1", value: "", category: "Gráficos" },
       { name: "--chart-2", value: "", category: "Gráficos" },
@@ -110,7 +110,7 @@ export default function ComponentsShowcase() {
 
   // Função auxiliar para determinar se o texto deve ser claro ou escuro
   const getTextColor = (bgColor: string): string => {
-    if (!bgColor || bgColor === "N/A" || bgColor.startsWith("rgb(") && bgColor.includes("/")) {
+    if (!bgColor || bgColor === "N/A" || (bgColor.startsWith("rgb(") && bgColor.includes("/"))) {
       return "text-foreground";
     }
     // Simplificação: se for uma cor escura conhecida, usa texto claro
@@ -148,33 +148,19 @@ export default function ComponentsShowcase() {
               {/* Variáveis CSS agrupadas por categoria */}
               {Object.entries(colorsByCategory).map(([category, colors]) => (
                 <div key={category} className="space-y-2">
-                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                    {category}
-                  </h3>
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{category}</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
                     {colors.map((color) => {
-                      const bgStyle = color.value && color.value !== "N/A" 
-                        ? { backgroundColor: color.value } 
-                        : { backgroundColor: "#e5e7eb" };
-                      
+                      const bgStyle = color.value && color.value !== "N/A" ? { backgroundColor: color.value } : { backgroundColor: "#e5e7eb" };
+
                       return (
-                        <div
-                          key={color.name}
-                          className="border rounded-md overflow-hidden bg-card"
-                        >
-                          <div
-                            className="h-12 w-full flex items-center justify-center"
-                            style={bgStyle}
-                          >
-                            {color.value === "N/A" && (
-                              <span className="text-[10px] text-muted-foreground">N/A</span>
-                            )}
+                        <div key={color.name} className="border rounded-md overflow-hidden bg-card">
+                          <div className="h-12 w-full flex items-center justify-center" style={bgStyle}>
+                            {color.value === "N/A" && <span className="text-[10px] text-muted-foreground">N/A</span>}
                           </div>
                           <div className="p-2 space-y-0.5">
                             <div className="text-[10px] font-medium leading-tight">{color.name.replace("--", "")}</div>
-                            <code className="text-[9px] text-muted-foreground break-all line-clamp-1">
-                              {formatColorValue(color.value)}
-                            </code>
+                            <code className="text-[9px] text-muted-foreground break-all line-clamp-1">{formatColorValue(color.value)}</code>
                           </div>
                         </div>
                       );
@@ -182,22 +168,14 @@ export default function ComponentsShowcase() {
                   </div>
                 </div>
               ))}
-              
+
               {/* Cores Hardcoded */}
               <div className="space-y-2 pt-2 border-t">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                  Hardcoded
-                </h3>
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Hardcoded</h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
                   {hardcodedColors.map((color) => (
-                    <div
-                      key={color.name}
-                      className="border rounded-md overflow-hidden bg-card"
-                    >
-                      <div
-                        className="h-12 w-full flex items-center justify-center"
-                        style={{ backgroundColor: color.value }}
-                      />
+                    <div key={color.name} className="border rounded-md overflow-hidden bg-card">
+                      <div className="h-12 w-full flex items-center justify-center" style={{ backgroundColor: color.value }} />
                       <div className="p-2 space-y-0.5">
                         <div className="text-[10px] font-medium leading-tight">{color.name}</div>
                         <code className="text-[9px] text-muted-foreground">{color.value}</code>
@@ -363,7 +341,9 @@ export default function ComponentsShowcase() {
                   <p>Conteúdo do modal aqui...</p>
                 </div>
                 <div className="flex justify-end gap-2 mt-6">
-                  <Button variant="outline" onClick={() => setIsModalOpen(false)}>Cancelar</Button>
+                  <Button variant="outline" onClick={() => setIsModalOpen(false)}>
+                    Cancelar
+                  </Button>
                   <Button onClick={() => setIsModalOpen(false)}>Confirmar</Button>
                 </div>
               </Modal>
@@ -564,110 +544,125 @@ export default function ComponentsShowcase() {
                   ad_name: "Anúncio Premium - Produto A",
                   ad_id: "123456789",
                   thumbnail: "https://via.placeholder.com/150",
-                  hook: 0.45,
-                  cpr: 12.5,
+                  impressions: 15000,
+                  clicks: 480,
+                  inline_link_clicks: 420,
                   spend: 1500.0,
+                  lpv: 112,
+                  plays: 5000,
+                  hook: 0.45,
                   ctr: 0.032,
-                  cpm: 8.5,
                   connect_rate: 0.28,
-                  page_conv: 0.15,
+                  conversions: { purchase: 120 },
                   ad_count: 3,
                   series: {
+                    axis: ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"],
                     hook: [0.42, 0.44, 0.43, 0.45, 0.45],
-                    cpr: [13.0, 12.8, 12.6, 12.5, 12.5],
                     spend: [1400, 1450, 1480, 1500, 1500],
                     ctr: [0.03, 0.031, 0.031, 0.032, 0.032],
-                    cpm: [8.7, 8.6, 8.55, 8.5, 8.5],
                     connect_rate: [0.26, 0.27, 0.27, 0.28, 0.28],
-                    page_conv: [0.14, 0.145, 0.148, 0.15, 0.15],
+                    lpv: [100, 105, 108, 110, 112],
+                    conversions: [{ purchase: 10 }, { purchase: 11 }, { purchase: 12 }, { purchase: 12 }, { purchase: 12 }],
                   },
                 },
                 {
                   ad_name: "Anúncio Estrela - Produto B",
                   ad_id: "987654321",
                   thumbnail: "https://via.placeholder.com/150",
-                  hook: 0.52,
-                  cpr: 15.75,
+                  impressions: 22000,
+                  clicks: 902,
+                  inline_link_clicks: 770,
                   spend: 2300.0,
+                  lpv: 165,
+                  plays: 8000,
+                  hook: 0.52,
                   ctr: 0.041,
-                  cpm: 10.2,
                   connect_rate: 0.35,
-                  page_conv: 0.22,
+                  conversions: { purchase: 146 },
                   ad_count: 5,
                   series: {
+                    axis: ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"],
                     hook: [0.48, 0.5, 0.51, 0.51, 0.52],
-                    cpr: [16.2, 16.0, 15.9, 15.8, 15.75],
                     spend: [2100, 2200, 2250, 2280, 2300],
                     ctr: [0.038, 0.039, 0.04, 0.04, 0.041],
-                    cpm: [10.5, 10.4, 10.3, 10.25, 10.2],
                     connect_rate: [0.32, 0.33, 0.34, 0.34, 0.35],
-                    page_conv: [0.2, 0.21, 0.21, 0.22, 0.22],
+                    lpv: [150, 155, 160, 162, 165],
+                    conversions: [{ purchase: 15 }, { purchase: 16 }, { purchase: 16 }, { purchase: 17 }, { purchase: 17 }],
                   },
                 },
                 {
                   ad_name: "Anúncio Básico - Produto C",
                   ad_id: "456789123",
                   thumbnail: "https://via.placeholder.com/150",
-                  hook: 0.38,
-                  cpr: 18.9,
+                  impressions: 13000,
+                  clicks: 325,
+                  inline_link_clicks: 260,
                   spend: 980.0,
+                  lpv: 65,
+                  plays: 2500,
+                  hook: 0.38,
                   ctr: 0.025,
-                  cpm: 7.2,
                   connect_rate: 0.2,
-                  page_conv: 0.1,
+                  conversions: { purchase: 25 },
                   ad_count: 2,
                   series: {
+                    axis: ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"],
                     hook: [0.36, 0.37, 0.37, 0.38, 0.38],
-                    cpr: [19.5, 19.2, 19.0, 18.95, 18.9],
                     spend: [920, 950, 965, 975, 980],
                     ctr: [0.024, 0.024, 0.025, 0.025, 0.025],
-                    cpm: [7.4, 7.3, 7.25, 7.22, 7.2],
                     connect_rate: [0.18, 0.19, 0.19, 0.2, 0.2],
-                    page_conv: [0.09, 0.095, 0.098, 0.1, 0.1],
+                    lpv: [60, 62, 63, 64, 65],
+                    conversions: [{ purchase: 5 }, { purchase: 5 }, { purchase: 5 }, { purchase: 5 }, { purchase: 5 }],
                   },
                 },
                 {
                   ad_name: "Anúncio VIP - Produto D",
                   ad_id: "789123456",
                   thumbnail: "https://via.placeholder.com/150",
-                  hook: 0.58,
-                  cpr: 11.25,
+                  impressions: 32000,
+                  clicks: 1536,
+                  inline_link_clicks: 1344,
                   spend: 3200.0,
+                  lpv: 220,
+                  plays: 12000,
+                  hook: 0.58,
                   ctr: 0.048,
-                  cpm: 9.8,
                   connect_rate: 0.42,
-                  page_conv: 0.3,
+                  conversions: { purchase: 284 },
                   ad_count: 7,
                   series: {
+                    axis: ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"],
                     hook: [0.54, 0.56, 0.57, 0.57, 0.58],
-                    cpr: [11.8, 11.6, 11.45, 11.35, 11.25],
                     spend: [2900, 3050, 3120, 3160, 3200],
                     ctr: [0.045, 0.046, 0.047, 0.047, 0.048],
-                    cpm: [10.1, 9.95, 9.88, 9.82, 9.8],
                     connect_rate: [0.38, 0.4, 0.41, 0.41, 0.42],
-                    page_conv: [0.27, 0.28, 0.29, 0.29, 0.3],
+                    lpv: [200, 210, 215, 218, 220],
+                    conversions: [{ purchase: 25 }, { purchase: 26 }, { purchase: 27 }, { purchase: 27 }, { purchase: 28 }],
                   },
                 },
                 {
                   ad_name: "Anúncio Padrão - Produto E",
                   ad_id: "321654987",
                   thumbnail: "https://via.placeholder.com/150",
-                  hook: 0.32,
-                  cpr: 22.4,
+                  impressions: 11000,
+                  clicks: 198,
+                  inline_link_clicks: 165,
                   spend: 750.0,
+                  lpv: 54,
+                  plays: 1500,
+                  hook: 0.32,
                   ctr: 0.018,
-                  cpm: 6.5,
                   connect_rate: 0.15,
-                  page_conv: 0.08,
+                  conversions: { purchase: 33 },
                   ad_count: 1,
                   series: {
+                    axis: ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"],
                     hook: [0.3, 0.31, 0.31, 0.32, 0.32],
-                    cpr: [23.0, 22.8, 22.6, 22.5, 22.4],
                     spend: [700, 720, 735, 745, 750],
                     ctr: [0.017, 0.017, 0.018, 0.018, 0.018],
-                    cpm: [6.7, 6.6, 6.55, 6.52, 6.5],
                     connect_rate: [0.14, 0.145, 0.148, 0.15, 0.15],
-                    page_conv: [0.075, 0.077, 0.078, 0.079, 0.08],
+                    lpv: [50, 51, 52, 53, 54],
+                    conversions: [{ purchase: 3 }, { purchase: 3 }, { purchase: 3 }, { purchase: 3 }, { purchase: 3 }],
                   },
                 },
               ]}

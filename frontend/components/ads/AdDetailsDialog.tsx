@@ -160,6 +160,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     return resultsForActionType / lpv;
   }, [ad, lpv, resultsForActionType]);
 
+  // Calcular CPM: (spend / impressions) * 1000
+  const cpm = useMemo(() => {
+    const spend = Number(ad?.spend || 0);
+    const impressions = Number(ad?.impressions || 0);
+    if (!impressions) return 0;
+    return (spend / impressions) * 1000;
+  }, [ad?.spend, ad?.impressions]);
+
   const series = ad?.series;
 
   // Retenção de vídeo (array 0..100 por segundo) - priorizar do ad (já vem do ranking agregado)
@@ -248,7 +256,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
             <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
             <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
-            <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(Number(ad?.cpm || 0))} valueRaw={Number(ad?.cpm || 0)} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+            <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
             <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
             <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
             <MetricCard label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
@@ -373,7 +381,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           <MetricCard label="CTR" value={series?.ctr ? <ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" /> : "Sem série"} series={series?.ctr} metric="ctr" size="large" formatPct={formatPct} />
           <MetricCard label="Connect Rate" value={series?.connect_rate ? <ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" /> : "Sem série"} series={series?.connect_rate} metric="connect_rate" size="large" formatPct={formatPct} />
           <MetricCard label="CPR" value={(series as any)?.cpr && hasCpr ? <ValueWithDelta display={formatCurrency(cpr)} valueRaw={cpr} avgRaw={averages?.cpr ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpr} metric="cpr" size="large" formatCurrency={formatCurrency} />
-          <MetricCard label="CPM" value={(series as any)?.cpm ? <ValueWithDelta display={formatCurrency(Number(ad?.cpm || 0))} valueRaw={Number(ad?.cpm || 0)} avgRaw={averages?.cpm ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpm} metric="cpm" size="large" formatCurrency={formatCurrency} />
+          <MetricCard label="CPM" value={(series as any)?.cpm ? <ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpm} metric="cpm" size="large" formatCurrency={formatCurrency} />
         </div>
       )}
 

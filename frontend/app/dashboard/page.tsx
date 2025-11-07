@@ -6,12 +6,12 @@ import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
+import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { MetricsCards } from "@/components/dashboard/MetricsCards";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { aggregateAdsData, AggregatedData, AdData } from "@/lib/utils/aggregation";
-import { getAggregatedPackStatistics, getAdStatistics } from "@/lib/utils/adCounting";
+import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { DateRangeFilter } from "@/components/common/DateRangeFilter";
 import { filterAdsByDateRange } from "@/lib/utils/dateFilters";
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -62,7 +62,7 @@ export default function DashboardPage() {
   const uniqueCostPerConversionTypes = useMemo(() => {
     const types = new Set<string>();
     allAds.forEach((ad) => {
-      ad.cost_per_conversion?.forEach((cost) => {
+      ad.cost_per_conversion?.forEach((cost: { action_type: string; value: number }) => {
         types.add(cost.action_type);
       });
     });

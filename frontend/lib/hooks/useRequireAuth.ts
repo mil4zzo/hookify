@@ -13,7 +13,7 @@ export const useRequireAuth = (redirectTo: string = "/login") => {
   useEffect(() => {
     // Só redirecionar se o carregamento terminou E não está autenticado
     if (isClient && !isLoading && !isAuthenticated) {
-      router.replace(redirectTo);
+      router.replace(redirectTo as any);
     }
   }, [isClient, isAuthenticated, isLoading, router, redirectTo]);
 

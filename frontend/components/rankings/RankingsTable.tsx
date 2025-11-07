@@ -26,6 +26,7 @@ interface RankingsTableProps {
   endDate?: string;
   dateStart?: string;
   dateStop?: string;
+  availableConversionTypes?: string[];
   averagesOverride?: {
     hook: number | null;
     scroll_stop: number | null;
@@ -329,7 +330,8 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
   const getRowKey = (row: { original?: RankingsItem } | RankingsItem) => {
     const original = 'original' in row ? row.original : row;
     if (!original) return '';
-    return groupByAdName ? String(original.ad_name || original.ad_id) : String(original.unique_id || `${original.account_id}:${original.ad_id}`);
+    const item = original as RankingsItem;
+    return groupByAdName ? String(item.ad_name || item.ad_id) : String(item.unique_id || `${item.account_id}:${item.ad_id}`);
   };
 
   // Pre-aggregate 5-day daily series ending at provided endDate (fallback se não vier do servidor)
@@ -349,7 +351,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       return { byKey: map };
     }
     // Fallback: calcular séries client-side
-    return buildDailySeries(ads, {
+    return buildDailySeries(ads as any, {
       groupBy: groupByAdName ? "ad_name" : "ad_id",
       actionType,
       endDate,
@@ -361,8 +363,9 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
   const MetricCell = ({ row, value, metric }: { row: RankingsItem | { original?: RankingsItem }; value: React.ReactNode; metric: "hook" | "cpr" | "spend" | "ctr" | "connect_rate" | "page_conv" | "cpm" }) => {
     // row já é o objeto agregado (info.row.original), então precisamos ajustar
     const original: RankingsItem = ('original' in row ? row.original : row) as RankingsItem;
-    const serverSeries = original.series?.[metric];
-    const s = serverSeries || (endDate ? byKey.get(getRowKey({ original: row }))?.series?.[metric] : null);
+    const serverSeries = original.series ? (original.series as any)[metric] : undefined;
+    const rowKey = getRowKey(row);
+    const s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
     
     return (
       <div className="flex flex-col items-center gap-3">
@@ -447,12 +450,17 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         sortingFn: "auto",
       }),
       // CPR
-      columnHelper.accessor("cpr", {
+      columnHelper.display({
+        id: "cpr",
         header: "CPR",
         size: 140,
         minSize: 100,
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="cpr" />,
-        sortingFn: "auto",
+        cell: (info) => {
+          const ad = info.row.original;
+          const results = actionType ? (ad.conversions?.[actionType] || 0) : 0;
+          const cpr = results > 0 ? ad.spend / results : 0;
+          return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpr)}</span>} metric="cpr" />;
+        },
       }),
       // Spend
       columnHelper.accessor("spend", {
@@ -469,12 +477,16 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="ctr" />,
       }),
       // CPM
-      columnHelper.accessor("cpm", {
+      columnHelper.display({
+        id: "cpm",
         header: "CPM",
         size: 140,
         minSize: 100,
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="cpm" />,
-        sortingFn: "auto",
+        cell: (info) => {
+          const ad = info.row.original;
+          const cpm = ad.impressions > 0 ? (ad.spend / ad.impressions) * 1000 : 0;
+          return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpm)}</span>} metric="cpm" />;
+        },
       }),
       // Connect Rate
       columnHelper.accessor("connect_rate", {
@@ -484,14 +496,20 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="connect_rate" />,
       }),
       // Page Conversion
-      columnHelper.accessor("page_conv", {
+      columnHelper.display({
+        id: "page_conv",
         header: "Page",
         size: 140,
         minSize: 100,
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="page_conv" />,
+        cell: (info) => {
+          const ad = info.row.original;
+          const results = actionType ? (ad.conversions?.[actionType] || 0) : 0;
+          const pageConv = ad.lpv > 0 ? results / ad.lpv : 0;
+          return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(pageConv * 100)}</span>} metric="page_conv" />;
+        },
       }),
     ],
-    [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency]
+    [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct]
   );
 
   const table = useReactTable({

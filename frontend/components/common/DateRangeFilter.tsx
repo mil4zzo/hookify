@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { DateRange } from "react-day-picker";
 import { format, parse } from "date-fns";
 import { DateRangePicker } from "@/components/ui/date-range-picker";

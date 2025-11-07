@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAutoRefreshPacks } from "@/lib/hooks/useAutoRefreshPacks";
 import { AutoRefreshConfirmModal } from "@/components/common/AutoRefreshConfirmModal";
 import { formatToTitleCase } from "@/lib/utils/formatName";
+import ServerStatusBanner from "./ServerStatusBanner";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
@@ -226,7 +227,9 @@ export default function Topbar() {
 
   if (!isClient) {
     return (
-      <header className="z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <>
+        <ServerStatusBanner />
+        <header className="z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold text-text">Hookify</h1>
@@ -273,11 +276,14 @@ export default function Topbar() {
           </div>
         </div>
       </header>
+      </>
     );
   }
 
   return (
-    <header className="z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <>
+      <ServerStatusBanner />
+      <header className="z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       {/* Desktop Layout */}
       <div className="hidden md:flex container mx-auto h-16 items-center justify-between px-8">
         {/* Page Title - Left Side */}
@@ -559,5 +565,6 @@ export default function Topbar() {
 
       <AutoRefreshConfirmModal isOpen={showModal} packCount={packCount} onConfirm={handleConfirm} onCancel={handleCancel} />
     </header>
+    </>
   );
 }

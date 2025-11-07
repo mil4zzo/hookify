@@ -185,7 +185,7 @@ export default function TableDemoPage() {
 
   const columnHelper = createColumnHelper<DemoAd>();
 
-  const columns: ColumnDef<DemoAd>[] = useMemo(
+  const columns = useMemo<ColumnDef<DemoAd>[]>(
     () => [
       // Coluna com status colorido e ícones
       columnHelper.accessor("status", {
@@ -360,7 +360,7 @@ export default function TableDemoPage() {
           );
         },
       }),
-    ],
+    ] as ColumnDef<DemoAd>[],
     [columnHelper]
   );
 

@@ -242,6 +242,9 @@ frontend/.cache/
 # Storybook build outputs
 frontend/.out
 frontend/.storybook-out
+
+# Diretório duplicado/antigo
+frontend/@/
 frontend/storybook-static
 
 # Temporary folders
@@ -339,6 +342,12 @@ $RECYCLE.BIN/
 # ===========================================
 # PROJECT SPECIFIC
 # ===========================================
+
+# Virtual environments in root (should only exist in backend/)
+venv/
+.venv/
+env/
+ENV/
 
 # Hookify specific files
 autorizador.json

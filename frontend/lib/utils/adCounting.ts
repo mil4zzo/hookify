@@ -98,7 +98,7 @@ export const getAdStatistics = (ads: AdData[]) => {
  * @param packs Array of pack objects with ads property and optional stats
  * @returns Object with aggregated statistics
  */
-export const getAggregatedPackStatistics = (packs: Array<{ ads?: AdData[], stats?: { uniqueAds?: number, uniqueCampaigns?: number, uniqueAdsets?: number, totalSpend?: number } | null }>) => {
+export const getAggregatedPackStatistics = (packs: Array<{ ads?: AdData[], stats?: { totalAds?: number, uniqueAds?: number, uniqueCampaigns?: number, uniqueAdsets?: number, totalSpend?: number } | null }>) => {
   if (!packs || packs.length === 0) {
     return {
       totalPacks: 0,

@@ -110,23 +110,19 @@ export default function RankingsPage() {
   const endDate = useMemo(() => dateRange.end, [dateRange.end]);
 
   // Usar hook useRankings para buscar dados
-  const rankingsRequest: RankingsRequest = useMemo(() => ({
-    date_start: dateRange.start || "",
-    date_stop: dateRange.end || "",
-    group_by: "ad_name",
-    // Não enviar action_type - vamos calcular localmente baseado no selecionado
-    limit: 1000,
-    filters: {},
-  }), [dateRange.start, dateRange.end]);
-
-  const { 
-    data: rankingsData, 
-    isLoading: loading, 
-    error: rankingsError 
-  } = useRankings(
-    rankingsRequest,
-    isClient && status === "authorized" && !!dateRange.start && !!dateRange.end
+  const rankingsRequest: RankingsRequest = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "ad_name",
+      // Não enviar action_type - vamos calcular localmente baseado no selecionado
+      limit: 1000,
+      filters: {},
+    }),
+    [dateRange.start, dateRange.end]
   );
+
+  const { data: rankingsData, isLoading: loading, error: rankingsError } = useRankings(rankingsRequest, isClient && status === "authorized" && !!dateRange.start && !!dateRange.end);
 
   // Extrair dados do response
   const serverData = rankingsData?.data || null;
@@ -173,7 +169,7 @@ export default function RankingsPage() {
       console.error("Erro ao salvar actionType no localStorage:", e);
     }
   };
-  
+
   // Atualizar serverAverages quando dados mudarem
   useEffect(() => {
     if (rankingsData && (rankingsData as any).averages) {
@@ -345,7 +341,8 @@ export default function RankingsPage() {
       // Calcular cpm_series sempre que houver séries (não depende de actionType)
       if (series) {
         const spendSeries = series.spend || [];
-        const impressionsSeries = series.impressions || [];
+        // impressions pode não estar no schema RankingsItemSchema, mas pode estar em RankingsChildrenItemSchema
+        const impressionsSeries = (series as any).impressions || [];
 
         // Calcular cpm_series se tivermos impressionsSeries do servidor
         if (impressionsSeries.length > 0 && spendSeries.length === impressionsSeries.length) {
@@ -356,7 +353,7 @@ export default function RankingsPage() {
           series = {
             ...series,
             cpm: cpm_series,
-          };
+          } as any;
         }
       }
 
@@ -385,7 +382,7 @@ export default function RankingsPage() {
           ...series,
           cpr: cpr_series,
           page_conv: page_conv_series,
-        };
+        } as any;
       }
 
       return {
@@ -445,7 +442,7 @@ export default function RankingsPage() {
           <ActionTypeFilter label="Evento de Conversão" value={actionType} onChange={handleActionTypeChange} options={uniqueConversionTypes} />
           {packsClient && packs.length > 0 && <PackFilter packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} />}
         </div>
-        
+
         {/* Skeleton da tabela */}
         <div className="w-full">
           <div className="overflow-x-auto custom-scrollbar">
@@ -571,13 +568,13 @@ export default function RankingsPage() {
           const per = (base as any).per_action_type || {};
           const perSel = actionType ? per[actionType] : undefined;
           return {
-            hook: typeof base.hook === 'number' ? base.hook : null,
-            scroll_stop: typeof base.scroll_stop === 'number' ? base.scroll_stop : null,
-            ctr: typeof base.ctr === 'number' ? base.ctr : null,
-            connect_rate: typeof base.connect_rate === 'number' ? base.connect_rate : null,
-            cpm: typeof base.cpm === 'number' ? base.cpm : null,
-            cpr: perSel && typeof perSel.cpr === 'number' ? perSel.cpr : null,
-            page_conv: perSel && typeof perSel.page_conv === 'number' ? perSel.page_conv : null,
+            hook: typeof base.hook === "number" ? base.hook : null,
+            scroll_stop: typeof base.scroll_stop === "number" ? base.scroll_stop : null,
+            ctr: typeof base.ctr === "number" ? base.ctr : null,
+            connect_rate: typeof base.connect_rate === "number" ? base.connect_rate : null,
+            cpm: typeof base.cpm === "number" ? base.cpm : null,
+            cpr: perSel && typeof perSel.cpr === "number" ? perSel.cpr : null,
+            page_conv: perSel && typeof perSel.page_conv === "number" ? perSel.page_conv : null,
           } as any;
         })()}
       />

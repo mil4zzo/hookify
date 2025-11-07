@@ -8,6 +8,7 @@ import { PacksLoader } from "../components/layout/PacksLoader";
 import Sidebar from "../components/layout/Sidebar";
 import LayoutContent from "../components/layout/LayoutContent";
 import BottomNavigationBar from "../components/layout/BottomNavigationBar";
+import ServerStatusBanner from "../components/layout/ServerStatusBanner";
 
 const geist = Geist({
   subsets: ["latin"],

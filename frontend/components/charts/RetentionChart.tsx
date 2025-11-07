@@ -326,8 +326,6 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop 
                     stroke="transparent"
                     strokeWidth={0}
                     tickStroke="transparent"
-                    axisLineProps={{ stroke: "transparent", strokeWidth: 0, className: "retention-chart-axis-line" }}
-                    tickLineProps={{ stroke: "transparent", strokeWidth: 0, className: "retention-chart-axis-tick" }}
                     tickLabelProps={() => ({
                       fill: mutedForegroundColor,
                       fontSize: 12,
@@ -335,7 +333,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop 
                       dy: "0.33em",
                     })}
                   />
-                  <AxisBottom top={h} scale={xScale} hideAxisLine={true} hideTicks={true} stroke="transparent" strokeWidth={0} tickStroke="transparent" axisLineProps={{ stroke: "transparent", strokeWidth: 0, className: "retention-chart-axis-line" }} tickLineProps={{ stroke: "transparent", strokeWidth: 0, className: "retention-chart-axis-tick" }} tickValues={xTickValues} tickFormat={(v) => data[Math.round(Number(v))]?.label || ""} tickLabelProps={() => ({ fill: mutedForegroundColor, fontSize: 12, textAnchor: "middle" })} />
+                  <AxisBottom top={h} scale={xScale} hideAxisLine={true} hideTicks={true} stroke="transparent" strokeWidth={0} tickStroke="transparent" tickValues={xTickValues} tickFormat={(v) => data[Math.round(Number(v))]?.label || ""} tickLabelProps={() => ({ fill: mutedForegroundColor, fontSize: 12, textAnchor: "middle" })} />
                 </g>
               </g>
             </svg>

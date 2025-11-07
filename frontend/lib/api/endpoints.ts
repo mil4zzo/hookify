@@ -18,6 +18,12 @@ import {
 import { env } from '@/lib/config/env'
 
 export const api = {
+  // Health check
+  health: {
+    check: (): Promise<{ status: string; service: string; version: string }> =>
+      apiClient.get('/health'),
+  },
+
   // Facebook OAuth
   auth: {
     getUrl: (): Promise<AuthUrlResponse> => 

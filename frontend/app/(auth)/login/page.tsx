@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Image from "next/image";
 import { IconEye, IconEyeOff } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -9,8 +9,9 @@ import { showError, showSuccess } from "@/lib/utils/toast";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
+import { LoadingState } from "@/components/common/States";
 
-export default function LoginPage() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isClient } = useClientAuth();
@@ -151,5 +152,13 @@ export default function LoginPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoadingState label="Carregando..." />}>
+      <LoginContent />
+    </Suspense>
   );
 }

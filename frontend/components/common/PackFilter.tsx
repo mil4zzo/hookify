@@ -1,17 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
-import { countUniqueAds } from "@/lib/utils/adCounting";
 
 interface Pack {
   id: string;
   name: string;
   ads: any[];
   stats?: {
+    totalAds?: number;
     uniqueAds?: number;
     uniqueCampaigns?: number;
     uniqueAdsets?: number;

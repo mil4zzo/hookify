@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/common/Modal";
-import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
+import { LoadingState, EmptyState } from "@/components/common/States";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -17,7 +17,7 @@ import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/
 import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
 import { showSuccess, showError, showWarning, showProgressToast, updateProgressToast, finishProgressToast } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconCalendar, IconFilter, IconPlus, IconTrash, IconCurrencyDollar, IconChartBar, IconTarget, IconUsers, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical } from "@tabler/icons-react";
+import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical } from "@tabler/icons-react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, createColumnHelper, flexRender, ColumnDef } from "@tanstack/react-table";
 
 import { FilterRule } from "@/lib/api/schemas";
@@ -26,7 +26,6 @@ import { getAggregatedPackStatistics, getAdStatistics } from "@/lib/utils/adCoun
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
-import { StatCard } from "@/components/common/StatCard";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -518,15 +517,15 @@ export default function AdsLoaderPage() {
             };
 
             addPack(pack);
-            
+
             // Salvar ads no cache IndexedDB (separado do store)
             if (formattedAds.length > 0) {
-              const { cachePackAds } = await import('@/lib/storage/adsCache');
+              const { cachePackAds } = await import("@/lib/storage/adsCache");
               await cachePackAds(packId, formattedAds).catch((error) => {
-                console.error('Erro ao salvar ads no cache:', error);
+                console.error("Erro ao salvar ads no cache:", error);
               });
             }
-            
+
             showSuccess(`Pack "${formData.name}" criado com ${formattedAds.length} anúncios!`);
 
             // Reset form and close dialog
@@ -599,20 +598,20 @@ export default function AdsLoaderPage() {
 
       // Remover do estado local
       removePack(packToRemove.id);
-      
+
       // Invalidar cache de ads do pack removido
       await invalidatePackAds(packToRemove.id);
-      
+
       showSuccess(`Pack "${packToRemove.name}" removido com sucesso!`);
       setPackToRemove(null);
     } catch (error) {
       console.error("Erro ao deletar pack do Supabase:", error);
       // Ainda remove do estado local mesmo se falhar no Supabase
       removePack(packToRemove.id);
-      
+
       // Invalidar cache mesmo se falhar no servidor
       await invalidatePackAds(packToRemove.id).catch(() => {});
-      
+
       showError({ message: `Pack removido localmente, mas houve erro ao deletar do servidor: ${error}` });
       setPackToRemove(null);
     } finally {
@@ -629,9 +628,9 @@ export default function AdsLoaderPage() {
     // Buscar ads do cache IndexedDB primeiro, depois do backend se necessário
     try {
       // Tentar cache primeiro
-      const { getCachedPackAds } = await import('@/lib/storage/adsCache');
+      const { getCachedPackAds } = await import("@/lib/storage/adsCache");
       const cachedResult = await getCachedPackAds(pack.id);
-      
+
       let ads = [];
       if (cachedResult.success && cachedResult.data && cachedResult.data.length > 0) {
         ads = cachedResult.data;
@@ -641,34 +640,27 @@ export default function AdsLoaderPage() {
         if (response.success && response.pack?.ads) {
           ads = response.pack.ads;
           // Salvar no cache para próximas vezes
-          const { cachePackAds } = await import('@/lib/storage/adsCache');
+          const { cachePackAds } = await import("@/lib/storage/adsCache");
           await cachePackAds(pack.id, ads).catch(() => {});
         }
       }
-      
+
       // Garantir que stats estejam completos
       // Se não tiver stats ou estiver incompleto, recalcular dos ads
-      const essentialStatsKeys = ['totalSpend', 'uniqueAds', 'uniqueCampaigns', 'uniqueAdsets'];
-      const hasValidStats = pack.stats && 
-                           typeof pack.stats === 'object' && 
-                           Object.keys(pack.stats).length > 0 &&
-                           essentialStatsKeys.every(key => 
-                             key in pack.stats && 
-                             pack.stats[key] !== null && 
-                             pack.stats[key] !== undefined
-                           );
-      
+      const essentialStatsKeys = ["totalSpend", "uniqueAds", "uniqueCampaigns", "uniqueAdsets"];
+      const hasValidStats = pack.stats && typeof pack.stats === "object" && Object.keys(pack.stats).length > 0 && essentialStatsKeys.every((key) => key in pack.stats && pack.stats[key] !== null && pack.stats[key] !== undefined);
+
       let finalStats = pack.stats;
       if (!hasValidStats && ads.length > 0) {
         // Recalcular todos os stats dos ads usando a função utilitária
-        const { getAdStatistics } = await import('@/lib/utils/adCounting');
+        const { getAdStatistics } = await import("@/lib/utils/adCounting");
         const calculated = getAdStatistics(ads);
-        
+
         // Calcular métricas adicionais que não estão em getAdStatistics
         const totalClicks = ads.reduce((sum: number, ad: any) => sum + (ad.clicks || 0), 0);
         const totalImpressions = ads.reduce((sum: number, ad: any) => sum + (ad.impressions || 0), 0);
         const totalReach = ads.reduce((sum: number, ad: any) => sum + (ad.reach || 0), 0);
-        
+
         finalStats = {
           ...calculated,
           totalClicks,
@@ -682,7 +674,7 @@ export default function AdsLoaderPage() {
           frequency: totalReach > 0 ? totalImpressions / totalReach : 0,
         };
       }
-      
+
       setPreviewPack({ ...pack, ads, stats: finalStats });
     } catch (error) {
       console.error("Erro ao carregar ads do pack para preview:", error);
@@ -694,21 +686,21 @@ export default function AdsLoaderPage() {
     // Buscar ads do cache IndexedDB primeiro, depois do backend se necessário
     try {
       // Tentar cache primeiro
-      const { getCachedPackAds } = await import('@/lib/storage/adsCache');
+      const { getCachedPackAds } = await import("@/lib/storage/adsCache");
       const cachedResult = await getCachedPackAds(pack.id);
-      
+
       if (cachedResult.success && cachedResult.data && cachedResult.data.length > 0) {
         // Usar cache se disponível
         setJsonViewerPack({ ...pack, ads: cachedResult.data });
         return;
       }
-      
+
       // Se não tem cache, buscar do backend
       const response = await api.analytics.getPack(pack.id, true);
       if (response.success && response.pack?.ads) {
         const ads = response.pack.ads;
         // Salvar no cache para próximas vezes
-        const { cachePackAds } = await import('@/lib/storage/adsCache');
+        const { cachePackAds } = await import("@/lib/storage/adsCache");
         await cachePackAds(pack.id, ads).catch(() => {});
         setJsonViewerPack({ ...pack, ads });
       } else {
@@ -822,14 +814,14 @@ export default function AdsLoaderPage() {
     setIsTogglingAutoRefresh(packId);
     try {
       await api.analytics.updatePackAutoRefresh(packId, newValue);
-      
+
       // Atualizar pack no store local
       updatePack(packId, {
         auto_refresh: newValue,
       } as Partial<AdsPack>);
-      
+
       showSuccess(`Auto-refresh ${newValue ? "ativado" : "desativado"} para o pack "${pack.name}"`);
-      
+
       // Fechar modal se estiver aberto
       if (packToDisableAutoRefresh?.id === packId) {
         setPackToDisableAutoRefresh(null);
@@ -913,7 +905,7 @@ export default function AdsLoaderPage() {
                     auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
                     // Não precisa atualizar ads - stats já contém tudo necessário para o card
                   } as Partial<AdsPack>);
-                  
+
                   // Invalidar cache de ads do pack (novos dados serão buscados sob demanda)
                   await invalidatePackAds(packId);
                 }
@@ -1028,18 +1020,8 @@ export default function AdsLoaderPage() {
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <div className="flex items-center gap-2">
-                              <Switch
-                                checked={pack.auto_refresh || false}
-                                onCheckedChange={(checked) => handleToggleAutoRefresh(pack.id, checked)}
-                                disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id}
-                                className="data-[state=checked]:bg-green-500"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <div className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${
-                                pack.auto_refresh 
-                                  ? "bg-green-500/20 text-green-500 border border-green-500/30" 
-                                  : "bg-muted text-muted-foreground border border-border"
-                              }`}>
+                              <Switch checked={pack.auto_refresh || false} onCheckedChange={(checked) => handleToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} className="data-[state=checked]:bg-green-500" onClick={(e) => e.stopPropagation()} />
+                              <div className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${pack.auto_refresh ? "bg-green-500/20 text-green-500 border border-green-500/30" : "bg-muted text-muted-foreground border border-border"}`}>
                                 <IconRefresh className={`w-3 h-3 ${pack.auto_refresh ? "animate-spin [animation-duration:3s]" : ""}`} />
                                 <span>{pack.auto_refresh ? "Auto" : "Manual"}</span>
                               </div>
@@ -1146,15 +1128,7 @@ export default function AdsLoaderPage() {
       </div>
 
       {/* Load Pack Modal */}
-      <Modal 
-        isOpen={isDialogOpen} 
-        onClose={() => !isLoading && setIsDialogOpen(false)} 
-        size="2xl" 
-        padding="md"
-        closeOnOverlayClick={!isLoading}
-        closeOnEscape={!isLoading}
-        showCloseButton={!isLoading}
-      >
+      <Modal isOpen={isDialogOpen} onClose={() => !isLoading && setIsDialogOpen(false)} size="2xl" padding="md" closeOnOverlayClick={!isLoading} closeOnEscape={!isLoading} showCloseButton={!isLoading}>
         <div className="space-y-1.5 mb-6">
           <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
           <p className="text-sm text-muted-foreground">Configure os parâmetros para carregar um novo pack de anúncios</p>
@@ -1591,39 +1565,21 @@ export default function AdsLoaderPage() {
       </Modal>
 
       {/* Disable Auto-Refresh Confirmation Dialog */}
-      <Modal 
-        isOpen={!!packToDisableAutoRefresh} 
-        onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} 
-        size="md" 
-        padding="md" 
-        closeOnOverlayClick={!isTogglingAutoRefresh} 
-        closeOnEscape={!isTogglingAutoRefresh} 
-        showCloseButton={!isTogglingAutoRefresh}
-      >
+      <Modal isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} size="md" padding="md" closeOnOverlayClick={!isTogglingAutoRefresh} closeOnEscape={!isTogglingAutoRefresh} showCloseButton={!isTogglingAutoRefresh}>
         <div className="flex flex-col items-center gap-6 py-4">
           <h2 className="text-xl font-semibold text-text">Desativar Auto-Refresh?</h2>
 
           <p className="text-center text-sm text-text-muted">
-            Deseja desativar a atualização automática do pack <strong>"{packToDisableAutoRefresh?.name}"</strong>? 
-            O pack não será mais atualizado automaticamente e você precisará atualizá-lo manualmente quando necessário.
+            Deseja desativar a atualização automática do pack <strong>"{packToDisableAutoRefresh?.name}"</strong>? O pack não será mais atualizado automaticamente e você precisará atualizá-lo manualmente quando necessário.
           </p>
 
           <div className="flex gap-4 w-full">
-            <Button 
-              onClick={cancelDisableAutoRefresh} 
-              variant="outline" 
-              className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" 
-              disabled={!!isTogglingAutoRefresh}
-            >
+            <Button onClick={cancelDisableAutoRefresh} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={!!isTogglingAutoRefresh}>
               <IconCircleX className="h-5 w-5" />
               Não
             </Button>
 
-            <Button 
-              onClick={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} 
-              className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" 
-              disabled={!!isTogglingAutoRefresh}
-            >
+            <Button onClick={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" disabled={!!isTogglingAutoRefresh}>
               {isTogglingAutoRefresh ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
