@@ -38,7 +38,7 @@ fi
 if [ -f "$PROJECT_DIR/frontend/.env.local" ]; then
     echo "📝 Carregando variáveis de ambiente do frontend..."
     export NEXT_PUBLIC_SUPABASE_URL=$(get_env_value "$PROJECT_DIR/frontend/.env.local" "NEXT_PUBLIC_SUPABASE_URL")
-    export NEXT_PUBLIC_SUPABASE_ANON_KEY=$(get_env_value "$PROJECT_DIR/frontend/.env.local" "NEXT_PUBLIC_SUPABASE_ANON_KEY")
+    export NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=$(get_env_value "$PROJECT_DIR/frontend/.env.local" "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY")
     export NEXT_PUBLIC_API_BASE_URL=$(get_env_value "$PROJECT_DIR/frontend/.env.local" "NEXT_PUBLIC_API_BASE_URL")
     export NEXT_PUBLIC_FB_REDIRECT_URI=$(get_env_value "$PROJECT_DIR/frontend/.env.local" "NEXT_PUBLIC_FB_REDIRECT_URI")
     export NEXT_PUBLIC_USE_REMOTE_API=$(get_env_value "$PROJECT_DIR/frontend/.env.local" "NEXT_PUBLIC_USE_REMOTE_API")
