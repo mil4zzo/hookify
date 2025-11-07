@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../deploy/Dockerfile.backend
+    container_name: hookify-backend
+    restart: unless-stopped
+    environment:
+      - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
+      - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
+      - FACEBOOK_AUTH_BASE_URL=${FACEBOOK_AUTH_BASE_URL:-https://www.facebook.com/v22.0/dialog/oauth}
+      - FACEBOOK_TOKEN_URL=${FACEBOOK_TOKEN_URL:-https://graph.facebook.com/v22.0/oauth/access_token}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_KEY=${SUPABASE_KEY}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
+      - CORS_ORIGINS=https://hookifyads.com,https://www.hookifyads.com
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+    env_file:
+      - ../backend/.env
+    networks:
+      - hookify-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`hookifyads.com`) && (PathPrefix(`/api`) || PathPrefix(`/facebook`) || PathPrefix(`/analytics`) || Path(`/health`) || Path(`/`))"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+      - "traefik.http.middlewares.backend-stripprefix.stripprefix.prefixes=/api"
+      - "traefik.http.routers.backend.middlewares=backend-stripprefix"
+      - "traefik.docker.network=hookify-network"
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: ../deploy/Dockerfile.frontend
+    container_name: hookify-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_BASE_URL=https://hookifyads.com/api
+      - NEXT_PUBLIC_FB_REDIRECT_URI=https://hookifyads.com/callback
+      - NEXT_PUBLIC_USE_REMOTE_API=true
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    env_file:
+      - ../frontend/.env.local
+    networks:
+      - hookify-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`hookifyads.com`) || Host(`www.hookifyads.com`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=mytlschallenge"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      - "traefik.http.middlewares.frontend-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
+      - "traefik.http.routers.frontend.middlewares=frontend-headers"
+      - "traefik.docker.network=hookify-network"
+
+networks:
+  hookify-network:
+    driver: bridge
+    # O Traefik detecta automaticamente containers na mesma rede Docker
+    # Não precisa ser external, mas pode conectar manualmente se necessário
+
