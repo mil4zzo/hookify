@@ -10,6 +10,23 @@ export interface AdsPack {
   level: 'campaign' | 'adset' | 'ad'
   filters?: FilterRule[]
   ads: FormattedAd[]
+  auto_refresh?: boolean
+  stats?: {  // Stats agregados do pack (calculados no backend)
+    totalAds: number
+    uniqueAds: number
+    uniqueCampaigns: number
+    uniqueAdsets: number
+    totalSpend: number
+    totalClicks: number
+    totalImpressions: number
+    totalReach: number
+    totalInlineLinkClicks: number
+    totalPlays: number
+    totalThruplays: number
+    ctr: number
+    cpm: number
+    frequency: number
+  }
   created_at: string
   updated_at: string
 }

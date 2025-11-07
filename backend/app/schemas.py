@@ -13,6 +13,15 @@ class AdsRequestFrontend(BaseModel):
     date_stop: str
     level: str = "ad"
     filters: List[Filter] = []
+    name: Optional[str] = None  # Nome do pack
+    auto_refresh: Optional[bool] = False  # Preferência de auto-refresh
+
+    # Dia lógico do usuário (YYYY-MM-DD) para carimbar last_refreshed_at na criação
+    today_local: Optional[str] = None
+
+class RefreshPackRequest(BaseModel):
+    # Dia lógico do usuário (YYYY-MM-DD) que deve ser usado como until do range
+    until_date: str
 
 class VideoSourceRequest(BaseModel):
     video_id: Union[str, int]

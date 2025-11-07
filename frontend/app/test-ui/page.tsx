@@ -5,7 +5,7 @@ import { showError, showSuccess, showInfo } from "@/lib/utils/toast";
 
 export default function TestUI() {
   return (
-    <div className="min-h-screen bg-bg text-text p-8 space-y-8">
+    <div className="min-h-screen bg-background text-text p-8 space-y-8">
       <h1 className="text-2xl font-bold">Teste de Componentes</h1>
 
       <div className="space-y-4">

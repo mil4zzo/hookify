@@ -25,8 +25,9 @@ function CallbackContent() {
     // Se veio erro do Facebook, reporte ao opener e encerre
     if (error) {
       try {
-        if (window.opener) {
+        if (window.opener && !posted) {
           window.opener.postMessage({ type: "FACEBOOK_AUTH_ERROR", error, errorDescription }, origin);
+          setPosted(true);
         }
       } catch {}
       return;
@@ -55,7 +56,7 @@ function CallbackContent() {
           // Usar o hook de gerenciamento de auth
           const success = handleLoginSuccess(res.access_token, res.user_info);
           if (success) {
-            router.replace("/");
+            router.replace("/ads-loader");
           }
         } catch (e: any) {
           showError({ message: e?.message ?? "Falha ao autenticar" });

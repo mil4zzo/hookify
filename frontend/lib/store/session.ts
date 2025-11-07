@@ -1,8 +1,10 @@
 import { create } from 'zustand'
-import { persist, createJSONStorage } from 'zustand/middleware'
+import { persist } from 'zustand/middleware'
 import { AdsPack } from '@/lib/types'
 import { FacebookUser, FacebookAdAccount } from '@/lib/api/schemas'
 import { setAuthToken } from '@/lib/api/client'
+import { hybridStorage } from '@/lib/storage/hybridStorage'
+import * as indexedDB from '@/lib/storage/indexedDB'
 
 const STORAGE_KEY = 'hookify-session'
 const STORAGE_VERSION = 1
@@ -72,9 +74,24 @@ export const useSessionStore = create<SessionStore>()(
       logout: () => {
         set(initialState)
         setAuthToken(null)
-        // Limpar localStorage
+        // Limpar localStorage e IndexedDB (async em background)
         if (typeof window !== 'undefined') {
-          localStorage.removeItem(STORAGE_KEY)
+          try {
+            localStorage.removeItem(STORAGE_KEY)
+            localStorage.removeItem('hookify-pack-ids')
+            // Limpar IndexedDB em background
+            indexedDB.clearAllPacks().catch((error) => {
+              console.error('Erro ao limpar IndexedDB no logout:', error)
+            })
+            // Limpar cache de ads também
+            import('@/lib/storage/adsCache').then(({ clearAllAdsCache }) => {
+              clearAllAdsCache().catch((error) => {
+                console.error('Erro ao limpar cache de ads no logout:', error)
+              })
+            })
+          } catch (error) {
+            console.error('Erro ao limpar storage no logout:', error)
+          }
         }
       },
 
@@ -88,12 +105,20 @@ export const useSessionStore = create<SessionStore>()(
         set((state) => ({
           packs: [...state.packs, pack]
         }))
+        // O storage híbrido gerencia automaticamente a persistência
+        // Se der erro de quota, ele automaticamente move para IndexedDB
       },
 
       removePack: (packId) => {
         set((state) => ({
           packs: state.packs.filter(pack => pack.id !== packId)
         }))
+        // Remove também do IndexedDB se existir (async em background)
+        if (typeof window !== 'undefined') {
+          indexedDB.removePack(packId).catch((error) => {
+            console.error('Erro ao remover pack do IndexedDB:', error)
+          })
+        }
       },
 
       updatePack: (packId, updates) => {
@@ -120,12 +145,16 @@ export const useSessionStore = create<SessionStore>()(
     {
       name: STORAGE_KEY,
       version: STORAGE_VERSION,
-      storage: createJSONStorage(() => localStorage),
+      storage: hybridStorage,
       partialize: (state) => ({
         accessToken: state.accessToken,
         user: state.user,
         adAccounts: state.adAccounts,
-        packs: state.packs,
+        // Não persistir ads - eles são carregados sob demanda e cacheados no IndexedDB
+        packs: state.packs.map((pack) => ({
+          ...pack,
+          ads: [], // Sempre salvar packs sem ads no store persistente
+        })),
       }),
       migrate: (persistedState: any, version: number) => {
         // Migração de versões futuras se necessário
@@ -133,6 +162,13 @@ export const useSessionStore = create<SessionStore>()(
           // Implementar migração aqui se necessário
         }
         return persistedState
+      },
+      onRehydrateStorage: () => {
+        return (state, error) => {
+          if (error) {
+            console.error('Erro ao reidratar estado do storage:', error)
+          }
+        }
       },
     }
   )

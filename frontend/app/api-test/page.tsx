@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
-import { useMe, useAdAccounts, useAds, useAuthUrl, useAuthToken } from "@/lib/api/hooks";
+import { useMe, useAds, useAuthUrl, useAuthToken } from "@/lib/api/hooks";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { useAuthManager } from "@/lib/hooks/useAuthManager";
@@ -44,7 +44,7 @@ export default function ApiTestPage() {
 
   // API hooks
   const { data: me, isLoading: meLoading, error: meError } = useMe();
-  const { data: adAccountsData, isLoading: adAccountsLoading, error: adAccountsError } = useAdAccounts();
+  const adAccountsData = (me?.adaccounts ?? adAccounts) as any[];
   const { data: adsData, isLoading: adsLoading, error: adsError, refetch: refetchAds } = useAds(testParams, false); // Desabilitado para execução automática
 
   // Mutations
@@ -77,7 +77,7 @@ export default function ApiTestPage() {
             adaccount_id: testParams.adaccount_id,
             date_start: testParams.date_start,
             date_stop: testParams.date_stop,
-            level: testParams.level,
+            level: "ad" as const,
             ads: normalized,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
@@ -153,8 +153,11 @@ export default function ApiTestPage() {
         data: null,
       });
 
-      // Iniciar job
-      const result = await api.facebook.startAdsJob(testParams);
+      // Iniciar job (sempre usa nível "ad")
+      const result = await api.facebook.startAdsJob({
+        ...testParams,
+        level: "ad",
+      });
 
       if (result.job_id) {
         setJobProgress((prev) => ({
@@ -179,24 +182,21 @@ export default function ApiTestPage() {
   // Só renderizar quando estiver no cliente para evitar problemas de hidratação
   if (!isClient) {
     return (
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-6xl mx-auto space-y-8">
           <div className="text-center space-y-4">
             <h1 className="text-4xl font-bold">API Test Page</h1>
-            <p className="text-muted text-lg">Carregando...</p>
+            <p className="text-muted-foreground text-lg">Carregando...</p>
           </div>
           <LoadingState label="Inicializando..." />
         </div>
-      </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="max-w-6xl mx-auto space-y-8">
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold">API Test Page</h1>
-          <p className="text-muted text-lg">Teste da camada de dados (Axios + TanStack Query + Zustand)</p>
+          <p className="text-muted-foreground text-lg">Teste da camada de dados (Axios + TanStack Query + Zustand)</p>
         </div>
 
         {/* Status de Autenticação */}
@@ -208,7 +208,7 @@ export default function ApiTestPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
               <span className="font-medium">Status:</span>
-              <span className={`px-2 py-1 rounded text-sm ${isAuthenticated ? "bg-brand text-white" : "bg-surface2 text-muted"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
+              <span className={`px-2 py-1 rounded text-sm ${isAuthenticated ? "bg-brand text-white" : "bg-border text-muted-foreground"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
             </div>
 
             {user && (
@@ -279,20 +279,18 @@ export default function ApiTestPage() {
         {/* Contas de Anúncios */}
         <Card>
           <CardHeader>
-            <CardTitle>Contas de Anúncios (useAdAccounts)</CardTitle>
-            <CardDescription>Hook useAdAccounts do TanStack Query</CardDescription>
+            <CardTitle>Contas de Anúncios (via useMe)</CardTitle>
+            <CardDescription>Retornadas dentro de /facebook/me</CardDescription>
           </CardHeader>
           <CardContent>
-            {adAccountsLoading && <LoadingState label="Carregando contas de anúncios..." />}
-            {adAccountsError ? <ErrorState message="Erro ao carregar contas de anúncios" /> : null}
-            {adAccountsData && !adAccountsLoading && Array.isArray(adAccountsData) ? (
+            {Array.isArray(adAccountsData) ? (
               <div className="space-y-2">
                 {adAccountsData.length === 0 ? (
                   <EmptyState message="Nenhuma conta de anúncios encontrada" />
                 ) : (
                   <>
                     {adAccountsData.map((account: any) => (
-                      <div key={account.id} className="p-3 border border-surface2 rounded">
+                      <div key={account.id} className="p-3 border border-border rounded">
                         <p>
                           <strong>Nome:</strong> {account.name}
                         </p>
@@ -307,9 +305,9 @@ export default function ApiTestPage() {
                             <strong>Business:</strong> {account.business.name}
                           </p>
                         )}
-                        {account.instagram_accounts?.data && account.instagram_accounts.data.length > 0 && (
+                        {Array.isArray(account.instagram_accounts) && account.instagram_accounts.length > 0 && (
                           <p>
-                            <strong>Instagram:</strong> {account.instagram_accounts.data.map((ig: any) => ig.username).join(", ")}
+                            <strong>Instagram:</strong> {account.instagram_accounts.map((ig: any) => ig.username).join(", ")}
                           </p>
                         )}
                       </div>
@@ -331,23 +329,15 @@ export default function ApiTestPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium mb-2">Conta de Anúncios</label>
-                <select value={testParams.adaccount_id} onChange={(e) => setTestParams((prev) => ({ ...prev, adaccount_id: e.target.value }))} className="w-full h-10 px-3 py-2 border border-surface2 bg-surface text-text rounded-md">
+                <select value={testParams.adaccount_id} onChange={(e) => setTestParams((prev) => ({ ...prev, adaccount_id: e.target.value }))} className="w-full h-10 px-3 py-2 border border-border bg-input text-text rounded-md">
                   <option value="">Selecione uma conta de anúncios</option>
-                  {adAccountsData &&
+                  {Array.isArray(adAccountsData) &&
                     (adAccountsData as any).length > 0 &&
                     (adAccountsData as any).map((account: any) => (
                       <option key={account.id} value={account.id}>
                         {account.name} - {account.id} ({account.account_status === 1 ? "Ativo" : account.account_status === 2 ? "Pausado" : "Com Restrições"})
                       </option>
                     ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2">Nível</label>
-                <select value={testParams.level} onChange={(e) => setTestParams((prev) => ({ ...prev, level: e.target.value as any }))} className="w-full h-10 px-3 py-2 border border-surface2 bg-surface text-text rounded-md">
-                  <option value="campaign">Campaign</option>
-                  <option value="adset">Adset</option>
-                  <option value="ad">Ad</option>
                 </select>
               </div>
               <div>
@@ -366,26 +356,26 @@ export default function ApiTestPage() {
 
             {/* Feedback visual do progresso */}
             {(jobProgress.status === "running" || jobProgress.status === "starting") && (
-              <div className="mt-4 p-4 bg-surface2 rounded-lg space-y-3">
+              <div className="mt-4 p-4 bg-border rounded-lg space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-text">{jobProgress.message}</span>
-                  <span className="text-sm text-muted">{jobProgress.progress}%</span>
+                  <span className="text-sm text-muted-foreground">{jobProgress.progress}%</span>
                 </div>
                 <Progress value={jobProgress.progress} className="h-2" />
-                <p className="text-xs text-muted">⏳ Processando insights da Meta API... Esta operação pode demorar até 5 minutos.</p>
+                <p className="text-xs text-muted-foreground">⏳ Processando insights da Meta API... Esta operação pode demorar até 5 minutos.</p>
               </div>
             )}
 
             {/* Status de conclusão */}
             {jobProgress.status === "completed" && jobProgress.data && (
-              <div className="mt-4 p-4 bg-green-900/20 border border-green-500/30 rounded-lg">
+              <div className="mt-4 p-4 bg-green-900/20 border border-border rounded-lg">
                 <p className="text-sm text-green-400 font-medium">✅ {jobProgress.message}</p>
               </div>
             )}
 
             {/* Status de erro */}
             {(jobProgress.status === "failed" || jobProgress.status === "error") && (
-              <div className="mt-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg">
+              <div className="mt-4 p-4 bg-red-900/20 border border-border rounded-lg">
                 <p className="text-sm text-red-400 font-medium">❌ {jobProgress.message}</p>
               </div>
             )}
@@ -401,10 +391,10 @@ export default function ApiTestPage() {
                       <strong>Total de anúncios:</strong> {jobProgress.data.length}
                     </p>
                     {jobProgress.data.slice(0, 3).map((ad: any, idx: number) => (
-                      <div key={ad?.ad_id || ad?.id || idx} className="p-4 border border-surface2 rounded-lg space-y-3">
+                      <div key={ad?.ad_id || ad?.id || idx} className="p-4 border border-border rounded-lg space-y-3">
                         <div className="flex items-center justify-between">
                           <h4 className="font-semibold text-lg">Anúncio #{idx + 1}</h4>
-                          <span className="text-xs text-muted bg-surface2 px-2 py-1 rounded">
+                          <span className="text-xs text-muted-foreground bg-border px-2 py-1 rounded">
                             {Object.keys(ad || {}).length} campos • {Object.keys(ad || {}).filter((key) => ["ad_name", "ad_id", "adset_id", "adset_name", "campaign_id", "campaign_name", "clicks", "impressions", "inline_link_clicks", "spend", "ctr", "cpm", "reach", "frequency", "website_ctr", "actions", "conversions", "cost_per_conversion", "video_play_actions", "video_thruplay_watched_actions", "video_p50_watched_actions", "video_play_curve_actions", "creative", "adcreatives_videos_ids", "account_id", "date_start", "date_stop"].includes(key)).length} principais
                           </span>
                         </div>
@@ -510,7 +500,7 @@ export default function ApiTestPage() {
                             {ad?.actions && Array.isArray(ad.actions) && (
                               <div>
                                 <p className="font-medium text-sm mb-2">Actions:</p>
-                                <div className="bg-surface2 p-2 rounded text-xs">
+                                <div className="bg-border p-2 rounded text-xs">
                                   <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.actions, null, 2)}</pre>
                                 </div>
                               </div>
@@ -518,7 +508,7 @@ export default function ApiTestPage() {
                             {ad?.conversions && (
                               <div>
                                 <p className="font-medium text-sm mb-2">Conversions:</p>
-                                <div className="bg-surface2 p-2 rounded text-xs">
+                                <div className="bg-border p-2 rounded text-xs">
                                   <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.conversions, null, 2)}</pre>
                                 </div>
                               </div>
@@ -526,7 +516,7 @@ export default function ApiTestPage() {
                             {ad?.cost_per_conversion && (
                               <div>
                                 <p className="font-medium text-sm mb-2">Cost per conversion:</p>
-                                <div className="bg-surface2 p-2 rounded text-xs">
+                                <div className="bg-border p-2 rounded text-xs">
                                   <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.cost_per_conversion, null, 2)}</pre>
                                 </div>
                               </div>
@@ -540,7 +530,7 @@ export default function ApiTestPage() {
                             {ad?.creative && (
                               <div>
                                 <p className="font-medium text-sm mb-2">Creative:</p>
-                                <div className="bg-surface2 p-2 rounded text-xs">
+                                <div className="bg-border p-2 rounded text-xs">
                                   <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify(ad.creative, null, 2)}</pre>
                                 </div>
                               </div>
@@ -548,7 +538,7 @@ export default function ApiTestPage() {
                             {(ad?.adcreatives_videos_ids || ad?.adcreatives_videos_thumbs) && (
                               <div>
                                 <p className="font-medium text-sm mb-2">Vídeos (adcreatives):</p>
-                                <div className="bg-surface2 p-2 rounded text-xs">
+                                <div className="bg-border p-2 rounded text-xs">
                                   <pre className="whitespace-pre-wrap overflow-x-auto">{JSON.stringify({ ids: ad?.adcreatives_videos_ids, thumbs: ad?.adcreatives_videos_thumbs }, null, 2)}</pre>
                                 </div>
                               </div>
@@ -558,14 +548,14 @@ export default function ApiTestPage() {
 
                         {/* Todos os campos (debug) */}
                         <details className="mt-3">
-                          <summary className="cursor-pointer text-sm font-medium text-muted hover:text-text">Ver todos os campos (debug)</summary>
-                          <div className="mt-2 bg-surface2 p-3 rounded text-xs">
+                          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-text">Ver todos os campos (debug)</summary>
+                          <div className="mt-2 bg-border p-3 rounded text-xs">
                             <pre className="whitespace-pre-wrap overflow-x-auto max-h-40">{JSON.stringify(ad, null, 2)}</pre>
                           </div>
                         </details>
                       </div>
                     ))}
-                    {jobProgress.data.length > 3 && <p className="text-muted">... e mais {jobProgress.data.length - 3} anúncios</p>}
+                    {jobProgress.data.length > 3 && <p className="text-muted-foreground">... e mais {jobProgress.data.length - 3} anúncios</p>}
                   </>
                 )}
               </div>
@@ -585,12 +575,12 @@ export default function ApiTestPage() {
             ) : (
               <div className="space-y-4">
                 {packs.map((pack) => (
-                  <div key={pack.id} className="p-4 border border-surface2 rounded">
+                  <div key={pack.id} className="p-4 border border-border rounded">
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="font-semibold">{pack.name}</h3>
-                        <p className="text-sm text-muted">
-                          {pack.ads.length} anúncios • {pack.level} • {pack.date_start} a {pack.date_stop}
+                        <p className="text-sm text-muted-foreground">
+                          {pack.ads.length} anúncios • {pack.date_start} a {pack.date_stop}
                         </p>
                       </div>
                       <Button size="sm" variant="destructive">
@@ -603,7 +593,6 @@ export default function ApiTestPage() {
             )}
           </CardContent>
         </Card>
-      </div>
     </div>
   );
 }

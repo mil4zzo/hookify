@@ -23,15 +23,13 @@ if __name__ == "__main__":
 
     api = GraphAPI(token)
 
-    print("→ /me")
+    print("→ /me (unificado)")
     me = api.get_account_info()
     print(json.dumps(me, indent=2)[:500], "...\n")
 
-    print("→ /adaccounts")
-    accounts = api.get_adaccounts()
-    if accounts.get("status") != "success":
-        raise SystemExit(f"Erro: {accounts}")
-    adaccounts = accounts["data"]
+    if me.get("status") != "success":
+        raise SystemExit(f"Erro em /me: {me}")
+    adaccounts = (me.get("data", {}) or {}).get("adaccounts", [])
     print(f"Encontradas {len(adaccounts)} contas.")
 
     if not adaccounts:

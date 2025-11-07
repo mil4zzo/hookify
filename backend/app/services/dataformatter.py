@@ -281,6 +281,9 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
         adcreatives_videos_ids = safe("adcreatives_videos_ids") or []
         adcreatives_videos_thumbs = safe("adcreatives_videos_thumbs") or []
 
+        # Data diária do insight (com time_increment=1, start == stop)
+        day = str(safe("date_start", "")) or str(safe("date_stop", ""))
+
         # Montagem final
         formatted.append({
             # Identificadores
@@ -324,6 +327,9 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
             # Derivadas
             "connect_rate": connect_rate,
             "profile_ctr": profile_ctr,
+
+            # Data do registro (útil para agrupamentos no frontend)
+            "date": day,
         })
 
     return formatted

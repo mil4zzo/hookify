@@ -16,14 +16,28 @@ export function parseError(err: unknown): AppError {
     
     // Tentar extrair mensagem mais específica
     let message = 'Erro inesperado'
-    if (data?.detail) {
-      message = data.detail
+    
+    // Tratar erros de validação do Pydantic/FastAPI (array de erros)
+    if (Array.isArray(data?.detail)) {
+      const validationErrors = data.detail
+        .map((e: any) => {
+          if (typeof e === 'object' && e.msg) {
+            const field = e.loc?.join('.') || 'campo'
+            return `${field}: ${e.msg}`
+          }
+          return typeof e === 'string' ? e : JSON.stringify(e)
+        })
+        .join(', ')
+      message = `Erro de validação: ${validationErrors}`
+    } else if (data?.detail) {
+      // Se detail é string, usar diretamente
+      message = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
     } else if (data?.message) {
-      message = data.message
+      message = typeof data.message === 'string' ? data.message : JSON.stringify(data.message)
     } else if (data?.error?.message) {
-      message = data.error.message
+      message = typeof data.error.message === 'string' ? data.error.message : JSON.stringify(data.error.message)
     } else if (anyErr.message) {
-      message = anyErr.message
+      message = typeof anyErr.message === 'string' ? anyErr.message : JSON.stringify(anyErr.message)
     }
     
     return { 

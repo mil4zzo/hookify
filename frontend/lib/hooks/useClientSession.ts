@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSessionStore } from '../store/session'
+import { useSettingsStore } from '../store/settings'
+import { useSupabaseAuth } from './useSupabaseAuth'
 
 /**
  * Hook que só funciona no cliente para evitar problemas de hidratação
@@ -31,6 +33,22 @@ export const useClientSession = () => {
           localStorage.removeItem('hookify_adaccounts')
         }
       }
+
+      // Limpar caches expirados de ads periodicamente (a cada 10 minutos)
+      const cleanupExpiredCache = async () => {
+        try {
+          const { clearExpiredCache } = await import('@/lib/storage/adsCache')
+          await clearExpiredCache()
+        } catch (error) {
+          console.warn('Erro ao limpar caches expirados:', error)
+        }
+      }
+
+      // Limpar imediatamente e depois periodicamente
+      cleanupExpiredCache()
+      const interval = setInterval(cleanupExpiredCache, 10 * 60 * 1000) // 10 minutos
+
+      return () => clearInterval(interval)
     }
   }, [])
 
@@ -42,18 +60,22 @@ export const useClientSession = () => {
 
 /**
  * Hook de autenticação que só funciona no cliente
+ * Agora usa Supabase Auth ao invés do token Facebook antigo
  */
 export const useClientAuth = () => {
-  const { isClient, accessToken, user, setAccessToken, setUser, logout } = useClientSession()
+  const [isClient, setIsClient] = useState(false)
+  const { user, session, isLoading } = useSupabaseAuth()
+  
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
   
   return {
-    isAuthenticated: isClient && !!accessToken && !!user,
-    accessToken: isClient ? accessToken : null,
+    isAuthenticated: isClient && !!user && !!session,
     user: isClient ? user : null,
-    setAccessToken,
-    setUser,
-    logout,
+    session: isClient ? session : null,
     isClient,
+    isLoading,
   }
 }
 
@@ -81,6 +103,23 @@ export const useClientAdAccounts = () => {
   return {
     adAccounts: isClient ? adAccounts : [],
     setAdAccounts,
+    isClient,
+  }
+}
+
+/**
+ * Hook para configurações que só funciona no cliente
+ */
+export const useClientSettings = () => {
+  const [isClient, setIsClient] = useState(false)
+  const store = useSettingsStore()
+  
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
+  
+  return {
+    ...store,
     isClient,
   }
 }

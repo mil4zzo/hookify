@@ -15,4 +15,18 @@ FACEBOOK_TOKEN_URL = os.getenv("FACEBOOK_TOKEN_URL", "https://graph.facebook.com
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
+
+# Supabase Auth (Frontend JWT validation and RLS usage)
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # NUNCA expor no frontend
+
+# JWKS URL para validar JWT emitidos pelo Supabase
+# Conforme documentação: https://supabase.com/docs/guides/auth/jwts
+# O endpoint correto é: /auth/v1/.well-known/jwks.json (público, não requer autenticação)
+SUPABASE_JWKS_URL = os.getenv("SUPABASE_JWKS_URL") or (
+    f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json" if SUPABASE_URL else None
+)
+
+# Chave de criptografia para tokens de conectores (se usar app-level encryption)
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
  

@@ -24,7 +24,9 @@ class GraphAPI:
 
     def get_account_info(self) -> Dict[str, Any]:
         url = self.base_url + 'me' + self.user_token
-        payload = {'fields': 'email,first_name,last_name,name,picture{url}'}
+        payload = {
+            'fields': 'id,email,name,picture{url},adaccounts{name,id,account_status,user_tasks,instagram_accounts{username,id},business{name,id}}'
+        }
         try:
             logger.debug("get_account_info url=%s payload=%s", url, payload)
             response = requests.get(url, params=payload)
@@ -40,6 +42,33 @@ class GraphAPI:
             logger.info(f"Response Body: {json.dumps(data, indent=2)}")
             logger.info("=== END DEBUG ===")
             
+            # Normalização: coletar todas as adaccounts (paginado) e remover containers de paging
+            try:
+                if isinstance(data.get('adaccounts'), dict):
+                    ad_node = data.get('adaccounts') or {}
+                    accounts: List[Dict[str, Any]] = list(ad_node.get('data', []))
+
+                    # Paginação interna do edge adaccounts
+                    while isinstance(ad_node, dict) and 'paging' in ad_node and ad_node['paging'] and ad_node['paging'].get('next'):
+                        next_url = ad_node['paging']['next']
+                        next_resp = requests.get(next_url)
+                        next_resp.raise_for_status()
+                        next_json = next_resp.json()
+                        accounts.extend(next_json.get('data', []))
+                        ad_node = next_json
+
+                    # Normalizar instagram_accounts para array simples (se vier como { data: [...] })
+                    for acc in accounts:
+                        insta = acc.get('instagram_accounts')
+                        if isinstance(insta, dict):
+                            acc['instagram_accounts'] = insta.get('data', [])
+
+                    data['adaccounts'] = accounts
+
+            except Exception as norm_err:
+                # Não falhar a requisição por erro de normalização; logar e seguir
+                logger.exception("Normalization error in get_account_info: %s", norm_err)
+
             return {'status': 'success', 'data': data}
         except requests.exceptions.HTTPError as http_err:
             decoded_url = urllib.parse.unquote(http_err.request.url)  # type: ignore
@@ -145,6 +174,7 @@ class GraphAPI:
                 'use_account_attribution_setting': self.use_account_attribution_setting,
                 'action_breakdowns': self.action_breakdowns,
                 'time_range': json.dumps(dates),
+                'time_increment': '1',
                 'async': 'true',
             }
             # incluir filtering apenas quando houver filtros
@@ -298,6 +328,7 @@ class GraphAPI:
             'use_account_attribution_setting': self.use_account_attribution_setting,
             'action_breakdowns': self.action_breakdowns,
             'time_range': json.dumps(time_range),
+            'time_increment': '1',
             'async': 'true',
         }
         if json_filters:

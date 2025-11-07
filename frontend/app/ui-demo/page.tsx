@@ -3,17 +3,20 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Modal } from "@/components/common/Modal";
+import { useState } from "react";
 import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
 import { showSuccess, showError, showInfo } from "@/lib/utils/toast";
 
 export default function UIDemo() {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   return (
-    <div className="min-h-screen bg-bg text-text p-8">
+    <div className="min-h-screen bg-background text-text p-8">
       <div className="max-w-6xl mx-auto space-y-12">
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold">Design System Demo</h1>
-          <p className="text-muted text-lg">Componentes shadcn/ui + estados padronizados</p>
+          <p className="text-muted-foreground text-lg">Componentes shadcn/ui + estados padronizados</p>
         </div>
 
         {/* Buttons */}
@@ -78,11 +81,11 @@ export default function UIDemo() {
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex justify-between">
-                    <span className="text-muted">Impressões</span>
+                    <span className="text-muted-foreground">Impressões</span>
                     <span className="font-mono">1,234</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted">Cliques</span>
+                    <span className="text-muted-foreground">Cliques</span>
                     <span className="font-mono">567</span>
                   </div>
                 </div>
@@ -145,22 +148,18 @@ export default function UIDemo() {
 
         {/* Dialog */}
         <section className="space-y-6">
-          <h2 className="text-2xl font-semibold">Dialog</h2>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button>Abrir Dialog</Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Exemplo de Dialog</DialogTitle>
-                <DialogDescription>Este é um exemplo de dialog usando Radix UI.</DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <p>Conteúdo do dialog aqui.</p>
-                <Button className="w-full">Ação</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <h2 className="text-2xl font-semibold">Modal</h2>
+          <Button onClick={() => setIsModalOpen(true)}>Abrir Modal</Button>
+          <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} size="lg" padding="md">
+            <div className="space-y-1.5 mb-6">
+              <h2 className="text-lg font-semibold leading-none tracking-tight">Exemplo de Modal</h2>
+              <p className="text-sm text-muted-foreground">Este é um exemplo de modal usando o componente global.</p>
+            </div>
+            <div className="space-y-4">
+              <p>Conteúdo do modal aqui.</p>
+              <Button className="w-full">Ação</Button>
+            </div>
+          </Modal>
         </section>
 
         {/* Toasts */}
@@ -186,7 +185,7 @@ export default function UIDemo() {
                 <CardContent className="p-4">
                   <div className="text-center">
                     <div className="text-2xl font-bold text-brand">{i + 1}</div>
-                    <div className="text-sm text-muted">Item {i + 1}</div>
+                    <div className="text-sm text-muted-foreground">Item {i + 1}</div>
                   </div>
                 </CardContent>
               </Card>
@@ -197,4 +196,3 @@ export default function UIDemo() {
     </div>
   );
 }
-

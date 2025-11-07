@@ -103,28 +103,28 @@ export function aggregateAdsData(ads: AdData[]): AggregatedData {
     return sum + (landingPageAction?.value || 0);
   }, 0);
 
-  // CTR
-  aggregated.ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+  // CTR (decimal)
+  aggregated.ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) : 0;
 
-  // CPM
+  // CPM (mantém unidade em moeda por mil)
   aggregated.cpm = totalImpressions > 0 ? (totalSpend * 1000) / totalImpressions : 0;
 
   // Frequency
   aggregated.frequency = totalReach > 0 ? totalImpressions / totalReach : 0;
 
-  // Website CTR
-  aggregated.website_ctr = totalImpressions > 0 ? (totalInlineLinkClicks / totalImpressions) * 100 : 0;
+  // Website CTR (decimal)
+  aggregated.website_ctr = totalImpressions > 0 ? (totalInlineLinkClicks / totalImpressions) : 0;
 
-  // Profile CTR
-  aggregated.profile_ctr = totalImpressions > 0 ? ((totalClicks - totalInlineLinkClicks) / totalImpressions) * 100 : 0;
+  // Profile CTR (decimal)
+  aggregated.profile_ctr = totalImpressions > 0 ? ((totalClicks - totalInlineLinkClicks) / totalImpressions) : 0;
 
-  // Connect Rate
-  aggregated.connect_rate = totalInlineLinkClicks > 0 ? (totalLandingPageViews / totalInlineLinkClicks) * 100 : 0;
+  // Connect Rate (decimal)
+  aggregated.connect_rate = totalInlineLinkClicks > 0 ? (totalLandingPageViews / totalInlineLinkClicks) : 0;
 
   // Landing page views
   aggregated.landing_page_views = totalLandingPageViews;
 
-  // Retention at 3s (extrair do video_play_curve_actions)
+  // Retention at 3s (decimal)
   aggregated.retention_at_3 = calculateRetentionAt3s(ads);
 
   // Video play curve (média ponderada por plays)
@@ -143,8 +143,8 @@ function calculateRetentionAt3s(ads: AdData[]): number {
 
   const weightedRetention = ads.reduce((sum, ad) => {
     const plays = ad.video_total_plays || 0;
-    const curve = ad.video_play_curve_actions || [];
-    // Índice 3 = retenção aos 3 segundos
+    const curve = (ad.video_play_curve_actions || []).map(v => (v > 1 ? v / 100 : v));
+    // Índice 3 = retenção aos 3 segundos (decimal)
     const retention3s = curve[3] || 0;
     return sum + (retention3s * plays);
   }, 0);
@@ -188,7 +188,7 @@ function calculateWeightedVideoCurve(ads: AdData[]): number[] {
 
   ads.forEach(ad => {
     const plays = ad.video_total_plays || 0;
-    const adCurve = ad.video_play_curve_actions || [];
+    const adCurve = (ad.video_play_curve_actions || []).map(v => (v > 1 ? v / 100 : v));
     
     for (let i = 0; i < Math.min(curveLength, adCurve.length); i++) {
       curve[i] += (adCurve[i] || 0) * plays;
@@ -227,12 +227,12 @@ function createEmptyAggregatedData(): AggregatedData {
 
 /**
  * Formata moeda para exibição
+ * @deprecated Use formatCurrency from '@/lib/utils/currency' instead
  */
 export function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'USD',
-  }).format(value);
+  // Importar dinamicamente para evitar dependência circular
+  const { formatCurrency: formatCurrencyWithSettings } = require('@/lib/utils/currency')
+  return formatCurrencyWithSettings(value)
 }
 
 /**

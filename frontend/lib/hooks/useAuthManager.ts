@@ -3,29 +3,26 @@ import { useSessionStore } from '../store/session'
 import { setAuthToken } from '@/lib/api/client'
 import { showSuccess, showError } from '@/lib/utils/toast'
 import { queryKeys } from '@/lib/api/hooks'
+import { useSupabaseAuth } from './useSupabaseAuth'
+import { useRouter } from 'next/navigation'
 
 export const useAuthManager = () => {
   const queryClient = useQueryClient()
-  const { setAccessToken, setUser, logout } = useSessionStore()
+  const { setUser, logout } = useSessionStore()
+  const { signOut } = useSupabaseAuth()
+  const router = useRouter()
 
-  const handleLoginSuccess = (accessToken: string, userInfo?: any) => {
+  const handleLoginSuccess = (_accessToken: string, userInfo?: any) => {
     try {
-      // 1. Salvar token no localStorage e configurar cliente HTTP
-      setAuthToken(accessToken)
-      
-      // 2. Atualizar store Zustand
-      setAccessToken(accessToken)
-      
-      // 3. Se temos dados do usuário, salvar no store
+      // Atualizar dados do usuário se fornecidos (opcional)
       if (userInfo) {
         setUser(userInfo)
       }
       
-      // 4. Invalidar queries para recarregar dados
+      // Invalidar queries para recarregar dados
       queryClient.invalidateQueries({ queryKey: queryKeys.me })
-      queryClient.invalidateQueries({ queryKey: queryKeys.adAccounts })
       
-      // 5. Mostrar sucesso
+      // Mostrar sucesso
       showSuccess('Autenticação realizada com sucesso!')
       
       return true
@@ -35,20 +32,36 @@ export const useAuthManager = () => {
     }
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     try {
-      // 1. Limpar token do cliente HTTP
+      // 1. Cancelar todas as queries ativas ANTES de fazer logout
+      // Isso evita que requisições sejam enviadas após o logout
+      queryClient.cancelQueries()
+      
+      // 2. Fazer signOut do Supabase (isso limpa a sessão e cookies)
+      await signOut()
+      
+      // 3. Limpar token do cliente HTTP
       setAuthToken(null)
       
-      // 2. Limpar store Zustand
+      // 4. Limpar store Zustand
       logout()
       
-      // 3. Limpar cache do React Query
+      // 5. Limpar cache do React Query (depois de cancelar)
       queryClient.clear()
+      
+      // 6. Redirecionar para login
+      router.push('/login')
       
       showSuccess('Logout realizado com sucesso!')
     } catch (error) {
       showError(error as any)
+      // Mesmo com erro, cancelar queries, limpar localmente e redirecionar
+      queryClient.cancelQueries()
+      setAuthToken(null)
+      logout()
+      queryClient.clear()
+      router.push('/login')
     }
   }
 
