@@ -1613,7 +1613,7 @@ export default function AdsLoaderPage() {
               onClick={cancelDisableAutoRefresh} 
               variant="outline" 
               className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" 
-              disabled={isTogglingAutoRefresh}
+              disabled={!!isTogglingAutoRefresh}
             >
               <IconCircleX className="h-5 w-5" />
               Não
@@ -1622,7 +1622,7 @@ export default function AdsLoaderPage() {
             <Button 
               onClick={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} 
               className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" 
-              disabled={isTogglingAutoRefresh}
+              disabled={!!isTogglingAutoRefresh}
             >
               {isTogglingAutoRefresh ? (
                 <>
