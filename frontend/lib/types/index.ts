@@ -96,6 +96,7 @@ export interface AdsSearchParams {
 export interface AdMetrics {
   impressions: number
   clicks: number
+  inline_link_clicks: number
   spend: number
   reach: number
   frequency: number
@@ -110,6 +111,7 @@ export interface PackMetrics {
   total_ads: number
   total_impressions: number
   total_clicks: number
+  total_inline_link_clicks: number
   total_spend: number
   avg_cpm: number
   avg_cpc: number

@@ -91,7 +91,7 @@ export function Modal({ isOpen, onClose, children, className, size = "lg", paddi
 
   const modalContent = (
     <div className={cn("fixed inset-0 z-[9999] flex items-center justify-center", overlayClassName)} style={overlayStyle} onClick={handleOverlayClick}>
-      <div className={cn("m-0 relative bg-card border border-border rounded-lg shadow-lg", "max-h-[90vh] overflow-y-auto custom-scrollbar", sizeClasses[size], paddingClasses[padding], className)} onClick={(e) => e.stopPropagation()}>
+      <div className={cn("m-0 relative bg-card border border-border rounded-lg shadow-lg", "max-h-[90vh] overflow-y-auto custom-scrollbar w-full", sizeClasses[size], paddingClasses[padding], className)} onClick={(e) => e.stopPropagation()}>
         {showCloseButton && (
           <button onClick={onClose} className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10" aria-label="Fechar modal">
             <IconX className="h-4 w-4 text-text" />

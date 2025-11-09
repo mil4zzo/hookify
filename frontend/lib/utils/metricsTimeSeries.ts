@@ -15,6 +15,7 @@ export type DailySeriesByKey = Map<
       connect_rate: Array<number | null>;
       page_conv: Array<number | null>;
       cpm: Array<number | null>;
+      website_ctr: Array<number | null>;
     };
   }
 >;
@@ -149,17 +150,33 @@ export function buildDailySeries(
 
   const byKey: DailySeriesByKey = new Map();
   for (const [key, rows] of acc.entries()) {
+    // Métricas que dependem de actionType (calculadas localmente)
     const hook = rows.map((r) => (r.plays > 0 ? r.hook_weighted_sum / r.plays : null));
     const cpr = rows.map((r) => (r.results > 0 ? r.spend / r.results : null));
+    const page_conv = rows.map((r) => (r.lpv > 0 ? safeDivide(r.results, r.lpv) : null));
+    
+    // Métricas que não dependem de actionType - devem vir do backend quando disponíveis
+    // Como fallback, calculamos localmente, mas idealmente os dados já vêm do backend
     const spend = rows.map((r) => (r.spend > 0 ? r.spend : null));
     const ctr = rows.map((r) => (r.impressions > 0 ? safeDivide(r.clicks, r.impressions) : null));
     const connect_rate = rows.map((r) => (r.inline_link_clicks > 0 ? safeDivide(r.lpv, r.inline_link_clicks) : null));
-    const page_conv = rows.map((r) => (r.lpv > 0 ? safeDivide(r.results, r.lpv) : null));
-    const cpm = rows.map((r) => (r.impressions > 0 ? (r.spend * 1000) / r.impressions : null));
+    
+    // cpm e website_ctr são métricas normais como ctr e connect_rate
+    // Devem vir do backend, mas calculamos como fallback se necessário
+    const cpm = rows.map((r) => {
+      // Se o ad tem cpm do backend, usar (mas neste contexto não temos acesso aos ads originais)
+      // Como fallback, calcular localmente
+      return r.impressions > 0 ? (r.spend * 1000) / r.impressions : null;
+    });
+    const website_ctr = rows.map((r) => {
+      // Se o ad tem website_ctr do backend, usar (mas neste contexto não temos acesso aos ads originais)
+      // Como fallback, calcular localmente
+      return r.impressions > 0 ? safeDivide(r.inline_link_clicks, r.impressions) : null;
+    });
 
     byKey.set(key, {
       axis,
-      series: { hook, cpr, spend, ctr, connect_rate, page_conv, cpm },
+      series: { hook, cpr, spend, ctr, connect_rate, page_conv, cpm, website_ctr },
     });
   }
 

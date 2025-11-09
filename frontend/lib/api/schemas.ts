@@ -207,9 +207,11 @@ export const RankingsItemSchema = z.object({
   video_watched_p50: z.number().optional(),
   ctr: z.number(),
   connect_rate: z.number(),
+  cpm: z.number(),
   conversions: z.record(z.string(), z.number()), // {action_type: total_value} para calcular results/cpr/page_conv no frontend
   ad_count: z.number(),
   thumbnail: z.string().nullable().optional(),
+  adcreatives_videos_thumbs: z.array(z.string()).nullable().optional(), // Array de thumbnails dos vídeos do adcreative
   video_play_curve_actions: z.array(z.number()).nullable().optional(), // Curva de retenção agregada (ponderada por plays)
   series: z
     .object({
@@ -233,6 +235,7 @@ export const RankingsResponseSchema = z.object({
       hook: z.number(),
       scroll_stop: z.number(),
       ctr: z.number(),
+      website_ctr: z.number(),
       connect_rate: z.number(),
       cpm: z.number(),
       per_action_type: z.record(
@@ -265,6 +268,7 @@ export const RankingsChildrenItemSchema = z.object({
   video_watched_p50: z.number().optional(),
   ctr: z.number(),
   connect_rate: z.number(),
+  cpm: z.number(),
   conversions: z.record(z.string(), z.number()),
   thumbnail: z.string().nullable().optional(),
   video_play_curve_actions: z.array(z.number()).nullable().optional(),

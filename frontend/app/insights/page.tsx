@@ -6,13 +6,18 @@ import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { KanbanBoard } from "@/components/insights/KanbanBoard";
+import { OpportunityCards } from "@/components/insights/OpportunityCards";
 import { DateRangeFilter } from "@/components/common/DateRangeFilter";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { PackFilter } from "@/components/common/PackFilter";
 import { api } from "@/lib/api/endpoints";
 import { RankingsRequest, RankingsResponse } from "@/lib/api/schemas";
+import { computeOpportunityScores } from "@/lib/utils/opportunity";
+import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
+import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { OpportunityWidget } from "@/components/insights/OpportunityWidget";
 
 const STORAGE_KEY_PACKS = "hookify-insights-selected-packs";
 const STORAGE_KEY_ACTION_TYPE = "hookify-insights-action-type";
@@ -83,6 +88,7 @@ export default function InsightsPage() {
   });
   const [serverData, setServerData] = useState<any[] | null>(null);
   const [availableConversionTypes, setAvailableConversionTypes] = useState<string[]>([]);
+  const [averages, setAverages] = useState<any | undefined>(undefined);
   const [loading, setLoading] = useState(false);
 
   const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(() => {
@@ -151,6 +157,7 @@ export default function InsightsPage() {
       .then((res: RankingsResponse) => {
         setServerData(res.data || []);
         setAvailableConversionTypes(res.available_conversion_types || []);
+        setAverages(res.averages);
       })
       .catch((err) => {
         console.error("Erro ao buscar insights:", err);
@@ -300,6 +307,63 @@ export default function InsightsPage() {
     return filteredData;
   }, [serverData, actionType, selectedPackIds, packs, isRankingInSelectedPacks]);
 
+  // Conjunto bruto do backend filtrado por packs para o widget de oportunidades
+  const filteredRankings = useMemo(() => {
+    if (!serverData) return [];
+    return serverData.filter((row: any) => isRankingInSelectedPacks(row));
+  }, [serverData, isRankingInSelectedPacks]);
+
+  // Calcular oportunidades para os cards
+  const { criteria: validationCriteria, isLoading: isLoadingCriteria } = useValidationCriteria();
+  
+  const opportunityRows = useMemo(() => {
+    if (!filteredRankings || filteredRankings.length === 0 || !averages) return [];
+    if (isLoadingCriteria) return [];
+
+    // Aplicar critérios de validação
+    let eligibleAds = filteredRankings;
+    if (validationCriteria && validationCriteria.length > 0) {
+      eligibleAds = filteredRankings.filter((ad: any) => {
+        const impressions = Number(ad.impressions || 0);
+        const spend = Number(ad.spend || 0);
+        const cpm = impressions > 0 ? (spend * 1000) / impressions : Number(ad.cpm || 0);
+        const website_ctr = Number(ad.website_ctr || 0);
+        const connect_rate = Number(ad.connect_rate || 0);
+        const lpv = Number(ad.lpv || 0);
+        const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
+        const page_conv = lpv > 0 ? results / lpv : 0;
+        
+        const metrics: AdMetricsData = {
+          ad_name: ad.ad_name,
+          ad_id: ad.ad_id,
+          account_id: ad.account_id,
+          impressions,
+          spend,
+          cpm,
+          website_ctr,
+          connect_rate,
+          inline_link_clicks: Number(ad.inline_link_clicks || 0),
+          clicks: Number(ad.clicks || 0),
+          plays: Number(ad.plays || 0),
+          hook: Number(ad.hook || 0),
+          ctr: Number(ad.ctr || 0),
+          page_conv,
+        };
+        return evaluateValidationCriteria(validationCriteria, metrics, "AND");
+      });
+    }
+
+    if (eligibleAds.length === 0) return [];
+    const spendTotal = eligibleAds.reduce((s: number, a: any) => s + Number(a.spend || 0), 0);
+    return computeOpportunityScores({
+      ads: eligibleAds,
+      averages,
+      actionType,
+      spendTotal,
+      limit: 10,
+    });
+  }, [filteredRankings, averages, actionType, validationCriteria, isLoadingCriteria]);
+
   if (!isClient) {
     return (
       <div>
@@ -344,6 +408,31 @@ export default function InsightsPage() {
         <ActionTypeFilter label="Evento de Conversão" value={actionType} onChange={handleActionTypeChange} options={uniqueConversionTypes} />
         {packsClient && packs.length > 0 && <PackFilter packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} />}
       </div>
+
+      {/* Cards de Oportunidades */}
+      {opportunityRows.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold mb-4">Oportunidades</h2>
+          {/* Debug: Métricas médias */}
+          {averages && (
+            <div className="mb-4 p-3 bg-muted rounded text-xs space-y-1">
+              <div className="font-semibold mb-2">Médias (Debug):</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+                <div>Hook: {((averages.hook || 0) * 100).toFixed(1)}%</div>
+                <div>CTR: {((averages.website_ctr || 0) * 100).toFixed(2)}%</div>
+                <div>Connect: {((averages.connect_rate || 0) * 100).toFixed(1)}%</div>
+                <div>Page: {((averages.per_action_type?.[actionType]?.page_conv || 0) * 100).toFixed(1)}%</div>
+                <div>CPR: R$ {((averages.per_action_type?.[actionType]?.cpr || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</div>
+                <div>CPM: R$ {((averages.cpm || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))}</div>
+              </div>
+            </div>
+          )}
+          <OpportunityCards rows={opportunityRows} averages={averages} actionType={actionType} />
+        </div>
+      )}
+
+      {/* Tabela de Oportunidades */}
+      <OpportunityWidget ads={filteredRankings as any} averages={averages} actionType={actionType} limit={10} />
 
       {/* Top Performers - Verde */}
       <Card className="">

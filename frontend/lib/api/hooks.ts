@@ -374,16 +374,26 @@ export const useInvalidatePackAds = () => {
       await removeCachedPackAds(packId).catch((error) => {
         console.error('Erro ao remover cache de ads:', error)
       })
-      // Invalida cache do React Query
-      queryClient.invalidateQueries({ queryKey: queryKeys.packAds(packId) })
+      // Invalida cache do React Query e força refetch imediato das queries ativas
+      queryClient.invalidateQueries({ 
+        queryKey: queryKeys.packAds(packId),
+        refetchType: 'active' // Força refetch imediato das queries ativas (páginas abertas)
+      })
     },
     invalidateAllPacksAds: async () => {
-      // Invalida todos os packs
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'pack-ads'] })
+      // Invalida todos os packs e força refetch imediato das queries ativas
+      queryClient.invalidateQueries({ 
+        queryKey: ['analytics', 'pack-ads'],
+        refetchType: 'active' // Força refetch imediato das queries ativas (páginas abertas)
+      })
     },
     invalidateRankings: () => {
-      // Invalida todas as queries de rankings (para atualizar após refresh de packs)
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'] })
+      // Invalida todas as queries de rankings e força refetch imediato das queries ativas
+      // Isso garante que a página de rankings seja atualizada imediatamente após refresh de packs
+      queryClient.invalidateQueries({ 
+        queryKey: ['analytics', 'rankings'],
+        refetchType: 'active' // Força refetch imediato das queries ativas (páginas abertas)
+      })
     },
   }
 }

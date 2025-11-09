@@ -59,78 +59,12 @@ export function abbreviateNumber(number: number, decimals: number = 0): string {
 }
 
 /**
- * Agrega dados de anúncios em um único conjunto de métricas
+ * @deprecated Dashboard está obsoleto. Esta função foi removida.
+ * Se necessário, use os endpoints do backend que já retornam métricas agregadas.
  */
 export function aggregateAdsData(ads: AdData[]): AggregatedData {
-  if (!ads || ads.length === 0) {
-    return createEmptyAggregatedData();
-  }
-
-  // Agregação simples (soma)
-  const simpleSumFields: (keyof AdData)[] = [
-    'clicks', 'impressions', 'inline_link_clicks', 'reach', 'spend',
-    'video_total_plays', 'video_total_thruplays'
-  ];
-
-  const aggregated: Partial<AggregatedData> = {};
-
-  // Soma simples
-  simpleSumFields.forEach(field => {
-    const fieldKey = field as keyof AggregatedData;
-    (aggregated as any)[fieldKey] = ads.reduce((sum, ad) => {
-      const value = (ad as any)[field];
-      return sum + (typeof value === 'number' ? value : 0);
-    }, 0);
-  });
-
-  // Agregação de arrays únicos
-  aggregated.ad_id = [...new Set(ads.map(ad => ad.ad_id))];
-  aggregated.adset_id = [...new Set(ads.map(ad => ad.adset_id))];
-  aggregated.campaign_id = [...new Set(ads.map(ad => ad.campaign_id))];
-
-  // Cálculos complexos
-  const totalSpend = aggregated.spend || 0;
-  const totalImpressions = aggregated.impressions || 0;
-  const totalClicks = aggregated.clicks || 0;
-  const totalReach = aggregated.reach || 0;
-  const totalInlineLinkClicks = aggregated.inline_link_clicks || 0;
-  const totalPlays = aggregated.video_total_plays || 0;
-  const totalThruplays = aggregated.video_total_thruplays || 0;
-  
-  // Calcular landing page views separadamente - extrair do array actions
-  const totalLandingPageViews = ads.reduce((sum, ad) => {
-    const landingPageAction = ad.actions?.find(action => action.action_type === 'landing_page_view');
-    return sum + (landingPageAction?.value || 0);
-  }, 0);
-
-  // CTR (decimal)
-  aggregated.ctr = totalImpressions > 0 ? (totalClicks / totalImpressions) : 0;
-
-  // CPM (mantém unidade em moeda por mil)
-  aggregated.cpm = totalImpressions > 0 ? (totalSpend * 1000) / totalImpressions : 0;
-
-  // Frequency
-  aggregated.frequency = totalReach > 0 ? totalImpressions / totalReach : 0;
-
-  // Website CTR (decimal)
-  aggregated.website_ctr = totalImpressions > 0 ? (totalInlineLinkClicks / totalImpressions) : 0;
-
-  // Profile CTR (decimal)
-  aggregated.profile_ctr = totalImpressions > 0 ? ((totalClicks - totalInlineLinkClicks) / totalImpressions) : 0;
-
-  // Connect Rate (decimal)
-  aggregated.connect_rate = totalInlineLinkClicks > 0 ? (totalLandingPageViews / totalInlineLinkClicks) : 0;
-
-  // Landing page views
-  aggregated.landing_page_views = totalLandingPageViews;
-
-  // Retention at 3s (decimal)
-  aggregated.retention_at_3 = calculateRetentionAt3s(ads);
-
-  // Video play curve (média ponderada por plays)
-  aggregated.video_play_curve_actions = calculateWeightedVideoCurve(ads);
-
-  return aggregated as AggregatedData;
+  // Dashboard obsoleto - retornar dados vazios
+  return createEmptyAggregatedData();
 }
 
 /**

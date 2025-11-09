@@ -31,6 +31,7 @@ interface RankingsTableProps {
     hook: number | null;
     scroll_stop: number | null;
     ctr: number | null;
+    website_ctr: number | null;
     connect_rate: number | null;
     cpm: number | null;
     cpr: number | null;
@@ -41,24 +42,9 @@ interface RankingsTableProps {
 const columnHelper = createColumnHelper<Ad>();
 
 // Componente interno para renderizar linha expandida de variações
-function ExpandedChildrenRow({
-  row,
-  adName,
-  dateStart,
-  dateStop,
-  actionType,
-  formatCurrency,
-  formatPct,
-}: {
-  row: { getVisibleCells: () => any[] };
-  adName: string;
-  dateStart: string;
-  dateStop: string;
-  actionType?: string;
-  formatCurrency: (n: number) => string;
-  formatPct: (v: number) => string;
-}) {
+function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, formatCurrency, formatPct }: { row: { getVisibleCells: () => any[] }; adName: string; dateStart: string; dateStop: string; actionType?: string; formatCurrency: (n: number) => string; formatPct: (v: number) => string }) {
   const { data: childrenData, isLoading, isError } = useAdVariations(adName, dateStart, dateStop, true);
+  const [sortConfig, setSortConfig] = useState<{ column: string | null; direction: "asc" | "desc" }>({ column: null, direction: "asc" });
 
   if (isLoading) {
     return (
@@ -96,63 +82,200 @@ function ExpandedChildrenRow({
     );
   }
 
+  // Preparar dados com cálculos e ordenar
+  const sortedData = useMemo(() => {
+    const dataWithCalculations = childrenData.map((child: RankingsChildrenItem) => {
+      const lpv = Number(child.lpv || 0);
+      const spend = Number(child.spend || 0);
+      const impressions = Number(child.impressions || 0);
+      // O backend pode não retornar conversions agregadas, então calcular a partir das séries se disponível
+      let conversions = child.conversions || {};
+      // Se conversions está vazio mas temos séries, calcular total a partir das séries
+      if (Object.keys(conversions).length === 0 && child.series?.conversions) {
+        const seriesConversions = child.series.conversions;
+        conversions = {};
+        // Somar todas as conversões de todos os dias da série
+        for (const dayConversions of seriesConversions) {
+          if (dayConversions && typeof dayConversions === "object") {
+            for (const [actionType, value] of Object.entries(dayConversions)) {
+              if (!conversions[actionType]) {
+                conversions[actionType] = 0;
+              }
+              conversions[actionType] += Number(value || 0);
+            }
+          }
+        }
+      }
+      // Calcular results: usar actionType se disponível, senão 0 (mesma lógica da linha principal)
+      const results = actionType && typeof actionType === "string" && actionType.trim() ? Number(conversions[actionType] || 0) : 0;
+      // Calcular page_conv: mesmo cálculo da linha principal
+      const page_conv = lpv > 0 ? results / lpv : 0;
+      // Calcular cpr: mesmo cálculo da linha principal
+      const cpr = results > 0 ? spend / results : 0;
+      // Usar cpm do backend se disponível, senão calcular
+      // cpm sempre vem do backend
+      const cpm = typeof child.cpm === "number" ? child.cpm : 0;
+      return {
+        ...child,
+        conversions,
+        results,
+        page_conv,
+        cpr,
+        cpm,
+        lpv,
+        spend,
+        impressions,
+      };
+    });
+
+    if (!sortConfig.column) {
+      return dataWithCalculations;
+    }
+
+    const sorted = [...dataWithCalculations].sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+
+      switch (sortConfig.column) {
+        case "ad_id":
+          aVal = String(a.ad_id || "");
+          bVal = String(b.ad_id || "");
+          break;
+        case "hook":
+          aVal = Number(a.hook || 0);
+          bVal = Number(b.hook || 0);
+          break;
+        case "cpr":
+          aVal = a.cpr || 0;
+          bVal = b.cpr || 0;
+          break;
+        case "spend":
+          aVal = a.spend || 0;
+          bVal = b.spend || 0;
+          break;
+        case "ctr":
+          aVal = Number(a.ctr || 0);
+          bVal = Number(b.ctr || 0);
+          break;
+        case "cpm":
+          aVal = a.cpm || 0;
+          bVal = b.cpm || 0;
+          break;
+        case "connect_rate":
+          aVal = Number(a.connect_rate || 0);
+          bVal = Number(b.connect_rate || 0);
+          break;
+        case "page_conv":
+          aVal = a.page_conv || 0;
+          bVal = b.page_conv || 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (typeof aVal === "string") {
+        return sortConfig.direction === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+      return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
+    });
+
+    return sorted;
+  }, [childrenData, sortConfig, actionType]);
+
+  const handleSort = (column: string) => {
+    setSortConfig((prev) => {
+      if (prev.column === column) {
+        // Se já está ordenando por esta coluna, inverter direção
+        return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
+      }
+      // Nova coluna: começar com desc (exceto para ad_id que começa com asc)
+      return { column, direction: column === "ad_id" ? "asc" : "desc" };
+    });
+  };
+
+  const childMetricsColumnClass = `px-4 py-3 text-center cursor-pointer select-none hover:text-brand`;
+
   return (
-    <tr className="bg-border">
+    <tr className="bg-card">
       <td className="p-0" colSpan={row.getVisibleCells().length}>
-        <div className="p-2 pl-8">
+        <div className="">
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-border">
-                  <th className="p-2 text-left">Ad ID</th>
-                  <th className="p-2 text-center">Hook</th>
-                  <th className="p-2 text-center">CPR</th>
-                  <th className="p-2 text-center">Spend</th>
-                  <th className="p-2 text-center">CTR</th>
-                  <th className="p-2 text-center">CPM</th>
-                  <th className="p-2 text-center">Connect</th>
-                  <th className="p-2 text-center">Page</th>
+                  <th className={`p-4 text-left cursor-pointer select-none hover:text-brand ${sortConfig.column === "ad_id" ? "text-primary" : ""}`} onClick={() => handleSort("ad_id")}>
+                    <div className="flex items-center gap-1">
+                      Variações
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "hook" ? "text-primary" : ""}`} onClick={() => handleSort("hook")}>
+                    <div className="flex items-center justify-center gap-1">
+                      Hook
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "cpr" ? "text-primary" : ""}`} onClick={() => handleSort("cpr")}>
+                    <div className="flex items-center justify-center gap-1">
+                      CPR
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "spend" ? "text-primary" : ""}`} onClick={() => handleSort("spend")}>
+                    <div className="flex items-center justify-center gap-1">
+                      Spend
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "ctr" ? "text-primary" : ""}`} onClick={() => handleSort("ctr")}>
+                    <div className="flex items-center justify-center gap-1">
+                      CTR
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "cpm" ? "text-primary" : ""}`} onClick={() => handleSort("cpm")}>
+                    <div className="flex items-center justify-center gap-1">
+                      CPM
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "connect_rate" ? "text-primary" : ""}`} onClick={() => handleSort("connect_rate")}>
+                    <div className="flex items-center justify-center gap-1">
+                      Connect
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "page_conv" ? "text-primary" : ""}`} onClick={() => handleSort("page_conv")}>
+                    <div className="flex items-center justify-center gap-1">
+                      Page
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {childrenData.map((child: RankingsChildrenItem) => {
-                  const lpv = Number(child.lpv || 0);
-                  const spend = Number(child.spend || 0);
-                  const impressions = Number(child.impressions || 0);
-                  const conversions = child.conversions || {};
-                  // Calcular results: usar actionType se disponível, senão somar todas as conversões
-                  let results = 0;
-                  if (actionType && typeof actionType === "string" && actionType.trim()) {
-                    results = Number(conversions[actionType] || 0);
-                  } else {
-                    // Se não há actionType, somar todas as conversões disponíveis
-                    results = Object.values(conversions).reduce((sum, val) => {
-                      const numVal = Number(val || 0);
-                      return sum + (Number.isNaN(numVal) ? 0 : numVal);
-                    }, 0);
-                  }
-                  const page_conv = lpv > 0 && results > 0 ? results / lpv : 0;
-                  const cpr = results > 0 && spend > 0 ? spend / results : 0;
-                  const cpm = impressions > 0 ? (spend * 1000) / impressions : 0;
-                  const rowForMetric = { ...child, cpr, page_conv, cpm };
+                {sortedData.map((child) => {
                   return (
-                    <tr key={child.ad_id} className="hover:bg-muted">
-                      <td className="p-2 text-left">
+                    <tr key={child.ad_id} className="hover:bg-muted border-b border-border">
+                      <td className="px-4 py-3 text-left">
                         <div className="flex items-center gap-2">
                           {(() => {
                             const thumb = getAdThumbnail(child);
                             return thumb ? <img src={thumb} alt="thumb" className="w-10 h-10 object-cover rounded" /> : <div className="w-10 h-10 bg-border rounded" />;
                           })()}
-                          <div className="truncate">{child.ad_id}</div>
+                          <div>
+                            <div className="truncate text-xs text-muted-foreground">{child.campaign_name}</div>
+                            <div className="truncate text-xs font-medium">{child.adset_name}</div>
+                          </div>
                         </div>
                       </td>
                       <td className="p-2 text-center">{formatPct(Number(child.hook * 100))}</td>
-                      <td className="p-2 text-center">{cpr > 0 ? formatCurrency(cpr) : "—"}</td>
-                      <td className="p-2 text-center">{formatCurrency(spend)}</td>
+                      <td className="p-2 text-center">{child.results > 0 ? formatCurrency(child.cpr) : "—"}</td>
+                      <td className="p-2 text-center">{formatCurrency(child.spend)}</td>
                       <td className="p-2 text-center">{formatPct(Number(child.ctr * 100))}</td>
-                      <td className="p-2 text-center">{formatCurrency(cpm)}</td>
+                      <td className="p-2 text-center">{formatCurrency(child.cpm)}</td>
                       <td className="p-2 text-center">{formatPct(Number(child.connect_rate * 100))}</td>
-                      <td className="p-2 text-center">{page_conv > 0 ? formatPct(Number(page_conv * 100)) : "—"}</td>
+                      <td className="p-2 text-center">{child.lpv > 0 ? formatPct(Number(child.page_conv * 100)) : "—"}</td>
                     </tr>
                   );
                 })}
@@ -184,12 +307,14 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     spend: number;
     impressions: number;
     clicks: number;
+    inline_link_clicks: number;
     lpv: number;
     plays: number;
     results: number;
     hook: number | null;
     scroll_stop: number | null;
     ctr: number | null;
+    website_ctr: number | null;
     connect_rate: number | null;
     cpm: number | null;
     cpr: number | null;
@@ -204,12 +329,14 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         spend: 0,
         impressions: 0,
         clicks: 0,
+        inline_link_clicks: 0,
         lpv: 0,
         plays: 0,
         results: 0,
         hook: null,
         scroll_stop: null,
         ctr: null,
+        website_ctr: null,
         connect_rate: null,
         cpm: null,
         cpr: null,
@@ -220,6 +347,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     let sumSpend = 0;
     let sumImpr = 0;
     let sumClicks = 0;
+    let sumInlineLinkClicks = 0;
     let sumLPV = 0;
     let sumPlays = 0;
     let sumResults = 0;
@@ -230,24 +358,22 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     let scrollStopWeighted = 0;
     let scrollStopWeight = 0;
 
-    let sumConnect = 0;
-    let countConnect = 0;
-
     for (const ad of ads) {
       const spend = Number((ad as any).spend || 0);
       const impressions = Number((ad as any).impressions || 0);
       const clicks = Number((ad as any).clicks || 0);
+      const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
       const lpv = Number((ad as any).lpv || 0);
       // Nem todos os objetos têm plays; usar fallback em video_total_plays se disponível
       const plays = Number((ad as any).plays ?? (ad as any).video_total_plays ?? 0);
       const hook = Number((ad as any).hook ?? 0);
-      const connectRateVal = Number((ad as any).connect_rate ?? NaN);
       const convs = (ad as any).conversions || {};
       const res = actionType ? Number(convs[actionType] || 0) : 0;
 
       sumSpend += spend;
       sumImpr += impressions;
       sumClicks += clicks;
+      sumInlineLinkClicks += inlineLinkClicks;
       sumLPV += lpv;
       sumPlays += plays;
       sumResults += res;
@@ -272,32 +398,53 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           }
         }
       }
-
-      if (!Number.isNaN(connectRateVal)) {
-        sumConnect += connectRateVal;
-        countConnect += 1;
-      }
     }
 
+    // Métricas que dependem de actionType (calculadas localmente)
     const hookAvg = hookWeight > 0 ? hookWeighted / hookWeight : null;
     const scrollStopAvg = scrollStopWeight > 0 ? scrollStopWeighted / scrollStopWeight : null;
-    const ctr = sumImpr > 0 ? sumClicks / sumImpr : null;
-    const cpm = sumImpr > 0 ? (sumSpend * 1000) / sumImpr : null;
     const cpr = sumResults > 0 ? sumSpend / sumResults : null;
     const pageConv = sumLPV > 0 ? sumResults / sumLPV : null;
-    const connectAvg = countConnect > 0 ? sumConnect / countConnect : null;
+    
+    // Métricas que não dependem de actionType - usar valores do backend quando disponíveis
+    // Se todos os ads têm a métrica do backend, usar média ponderada; senão, calcular
+    const adsWithCtr = ads.filter((ad) => typeof (ad as any).ctr === "number" && !Number.isNaN((ad as any).ctr));
+    const ctr = adsWithCtr.length === ads.length && sumImpr > 0
+      ? ads.reduce((sum, ad) => sum + ((ad as any).ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr
+      : sumImpr > 0 ? sumClicks / sumImpr : null;
+    
+    const adsWithWebsiteCtr = ads.filter((ad) => typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr));
+    const websiteCtr = adsWithWebsiteCtr.length === ads.length && sumImpr > 0
+      ? ads.reduce((sum, ad) => sum + ((ad as any).website_ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr
+      : sumImpr > 0 ? sumInlineLinkClicks / sumImpr : null;
+    
+    const adsWithCpm = ads.filter((ad) => typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm));
+    const cpm = adsWithCpm.length === ads.length && sumImpr > 0
+      ? ads.reduce((sum, ad) => sum + ((ad as any).cpm || 0) * Number((ad as any).impressions || 0), 0) / sumImpr
+      : sumImpr > 0 ? (sumSpend * 1000) / sumImpr : null;
+    
+    const adsWithConnectRate = ads.filter((ad) => typeof (ad as any).connect_rate === "number" && !Number.isNaN((ad as any).connect_rate));
+    const connectAvg = adsWithConnectRate.length === ads.length && sumInlineLinkClicks > 0
+      ? ads.reduce((sum, ad) => {
+          const connectRate = (ad as any).connect_rate || 0;
+          const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
+          return sum + connectRate * inlineLinkClicks;
+        }, 0) / sumInlineLinkClicks
+      : sumInlineLinkClicks > 0 ? sumLPV / sumInlineLinkClicks : null;
 
     return {
       count: n,
       spend: sumSpend,
       impressions: sumImpr,
       clicks: sumClicks,
+      inline_link_clicks: sumInlineLinkClicks,
       lpv: sumLPV,
       plays: sumPlays,
       results: sumResults,
       hook: hookAvg,
       scroll_stop: scrollStopAvg,
       ctr,
+      website_ctr: websiteCtr,
       connect_rate: connectAvg,
       cpm,
       cpr,
@@ -312,12 +459,14 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         spend: computedAverages.spend,
         impressions: computedAverages.impressions,
         clicks: computedAverages.clicks,
+        inline_link_clicks: computedAverages.inline_link_clicks,
         lpv: computedAverages.lpv,
         plays: computedAverages.plays,
         results: computedAverages.results,
         hook: averagesOverride.hook,
         scroll_stop: averagesOverride.scroll_stop,
         ctr: averagesOverride.ctr,
+        website_ctr: averagesOverride.website_ctr ?? computedAverages.website_ctr,
         connect_rate: averagesOverride.connect_rate,
         cpm: averagesOverride.cpm,
         cpr: averagesOverride.cpr,
@@ -328,8 +477,8 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
   }, [computedAverages, averagesOverride]);
 
   const getRowKey = (row: { original?: RankingsItem } | RankingsItem) => {
-    const original = 'original' in row ? row.original : row;
-    if (!original) return '';
+    const original = "original" in row ? row.original : row;
+    if (!original) return "";
     const item = original as RankingsItem;
     return groupByAdName ? String(item.ad_name || item.ad_id) : String(item.unique_id || `${item.account_id}:${item.ad_id}`);
   };
@@ -362,16 +511,16 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
 
   const MetricCell = ({ row, value, metric }: { row: RankingsItem | { original?: RankingsItem }; value: React.ReactNode; metric: "hook" | "cpr" | "spend" | "ctr" | "connect_rate" | "page_conv" | "cpm" }) => {
     // row já é o objeto agregado (info.row.original), então precisamos ajustar
-    const original: RankingsItem = ('original' in row ? row.original : row) as RankingsItem;
+    const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
     const serverSeries = original.series ? (original.series as any)[metric] : undefined;
     const rowKey = getRowKey(row);
     const s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
-    
+
     return (
       <div className="flex flex-col items-center gap-3">
         {s ? (
-          <SparklineBars 
-            series={s} 
+          <SparklineBars
+            series={s}
             size="small"
             valueFormatter={(n: number) => {
               if (metric === "spend" || metric === "cpr" || metric === "cpm") {
@@ -379,7 +528,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
               }
               // percent-based metrics
               return `${(n * 100).toFixed(2)}%`;
-            }} 
+            }}
           />
         ) : null}
         <span className="text-base font-medium leading-none">{value}</span>
@@ -417,13 +566,13 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           };
 
           return (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {thumbnail ? <img src={thumbnail} alt="thumb" className="w-14 h-14 object-cover rounded" /> : <div className="w-14 h-14 bg-border rounded" />}
               <div className="min-w-0">
                 <div className="truncate">{name}</div>
                 {groupByAdName ? (
                   <div className="mt-1">
-                    <Button size="sm" variant="ghost" onClick={handleToggleExpand} className="h-auto py-1 px-2 text-xs text-muted-foreground hover:text-text">
+                    <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
                       {isExpanded ? "- Recolher" : secondLine}
                     </Button>
                   </div>
@@ -457,7 +606,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         minSize: 100,
         cell: (info) => {
           const ad = info.row.original;
-          const results = actionType ? (ad.conversions?.[actionType] || 0) : 0;
+          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
           const cpr = results > 0 ? ad.spend / results : 0;
           return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpr)}</span>} metric="cpr" />;
         },
@@ -484,7 +633,9 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         minSize: 100,
         cell: (info) => {
           const ad = info.row.original;
-          const cpm = ad.impressions > 0 ? (ad.spend / ad.impressions) * 1000 : 0;
+          // Usar cpm do backend se disponível, senão calcular
+          // cpm sempre vem do backend
+          const cpm = typeof ad.cpm === "number" ? ad.cpm : 0;
           return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpm)}</span>} metric="cpm" />;
         },
       }),
@@ -503,7 +654,13 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         minSize: 100,
         cell: (info) => {
           const ad = info.row.original;
-          const results = actionType ? (ad.conversions?.[actionType] || 0) : 0;
+          // Se o ad já tem page_conv calculado (vem do ranking), usar esse valor
+          if ("page_conv" in ad && typeof (ad as any).page_conv === "number" && !Number.isNaN((ad as any).page_conv) && isFinite((ad as any).page_conv)) {
+            const pageConv = (ad as any).page_conv;
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(pageConv * 100)}</span>} metric="page_conv" />;
+          }
+          // Caso contrário, calcular baseado no actionType
+          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
           const pageConv = ad.lpv > 0 ? results / ad.lpv : 0;
           return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(pageConv * 100)}</span>} metric="page_conv" />;
         },
@@ -559,17 +716,17 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
               const isExpanded = !!expanded[key];
               const original = row.original as RankingsItem;
               const adName = String(original?.ad_name || "");
-              
+
               return (
                 <Fragment key={row.id}>
-                    <tr
-                      key={`${row.id}-parent`}
-                      className="bg-background hover:bg-input-30 cursor-pointer"
-                      onClick={() => {
-                        const original = row.original as RankingsItem;
-                        setSelectedAd(original);
-                      }}
-                    >
+                  <tr
+                    key={`${row.id}-parent`}
+                    className="bg-background hover:bg-input-30 cursor-pointer"
+                    onClick={() => {
+                      const original = row.original as RankingsItem;
+                      setSelectedAd(original);
+                    }}
+                  >
                     {row.getVisibleCells().map((cell) => {
                       const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
                       const fixedWidth = "";
@@ -583,17 +740,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
                       );
                     })}
                   </tr>
-                  {groupByAdName && isExpanded && adName ? (
-                    <ExpandedChildrenRow
-                      row={row}
-                      adName={adName}
-                      dateStart={dateStart || ""}
-                      dateStop={dateStop || ""}
-                      actionType={actionType}
-                      formatCurrency={formatCurrency}
-                      formatPct={formatPct}
-                    />
-                  ) : null}
+                  {groupByAdName && isExpanded && adName ? <ExpandedChildrenRow row={row} adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} /> : null}
                 </Fragment>
               );
             })}
@@ -602,19 +749,9 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       </div>
 
       {/* Details Dialog */}
-        <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="full" padding="md">
-          {selectedAd && (
-            <AdDetailsDialog
-              ad={selectedAd}
-              groupByAdName={groupByAdName}
-              dateStart={dateStart}
-              dateStop={dateStop}
-              actionType={actionType}
-              availableConversionTypes={availableConversionTypes}
-              averages={averages}
-            />
-          )}
-        </Modal>
+      <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="4xl" padding="md">
+        {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} averages={averages} />}
+      </Modal>
 
       {/* Video Dialog - Único para toda a tabela */}
       <VideoDialog

@@ -23,6 +23,7 @@ interface AdDetailsDialogProps {
     hook: number | null;
     scroll_stop: number | null;
     ctr: number | null;
+    website_ctr: number | null;
     connect_rate: number | null;
     cpm: number | null;
     cpr: number | null;
@@ -160,13 +161,16 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     return resultsForActionType / lpv;
   }, [ad, lpv, resultsForActionType]);
 
-  // Calcular CPM: (spend / impressions) * 1000
+  // cpm e website_ctr sempre vêm do backend
   const cpm = useMemo(() => {
-    const spend = Number(ad?.spend || 0);
-    const impressions = Number(ad?.impressions || 0);
-    if (!impressions) return 0;
-    return (spend / impressions) * 1000;
-  }, [ad?.spend, ad?.impressions]);
+    return typeof ad?.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm) ? ad.cpm : 0;
+  }, [ad?.cpm]);
+
+  const websiteCtr = useMemo(() => {
+    return typeof (ad as any)?.website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr)
+      ? (ad as any).website_ctr
+      : 0;
+  }, [ad]);
 
   const series = ad?.series;
 
@@ -249,13 +253,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       {/* Content */}
       {activeTab === "overview" && (
         <div className="space-y-4">
-          {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} /> : null}
+          {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={ad?.hook != null ? Number(ad.hook) : null} /> : null}
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
             <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
             <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
             <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
+            <MetricCard label="Website CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
             <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
             <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
             <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
@@ -345,7 +350,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     }
                     const pageConvC = lpvC > 0 && resultsC > 0 ? resultsC / lpvC : 0;
                     const cprC = resultsC > 0 && spendC > 0 ? spendC / resultsC : 0;
-                    const cpmC = impressionsC > 0 ? (spendC * 1000) / impressionsC : 0;
+                    // cpm sempre vem do backend
+                    const cpmC = typeof child.cpm === "number" ? child.cpm : 0;
                     return (
                       <tr key={child.ad_id} className="hover:bg-muted">
                         <td className="p-2 text-left">

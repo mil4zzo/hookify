@@ -300,7 +300,7 @@ export default function AdsLoaderPage() {
   const { packs, addPack, removePack, updatePack } = useClientPacks();
   const { adAccounts } = useClientAdAccounts();
   const { status } = useRequireAuth("/login");
-  const { invalidatePackAds } = useInvalidatePackAds();
+  const { invalidatePackAds, invalidateRankings } = useInvalidatePackAds();
   const { isLoading: isLoadingPacks } = usePacksLoading();
 
   // API hooks
@@ -601,6 +601,9 @@ export default function AdsLoaderPage() {
 
       // Invalidar cache de ads do pack removido
       await invalidatePackAds(packToRemove.id);
+      
+      // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
+      invalidateRankings();
 
       showSuccess(`Pack "${packToRemove.name}" removido com sucesso!`);
       setPackToRemove(null);
@@ -611,6 +614,9 @@ export default function AdsLoaderPage() {
 
       // Invalidar cache mesmo se falhar no servidor
       await invalidatePackAds(packToRemove.id).catch(() => {});
+      
+      // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
+      invalidateRankings();
 
       showError({ message: `Pack removido localmente, mas houve erro ao deletar do servidor: ${error}` });
       setPackToRemove(null);
@@ -910,6 +916,9 @@ export default function AdsLoaderPage() {
                   await invalidatePackAds(packId);
                 }
               }
+              
+              // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
+              invalidateRankings();
             } catch (error) {
               console.error("Erro ao recarregar pack após refresh:", error);
               // Não bloquear sucesso do refresh se falhar ao recarregar

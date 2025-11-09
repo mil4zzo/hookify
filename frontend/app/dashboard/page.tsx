@@ -10,7 +10,7 @@ import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { MetricsCards } from "@/components/dashboard/MetricsCards";
 import { RetentionChart } from "@/components/charts/RetentionChart";
-import { aggregateAdsData, AggregatedData, AdData } from "@/lib/utils/aggregation";
+import { AdData } from "@/lib/utils/aggregation";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { DateRangeFilter } from "@/components/common/DateRangeFilter";
 import { filterAdsByDateRange } from "@/lib/utils/dateFilters";

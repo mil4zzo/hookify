@@ -20,6 +20,7 @@ interface RetentionChartProps {
   withCard?: boolean;
   averagesHook?: number | null;
   averagesScrollStop?: number | null;
+  hookValue?: number | null; // Valor do hook em decimal (0-1) para cálculo correto do delta
 }
 
 type DataPoint = { x: number; y: number; label: string };
@@ -58,7 +59,7 @@ const ANNOTATION_CONFIG = {
   },
 };
 
-function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop }: RetentionChartProps) {
+function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop, hookValue }: RetentionChartProps) {
   // Helper para calcular variação percentual
   const getDelta = (value: number, avg: number | null | undefined): { diff: number; text: string; color: string } | null => {
     if (avg == null || Number.isNaN(avg) || !isFinite(avg) || avg === 0) {
@@ -261,7 +262,9 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop 
                   })()}
                 {data.length > 3 &&
                   (() => {
-                    const hookVal = data[3].y / 100;
+                    // Usar hookValue se disponível (valor correto do servidor), senão calcular da curva
+                    // hookValue está em decimal (0-1), que é o formato esperado pelo getDelta
+                    const hookVal = hookValue != null ? hookValue : data[3].y / 100;
                     const delta = getDelta(hookVal, averagesHook);
                     const annotationX = xScale(3);
                     const annotationY = yScale(data[3].y);
@@ -357,7 +360,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop 
   );
 }
 
-export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = false, averagesHook, averagesScrollStop }: RetentionChartProps) {
+export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = false, averagesHook, averagesScrollStop, hookValue }: RetentionChartProps) {
   return (
     <div className="space-y-4">
       <div className="text-lg font-semibold">
@@ -365,7 +368,7 @@ export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = fal
         Retenção
       </div>
       <div className="h-64">
-        <RetentionChartInner videoPlayCurve={videoPlayCurve} averagesHook={averagesHook} averagesScrollStop={averagesScrollStop} />
+        <RetentionChartInner videoPlayCurve={videoPlayCurve} averagesHook={averagesHook} averagesScrollStop={averagesScrollStop} hookValue={hookValue} />
       </div>
     </div>
   );

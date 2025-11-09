@@ -40,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </PacksLoader>
           </SidebarProvider>
           <BottomNavigationBar />
-          <Toaster position="top-right" richColors theme="dark" />
+          <Toaster position="bottom-right" richColors theme="dark" />
         </ReactQueryProvider>
       </body>
     </html>

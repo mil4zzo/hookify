@@ -342,6 +342,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     logger.info(f"DEBUG: Coletados {len(ad_ids_in_results)} ad_ids únicos para buscar thumbnails")
     
     thumbnails_map: Dict[str, Optional[str]] = {}
+    adcreatives_map: Dict[str, Optional[List[str]]] = {}  # Map para adcreatives_videos_thumbs
     if ad_ids_in_results:
         try:
             # Processar ad_ids em lotes para evitar URLs muito longas
@@ -369,8 +370,16 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             for ad_row in all_ads_rows:
                 ad_id_val = str(ad_row.get("ad_id") or "")
                 thumb = _get_thumbnail_with_fallback(ad_row)
+                adcreatives = ad_row.get("adcreatives_videos_thumbs")
                 if ad_id_val:
                     thumbnails_map[ad_id_val] = thumb
+                    # Armazenar array completo de adcreatives_videos_thumbs
+                    if isinstance(adcreatives, list) and len(adcreatives) > 0:
+                        # Filtrar valores válidos (não vazios)
+                        valid_thumbs = [str(t) for t in adcreatives if t and str(t).strip()]
+                        adcreatives_map[ad_id_val] = valid_thumbs if valid_thumbs else None
+                    else:
+                        adcreatives_map[ad_id_val] = None
             
             logger.info(f"DEBUG: Thumbnails map populado com {len(thumbnails_map)} entradas")
             if thumbnails_map:
@@ -386,12 +395,15 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         connect_rate = _safe_div(A["lpv"], A["inline_link_clicks"])
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
         video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
+        cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
+        website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
         # results, cpr e page_conv serão calculados no frontend baseado no action_type selecionado
 
-        # Buscar thumbnail do map usando rep_ad_id
+        # Buscar thumbnail e adcreatives_videos_thumbs do map usando rep_ad_id
         ad_id_for_thumb = A.get("rep_ad_id")
         ad_id_str = str(ad_id_for_thumb or "") if ad_id_for_thumb else ""
         thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
+        adcreatives_thumbs = adcreatives_map.get(ad_id_str) if ad_id_str else None
         
         # Debug: log se não encontrar thumbnail
         if not thumbnail and ad_id_str:
@@ -402,7 +414,13 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             try:
                 fallback_res = sb.table("ads").select("ad_id,thumbnail_url,adcreatives_videos_thumbs").eq("ad_id", ad_id_str).limit(1).execute()
                 if fallback_res.data and len(fallback_res.data) > 0:
-                    thumbnail = _get_thumbnail_with_fallback(fallback_res.data[0])
+                    fallback_row = fallback_res.data[0]
+                    thumbnail = _get_thumbnail_with_fallback(fallback_row)
+                    # Também buscar adcreatives_videos_thumbs no fallback
+                    fallback_adcreatives = fallback_row.get("adcreatives_videos_thumbs")
+                    if isinstance(fallback_adcreatives, list) and len(fallback_adcreatives) > 0:
+                        valid_thumbs = [str(t) for t in fallback_adcreatives if t and str(t).strip()]
+                        adcreatives_thumbs = valid_thumbs if valid_thumbs else None
                     logger.info(f"DEBUG: Fallback encontrou thumbnail para ad_id={ad_id_str}")
             except Exception as e:
                 logger.warning(f"DEBUG: Fallback falhou para ad_id={ad_id_str}: {e}")
@@ -416,6 +434,8 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             connect_series = []
             lpv_series = []
             impressions_series = []
+            cpm_series = []
+            website_ctr_series = []
             conversions_series = []  # conversions por dia para o frontend calcular results/cpr/page_conv
             for d in axis:
                 plays = S["plays"][d] or 0
@@ -427,6 +447,8 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 lpv_day = S["lpv"][d] or 0
                 ctr_day = (clicks_day / impr_day) if impr_day else None
                 connect_day = (lpv_day / inline_day) if inline_day else None
+                cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
+                website_ctr_day = (inline_day / impr_day) if impr_day else None
                 # conversions por dia: {action_type: value}
                 conversions_day = S["conversions"].get(d, {})
                 
@@ -436,6 +458,8 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 connect_series.append(connect_day)
                 lpv_series.append(lpv_day)
                 impressions_series.append(impr_day if impr_day else None)
+                cpm_series.append(cpm_day)
+                website_ctr_series.append(website_ctr_day)
                 conversions_series.append(conversions_day)
 
             series = {
@@ -445,7 +469,9 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 "ctr": ctr_series,
                 "connect_rate": connect_series,
                 "lpv": lpv_series,  # Para o frontend calcular page_conv dinamicamente
-                "impressions": impressions_series,  # Para o frontend calcular cpm dinamicamente
+                "impressions": impressions_series,
+                "cpm": cpm_series,
+                "website_ctr": website_ctr_series,
                 "conversions": conversions_series,  # Para o frontend calcular results/cpr/page_conv dinamicamente
             }
 
@@ -486,9 +512,12 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
             "ctr": ctr,
             "connect_rate": connect_rate,
+            "cpm": cpm,
+            "website_ctr": website_ctr,
             "conversions": A.get("conversions", {}),  # {action_type: total_value} para o frontend calcular results/cpr/page_conv
             "ad_count": ad_scale,
             "thumbnail": thumbnail,
+            "adcreatives_videos_thumbs": adcreatives_thumbs,  # Array completo de thumbnails dos vídeos
             "video_play_curve_actions": aggregated_curve if aggregated_curve else None,
             "series": series,
         })
@@ -541,6 +570,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         "hook": _safe_div(total_hook_wsum, total_plays) if total_plays else 0,
         "scroll_stop": _safe_div(total_scroll_stop_wsum, total_plays) if total_plays else 0,
         "ctr": _safe_div(total_clicks, total_impr) if total_impr else 0,
+        "website_ctr": _safe_div(total_inline, total_impr) if total_impr else 0,
         "connect_rate": _safe_div(total_lpv, total_inline) if total_inline else 0,
         "cpm": (_safe_div(total_spend, total_impr) * 1000.0) if total_impr else 0,
     }
@@ -665,6 +695,18 @@ def get_rankings_children(
         A["hook_wsum"] += hook * plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
 
+        # Agregar conversions no total (não apenas nas séries)
+        try:
+            for c in (r.get("conversions") or []):
+                action_type = str(c.get("action_type") or "")
+                value = int(c.get("value") or 0)
+                if action_type:
+                    if action_type not in A["conversions"]:
+                        A["conversions"][action_type] = 0
+                    A["conversions"][action_type] += value
+        except Exception:
+            pass
+
         # Séries 5 dias
         if date in axis:
             S = series_acc[key]
@@ -722,6 +764,8 @@ def get_rankings_children(
         ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
         video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
+        cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
+        website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
 
         S = series_acc.get(key)
         series = None
@@ -732,6 +776,8 @@ def get_rankings_children(
             connect_series = []
             lpv_series = []
             impressions_series = []
+            cpm_series = []
+            website_ctr_series = []
             conversions_series = []
             for d in axis:
                 plays_val = S["plays"][d] or 0
@@ -743,6 +789,8 @@ def get_rankings_children(
                 lpv_day = S["lpv"][d] or 0
                 ctr_day = (clicks_day / impr_day) if impr_day else None
                 connect_day = (lpv_day / inline_day) if inline_day else None
+                cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
+                website_ctr_day = (inline_day / impr_day) if impr_day else None
                 conversions_day = S["conversions"].get(d, {})
 
                 hook_series.append(hook_day)
@@ -751,6 +799,8 @@ def get_rankings_children(
                 connect_series.append(connect_day)
                 lpv_series.append(lpv_day)
                 impressions_series.append(impr_day if impr_day else None)
+                cpm_series.append(cpm_day)
+                website_ctr_series.append(website_ctr_day)
                 conversions_series.append(conversions_day)
 
             series = {
@@ -761,6 +811,8 @@ def get_rankings_children(
                 "connect_rate": connect_series,
                 "lpv": lpv_series,
                 "impressions": impressions_series,
+                "cpm": cpm_series,
+                "website_ctr": website_ctr_series,
                 "conversions": conversions_series,
             }
 
@@ -780,6 +832,8 @@ def get_rankings_children(
             "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
             "ctr": ctr,
             "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
+            "cpm": cpm,
+            "website_ctr": website_ctr,
             "conversions": A.get("conversions", {}),
             "thumbnail": thumbnails_map.get(key),
             "series": series,
@@ -952,6 +1006,8 @@ def get_ad_details(
     hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
     video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
     connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
+    cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
+    website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
 
     # Calcular curva de retenção agregada (média ponderada por plays)
     aggregated_curve: List[int] = []
@@ -974,6 +1030,8 @@ def get_ad_details(
     connect_series = []
     lpv_series = []
     impressions_series = []
+    cpm_series = []
+    website_ctr_series = []
     conversions_series = []
     
     for d in axis:
@@ -986,6 +1044,8 @@ def get_ad_details(
         lpv_day = series_acc["lpv"][d] or 0
         ctr_day = (clicks_day / impr_day) if impr_day else None
         connect_day = (lpv_day / inline_day) if inline_day else None
+        cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
+        website_ctr_day = (inline_day / impr_day) if impr_day else None
         conversions_day = series_acc["conversions"].get(d, {})
 
         hook_series.append(hook_day)
@@ -994,6 +1054,8 @@ def get_ad_details(
         connect_series.append(connect_day)
         lpv_series.append(lpv_day)
         impressions_series.append(impr_day if impr_day else None)
+        cpm_series.append(cpm_day)
+        website_ctr_series.append(website_ctr_day)
         conversions_series.append(conversions_day)
 
     series = {
@@ -1004,6 +1066,8 @@ def get_ad_details(
         "connect_rate": connect_series,
         "lpv": lpv_series,
         "impressions": impressions_series,
+        "cpm": cpm_series,
+        "website_ctr": website_ctr_series,
         "conversions": conversions_series,
     }
 
@@ -1023,6 +1087,8 @@ def get_ad_details(
         "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
         "ctr": ctr,
         "connect_rate": connect_rate,
+        "cpm": cpm,
+        "website_ctr": website_ctr,
         "conversions": agg["conversions"],
         "thumbnail": thumbnail,
         "video_play_curve_actions": aggregated_curve if aggregated_curve else None,

@@ -228,9 +228,9 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
   }, [tooltipData, chartDataByMetric, selectedMetricsConfig]);
 
   return (
-    <div className="flex gap-12 h-full min-h-0">
+    <div className="flex gap-12 h-full min-h-0 w-full">
       {/* Seletor de métricas à esquerda */}
-      <div className="flex-shrink-0 w-48 flex flex-col min-h-0">
+      <div className="flex-shrink-0 w-auto flex flex-col min-h-0">
         <div className="text-xs font-medium text-foreground mb-2 flex-shrink-0">Métricas:</div>
         <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 min-h-0">
           {/* Toggle de normalização */}
@@ -269,7 +269,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
       </div>
 
       {/* Gráfico */}
-      <div className="flex-1 min-w-0 min-h-0" style={{ minWidth: "48vw" }}>
+      <div className="flex-1 min-h-0 min-w-0">
         <ParentSize>
           {({ width, height }) => {
             const innerWidth = Math.max(0, width || 0);

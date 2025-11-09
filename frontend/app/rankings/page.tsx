@@ -15,6 +15,9 @@ import { RankingsRequest, RankingsResponse } from "@/lib/api/schemas";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
 import { useRankings } from "@/lib/api/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
+import { evaluateValidationCriteria, aggregateMetricsForGroup, AdMetricsData } from "@/lib/utils/validateAdCriteria";
+import { Switch } from "@/components/ui/switch";
 
 const STORAGE_KEY_PACKS = "hookify-rankings-selected-packs";
 const STORAGE_KEY_ACTION_TYPE = "hookify-rankings-action-type";
@@ -93,6 +96,8 @@ export default function RankingsPage() {
     };
   });
   const [serverAverages, setServerAverages] = useState<any | null>(null);
+  const { criteria: validationCriteria } = useValidationCriteria();
+  const [isValidationFilterEnabled, setIsValidationFilterEnabled] = useState(false);
 
   // Estado dos packs selecionados - derivado das preferências (apenas packs habilitados)
   const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(() => {
@@ -324,38 +329,20 @@ export default function RankingsPage() {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
 
-      // Calcular métricas derivadas localmente
+      // Calcular métricas derivadas localmente (apenas as que dependem de actionType)
       const lpv = Number(row.lpv || 0);
       const spend = Number(row.spend || 0);
-      const impressions = Number(row.impressions || 0);
       const page_conv = lpv > 0 ? results / lpv : 0;
       const cpr = results > 0 ? spend / results : 0;
-      const cpm = impressions > 0 ? (spend * 1000) / impressions : 0;
+      // cpm e website_ctr sempre vêm do backend
+      const cpm = typeof row.cpm === "number" ? row.cpm : 0;
 
       // Usar objeto original de conversões (contém todos os tipos) - mais eficiente que criar array
       const actions = [{ action_type: "landing_page_view", value: lpv }];
 
-      // Processar series para calcular cpr_series, page_conv_series e cpm_series dinamicamente
+      // Processar series para calcular cpr_series e page_conv_series dinamicamente (dependem de actionType)
+      // cpm_series e website_ctr_series sempre vêm do backend
       let series = row.series;
-
-      // Calcular cpm_series sempre que houver séries (não depende de actionType)
-      if (series) {
-        const spendSeries = series.spend || [];
-        // impressions pode não estar no schema RankingsItemSchema, mas pode estar em RankingsChildrenItemSchema
-        const impressionsSeries = (series as any).impressions || [];
-
-        // Calcular cpm_series se tivermos impressionsSeries do servidor
-        if (impressionsSeries.length > 0 && spendSeries.length === impressionsSeries.length) {
-          const cpm_series = spendSeries.map((spendDay: number, idx: number) => {
-            const imprDay = impressionsSeries[idx] || 0;
-            return imprDay > 0 ? (spendDay * 1000) / imprDay : null;
-          });
-          series = {
-            ...series,
-            cpm: cpm_series,
-          } as any;
-        }
-      }
 
       // Calcular cpr_series e page_conv_series (dependem de actionType)
       if (series && series.conversions && actionType) {
@@ -401,21 +388,78 @@ export default function RankingsPage() {
         page_conv,
         cpr,
         cpm,
+        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
         ad_count: Number(row.ad_count || 1),
         thumbnail: row.thumbnail || null, // Thumbnail do servidor
         conversions: conversionsObj, // Objeto original contendo todos os tipos de conversão
         actions,
-        series, // Séries com cpr e page_conv calculados dinamicamente
+        series, // Séries com cpr e page_conv calculados dinamicamente, cpm e website_ctr do backend
         video_play_curve_actions: row.video_play_curve_actions || null, // Curva agregada do servidor (ponderada por plays)
         creative: {},
       };
     });
 
     // Filtrar por packs selecionados
-    const filteredData = mappedData.filter((ranking) => isRankingInSelectedPacks(ranking));
+    let filteredData = mappedData.filter((ranking) => isRankingInSelectedPacks(ranking));
+
+    // Aplicar filtro de validação se habilitado
+    if (isValidationFilterEnabled && validationCriteria && validationCriteria.length > 0) {
+      // Na visualização por ad_name (groupByAdName = true), agrupar e avaliar agregado
+      // Na visualização por ad_id (groupByAdName = false), avaliar individualmente
+      const groupByAdName = true; // Sempre true na página de rankings conforme linha 666
+      
+      if (groupByAdName) {
+        // Agrupar por ad_name e avaliar agregado
+        // Considera todas as métricas dos ad_ids mesmo que individualmente não atendam
+        const groupedByAdName = new Map<string, typeof filteredData>();
+        
+        filteredData.forEach((ad) => {
+          const key = ad.ad_name || ad.ad_id || "";
+          if (!groupedByAdName.has(key)) {
+            groupedByAdName.set(key, []);
+          }
+          groupedByAdName.get(key)!.push(ad);
+        });
+
+        // Avaliar cada grupo agregado e separar em validados e em teste
+        const validatedAds: typeof filteredData = [];
+
+        groupedByAdName.forEach((ads) => {
+          // Agregar métricas do grupo (soma de todos os ad_ids do mesmo ad_name)
+          const aggregatedMetrics = aggregateMetricsForGroup(ads as AdMetricsData[]);
+          
+          // Avaliar critérios contra métricas agregadas
+          const isValid = evaluateValidationCriteria(validationCriteria, aggregatedMetrics, "AND");
+          
+          if (isValid) {
+            // Se o grupo agregado atende, todos os ad_ids desse grupo são validados
+            validatedAds.push(...ads);
+          }
+          // Se não atende, não adiciona (fica em teste - não exibido)
+        });
+
+        // Retornar apenas validados
+        filteredData = validatedAds;
+      } else {
+        // Na visualização por ad_id, avaliar individualmente cada anúncio
+        const validatedAds: typeof filteredData = [];
+
+        filteredData.forEach((ad) => {
+          const isValid = evaluateValidationCriteria(validationCriteria, ad as AdMetricsData, "AND");
+          
+          if (isValid) {
+            validatedAds.push(ad);
+          }
+          // Se não atende, não adiciona (fica em teste - não exibido)
+        });
+
+        // Retornar apenas validados
+        filteredData = validatedAds;
+      }
+    }
 
     return filteredData;
-  }, [serverData, actionType, selectedPackIds, packs, isRankingInSelectedPacks]);
+  }, [serverData, actionType, selectedPackIds, packs, isRankingInSelectedPacks, isValidationFilterEnabled, validationCriteria]);
 
   if (!isClient) {
     return (
@@ -554,6 +598,25 @@ export default function RankingsPage() {
         <ActionTypeFilter label="Evento de Conversão" value={actionType} onChange={handleActionTypeChange} options={uniqueConversionTypes} />
         {packsClient && packs.length > 0 && <PackFilter packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} />}
       </div>
+      
+      {/* Toggle de filtro de validação */}
+      <div className="mb-4 flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
+        <Switch
+          id="validation-filter"
+          checked={isValidationFilterEnabled}
+          onCheckedChange={setIsValidationFilterEnabled}
+          disabled={!validationCriteria || validationCriteria.length === 0}
+        />
+        <label
+          htmlFor="validation-filter"
+          className={`text-sm font-medium cursor-pointer ${!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}`}
+        >
+          Filtrar por critérios de validação
+        </label>
+        {(!validationCriteria || validationCriteria.length === 0) && (
+          <span className="text-xs text-muted-foreground ml-2">(Configure os critérios nas configurações)</span>
+        )}
+      </div>
       <RankingsTable
         ads={adsForTable}
         groupByAdName
@@ -571,6 +634,7 @@ export default function RankingsPage() {
             hook: typeof base.hook === "number" ? base.hook : null,
             scroll_stop: typeof base.scroll_stop === "number" ? base.scroll_stop : null,
             ctr: typeof base.ctr === "number" ? base.ctr : null,
+            website_ctr: typeof base.website_ctr === "number" ? base.website_ctr : null,
             connect_rate: typeof base.connect_rate === "number" ? base.connect_rate : null,
             cpm: typeof base.cpm === "number" ? base.cpm : null,
             cpr: perSel && typeof perSel.cpr === "number" ? perSel.cpr : null,
