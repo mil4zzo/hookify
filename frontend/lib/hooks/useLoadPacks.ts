@@ -38,7 +38,7 @@ export function useLoadPacks() {
       }
     }
 
-    window.addEventListener('pack-integration-updated', handleIntegrationUpdate as EventListener)
+    window.addEventListener('pack-integration-updated', handleIntegrationUpdate as unknown as EventListener)
 
     // Resetar loadedRef se o usuário mudou (novo login)
     if (user?.id && userIdRef.current !== user.id) {
@@ -49,7 +49,7 @@ export function useLoadPacks() {
     if (!isClient || !isAuthenticated || loadedRef.current) {
       setIsLoading(false)
       return () => {
-        window.removeEventListener('pack-integration-updated', handleIntegrationUpdate as EventListener)
+        window.removeEventListener('pack-integration-updated', handleIntegrationUpdate as unknown as EventListener)
       }
     }
 
@@ -140,7 +140,7 @@ export function useLoadPacks() {
     loadPacks()
 
     return () => {
-      window.removeEventListener('pack-integration-updated', handleIntegrationUpdate as EventListener)
+      window.removeEventListener('pack-integration-updated', handleIntegrationUpdate as unknown as EventListener)
     }
   }, [isClient, isAuthenticated, user?.id, packs.length, addPack, updatePack])
 

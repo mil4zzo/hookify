@@ -126,7 +126,7 @@ export function computeOpportunityScores({
     // Leadscore e MQLs
     const leadscoreValues = Array.isArray((ad as any).leadscore_values) ? (ad as any).leadscore_values.map((v: any) => toNumber(v, 0)) : [];
     // Calcular leadscore médio
-    const leadscoreAvg = leadscoreValues.length > 0 ? leadscoreValues.reduce((sum, ls) => sum + ls, 0) / leadscoreValues.length : 0;
+    const leadscoreAvg = leadscoreValues.length > 0 ? leadscoreValues.reduce((sum: number, ls: number) => sum + ls, 0) / leadscoreValues.length : 0;
     // Calcular número de MQLs (leadscores >= mqlLeadscoreMin)
     const mqlCount = leadscoreValues.filter((ls: number) => ls >= mqlLeadscoreMin).length;
     // Calcular CPMQL (custo por MQL)

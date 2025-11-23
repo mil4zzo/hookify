@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 interface Pack {
   id: string;
   name: string;
-  ads?: any[];
+  ads: any[];
   stats?: {
     totalAds?: number;
     uniqueAds?: number;

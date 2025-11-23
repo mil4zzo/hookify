@@ -59,7 +59,7 @@ export function useMqlLeadscore(): UseMqlLeadscoreReturn {
               .insert({
                 user_id: user.id,
                 mql_leadscore_min: DEFAULT_MQL_LEADSCORE_MIN,
-              });
+              } as any);
 
             if (insertError) {
               console.warn("Erro ao criar registro de preferências:", insertError);
@@ -103,7 +103,7 @@ export function useMqlLeadscore(): UseMqlLeadscoreReturn {
           }
         } else {
           // Sucesso ao carregar do Supabase
-          const value = data?.mql_leadscore_min;
+          const value = (data as any)?.mql_leadscore_min;
           setMqlLeadscoreMin(value !== null && value !== undefined ? Number(value) : DEFAULT_MQL_LEADSCORE_MIN);
           
           // Sincronizar com localStorage
@@ -178,7 +178,7 @@ export function useMqlLeadscore(): UseMqlLeadscoreReturn {
             user_id: user.id,
             mql_leadscore_min: value,
             updated_at: new Date().toISOString(),
-          }, {
+          } as any, {
             onConflict: "user_id"
           });
 

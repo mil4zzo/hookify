@@ -1,4 +1,4 @@
-import { FacebookUser, FacebookAdAccount, FormattedAd, FilterRule } from '../api/schemas'
+import { FacebookUser, FacebookAdAccount, FormattedAd, FilterRule, SheetIntegration } from '../api/schemas'
 
 // Pack de Ads (equivalente ao sistema atual do Streamlit)
 export interface AdsPack {
@@ -26,6 +26,9 @@ export interface AdsPack {
     ctr: number
     cpm: number
     frequency: number
+  }
+  sheet_integration?: SheetIntegration & {
+    spreadsheet_name?: string // Adicionado pelo backend ao buscar nomes das planilhas
   }
   created_at: string
   updated_at: string

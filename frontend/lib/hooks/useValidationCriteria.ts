@@ -54,7 +54,7 @@ export function useValidationCriteria(): UseValidationCriteriaReturn {
               .insert({
                 user_id: user.id,
                 validation_criteria: [],
-              });
+              } as any);
 
             if (insertError) {
               console.warn("Erro ao criar registro de preferências:", insertError);
@@ -98,7 +98,7 @@ export function useValidationCriteria(): UseValidationCriteriaReturn {
           }
         } else {
           // Sucesso ao carregar do Supabase
-          const loadedCriteria = (data?.validation_criteria as ValidationCondition[]) || [];
+          const loadedCriteria = ((data as any)?.validation_criteria as ValidationCondition[]) || [];
           setCriteria(loadedCriteria);
           // Sincronizar com localStorage como backup
           if (typeof window !== "undefined") {
@@ -164,19 +164,19 @@ export function useValidationCriteria(): UseValidationCriteriaReturn {
       try {
         const supabase = getSupabaseClient();
         
-        // Usar upsert para criar ou atualizar
-        const { error: upsertError } = await supabase
-          .from("user_preferences")
-          .upsert(
-            {
-              user_id: user.id,
-              validation_criteria: criteriaToSave,
-              updated_at: new Date().toISOString(),
-            },
-            {
-              onConflict: "user_id",
-            }
-          );
+         // Usar upsert para criar ou atualizar
+         const { error: upsertError } = await supabase
+           .from("user_preferences")
+           .upsert(
+             {
+               user_id: user.id,
+               validation_criteria: criteriaToSave,
+               updated_at: new Date().toISOString(),
+             } as any,
+             {
+               onConflict: "user_id",
+             }
+           );
 
         if (upsertError) {
           throw upsertError;

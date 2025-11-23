@@ -553,6 +553,7 @@ export default function ComponentsShowcase() {
                   hook: 0.45,
                   ctr: 0.032,
                   connect_rate: 0.28,
+                  cpm: (1500.0 / 15000) * 1000,
                   conversions: { purchase: 120 },
                   ad_count: 3,
                   series: {
@@ -578,6 +579,7 @@ export default function ComponentsShowcase() {
                   hook: 0.52,
                   ctr: 0.041,
                   connect_rate: 0.35,
+                  cpm: (2300.0 / 22000) * 1000,
                   conversions: { purchase: 146 },
                   ad_count: 5,
                   series: {
@@ -603,6 +605,7 @@ export default function ComponentsShowcase() {
                   hook: 0.38,
                   ctr: 0.025,
                   connect_rate: 0.2,
+                  cpm: (980.0 / 13000) * 1000,
                   conversions: { purchase: 25 },
                   ad_count: 2,
                   series: {
@@ -628,6 +631,7 @@ export default function ComponentsShowcase() {
                   hook: 0.58,
                   ctr: 0.048,
                   connect_rate: 0.42,
+                  cpm: (3200.0 / 32000) * 1000,
                   conversions: { purchase: 284 },
                   ad_count: 7,
                   series: {
@@ -653,6 +657,7 @@ export default function ComponentsShowcase() {
                   hook: 0.32,
                   ctr: 0.018,
                   connect_rate: 0.15,
+                  cpm: (750.0 / 11000) * 1000,
                   conversions: { purchase: 33 },
                   ad_count: 1,
                   series: {

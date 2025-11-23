@@ -324,14 +324,6 @@ export const usePackAds = (packId: string, enabled: boolean = true) => {
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     refetchOnReconnect: false,
-    // Usar cache IndexedDB como placeholder
-    placeholderData: async () => {
-      const cached = await getCachedPackAds(packId)
-      if (cached.success && cached.data && Array.isArray(cached.data)) {
-        return filterVideoAds(cached.data)
-      }
-      return undefined
-    },
   })
 }
 
