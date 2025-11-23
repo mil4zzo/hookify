@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,11 +13,12 @@ import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFi
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
+import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
 import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
 import { showSuccess, showError, showWarning, showProgressToast, updateProgressToast, finishProgressToast } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical } from "@tabler/icons-react";
+import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport } from "@tabler/icons-react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, createColumnHelper, flexRender, ColumnDef } from "@tanstack/react-table";
 
 import { FilterRule } from "@/lib/api/schemas";
@@ -29,6 +30,35 @@ import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
+import { filterVideoAds } from "@/lib/utils/filterVideoAds";
+
+const STORAGE_KEY_DATE_RANGE = "hookify-ads-loader-date-range";
+
+// Funções auxiliares para gerenciar dateRange no localStorage
+const saveDateRange = (dateRange: { start?: string; end?: string }) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_DATE_RANGE, JSON.stringify(dateRange));
+  } catch (e) {
+    console.error("Erro ao salvar dateRange no localStorage:", e);
+  }
+};
+
+const loadDateRange = (): { start?: string; end?: string } | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_DATE_RANGE);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    // Validar que tem start e end
+    if (parsed && typeof parsed === "object" && parsed.start && parsed.end) {
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    console.error("Erro ao carregar dateRange do localStorage:", e);
+    return null;
+  }
+};
 
 interface PackFormData {
   name: string;
@@ -272,11 +302,19 @@ export default function AdsLoaderPage() {
   const [packToRemove, setPackToRemove] = useState<{ id: string; name: string; adsCount: number } | null>(null);
   const [packToRefresh, setPackToRefresh] = useState<{ id: string; name: string } | null>(null);
   const [packToDisableAutoRefresh, setPackToDisableAutoRefresh] = useState<{ id: string; name: string } | null>(null);
+  const [packToRename, setPackToRename] = useState<{ id: string; name: string } | null>(null);
+  const [newPackName, setNewPackName] = useState<string>("");
+  const [isRenaming, setIsRenaming] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>("");
   const [jsonViewerPack, setJsonViewerPack] = useState<any>(null);
+  const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
+
+  // Refs para controlar cancelamento do carregamento
+  const isCancelledRef = useRef(false);
+  const createdPackIdRef = useRef<string | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
   const getTwoDaysAgoLocal = (): string => {
@@ -285,14 +323,31 @@ export default function AdsLoaderPage() {
     return formatDateLocal(twoDaysAgo);
   };
 
+  // Carregar dateRange do localStorage ou usar valores padrão
+  const getInitialDateRange = () => {
+    const saved = loadDateRange();
+    if (saved) {
+      return {
+        date_start: saved.start || getTwoDaysAgoLocal(),
+        date_stop: saved.end || getTodayLocal(),
+      };
+    }
+    return {
+      date_start: getTwoDaysAgoLocal(),
+      date_stop: getTodayLocal(),
+    };
+  };
+
+  const initialDateRange = getInitialDateRange();
+
   const [formData, setFormData] = useState<PackFormData>({
     name: "",
     adaccount_id: "",
-    date_start: getTwoDaysAgoLocal(),
-    date_stop: getTodayLocal(),
+    date_start: initialDateRange.date_start,
+    date_stop: initialDateRange.date_stop,
     level: "ad", // Sempre "ad" - mantido apenas para compatibilidade com tipos
     filters: [],
-    auto_refresh: true, // Ativado por padrão já que a data final é hoje
+    auto_refresh: initialDateRange.date_stop === getTodayLocal(), // Ativado se a data final for hoje
   });
 
   // Store hooks
@@ -323,20 +378,23 @@ export default function AdsLoaderPage() {
     if (isDialogOpen) {
       const nextNumber = packs.length + 1;
       const packName = `Pack ${nextNumber.toString().padStart(2, "0")}`;
+      // Manter o dateRange salvo no localStorage ao abrir o modal
+      const savedDateRange = loadDateRange();
       const today = getTodayLocal();
       const twoDaysAgo = getTwoDaysAgoLocal();
       setFormData((prev) => ({
         ...prev,
         name: packName,
-        date_start: twoDaysAgo,
-        date_stop: today,
+        date_start: savedDateRange?.start || twoDaysAgo,
+        date_stop: savedDateRange?.end || today,
         // Ativa automaticamente se a data final for hoje
-        auto_refresh: true, // Como a data padrão é hoje, ativa automaticamente
+        auto_refresh: (savedDateRange?.end || today) === getTodayLocal(),
       }));
     }
   }, [packs.length, isDialogOpen]);
 
   // Packs são carregados globalmente pelo PacksLoader - não precisa carregar aqui
+  // Dados de integrações já vêm junto com os packs (via sheet_integration)
 
   // Handle opening dialog from URL parameter or custom event
   useEffect(() => {
@@ -409,6 +467,52 @@ export default function AdsLoaderPage() {
     return null;
   };
 
+  const handleCancelLoadPack = async () => {
+    // Marcar como cancelado
+    isCancelledRef.current = true;
+
+    // Se um pack foi criado, remover do store e do cache
+    if (createdPackIdRef.current) {
+      const packId = createdPackIdRef.current;
+
+      // Remover do store
+      removePack(packId);
+
+      // Remover do cache IndexedDB
+      try {
+        const { removeCachedPackAds } = await import("@/lib/storage/adsCache");
+        await removeCachedPackAds(packId).catch((error) => {
+          console.error("Erro ao remover cache do pack cancelado:", error);
+        });
+      } catch (error) {
+        console.error("Erro ao importar função de remoção de cache:", error);
+      }
+
+      // Tentar deletar do backend também (opcional, não bloqueia)
+      try {
+        await api.analytics.deletePack(packId, []).catch(() => {
+          // Ignorar erros - pack pode não ter sido totalmente criado no backend
+        });
+      } catch (error) {
+        // Ignorar erros
+      }
+
+      createdPackIdRef.current = null;
+    }
+
+    // Limpar estados
+    setIsLoading(false);
+    setDebugInfo("");
+
+    // Fechar modal apenas se não estiver sendo chamado pelo onClose do modal
+    // (evitar loop infinito)
+    if (isDialogOpen) {
+      setIsDialogOpen(false);
+    }
+
+    showWarning("Carregamento do pack cancelado. Todos os dados foram limpos.");
+  };
+
   const handleLoadPack = async () => {
     const validationError = validateForm();
     if (validationError) {
@@ -416,8 +520,17 @@ export default function AdsLoaderPage() {
       return;
     }
 
+    // Resetar flags de cancelamento
+    isCancelledRef.current = false;
+    createdPackIdRef.current = null;
+
     setIsLoading(true);
     try {
+      // Verificar se foi cancelado antes de iniciar
+      if (isCancelledRef.current) {
+        return;
+      }
+
       // Start the async job (sempre usa nível "ad")
       const result = await api.facebook.startAdsJob({
         adaccount_id: formData.adaccount_id,
@@ -438,13 +551,32 @@ export default function AdsLoaderPage() {
       // Poll for completion
       let completed = false;
       let attempts = 0;
-      const maxAttempts = 150; // 5 minutes max
+      const maxAttempts = 600; // 20 minutes max (600 * 2s = 1200s = 20min)
 
       while (!completed && attempts < maxAttempts) {
+        // Verificar se foi cancelado antes de cada iteração
+        if (isCancelledRef.current) {
+          completed = true;
+          break;
+        }
+
         await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds
+
+        // Verificar novamente após o timeout
+        if (isCancelledRef.current) {
+          completed = true;
+          break;
+        }
 
         try {
           const progress = await api.facebook.getJobProgress(result.job_id);
+
+          // Verificar se foi cancelado após a requisição
+          if (isCancelledRef.current) {
+            completed = true;
+            break;
+          }
+
           const rawAds = Array.isArray((progress as any)?.data) ? (progress as any).data : Array.isArray((progress as any)?.data?.data) ? (progress as any).data.data : [];
 
           // Log detalhado para debug
@@ -459,6 +591,12 @@ export default function AdsLoaderPage() {
           setDebugInfo(`${progress.message || "Processando..."} | Anúncios coletados: ${rawAds.length}`);
 
           if (progress.status === "completed" && Array.isArray(rawAds)) {
+            // Verificar se foi cancelado antes de processar
+            if (isCancelledRef.current) {
+              completed = true;
+              break;
+            }
+
             // Dados já vêm formatados do backend
             const formattedAds = rawAds as any[];
 
@@ -470,9 +608,12 @@ export default function AdsLoaderPage() {
               });
             }
 
+            // Filtrar apenas ads de vídeo para exibição
+            const videoAds = filterVideoAds(formattedAds);
+
             // Evitar criar pack vazio
-            if (!formattedAds || formattedAds.length === 0) {
-              showError({ message: "Nenhum anúncio retornado para os parâmetros selecionados." });
+            if (!videoAds || videoAds.length === 0) {
+              showError({ message: "Nenhum anúncio de vídeo retornado para os parâmetros selecionados." });
               completed = true;
               break;
             }
@@ -480,7 +621,16 @@ export default function AdsLoaderPage() {
             // Usar pack_id retornado pelo backend se disponível, senão usar ID local temporário
             const packId = (progress as any).pack_id || `pack_${Date.now()}`;
 
-            // Calcular stats dos ads para incluir no pack
+            // Armazenar packId para possível cancelamento futuro
+            createdPackIdRef.current = packId;
+
+            // Verificar se foi cancelado antes de criar o pack
+            if (isCancelledRef.current) {
+              completed = true;
+              break;
+            }
+
+            // Calcular stats dos ads para incluir no pack (usar todos os ads, não apenas vídeos)
             const stats = getAdStatistics(formattedAds);
 
             // Create pack (sempre usa nível "ad")
@@ -516,17 +666,36 @@ export default function AdsLoaderPage() {
               updated_at: new Date().toISOString(),
             };
 
+            // Verificar novamente antes de adicionar ao store
+            if (isCancelledRef.current) {
+              completed = true;
+              break;
+            }
+
             addPack(pack);
 
             // Salvar ads no cache IndexedDB (separado do store)
-            if (formattedAds.length > 0) {
+            if (formattedAds.length > 0 && !isCancelledRef.current) {
               const { cachePackAds } = await import("@/lib/storage/adsCache");
               await cachePackAds(packId, formattedAds).catch((error) => {
                 console.error("Erro ao salvar ads no cache:", error);
               });
             }
 
-            showSuccess(`Pack "${formData.name}" criado com ${formattedAds.length} anúncios!`);
+            // Se foi cancelado após salvar, limpar dados
+            if (isCancelledRef.current) {
+              await handleCancelLoadPack();
+              return;
+            }
+
+            // Mostrar mensagem com total de ads e quantos são vídeos
+            const totalAds = formattedAds.length;
+            const videoAdsCount = videoAds.length;
+            if (totalAds === videoAdsCount) {
+              showSuccess(`Pack "${formData.name}" criado com ${videoAdsCount} anúncios de vídeo!`);
+            } else {
+              showSuccess(`Pack "${formData.name}" criado com ${videoAdsCount} anúncios de vídeo (de ${totalAds} total)!`);
+            }
 
             // Reset form and close dialog
             setFormData((prev) => ({
@@ -538,26 +707,111 @@ export default function AdsLoaderPage() {
             setIsDialogOpen(false);
             setDebugInfo(""); // Limpar debug info
             completed = true;
+
+            // Limpar refs após sucesso
+            createdPackIdRef.current = null;
           } else if (progress.status === "failed" || progress.status === "error") {
             throw new Error(progress.message || "Job falhou");
           }
         } catch (error) {
+          // Incrementar attempts mesmo em caso de erro para evitar loop infinito
+          attempts++;
+
+          // Se foi cancelado, não mostrar erro
+          if (isCancelledRef.current) {
+            completed = true;
+            break;
+          }
+
+          // Melhorar tratamento de erro para exibir mensagens mais claras
+          let errorMessage = "Erro ao verificar progresso do job";
+          if (error instanceof Error) {
+            errorMessage = error.message || errorMessage;
+          } else if (typeof error === "object" && error !== null) {
+            // Tentar extrair mensagem de erro do objeto
+            const errorObj = error as any;
+            errorMessage = errorObj.message || errorObj.error || errorObj.detail || errorMessage;
+          }
+
           console.error("Error polling job progress:", error);
-          throw error;
+
+          // Verificar se é timeout HTTP (não é timeout do polling, apenas da requisição)
+          const isHttpTimeout = errorMessage.includes("timeout") || errorMessage.includes("Timeout") || (typeof error === "object" && error !== null && (error as any).code === "ECONNABORTED");
+
+          // Se for timeout HTTP, continuar polling (não é erro fatal)
+          if (isHttpTimeout) {
+            console.warn(`Timeout HTTP na requisição getJobProgress (tentativa ${attempts}/${maxAttempts}). Continuando polling...`);
+            setDebugInfo(`Timeout na requisição, tentando novamente... (${attempts}/${maxAttempts})`);
+            // Continuar loop sem lançar erro
+            continue;
+          }
+
+          // Se o erro for vazio ou muito genérico, verificar se o job pode ter completado
+          // mesmo com erro na requisição (timeout de rede, etc)
+          if (!errorMessage || errorMessage === "{}" || errorMessage.trim() === "") {
+            // Tentar uma última verificação antes de falhar
+            try {
+              const lastProgress = await api.facebook.getJobProgress(result.job_id);
+              if (lastProgress.status === "completed") {
+                // Job completou, processar normalmente
+                const rawAds = Array.isArray((lastProgress as any)?.data) ? (lastProgress as any).data : Array.isArray((lastProgress as any)?.data?.data) ? (lastProgress as any).data.data : [];
+                if (rawAds.length > 0) {
+                  // Continuar processamento normalmente (sem incrementar attempts novamente)
+                  continue;
+                }
+              }
+            } catch (retryError) {
+              // Se a retentativa também falhar, continuar polling (não é erro fatal)
+              console.warn(`Erro ao tentar retry do getJobProgress (tentativa ${attempts}/${maxAttempts}). Continuando polling...`);
+              continue;
+            }
+          }
+
+          // Para erros não-fatais, continuar polling
+          // Apenas lançar erro para erros realmente críticos
+          if (attempts >= maxAttempts) {
+            throw new Error(`Timeout: Job demorou mais que 20 minutos para completar (${attempts} tentativas)`);
+          }
+
+          // Para outros erros, continuar tentando
+          console.warn(`Erro ao verificar progresso (tentativa ${attempts}/${maxAttempts}): ${errorMessage}. Continuando polling...`);
+          continue;
         }
 
+        // Incrementar attempts apenas quando não houve erro (ou quando o erro foi tratado com continue)
         attempts++;
       }
 
-      if (!completed) {
-        throw new Error("Timeout: Job demorou mais que 5 minutos para completar");
+      if (!completed && !isCancelledRef.current) {
+        throw new Error("Timeout: Job demorou mais que 20 minutos para completar");
       }
     } catch (error) {
-      showError(error as any);
+      // Não mostrar erro se foi cancelado
+      if (!isCancelledRef.current) {
+        showError(error as any);
+      }
     } finally {
+      // Limpar refs ao finalizar
+      if (isCancelledRef.current) {
+        // Já foi limpo pelo handleCancelLoadPack
+        isCancelledRef.current = false;
+      } else {
+        createdPackIdRef.current = null;
+      }
       setIsLoading(false);
       setDebugInfo(""); // Limpar debug info ao finalizar
     }
+  };
+
+  const handleRenamePack = (packId: string) => {
+    const pack = packs.find((p) => p.id === packId);
+    if (!pack) return;
+
+    setPackToRename({
+      id: pack.id,
+      name: pack.name,
+    });
+    setNewPackName(pack.name);
   };
 
   const handleRemovePack = async (packId: string) => {
@@ -601,7 +855,7 @@ export default function AdsLoaderPage() {
 
       // Invalidar cache de ads do pack removido
       await invalidatePackAds(packToRemove.id);
-      
+
       // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
       invalidateRankings();
 
@@ -614,7 +868,7 @@ export default function AdsLoaderPage() {
 
       // Invalidar cache mesmo se falhar no servidor
       await invalidatePackAds(packToRemove.id).catch(() => {});
-      
+
       // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
       invalidateRankings();
 
@@ -630,6 +884,48 @@ export default function AdsLoaderPage() {
     setPackToRemove(null);
   };
 
+  const confirmRenamePack = async () => {
+    if (!packToRename || isRenaming) return;
+
+    const trimmedName = newPackName.trim();
+    if (!trimmedName) {
+      showError({ message: "Nome do pack não pode ser vazio" });
+      return;
+    }
+
+    if (trimmedName === packToRename.name) {
+      // Nome não mudou, apenas fechar o modal
+      setPackToRename(null);
+      setNewPackName("");
+      return;
+    }
+
+    setIsRenaming(true);
+    try {
+      await api.analytics.updatePackName(packToRename.id, trimmedName);
+
+      // Atualizar pack no store local
+      updatePack(packToRename.id, {
+        name: trimmedName,
+      } as Partial<AdsPack>);
+
+      showSuccess(`Pack renomeado para "${trimmedName}"`);
+      setPackToRename(null);
+      setNewPackName("");
+    } catch (error) {
+      console.error("Erro ao renomear pack:", error);
+      showError({ message: `Erro ao renomear pack: ${error}` });
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const cancelRenamePack = () => {
+    if (isRenaming) return; // Não permite cancelar durante a renomeação
+    setPackToRename(null);
+    setNewPackName("");
+  };
+
   const handlePreviewPack = async (pack: any) => {
     // Buscar ads do cache IndexedDB primeiro, depois do backend se necessário
     try {
@@ -637,19 +933,22 @@ export default function AdsLoaderPage() {
       const { getCachedPackAds } = await import("@/lib/storage/adsCache");
       const cachedResult = await getCachedPackAds(pack.id);
 
-      let ads = [];
+      let allAds = [];
       if (cachedResult.success && cachedResult.data && cachedResult.data.length > 0) {
-        ads = cachedResult.data;
+        allAds = cachedResult.data;
       } else {
         // Se não tem cache, buscar do backend
         const response = await api.analytics.getPack(pack.id, true);
         if (response.success && response.pack?.ads) {
-          ads = response.pack.ads;
+          allAds = response.pack.ads;
           // Salvar no cache para próximas vezes
           const { cachePackAds } = await import("@/lib/storage/adsCache");
-          await cachePackAds(pack.id, ads).catch(() => {});
+          await cachePackAds(pack.id, allAds).catch(() => {});
         }
       }
+
+      // Filtrar apenas ads de vídeo para exibição
+      const ads = filterVideoAds(allAds);
 
       // Garantir que stats estejam completos
       // Se não tiver stats ou estiver incompleto, recalcular dos ads
@@ -660,7 +959,7 @@ export default function AdsLoaderPage() {
       if (!hasValidStats && ads.length > 0) {
         // Recalcular todos os stats dos ads usando a função utilitária
         const { getAdStatistics } = await import("@/lib/utils/adCounting");
-        const calculated = getAdStatistics(ads);
+        const calculated = getAdStatistics(ads as any[]);
 
         // Calcular métricas adicionais que não estão em getAdStatistics
         const totalClicks = ads.reduce((sum: number, ad: any) => sum + (ad.clicks || 0), 0);
@@ -916,7 +1215,7 @@ export default function AdsLoaderPage() {
                   await invalidatePackAds(packId);
                 }
               }
-              
+
               // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
               invalidateRankings();
             } catch (error) {
@@ -1048,10 +1347,31 @@ export default function AdsLoaderPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleRenamePack(pack.id)} disabled={isRenaming}>
+                            <IconPencil className="w-4 h-4 mr-2" />
+                            Renomear pack
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => handleRefreshPack(pack.id)} disabled={isRefreshing}>
                             <IconRotateClockwise className="w-4 h-4 mr-2" />
                             Atualizar pack
                           </DropdownMenuItem>
+                          {pack.sheet_integration ? (
+                            <DropdownMenuItem disabled className="opacity-100">
+                              <IconTableExport className="w-4 h-4 mr-2 text-green-500" />
+                              <div className="flex flex-col items-start">
+                                <span className="text-xs font-medium text-green-500">Planilha conectada</span>
+                                <span className="text-xs text-muted-foreground">
+                                  {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
+                                </span>
+                              </div>
+                            </DropdownMenuItem>
+                          ) : (
+                            <DropdownMenuItem onClick={() => setSheetIntegrationPack(pack)}>
+                              <IconTableExport className="w-4 h-4 mr-2" />
+                              Enriquecer leadscore (Google Sheets)
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem onClick={() => handlePreviewPack(pack)}>
                             <IconEye className="w-4 h-4 mr-2" />
                             Visualizar tabela
@@ -1129,6 +1449,21 @@ export default function AdsLoaderPage() {
                       </div>
                     </div>
                   )}
+
+                  {/* Sheet Integration Status */}
+                  {pack.sheet_integration && (
+                    <div className="space-y-2 pt-2 border-t border-border">
+                      <div className="flex items-center gap-2">
+                        <IconTableExport className="w-4 h-4 text-green-500" />
+                        <p className="text-sm font-medium text-green-500">Planilha conectada</p>
+                      </div>
+                      <div className="text-xs text-muted-foreground bg-green-500/10 border border-green-500/20 p-2 rounded">
+                        <p className="font-medium">{pack.sheet_integration.spreadsheet_name || "Planilha desconhecida"}</p>
+                        <p className="text-xs mt-1">Aba: {pack.sheet_integration.worksheet_title || "N/A"}</p>
+                        {pack.sheet_integration.last_synced_at && <p className="text-xs mt-1 opacity-70">Última sincronização: {new Date(pack.sheet_integration.last_synced_at).toLocaleString("pt-BR")}</p>}
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             ))}
@@ -1137,7 +1472,22 @@ export default function AdsLoaderPage() {
       </div>
 
       {/* Load Pack Modal */}
-      <Modal isOpen={isDialogOpen} onClose={() => !isLoading && setIsDialogOpen(false)} size="2xl" padding="md" closeOnOverlayClick={!isLoading} closeOnEscape={!isLoading} showCloseButton={!isLoading}>
+      <Modal
+        isOpen={isDialogOpen}
+        onClose={() => {
+          if (isLoading) {
+            // Se estiver carregando, cancelar ao invés de apenas fechar
+            handleCancelLoadPack();
+          } else {
+            setIsDialogOpen(false);
+          }
+        }}
+        size="2xl"
+        padding="md"
+        closeOnOverlayClick={!isLoading}
+        closeOnEscape={!isLoading}
+        showCloseButton={!isLoading}
+      >
         <div className="space-y-1.5 mb-6">
           <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
           <p className="text-sm text-muted-foreground">Configure os parâmetros para carregar um novo pack de anúncios</p>
@@ -1288,9 +1638,15 @@ export default function AdsLoaderPage() {
               }}
               onChange={(dateRange: DateRangeValue) => {
                 const newDateStop = dateRange.end || "";
+                const newDateStart = dateRange.start || "";
+                // Salvar no localStorage
+                saveDateRange({
+                  start: newDateStart,
+                  end: newDateStop,
+                });
                 setFormData((prev) => ({
                   ...prev,
-                  date_start: dateRange.start || "",
+                  date_start: newDateStart,
                   date_stop: newDateStop,
                   // Ativa automaticamente se a data final for hoje, desativa caso contrário
                   auto_refresh: newDateStop === getTodayLocal(),
@@ -1358,19 +1714,26 @@ export default function AdsLoaderPage() {
           </div>
 
           {/* Submit Button */}
-          <Button onClick={handleLoadPack} disabled={isLoading || !!validateForm()} className="w-full" size="lg">
-            {isLoading ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                Carregando Anúncios...
-              </>
-            ) : (
-              <>
-                <IconChartBar className="w-4 h-4 mr-2" />
-                Carregar Pack
-              </>
+          <div className="flex gap-3">
+            <Button onClick={handleLoadPack} disabled={isLoading || !!validateForm()} className="flex-1" size="lg">
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                  Carregando Anúncios...
+                </>
+              ) : (
+                <>
+                  <IconChartBar className="w-4 h-4 mr-2" />
+                  Carregar Pack
+                </>
+              )}
+            </Button>
+            {isLoading && (
+              <Button onClick={handleCancelLoadPack} variant="outline" size="lg" className="shrink-0">
+                <IconCircleX className="w-4 h-4" />
+              </Button>
             )}
-          </Button>
+          </div>
 
           {/* Debug Info */}
           {isLoading && debugInfo && (
@@ -1604,6 +1967,63 @@ export default function AdsLoaderPage() {
           </div>
         </div>
       </Modal>
+
+      {/* Rename Pack Dialog */}
+      <Modal isOpen={!!packToRename} onClose={() => !isRenaming && cancelRenamePack()} size="md" padding="md" closeOnOverlayClick={!isRenaming} closeOnEscape={!isRenaming} showCloseButton={!isRenaming}>
+        <div className="space-y-1.5 mb-6">
+          <h2 className="text-lg font-semibold leading-none tracking-tight">Renomear Pack</h2>
+          <p className="text-sm text-muted-foreground">Altere o nome do pack "{packToRename?.name}"</p>
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Novo Nome</label>
+            <Input
+              placeholder="Digite o novo nome do pack"
+              value={newPackName}
+              onChange={(e) => setNewPackName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !isRenaming && newPackName.trim()) {
+                  confirmRenamePack();
+                }
+              }}
+              disabled={isRenaming}
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">O nome não pode estar vazio</p>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <Button variant="outline" onClick={cancelRenamePack} disabled={isRenaming}>
+            Cancelar
+          </Button>
+          <Button onClick={confirmRenamePack} disabled={isRenaming || !newPackName.trim() || newPackName.trim() === packToRename?.name}>
+            {isRenaming ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
+                Renomeando...
+              </>
+            ) : (
+              <>
+                <IconPencil className="w-4 h-4 mr-2" />
+                Renomear
+              </>
+            )}
+          </Button>
+        </div>
+      </Modal>
+
+      {/* Booster de planilha por pack (Google Sheets) */}
+      <GoogleSheetIntegrationDialog
+        isOpen={!!sheetIntegrationPack}
+        onClose={() => {
+          setSheetIntegrationPack(null);
+          // Packs serão recarregados automaticamente pelo PacksLoader
+          // e já virão com sheet_integration atualizado
+        }}
+        packId={sheetIntegrationPack?.id ?? null}
+      />
     </>
   );
 }

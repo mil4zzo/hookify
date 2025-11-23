@@ -210,4 +210,51 @@ html, body { height: 100%; }
   opacity: 0.8;
 }
 
+/* Animação de gradiente em movimento para a linha do CPR */
+@keyframes gradient-shift {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animated-gradient-primary {
+  position: relative;
+  padding: 2px;
+  border-radius: 0.25rem; /* rounded equivalente */
+}
+
+.animated-gradient-primary::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    90deg,
+    #3B82F6 0%,
+    #3B82F6 25%,
+    var(--primary) 50%,
+    #3B82F6 75%,
+    #3B82F6 100%
+  );
+  background-size: 200% 100%;
+  animation: gradient-shift 8s linear infinite;
+  pointer-events: none;
+  z-index: 0;
+  border-radius: 0.25rem; /* rounded equivalente */
+  opacity: 1;
+}
+
+.animated-gradient-primary-content {
+  position: relative;
+  z-index: 1;
+  background: var(--background);
+  border-radius: 0.25rem; /* rounded equivalente */
+  width: 100%;
+  height: 100%;
+}
 

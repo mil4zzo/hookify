@@ -8,6 +8,7 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 
 type OpportunityWidgetProps = {
   ads: RankingsItem[];
@@ -36,6 +37,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
   const lpv = Number((ad as any).lpv || 0);
   const results = actionType ? Number((ad as any).conversions?.[actionType] || 0) : 0;
   const page_conv = lpv > 0 ? results / lpv : 0;
+  const overall_conversion = website_ctr * connect_rate * page_conv;
   return {
     ad_name: (ad as any).ad_name,
     ad_id: (ad as any).ad_id,
@@ -52,17 +54,13 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
     hook: Number((ad as any).hook || 0),
     ctr: Number((ad as any).ctr || 0),
     page_conv,
+    overall_conversion,
   };
 }
 
-export function OpportunityWidget({
-  ads,
-  averages,
-  actionType,
-  limit = 10,
-  title = "Oportunidades",
-}: OpportunityWidgetProps) {
+export function OpportunityWidget({ ads, averages, actionType, limit = 10, title = "Oportunidades" }: OpportunityWidgetProps) {
   const { criteria, isLoading: isLoadingCriteria } = useValidationCriteria();
+  const { mqlLeadscoreMin } = useMqlLeadscore();
   const formatCurrency = useFormatCurrency();
 
   const eligibleAds = useMemo(() => {
@@ -86,9 +84,10 @@ export function OpportunityWidget({
       averages,
       actionType,
       spendTotal,
+      mqlLeadscoreMin,
       limit: Math.max(limit, 1),
     });
-  }, [eligibleAds, averages, actionType, limit]);
+  }, [eligibleAds, averages, actionType, mqlLeadscoreMin, limit]);
 
   // Valores médios para exibir nos tooltips e nas células
   const avgHook = averages?.hook || 0;
@@ -158,11 +157,7 @@ export function OpportunityWidget({
                       <tr key={`${r.ad_id || r.ad_name || idx}`} className="bg-background hover:bg-input-30 cursor-pointer">
                         <td className="p-4 text-left border-y border-border rounded-l-md border-l" style={{ width: 140 }}>
                           <div className="flex items-center gap-3">
-                            {thumbnail ? (
-                              <img src={thumbnail} alt="thumb" className="w-14 h-14 object-cover rounded" />
-                            ) : (
-                              <div className="w-14 h-14 bg-border rounded" />
-                            )}
+                            {thumbnail ? <img src={thumbnail} alt="thumb" className="w-14 h-14 object-cover rounded" /> : <div className="w-14 h-14 bg-border rounded" />}
                             <div className="min-w-0">
                               <div className="flex items-center gap-1">
                                 <span className="truncate">{r.ad_name || r.ad_id || "—"}</span>
@@ -176,7 +171,9 @@ export function OpportunityWidget({
                                         <div className="space-y-1">
                                           <div className="font-semibold text-sm mb-2">Métricas abaixo da média:</div>
                                           {belowAvgMetrics.map((metric, i) => (
-                                            <div key={i} className="text-xs">{metric}</div>
+                                            <div key={i} className="text-xs">
+                                              {metric}
+                                            </div>
                                           ))}
                                         </div>
                                       </TooltipContent>
@@ -231,7 +228,7 @@ export function OpportunityWidget({
                           <span className="text-base font-medium leading-none">{formatCurrency(r.impact_abs_savings)}</span>
                         </td>
                         <td className="p-4 text-center border-y border-border rounded-r-md border-r" style={{ width: 140 }}>
-                          <span className="text-base font-medium leading-none">{(r.impact_abs_conversions).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</span>
+                          <span className="text-base font-medium leading-none">{r.impact_abs_conversions.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}</span>
                         </td>
                       </tr>
                     );
@@ -245,5 +242,3 @@ export function OpportunityWidget({
     </Card>
   );
 }
-
-

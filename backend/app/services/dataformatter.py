@@ -256,7 +256,8 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
 
         # Vídeo e curva
         total_plays = int(_first_value_from_array(safe("video_play_actions", [])))
-        total_thruplays = int(_first_value_from_array(safe("video_thruplay_watched_actions", [])))
+        video_thruplay_watched_actions_raw = safe("video_thruplay_watched_actions", [])
+        total_thruplays = int(_first_value_from_array(video_thruplay_watched_actions_raw))
         p50 = int(_first_value_from_array(safe("video_p50_watched_actions", [])))
         # percentual assistido até 50% (inteiro)
         video_watched_p50 = int(round((p50 / total_plays) * 100)) if total_plays else 0

@@ -12,7 +12,16 @@ function getSeriesTrendPct(series: Array<number | null | undefined>): number {
   return (last - first) / denom;
 }
 
-function colorByTrend(pct: number): string {
+function colorByTrend(pct: number, inverse: boolean = false): string {
+  if (inverse) {
+    // Invertido: subir é ruim (vermelho), descer é bom (verde)
+    if (pct >= 0.15) return "bg-danger/70"; // strong up = ruim
+    if (pct >= 0.05) return "bg-warning/70"; // mild up = ruim
+    if (pct <= -0.15) return "bg-brand/70"; // strong down = bom
+    if (pct <= -0.05) return "bg-brand/60"; // mild down = bom
+    return "bg-muted"; // flat
+  }
+  // Normal: subir é bom (verde), descer é ruim (vermelho)
   if (pct >= 0.15) return "bg-brand/70"; // strong up
   if (pct >= 0.05) return "bg-brand/60"; // mild up
   if (pct <= -0.15) return "bg-danger/70"; // strong down
@@ -20,12 +29,20 @@ function colorByTrend(pct: number): string {
   return "bg-muted"; // flat
 }
 
-function perBarColor(curr: number | null | undefined, prev: number | null | undefined): string {
+function perBarColor(curr: number | null | undefined, prev: number | null | undefined, inverse: boolean = false): string {
   if (curr == null || Number.isNaN(curr as number) || prev == null || Number.isNaN(prev as number)) {
     return "bg-muted/20";
   }
-  const c = Number(curr),
-    p = Number(prev);
+  const c = Number(curr);
+  const p = Number(prev);
+  
+  if (inverse) {
+    // Invertido: aumentar é ruim, diminuir é bom
+    if (c > p) return "bg-danger/70"; // aumentou = ruim
+    if (c < p) return "bg-brand/60"; // diminuiu = bom
+    return "bg-muted/30";
+  }
+  // Normal: aumentar é bom, diminuir é ruim
   if (c > p) return "bg-brand/60";
   if (c < p) return "bg-danger/70";
   return "bg-muted/30";
@@ -53,11 +70,24 @@ function interpolateColor(startHex: string, endHex: string, t: number): string {
   return rgbToHex({ r: lerp(s.r, e.r, t), g: lerp(s.g, e.g, t), b: lerp(s.b, e.b, t) });
 }
 
-function getInterpolatedBarColor(norm01: number): string {
+function getInterpolatedBarColor(norm01: number, inverse: boolean = false): string {
   const t = Math.max(0, Math.min(1, norm01));
   const RED = "#EF4444"; // danger em tailwind.config
   const ORANGE = "#F59E0B"; // warning em tailwind.config
   const GREEN = "#2E7D32"; // brand DEFAULT em tailwind.config
+  
+  if (inverse) {
+    // Invertido: valores maiores (próximos de 1) = vermelho, menores (próximos de 0) = verde
+    const invertedT = 1 - t;
+    if (invertedT <= 0.5) {
+      const localT = invertedT / 0.5;
+      return interpolateColor(RED, ORANGE, localT);
+    }
+    const localT = (invertedT - 0.5) / 0.5;
+    return interpolateColor(ORANGE, GREEN, localT);
+  }
+  
+  // Normal: valores maiores = verde, menores = vermelho
   if (t <= 0.5) {
     const localT = t / 0.5; // 0..0.5
     return interpolateColor(RED, ORANGE, localT);
@@ -118,13 +148,14 @@ type SparklineBarsProps = {
   // novos
   dynamicColor?: boolean; // ativa cor por tendência da série ou por barra
   colorMode?: "series" | "per-bar"; // aplica por série inteira ou por barra
+  inverseColors?: boolean; // Se true, inverte a lógica de cores (menor é melhor, ex: CPR, CPM)
 };
 
-export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand/70", nullClass = "bg-muted/20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series" }: SparklineBarsProps) {
+export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand/70", nullClass = "bg-muted/20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false }: SparklineBarsProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;
-  const seriesColor = dynamicColor && colorMode === "series" ? colorByTrend(getSeriesTrendPct(series)) : colorClass;
+  const seriesColor = dynamicColor && colorMode === "series" ? colorByTrend(getSeriesTrendPct(series), inverseColors) : colorClass;
   
   // Usar className customizado se fornecido, senão usar preset baseado no size
   const finalClassName = className || sizePresets[size];
@@ -143,7 +174,7 @@ export const SparklineBars = React.memo(function SparklineBars({ series, classNa
           heightPct = (Number(v) / max) * 100; // normalização por máximo
           heightPct = Math.max(validMinBarHeightPct, heightPct);
         }
-        const barColor = isNull ? nullClass : dynamicColor && colorMode === "per-bar" ? getInterpolatedBarColor(max > 1e-9 ? Math.max(0, Math.min(1, Number(v) / max)) : 0) : seriesColor;
+        const barColor = isNull ? nullClass : dynamicColor && colorMode === "per-bar" ? getInterpolatedBarColor(max > 1e-9 ? Math.max(0, Math.min(1, Number(v) / max)) : 0, inverseColors) : seriesColor;
 
         // Obter cor hexadecimal base para o gradiente
         const baseHexColor = isNull ? getHexColorFromClass(nullClass) : colorMode === "per-bar" && !isNull ? (barColor as string) : getHexColorFromClass(barColor as string);

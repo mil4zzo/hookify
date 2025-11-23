@@ -14,6 +14,13 @@ import {
   DashboardResponse,
   RankingsChildrenItem,
   AdCreativeResponse,
+  ListSpreadsheetsResponse,
+  ListWorksheetsResponse,
+  ListGoogleConnectionsResponse,
+  SheetColumnsResponse,
+  SheetIntegrationRequest,
+  SaveSheetIntegrationResponse,
+  SheetSyncResponse,
 } from './schemas'
 import { env } from '@/lib/config/env'
 
@@ -51,7 +58,7 @@ export const api = {
       apiClient.post('/facebook/ads-progress', params),
     
     getJobProgress: (jobId: string): Promise<{ status: string; progress: number; message: string; data?: any }> =>
-      apiClient.get(`/facebook/ads-progress/${jobId}`),
+      apiClient.getWithTimeout(`/facebook/ads-progress/${jobId}`, 300000), // 5 minutos para getJobProgress (backend pode estar processando)
     
     getVideoSource: (params: GetVideoSourceRequest): Promise<GetVideoSourceResponse> =>
       apiClient.get('/facebook/video-source', { params }),
@@ -96,5 +103,52 @@ export const api = {
       apiClient.deleteWithBody(`/analytics/packs/${packId}`, { ad_ids: adIds }),
     updatePackAutoRefresh: (packId: string, autoRefresh: boolean): Promise<{ success: boolean; pack_id: string; auto_refresh: boolean }> =>
       apiClient.patch(`/analytics/packs/${packId}/auto-refresh`, { auto_refresh: autoRefresh }),
+    updatePackName: (packId: string, name: string): Promise<{ success: boolean; pack_id: string; name: string }> =>
+      apiClient.patch(`/analytics/packs/${packId}/name`, { name }),
+  },
+
+  // Google Sheets integration (ads enrichment)
+  integrations: {
+    google: {
+      getAuthUrl: (state: string, redirectUri?: string): Promise<AuthUrlResponse> =>
+        apiClient.post('/integrations/google/auth-url', {
+          redirect_uri: redirectUri || env.FB_REDIRECT_URI,
+          state,
+        }),
+
+      exchangeCode: (code: string, redirectUri: string): Promise<{ connection: { id: string; scopes?: string[] } }> =>
+        apiClient.post('/integrations/google/callback', {
+          code,
+          redirect_uri: redirectUri,
+        }),
+
+      listConnections: (): Promise<ListGoogleConnectionsResponse> =>
+        apiClient.get('/integrations/google/connections'),
+
+      deleteConnection: (connectionId: string): Promise<{ success: boolean }> =>
+        apiClient.delete(`/integrations/google/connections/${encodeURIComponent(connectionId)}`),
+
+      listSpreadsheets: (params?: { query?: string; page_size?: number; page_token?: string }): Promise<ListSpreadsheetsResponse> =>
+        apiClient.get('/integrations/google/spreadsheets', { params }),
+
+      listWorksheets: (spreadsheetId: string): Promise<ListWorksheetsResponse> =>
+        apiClient.get(`/integrations/google/spreadsheets/${encodeURIComponent(spreadsheetId)}/worksheets`),
+
+      listColumns: (spreadsheetId: string, worksheetTitle: string): Promise<SheetColumnsResponse> =>
+        apiClient.get(
+          `/integrations/google/sheets/${encodeURIComponent(
+            spreadsheetId,
+          )}/worksheets/${encodeURIComponent(worksheetTitle)}/columns`,
+        ),
+
+      saveSheetIntegration: (payload: SheetIntegrationRequest): Promise<SaveSheetIntegrationResponse> =>
+        apiClient.post('/integrations/google/ad-sheet-integrations', payload),
+
+      syncSheetIntegration: (integrationId: string): Promise<SheetSyncResponse> =>
+        apiClient.post(`/integrations/google/ad-sheet-integrations/${integrationId}/sync`),
+
+      listSheetIntegrations: (packId?: string): Promise<{ integrations: any[] }> =>
+        apiClient.get('/integrations/google/ad-sheet-integrations', { params: packId ? { pack_id: packId } : {} }),
+    },
   },
 }

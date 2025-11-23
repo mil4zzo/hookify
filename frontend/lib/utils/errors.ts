@@ -62,7 +62,7 @@ export function parseError(err: unknown): AppError {
         message = 'Servidor não encontrado. Verifique a URL do backend.'
         break
       case 'ECONNABORTED':
-        message = 'Timeout na requisição: A busca de anúncios demorou mais que 5 minutos. Tente novamente ou reduza o período de busca.'
+        message = 'Timeout na requisição: A busca de anúncios demorou mais que 20 minutos. Tente novamente ou reduza o período de busca.'
         break
       case 'ETIMEDOUT':
         message = 'Timeout de conexão. Verifique sua conexão com a internet.'

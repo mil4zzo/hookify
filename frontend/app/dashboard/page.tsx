@@ -18,6 +18,37 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { IconSettings, IconFilter } from "@tabler/icons-react";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
+import { Switch } from "@/components/ui/switch";
+import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
+
+const STORAGE_KEY_DATE_RANGE = "hookify-dashboard-date-range";
+const STORAGE_KEY_USE_PACK_DATES = "hookify-dashboard-use-pack-dates";
+
+// Funções auxiliares para gerenciar dateRange no localStorage
+const saveDateRange = (dateRange: { start?: string; end?: string }) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_DATE_RANGE, JSON.stringify(dateRange));
+  } catch (e) {
+    console.error("Erro ao salvar dateRange no localStorage:", e);
+  }
+};
+
+const loadDateRange = (): { start?: string; end?: string } | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_DATE_RANGE);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    // Validar que tem start e end
+    if (parsed && typeof parsed === "object" && parsed.start && parsed.end) {
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    console.error("Erro ao carregar dateRange do localStorage:", e);
+    return null;
+  }
+};
 
 export default function DashboardPage() {
   const pageConfig = usePageConfig();
@@ -29,17 +60,89 @@ export default function DashboardPage() {
   const [selectedCampaigns, setSelectedCampaigns] = useState<string[]>([]);
   const [selectedAdsets, setSelectedAdsets] = useState<string[]>([]);
   const [selectedAds, setSelectedAds] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>({});
+  const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>(() => {
+    // Tentar carregar do localStorage primeiro
+    const saved = loadDateRange();
+    if (saved) {
+      return saved;
+    }
+    // Se não houver salvo, inicializar vazio
+    return {};
+  });
 
   // Store hooks
   const { isAuthenticated, isClient } = useClientAuth();
   const { packs } = useClientPacks();
   const { status } = useRequireAuth("/login");
 
+  // Estado para controlar se deve usar datas dos packs
+  const [usePackDates, setUsePackDates] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_USE_PACK_DATES);
+      return saved === "true";
+    } catch (e) {
+      console.error("Erro ao carregar usePackDates do localStorage:", e);
+      return false;
+    }
+  });
+
   // Buscar ads de todos os packs usando cache IndexedDB
   const { allAds, isLoading: isLoadingAds } = usePacksAds(packs);
 
   // Guard centralizado cobre o redirecionamento
+
+  // Função para calcular dateRange dos packs
+  const calculateDateRangeFromPacks = useMemo(() => {
+    if (packs.length === 0) return null;
+    
+    let minStart: string | null = null;
+    let maxEnd: string | null = null;
+    
+    packs.forEach((pack) => {
+      if (pack.date_start && (!minStart || pack.date_start < minStart)) {
+        minStart = pack.date_start;
+      }
+      if (pack.date_stop && (!maxEnd || pack.date_stop > maxEnd)) {
+        maxEnd = pack.date_stop;
+      }
+    });
+    
+    if (minStart && maxEnd) {
+      return { start: minStart, end: maxEnd };
+    }
+    return null;
+  }, [packs]);
+
+  // Handler para mudança de dateRange com salvamento no localStorage
+  const handleDateRangeChange = (value: { start?: string; end?: string }) => {
+    if (usePackDates) return; // Não permitir mudança manual quando usar datas dos packs
+    setDateRange(value);
+    saveDateRange(value);
+  };
+
+  // Handler para mudança de usePackDates
+  const handleUsePackDatesChange = (checked: boolean) => {
+    setUsePackDates(checked);
+    try {
+      localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, checked.toString());
+    } catch (e) {
+      console.error("Erro ao salvar usePackDates no localStorage:", e);
+    }
+    
+    if (checked && calculateDateRangeFromPacks) {
+      setDateRange(calculateDateRangeFromPacks);
+      saveDateRange(calculateDateRangeFromPacks);
+    }
+  };
+
+  // Atualizar dateRange quando packs mudarem (se usePackDates estiver ativo)
+  useEffect(() => {
+    if (usePackDates && calculateDateRangeFromPacks) {
+      setDateRange(calculateDateRangeFromPacks);
+      saveDateRange(calculateDateRangeFromPacks);
+    }
+  }, [usePackDates, calculateDateRangeFromPacks]);
 
   const filteredAdsByDate: AdData[] = useMemo(() => {
     return filterAdsByDateRange(allAds as any, dateRange) as any;
@@ -155,6 +258,9 @@ export default function DashboardPage() {
     return { resultsValue, costValue };
   }, [resultsColumn, filteredAdsByDate, aggregatedData, selectedCampaigns, selectedAdsets, selectedAds, minImpressions, minSpend]);
 
+  // Modal de integração com Google Sheets
+  const [isSheetsDialogOpen, setIsSheetsDialogOpen] = useState(false);
+
   // Client-side only rendering
   if (!isClient) {
     return (
@@ -195,10 +301,24 @@ export default function DashboardPage() {
         title={pageConfig?.title || "Dashboard"}
         description={`Resumo dos seus anúncios carregados (${packStats.uniqueAds} anúncios únicos de ${packStats.totalPacks} packs)`}
         actions={
-          <Button variant="outline" onClick={() => setShowAdvancedOptions(!showAdvancedOptions)} className="flex items-center gap-2">
-            <IconSettings className="w-4 h-4" />
-            Opções Avançadas
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+              className="flex items-center gap-2"
+            >
+              <IconSettings className="w-4 h-4" />
+              Opções Avançadas
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => setIsSheetsDialogOpen(true)}
+              className="flex items-center gap-2"
+            >
+              <IconTableExport className="w-4 h-4" />
+              Integrar planilha
+            </Button>
+          </div>
         }
       />
 
@@ -206,10 +326,33 @@ export default function DashboardPage() {
       <Card>
         <CardContent className="p-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-            <DateRangeFilter label="Período (Data do Insight)" value={dateRange} onChange={setDateRange} />
+            <div className="space-y-2">
+              <DateRangeFilter label="Período (Data do Insight)" value={dateRange} onChange={handleDateRangeChange} disabled={usePackDates} />
+              {packs.length > 0 && (
+                <div className="flex items-center gap-2 p-2 bg-card border border-border rounded-md">
+                  <Switch
+                    id="use-pack-dates"
+                    checked={usePackDates}
+                    onCheckedChange={handleUsePackDatesChange}
+                  />
+                  <label
+                    htmlFor="use-pack-dates"
+                    className="text-sm font-medium cursor-pointer"
+                  >
+                    Usar datas dos packs
+                  </label>
+                </div>
+              )}
+            </div>
           </div>
         </CardContent>
       </Card>
+
+      {/* Modal de integração Google Sheets */}
+      <GoogleSheetIntegrationDialog
+        isOpen={isSheetsDialogOpen}
+        onClose={() => setIsSheetsDialogOpen(false)}
+      />
 
       {/* Advanced Options */}
       {showAdvancedOptions && (

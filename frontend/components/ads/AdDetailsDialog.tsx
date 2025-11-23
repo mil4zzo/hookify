@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { MetricCard } from "@/components/common/MetricCard";
 import { RetentionChart } from "@/components/charts/RetentionChart";
+import { RetentionChartOverlay } from "@/components/charts/RetentionChartOverlay";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -11,6 +12,7 @@ import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useAdHist
 import { RankingsItem, RankingsChildrenItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
+import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 
 interface AdDetailsDialogProps {
   ad: RankingsItem;
@@ -19,6 +21,7 @@ interface AdDetailsDialogProps {
   dateStop?: string;
   actionType?: string;
   availableConversionTypes?: string[]; // Tipos de conversão disponíveis (mesmos do seletor)
+  initialTab?: "overview" | "conversions" | "variations" | "series" | "video" | "history"; // Aba inicial
   averages?: {
     hook: number | null;
     scroll_stop: number | null;
@@ -31,9 +34,23 @@ interface AdDetailsDialogProps {
   };
 }
 
-export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, availableConversionTypes = [], averages }: AdDetailsDialogProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "conversions" | "variations" | "series" | "video" | "history">("overview");
+export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, availableConversionTypes = [], initialTab = "overview", averages }: AdDetailsDialogProps) {
+  const [activeTab, setActiveTab] = useState<"overview" | "conversions" | "variations" | "series" | "video" | "history">(initialTab);
+  const [shouldAutoplay, setShouldAutoplay] = useState(false);
+  const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
+
+  // Atualizar aba quando initialTab mudar (quando o modal é reaberto com outro anúncio)
+  useEffect(() => {
+    setActiveTab(initialTab);
+    setShouldAutoplay(initialTab === "video");
+    setInitialVideoTime(null); // Resetar tempo inicial quando mudar de anúncio
+  }, [initialTab, ad?.ad_id]); // Resetar quando o anúncio mudar
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(["spend"]);
+  // Date range específico para o histórico (inicializa com o date range principal ou vazio para mostrar todos)
+  const [historyDateRange, setHistoryDateRange] = useState<DateRangeValue>(() => ({
+    start: dateStart,
+    end: dateStop,
+  }));
 
   const adName = String(ad?.ad_name || "");
   const adId = String(ad?.ad_id || "");
@@ -61,7 +78,55 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const { data: historyDataById, isLoading: loadingHistoryById } = useAdHistory(adId, dateStart || "", dateStop || "", shouldLoadHistoryById);
   const { data: historyDataByName, isLoading: loadingHistoryByName } = useAdNameHistory(adName, dateStart || "", dateStop || "", shouldLoadHistoryByName);
   const loadingHistory = loadingHistoryById || loadingHistoryByName;
-  const historyData = groupByAdName ? historyDataByName : historyDataById;
+  const historyDataRaw = groupByAdName ? historyDataByName : historyDataById;
+
+  // Filtrar dados históricos baseado no date range do histórico
+  const historyData = useMemo(() => {
+    if (!historyDataRaw?.data || historyDataRaw.data.length === 0) {
+      return historyDataRaw;
+    }
+
+    // Se não há filtro de data definido, retornar todos os dados
+    if (!historyDateRange.start && !historyDateRange.end) {
+      return historyDataRaw;
+    }
+
+    const filtered = historyDataRaw.data.filter((item: any) => {
+      const itemDate = item.date;
+      if (!itemDate) return false;
+
+      // Normalizar datas para formato YYYY-MM-DD para comparação segura
+      const normalizeDate = (dateStr: string) => {
+        // Se já está no formato YYYY-MM-DD, retornar direto
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          return dateStr;
+        }
+        // Caso contrário, tentar extrair a parte da data
+        const match = dateStr.match(/^(\d{4}-\d{2}-\d{2})/);
+        return match ? match[1] : dateStr;
+      };
+
+      const itemDateNormalized = normalizeDate(itemDate);
+      const startDateNormalized = historyDateRange.start ? normalizeDate(historyDateRange.start) : null;
+      const endDateNormalized = historyDateRange.end ? normalizeDate(historyDateRange.end) : null;
+
+      // Comparação de strings (YYYY-MM-DD permite comparação lexicográfica)
+      if (startDateNormalized && itemDateNormalized < startDateNormalized) {
+        return false;
+      }
+
+      if (endDateNormalized && itemDateNormalized > endDateNormalized) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return {
+      ...historyDataRaw,
+      data: filtered,
+    };
+  }, [historyDataRaw, historyDateRange]);
 
   const formatCurrency = useFormatCurrency();
   const formatPct = (v: number | null | undefined) => {
@@ -167,12 +232,44 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   }, [ad?.cpm]);
 
   const websiteCtr = useMemo(() => {
-    return typeof (ad as any)?.website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr)
-      ? (ad as any).website_ctr
-      : 0;
+    return typeof (ad as any)?.website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr) ? (ad as any).website_ctr : 0;
   }, [ad]);
 
-  const series = ad?.series;
+  // Calcular séries dinâmicas (cpr e page_conv) baseadas no actionType
+  const series = useMemo(() => {
+    const baseSeries = ad?.series;
+    if (!baseSeries) return baseSeries;
+
+    // Se não há actionType ou não há conversions, retornar série base
+    if (!actionType || !baseSeries.conversions) {
+      return baseSeries;
+    }
+
+    // Calcular results por dia para o action_type selecionado
+    const resultsSeries = baseSeries.conversions.map((dayConversions: Record<string, number>) => {
+      return dayConversions[actionType] || 0;
+    });
+
+    // Calcular cpr_series e page_conv_series
+    const spendSeries = baseSeries.spend || [];
+    const lpvSeries = baseSeries.lpv || [];
+
+    const page_conv_series = resultsSeries.map((resultsDay: number, idx: number) => {
+      const lpvDay = lpvSeries[idx] || 0;
+      return lpvDay > 0 ? resultsDay / lpvDay : null;
+    });
+
+    const cpr_series = resultsSeries.map((resultsDay: number, idx: number) => {
+      const spendDay = spendSeries[idx] || 0;
+      return resultsDay > 0 ? spendDay / resultsDay : null;
+    });
+
+    return {
+      ...baseSeries,
+      cpr: cpr_series,
+      page_conv: page_conv_series,
+    } as any;
+  }, [ad?.series, actionType]);
 
   // Retenção de vídeo (array 0..100 por segundo) - priorizar do ad (já vem do ranking agregado)
   const retentionSeries: number[] = useMemo(() => {
@@ -188,6 +285,15 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     }
     return [];
   }, [ad, adDetails]);
+
+  // Calcular scroll_stop a partir da curva de retenção (índice 1)
+  const scrollStop = useMemo(() => {
+    if (retentionSeries && retentionSeries.length > 1) {
+      // A curva vem em porcentagem (0-100), então dividimos por 100 para converter para decimal (0-1)
+      return retentionSeries[1] / 100;
+    }
+    return 0;
+  }, [retentionSeries]);
 
   // video_watched_p50 - priorizar do ad (já vem do ranking agregado)
   const videoWatchedP50 = useMemo(() => {
@@ -210,6 +316,13 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     if (!childrenData && !loadingChildren) {
       loadChildren();
     }
+  };
+
+  // Handler para quando um ponto do gráfico de retenção é clicado
+  const handleRetentionPointClick = (second: number) => {
+    setInitialVideoTime(second);
+    setActiveTab("video");
+    setShouldAutoplay(false); // Não autoplay quando vem do gráfico
   };
 
   return (
@@ -253,7 +366,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       {/* Content */}
       {activeTab === "overview" && (
         <div className="space-y-4">
-          {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={ad?.hook != null ? Number(ad.hook) : null} /> : null}
+          {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={ad?.hook != null ? Number(ad.hook) : null} onPointClick={handleRetentionPointClick} /> : null}
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
@@ -398,11 +511,34 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           ) : !videoId || !actorId ? (
             <div className="text-sm text-muted-foreground p-6 text-center">Vídeo não disponível para este anúncio.</div>
           ) : (
-            <div className="w-full bg-black rounded-lg overflow-hidden flex items-center justify-center">
-              {loadingVideo && <div className="text-sm text-muted-foreground p-6">Carregando vídeo...</div>}
-              {videoError && <div className="text-sm text-red-500 p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
-              {!loadingVideo && !videoError && (videoData as any)?.source_url && <video src={(videoData as any).source_url} controls className="w-full h-auto max-h-[70vh] object-contain" playsInline />}
-              {!loadingVideo && !videoError && !(videoData as any)?.source_url && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+            <div className="flex flex-col md:flex-row gap-4">
+              {/* Player de vídeo */}
+              <div className="w-full bg-black rounded-lg flex items-center justify-center md:max-w-[20rem] max-w-full ml-8" style={{ aspectRatio: "9/16" }}>
+                {loadingVideo && <div className="text-sm text-muted-foreground p-6">Carregando vídeo...</div>}
+                {videoError && <div className="text-sm text-red-500 p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
+                {!loadingVideo && !videoError && (videoData as any)?.source_url && <VideoPlayer src={(videoData as any).source_url} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={retentionSeries} />}
+                {!loadingVideo && !videoError && !(videoData as any)?.source_url && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+              </div>
+
+              {/* Cards de métricas */}
+              <div className="flex-1 flex flex-row gap-4">
+                {/* Primeira coluna vertical */}
+                <div className="flex flex-col gap-4 flex-1">
+                  <MetricCard label="Scroll Stop" value={<ValueWithDelta display={formatPct(scrollStop * 100)} valueRaw={scrollStop} avgRaw={averages?.scroll_stop ?? null} better="higher" />} series={undefined} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
+                  <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
+                  <MetricCard label="Website CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
+                  <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
+                  <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
+                </div>
+                {/* Segunda coluna vertical */}
+                <div className="flex flex-col gap-4 flex-1">
+                  <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                  <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                  <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                  <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
+                  <MetricCard label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -410,7 +546,10 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
       {activeTab === "history" && (
         <div className="flex flex-col h-full min-h-0">
-          <div className="text-lg font-semibold mb-4 flex-shrink-0">Evolução Histórica</div>
+          <div className="flex items-center justify-between mb-4 flex-shrink-0">
+            <div className="text-lg font-semibold">Evolução Histórica</div>
+            <DateRangeFilter label="Filtrar período" value={historyDateRange} onChange={setHistoryDateRange} className="w-auto" showLabel={false} />
+          </div>
 
           {loadingHistory ? (
             <div className="flex-1 min-h-0 flex gap-12">
@@ -435,11 +574,131 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             <div className="text-sm text-muted-foreground p-6 text-center">Sem dados históricos disponíveis para o período selecionado.</div>
           ) : (
             <div className="flex-1 min-h-0">
-              <MetricHistoryChart data={historyData.data} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={setSelectedMetrics} />
+              <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={actionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={setSelectedMetrics} />
             </div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Componente para o player de vídeo com suporte a autoplay, tempo inicial e overlay
+function VideoPlayer({ src, autoplay, initialTime, onTimeSet, retentionCurve }: { src: string; autoplay: boolean; initialTime?: number | null; onTimeSet?: () => void; retentionCurve?: number[] }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    if (autoplay && videoRef.current) {
+      // Tentar reproduzir quando o vídeo estiver pronto
+      const playPromise = videoRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((error) => {
+          // Autoplay pode ser bloqueado pelo navegador
+          console.log("Autoplay bloqueado:", error);
+        });
+      }
+    }
+  }, [autoplay, src]);
+
+  // Definir tempo inicial quando o vídeo estiver pronto
+  useEffect(() => {
+    if (initialTime != null && videoRef.current) {
+      const video = videoRef.current;
+
+      const handleLoadedMetadata = () => {
+        if (video.duration >= initialTime) {
+          video.currentTime = initialTime;
+          if (onTimeSet) {
+            onTimeSet();
+          }
+        }
+      };
+
+      // Se os metadados já foram carregados, definir o tempo imediatamente
+      if (video.readyState >= 1) {
+        handleLoadedMetadata();
+      } else {
+        video.addEventListener("loadedmetadata", handleLoadedMetadata);
+        return () => {
+          video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+        };
+      }
+    }
+  }, [initialTime, src, onTimeSet]);
+
+  // Atualizar tempo e duração do vídeo
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleTimeUpdate = () => {
+      setCurrentTime(video.currentTime);
+    };
+
+    const handleLoadedMetadata = () => {
+      setDuration(video.duration);
+    };
+
+    const handleDurationChange = () => {
+      setDuration(video.duration);
+    };
+
+    const handlePlay = () => {
+      setIsPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsPlaying(false);
+    };
+
+    const handleEnded = () => {
+      setIsPlaying(false);
+    };
+
+    video.addEventListener("timeupdate", handleTimeUpdate);
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("durationchange", handleDurationChange);
+    video.addEventListener("play", handlePlay);
+    video.addEventListener("pause", handlePause);
+    video.addEventListener("ended", handleEnded);
+
+    // Inicializar valores se já estiverem disponíveis
+    if (video.readyState >= 1) {
+      setDuration(video.duration);
+      setCurrentTime(video.currentTime);
+    }
+
+    // Verificar se está reproduzindo inicialmente
+    setIsPlaying(!video.paused && !video.ended);
+
+    return () => {
+      video.removeEventListener("timeupdate", handleTimeUpdate);
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("durationchange", handleDurationChange);
+      video.removeEventListener("play", handlePlay);
+      video.removeEventListener("pause", handlePause);
+      video.removeEventListener("ended", handleEnded);
+    };
+  }, [src]);
+
+  // Handler para quando o usuário clica no overlay
+  const handleTimeSeek = (second: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = second;
+      setCurrentTime(second);
+    }
+  };
+
+  return (
+    <div className="relative w-full h-full flex justify-center overflow-visible">
+      {/* Container com proporção 9:16 (vertical) */}
+      <div className="relative w-full h-full overflow-visible">
+        <video ref={videoRef} src={src} controls className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay={autoplay} />
+        {retentionCurve && retentionCurve.length > 0 && <RetentionChartOverlay videoPlayCurve={retentionCurve} currentTime={currentTime} duration={duration} isPlaying={isPlaying} onTimeSeek={handleTimeSeek} />}
+      </div>
     </div>
   );
 }

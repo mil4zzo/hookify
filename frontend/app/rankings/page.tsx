@@ -7,9 +7,6 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { RankingsTable } from "@/components/rankings/RankingsTable";
 import { Card, CardContent } from "@/components/ui/card";
-import { DateRangeFilter } from "@/components/common/DateRangeFilter";
-import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
-import { PackFilter } from "@/components/common/PackFilter";
 import { api } from "@/lib/api/endpoints";
 import { RankingsRequest, RankingsResponse } from "@/lib/api/schemas";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
@@ -17,10 +14,14 @@ import { useRankings } from "@/lib/api/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { evaluateValidationCriteria, aggregateMetricsForGroup, AdMetricsData } from "@/lib/utils/validateAdCriteria";
-import { Switch } from "@/components/ui/switch";
+import { PageSectionHeader } from "@/components/common/PageSectionHeader";
+import { FiltersDropdown } from "@/components/common/FiltersDropdown";
+import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 
 const STORAGE_KEY_PACKS = "hookify-rankings-selected-packs";
 const STORAGE_KEY_ACTION_TYPE = "hookify-rankings-action-type";
+const STORAGE_KEY_DATE_RANGE = "hookify-rankings-date-range";
+const STORAGE_KEY_USE_PACK_DATES = "hookify-rankings-use-pack-dates";
 
 // Tipo para as preferências de packs no localStorage
 // Estrutura: { [packId: string]: boolean } onde true = habilitado, false = desabilitado
@@ -66,6 +67,32 @@ const loadPackPreferences = (): PackPreferences => {
   }
 };
 
+// Funções auxiliares para gerenciar dateRange no localStorage
+const saveDateRange = (dateRange: { start?: string; end?: string }) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_DATE_RANGE, JSON.stringify(dateRange));
+  } catch (e) {
+    console.error("Erro ao salvar dateRange no localStorage:", e);
+  }
+};
+
+const loadDateRange = (): { start?: string; end?: string } | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_DATE_RANGE);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    // Validar que tem start e end
+    if (parsed && typeof parsed === "object" && parsed.start && parsed.end) {
+      return parsed;
+    }
+    return null;
+  } catch (e) {
+    console.error("Erro ao carregar dateRange do localStorage:", e);
+    return null;
+  }
+};
+
 export default function RankingsPage() {
   const { isClient, isAuthenticated } = useClientAuth();
   const { packs, isClient: packsClient } = useClientPacks();
@@ -86,7 +113,12 @@ export default function RankingsPage() {
     return "";
   });
   const [dateRange, setDateRange] = useState<{ start?: string; end?: string }>(() => {
-    // Inicializar com últimos 30 dias por padrão
+    // Tentar carregar do localStorage primeiro
+    const saved = loadDateRange();
+    if (saved) {
+      return saved;
+    }
+    // Se não houver salvo, inicializar com últimos 30 dias por padrão
     const end = new Date();
     const start = new Date();
     start.setDate(start.getDate() - 30);
@@ -98,6 +130,16 @@ export default function RankingsPage() {
   const [serverAverages, setServerAverages] = useState<any | null>(null);
   const { criteria: validationCriteria } = useValidationCriteria();
   const [isValidationFilterEnabled, setIsValidationFilterEnabled] = useState(false);
+  const [showTrends, setShowTrends] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    try {
+      const saved = localStorage.getItem("hookify-rankings-show-trends");
+      return saved !== "false"; // padrão é true (tendências)
+    } catch (e) {
+      console.error("Erro ao carregar showTrends do localStorage:", e);
+      return true;
+    }
+  });
 
   // Estado dos packs selecionados - derivado das preferências (apenas packs habilitados)
   const [selectedPackIds, setSelectedPackIds] = useState<Set<string>>(() => {
@@ -109,6 +151,18 @@ export default function RankingsPage() {
         .filter(([_, enabled]) => enabled)
         .map(([id]) => id)
     );
+  });
+
+  // Estado para controlar se deve usar datas dos packs
+  const [usePackDates, setUsePackDates] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_USE_PACK_DATES);
+      return saved === "true";
+    } catch (e) {
+      console.error("Erro ao carregar usePackDates do localStorage:", e);
+      return false;
+    }
   });
 
   // endDate = limite superior selecionado no filtro
@@ -174,6 +228,61 @@ export default function RankingsPage() {
       console.error("Erro ao salvar actionType no localStorage:", e);
     }
   };
+
+  // Função para calcular dateRange dos packs selecionados
+  const calculateDateRangeFromPacks = useMemo(() => {
+    if (selectedPackIds.size === 0) return null;
+
+    const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
+    if (selectedPacks.length === 0) return null;
+
+    let minStart: string | null = null;
+    let maxEnd: string | null = null;
+
+    selectedPacks.forEach((pack) => {
+      if (pack.date_start && (!minStart || pack.date_start < minStart)) {
+        minStart = pack.date_start;
+      }
+      if (pack.date_stop && (!maxEnd || pack.date_stop > maxEnd)) {
+        maxEnd = pack.date_stop;
+      }
+    });
+
+    if (minStart && maxEnd) {
+      return { start: minStart, end: maxEnd };
+    }
+    return null;
+  }, [packs, selectedPackIds]);
+
+  // Handler para mudança de dateRange com salvamento no localStorage
+  const handleDateRangeChange = (value: { start?: string; end?: string }) => {
+    if (usePackDates) return; // Não permitir mudança manual quando usar datas dos packs
+    setDateRange(value);
+    saveDateRange(value);
+  };
+
+  // Handler para mudança de usePackDates
+  const handleUsePackDatesChange = (checked: boolean) => {
+    setUsePackDates(checked);
+    try {
+      localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, checked.toString());
+    } catch (e) {
+      console.error("Erro ao salvar usePackDates no localStorage:", e);
+    }
+
+    if (checked && calculateDateRangeFromPacks) {
+      setDateRange(calculateDateRangeFromPacks);
+      saveDateRange(calculateDateRangeFromPacks);
+    }
+  };
+
+  // Atualizar dateRange quando packs selecionados mudarem (se usePackDates estiver ativo)
+  useEffect(() => {
+    if (usePackDates && calculateDateRangeFromPacks) {
+      setDateRange(calculateDateRangeFromPacks);
+      saveDateRange(calculateDateRangeFromPacks);
+    }
+  }, [usePackDates, calculateDateRangeFromPacks]);
 
   // Atualizar serverAverages quando dados mudarem
   useEffect(() => {
@@ -318,6 +427,16 @@ export default function RankingsPage() {
     setSelectedPackIds(enabledPackIds);
   };
 
+  // Handler para toggle de tendências/performance
+  const handleShowTrendsChange = (checked: boolean) => {
+    setShowTrends(checked);
+    try {
+      localStorage.setItem("hookify-rankings-show-trends", checked.toString());
+    } catch (e) {
+      console.error("Erro ao salvar showTrends no localStorage:", e);
+    }
+  };
+
   // Adaptar dados do servidor para a tabela existente (forma "ads" agregada)
   // Calcula results, cpr e page_conv localmente baseado no action_type selecionado
   // E filtra por packs selecionados
@@ -336,6 +455,11 @@ export default function RankingsPage() {
       const cpr = results > 0 ? spend / results : 0;
       // cpm e website_ctr sempre vêm do backend
       const cpm = typeof row.cpm === "number" ? row.cpm : 0;
+
+      // Calcular conversão geral (website_ctr * connect_rate * page_conv)
+      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
+      const connect_rate = Number(row.connect_rate || 0);
+      const overall_conversion = website_ctr * connect_rate * page_conv;
 
       // Usar objeto original de conversões (contém todos os tipos) - mais eficiente que criar array
       const actions = [{ action_type: "landing_page_view", value: lpv }];
@@ -365,10 +489,23 @@ export default function RankingsPage() {
           return resultsDay > 0 ? spendDay / resultsDay : null;
         });
 
+        // Calcular série de overall_conversion (website_ctr * connect_rate * page_conv)
+        const website_ctr_series = series.website_ctr || [];
+        const connect_rate_series = series.connect_rate || [];
+        const overall_conversion_series = page_conv_series.map((pageConvDay: number | null, idx: number) => {
+          const websiteCtrDay = website_ctr_series[idx] ?? 0;
+          const connectRateDay = connect_rate_series[idx] ?? 0;
+          if (pageConvDay !== null && pageConvDay !== undefined && websiteCtrDay !== null && connectRateDay !== null) {
+            return websiteCtrDay * connectRateDay * pageConvDay;
+          }
+          return null;
+        });
+
         series = {
           ...series,
           cpr: cpr_series,
           page_conv: page_conv_series,
+          overall_conversion: overall_conversion_series,
         } as any;
       }
 
@@ -389,6 +526,7 @@ export default function RankingsPage() {
         cpr,
         cpm,
         website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        overall_conversion,
         ad_count: Number(row.ad_count || 1),
         thumbnail: row.thumbnail || null, // Thumbnail do servidor
         conversions: conversionsObj, // Objeto original contendo todos os tipos de conversão
@@ -407,12 +545,12 @@ export default function RankingsPage() {
       // Na visualização por ad_name (groupByAdName = true), agrupar e avaliar agregado
       // Na visualização por ad_id (groupByAdName = false), avaliar individualmente
       const groupByAdName = true; // Sempre true na página de rankings conforme linha 666
-      
+
       if (groupByAdName) {
         // Agrupar por ad_name e avaliar agregado
         // Considera todas as métricas dos ad_ids mesmo que individualmente não atendam
         const groupedByAdName = new Map<string, typeof filteredData>();
-        
+
         filteredData.forEach((ad) => {
           const key = ad.ad_name || ad.ad_id || "";
           if (!groupedByAdName.has(key)) {
@@ -427,10 +565,10 @@ export default function RankingsPage() {
         groupedByAdName.forEach((ads) => {
           // Agregar métricas do grupo (soma de todos os ad_ids do mesmo ad_name)
           const aggregatedMetrics = aggregateMetricsForGroup(ads as AdMetricsData[]);
-          
+
           // Avaliar critérios contra métricas agregadas
           const isValid = evaluateValidationCriteria(validationCriteria, aggregatedMetrics, "AND");
-          
+
           if (isValid) {
             // Se o grupo agregado atende, todos os ad_ids desse grupo são validados
             validatedAds.push(...ads);
@@ -446,7 +584,7 @@ export default function RankingsPage() {
 
         filteredData.forEach((ad) => {
           const isValid = evaluateValidationCriteria(validationCriteria, ad as AdMetricsData, "AND");
-          
+
           if (isValid) {
             validatedAds.push(ad);
           }
@@ -481,11 +619,45 @@ export default function RankingsPage() {
   if (loading) {
     return (
       <div className="space-y-6">
-        <div className="mb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <DateRangeFilter label="Período (Data do Insight)" value={dateRange} onChange={setDateRange} requireConfirmation={true} />
-          <ActionTypeFilter label="Evento de Conversão" value={actionType} onChange={handleActionTypeChange} options={uniqueConversionTypes} />
-          {packsClient && packs.length > 0 && <PackFilter packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} />}
-        </div>
+        <PageSectionHeader
+          title="Rankings"
+          description="Análise detalhada de performance dos seus anúncios"
+          actions={
+            <>
+              <ToggleSwitch
+                id="show-trends"
+                checked={showTrends}
+                onCheckedChange={handleShowTrendsChange}
+                label={showTrends ? "Tendências" : "Performance"}
+              />
+              <ToggleSwitch
+                id="validation-filter"
+                checked={isValidationFilterEnabled}
+                onCheckedChange={setIsValidationFilterEnabled}
+                label="Filtrar por critérios de validação"
+                disabled={!validationCriteria || validationCriteria.length === 0}
+                labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}
+                helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"}
+              />
+              <FiltersDropdown
+                dateRange={dateRange}
+                onDateRangeChange={handleDateRangeChange}
+                actionType={actionType}
+                onActionTypeChange={handleActionTypeChange}
+                actionTypeOptions={uniqueConversionTypes}
+                packs={packs}
+                selectedPackIds={selectedPackIds}
+                onTogglePack={handleTogglePack}
+                packsClient={packsClient}
+                usePackDates={usePackDates}
+                onUsePackDatesChange={handleUsePackDatesChange}
+                dateRangeLabel="Período (Data do Insight)"
+                dateRangeRequireConfirmation={true}
+                dateRangeDisabled={usePackDates}
+              />
+            </>
+          }
+        />
 
         {/* Skeleton da tabela */}
         <div className="w-full">
@@ -581,11 +753,45 @@ export default function RankingsPage() {
   if (!serverData || serverData.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="mb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <DateRangeFilter label="Período (Data do Insight)" value={dateRange} onChange={setDateRange} requireConfirmation={true} />
-          <ActionTypeFilter label="Evento de Conversão" value={actionType} onChange={handleActionTypeChange} options={uniqueConversionTypes} />
-          {packsClient && packs.length > 0 && <PackFilter packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} />}
-        </div>
+        <PageSectionHeader
+          title="Rankings"
+          description="Análise detalhada de performance dos seus anúncios"
+          actions={
+            <>
+              <ToggleSwitch
+                id="show-trends"
+                checked={showTrends}
+                onCheckedChange={handleShowTrendsChange}
+                label={showTrends ? "Tendências" : "Performance"}
+              />
+              <ToggleSwitch
+                id="validation-filter"
+                checked={isValidationFilterEnabled}
+                onCheckedChange={setIsValidationFilterEnabled}
+                label="Filtrar por critérios de validação"
+                disabled={!validationCriteria || validationCriteria.length === 0}
+                labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}
+                helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"}
+              />
+              <FiltersDropdown
+                dateRange={dateRange}
+                onDateRangeChange={handleDateRangeChange}
+                actionType={actionType}
+                onActionTypeChange={handleActionTypeChange}
+                actionTypeOptions={uniqueConversionTypes}
+                packs={packs}
+                selectedPackIds={selectedPackIds}
+                onTogglePack={handleTogglePack}
+                packsClient={packsClient}
+                usePackDates={usePackDates}
+                onUsePackDatesChange={handleUsePackDatesChange}
+                dateRangeLabel="Período (Data do Insight)"
+                dateRangeRequireConfirmation={true}
+                dateRangeDisabled={usePackDates}
+              />
+            </>
+          }
+        />
         <EmptyState message="Sem dados no período selecionado." />
       </div>
     );
@@ -593,30 +799,45 @@ export default function RankingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="mb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <DateRangeFilter label="Período (Data do Insight)" value={dateRange} onChange={setDateRange} requireConfirmation={true} />
-        <ActionTypeFilter label="Evento de Conversão" value={actionType} onChange={handleActionTypeChange} options={uniqueConversionTypes} />
-        {packsClient && packs.length > 0 && <PackFilter packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} />}
-      </div>
-      
-      {/* Toggle de filtro de validação */}
-      <div className="mb-4 flex items-center gap-3 p-3 bg-card border border-border rounded-lg">
-        <Switch
-          id="validation-filter"
-          checked={isValidationFilterEnabled}
-          onCheckedChange={setIsValidationFilterEnabled}
-          disabled={!validationCriteria || validationCriteria.length === 0}
-        />
-        <label
-          htmlFor="validation-filter"
-          className={`text-sm font-medium cursor-pointer ${!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}`}
-        >
-          Filtrar por critérios de validação
-        </label>
-        {(!validationCriteria || validationCriteria.length === 0) && (
-          <span className="text-xs text-muted-foreground ml-2">(Configure os critérios nas configurações)</span>
-        )}
-      </div>
+      <PageSectionHeader
+        title="Rankings"
+        description="Análise detalhada de performance dos seus anúncios"
+        actions={
+          <>
+            <ToggleSwitch
+              id="show-trends"
+              checked={showTrends}
+              onCheckedChange={handleShowTrendsChange}
+              label={showTrends ? "Tendências" : "Performance"}
+            />
+            <ToggleSwitch
+              id="validation-filter"
+              checked={isValidationFilterEnabled}
+              onCheckedChange={setIsValidationFilterEnabled}
+              label="Filtrar por critérios de validação"
+              disabled={!validationCriteria || validationCriteria.length === 0}
+              labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}
+              helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"}
+            />
+            <FiltersDropdown
+              dateRange={dateRange}
+              onDateRangeChange={handleDateRangeChange}
+              actionType={actionType}
+              onActionTypeChange={handleActionTypeChange}
+              actionTypeOptions={uniqueConversionTypes}
+              packs={packs}
+              selectedPackIds={selectedPackIds}
+              onTogglePack={handleTogglePack}
+              packsClient={packsClient}
+              usePackDates={usePackDates}
+              onUsePackDatesChange={handleUsePackDatesChange}
+              dateRangeLabel="Período (Data do Insight)"
+              dateRangeRequireConfirmation={true}
+              dateRangeDisabled={usePackDates}
+            />
+          </>
+        }
+      />
       <RankingsTable
         ads={adsForTable}
         groupByAdName
@@ -625,11 +846,25 @@ export default function RankingsPage() {
         dateStart={dateRange.start}
         dateStop={dateRange.end}
         availableConversionTypes={uniqueConversionTypes}
+        showTrends={showTrends}
         averagesOverride={(() => {
           const base = serverAverages || null;
           if (!base) return undefined;
           const per = (base as any).per_action_type || {};
           const perSel = actionType ? per[actionType] : undefined;
+          
+          // Verificar inconsistência: se actionType está em availableConversionTypes mas não tem média
+          if (actionType && uniqueConversionTypes.includes(actionType) && !perSel) {
+            console.error(
+              `[RankingsPage] Inconsistência detectada: actionType "${actionType}" está em availableConversionTypes mas não tem entrada em per_action_type`,
+              { 
+                actionType, 
+                availableConversionTypes: uniqueConversionTypes,
+                per_action_type_keys: Object.keys(per)
+              }
+            );
+          }
+          
           return {
             hook: typeof base.hook === "number" ? base.hook : null,
             scroll_stop: typeof base.scroll_stop === "number" ? base.scroll_stop : null,

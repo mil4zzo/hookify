@@ -6,6 +6,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api/endpoints'
 import * as adsCache from '@/lib/storage/adsCache'
+import { filterVideoAds } from '@/lib/utils/filterVideoAds'
 
 interface UsePackAdsOptions {
   enabled?: boolean
@@ -36,7 +37,7 @@ export function usePackAds(packId: string | null, options: UsePackAdsOptions = {
       const cached = await adsCache.getCachedPackAds(packId)
       if (cached.success && cached.data) {
         console.log(`[Cache] Ads do pack ${packId} encontrados no cache`)
-        return cached.data
+        return filterVideoAds(cached.data)
       }
 
       // 2. Se não tem cache válido, busca do Supabase
@@ -48,14 +49,15 @@ export function usePackAds(packId: string | null, options: UsePackAdsOptions = {
       }
 
       const ads = response.pack.ads
+      const videoAds = filterVideoAds(ads)
 
-      // 3. Salva no cache IndexedDB para próximas vezes
+      // 3. Salva no cache IndexedDB para próximas vezes (salva todos, mas retorna apenas vídeos)
       await adsCache.cachePackAds(packId, ads, ttl).catch((error) => {
         console.warn(`[Cache] Erro ao salvar cache:`, error)
         // Não falha a query se o cache falhar
       })
 
-      return ads
+      return videoAds
     },
     enabled: enabled && !!packId,
     staleTime: 5 * 60 * 1000, // 5 minutos - considera dados "frescos" por 5min
@@ -83,16 +85,17 @@ export function useMultiplePackAds(packIds: string[], options: UsePackAdsOptions
             // Tenta cache primeiro
             const cached = await adsCache.getCachedPackAds(packId)
             if (cached.success && cached.data) {
-              results[packId] = cached.data
+              results[packId] = filterVideoAds(cached.data)
               return
             }
 
             // Busca do Supabase
             const response = await api.analytics.getPack(packId, true)
             if (response.success && response.pack?.ads) {
-              results[packId] = response.pack.ads
-              // Salva no cache
-              await adsCache.cachePackAds(packId, response.pack.ads).catch(() => {})
+              const ads = response.pack.ads
+              results[packId] = filterVideoAds(ads)
+              // Salva no cache (salva todos, mas retorna apenas vídeos)
+              await adsCache.cachePackAds(packId, ads).catch(() => {})
             }
           } catch (error) {
             console.error(`Erro ao buscar ads do pack ${packId}:`, error)

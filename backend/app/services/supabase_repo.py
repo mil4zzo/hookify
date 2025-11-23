@@ -14,6 +14,29 @@ def _now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
 
+def _hook_at_3_from_curve(curve: Any) -> float:
+    """Calcula hook (retenção aos 3 segundos) a partir da curva de retenção.
+    
+    Args:
+        curve: Array de valores de retenção (pode estar em percentual 0-100 ou decimal 0-1)
+    
+    Returns:
+        Hook como decimal (0-1)
+    """
+    try:
+        if not isinstance(curve, list) or not curve:
+            return 0.0
+        v = float(curve[min(3, len(curve) - 1)] or 0)
+        return v / 100.0 if v > 1 else v
+    except Exception:
+        return 0.0
+
+
+def _safe_div(a: float, b: float) -> float:
+    """Divisão segura que retorna 0 se divisor for 0."""
+    return (a / b) if b else 0.0
+
+
 def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, max_per_page: int = 1000) -> List[Dict[str, Any]]:
     """Busca todos os registros de uma tabela usando paginação para contornar limite de 1000 linhas do Supabase.
     
@@ -129,7 +152,10 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
         existing_map: Dict[str, List[str]] = {}
         
         # Processar busca de pack_ids existentes em lotes para evitar problemas com muitos IDs
-        batch_size_lookup = 1000
+        # IDs de ads são longos (ex: "120236981806920782" ~18-19 chars)
+        # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
+        # Com IDs de ~19 caracteres, 400 IDs = ~7.600 chars na URL (seguro para limite de ~8KB)
+        batch_size_lookup = 400  # Reduzido de 1000 para 400 devido ao tamanho dos ad_ids
         try:
             for i in range(0, len(ad_ids), batch_size_lookup):
                 batch_ids = ad_ids[i:i + batch_size_lookup]
@@ -234,6 +260,22 @@ def upsert_ad_metrics(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_i
         # page_conv = results / lpv para um actionType escolhido no frontend; como não sabemos aqui, mantemos 0
         page_conv = float(ad.get("page_conv") or 0)
 
+        # Calcular hold_rate = (video_total_thruplays / plays) / hook (retention at 3 seconds)
+        # Fórmula: (thruplay_rate) / hook_rate
+        # IMPORTANTE: Garantir que ambos estejam na mesma escala (decimal 0-1)
+        # - thruplay_rate = thruplays / plays (já é decimal 0-1)
+        # - hook vem da curva que pode estar em 0-100, então normalizamos para 0-1
+        # Usar video_total_thruplays que já existe no banco (não criar coluna duplicada)
+        hook_raw = _hook_at_3_from_curve(curve)  # hook já vem normalizado em decimal (0-1) pela função
+        # Garantir que hook está em decimal (0-1): se > 1, assume que está em 0-100 e normaliza
+        hook = hook_raw / 100.0 if hook_raw > 1.0 else hook_raw
+        thruplay_rate = _safe_div(float(thruplays), float(plays)) if plays > 0 else 0.0  # decimal (0-1)
+        # Ambos estão em decimal (0-1), então a divisão está correta
+        # IMPORTANTE: Limitar hold_rate a no máximo 1.0 (100%) devido a arredondamentos da curva de retenção
+        # Não faz sentido ter mais pessoas que chegaram ao thruplay do que as que passaram do hook
+        hold_rate_raw = _safe_div(thruplay_rate, hook) if hook > 0 else 0.0
+        hold_rate = min(hold_rate_raw, 1.0)  # Cap em 100% (1.0)
+
         row = {
             "id": metric_id,  # ID composto gerado no backend: {date}-{ad_id}
             "user_id": user_id,
@@ -261,6 +303,7 @@ def upsert_ad_metrics(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_i
             "conversions": conversions,
             "cost_per_conversion": cost_per_conversion,
             "video_play_curve_actions": curve,
+            "hold_rate": hold_rate,
             "connect_rate": connect_rate,
             "profile_ctr": float(ad.get("profile_ctr") or 0),
             "raw_data": ad,
@@ -282,28 +325,42 @@ def upsert_ad_metrics(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_i
         existing_map: Dict[str, List[str]] = {}
         
         # Processar busca de pack_ids existentes em lotes para evitar problemas com muitos IDs
-        # Alguns bancos têm limite na cláusula IN (ex: PostgreSQL ~1000, Supabase pode variar)
-        batch_size_lookup = 1000
+        # IDs de métricas são compostos e longos (ex: "2025-11-10-120236981806920782" ~30 chars)
+        # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
+        # Com IDs de ~30 caracteres, 200 IDs = ~6000 chars na URL (seguro para limite de ~8KB)
+        batch_size_lookup = 200  # Reduzido de 1000 para 200 devido ao tamanho dos IDs compostos
+        total_lookup_batches = (len(metric_ids) + batch_size_lookup - 1) // batch_size_lookup
+        
+        logger.info(f"[UPSERT_AD_METRICS] Buscando pack_ids existentes em {total_lookup_batches} lote(s) de até {batch_size_lookup} IDs")
+        
         try:
             for i in range(0, len(metric_ids), batch_size_lookup):
                 batch_ids = metric_ids[i:i + batch_size_lookup]
+                batch_num = (i // batch_size_lookup) + 1
                 
                 def metrics_filters(q):
                     return q.eq("user_id", user_id).in_("id", batch_ids)
                 
-                existing_rows = _fetch_all_paginated(
-                    sb,
-                    "ad_metrics",
-                    "id, pack_ids",
-                    metrics_filters
-                )
-                
-                for item in existing_rows:
-                    existing_map[str(item.get("id"))] = (item.get("pack_ids") or [])
+                try:
+                    existing_rows = _fetch_all_paginated(
+                        sb,
+                        "ad_metrics",
+                        "id, pack_ids",
+                        metrics_filters
+                    )
+                    
+                    for item in existing_rows:
+                        existing_map[str(item.get("id"))] = (item.get("pack_ids") or [])
+                    
+                    logger.debug(f"[UPSERT_AD_METRICS] Lote de lookup {batch_num}/{total_lookup_batches}: {len(existing_rows)} registros encontrados")
+                except Exception as batch_err:
+                    logger.warning(f"[UPSERT_AD_METRICS] Erro ao buscar pack_ids no lote {batch_num}/{total_lookup_batches}: {batch_err}")
+                    # Continuar com próximos lotes mesmo se um falhar
+                    continue
             
             logger.info(f"[UPSERT_AD_METRICS] Encontrados {len(existing_map)} registros existentes para merge de pack_ids")
         except Exception as e:
-            logger.warning(f"[UPSERT_AD_METRICS] Erro ao buscar pack_ids existentes, continuando sem merge: {e}")
+            logger.warning(f"[UPSERT_AD_METRICS] Erro geral ao buscar pack_ids existentes, continuando sem merge: {e}")
             existing_map = {}
 
         for row in rows:
@@ -736,10 +793,15 @@ def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], 
 def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
     """Remove pack e ajusta ads/ad_metrics conforme referência pack_ids.
     
+    A função sempre processa ad_metrics e ads baseado no pack_id no array pack_ids,
+    mesmo se ad_ids estiver vazio. Preserva dados que são usados por outros packs:
+    - Se um registro é usado por múltiplos packs: remove apenas o pack_id do array
+    - Se um registro é usado apenas por este pack: deleta completamente
+    
     Args:
         user_jwt: JWT do Supabase do usuário
         pack_id: ID do pack a ser deletado (pode ser UUID do Supabase ou ID local)
-        ad_ids: Lista de ad_ids opcional (fallback para packs antigos sem ad_ids salvos)
+        ad_ids: Lista de ad_ids opcional (usado apenas como filtro adicional para performance)
         user_id: ID do usuário para garantir segurança (RLS)
     
     Returns:
@@ -799,114 +861,146 @@ def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None,
             logger.debug(f"Pack {pack_id} não encontrado no Supabase ou não é UUID: {e}")
         
         # 2. Ajustar/deletar ad_metrics do período do pack
-        if ad_ids:
-            try:
-                # Buscar apenas ad_metrics que TÊM esse pack_id no array pack_ids
-                # Isso é mais eficiente e preciso que buscar todos e filtrar depois
-                def metrics_filters(q):
-                    q = q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
-                    # Opcional: filtrar também por ad_ids e período para melhor performance
-                    if ad_ids:
-                        q = q.in_("ad_id", ad_ids)
-                    if date_start and date_stop:
-                        q = q.gte("date", date_start).lte("date", date_stop)
-                    return q
-                
-                metrics_rows = _fetch_all_paginated(
-                    sb, 
-                    "ad_metrics", 
-                    "id, pack_ids", 
-                    metrics_filters
-                )
-                
-                logger.info(f"Encontrados {len(metrics_rows)} registros de ad_metrics com pack_id {pack_id} para processar")
+        # Processar sempre, mesmo se ad_ids estiver vazio - usar pack_id no array pack_ids como filtro principal
+        # Preserva dados que são usados por outros packs (remove apenas o pack_id do array se houver múltiplos)
+        try:
+            # Buscar apenas ad_metrics que TÊM esse pack_id no array pack_ids
+            # O filtro pack_ids é suficiente e preciso - é a fonte de verdade
+            def metrics_filters(q):
+                q = q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
+                if date_start and date_stop:
+                    q = q.gte("date", date_start).lte("date", date_stop)
+                return q
+            
+            metrics_rows = _fetch_all_paginated(
+                sb, 
+                "ad_metrics", 
+                "id, pack_ids", 
+                metrics_filters
+            )
+            
+            logger.info(f"Encontrados {len(metrics_rows)} registros de ad_metrics com pack_id {pack_id} para processar")
 
-                to_delete_ids: List[str] = []
-                to_update_rows: List[Dict[str, Any]] = []
-                for m in metrics_rows:
-                    packs_arr = m.get("pack_ids") or []
-                    # Agora todos os registros retornados já têm pack_id, então sempre entrará aqui
-                    if pack_id in packs_arr:
-                        if len(packs_arr) > 1:
-                            new_arr = [p for p in packs_arr if p != pack_id]
-                            to_update_rows.append({"id": m.get("id"), "pack_ids": new_arr, "updated_at": _now_iso()})
-                        else:
-                            to_delete_ids.append(str(m.get("id")))
+            to_delete_ids: List[str] = []
+            to_update_rows: List[Dict[str, Any]] = []
+            for m in metrics_rows:
+                packs_arr = m.get("pack_ids") or []
+                # Verificar se o pack_id está no array (sempre deve estar devido ao filtro, mas verificamos por segurança)
+                if pack_id in packs_arr:
+                    # Se o registro é usado por outros packs, apenas remove o pack_id do array
+                    if len(packs_arr) > 1:
+                        new_arr = [p for p in packs_arr if p != pack_id]
+                        to_update_rows.append({"id": m.get("id"), "pack_ids": new_arr, "updated_at": _now_iso()})
+                    else:
+                        # Se é o único pack usando esse registro, deleta completamente
+                        to_delete_ids.append(str(m.get("id")))
 
-                if to_update_rows:
-                    # Usar .update() ao invés de .upsert() já que sabemos que os registros existem
-                    # Isso evita problemas de validação de campos obrigatórios
-                    for row in to_update_rows:
-                        sb.table("ad_metrics").update({
-                            "pack_ids": row["pack_ids"],
-                            "updated_at": row["updated_at"]
-                        }).eq("id", row["id"]).eq("user_id", user_id).execute()
-                    logger.info(f"Atualizados {len(to_update_rows)} registros de ad_metrics")
+            if to_update_rows:
+                # Usar .update() ao invés de .upsert() já que sabemos que os registros existem
+                # Isso evita problemas de validação de campos obrigatórios
+                for row in to_update_rows:
+                    sb.table("ad_metrics").update({
+                        "pack_ids": row["pack_ids"],
+                        "updated_at": row["updated_at"]
+                    }).eq("id", row["id"]).eq("user_id", user_id).execute()
+                logger.info(f"Atualizados {len(to_update_rows)} registros de ad_metrics (removido pack_id, mantidos por outros packs)")
+            
+            if to_delete_ids:
+                # Deletar em lotes para evitar problemas com muitos IDs
+                # IDs de métricas são compostos e longos (ex: "2025-11-10-120236981806920782" ~30 chars)
+                # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
+                # Com IDs de ~30 caracteres, 200 IDs = ~6000 chars na URL (seguro para limite de ~8KB)
+                batch_size = 200  # Reduzido de 1000 para 200 devido ao tamanho dos IDs compostos
+                total_batches = (len(to_delete_ids) + batch_size - 1) // batch_size
                 
-                if to_delete_ids:
-                    # Deletar em lotes para evitar problemas com muitos IDs
-                    batch_size = 1000
-                    for i in range(0, len(to_delete_ids), batch_size):
-                        batch = to_delete_ids[i:i + batch_size]
+                logger.info(f"Deletando {len(to_delete_ids)} registros de ad_metrics em {total_batches} lote(s) de até {batch_size} IDs")
+                
+                for i in range(0, len(to_delete_ids), batch_size):
+                    batch = to_delete_ids[i:i + batch_size]
+                    batch_num = (i // batch_size) + 1
+                    
+                    try:
                         sb.table("ad_metrics").delete().in_("id", batch).eq("user_id", user_id).execute()
-                    result["metrics_deleted"] = len(to_delete_ids)
-                    logger.info(f"Deletados {len(to_delete_ids)} registros de ad_metrics")
-            except Exception as e:
-                logger.warning(f"Erro ao ajustar ad_metrics ao deletar pack: {e}")
+                        logger.debug(f"Lote de deleção {batch_num}/{total_batches}: {len(batch)} registros deletados")
+                    except Exception as batch_err:
+                        logger.warning(f"Erro ao deletar lote {batch_num}/{total_batches} de ad_metrics: {batch_err}")
+                        # Continuar com próximos lotes mesmo se um falhar
+                        continue
+                
+                result["metrics_deleted"] = len(to_delete_ids)
+                logger.info(f"Deletados {len(to_delete_ids)} registros de ad_metrics (não usados por outros packs)")
+        except Exception as e:
+            logger.warning(f"Erro ao ajustar ad_metrics ao deletar pack: {e}")
 
         # 3. Ajustar/deletar ads
-        if ad_ids:
-            try:
-                # Buscar apenas ads que TÊM esse pack_id no array pack_ids
-                # Isso é mais eficiente e preciso que buscar todos e filtrar depois
-                def ads_filters(q):
-                    q = q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
-                    # Opcional: filtrar também por ad_ids para melhor performance
-                    if ad_ids:
-                        q = q.in_("ad_id", ad_ids)
-                    return q
-                
-                ads_rows = _fetch_all_paginated(
-                    sb,
-                    "ads",
-                    "ad_id, pack_ids",
-                    ads_filters
-                )
-                
-                logger.info(f"Encontrados {len(ads_rows)} registros de ads com pack_id {pack_id} para processar")
+        # Processar sempre, mesmo se ad_ids estiver vazio - usar pack_id no array pack_ids como filtro principal
+        # Preserva dados que são usados por outros packs (remove apenas o pack_id do array se houver múltiplos)
+        try:
+            # Buscar apenas ads que TÊM esse pack_id no array pack_ids
+            # O filtro pack_ids é suficiente e preciso - é a fonte de verdade
+            def ads_filters(q):
+                q = q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
+                return q
+            
+            ads_rows = _fetch_all_paginated(
+                sb,
+                "ads",
+                "ad_id, pack_ids",
+                ads_filters
+            )
+            
+            logger.info(f"Encontrados {len(ads_rows)} registros de ads com pack_id {pack_id} para processar")
 
-                to_delete_ad_ids: List[str] = []
-                to_update_ads: List[Dict[str, Any]] = []
-                for ad in ads_rows:
-                    packs_arr = ad.get("pack_ids") or []
-                    # Agora todos os registros retornados já têm pack_id, então sempre entrará aqui
-                    if pack_id in packs_arr:
-                        if len(packs_arr) > 1:
-                            new_arr = [p for p in packs_arr if p != pack_id]
-                            to_update_ads.append({"ad_id": ad.get("ad_id"), "pack_ids": new_arr, "updated_at": _now_iso()})
-                        else:
-                            to_delete_ad_ids.append(str(ad.get("ad_id")))
+            to_delete_ad_ids: List[str] = []
+            to_update_ads: List[Dict[str, Any]] = []
+            for ad in ads_rows:
+                packs_arr = ad.get("pack_ids") or []
+                # Verificar se o pack_id está no array (sempre deve estar devido ao filtro, mas verificamos por segurança)
+                if pack_id in packs_arr:
+                    # Se o registro é usado por outros packs, apenas remove o pack_id do array
+                    if len(packs_arr) > 1:
+                        new_arr = [p for p in packs_arr if p != pack_id]
+                        to_update_ads.append({"ad_id": ad.get("ad_id"), "pack_ids": new_arr, "updated_at": _now_iso()})
+                    else:
+                        # Se é o único pack usando esse registro, deleta completamente
+                        to_delete_ad_ids.append(str(ad.get("ad_id")))
 
-                if to_update_ads:
-                    # Usar .update() ao invés de .upsert() já que sabemos que os registros existem
-                    # Isso evita problemas de validação de campos obrigatórios
-                    for row in to_update_ads:
-                        sb.table("ads").update({
-                            "pack_ids": row["pack_ids"],
-                            "updated_at": row["updated_at"]
-                        }).eq("ad_id", row["ad_id"]).eq("user_id", user_id).execute()
-                    logger.info(f"Atualizados {len(to_update_ads)} registros de ads")
+            if to_update_ads:
+                # Usar .update() ao invés de .upsert() já que sabemos que os registros existem
+                # Isso evita problemas de validação de campos obrigatórios
+                for row in to_update_ads:
+                    sb.table("ads").update({
+                        "pack_ids": row["pack_ids"],
+                        "updated_at": row["updated_at"]
+                    }).eq("ad_id", row["ad_id"]).eq("user_id", user_id).execute()
+                logger.info(f"Atualizados {len(to_update_ads)} registros de ads (removido pack_id, mantidos por outros packs)")
+            
+            if to_delete_ad_ids:
+                # Deletar em lotes para evitar problemas com muitos IDs
+                # IDs de ads são longos (ex: "120236981806920782" ~18-19 chars)
+                # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
+                # Com IDs de ~19 caracteres, 400 IDs = ~7.600 chars na URL (seguro para limite de ~8KB)
+                batch_size = 400  # Reduzido de 1000 para 400 devido ao tamanho dos ad_ids
+                total_batches = (len(to_delete_ad_ids) + batch_size - 1) // batch_size
                 
-                if to_delete_ad_ids:
-                    # Deletar em lotes para evitar problemas com muitos IDs
-                    batch_size = 1000
-                    for i in range(0, len(to_delete_ad_ids), batch_size):
-                        batch = to_delete_ad_ids[i:i + batch_size]
+                logger.info(f"Deletando {len(to_delete_ad_ids)} registros de ads em {total_batches} lote(s) de até {batch_size} IDs")
+                
+                for i in range(0, len(to_delete_ad_ids), batch_size):
+                    batch = to_delete_ad_ids[i:i + batch_size]
+                    batch_num = (i // batch_size) + 1
+                    
+                    try:
                         sb.table("ads").delete().in_("ad_id", batch).eq("user_id", user_id).execute()
-                    result["ads_deleted"] = len(to_delete_ad_ids)
-                    logger.info(f"Deletados {len(to_delete_ad_ids)} registros de ads")
-            except Exception as e:
-                logger.warning(f"Erro ao ajustar ads ao deletar pack: {e}")
+                        logger.debug(f"Lote de deleção {batch_num}/{total_batches}: {len(batch)} registros deletados")
+                    except Exception as batch_err:
+                        logger.warning(f"Erro ao deletar lote {batch_num}/{total_batches} de ads: {batch_err}")
+                        # Continuar com próximos lotes mesmo se um falhar
+                        continue
+                
+                result["ads_deleted"] = len(to_delete_ad_ids)
+                logger.info(f"Deletados {len(to_delete_ad_ids)} registros de ads (não usados por outros packs)")
+        except Exception as e:
+            logger.warning(f"Erro ao ajustar ads ao deletar pack: {e}")
         
     except Exception as e:
         logger.exception(f"Erro ao deletar pack {pack_id}: {e}")
@@ -993,25 +1087,112 @@ def list_ad_accounts(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, An
 
 
 def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
-    """Lista packs do usuário a partir do Supabase."""
+    """Lista packs do usuário a partir do Supabase, incluindo dados de integrações de planilhas."""
     if not user_id:
         return []
     sb = get_supabase_for_user(user_jwt)
     
+    # Buscar packs
     def filters(q):
         return q.eq("user_id", user_id).order("created_at", desc=True)
     
-    return _fetch_all_paginated(sb, "packs", "*", filters)
+    packs = _fetch_all_paginated(sb, "packs", "*", filters)
+    
+    # Buscar integrações dos packs que têm sheet_integration_id
+    pack_ids_with_integration = [p["id"] for p in packs if p.get("sheet_integration_id")]
+    if pack_ids_with_integration:
+        # Buscar integrações por sheet_integration_id
+        integration_ids = [p["sheet_integration_id"] for p in packs if p.get("sheet_integration_id")]
+        if integration_ids:
+            try:
+                integrations = _fetch_all_paginated(
+                    sb,
+                    "ad_sheet_integrations",
+                    "id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status",
+                    lambda q: q.in_("id", integration_ids)
+                )
+                # Criar mapa id -> integration
+                integrations_map = {str(int["id"]): int for int in integrations}
+                
+                # Enriquecer packs com dados da integração
+                # Também buscar nomes das planilhas via Google API
+                from app.services.google_sheets_service import list_spreadsheets
+                try:
+                    # Buscar todas as planilhas de uma vez (até 100)
+                    spreadsheets, _ = list_spreadsheets(
+                        user_jwt=user_jwt,
+                        user_id=user_id,
+                        query=None,
+                        page_size=100,
+                    )
+                    spreadsheets_map = {s.get("id"): s.get("name") for s in spreadsheets}
+                except Exception as e:
+                    logger.warning(f"[LIST_PACKS] Erro ao buscar nomes das planilhas: {e}")
+                    spreadsheets_map = {}
+                
+                for pack in packs:
+                    sheet_integration_id = pack.get("sheet_integration_id")
+                    if sheet_integration_id and str(sheet_integration_id) in integrations_map:
+                        integration = integrations_map[str(sheet_integration_id)]
+                        # Adicionar nome da planilha se disponível
+                        spreadsheet_id = integration.get("spreadsheet_id")
+                        if spreadsheet_id and spreadsheet_id in spreadsheets_map:
+                            integration["spreadsheet_name"] = spreadsheets_map[spreadsheet_id]
+                        pack["sheet_integration"] = integration
+            except Exception as e:
+                logger.warning(f"[LIST_PACKS] Erro ao buscar integrações: {e}")
+                # Continuar sem dados de integração se falhar
+    
+    return packs
 
 
 def get_pack(user_jwt: str, pack_id: str, user_id: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Busca um pack específico do Supabase."""
+    """Busca um pack específico do Supabase, incluindo dados de integração de planilha."""
     if not user_id or not pack_id:
         return None
     sb = get_supabase_for_user(user_jwt)
     res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
     if res.data and len(res.data) > 0:
-        return res.data[0]
+        pack = res.data[0]
+        
+        # Buscar integração se pack tiver sheet_integration_id
+        sheet_integration_id = pack.get("sheet_integration_id")
+        if sheet_integration_id:
+            try:
+                int_res = (
+                    sb.table("ad_sheet_integrations")
+                    .select("id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status")
+                    .eq("id", sheet_integration_id)
+                    .limit(1)
+                    .execute()
+                )
+                if int_res.data and len(int_res.data) > 0:
+                    integration = int_res.data[0]
+                    # Buscar nome da planilha via Google API
+                    spreadsheet_id = integration.get("spreadsheet_id")
+                    if spreadsheet_id:
+                        try:
+                            from app.services.google_sheets_service import list_spreadsheets
+                            spreadsheets, _ = list_spreadsheets(
+                                user_jwt=user_jwt,
+                                user_id=user_id,
+                                query=None,
+                                page_size=100,
+                            )
+                            matching_spreadsheet = next(
+                                (s for s in spreadsheets if s.get("id") == spreadsheet_id),
+                                None
+                            )
+                            if matching_spreadsheet:
+                                integration["spreadsheet_name"] = matching_spreadsheet.get("name", "Planilha desconhecida")
+                        except Exception as e:
+                            logger.warning(f"[GET_PACK] Erro ao buscar nome da planilha: {e}")
+                    pack["sheet_integration"] = integration
+            except Exception as e:
+                logger.warning(f"[GET_PACK] Erro ao buscar integração para pack {pack_id}: {e}")
+                # Continuar sem dados de integração se falhar
+        
+        return pack
     return None
 
 
@@ -1088,6 +1269,42 @@ def update_pack_auto_refresh(
         raise
 
 
+def update_pack_name(
+    user_jwt: str,
+    pack_id: str,
+    user_id: Optional[str],
+    name: str,
+) -> None:
+    """Atualiza o campo name de um pack no Supabase.
+    
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        pack_id: ID do pack a atualizar
+        user_id: ID do usuário
+        name: Novo nome do pack
+    """
+    if not user_id or not pack_id:
+        logger.warning("[UPDATE_PACK_NAME] Skipped: missing user_id or pack_id")
+        return
+    
+    if not name or not name.strip():
+        raise ValueError("Nome do pack não pode ser vazio")
+    
+    sb = get_supabase_for_user(user_jwt)
+    
+    update_data = {
+        "name": name.strip(),
+        "updated_at": _now_iso(),
+    }
+    
+    try:
+        sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute()
+        logger.info(f"[UPDATE_PACK_NAME] ✓ Pack {pack_id} atualizado - name={name}")
+    except Exception as e:
+        logger.exception(f"[UPDATE_PACK_NAME] ✗ Erro ao atualizar pack {pack_id}: {e}")
+        raise
+
+
 def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]) -> List[Dict[str, Any]]:
     """Busca ads relacionados a um pack baseado nos parâmetros do pack.
     
@@ -1122,9 +1339,10 @@ def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]
             
             if ad_ids:
                 # Processar ad_ids em lotes para evitar URLs muito longas
-                # Limite conservador: 500 IDs por lote (ajustado para evitar erro 400 do Supabase)
-                # IDs longos (ex: ad_ids do Facebook) podem gerar URLs que excedem limites HTTP
-                batch_size = 500
+                # IDs de ads são longos (ex: "120236981806920782" ~18-19 chars)
+                # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
+                # Com IDs de ~19 caracteres, 400 IDs = ~7.600 chars na URL (seguro para limite de ~8KB)
+                batch_size = 400  # Reduzido de 500 para 400 devido ao tamanho dos ad_ids
                 all_ads = []
                 
                 logger.info(f"[GET_ADS_FOR_PACK] Processando {len(ad_ids)} ad_ids em lotes de {batch_size}")

@@ -17,6 +17,7 @@ import {
 import { useSessionStore } from '@/lib/store/session'
 import { useSupabaseAuth } from '@/lib/hooks/useSupabaseAuth'
 import { getCachedPackAds, cachePackAds, removeCachedPackAds } from '@/lib/storage/adsCache'
+import { filterVideoAds } from '@/lib/utils/filterVideoAds'
 
 // Query Keys
 export const queryKeys = {
@@ -300,7 +301,7 @@ export const usePackAds = (packId: string, enabled: boolean = true) => {
       // 1) Tenta ler do cache (para resposta rápida)
       const cachedResult = await getCachedPackAds(packId)
       if (cachedResult.success && cachedResult.data && Array.isArray(cachedResult.data)) {
-        return cachedResult.data
+        return filterVideoAds(cachedResult.data)
       }
 
       // 2) Sem cache -> busca do Supabase (fonte de verdade)
@@ -309,10 +310,11 @@ export const usePackAds = (packId: string, enabled: boolean = true) => {
         throw new Error('Falha ao buscar ads do pack')
       }
       const ads = Array.isArray(response.pack?.ads) ? response.pack.ads : []
+      const videoAds = filterVideoAds(ads)
       if (ads.length > 0) {
         await cachePackAds(packId, ads).catch(() => {})
       }
-      return ads
+      return videoAds
     },
     enabled: enabled && !!packId,
     // Packs só mudam via Ads Loader (criação/refresh/delete), invalidamos manualmente
@@ -325,7 +327,10 @@ export const usePackAds = (packId: string, enabled: boolean = true) => {
     // Usar cache IndexedDB como placeholder
     placeholderData: async () => {
       const cached = await getCachedPackAds(packId)
-      return cached.success ? cached.data : undefined
+      if (cached.success && cached.data && Array.isArray(cached.data)) {
+        return filterVideoAds(cached.data)
+      }
+      return undefined
     },
   })
 }

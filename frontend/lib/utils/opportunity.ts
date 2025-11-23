@@ -5,6 +5,7 @@ export type OpportunityInputs = {
   averages?: RankingsResponse["averages"];
   actionType: string;
   spendTotal?: number; // opcional: se não vier, calculamos dos anúncios elegíveis
+  mqlLeadscoreMin?: number; // Leadscore mínimo para considerar MQL
   limit?: number;
 };
 
@@ -19,9 +20,27 @@ export type OpportunityRow = {
   spend: number;
   cpm: number;
   hook: number;
+  hold_rate: number;
+  ctr: number;
   website_ctr: number;
   connect_rate: number;
   page_conv: number;
+  overall_conversion: number; // website_ctr * connect_rate * page_conv
+  
+  // Performance metrics
+  video_watched_p50?: number; // 50% View Rate
+  video_total_thruplays?: number;
+  video_total_plays?: number;
+  thruplays_rate?: number; // ThruPlays Rate
+  
+  // Extras
+  frequency?: number;
+  impressions?: number;
+  reach?: number;
+  leadscore_values?: number[]; // Array agregado de leadscore_values
+  leadscore_avg?: number; // Leadscore médio
+  mql_count?: number; // Número de MQLs (leadscores >= mql_leadscore_min)
+  cpmql?: number; // Custo por MQL (spend / mql_count)
 
   cpr_actual: number;
   cpr_potential: number;
@@ -62,6 +81,7 @@ export function computeOpportunityScores({
   averages,
   actionType,
   spendTotal,
+  mqlLeadscoreMin = 0,
   limit,
 }: OpportunityInputs): OpportunityRow[] {
   if (!Array.isArray(ads) || ads.length === 0) return [];
@@ -82,12 +102,41 @@ export function computeOpportunityScores({
     const cpm = impressions > 0 ? (spend * 1000) / impressions : toNumber((ad as any).cpm, 0);
 
     const hook = toNumber((ad as any).hook, 0);
+    const holdRate = toNumber((ad as any).hold_rate, 0);
+    // CTR: usar do backend se disponível, senão calcular a partir de clicks / impressions
+    const ctrFromBackend = toNumber((ad as any).ctr, 0);
+    const clicks = toNumber((ad as any).clicks, 0);
+    const ctr = ctrFromBackend > 0 ? ctrFromBackend : (impressions > 0 ? clicks / impressions : 0);
     const websiteCtr = toNumber((ad as any).website_ctr, 0);
     const connectRate = toNumber((ad as any).connect_rate, 0);
     const lpv = toNumber((ad as any).lpv, 0);
+    
+    // Performance metrics
+    const videoWatchedP50 = toNumber((ad as any).video_watched_p50, 0);
+    const videoTotalThruplays = toNumber((ad as any).video_total_thruplays, 0);
+    const videoTotalPlays = toNumber((ad as any).video_total_plays || (ad as any).plays, 0);
+    const thruplaysRate = videoTotalPlays > 0 ? videoTotalThruplays / videoTotalPlays : 0;
+    
+    // Extras
+    const reach = toNumber((ad as any).reach, 0);
+    // Frequency: usar do backend se disponível, senão calcular
+    const frequencyFromBackend = toNumber((ad as any).frequency, 0);
+    const frequency = frequencyFromBackend > 0 ? frequencyFromBackend : (reach > 0 ? impressions / reach : 0);
+    
+    // Leadscore e MQLs
+    const leadscoreValues = Array.isArray((ad as any).leadscore_values) ? (ad as any).leadscore_values.map((v: any) => toNumber(v, 0)) : [];
+    // Calcular leadscore médio
+    const leadscoreAvg = leadscoreValues.length > 0 ? leadscoreValues.reduce((sum, ls) => sum + ls, 0) / leadscoreValues.length : 0;
+    // Calcular número de MQLs (leadscores >= mqlLeadscoreMin)
+    const mqlCount = leadscoreValues.filter((ls: number) => ls >= mqlLeadscoreMin).length;
+    // Calcular CPMQL (custo por MQL)
+    const cpmql = mqlCount > 0 ? spend / mqlCount : 0;
 
     const results = actionType ? toNumber((ad as any).conversions?.[actionType], 0) : 0;
     const pageConv = lpv > 0 ? results / lpv : 0;
+    
+    // Calcular conversão geral (website_ctr * connect_rate * page_conv)
+    const overallConversion = websiteCtr * connectRate * pageConv;
 
     // CPR atual via fórmula do MVP (equivalente a spend/results quando coerente)
     const denomActual = Math.max(websiteCtr, 0) * Math.max(connectRate, 0) * Math.max(pageConv, 0);
@@ -147,9 +196,27 @@ export function computeOpportunityScores({
       spend,
       cpm,
       hook,
+      hold_rate: holdRate,
+      ctr,
       website_ctr: websiteCtr,
       connect_rate: connectRate,
       page_conv: pageConv,
+      overall_conversion: overallConversion,
+      
+      // Performance metrics
+      video_watched_p50: videoWatchedP50,
+      video_total_thruplays: videoTotalThruplays,
+      video_total_plays: videoTotalPlays,
+      thruplays_rate: thruplaysRate,
+      
+      // Extras
+      frequency,
+      impressions,
+      reach,
+      leadscore_values: leadscoreValues.length > 0 ? leadscoreValues : undefined,
+      leadscore_avg: leadscoreAvg > 0 && Number.isFinite(leadscoreAvg) ? leadscoreAvg : undefined,
+      mql_count: mqlCount,
+      cpmql: Number.isFinite(cpmql) && cpmql > 0 ? cpmql : undefined,
 
       cpr_actual: isFinite(cprActual) ? cprActual : 0,
       cpr_potential: isFinite(cprPotential) ? cprPotential : 0,

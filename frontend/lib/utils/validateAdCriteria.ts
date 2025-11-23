@@ -38,6 +38,7 @@ export interface AdMetricsData {
   cpr?: number;
   page_conv?: number;
   hook?: number;
+  overall_conversion?: number; // website_ctr * connect_rate * page_conv
   // Data
   date?: string;
 }
@@ -285,6 +286,9 @@ export function aggregateMetricsForGroup(ads: AdMetricsData[]): AdMetricsData {
 
   // CPR agregado (spend / results)
   aggregated.cpr = totalResults > 0 ? totalSpend / totalResults : 0;
+
+  // Overall conversion agregado (website_ctr * connect_rate * page_conv)
+  aggregated.overall_conversion = (aggregated.website_ctr || 0) * (aggregated.connect_rate || 0) * (aggregated.page_conv || 0);
 
   return aggregated;
 }

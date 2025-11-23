@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, Fragment } from "react";
+import React, { useMemo, useState, useEffect, Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/common/Modal";
 import { useFormatCurrency } from "@/lib/utils/currency";
@@ -27,6 +27,7 @@ interface RankingsTableProps {
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
+  showTrends?: boolean;
   averagesOverride?: {
     hook: number | null;
     scroll_stop: number | null;
@@ -288,7 +289,7 @@ function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, for
   );
 }
 
-export function RankingsTable({ ads, groupByAdName = true, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], averagesOverride }: RankingsTableProps) {
+export function RankingsTable({ ads, groupByAdName = true, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride }: RankingsTableProps) {
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [videoOpen, setVideoOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<{ videoId: string; actorId: string; title: string } | null>(null);
@@ -405,32 +406,29 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     const scrollStopAvg = scrollStopWeight > 0 ? scrollStopWeighted / scrollStopWeight : null;
     const cpr = sumResults > 0 ? sumSpend / sumResults : null;
     const pageConv = sumLPV > 0 ? sumResults / sumLPV : null;
-    
+
     // Métricas que não dependem de actionType - usar valores do backend quando disponíveis
     // Se todos os ads têm a métrica do backend, usar média ponderada; senão, calcular
     const adsWithCtr = ads.filter((ad) => typeof (ad as any).ctr === "number" && !Number.isNaN((ad as any).ctr));
-    const ctr = adsWithCtr.length === ads.length && sumImpr > 0
-      ? ads.reduce((sum, ad) => sum + ((ad as any).ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr
-      : sumImpr > 0 ? sumClicks / sumImpr : null;
-    
+    const ctr = adsWithCtr.length === ads.length && sumImpr > 0 ? ads.reduce((sum, ad) => sum + ((ad as any).ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr : sumImpr > 0 ? sumClicks / sumImpr : null;
+
     const adsWithWebsiteCtr = ads.filter((ad) => typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr));
-    const websiteCtr = adsWithWebsiteCtr.length === ads.length && sumImpr > 0
-      ? ads.reduce((sum, ad) => sum + ((ad as any).website_ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr
-      : sumImpr > 0 ? sumInlineLinkClicks / sumImpr : null;
-    
+    const websiteCtr = adsWithWebsiteCtr.length === ads.length && sumImpr > 0 ? ads.reduce((sum, ad) => sum + ((ad as any).website_ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr : sumImpr > 0 ? sumInlineLinkClicks / sumImpr : null;
+
     const adsWithCpm = ads.filter((ad) => typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm));
-    const cpm = adsWithCpm.length === ads.length && sumImpr > 0
-      ? ads.reduce((sum, ad) => sum + ((ad as any).cpm || 0) * Number((ad as any).impressions || 0), 0) / sumImpr
-      : sumImpr > 0 ? (sumSpend * 1000) / sumImpr : null;
-    
+    const cpm = adsWithCpm.length === ads.length && sumImpr > 0 ? ads.reduce((sum, ad) => sum + ((ad as any).cpm || 0) * Number((ad as any).impressions || 0), 0) / sumImpr : sumImpr > 0 ? (sumSpend * 1000) / sumImpr : null;
+
     const adsWithConnectRate = ads.filter((ad) => typeof (ad as any).connect_rate === "number" && !Number.isNaN((ad as any).connect_rate));
-    const connectAvg = adsWithConnectRate.length === ads.length && sumInlineLinkClicks > 0
-      ? ads.reduce((sum, ad) => {
-          const connectRate = (ad as any).connect_rate || 0;
-          const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
-          return sum + connectRate * inlineLinkClicks;
-        }, 0) / sumInlineLinkClicks
-      : sumInlineLinkClicks > 0 ? sumLPV / sumInlineLinkClicks : null;
+    const connectAvg =
+      adsWithConnectRate.length === ads.length && sumInlineLinkClicks > 0
+        ? ads.reduce((sum, ad) => {
+            const connectRate = (ad as any).connect_rate || 0;
+            const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
+            return sum + connectRate * inlineLinkClicks;
+          }, 0) / sumInlineLinkClicks
+        : sumInlineLinkClicks > 0
+        ? sumLPV / sumInlineLinkClicks
+        : null;
 
     return {
       count: n,
@@ -454,6 +452,17 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
 
   const averages = useMemo(() => {
     if (averagesOverride) {
+      // Verificar inconsistências para métricas que dependem de actionType
+      if (actionType) {
+        // Se o actionType está selecionado mas não há média do servidor, pode ser um problema
+        if (averagesOverride.cpr === null && computedAverages.cpr !== null) {
+          console.warn(`[RankingsTable] CPR média não retornada pelo servidor para actionType "${actionType}", usando cálculo local.`, { actionType, availableConversionTypes });
+        }
+        if (averagesOverride.page_conv === null && computedAverages.page_conv !== null) {
+          console.warn(`[RankingsTable] Page Conv média não retornada pelo servidor para actionType "${actionType}", usando cálculo local.`, { actionType, availableConversionTypes });
+        }
+      }
+
       return {
         count: computedAverages.count,
         spend: computedAverages.spend,
@@ -469,12 +478,14 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         website_ctr: averagesOverride.website_ctr ?? computedAverages.website_ctr,
         connect_rate: averagesOverride.connect_rate,
         cpm: averagesOverride.cpm,
-        cpr: averagesOverride.cpr,
-        page_conv: averagesOverride.page_conv,
+        // CPR e page_conv dependem do actionType, usar computedAverages como fallback se null
+        // Mas logar quando isso acontecer para identificar problemas
+        cpr: averagesOverride.cpr ?? computedAverages.cpr,
+        page_conv: averagesOverride.page_conv ?? computedAverages.page_conv,
       } as RankingsAverages;
     }
     return computedAverages;
-  }, [computedAverages, averagesOverride]);
+  }, [computedAverages, averagesOverride, actionType, availableConversionTypes]);
 
   const getRowKey = (row: { original?: RankingsItem } | RankingsItem) => {
     const original = "original" in row ? row.original : row;
@@ -516,21 +527,163 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     const rowKey = getRowKey(row);
     const s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
 
+    // Determinar se a métrica é "inversa" (menor é melhor: CPR e CPM)
+    const isInverseMetric = metric === "cpr" || metric === "cpm";
+
+    // Se showTrends estiver ativo, mostrar sparklines
+    if (showTrends) {
+      return (
+        <div className="flex flex-col items-center gap-3">
+          {s ? (
+            <SparklineBars
+              series={s}
+              size="small"
+              valueFormatter={(n: number) => {
+                if (metric === "spend" || metric === "cpr" || metric === "cpm") {
+                  return formatCurrency(n || 0);
+                }
+                // percent-based metrics
+                return `${(n * 100).toFixed(2)}%`;
+              }}
+              inverseColors={isInverseMetric}
+            />
+          ) : null}
+          <span className="text-base font-medium leading-none">{value}</span>
+        </div>
+      );
+    }
+
+    // Modo Performance: mostrar diferença percentual em relação à média
+    const avgValue = averages[metric];
+    if (avgValue === null || avgValue === undefined) {
+      // Se não há média disponível, mostrar apenas o valor
+      // Log para debug quando for page_conv
+      if (metric === "page_conv") {
+        console.debug(`[MetricCell] page_conv: média não disponível`, { avgValue, actionType, hasPageConv: "page_conv" in original, pageConvValue: (original as any).page_conv });
+      }
+      return (
+        <div className="flex flex-col items-center gap-3">
+          <span className="text-base font-medium leading-none">{value}</span>
+        </div>
+      );
+    }
+
+    // Extrair valor numérico diretamente do original (mais confiável)
+    let currentValue: number | null = null;
+    switch (metric) {
+      case "hook":
+        currentValue = (original as any).hook != null ? Number((original as any).hook) : null;
+        // hook vem em decimal (0-1), média também vem em decimal
+        break;
+      case "cpr":
+        if (actionType) {
+          const results = (original as any).conversions?.[actionType] || 0;
+          currentValue = results > 0 ? Number((original as any).spend || 0) / results : null;
+        }
+        break;
+      case "spend":
+        currentValue = Number((original as any).spend || 0);
+        break;
+      case "ctr":
+        currentValue = (original as any).ctr != null ? Number((original as any).ctr) : null;
+        // ctr vem em decimal (0-1), média também vem em decimal
+        break;
+      case "connect_rate":
+        currentValue = (original as any).connect_rate != null ? Number((original as any).connect_rate) : null;
+        // connect_rate vem em decimal (0-1), média também vem em decimal
+        break;
+      case "page_conv":
+        // Se o ad já tem page_conv calculado (vem do ranking), usar esse valor
+        if ("page_conv" in original && typeof (original as any).page_conv === "number" && !Number.isNaN((original as any).page_conv) && isFinite((original as any).page_conv)) {
+          currentValue = (original as any).page_conv;
+        } else if (actionType) {
+          // Caso contrário, calcular baseado no actionType
+          const results = (original as any).conversions?.[actionType] || 0;
+          const lpv = Number((original as any).lpv || 0);
+          currentValue = lpv > 0 ? results / lpv : null;
+        }
+        break;
+      case "cpm":
+        currentValue = typeof (original as any).cpm === "number" ? (original as any).cpm : null;
+        break;
+    }
+
+    if (currentValue === null || isNaN(currentValue) || !isFinite(currentValue)) {
+      // Se não conseguimos extrair o valor, mostrar apenas o valor original
+      // Log para debug quando for page_conv
+      if (metric === "page_conv") {
+        console.debug(`[MetricCell] page_conv: não foi possível extrair currentValue`, {
+          currentValue,
+          actionType,
+          hasPageConv: "page_conv" in original,
+          pageConvValue: (original as any).page_conv,
+          conversions: (original as any).conversions,
+          lpv: (original as any).lpv,
+        });
+      }
+      return (
+        <div className="flex flex-col items-center gap-3">
+          <span className="text-base font-medium leading-none">{value}</span>
+        </div>
+      );
+    }
+
+    // Verificar se a média é válida
+    // Para page_conv, avgValue pode ser 0 (nenhuma conversão), o que é válido
+    if (isNaN(avgValue) || !isFinite(avgValue)) {
+      return (
+        <div className="flex flex-col items-center gap-3">
+          <span className="text-base font-medium leading-none">{value}</span>
+        </div>
+      );
+    }
+
+    // Se a média for 0 e o valor atual também for 0, não há diferença para mostrar
+    if (avgValue === 0 && currentValue === 0) {
+      return (
+        <div className="flex flex-col items-center gap-3">
+          <span className="text-xs font-medium text-muted-foreground">0%</span>
+          <span className="text-base font-medium leading-none">{value}</span>
+        </div>
+      );
+    }
+
+    // Se a média for 0 mas o valor atual não for 0, mostrar como "acima da média" (infinito percentual)
+    if (avgValue === 0 && currentValue !== 0) {
+      return (
+        <div className="flex flex-col items-center gap-3">
+          <span className="text-xs font-medium text-green-600 dark:text-green-400">+∞</span>
+          <span className="text-base font-medium leading-none">{value}</span>
+        </div>
+      );
+    }
+
+    // Calcular diferença percentual
+    // Para métricas inversas (CPR, CPM), a lógica é invertida: menor que a média é melhor
+    let diffPercent: number;
+    if (isInverseMetric) {
+      // Para métricas inversas: se currentValue < avgValue, isso é melhor (positivo)
+      // diffPercent = ((avgValue - currentValue) / avgValue) * 100
+      diffPercent = ((avgValue - currentValue) / avgValue) * 100;
+    } else {
+      // Para métricas normais: se currentValue > avgValue, isso é melhor (positivo)
+      // diffPercent = ((currentValue - avgValue) / avgValue) * 100
+      diffPercent = ((currentValue - avgValue) / avgValue) * 100;
+    }
+
+    // Determinar cor baseado na diferença
+    // Para métricas normais: positivo (acima da média) = verde, negativo (abaixo) = vermelho
+    // Para métricas inversas: positivo (menor que média) = verde, negativo (maior que média) = vermelho
+    const isPositive = diffPercent > 0;
+    const colorClass = isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400";
+    const sign = isPositive ? "+" : "";
+
     return (
       <div className="flex flex-col items-center gap-3">
-        {s ? (
-          <SparklineBars
-            series={s}
-            size="small"
-            valueFormatter={(n: number) => {
-              if (metric === "spend" || metric === "cpr" || metric === "cpm") {
-                return formatCurrency(n || 0);
-              }
-              // percent-based metrics
-              return `${(n * 100).toFixed(2)}%`;
-            }}
-          />
-        ) : null}
+        <span className={`text-xs font-medium ${colorClass}`}>
+          {sign}
+          {diffPercent.toFixed(1)}%
+        </span>
         <span className="text-base font-medium leading-none">{value}</span>
       </div>
     );
@@ -666,7 +819,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         },
       }),
     ],
-    [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct]
+    [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct, showTrends, averages]
   );
 
   const table = useReactTable({

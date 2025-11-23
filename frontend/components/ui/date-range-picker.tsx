@@ -203,7 +203,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
     return (
       <>
         <div className={cn("space-y-2", className)}>
-          {showLabel && label && <label className="text-sm sm:text-base font-medium text-foreground">{label}</label>}
+          {showLabel && label && <label className="text-sm font-medium">{label}</label>}
           {buttonContent}
         </div>
 
@@ -237,7 +237,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
   // Versão original com Popover (mantida para compatibilidade)
   return (
     <div className={cn("space-y-2", className)}>
-      {showLabel && label && <label className="text-sm sm:text-base font-medium text-foreground">{label}</label>}
+      {showLabel && label && <label className="text-sm font-medium">{label}</label>}
       <Popover open={isPopoverOpen} onOpenChange={handlePopoverOpenChange}>
         <PopoverTrigger asChild>{buttonContent}</PopoverTrigger>
         <PopoverContent className="w-auto p-0 z-[10000] max-w-[95vw] sm:max-w-none" align="start">

@@ -174,6 +174,106 @@ export type GetVideoSourceResponse = z.infer<typeof GetVideoSourceResponseSchema
 export type AuthTokenResponse = z.infer<typeof AuthTokenResponseSchema>
 export type AuthUrlResponse = z.infer<typeof AuthUrlResponseSchema>
 
+// ========== Google Sheets Integration Schemas ==========
+
+export const SpreadsheetItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  modified_time: z.string().nullable().optional(),
+  web_view_link: z.string().nullable().optional(),
+})
+
+export const ListSpreadsheetsResponseSchema = z.object({
+  spreadsheets: z.array(SpreadsheetItemSchema),
+  next_page_token: z.string().nullable().optional(),
+})
+
+export const WorksheetItemSchema = z.object({
+  id: z.number(),
+  title: z.string(),
+  index: z.number(),
+  sheet_type: z.string(),
+})
+
+export const ListWorksheetsResponseSchema = z.object({
+  worksheets: z.array(WorksheetItemSchema),
+})
+
+export const GoogleConnectionSchema = z.object({
+  id: z.string(),
+  google_user_id: z.string().nullable().optional(),
+  google_email: z.string().nullable().optional(),
+  google_name: z.string().nullable().optional(),
+  scopes: z.array(z.string()).nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
+
+export const ListGoogleConnectionsResponseSchema = z.object({
+  connections: z.array(GoogleConnectionSchema),
+})
+
+export const SheetColumnsResponseSchema = z.object({
+  columns: z.array(z.string()),
+})
+
+export const SheetIntegrationRequestSchema = z.object({
+  spreadsheet_id: z.string(),
+  worksheet_title: z.string(),
+  ad_id_column: z.string(),
+  date_column: z.string(),
+  date_format: z.enum(["DD/MM/YYYY", "MM/DD/YYYY"]),
+  leadscore_column: z.string().optional().nullable(),
+  cpr_max_column: z.string().optional().nullable(),
+  // Quando presente, a integração é específica daquele pack (booster por pack)
+  pack_id: z.string().optional().nullable(),
+})
+
+export const SheetIntegrationSchema = z.object({
+  id: z.string(),
+  owner_id: z.string(),
+  pack_id: z.string().nullable().optional(),
+  spreadsheet_id: z.string(),
+  worksheet_title: z.string(),
+  match_strategy: z.string(),
+  ad_id_column: z.string(),
+  date_column: z.string(),
+  date_format: z.string().nullable().optional(),
+  leadscore_column: z.string().nullable().optional(),
+  cpr_max_column: z.string().nullable().optional(),
+  last_synced_at: z.string().nullable().optional(),
+  last_sync_status: z.string().nullable().optional(),
+}).passthrough()
+
+export const SaveSheetIntegrationResponseSchema = z.object({
+  integration: SheetIntegrationSchema,
+})
+
+export const SheetSyncStatsSchema = z.object({
+  processed_rows: z.number(),
+  updated_rows: z.number(),
+  skipped_no_match: z.number(),
+  skipped_invalid: z.number(),
+})
+
+export const SheetSyncResponseSchema = z.object({
+  status: z.literal('ok'),
+  stats: SheetSyncStatsSchema,
+})
+
+export type SpreadsheetItem = z.infer<typeof SpreadsheetItemSchema>
+export type ListSpreadsheetsResponse = z.infer<typeof ListSpreadsheetsResponseSchema>
+export type WorksheetItem = z.infer<typeof WorksheetItemSchema>
+export type ListWorksheetsResponse = z.infer<typeof ListWorksheetsResponseSchema>
+export type GoogleConnection = z.infer<typeof GoogleConnectionSchema>
+export type ListGoogleConnectionsResponse = z.infer<typeof ListGoogleConnectionsResponseSchema>
+export type SheetColumnsResponse = z.infer<typeof SheetColumnsResponseSchema>
+export type SheetIntegrationRequest = z.infer<typeof SheetIntegrationRequestSchema>
+export type SheetIntegration = z.infer<typeof SheetIntegrationSchema>
+export type SaveSheetIntegrationResponse = z.infer<typeof SaveSheetIntegrationResponseSchema>
+export type SheetSyncStats = z.infer<typeof SheetSyncStatsSchema>
+export type SheetSyncResponse = z.infer<typeof SheetSyncResponseSchema>
+
 // ========== Analytics Schemas ==========
 export const RankingsFiltersSchema = z.object({
   adaccount_ids: z.array(z.string()).optional(),
@@ -203,11 +303,16 @@ export const RankingsItemSchema = z.object({
   spend: z.number(),
   lpv: z.number(),
   plays: z.number(),
+  video_total_thruplays: z.number().optional(), // Total de thruplays agregado
   hook: z.number(),
+  hold_rate: z.number().optional(),
   video_watched_p50: z.number().optional(),
   ctr: z.number(),
   connect_rate: z.number(),
   cpm: z.number(),
+  reach: z.number().optional(),
+  frequency: z.number().optional(),
+  leadscore_values: z.array(z.number()).optional(), // Array agregado de leadscore_values para calcular MQLs
   conversions: z.record(z.string(), z.number()), // {action_type: total_value} para calcular results/cpr/page_conv no frontend
   ad_count: z.number(),
   thumbnail: z.string().nullable().optional(),
@@ -233,6 +338,7 @@ export const RankingsResponseSchema = z.object({
   averages: z
     .object({
       hook: z.number(),
+      hold_rate: z.number().optional(),
       scroll_stop: z.number(),
       ctr: z.number(),
       website_ctr: z.number(),

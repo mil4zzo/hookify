@@ -50,19 +50,28 @@ const paddingClasses = {
 };
 
 export function Modal({ isOpen, onClose, children, className, size = "lg", padding = "md", showCloseButton = true, closeOnOverlayClick = true, closeOnEscape = true, overlayOpacity = 0.8, overlayClassName }: ModalProps) {
+  // Função wrapper para onClose que verifica se pode fechar
+  const handleClose = () => {
+    // Se ambos estão desabilitados, não permite fechar de forma alguma
+    if (!closeOnOverlayClick && !closeOnEscape) {
+      return;
+    }
+    onClose();
+  };
+
   // Fechar ao pressionar ESC
   useEffect(() => {
     if (!isOpen || !closeOnEscape) return;
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        handleClose();
       }
     };
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, [isOpen, closeOnEscape, onClose]);
+  }, [isOpen, closeOnEscape, closeOnOverlayClick, onClose]);
 
   // Prevenir scroll do body quando o modal está aberto
   useEffect(() => {
@@ -81,7 +90,7 @@ export function Modal({ isOpen, onClose, children, className, size = "lg", paddi
 
   const handleOverlayClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (closeOnOverlayClick && e.target === e.currentTarget) {
-      onClose();
+      handleClose();
     }
   };
 
@@ -93,7 +102,12 @@ export function Modal({ isOpen, onClose, children, className, size = "lg", paddi
     <div className={cn("fixed inset-0 z-[9999] flex items-center justify-center", overlayClassName)} style={overlayStyle} onClick={handleOverlayClick}>
       <div className={cn("m-0 relative bg-card border border-border rounded-lg shadow-lg", "max-h-[90vh] overflow-y-auto custom-scrollbar w-full", sizeClasses[size], paddingClasses[padding], className)} onClick={(e) => e.stopPropagation()}>
         {showCloseButton && (
-          <button onClick={onClose} className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10" aria-label="Fechar modal">
+          <button 
+            onClick={handleClose} 
+            disabled={!closeOnOverlayClick && !closeOnEscape}
+            className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 disabled:opacity-30 disabled:cursor-not-allowed" 
+            aria-label="Fechar modal"
+          >
             <IconX className="h-4 w-4 text-text" />
           </button>
         )}

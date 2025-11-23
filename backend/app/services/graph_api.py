@@ -125,32 +125,64 @@ class GraphAPI:
     def get_ads_details(self, act_id: str, time_range: Dict[str, str], ads_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
         if not ads_ids:
             return []
-        url = self.base_url + act_id + '/ads' + self.user_token
-        payload = {
-            'fields': 'name,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
-            'limit': self.limit,
-            'filtering': "[{'field':'id','operator':'IN','value':['" + "','".join(ads_ids) +"']}]",
-        }
-        try:
-            response = requests.get(url, params=payload)
-            response.raise_for_status()
-            return response.json().get('data', [])
-        except requests.exceptions.HTTPError as http_err:
-            decoded_text = urllib.parse.unquote(http_err.response.text)
-            # Meta error: reduce the amount of data → fazer split recursivo
-            if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
-                mid = len(ads_ids) // 2
-                first = self.get_ads_details(act_id, time_range, ads_ids[:mid])
-                second = self.get_ads_details(act_id, time_range, ads_ids[mid:])
-                if first is None and second is None:
-                    return None
-                return (first or []) + (second or [])
-            decoded_url = urllib.parse.unquote(http_err.request.url) if http_err.request.url else 'decode-error'
-            logger.error("get_ads_details http_error: %s %s for %s", http_err.response.status_code, decoded_text, decoded_url)
-            return None
-        except Exception as err:
-            logger.exception("get_ads_details error: %s", err)
-            return None
+        
+        # Processar em lotes menores para evitar timeouts e melhorar performance
+        # Lotes de 50 anúncios por vez para balancear performance e confiabilidade
+        batch_size = 50
+        all_results = []
+        total_batches = (len(ads_ids) + batch_size - 1) // batch_size
+        
+        logger.info(f"[GET_ADS_DETAILS] Iniciando busca de detalhes para {len(ads_ids)} anúncios em {total_batches} lote(s)")
+        
+        for i in range(0, len(ads_ids), batch_size):
+            batch_ids = ads_ids[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            
+            logger.info(f"[GET_ADS_DETAILS] Processando lote {batch_num}/{total_batches} ({len(batch_ids)} anúncios)")
+            
+            url = self.base_url + act_id + '/ads' + self.user_token
+            payload = {
+                'fields': 'name,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
+                'limit': self.limit,
+                'filtering': "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) +"']}]",
+            }
+            
+            try:
+                logger.debug(f"[GET_ADS_DETAILS] Fazendo requisição para Meta API (lote {batch_num})...")
+                # Timeout de 90 segundos por lote (suficiente para processar 50 anúncios)
+                response = requests.get(url, params=payload, timeout=90)
+                response.raise_for_status()
+                batch_data = response.json().get('data', [])
+                all_results.extend(batch_data)
+                logger.info(f"[GET_ADS_DETAILS] Lote {batch_num} concluído: {len(batch_data)} anúncios retornados")
+            except requests.exceptions.Timeout:
+                logger.error(f"[GET_ADS_DETAILS] Timeout no lote {batch_num} após 90 segundos")
+                # Continuar com próximos lotes mesmo se um falhar
+                continue
+            except requests.exceptions.HTTPError as http_err:
+                decoded_text = urllib.parse.unquote(http_err.response.text)
+                # Meta error: reduce the amount of data → fazer split recursivo
+                if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
+                    logger.warning(f"[GET_ADS_DETAILS] Meta API pediu para reduzir dados no lote {batch_num}, dividindo...")
+                    mid = len(batch_ids) // 2
+                    first = self.get_ads_details(act_id, time_range, batch_ids[:mid])
+                    second = self.get_ads_details(act_id, time_range, batch_ids[mid:])
+                    if first is not None:
+                        all_results.extend(first)
+                    if second is not None:
+                        all_results.extend(second)
+                    continue
+                decoded_url = urllib.parse.unquote(http_err.request.url) if http_err.request.url else 'decode-error'
+                logger.error(f"[GET_ADS_DETAILS] HTTP error no lote {batch_num}: {http_err.response.status_code} - {decoded_text[:200]}")
+                # Continuar com próximos lotes mesmo se um falhar
+                continue
+            except Exception as err:
+                logger.exception(f"[GET_ADS_DETAILS] Erro inesperado no lote {batch_num}: {err}")
+                # Continuar com próximos lotes mesmo se um falhar
+                continue
+        
+        logger.info(f"[GET_ADS_DETAILS] Busca de detalhes concluída: {len(all_results)} anúncios retornados de {len(ads_ids)} solicitados")
+        return all_results if all_results else None
 
     def get_ads(self, act_id: str, time_range: Dict[str, str], filters: List[Dict[str, Any]]) -> Union[List[Dict[str, Any]], Any]:
         total_data: List[Dict[str, Any]] = []
@@ -424,8 +456,9 @@ class GraphAPI:
                         logger.info(f"Anúncios únicos após deduplicação por nome: {len(unique_ids)}")
                         logger.info(f"Anúncios removidos na deduplicação: {len(data) - len(unique_ids)}")
                         
+                        logger.info(f"[ENRIQUECIMENTO] Iniciando busca de detalhes dos anúncios na Meta API...")
                         ads_details = self.get_ads_details(job_meta['act_id'], job_meta['time_range'], unique_ids)
-                        logger.info(f"Detalhes de anúncios coletados: {len(ads_details) if ads_details else 0}")
+                        logger.info(f"[ENRIQUECIMENTO] Detalhes de anúncios coletados: {len(ads_details) if ads_details else 0}")
                         if ads_details is not None:
                             creative_list = {d['name']: d.get('creative') for d in ads_details}
                             videos_list = {

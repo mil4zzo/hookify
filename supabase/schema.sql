@@ -19,6 +19,7 @@ create table if not exists public.packs (
   last_prompted_at date,
   refresh_lock_until timestamp,
   refresh_progress_json jsonb,
+  sheet_integration_id uuid,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -39,6 +40,8 @@ create table if not exists public.ads (
   instagram_permalink_url text,
   adcreatives_videos_ids jsonb,
   adcreatives_videos_thumbs jsonb,
+  leadscore numeric,
+  cpr_max numeric,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -70,9 +73,33 @@ create table if not exists public.ad_metrics (
   conversions jsonb,
   cost_per_conversion jsonb,
   video_play_curve_actions jsonb,
+  hold_rate numeric,
   connect_rate numeric,
   profile_ctr numeric,
+   -- enrichment via Google Sheets
+  leadscore numeric,
+  cpr_max numeric,
   raw_data jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists public.ad_sheet_integrations (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid not null,
+  -- Integração pode ser global (pack_id NULL) ou específica de um pack
+  pack_id uuid,
+  spreadsheet_id text not null,
+  worksheet_title text not null,
+  match_strategy text not null default 'AD_ID',
+  ad_id_column text not null,
+  date_column text not null,
+  -- Formato de data configurado pelo usuário (DD/MM/YYYY ou MM/DD/YYYY)
+  date_format text,
+  leadscore_column text,
+  cpr_max_column text,
+  last_synced_at timestamptz,
+  last_sync_status text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

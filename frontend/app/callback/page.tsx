@@ -12,6 +12,7 @@ function CallbackContent() {
   const code = search.get("code");
   const error = search.get("error") || search.get("error_reason");
   const errorDescription = search.get("error_description");
+  const state = search.get("state");
   const [posted, setPosted] = useState(false);
   const authMut = useAuthToken();
   const { handleLoginSuccess } = useAuthManager();
@@ -22,11 +23,13 @@ function CallbackContent() {
   }, []);
 
   useEffect(() => {
-    // Se veio erro do Facebook, reporte ao opener e encerre
+    // Se veio erro do OAuth, reporte ao opener (Facebook ou Google) e encerre
     if (error) {
       try {
         if (window.opener && !posted) {
-          window.opener.postMessage({ type: "FACEBOOK_AUTH_ERROR", error, errorDescription }, origin);
+          const messageType =
+            state === "google_sheets" ? "GOOGLE_SHEETS_AUTH_ERROR" : "FACEBOOK_AUTH_ERROR";
+          window.opener.postMessage({ type: messageType, error, errorDescription, state }, origin);
           setPosted(true);
         }
       } catch {}
@@ -39,7 +42,9 @@ function CallbackContent() {
     // 1) Se foi aberto como popup, apenas devolve o code ao opener e fecha
     if (window.opener && !posted) {
       try {
-        window.opener.postMessage({ type: "FACEBOOK_AUTH_SUCCESS", code }, origin);
+        const messageType =
+          state === "google_sheets" ? "GOOGLE_SHEETS_AUTH_SUCCESS" : "FACEBOOK_AUTH_SUCCESS";
+        window.opener.postMessage({ type: messageType, code, state }, origin);
         setPosted(true);
         // fecha após breve delay
         setTimeout(() => window.close(), 300);
@@ -48,7 +53,8 @@ function CallbackContent() {
     }
 
     // 2) Fallback: trocar code por token diretamente aqui (apenas se NÃO for popup)
-    if (!window.opener) {
+    // Apenas para fluxo de login com Facebook (não usado para integração Google Sheets)
+    if (!window.opener && state !== "google_sheets") {
       const run = async () => {
         try {
           const res = await authMut.mutateAsync({ code, redirect_uri: window.location.origin + "/callback" });

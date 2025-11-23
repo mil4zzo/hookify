@@ -12,6 +12,24 @@ FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_CLIENT_ID")
 FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET")
 FACEBOOK_AUTH_BASE_URL = os.getenv("FACEBOOK_AUTH_BASE_URL", "https://www.facebook.com/v22.0/dialog/oauth")
 FACEBOOK_TOKEN_URL = os.getenv("FACEBOOK_TOKEN_URL", "https://graph.facebook.com/v22.0/oauth/access_token")
+
+# Google OAuth / Sheets
+GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
+GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
+# Opcional: usado apenas se você quiser fixar um redirect por ambiente
+GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
+GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
+GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
+GOOGLE_OAUTH_SCOPES = f"{GOOGLE_SHEETS_SCOPE} {GOOGLE_DRIVE_SCOPE}"
+GOOGLE_OAUTH_AUTH_BASE_URL = os.getenv(
+    "GOOGLE_OAUTH_AUTH_BASE_URL",
+    "https://accounts.google.com/o/oauth2/v2/auth",
+)
+GOOGLE_OAUTH_TOKEN_URL = os.getenv(
+    "GOOGLE_OAUTH_TOKEN_URL",
+    "https://oauth2.googleapis.com/token",
+)
+
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info")

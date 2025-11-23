@@ -10,7 +10,7 @@ import { useAuthManager } from "@/lib/hooks/useAuthManager";
 import { useFacebookConnections } from "@/lib/hooks/useFacebookConnections";
 import { showError } from "@/lib/utils/toast";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
-import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle } from "@tabler/icons-react";
+import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
 import { useSettings } from "@/lib/store/settings";
 import { Input } from "@/components/ui/input";
@@ -24,14 +24,19 @@ import { formatToTitleCase } from "@/lib/utils/formatName";
 import ServerStatusBanner from "./ServerStatusBanner";
 import { ValidationCriteriaBuilder, ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
+import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
+import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
+import { showSuccess } from "@/lib/utils/toast";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<"general" | "accounts" | "validation">("general");
+  const [activeSettingsTab, setActiveSettingsTab] = useState<"general" | "accounts" | "validation" | "integrations" | "leadscore">("general");
+  const [isSheetsDialogOpen, setIsSheetsDialogOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
+  const { mqlLeadscoreMin, isLoading: isLoadingMql, isSaving: isSavingMql, updateMqlLeadscoreMin, saveMqlLeadscoreMin } = useMqlLeadscore();
   const { isAuthenticated, user, isClient } = useClientAuth();
   const { packs } = useClientPacks();
   const { handleLogout } = useAuthManager();
@@ -376,6 +381,7 @@ export default function Topbar() {
             onClose={() => {
               setIsSettingsOpen(false);
               setActiveSettingsTab("general");
+              setIsSheetsDialogOpen(false);
             }}
             size="4xl"
             padding="none"
@@ -399,6 +405,14 @@ export default function Topbar() {
                     <IconCheck className="h-5 w-5" />
                     <span className="text-sm font-medium">Critério de validação</span>
                   </button>
+                  <button onClick={() => setActiveSettingsTab("integrations")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                    <IconTableExport className="h-5 w-5" />
+                    <span className="text-sm font-medium">Integrações</span>
+                  </button>
+                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                    <IconTarget className="h-5 w-5" />
+                    <span className="text-sm font-medium">Leadscore</span>
+                  </button>
                 </nav>
               </div>
 
@@ -419,6 +433,14 @@ export default function Topbar() {
                   <button onClick={() => setActiveSettingsTab("validation")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "validation" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
                     <IconCheck className="h-5 w-5" />
                     <span className="text-sm font-medium">Critério de validação</span>
+                  </button>
+                  <button onClick={() => setActiveSettingsTab("integrations")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                    <IconTableExport className="h-5 w-5" />
+                    <span className="text-sm font-medium">Integrações</span>
+                  </button>
+                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                    <IconTarget className="h-5 w-5" />
+                    <span className="text-sm font-medium">Leadscore</span>
                   </button>
                 </nav>
               </div>
@@ -609,6 +631,124 @@ export default function Topbar() {
                       </div>
                     </div>
                   )}
+
+                  {activeSettingsTab === "leadscore" && (
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
+                          {(isLoadingMql || isSavingMql) && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {isLoadingMql && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Carregando...</span>
+                                </>
+                              )}
+                              {isSavingMql && !isLoadingMql && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Salvando...</span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-4">
+                          Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). 
+                          Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.
+                        </p>
+                      </div>
+
+                      <div className="space-y-4">
+                        {isLoadingMql ? (
+                          <div className="flex items-center justify-center py-12">
+                            <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : (
+                          <>
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-text">
+                                Leadscore mínimo para MQL
+                              </label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={mqlLeadscoreMin}
+                                onChange={(e) => {
+                                  const value = parseFloat(e.target.value);
+                                  if (!isNaN(value) && value >= 0) {
+                                    updateMqlLeadscoreMin(value);
+                                  }
+                                }}
+                                disabled={isLoadingMql || isSavingMql}
+                                className="w-full"
+                                placeholder="0"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs
+                              </p>
+                            </div>
+
+                            <Button
+                              onClick={async () => {
+                                try {
+                                  await saveMqlLeadscoreMin(mqlLeadscoreMin);
+                                  showSuccess("Configuração de leadscore salva com sucesso!");
+                                } catch (err) {
+                                  showError(err as any);
+                                }
+                              }}
+                              disabled={isLoadingMql || isSavingMql}
+                              className="w-full sm:w-auto"
+                            >
+                              {isSavingMql ? (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Salvando...
+                                </>
+                              ) : (
+                                "Salvar configuração"
+                              )}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeSettingsTab === "integrations" && (
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-semibold text-text mb-2">Integrações</h3>
+                        <p className="text-sm text-muted-foreground mb-4">Conecte planilhas do Google Sheets para enriquecer seus dados de anúncios com informações complementares como Leadscore e CPR max.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="border border-border rounded-lg p-6 bg-secondary/30">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3">
+                              <IconTableExport className="h-6 w-6 text-brand" />
+                              <div>
+                                <h4 className="font-semibold text-text">Google Sheets</h4>
+                                <p className="text-sm text-muted-foreground">Importe dados complementares (Leadscore, CPR max) de planilhas do Google Sheets</p>
+                              </div>
+                            </div>
+                            <Button variant="default" onClick={() => setIsSheetsDialogOpen(true)} className="flex items-center gap-2">
+                              <IconTableExport className="h-4 w-4" />
+                              Integrar planilha
+                            </Button>
+                          </div>
+                          <div className="mt-4 pt-4 border-t border-border">
+                            <p className="text-xs text-muted-foreground">
+                              <strong>Como funciona:</strong> Conecte uma planilha do Google Sheets com colunas de Ad ID, Data, Leadscore e/ou CPR max. Os dados serão importados e aplicados diretamente nas métricas dos seus anúncios no Supabase.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -616,6 +756,9 @@ export default function Topbar() {
         )}
 
         <AutoRefreshConfirmModal isOpen={showModal} packCount={packCount} onConfirm={handleConfirm} onCancel={handleCancel} />
+
+        {/* Modal de integração Google Sheets */}
+        <GoogleSheetIntegrationDialog isOpen={isSheetsDialogOpen} onClose={() => setIsSheetsDialogOpen(false)} />
       </header>
     </>
   );

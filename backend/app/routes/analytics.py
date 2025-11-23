@@ -70,7 +70,7 @@ class RankingsRequest(BaseModel):
     date_stop: str
     group_by: GroupBy = "ad_id"
     action_type: Optional[str] = None
-    order_by: Optional[str] = Field(default=None, description="hook|cpr|spend|ctr|connect_rate|page_conv")
+    order_by: Optional[str] = Field(default=None, description="hook|hold_rate|cpr|spend|ctr|connect_rate|page_conv")
     limit: int = 500
     filters: Optional[RankingsFilters] = None
 
@@ -87,6 +87,10 @@ class DeletePackRequest(BaseModel):
 
 class UpdatePackAutoRefreshRequest(BaseModel):
     auto_refresh: bool = Field(..., description="Valor booleano para ativar/desativar auto_refresh")
+
+
+class UpdatePackNameRequest(BaseModel):
+    name: str = Field(..., description="Novo nome do pack", min_length=1)
 
 
 def _to_date(s: str) -> datetime:
@@ -170,7 +174,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     data = _fetch_all_paginated(
         sb,
         "ad_metrics",
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions",
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,hold_rate,reach,frequency,leadscore_values",
         metrics_filters
     )
     
@@ -222,9 +226,15 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         inline_link_clicks = int(r.get("inline_link_clicks") or 0)
         spend = float(r.get("spend") or 0)
         plays = int(r.get("video_total_plays") or 0)
+        thruplays = int(r.get("video_total_thruplays") or 0)
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        # hold_rate já vem calculado do banco, mas podemos recalcular se necessário
+        hold_rate = float(r.get("hold_rate") or 0)
+        reach = int(r.get("reach") or 0)
+        frequency = float(r.get("frequency") or 0)
+        leadscore_values = r.get("leadscore_values") or []
 
         # landing_page_views
         lpv = 0
@@ -249,8 +259,13 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 "spend": 0.0,
                 "lpv": 0,
                 "plays": 0,
+                "thruplays": 0,  # Total de thruplays agregado
                 "hook_wsum": 0.0,
+                "hold_rate_wsum": 0.0,  # Soma ponderada de hold_rate
                 "video_watched_p50_wsum": 0.0,  # Soma ponderada de video_watched_p50
+                "reach": 0,
+                "frequency_wsum": 0.0,  # Soma ponderada de frequency (por impressions)
+                "leadscore_values": [],  # Array agregado de todos os leadscore_values
                 # Curva de retenção agregada (ponderada por plays)
                 "curve_weighted": {},  # {segundo_index: {"weighted_sum": float, "plays_sum": int}}
                 # Conjunto de ad_ids distintos para calcular ad_scale
@@ -267,8 +282,18 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         A["spend"] += spend
         A["lpv"] += lpv
         A["plays"] += plays
+        A["thruplays"] += thruplays
         A["hook_wsum"] += hook * plays
+        A["hold_rate_wsum"] += hold_rate * plays  # Agregar hold_rate ponderado por plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
+        A["reach"] += reach  # Agregar reach (soma simples)
+        A["frequency_wsum"] += frequency * impressions  # Agregar frequency ponderado por impressions
+        # Agregar leadscore_values (juntar arrays)
+        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
+            try:
+                A["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
+            except Exception:
+                pass
         
         # Agregar curva de retenção ponderada por plays (mesma lógica do hook)
         if isinstance(curve, list) and plays > 0:
@@ -394,6 +419,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         ctr = _safe_div(A["clicks"], A["impressions"])
         connect_rate = _safe_div(A["lpv"], A["inline_link_clicks"])
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
+        hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
         video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
         cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
@@ -496,6 +522,9 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 else:
                     aggregated_curve.append(0)
 
+        # Calcular frequency agregado (média ponderada por impressions)
+        frequency_agg = _safe_div(A["frequency_wsum"], A["impressions"]) if A["impressions"] else 0
+        
         items.append({
             "unique_id": None,
             "account_id": A.get("account_id"),
@@ -508,12 +537,17 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             "spend": A["spend"],
             "lpv": A["lpv"],
             "plays": A["plays"],
+            "video_total_thruplays": A["thruplays"],
             "hook": hook,
+            "hold_rate": hold_rate,
             "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
             "ctr": ctr,
             "connect_rate": connect_rate,
             "cpm": cpm,
             "website_ctr": website_ctr,
+            "reach": A["reach"],
+            "frequency": frequency_agg,
+            "leadscore_values": A.get("leadscore_values") or [],  # Array agregado de leadscore_values
             "conversions": A.get("conversions", {}),  # {action_type: total_value} para o frontend calcular results/cpr/page_conv
             "ad_count": ad_scale,
             "thumbnail": thumbnail,
@@ -531,6 +565,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     total_lpv = 0
     total_plays = 0
     total_hook_wsum = 0.0
+    total_hold_rate_wsum = 0.0  # Soma ponderada de hold_rate
     total_scroll_stop_wsum = 0.0  # Soma ponderada para índice 1 (scroll stop)
 
     # results por action_type
@@ -544,6 +579,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         total_lpv += int(A.get("lpv") or 0)
         total_plays += int(A.get("plays") or 0)
         total_hook_wsum += float(A.get("hook_wsum") or 0.0)
+        total_hold_rate_wsum += float(A.get("hold_rate_wsum") or 0.0)
         
         # Calcular scroll stop (índice 1) ponderado por plays
         # Pegar a curva agregada do item para extrair o valor no índice 1
@@ -568,6 +604,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
 
     averages_base = {
         "hook": _safe_div(total_hook_wsum, total_plays) if total_plays else 0,
+        "hold_rate": _safe_div(total_hold_rate_wsum, total_plays) if total_plays else 0,
         "scroll_stop": _safe_div(total_scroll_stop_wsum, total_plays) if total_plays else 0,
         "ctr": _safe_div(total_clicks, total_impr) if total_impr else 0,
         "website_ctr": _safe_div(total_inline, total_impr) if total_impr else 0,
@@ -593,7 +630,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
 
     # Ordenação opcional
     order = (req.order_by or "").lower()
-    if order in {"hook", "cpr", "spend", "ctr", "connect_rate", "page_conv"}:
+    if order in {"hook", "hold_rate", "cpr", "spend", "ctr", "connect_rate", "page_conv"}:
         reverse = order not in {"cpr"}  # cpr menor é melhor; os demais maior é melhor
         items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
 
@@ -627,7 +664,7 @@ def get_rankings_children(
     data = _fetch_all_paginated(
         sb,
         "ad_metrics",
-        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions",
+        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,hold_rate",
         metrics_filters
     )
 
@@ -655,9 +692,11 @@ def get_rankings_children(
         inline_link_clicks = int(r.get("inline_link_clicks") or 0)
         spend = float(r.get("spend") or 0)
         plays = int(r.get("video_total_plays") or 0)
+        thruplays = int(r.get("video_total_thruplays") or 0)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
+        hold_rate = float(r.get("hold_rate") or 0)
 
         # landing_page_views
         lpv = 0
@@ -681,7 +720,9 @@ def get_rankings_children(
                 "spend": 0.0,
                 "lpv": 0,
                 "plays": 0,
+                "thruplays": 0,  # Total de thruplays agregado
                 "hook_wsum": 0.0,
+                "hold_rate_wsum": 0.0,  # Soma ponderada de hold_rate
                 "video_watched_p50_wsum": 0.0,  # Soma ponderada de video_watched_p50
                 "conversions": {},
             }
@@ -692,7 +733,9 @@ def get_rankings_children(
         A["spend"] += spend
         A["lpv"] += lpv
         A["plays"] += plays
+        A["thruplays"] += thruplays
         A["hook_wsum"] += hook * plays
+        A["hold_rate_wsum"] += hold_rate * plays  # Agregar hold_rate ponderado por plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
 
         # Agregar conversions no total (não apenas nas séries)
@@ -763,6 +806,7 @@ def get_rankings_children(
     for key, A in agg.items():
         ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
+        hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
         video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
         cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
@@ -828,7 +872,9 @@ def get_rankings_children(
             "spend": A["spend"],
             "lpv": A["lpv"],
             "plays": A["plays"],
+            "video_total_thruplays": A["thruplays"],
             "hook": hook,
+            "hold_rate": hold_rate,
             "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
             "ctr": ctr,
             "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
@@ -840,7 +886,7 @@ def get_rankings_children(
         })
 
     order = (order_by or "").lower()
-    if order in {"hook", "cpr", "spend", "ctr", "connect_rate", "page_conv"}:
+    if order in {"hook", "hold_rate", "cpr", "spend", "ctr", "connect_rate", "page_conv"}:
         reverse = order not in {"cpr"}
         items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
 
@@ -1594,6 +1640,43 @@ def update_pack_auto_refresh(
     except Exception as e:
         logger.exception(f"Erro ao atualizar auto_refresh do pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar auto_refresh: {str(e)}")
+
+
+@router.patch("/packs/{pack_id}/name")
+def update_pack_name(
+    pack_id: str,
+    request: UpdatePackNameRequest = Body(...),
+    user=Depends(get_current_user)
+):
+    """Atualiza o nome de um pack."""
+    try:
+        # Verificar se o pack existe e pertence ao usuário
+        pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
+        if not pack:
+            raise HTTPException(status_code=404, detail="Pack não encontrado")
+        
+        # Validar nome
+        if not request.name or not request.name.strip():
+            raise HTTPException(status_code=400, detail="Nome do pack não pode ser vazio")
+        
+        # Atualizar nome
+        supabase_repo.update_pack_name(
+            user["token"],
+            pack_id,
+            user["user_id"],
+            request.name.strip()
+        )
+        
+        return {
+            "success": True,
+            "pack_id": pack_id,
+            "name": request.name.strip()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Erro ao atualizar nome do pack {pack_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao atualizar nome: {str(e)}")
 
 
 

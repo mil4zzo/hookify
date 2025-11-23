@@ -21,6 +21,7 @@ interface RetentionChartProps {
   averagesHook?: number | null;
   averagesScrollStop?: number | null;
   hookValue?: number | null; // Valor do hook em decimal (0-1) para cálculo correto do delta
+  onPointClick?: (second: number) => void; // Callback quando um ponto do gráfico é clicado
 }
 
 type DataPoint = { x: number; y: number; label: string };
@@ -59,7 +60,7 @@ const ANNOTATION_CONFIG = {
   },
 };
 
-function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop, hookValue }: RetentionChartProps) {
+function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop, hookValue, onPointClick }: RetentionChartProps) {
   // Helper para calcular variação percentual
   const getDelta = (value: number, avg: number | null | undefined): { diff: number; text: string; color: string } | null => {
     if (avg == null || Number.isNaN(avg) || !isFinite(avg) || avg === 0) {
@@ -111,6 +112,16 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
       return { x: index, y: Math.round(Number(value || 0) * 100) / 100, label };
     });
   }, [videoPlayCurve]);
+
+  // Função para converter índice do ponto para segundo do vídeo
+  const indexToSecond = (index: number): number => {
+    if (index < 15) {
+      return index;
+    }
+    // Mapeamento: 15 (índice 15), 20 (índice 16), 25 (índice 17), 30 (índice 18), 40 (índice 19), 50 (índice 20), 60+ (índice 21)
+    const seconds = [15, 20, 25, 30, 40, 50, 60];
+    return seconds[index - 15] || 60;
+  };
 
   return (
     <ParentSize>
@@ -168,6 +179,32 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
           setTooltipData(null);
         };
 
+        const handleClick = (event: React.MouseEvent<SVGElement>) => {
+          if (!onPointClick) return;
+
+          const coords = localPoint(event);
+          if (!coords) return;
+
+          const x = coords.x - margin.left;
+          const y = coords.y - margin.top;
+
+          // Encontrar o ponto mais próximo ao clique
+          let closestPoint = data[0];
+          let minDistance = Math.abs(xScale(closestPoint.x) - x);
+
+          for (const point of data) {
+            const distance = Math.abs(xScale(point.x) - x);
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestPoint = point;
+            }
+          }
+
+          // Converter índice para segundo e chamar callback
+          const second = indexToSecond(closestPoint.x);
+          onPointClick(second);
+        };
+
         return (
           <div className="relative">
             <style>{`
@@ -180,7 +217,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
               stroke-width: 0 !important;
             }
           `}</style>
-            <svg width={innerWidth} height={innerHeight} className="overflow-visible" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave}>
+            <svg width={innerWidth} height={innerHeight} className="overflow-visible" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onClick={handleClick} style={{ cursor: onPointClick ? "pointer" : "crosshair" }}>
               {/* Gradiente com cor primary: topo 80% opaco, base 20% translúcida */}
               <LinearGradient id="retentionGradient" from="#1447e6" to="#1447e6" fromOpacity={0.8} toOpacity={0.2} />
               <g transform={`translate(${margin.left},${margin.top})`}>
@@ -360,7 +397,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
   );
 }
 
-export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = false, averagesHook, averagesScrollStop, hookValue }: RetentionChartProps) {
+export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = false, averagesHook, averagesScrollStop, hookValue, onPointClick }: RetentionChartProps) {
   return (
     <div className="space-y-4">
       <div className="text-lg font-semibold">
@@ -368,7 +405,7 @@ export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = fal
         Retenção
       </div>
       <div className="h-64">
-        <RetentionChartInner videoPlayCurve={videoPlayCurve} averagesHook={averagesHook} averagesScrollStop={averagesScrollStop} hookValue={hookValue} />
+        <RetentionChartInner videoPlayCurve={videoPlayCurve} averagesHook={averagesHook} averagesScrollStop={averagesScrollStop} hookValue={hookValue} onPointClick={onPointClick} />
       </div>
     </div>
   );

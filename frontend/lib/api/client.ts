@@ -151,6 +151,16 @@ class ApiClient {
     return response.data
   }
 
+  // Método para requisições GET que podem demorar mais (ex: polling de jobs)
+  async getWithTimeout<T>(url: string, timeoutMs: number, config?: AxiosRequestConfig): Promise<T> {
+    const longTimeoutConfig = {
+      ...config,
+      timeout: timeoutMs,
+    }
+    const response = await this.client.get<T>(url, longTimeoutConfig)
+    return response.data
+  }
+
   async post<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
     const response = await this.client.post<T>(url, data, config)
     return response.data

@@ -20,6 +20,26 @@ export function useLoadPacks() {
   const [isLoading, setIsLoading] = useState(true)
 
   useEffect(() => {
+    // Handler para recarregar packs quando integração for atualizada
+    const handleIntegrationUpdate = async (event: CustomEvent) => {
+      const { packId } = event.detail
+      if (packId) {
+        try {
+          const response = await api.analytics.listPacks(false)
+          if (response.success && response.packs) {
+            const updatedPack = response.packs.find((p: any) => p.id === packId)
+            if (updatedPack) {
+              updatePack(packId, { sheet_integration: updatedPack.sheet_integration } as any)
+            }
+          }
+        } catch (error) {
+          console.error('Erro ao atualizar pack após integração:', error)
+        }
+      }
+    }
+
+    window.addEventListener('pack-integration-updated', handleIntegrationUpdate as EventListener)
+
     // Resetar loadedRef se o usuário mudou (novo login)
     if (user?.id && userIdRef.current !== user.id) {
       loadedRef.current = false
@@ -28,7 +48,9 @@ export function useLoadPacks() {
 
     if (!isClient || !isAuthenticated || loadedRef.current) {
       setIsLoading(false)
-      return
+      return () => {
+        window.removeEventListener('pack-integration-updated', handleIntegrationUpdate as EventListener)
+      }
     }
 
     const loadPacks = async () => {
@@ -86,6 +108,7 @@ export function useLoadPacks() {
                 stats: stats || undefined,
                 created_at: pack.created_at,
                 updated_at: pack.updated_at,
+                sheet_integration: pack.sheet_integration || undefined, // Incluir dados de integração se disponível
               }
             })
           )
@@ -94,8 +117,15 @@ export function useLoadPacks() {
             const existing = packs.find((p) => p.id === pack.id)
             if (!existing) {
               addPack(pack)
-            } else if (pack.stats && (!existing.stats || JSON.stringify(existing.stats) !== JSON.stringify(pack.stats))) {
-              updatePack(pack.id, { stats: pack.stats })
+            } else {
+              // Atualizar stats se mudou
+              if (pack.stats && (!existing.stats || JSON.stringify(existing.stats) !== JSON.stringify(pack.stats))) {
+                updatePack(pack.id, { stats: pack.stats })
+              }
+              // Atualizar sheet_integration se mudou
+              if (JSON.stringify(pack.sheet_integration) !== JSON.stringify(existing.sheet_integration)) {
+                updatePack(pack.id, { sheet_integration: pack.sheet_integration } as any)
+              }
             }
           })
         }
@@ -108,6 +138,10 @@ export function useLoadPacks() {
     }
 
     loadPacks()
+
+    return () => {
+      window.removeEventListener('pack-integration-updated', handleIntegrationUpdate as EventListener)
+    }
   }, [isClient, isAuthenticated, user?.id, packs.length, addPack, updatePack])
 
   return { isLoading }
