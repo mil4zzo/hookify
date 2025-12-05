@@ -143,7 +143,7 @@ export function WorksheetCombobox({
                 <IconLoader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Carregando abas...</span>
               </div>
-            ) : filteredOptions.length === 0 ? (
+            ) : !isLoading && filteredOptions.length === 0 ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
                 {!spreadsheetId
                   ? "Selecione uma planilha primeiro."

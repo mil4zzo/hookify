@@ -30,6 +30,9 @@ def get_google_access_token_for_user(
     """
     Retorna access_token válido do Google para o usuário.
     Tenta refresh com refresh_token se estiver próximo de expirar.
+    
+    Raises:
+        GoogleSheetsError: Se o refresh_token estiver inválido/expirado
     """
     access_token, refresh_token, expires_ts = get_google_account_tokens(
         user_jwt=user_jwt,
@@ -89,6 +92,27 @@ def get_google_access_token_for_user(
                         token_data,
                     )
             else:
+                # Detectar erro de token inválido/expirado
+                try:
+                    error_data = resp.json() if resp.content else {}
+                    error_code = error_data.get("error", "")
+                    error_description = error_data.get("error_description", "")
+                    
+                    if resp.status_code == 400 and error_code == "invalid_grant":
+                        logger.warning(
+                            "[GOOGLE_TOKEN] Refresh token invalid/expired for user %s: %s",
+                            user_id,
+                            error_description,
+                        )
+                        # Importar aqui para evitar circular dependency
+                        from app.services.google_sheets_service import GoogleSheetsError
+                        raise GoogleSheetsError(
+                            "Token do Google expirado ou revogado. Por favor, reconecte sua conta Google."
+                        )
+                except (ValueError, KeyError):
+                    # Se não conseguir parsear JSON, continuar com log normal
+                    pass
+                
                 logger.error(
                     "[GOOGLE_TOKEN] Error refreshing token: %s - %s",
                     resp.status_code,

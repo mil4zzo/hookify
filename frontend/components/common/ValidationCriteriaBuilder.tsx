@@ -29,6 +29,7 @@ interface ValidationCriteriaBuilderProps {
   onChange: (conditions: ValidationCondition[]) => void;
   onSave?: (conditions: ValidationCondition[]) => Promise<void>;
   isSaving?: boolean;
+  hideSaveButton?: boolean;
 }
 
 // Campos disponíveis carregados dinamicamente de ad_metrics
@@ -76,7 +77,7 @@ function areConditionsEqual(conditions1: ValidationCondition[], conditions2: Val
 /**
  * Valida se as condições estão completas (sem campos vazios)
  */
-function validateConditions(conditions: ValidationCondition[]): { isValid: boolean; errors: string[] } {
+export function validateConditions(conditions: ValidationCondition[]): { isValid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   const validateCondition = (condition: ValidationCondition, path: string = ""): void => {
@@ -245,7 +246,7 @@ function ConditionRow({ condition, index, operatorLogic, onFieldChange, onOperat
   );
 }
 
-export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = false }: ValidationCriteriaBuilderProps) {
+export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = false, hideSaveButton = false }: ValidationCriteriaBuilderProps) {
   const [conditions, setConditions] = useState<ValidationCondition[]>(value || []);
   const [globalLogic, setGlobalLogic] = useState<"AND" | "OR">("AND");
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
@@ -544,7 +545,7 @@ export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = 
       )}
 
       {/* Botão Salvar */}
-      {onSave && (
+      {onSave && !hideSaveButton && (
         <div className="mt-4 flex justify-end">
           <Button type="button" onClick={handleSave} disabled={isSaving || conditions.length === 0 || !hasChanges} variant={hasChanges && conditions.length > 0 && !isSaving ? "default" : "ghost"} className="flex items-center gap-2">
             {isSaving ? (

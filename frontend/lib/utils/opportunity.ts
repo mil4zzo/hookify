@@ -1,4 +1,5 @@
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
+import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 
 export type OpportunityInputs = {
   ads: RankingsItem[];
@@ -123,14 +124,12 @@ export function computeOpportunityScores({
     const frequencyFromBackend = toNumber((ad as any).frequency, 0);
     const frequency = frequencyFromBackend > 0 ? frequencyFromBackend : (reach > 0 ? impressions / reach : 0);
     
-    // Leadscore e MQLs
-    const leadscoreValues = Array.isArray((ad as any).leadscore_values) ? (ad as any).leadscore_values.map((v: any) => toNumber(v, 0)) : [];
-    // Calcular leadscore médio
-    const leadscoreAvg = leadscoreValues.length > 0 ? leadscoreValues.reduce((sum: number, ls: number) => sum + ls, 0) / leadscoreValues.length : 0;
-    // Calcular número de MQLs (leadscores >= mqlLeadscoreMin)
-    const mqlCount = leadscoreValues.filter((ls: number) => ls >= mqlLeadscoreMin).length;
-    // Calcular CPMQL (custo por MQL)
-    const cpmql = mqlCount > 0 ? spend / mqlCount : 0;
+    // Leadscore, MQLs e CPMQL (centralizados em util)
+    const { leadscoreValues, leadscoreAvg, mqlCount, cpmql } = computeMqlMetricsFromLeadscore({
+      spend,
+      leadscoreRaw: (ad as any).leadscore_values,
+      mqlLeadscoreMin,
+    });
 
     const results = actionType ? toNumber((ad as any).conversions?.[actionType], 0) : 0;
     const pageConv = lpv > 0 ? results / lpv : 0;

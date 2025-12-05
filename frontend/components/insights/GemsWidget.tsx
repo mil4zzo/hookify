@@ -1,16 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { GemsColumn } from "./GemsColumn";
-import { IconSparkles } from "@tabler/icons-react";
-import { Modal } from "@/components/common/Modal";
-import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { GemsColumnType } from "@/components/common/GemsColumnFilter";
-import { calculateGlobalMetricRanks, getMetricRank } from "@/lib/utils/metricRankings";
+import { calculateGlobalMetricRanks } from "@/lib/utils/metricRankings";
+import { computeTopMetric } from "@/lib/utils/gemsTopMetrics";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { IconGripVertical } from "@tabler/icons-react";
+import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
 
 interface GemsWidgetProps {
   ads: RankingsItem[];
@@ -23,6 +24,33 @@ interface GemsWidgetProps {
   availableConversionTypes?: string[];
   isCompact?: boolean;
   activeColumns?: Set<GemsColumnType>; // Colunas ativas
+}
+
+const STORAGE_KEY_GEMS_COLUMN_ORDER = "hookify-gems-column-order";
+const DEFAULT_GEMS_COLUMN_ORDER: readonly GemsColumnType[] = ["hook", "website_ctr", "page_conv", "ctr", "hold_rate"] as const;
+
+/**
+ * Componente wrapper para tornar uma coluna Gems arrastável
+ */
+function SortableGemsColumn({ id, ...columnProps }: { id: GemsColumnType } & React.ComponentProps<typeof GemsColumn>) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  const dragHandle = (
+    <button type="button" {...attributes} {...listeners} className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 cursor-grab active:cursor-grabbing transition-colors" title="Arraste para reordenar" aria-label="Arraste para reordenar">
+      <IconGripVertical className="h-4 w-4" />
+    </button>
+  );
+
+  return (
+    <div ref={setNodeRef} style={style} className={`w-full h-full ${isDragging ? "z-50 opacity-60" : ""}`}>
+      <GemsColumn {...columnProps} headerRight={dragHandle} />
+    </div>
+  );
 }
 
 function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsData {
@@ -55,36 +83,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
   };
 }
 
-function formatMetric(value: number, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate"): string {
-  if (value == null || !Number.isFinite(value) || value <= 0) return "—";
-
-  // Todas as métricas são percentuais
-  return `${(value * 100).toFixed(2)}%`;
-}
-
-function getMetricValue(ad: any, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate", actionType: string): number {
-  switch (metric) {
-    case "hook":
-      return Number(ad.hook || 0);
-    case "website_ctr":
-      return Number(ad.website_ctr || 0);
-    case "ctr":
-      return Number(ad.ctr || 0);
-    case "hold_rate":
-      return Number((ad as any).hold_rate || 0);
-    case "page_conv": {
-      const lpv = Number(ad.lpv || 0);
-      const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
-      return lpv > 0 ? results / lpv : 0;
-    }
-    default:
-      return 0;
-  }
-}
-
 export function GemsWidget({ ads, averages, actionType, validationCriteria, limit = 5, dateStart, dateStop, availableConversionTypes = [], isCompact = true, activeColumns }: GemsWidgetProps) {
-  const [selectedAd, setSelectedAd] = useState<RankingsItem | null>(null);
-  const [openInVideoTab, setOpenInVideoTab] = useState(false);
   // 1. Filtrar apenas anúncios validados
   const validatedAds = useMemo(() => {
     if (!validationCriteria || validationCriteria.length === 0) {
@@ -99,85 +98,15 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   }, [ads, validationCriteria, actionType]);
 
   // 2. Calcular top por cada métrica
-  const topHook = useMemo(() => {
-    const valid = validatedAds
-      .map((ad) => ({
-        ...ad,
-        metricValue: getMetricValue(ad, "hook", actionType),
-      }))
-      .filter((ad) => ad.metricValue > 0 && !isNaN(ad.metricValue))
-      .sort((a, b) => b.metricValue - a.metricValue)
-      .slice(0, limit)
-      .map((ad) => ({
-        ...ad,
-        metricFormatted: formatMetric(ad.metricValue, "hook"),
-      }));
-    return valid;
-  }, [validatedAds, actionType, limit]);
+  const topHook = useMemo(() => computeTopMetric(validatedAds as any, "hook", actionType, limit), [validatedAds, actionType, limit]);
 
-  const topWebsiteCtr = useMemo(() => {
-    const valid = validatedAds
-      .map((ad) => ({
-        ...ad,
-        metricValue: getMetricValue(ad, "website_ctr", actionType),
-      }))
-      .filter((ad) => ad.metricValue > 0 && !isNaN(ad.metricValue))
-      .sort((a, b) => b.metricValue - a.metricValue)
-      .slice(0, limit)
-      .map((ad) => ({
-        ...ad,
-        metricFormatted: formatMetric(ad.metricValue, "website_ctr"),
-      }));
-    return valid;
-  }, [validatedAds, actionType, limit]);
+  const topWebsiteCtr = useMemo(() => computeTopMetric(validatedAds as any, "website_ctr", actionType, limit), [validatedAds, actionType, limit]);
 
-  const topCtr = useMemo(() => {
-    const valid = validatedAds
-      .map((ad) => ({
-        ...ad,
-        metricValue: getMetricValue(ad, "ctr", actionType),
-      }))
-      .filter((ad) => ad.metricValue > 0 && !isNaN(ad.metricValue))
-      .sort((a, b) => b.metricValue - a.metricValue)
-      .slice(0, limit)
-      .map((ad) => ({
-        ...ad,
-        metricFormatted: formatMetric(ad.metricValue, "ctr"),
-      }));
-    return valid;
-  }, [validatedAds, actionType, limit]);
+  const topCtr = useMemo(() => computeTopMetric(validatedAds as any, "ctr", actionType, limit), [validatedAds, actionType, limit]);
 
-  const topPageConv = useMemo(() => {
-    const valid = validatedAds
-      .map((ad) => ({
-        ...ad,
-        metricValue: getMetricValue(ad, "page_conv", actionType),
-      }))
-      .filter((ad) => ad.metricValue > 0 && !isNaN(ad.metricValue))
-      .sort((a, b) => b.metricValue - a.metricValue)
-      .slice(0, limit)
-      .map((ad) => ({
-        ...ad,
-        metricFormatted: formatMetric(ad.metricValue, "page_conv"),
-      }));
-    return valid;
-  }, [validatedAds, actionType, limit]);
+  const topPageConv = useMemo(() => computeTopMetric(validatedAds as any, "page_conv", actionType, limit), [validatedAds, actionType, limit]);
 
-  const topHoldRate = useMemo(() => {
-    const valid = validatedAds
-      .map((ad) => ({
-        ...ad,
-        metricValue: getMetricValue(ad, "hold_rate", actionType),
-      }))
-      .filter((ad) => ad.metricValue > 0 && !isNaN(ad.metricValue))
-      .sort((a, b) => b.metricValue - a.metricValue)
-      .slice(0, limit)
-      .map((ad) => ({
-        ...ad,
-        metricFormatted: formatMetric(ad.metricValue, "hold_rate"),
-      }));
-    return valid;
-  }, [validatedAds, actionType, limit]);
+  const topHoldRate = useMemo(() => computeTopMetric(validatedAds as any, "hold_rate", actionType, limit), [validatedAds, actionType, limit]);
 
   // 3. Calcular rankings globais usando o utilitário centralizado
   // IMPORTANTE: Os rankings são calculados apenas com anúncios que passam pelos critérios de validação
@@ -242,116 +171,44 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
     return null;
   }
 
-  // Definir colunas padrão se não fornecidas (todas ativas)
-  const defaultActiveColumns = activeColumns || new Set<GemsColumnType>(["hook", "website_ctr", "ctr", "page_conv", "hold_rate"]);
-  const columnsToShow = activeColumns || defaultActiveColumns;
+  // Criar configurações de colunas para o BaseKanbanWidget
+  const columnConfigs = useMemo<KanbanColumnConfig<GemsColumnType>[]>(() => {
+    const configs: KanbanColumnConfig<GemsColumnType>[] = [];
 
-  // Determinar número de colunas para o grid
-  const columnCount = columnsToShow.size;
-  let gridColsClass = "grid-cols-1";
-  if (columnCount === 2) {
-    gridColsClass = "md:grid-cols-2";
-  } else if (columnCount === 3) {
-    gridColsClass = "md:grid-cols-2 lg:grid-cols-3";
-  } else if (columnCount === 4) {
-    gridColsClass = "md:grid-cols-2 lg:grid-cols-4";
-  } else if (columnCount >= 5) {
-    gridColsClass = "md:grid-cols-2 lg:grid-cols-5";
-  }
+    const addColumn = (id: GemsColumnType, title: string, items: any[], averageValue: number | null, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate") => {
+      configs.push({
+        id,
+        title,
+        items,
+        averageValue,
+        emptyMessage: "Nenhum anúncio válido encontrado",
+        renderColumn: (config) => <SortableGemsColumn id={config.id} title={config.title} items={config.items} metric={metric} averageValue={config.averageValue} onAdClick={config.onAdClick} getTopMetrics={getTopMetrics} actionType={actionType} isCompact={isCompact} />,
+      });
+    };
+
+    addColumn("hook", "Hooks", topHook, avgHook, "hook");
+    addColumn("website_ctr", "Link CTR", topWebsiteCtr, avgWebsiteCtr, "website_ctr");
+    addColumn("page_conv", "Page", topPageConv, avgPageConv, "page_conv");
+    addColumn("ctr", "CTR", topCtr, avgCtr, "ctr");
+    addColumn("hold_rate", "Hold Rate", topHoldRate, avgHoldRate, "hold_rate");
+
+    return configs;
+  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, getTopMetrics, actionType, isCompact]);
 
   return (
-    <>
-      {/* Container principal com visual de seção destacado, inspirado no print */}
-      <div className={`grid grid-cols-1 gap-8 ${gridColsClass}`}>
-        {columnsToShow.has("hook") && (
-          <GemsColumn
-            title="Hooks"
-            items={topHook}
-            metric="hook"
-            averageValue={avgHook}
-            onAdClick={(ad, openVideo) => {
-              setSelectedAd(ad);
-              setOpenInVideoTab(openVideo || false);
-            }}
-            getTopMetrics={getTopMetrics}
-            actionType={actionType}
-            isCompact={isCompact}
-          />
-        )}
-        {columnsToShow.has("website_ctr") && (
-          <GemsColumn
-            title="Website CTR"
-            items={topWebsiteCtr}
-            metric="website_ctr"
-            averageValue={avgWebsiteCtr}
-            onAdClick={(ad, openVideo) => {
-              setSelectedAd(ad);
-              setOpenInVideoTab(openVideo || false);
-            }}
-            getTopMetrics={getTopMetrics}
-            actionType={actionType}
-            isCompact={isCompact}
-          />
-        )}
-        {columnsToShow.has("page_conv") && (
-          <GemsColumn
-            title="Page"
-            items={topPageConv}
-            metric="page_conv"
-            averageValue={avgPageConv}
-            onAdClick={(ad, openVideo) => {
-              setSelectedAd(ad);
-              setOpenInVideoTab(openVideo || false);
-            }}
-            getTopMetrics={getTopMetrics}
-            actionType={actionType}
-            isCompact={isCompact}
-          />
-        )}
-        {columnsToShow.has("ctr") && (
-          <GemsColumn
-            title="CTR"
-            items={topCtr}
-            metric="ctr"
-            averageValue={avgCtr}
-            onAdClick={(ad, openVideo) => {
-              setSelectedAd(ad);
-              setOpenInVideoTab(openVideo || false);
-            }}
-            getTopMetrics={getTopMetrics}
-            actionType={actionType}
-            isCompact={isCompact}
-          />
-        )}
-        {columnsToShow.has("hold_rate") && (
-          <GemsColumn
-            title="Hold Rate"
-            items={topHoldRate}
-            metric="hold_rate"
-            averageValue={avgHoldRate}
-            onAdClick={(ad, openVideo) => {
-              setSelectedAd(ad);
-              setOpenInVideoTab(openVideo || false);
-            }}
-            getTopMetrics={getTopMetrics}
-            actionType={actionType}
-            isCompact={isCompact}
-          />
-        )}
-      </div>
-
-      {/* Modal com detalhes do anúncio */}
-      <Modal
-        isOpen={!!selectedAd}
-        onClose={() => {
-          setSelectedAd(null);
-          setOpenInVideoTab(false);
-        }}
-        size="4xl"
-        padding="md"
-      >
-        {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} initialTab={openInVideoTab ? "video" : "overview"} averages={dialogAverages} />}
-      </Modal>
-    </>
+    <BaseKanbanWidget
+      storageKey={STORAGE_KEY_GEMS_COLUMN_ORDER}
+      defaultColumnOrder={DEFAULT_GEMS_COLUMN_ORDER}
+      columnConfigs={columnConfigs}
+      activeColumns={activeColumns}
+      enableDrag={true}
+      modalProps={{
+        dateStart,
+        dateStop,
+        actionType,
+        availableConversionTypes,
+        averages,
+      }}
+    />
   );
 }

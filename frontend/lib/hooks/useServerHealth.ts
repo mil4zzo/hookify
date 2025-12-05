@@ -69,7 +69,7 @@ export function useServerHealth(
   const queryClient = useQueryClient()
   const { isAuthenticated, isClient } = useClientAuth()
   const { packs, addPack, updatePack } = useClientPacks()
-  const { invalidateAllPacksAds, invalidateRankings } = useInvalidatePackAds()
+  const { invalidateAllPacksAds, invalidateAdPerformance } = useInvalidatePackAds()
 
   // Query para verificar saúde do servidor
   // Desabilitar polling automático (provisório) - verifica apenas uma vez no mount
@@ -152,9 +152,9 @@ export function useServerHealth(
       queryClient.invalidateQueries({ queryKey: ['analytics'] })
       queryClient.invalidateQueries({ queryKey: ['server-health'] })
       
-      // 2. Invalidar cache de packs e rankings
+      // 2. Invalidar cache de packs e dados agregados (ad performance)
       await invalidateAllPacksAds()
-      invalidateRankings()
+      invalidateAdPerformance()
 
       // 3. Recarregar packs do backend (similar ao useLoadPacks)
       const response = await api.analytics.listPacks(false)

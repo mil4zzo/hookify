@@ -24,11 +24,28 @@ import {
 } from './schemas'
 import { env } from '@/lib/config/env'
 
+// Tipos simples para o fluxo de onboarding inicial
+export interface OnboardingStatusResponse {
+  has_completed_onboarding: boolean
+  facebook_connected: boolean
+  validation_criteria_configured: boolean
+}
+
+export type OnboardingCompleteResponse = OnboardingStatusResponse
+
 export const api = {
   // Health check
   health: {
     check: (): Promise<{ status: string; service: string; version: string }> =>
       apiClient.get('/health'),
+  },
+
+  // Onboarding inicial
+  onboarding: {
+    getStatus: (): Promise<OnboardingStatusResponse> =>
+      apiClient.get('/onboarding/status'),
+    complete: (): Promise<OnboardingCompleteResponse> =>
+      apiClient.post('/onboarding/complete'),
   },
 
   // Facebook OAuth
@@ -71,8 +88,12 @@ export const api = {
   analytics: {
     getDashboard: (params: DashboardRequest): Promise<DashboardResponse> =>
       apiClient.post('/analytics/dashboard', params),
+    // Endpoint histórico, mantido por compatibilidade
     getRankings: (params: RankingsRequest): Promise<RankingsResponse> =>
       apiClient.post('/analytics/rankings', params),
+    // Alias semântico para evolução futura: mesma payload, rota nova
+    getAdPerformance: (params: RankingsRequest): Promise<RankingsResponse> =>
+      apiClient.post('/analytics/ad-performance', params),
     getRankingsChildren: (
       adName: string,
       params: { date_start: string; date_stop: string; order_by?: string }

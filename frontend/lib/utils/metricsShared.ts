@@ -32,5 +32,27 @@ export function normalizeCurveToDecimal(curve: number[] | undefined): number[] {
   return curve.map((v) => (v > 1 ? v / 100 : v));
 }
 
+/**
+ * Verifica se uma métrica está abaixo da média.
+ * 
+ * @param currentValue - Valor atual da métrica
+ * @param averageValue - Valor médio da métrica
+ * @returns true se a métrica estiver abaixo da média, false caso contrário
+ */
+export function isMetricBelowAverage(currentValue: number | null | undefined, averageValue: number | null | undefined): boolean {
+  // Se não houver média ou valor atual, não é possível comparar
+  if (averageValue == null || currentValue == null) {
+    return false;
+  }
+  
+  // Verificar se ambos os valores são finitos
+  if (!Number.isFinite(currentValue) || !Number.isFinite(averageValue)) {
+    return false;
+  }
+  
+  // Retornar true se o valor atual for menor que a média
+  return currentValue < averageValue;
+}
+
 
 

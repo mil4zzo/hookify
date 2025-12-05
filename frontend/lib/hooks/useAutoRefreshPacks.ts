@@ -35,7 +35,7 @@ function estimateCurrentDay(progress: number, totalDays: number): number {
 export function useAutoRefreshPacks() {
   const { isAuthenticated, isClient } = useClientAuth();
   const { updatePack } = useClientPacks();
-  const { invalidatePackAds, invalidateRankings } = useInvalidatePackAds();
+  const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
   const [showModal, setShowModal] = useState(false);
   const [packCount, setPackCount] = useState(0);
   const checkedRef = useRef(false);
@@ -178,13 +178,13 @@ export function useAutoRefreshPacks() {
                     auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
                   } as Partial<AdsPack>);
                   
-                  // Invalidar cache de ads (faz usePacksAds refazer a query)
-                  await invalidatePackAds(pack.id);
+              // Invalidar cache de ads (faz usePacksAds refazer a query)
+              await invalidatePackAds(pack.id);
                 }
               }
               
-              // Invalidar rankings para atualizar dados na página de rankings
-              invalidateRankings();
+              // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+              invalidateAdPerformance();
             } catch (error) {
               console.error("Erro ao recarregar pack após refresh:", error);
               // Não bloquear sucesso do refresh se falhar ao recarregar

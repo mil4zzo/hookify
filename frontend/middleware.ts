@@ -45,7 +45,7 @@ export async function middleware(req: NextRequest) {
   const PUBLIC_ROUTES = ['/login', '/signup', '/callback']
   
   // Rotas protegidas (requerem autenticação)
-  const PROTECTED_ROUTES = ['/dashboard', '/rankings', '/ads-loader', '/']
+  const PROTECTED_ROUTES = ['/dashboard', '/rankings', '/ads-loader', '/onboarding', '/']
 
   // Verificar se a rota é protegida
   const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))

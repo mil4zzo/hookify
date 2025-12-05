@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
+import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -73,7 +73,7 @@ export default function DashboardPage() {
   // Store hooks
   const { isAuthenticated, isClient } = useClientAuth();
   const { packs } = useClientPacks();
-  const { status } = useRequireAuth("/login");
+  const { authStatus, onboardingStatus } = useOnboardingGate("app");
 
   // Estado para controlar se deve usar datas dos packs
   const [usePackDates, setUsePackDates] = useState<boolean>(() => {
@@ -270,10 +270,18 @@ export default function DashboardPage() {
     );
   }
 
-  if (status !== "authorized") {
+  if (authStatus !== "authorized") {
     return (
       <div>
         <LoadingState label="Redirecionando para login..." />
+      </div>
+    );
+  }
+
+  if (onboardingStatus === "requires_onboarding") {
+    return (
+      <div>
+        <LoadingState label="Redirecionando para configuração inicial..." />
       </div>
     );
   }

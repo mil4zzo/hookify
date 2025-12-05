@@ -1,6 +1,7 @@
 "use client";
 
-import { GemCard } from "./GemCard";
+import type { ReactNode } from "react";
+import { GenericCard } from "@/components/common/GenericCard";
 import { GenericColumn, GenericColumnColorScheme } from "@/components/common/GenericColumn";
 
 interface GemsColumnProps {
@@ -26,9 +27,10 @@ interface GemsColumnProps {
   };
   actionType?: string;
   isCompact?: boolean;
+  headerRight?: ReactNode;
 }
 
-export function GemsColumn({ title, items, metric, averageValue, onAdClick, getTopMetrics, actionType, isCompact = true }: GemsColumnProps) {
+export function GemsColumn({ title, items, metric, averageValue, onAdClick, getTopMetrics, actionType, isCompact = true, headerRight }: GemsColumnProps) {
   const metricStyles: Record<"hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate", GenericColumnColorScheme> = {
     hook: {
       headerBg: "bg-blue-500/10 border-blue-500/30",
@@ -89,5 +91,5 @@ export function GemsColumn({ title, items, metric, averageValue, onAdClick, getT
 
   const colorScheme = metricStyles[metric];
 
-  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} emptyMessage="Nenhum anúncio válido encontrado" renderCard={(item, index) => <GemCard key={`${item.ad_id}-${index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} onClick={(openVideo) => onAdClick?.(item, openVideo)} topMetrics={getTopMetrics?.(item.ad_id)} actionType={actionType} isCompact={isCompact} />} />;
+  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} emptyMessage="Nenhum anúncio válido encontrado" headerRight={headerRight} renderCard={(item, index) => <GenericCard key={`${item.ad_id}-${index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} onClick={(openVideo?: boolean) => onAdClick?.(item, openVideo)} topMetrics={getTopMetrics?.(item.ad_id)} actionType={actionType} isCompact={isCompact} />} />;
 }

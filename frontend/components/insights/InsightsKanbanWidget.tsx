@@ -1,23 +1,20 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
-import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, horizontalListSortingStrategy } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
-import { GenericColumn, GenericColumnColorScheme } from "@/components/common/GenericColumn";
-import { IconGripVertical, IconInfoCircle } from "@tabler/icons-react";
-import { cn } from "@/lib/utils/cn";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
-import { GemCard } from "./GemCard";
-import { Modal } from "@/components/common/Modal";
-import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
+import { GenericCard } from "@/components/common/GenericCard";
 import { calculateGlobalMetricRanks } from "@/lib/utils/metricRankings";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { computeCpmImpact, computeLandingPageImpact } from "@/lib/utils/impact";
+import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
+import { SortableColumn } from "@/components/common/SortableColumn";
+import { GenericColumnColorScheme } from "@/components/common/GenericColumn";
 
 const STORAGE_KEY_INSIGHTS_COLUMN_ORDER = "hookify-insights-column-order";
+const DEFAULT_INSIGHTS_COLUMN_TITLES = ["Landing Page", "CPM", "Spend", "Coluna 4"] as const;
+type InsightsColumnType = (typeof DEFAULT_INSIGHTS_COLUMN_TITLES)[number];
 // Flag de debug temporário para entender por que anúncios não entram na coluna Landing Page
 const DEBUG_PAGE_CONV = true;
 
@@ -29,26 +26,6 @@ interface InsightsKanbanWidgetProps {
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
-}
-
-interface SortableColumnWrapperProps {
-  id: string;
-  title: string;
-  items: any[];
-  colorScheme: GenericColumnColorScheme;
-  emptyMessage: string;
-  averageValue?: number | null;
-  renderCard: (item: any, cardIndex: number, colorScheme: GenericColumnColorScheme) => React.ReactNode;
-  getTopMetrics?: (adId: string | null | undefined) => {
-    spendRank: number | null;
-    hookRank: number | null;
-    websiteCtrRank: number | null;
-    ctrRank: number | null;
-    pageConvRank: number | null;
-    holdRateRank: number | null;
-  };
-  actionType?: string;
-  formatAverage?: (value: number | null | undefined) => string;
 }
 
 /**
@@ -116,62 +93,11 @@ function formatMetric(value: number, metric: "hook" | "website_ctr" | "ctr" | "p
 }
 
 /**
- * Componente wrapper para tornar uma coluna arrastável
- */
-function SortableColumnWrapper({ id, title, items, colorScheme, emptyMessage, averageValue, renderCard, getTopMetrics, actionType, formatAverage }: SortableColumnWrapperProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
-
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
-
-  return (
-    <div ref={setNodeRef} style={style} className={cn("relative group", isDragging && "z-50 opacity-50")}>
-      <GenericColumn
-        title={title}
-        items={items}
-        colorScheme={colorScheme}
-        averageValue={averageValue}
-        emptyMessage={emptyMessage}
-        renderCard={renderCard}
-        formatAverage={formatAverage}
-        headerRight={
-          <div className="flex items-center gap-1">
-            {title === "Landing Page" && (
-              <button type="button" className="flex items-center justify-center rounded-md p-1 opacity-60 hover:opacity-100 hover:bg-muted/50 transition-colors" title="Impacto = conversões adicionais estimadas ao melhorar apenas a conversão de página até a média, mantendo o mesmo spend.">
-                <IconInfoCircle className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-              </button>
-            )}
-            {title === "CPM" && (
-              <button type="button" className="flex items-center justify-center rounded-md p-1 opacity-60 hover:opacity-100 hover:bg-muted/50 transition-colors" title="Impacto = economia potencial estimada ao reduzir o CPM atual até a média, mantendo o mesmo volume de impressões.">
-                <IconInfoCircle className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-              </button>
-            )}
-            {title === "Spend" && (
-              <button type="button" className="flex items-center justify-center rounded-md p-1 opacity-60 hover:opacity-100 hover:bg-muted/50 transition-colors" title="Impacto = economia potencial estimada ao reduzir o CPR atual até a média. Mostra anúncios com spend > 3% do total e CPR 10% acima da média.">
-                <IconInfoCircle className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-              </button>
-            )}
-            <div {...attributes} {...listeners} className="flex items-center justify-center cursor-grab active:cursor-grabbing opacity-60 hover:opacity-100 transition-opacity rounded-md hover:bg-muted/50 p-1" title="Arraste para reordenar">
-              <IconGripVertical className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-            </div>
-          </div>
-        }
-      />
-    </div>
-  );
-}
-
-/**
  * Widget de Kanban para a seção Insights.
  * Usa a mesma estrutura e estilização de Gems.
  * Colunas são arrastáveis para reordenar.
  */
 export function InsightsKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [] }: InsightsKanbanWidgetProps) {
-  const [selectedAd, setSelectedAd] = useState<RankingsItem | null>(null);
-  const [openInVideoTab, setOpenInVideoTab] = useState(false);
   const formatCurrency = useFormatCurrency();
 
   // Esquemas de cores baseados nos estilos de Gems
@@ -221,40 +147,6 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       },
     },
   ];
-
-  const defaultColumnTitles = ["Landing Page", "CPM", "Spend", "Coluna 4"];
-
-  // Carregar ordem salva do localStorage ou usar ordem padrão
-  const loadColumnOrder = (): string[] => {
-    if (typeof window === "undefined") return defaultColumnTitles;
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_INSIGHTS_COLUMN_ORDER);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === defaultColumnTitles.length) {
-          // Validar que todas as colunas padrão estão presentes
-          const isValid = defaultColumnTitles.every((title) => parsed.includes(title));
-          if (isValid) {
-            return parsed;
-          }
-        }
-      }
-    } catch (e) {
-      console.error("Erro ao carregar ordem das colunas:", e);
-    }
-    return defaultColumnTitles;
-  };
-
-  const [columnOrder, setColumnOrder] = useState<string[]>(() => loadColumnOrder());
-
-  // Salvar ordem no localStorage
-  const saveColumnOrder = (order: string[]) => {
-    try {
-      localStorage.setItem(STORAGE_KEY_INSIGHTS_COLUMN_ORDER, JSON.stringify(order));
-    } catch (e) {
-      console.error("Erro ao salvar ordem das colunas:", e);
-    }
-  };
 
   // 1. Filtrar apenas anúncios validados
   const validatedAds = useMemo(() => {
@@ -325,7 +217,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
     // Se alguma média não estiver disponível, não aplicamos o filtro
     if (avgWebsiteCtr == null || avgConnectRate == null || avgPageConv == null) return [];
 
-    // 5.1 Mapear métricas com fallbacks (igual ao GemCard)
+    // 5.1 Mapear métricas com fallbacks (igual ao GenericCard)
     const mappedAds = validatedAds.map((ad) => {
       const impressions = Number((ad as any).impressions || 0);
       const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
@@ -364,52 +256,6 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       return websiteCtrAboveAvg && connectRateAboveAvg && pageConvBelowAvg;
     });
 
-    // 5.3 Debug opcional: logar métricas e motivos de exclusão
-    if (DEBUG_PAGE_CONV) {
-      // eslint-disable-next-line no-console
-      console.groupCollapsed("[InsightsKanban] Landing Page - Debug", `actionType=${actionType}`);
-      // eslint-disable-next-line no-console
-      console.log("Médias usadas:", {
-        avgWebsiteCtr,
-        avgConnectRate,
-        avgPageConv,
-        avgWebsiteCtrPct: avgWebsiteCtr * 100,
-        avgConnectRatePct: avgConnectRate * 100,
-        avgPageConvPct: avgPageConv * 100,
-      });
-      mappedAds.forEach((ad: any) => {
-        const websiteCtrAboveAvg = avgWebsiteCtr > 0 ? ad.websiteCtr > avgWebsiteCtr : ad.websiteCtr > 0;
-        const connectRateAboveAvg = avgConnectRate > 0 ? ad.connectRate > avgConnectRate : ad.connectRate > 0;
-        // Calcular gap para visualização no debug (equivalente a: ad.pageConv <= avgPageConv * 0.8)
-        const pageConvGapDebug = avgPageConv > 0 && ad.pageConv > 0 ? (avgPageConv - ad.pageConv) / avgPageConv : 0;
-        const pageConvBelowAvg = avgPageConv > 0 && ad.pageConv > 0 ? ad.pageConv <= avgPageConv * 0.8 : avgPageConv > 0 ? ad.pageConv < avgPageConv && ad.pageConv > 0 : ad.pageConv > 0;
-        const included = websiteCtrAboveAvg && connectRateAboveAvg && pageConvBelowAvg && ad.pageConv > 0;
-
-        // eslint-disable-next-line no-console
-        console.log({
-          ad_id: ad.ad_id,
-          ad_name: ad.ad_name,
-          websiteCtr: ad.websiteCtr,
-          connectRate: ad.connectRate,
-          pageConv: ad.pageConv,
-          websiteCtrPct: ad.websiteCtr * 100,
-          connectRatePct: ad.connectRate * 100,
-          pageConvPct: ad.pageConv * 100,
-          websiteCtrAboveAvg,
-          connectRateAboveAvg,
-          pageConvGap: pageConvGapDebug,
-          pageConvBelowAvg,
-          includedInPageConv: included,
-        });
-      });
-      // eslint-disable-next-line no-console
-      console.log("Total anúncios mapeados:", mappedAds.length);
-      // eslint-disable-next-line no-console
-      console.log("Total anúncios filtrados (Landing Page):", filteredAds.length);
-      // eslint-disable-next-line no-console
-      console.groupEnd();
-    }
-
     // 5.4 Ordenar por impacto absoluto de conversões ao melhorar apenas Page Conv até a média
     const scoredAds = filteredAds.map((ad: any) => {
       const { impactAbsConversions, score } = computeLandingPageImpact(ad, {
@@ -433,7 +279,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
     // Se alguma média não estiver disponível, não aplicamos o filtro
     if (avgWebsiteCtr == null || avgConnectRate == null || avgPageConv == null || avgCpm == null) return [];
 
-    // 6.1 Mapear métricas com fallbacks (igual ao GemCard)
+    // 6.1 Mapear métricas com fallbacks (igual ao GenericCard)
     const mappedAds = validatedAds.map((ad) => {
       const impressions = Number((ad as any).impressions || 0);
       const spend = Number((ad as any).spend || 0);
@@ -564,127 +410,121 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
     return scoredAds.sort((a, b) => b.score - a.score).slice(0, 10);
   }, [validatedAds, totalSpend, averages, actionType, formatCurrency]);
 
-  // Configurar sensores para drag and drop
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8,
-      },
-    }),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
+  // Criar configurações de colunas para o BaseKanbanWidget
+  const columnConfigs = useMemo<KanbanColumnConfig<InsightsColumnType>[]>(() => {
+    const configs: KanbanColumnConfig<InsightsColumnType>[] = [];
 
-  // Handler para quando o drag termina
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      setColumnOrder((items) => {
-        const oldIndex = items.indexOf(active.id as string);
-        const newIndex = items.indexOf(over.id as string);
-        const newOrder = arrayMove(items, oldIndex, newIndex);
-        saveColumnOrder(newOrder);
-        return newOrder;
+    const addColumn = (id: InsightsColumnType, title: string, items: any[], averageValue: number | null, colorScheme: GenericColumnColorScheme, formatAverage?: (value: number | null | undefined) => string, tooltip?: { title: string }, metricKey: "cpm" | "cpr" | "page_conv" = "page_conv") => {
+      configs.push({
+        id,
+        title,
+        items,
+        averageValue,
+        emptyMessage: "Nenhum item encontrado",
+        formatAverage,
+        tooltip,
+        renderColumn: (config) => (
+          <SortableColumn
+            id={config.id}
+            title={config.title}
+            items={config.items}
+            colorScheme={colorScheme}
+            averageValue={config.averageValue}
+            emptyMessage={config.emptyMessage}
+            formatAverage={config.formatAverage}
+            tooltip={config.tooltip}
+            enableDrag={true}
+            renderCard={(item, cardIndex, cardColorScheme) => (
+              <GenericCard
+                key={`${item.ad_id}-${cardIndex}`}
+                ad={item}
+                metricLabel={config.title}
+                metricKey={metricKey}
+                rank={cardIndex + 1}
+                averageValue={config.averageValue}
+                metricColor={cardColorScheme.card}
+                onClick={(openVideo) => {
+                  // Usar o handler do BaseKanbanWidget se disponível
+                  if (config.onAdClick) {
+                    config.onAdClick(item, openVideo);
+                  }
+                }}
+                topMetrics={getTopMetrics(item.ad_id)}
+                actionType={actionType}
+                isCompact={true}
+              />
+            )}
+          />
+        ),
       });
-    }
-  };
-
-  // Obter esquema de cores e título para cada coluna baseado na ordem
-  const getColumnConfig = (title: string, index: number) => {
-    const originalIndex = defaultColumnTitles.indexOf(title);
-    return {
-      title,
-      colorScheme: allColorSchemes[originalIndex] || allColorSchemes[index],
     };
-  };
 
-  // Preparar averages para o AdDetailsDialog
-  const dialogAverages = averages
-    ? {
-        hook: averages.hook ?? null,
-        scroll_stop: averages.scroll_stop ?? null,
-        ctr: averages.ctr ?? null,
-        website_ctr: averages.website_ctr ?? null,
-        connect_rate: averages.connect_rate ?? null,
-        cpm: averages.cpm ?? null,
-        cpr: actionType && averages.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].cpr === "number" ? averages.per_action_type[actionType].cpr : null,
-        page_conv: actionType && averages.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].page_conv === "number" ? averages.per_action_type[actionType].page_conv : null,
-      }
-    : undefined;
+    // Landing Page
+    const landingPageIndex = DEFAULT_INSIGHTS_COLUMN_TITLES.indexOf("Landing Page");
+    addColumn(
+      "Landing Page",
+      "Landing Page",
+      pageConvColumnAds,
+      avgPageConv,
+      allColorSchemes[landingPageIndex] || allColorSchemes[0],
+      undefined,
+      {
+        title: "Impacto = conversões adicionais estimadas ao melhorar apenas a conversão de página até a média, mantendo o mesmo spend.",
+      },
+      "page_conv"
+    );
+
+    // CPM
+    const cpmIndex = DEFAULT_INSIGHTS_COLUMN_TITLES.indexOf("CPM");
+    addColumn(
+      "CPM",
+      "CPM",
+      cpmColumnAds,
+      avgCpm,
+      allColorSchemes[cpmIndex] || allColorSchemes[1],
+      (value) => (value != null && Number.isFinite(value) && value > 0 ? formatCurrency(value) : "—"),
+      {
+        title: "Impacto = economia potencial estimada ao reduzir o CPM atual até a média, mantendo o mesmo volume de impressões.",
+      },
+      "cpm"
+    );
+
+    // Spend
+    const spendIndex = DEFAULT_INSIGHTS_COLUMN_TITLES.indexOf("Spend");
+    const avgCpr = actionType && averages?.per_action_type?.[actionType]?.cpr != null ? averages.per_action_type[actionType].cpr : null;
+    addColumn(
+      "Spend",
+      "Spend",
+      spendColumnAds,
+      avgCpr,
+      allColorSchemes[spendIndex] || allColorSchemes[2],
+      (value) => (value != null && Number.isFinite(value) && value > 0 ? formatCurrency(value) : "—"),
+      {
+        title: "Impacto = economia potencial estimada ao reduzir o CPR atual até a média. Mostra anúncios com spend > 3% do total e CPR 10% acima da média.",
+      },
+      "cpr"
+    );
+
+    // Coluna 4 (vazia por enquanto)
+    const col4Index = DEFAULT_INSIGHTS_COLUMN_TITLES.indexOf("Coluna 4");
+    addColumn("Coluna 4", "Coluna 4", [], null, allColorSchemes[col4Index] || allColorSchemes[3], undefined, undefined, "page_conv");
+
+    return configs;
+  }, [pageConvColumnAds, cpmColumnAds, spendColumnAds, avgPageConv, avgCpm, averages, actionType, formatCurrency, getTopMetrics, allColorSchemes]);
 
   return (
-    <>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={columnOrder} strategy={horizontalListSortingStrategy}>
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
-            {columnOrder.map((title, index) => {
-              const config = getColumnConfig(title, index);
-              // Determinar itens e média para cada coluna
-              let columnItems: any[] = [];
-              let columnAverage: number | null = null;
-
-              if (title === "Landing Page") {
-                columnItems = pageConvColumnAds;
-                columnAverage = avgPageConv;
-              } else if (title === "CPM") {
-                columnItems = cpmColumnAds;
-                columnAverage = avgCpm;
-              } else if (title === "Spend") {
-                columnItems = spendColumnAds;
-                columnAverage = actionType && averages?.per_action_type?.[actionType]?.cpr != null ? averages.per_action_type[actionType].cpr : null;
-              }
-
-              return (
-                <SortableColumnWrapper
-                  key={title}
-                  id={title}
-                  title={config.title}
-                  items={columnItems}
-                  colorScheme={config.colorScheme}
-                  averageValue={columnAverage}
-                  emptyMessage="Nenhum item encontrado"
-                  getTopMetrics={getTopMetrics}
-                  actionType={actionType}
-                  formatAverage={title === "CPM" || title === "Spend" ? (value) => (value != null && Number.isFinite(value) && value > 0 ? formatCurrency(value) : "—") : undefined}
-                  renderCard={(item, cardIndex, colorScheme) => (
-                    <GemCard
-                      key={`${item.ad_id}-${cardIndex}`}
-                      ad={item}
-                      metricLabel={config.title}
-                      metricKey={title === "CPM" ? "cpm" : title === "Spend" ? "cpr" : "page_conv"}
-                      rank={cardIndex + 1}
-                      averageValue={columnAverage}
-                      metricColor={colorScheme.card}
-                      onClick={(openVideo) => {
-                        setSelectedAd(item);
-                        setOpenInVideoTab(openVideo || false);
-                      }}
-                      topMetrics={getTopMetrics(item.ad_id)}
-                      actionType={actionType}
-                      isCompact={true}
-                    />
-                  )}
-                />
-              );
-            })}
-          </div>
-        </SortableContext>
-      </DndContext>
-
-      {/* Modal com detalhes do anúncio */}
-      <Modal
-        isOpen={!!selectedAd}
-        onClose={() => {
-          setSelectedAd(null);
-          setOpenInVideoTab(false);
-        }}
-        size="4xl"
-        padding="md"
-      >
-        {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} initialTab={openInVideoTab ? "video" : "overview"} averages={dialogAverages} />}
-      </Modal>
-    </>
+    <BaseKanbanWidget
+      storageKey={STORAGE_KEY_INSIGHTS_COLUMN_ORDER}
+      defaultColumnOrder={DEFAULT_INSIGHTS_COLUMN_TITLES}
+      columnConfigs={columnConfigs}
+      enableDrag={true}
+      modalProps={{
+        dateStart,
+        dateStop,
+        actionType,
+        availableConversionTypes,
+        averages,
+      }}
+    />
   );
 }

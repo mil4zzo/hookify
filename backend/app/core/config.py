@@ -20,7 +20,9 @@ GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")
 GOOGLE_OAUTH_REDIRECT_URI = os.getenv("GOOGLE_OAUTH_REDIRECT_URI")
 GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
 GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
-GOOGLE_OAUTH_SCOPES = f"{GOOGLE_SHEETS_SCOPE} {GOOGLE_DRIVE_SCOPE}"
+GOOGLE_USERINFO_EMAIL_SCOPE = "https://www.googleapis.com/auth/userinfo.email"
+GOOGLE_USERINFO_PROFILE_SCOPE = "https://www.googleapis.com/auth/userinfo.profile"
+GOOGLE_OAUTH_SCOPES = f"{GOOGLE_SHEETS_SCOPE} {GOOGLE_DRIVE_SCOPE} {GOOGLE_USERINFO_EMAIL_SCOPE} {GOOGLE_USERINFO_PROFILE_SCOPE}"
 GOOGLE_OAUTH_AUTH_BASE_URL = os.getenv(
     "GOOGLE_OAUTH_AUTH_BASE_URL",
     "https://accounts.google.com/o/oauth2/v2/auth",

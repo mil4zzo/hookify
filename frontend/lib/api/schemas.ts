@@ -275,6 +275,10 @@ export type SheetSyncStats = z.infer<typeof SheetSyncStatsSchema>
 export type SheetSyncResponse = z.infer<typeof SheetSyncResponseSchema>
 
 // ========== Analytics Schemas ==========
+// Estes schemas representam o snapshot agregado de performance de anúncios
+// retornado pelo endpoint histórico `/analytics/rankings` (também exposto como
+// `/analytics/ad-performance`). O nome "Rankings" é mantido por compatibilidade,
+// mas em código novo prefira os aliases AdPerformance* exportados abaixo.
 export const RankingsFiltersSchema = z.object({
   adaccount_ids: z.array(z.string()).optional(),
   campaign_name_contains: z.string().optional(),
@@ -442,5 +446,11 @@ export const DashboardResponseSchema = z.object({
 export type RankingsFilters = z.infer<typeof RankingsFiltersSchema>
 export type RankingsRequest = z.infer<typeof RankingsRequestSchema>
 export type RankingsResponse = z.infer<typeof RankingsResponseSchema>
+
+// Aliases semânticos para futuras evoluções, mantendo compatibilidade com o nome antigo "Rankings"
+export type AdPerformanceRequest = RankingsRequest;
+export type AdPerformanceItem = RankingsItem;
+export type AdPerformanceResponse = RankingsResponse;
+export type AdDetailItem = RankingsChildrenItem;
 export type DashboardRequest = z.infer<typeof DashboardRequestSchema>
 export type DashboardResponse = z.infer<typeof DashboardResponseSchema>

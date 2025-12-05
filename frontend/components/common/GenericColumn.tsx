@@ -30,13 +30,15 @@ export interface GenericColumnProps {
   headerRight?: React.ReactNode;
   /** Função opcional para formatar o valor médio (padrão: formata como porcentagem) */
   formatAverage?: (value: number | null | undefined) => string;
+  /** Altura máxima para a área de conteúdo com scroll vertical (ex: "60vh"). Quando definida, o header fica fixo e apenas o conteúdo rola. */
+  maxHeight?: string;
 }
 
 /**
  * Componente genérico de coluna reutilizável, baseado na estrutura de GemsColumn.
  * Permite customização completa de cores, cards e comportamento.
  */
-export function GenericColumn({ title, items, colorScheme, averageValue, renderCard, emptyMessage = "Nenhum item encontrado", showAverage = true, className, headerRight, formatAverage }: GenericColumnProps) {
+export function GenericColumn({ title, items, colorScheme, averageValue, renderCard, emptyMessage = "Nenhum item encontrado", showAverage = true, className, headerRight, formatAverage, maxHeight }: GenericColumnProps) {
   // Função para formatar o valor médio (padrão: formata como porcentagem)
   const formatAverageValue =
     formatAverage ||
@@ -46,16 +48,18 @@ export function GenericColumn({ title, items, colorScheme, averageValue, renderC
     });
 
   return (
-    <div className={cn("flex h-full flex-col gap-6", className)}>
+    <div className={cn("flex h-full flex-col gap-2 bg-card p-2 rounded-xl w-full", className)}>
       {/* Cabeçalho da coluna, seguindo o estilo do print (título forte, sem card ao redor) */}
-      <div className="w-full flex items-center justify-between">
-        <h3 className={cn("text-base sm:text-lg font-semibold text-white", colorScheme.title)}>{title}</h3>
+      <div className="w-full flex items-center justify-between pr-2 flex-shrink-0">
+        <h3 className={cn("text-base sm:text-md font-semibold text-white", colorScheme.title)}>🔹 {title}</h3>
         <div className="flex items-center gap-2">
-          {showAverage && <span className="text-sm text-muted-foreground">Média: {formatAverageValue(averageValue)}</span>}
+          {showAverage && <span className="text-[11px] text-muted-foreground">Média: {formatAverageValue(averageValue)}</span>}
           {headerRight}
         </div>
       </div>
-      <div className="space-y-4">{items.length === 0 ? <div className="rounded-xl border border-dashed border-border/60 bg-background/40 px-4 py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : items.map((item, index) => renderCard(item, index, colorScheme))}</div>
+      <div className={cn("space-y-4", maxHeight && "overflow-y-auto flex-1 min-h-0 custom-scrollbar")} style={maxHeight ? { maxHeight } : undefined}>
+        {items.length === 0 ? <div className="rounded-xl border border-dashed border-border/60 bg-background/40 px-4 py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : items.map((item, index) => renderCard(item, index, colorScheme))}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { Modal } from "@/components/common/Modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,8 @@ import { IconBrandGoogle, IconRefresh, IconTableExport, IconCheck, IconCircle, I
 import { Progress } from "@/components/ui/progress";
 import { SpreadsheetCombobox } from "./SpreadsheetCombobox";
 import { WorksheetCombobox } from "./WorksheetCombobox";
+import { openAuthPopup, AuthPopupError } from "@/lib/utils/authPopup";
+import { MultiStepBreadcrumb, Step } from "@/components/common/MultiStepBreadcrumb";
 
 export interface GoogleSheetIntegrationDialogProps {
   isOpen: boolean;
@@ -24,10 +26,10 @@ export interface GoogleSheetIntegrationDialogProps {
   packId?: string | null;
 }
 
-type Step = "connect" | "select-sheet" | "select-columns" | "summary";
+type DialogStep = "connect" | "select-sheet" | "select-columns" | "summary";
 
 export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: GoogleSheetIntegrationDialogProps) {
-  const [step, setStep] = useState<Step>("connect");
+  const [step, setStep] = useState<DialogStep>("connect");
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoadingColumns, setIsLoadingColumns] = useState(false);
@@ -38,6 +40,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [selectedConnectionId, setSelectedConnectionId] = useState<string>("");
   const [isLoadingConnections, setIsLoadingConnections] = useState(false);
   const [isDeletingConnection, setIsDeletingConnection] = useState(false);
+  const [expiredConnections, setExpiredConnections] = useState<Set<string>>(new Set());
+  const [testingConnections, setTestingConnections] = useState<Set<string>>(new Set());
 
   const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState("");
   const [worksheetTitle, setWorksheetTitle] = useState("");
@@ -52,12 +56,119 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [lastSyncStats, setLastSyncStats] = useState<SheetSyncResponse["stats"] | null>(null);
   const [integrationId, setIntegrationId] = useState<string | null>(null);
 
+  // Testar se uma conexão está válida
+  const testConnection = useCallback(async (connectionId: string): Promise<boolean> => {
+    try {
+      // Fazer uma chamada simples para testar a conexão (listar planilhas com page_size=1)
+      await api.integrations.google.listSpreadsheets({ page_size: 1 });
+      return true;
+    } catch (error: any) {
+      // Verificar se é erro de token expirado/revogado
+      const errorMessage = error?.message || String(error || "");
+      const isTokenExpired =
+        errorMessage.toLowerCase().includes("token") &&
+        (errorMessage.toLowerCase().includes("expirado") ||
+          errorMessage.toLowerCase().includes("revogado") ||
+          errorMessage.toLowerCase().includes("inválido") ||
+          errorMessage.toLowerCase().includes("reconecte"));
+      return !isTokenExpired;
+    }
+  }, []);
+
+
+  const loadConnections = useCallback(async () => {
+    try {
+      setIsLoadingConnections(true);
+      const res = await api.integrations.google.listConnections();
+      const connectionsList = res.connections || [];
+      
+      // Debug: verificar dados recebidos
+      console.log("Conexões recebidas do backend:", connectionsList.map(c => ({
+        id: c.id,
+        email: c.google_email,
+        name: c.google_name,
+        user_id: c.google_user_id,
+        hasEmail: !!c.google_email,
+        hasName: !!c.google_name,
+      })));
+      
+      setConnections(connectionsList);
+
+      // Testar todas as conexões para verificar se estão válidas
+      let expiredSet = new Set<string>();
+      if (connectionsList.length > 0) {
+        const expired = new Set<string>();
+        const testing = new Set<string>();
+
+        for (const conn of connectionsList) {
+          testing.add(conn.id);
+          setTestingConnections(new Set(testing));
+
+          const isValid = await testConnection(conn.id);
+          if (!isValid) {
+            expired.add(conn.id);
+          }
+
+          testing.delete(conn.id);
+          setTestingConnections(new Set(testing));
+        }
+
+        expiredSet = expired;
+        setExpiredConnections(expired);
+      }
+
+      // Selecionar primeira conexão válida (não expirada) apenas se não houver seleção atual
+      if (connectionsList.length > 0 && !selectedConnectionId) {
+        const validConnection = connectionsList.find((conn) => !expiredSet.has(conn.id));
+        if (validConnection) {
+          setSelectedConnectionId(validConnection.id);
+          setIsGoogleConnected(true);
+        }
+      } else if (selectedConnectionId && expiredSet.has(selectedConnectionId)) {
+        // Se a conexão selecionada expirou, limpar seleção
+        setSelectedConnectionId("");
+        setIsGoogleConnected(false);
+      }
+    } catch (error) {
+      console.error("Erro ao carregar conexões:", error);
+    } finally {
+      setIsLoadingConnections(false);
+    }
+  }, [selectedConnectionId, testConnection]);
+
   // Carregar conexões existentes quando abrir
   useEffect(() => {
     if (isOpen) {
       loadConnections();
     }
-  }, [isOpen]);
+  }, [isOpen, loadConnections]);
+
+  // Listener para detectar quando token expira durante uso
+  useEffect(() => {
+    const handleTokenExpired = (event: CustomEvent) => {
+      if (!isOpen) return;
+
+      // Mostrar mensagem e solicitar reconexão
+      showError(new Error("Sua conexão com o Google Sheets expirou. Por favor, reconecte sua conta para continuar."));
+
+      // Voltar para o step de conexão e limpar seleção
+      setStep("connect");
+      setSelectedConnectionId("");
+      setIsGoogleConnected(false);
+      setSelectedSpreadsheetId("");
+      setWorksheetTitle("");
+      setColumns([]);
+
+      // Recarregar conexões para atualizar status
+      loadConnections();
+    };
+
+    window.addEventListener("google-token-expired", handleTokenExpired as EventListener);
+
+    return () => {
+      window.removeEventListener("google-token-expired", handleTokenExpired as EventListener);
+    };
+  }, [isOpen, loadConnections]);
 
   // Resetar estado ao abrir/fechar
   useEffect(() => {
@@ -81,30 +192,45 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setConnections([]);
       setImportStep("idle");
       setImportProgress(0);
+      setExpiredConnections(new Set());
+      setTestingConnections(new Set());
     }
   }, [isOpen]);
 
-  const loadConnections = async () => {
-    try {
-      setIsLoadingConnections(true);
-      const res = await api.integrations.google.listConnections();
-      setConnections(res.connections || []);
-      // Se houver conexões e nenhuma selecionada, selecionar a primeira
-      if (res.connections && res.connections.length > 0 && !selectedConnectionId) {
-        setSelectedConnectionId(res.connections[0].id);
-        setIsGoogleConnected(true);
-      }
-    } catch (error) {
-      console.error("Erro ao carregar conexões:", error);
-    } finally {
-      setIsLoadingConnections(false);
-    }
-  };
-
   const handleSelectConnection = (connectionId: string) => {
+    // Não permitir selecionar conexão expirada
+    if (expiredConnections.has(connectionId)) {
+      return;
+    }
     setSelectedConnectionId(connectionId);
     setIsGoogleConnected(true);
     // Não avança automaticamente, usuário precisa clicar em "Avançar"
+  };
+
+  const handleReconnect = async (connectionId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      // Deletar conexão expirada
+      await api.integrations.google.deleteConnection(connectionId);
+      
+      // Limpar seleção se era a conexão selecionada
+      if (selectedConnectionId === connectionId) {
+        setSelectedConnectionId("");
+        setIsGoogleConnected(false);
+      }
+      
+      // Remover da lista de expiradas
+      setExpiredConnections((prev) => {
+        const next = new Set(prev);
+        next.delete(connectionId);
+        return next;
+      });
+      
+      // Iniciar novo fluxo de conexão
+      await handleConnectGoogle();
+    } catch (error) {
+      showError(error instanceof Error ? error : new Error("Erro ao reconectar conta Google"));
+    }
   };
 
   const handleDeleteConnection = async (connectionId: string, e: React.MouseEvent) => {
@@ -173,89 +299,73 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
 
       const authUrl = res.auth_url;
 
-      // 2) Abrir popup
-      const popup = window.open(authUrl, "hookify-google-sheets-auth", "width=600,height=700");
-      if (!popup) {
-        throw new Error("Não foi possível abrir a janela de autenticação. Verifique o bloqueador de pop-ups.");
+      // 2) Abrir popup + aguardar retorno do callback via util genérico
+      const messageData = await openAuthPopup<{
+        type?: string;
+        code?: string;
+        error?: string;
+        errorDescription?: string;
+        state?: string;
+      }>({
+        url: authUrl,
+        windowName: "hookify-google-sheets-auth",
+        windowFeatures: "width=600,height=700",
+        successType: "GOOGLE_SHEETS_AUTH_SUCCESS",
+        errorType: "GOOGLE_SHEETS_AUTH_ERROR",
+        expectedState: "google_sheets",
+        timeoutMs: 5 * 60 * 1000,
+      });
+
+      if (!messageData.code) {
+        throw new Error("Código de autorização não recebido do Google.");
       }
 
-      // 3) Aguardar mensagem do callback
-      const connectionData = await new Promise<any>((resolve, reject) => {
-        const handleMessage = async (event: MessageEvent) => {
-          if (!event.data || typeof event.data !== "object") return;
-          const { type, code, error, errorDescription, state } = event.data as any;
+      let connectionData: any;
+      try {
+        connectionData = await api.integrations.google.exchangeCode(messageData.code, redirectUri);
+      } catch (e: any) {
+        console.error("Erro ao trocar código por token:", e);
+        // O erro pode ser um AppError com estrutura { message, status, code, details }
+        // ou um Error padrão com e.message
+        let errorMessage = "Erro ao finalizar autenticação. Verifique sua conexão com a internet e tente novamente.";
 
-          if (state !== "google_sheets") return;
+        if (e?.message) {
+          errorMessage = e.message;
+        } else if (typeof e === "string") {
+          errorMessage = e;
+        } else if (e?.details) {
+          errorMessage = String(e.details);
+        } else if (e?.toString && e.toString() !== "[object Object]") {
+          errorMessage = e.toString();
+        }
 
-          if (type === "GOOGLE_SHEETS_AUTH_ERROR") {
-            window.removeEventListener("message", handleMessage);
-            reject(new Error(errorDescription || error || "Falha na autenticação com Google Sheets."));
-            return;
-          }
+        // Adicionar informações adicionais para debug
+        console.error("Detalhes completos do erro:", {
+          error: e,
+          errorType: typeof e,
+          errorString: String(e),
+          code: e?.code,
+          status: e?.status,
+          message: e?.message,
+          details: e?.details,
+          response: e?.response,
+          request: e?.request,
+          config: e?.config,
+        });
 
-          if (type === "GOOGLE_SHEETS_AUTH_SUCCESS") {
-            window.removeEventListener("message", handleMessage);
-            if (!code) {
-              reject(new Error("Código de autorização não recebido do Google."));
-              return;
-            }
-            try {
-              const connectionData = await api.integrations.google.exchangeCode(code, redirectUri);
-              resolve(connectionData);
-            } catch (e: any) {
-              console.error("Erro ao trocar código por token:", e);
-              // O erro pode ser um AppError com estrutura { message, status, code, details }
-              // ou um Error padrão com e.message
-              let errorMessage = "Erro ao finalizar autenticação. Verifique sua conexão com a internet e tente novamente.";
+        // Verificar se é erro de rede
+        if (e?.code === "ERR_NETWORK" || e?.code === "ECONNREFUSED" || e?.code === "ENOTFOUND") {
+          errorMessage = "Não foi possível conectar ao servidor. Verifique se o backend está rodando e acessível.";
+        } else if (e?.status === 401) {
+          errorMessage = "Não autorizado. Sua sessão pode ter expirado. Por favor, faça login novamente.";
+        } else if (e?.status === 500) {
+          errorMessage = "Erro interno do servidor. Tente novamente mais tarde.";
+        } else if (e?.status) {
+          errorMessage = `Erro do servidor (${e.status}): ${errorMessage}`;
+        }
 
-              if (e?.message) {
-                errorMessage = e.message;
-              } else if (typeof e === "string") {
-                errorMessage = e;
-              } else if (e?.details) {
-                errorMessage = String(e.details);
-              } else if (e?.toString && e.toString() !== "[object Object]") {
-                errorMessage = e.toString();
-              }
-
-              // Adicionar informações adicionais para debug
-              console.error("Detalhes completos do erro:", {
-                error: e,
-                errorType: typeof e,
-                errorString: String(e),
-                code: e?.code,
-                status: e?.status,
-                message: e?.message,
-                details: e?.details,
-                response: e?.response,
-                request: e?.request,
-                config: e?.config,
-              });
-
-              // Verificar se é erro de rede
-              if (e?.code === "ERR_NETWORK" || e?.code === "ECONNREFUSED" || e?.code === "ENOTFOUND") {
-                errorMessage = "Não foi possível conectar ao servidor. Verifique se o backend está rodando e acessível.";
-              } else if (e?.status === 401) {
-                errorMessage = "Não autorizado. Sua sessão pode ter expirado. Por favor, faça login novamente.";
-              } else if (e?.status === 500) {
-                errorMessage = "Erro interno do servidor. Tente novamente mais tarde.";
-              } else if (e?.status) {
-                errorMessage = `Erro do servidor (${e.status}): ${errorMessage}`;
-              }
-
-              reject(new Error(errorMessage));
-            }
-          }
-        };
-
-        window.addEventListener("message", handleMessage);
-
-        // Timeout de segurança
-        setTimeout(() => {
-          window.removeEventListener("message", handleMessage);
-          reject(new Error("Tempo limite para autenticação com Google Sheets atingido."));
-        }, 5 * 60 * 1000);
-      });
+        throw new Error(errorMessage);
+      }
 
       showSuccess("Google Sheets conectado! Agora você pode configurar a planilha para enriquecer os anúncios.");
       await loadConnections();
@@ -267,6 +377,20 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       }
     } catch (e: any) {
       console.error("Erro completo na conexão Google:", e);
+
+      // Se o usuário apenas fechou o popup, não tratar como erro "vermelho"
+      const authError = e as AuthPopupError;
+      if (authError?.code === "AUTH_POPUP_CLOSED") {
+        // Cancelamento explícito pelo usuário – opcionalmente poderíamos exibir um toast informativo.
+        return;
+      }
+
+      // Ajustar mensagem específica para timeout no contexto de Google Sheets
+      if (authError?.code === "AUTH_POPUP_TIMEOUT") {
+        showError(new Error("Tempo limite para autenticação com Google Sheets atingido."));
+        return;
+      }
+
       // Melhorar mensagem de erro para o usuário
       const errorMessage = e?.message || e?.toString() || "Erro desconhecido ao conectar com Google Sheets";
       showError(new Error(errorMessage));
@@ -341,7 +465,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setStep("summary");
 
       showSuccess(`Importação concluída! Atualizadas ${syncRes.stats.updated_rows} linhas em ad_metrics.`);
-      
+
       // Recarregar packs para atualizar dados de integração no card
       // Isso garante que o card mostre "Planilha conectada" imediatamente
       if (packId) {
@@ -351,9 +475,11 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             const updatedPack = response.packs.find((p: any) => p.id === packId);
             if (updatedPack?.sheet_integration) {
               // Disparar evento customizado para que o PacksLoader recarregue
-              window.dispatchEvent(new CustomEvent('pack-integration-updated', { 
-                detail: { packId, sheetIntegration: updatedPack.sheet_integration } 
-              }));
+              window.dispatchEvent(
+                new CustomEvent("pack-integration-updated", {
+                  detail: { packId, sheetIntegration: updatedPack.sheet_integration },
+                })
+              );
             }
           }
         } catch (error) {
@@ -414,51 +540,29 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         </div>
 
         {/* Indicador de Steps */}
-        <div className="flex items-center gap-2 pb-4 border-b border-border">
-          {/* Step 1 */}
-          <div className="flex items-center gap-2 flex-1">
-            <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${isGoogleConnected ? "bg-green-500/20 border-green-500 text-green-500" : step === "connect" ? "bg-primary/20 border-primary text-primary" : "bg-border border-border text-muted-foreground"}`}>{isGoogleConnected ? <IconCheck className="w-4 h-4" /> : <span className="text-xs font-semibold">1</span>}</div>
-            <div className="flex-1">
-              <div className={`text-sm font-medium ${isGoogleConnected ? "text-green-500" : step === "connect" ? "text-primary" : "text-muted-foreground"}`}>Conectar Google</div>
-              {isGoogleConnected &&
-                (() => {
-                  if (selectedConnectionId) {
-                    const selectedConn = connections.find((c) => c.id === selectedConnectionId);
-                    if (selectedConn) {
-                      return (
-                        <div className="text-xs text-muted-foreground truncate" title={selectedConn.google_email || ""}>
-                          {selectedConn.google_name || selectedConn.google_email || "Conta Google"}
-                        </div>
-                      );
-                    }
-                  }
-                  return <div className="text-xs text-muted-foreground">Conectado</div>;
-                })()}
-            </div>
-          </div>
-
-          {/* Linha conectora 1 */}
-          <div className={`flex-1 h-0.5 ${isGoogleConnected ? "bg-green-500" : "bg-border"}`} />
-
-          {/* Step 2 */}
-          <div className="flex items-center gap-2 flex-1">
-            <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${step === "select-sheet" && isGoogleConnected ? "bg-primary/20 border-primary text-primary" : selectedSpreadsheetId && worksheetTitle ? "bg-green-500/20 border-green-500 text-green-500" : isGoogleConnected ? "bg-border border-border text-muted-foreground" : "bg-border border-border text-muted-foreground"}`}>{selectedSpreadsheetId && worksheetTitle ? <IconCheck className="w-4 h-4" /> : <span className="text-xs font-semibold">2</span>}</div>
-            <div className="flex-1">
-              <div className={`text-sm font-medium ${step === "select-sheet" && isGoogleConnected ? "text-primary" : selectedSpreadsheetId && worksheetTitle ? "text-green-500" : "text-muted-foreground"}`}>Selecionar planilha</div>
-            </div>
-          </div>
-
-          {/* Linha conectora 2 */}
-          <div className={`flex-1 h-0.5 ${selectedSpreadsheetId && worksheetTitle ? "bg-green-500" : "bg-border"}`} />
-
-          {/* Step 3 */}
-          <div className="flex items-center gap-2 flex-1">
-            <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${step === "select-columns" && selectedSpreadsheetId && worksheetTitle ? "bg-primary/20 border-primary text-primary" : step === "summary" ? "bg-green-500/20 border-green-500 text-green-500" : selectedSpreadsheetId && worksheetTitle ? "bg-border border-border text-muted-foreground" : "bg-border border-border text-muted-foreground"}`}>{step === "summary" ? <IconCheck className="w-4 h-4" /> : <span className="text-xs font-semibold">3</span>}</div>
-            <div className="flex-1">
-              <div className={`text-sm font-medium ${step === "select-columns" && selectedSpreadsheetId && worksheetTitle ? "text-primary" : step === "summary" ? "text-green-500" : "text-muted-foreground"}`}>Selecionar colunas</div>
-            </div>
-          </div>
-        </div>
+        <MultiStepBreadcrumb
+          steps={[
+            {
+              id: "connect",
+              label: "Conectar Google",
+              description: isGoogleConnected ? (selectedConnectionId ? connections.find((c) => c.id === selectedConnectionId)?.google_name || connections.find((c) => c.id === selectedConnectionId)?.google_email || "Conta Google" : "Conectado") : undefined,
+              status: isGoogleConnected ? "completed" : step === "connect" ? "active" : "pending",
+            },
+            {
+              id: "select-sheet",
+              label: "Selecionar planilha",
+              status: selectedSpreadsheetId && worksheetTitle ? "completed" : step === "select-sheet" && isGoogleConnected ? "active" : "pending",
+            },
+            {
+              id: "select-columns",
+              label: "Selecionar colunas",
+              status: step === "summary" ? "completed" : step === "select-columns" && selectedSpreadsheetId && worksheetTitle ? "active" : "pending",
+            },
+          ]}
+          currentStepId={step}
+          variant="visual"
+          onStepClick={(stepId) => setStep(stepId as DialogStep)}
+        />
 
         {/* Step 1: Conectar Google */}
         {step === "connect" && (
@@ -478,23 +582,79 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Conexões existentes</label>
                   <div className="space-y-2">
-                    {connections.map((conn) => (
-                      <div key={conn.id} className={`flex items-center justify-between p-3 border rounded-lg cursor-pointer transition-colors ${selectedConnectionId === conn.id ? "border-primary bg-primary/5" : "border-border hover:bg-accent"}`} onClick={() => handleSelectConnection(conn.id)}>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate">{conn.google_name || conn.google_email || "Conta Google"}</div>
-                          {conn.google_email && <div className="text-xs text-muted-foreground truncate">{conn.google_email}</div>}
+                    {connections.map((conn) => {
+                      const isExpired = expiredConnections.has(conn.id);
+                      const isTesting = testingConnections.has(conn.id);
+                      const isSelected = selectedConnectionId === conn.id;
+                      const canSelect = !isExpired && !isTesting;
+
+                      return (
+                        <div
+                          key={conn.id}
+                          className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${
+                            isSelected && canSelect
+                              ? "border-primary bg-primary/5 cursor-pointer"
+                              : isExpired
+                              ? "border-destructive/50 bg-destructive/5 cursor-not-allowed opacity-75"
+                              : canSelect
+                              ? "border-border hover:bg-accent cursor-pointer"
+                              : "border-border cursor-not-allowed opacity-50"
+                          }`}
+                          onClick={() => canSelect && handleSelectConnection(conn.id)}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <div className="font-medium text-sm truncate">
+                                {conn.google_email || conn.google_name || conn.google_user_id || "Conta Google"}
+                              </div>
+                              {isTesting && (
+                                <IconLoader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                              )}
+                              {isExpired && (
+                                <span className="text-xs px-2 py-0.5 rounded bg-destructive/20 text-destructive font-medium">
+                                  Expirada
+                                </span>
+                              )}
+                            </div>
+                            {conn.google_name && conn.google_name !== conn.google_email && conn.google_email && (
+                              <div className="text-xs text-muted-foreground truncate">{conn.google_name}</div>
+                            )}
+                            {!conn.google_email && !conn.google_name && conn.google_user_id && (
+                              <div className="text-xs text-muted-foreground truncate">ID: {conn.google_user_id}</div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isSelected && canSelect && <IconCheck className="w-4 h-4 text-primary" />}
+                            {isExpired ? (
+                              <Button
+                                type="button"
+                                variant="default"
+                                size="sm"
+                                className="h-8 text-xs"
+                                onClick={(e) => handleReconnect(conn.id, e)}
+                                disabled={isConnecting || isDeletingConnection}
+                              >
+                                Reconectar
+                              </Button>
+                            ) : (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                                onClick={(e) => handleDeleteConnection(conn.id, e)}
+                                disabled={isDeletingConnection}
+                              >
+                                <IconTrash className="w-4 h-4" />
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          {selectedConnectionId === conn.id && <IconCheck className="w-4 h-4 text-primary" />}
-                          <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={(e) => handleDeleteConnection(conn.id, e)} disabled={isDeletingConnection}>
-                            <IconTrash className="w-4 h-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                   {/* Botão Avançar do Step 1 */}
-                  {selectedConnectionId && (
+                  {selectedConnectionId && !expiredConnections.has(selectedConnectionId) && (
                     <div className="pt-4 border-t border-border">
                       <Button
                         type="button"
@@ -634,9 +794,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
                         <SelectItem value="MM/DD/YYYY">MM/DD/YYYY (ex: 01/15/2025)</SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
-                      A data na planilha pode conter hora (ex: "DD/MM/YYYY HH:mm"), mas apenas a data será extraída.
-                    </p>
+                    <p className="text-xs text-muted-foreground">A data na planilha pode conter hora (ex: "DD/MM/YYYY HH:mm"), mas apenas a data será extraída.</p>
                   </div>
 
                   <div className="space-y-2">

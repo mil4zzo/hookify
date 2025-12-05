@@ -1,19 +1,20 @@
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
-import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
 import { LoadingState, EmptyState } from "@/components/common/States";
-import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
+import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { RankingsTable } from "@/components/rankings/RankingsTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api/endpoints";
 import { RankingsRequest, RankingsResponse } from "@/lib/api/schemas";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
-import { useRankings } from "@/lib/api/hooks";
+import { useAdPerformance } from "@/lib/api/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
+import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { evaluateValidationCriteria, aggregateMetricsForGroup, AdMetricsData } from "@/lib/utils/validateAdCriteria";
+import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { PageSectionHeader } from "@/components/common/PageSectionHeader";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -94,10 +95,10 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
 };
 
 export default function RankingsPage() {
-  const { isClient, isAuthenticated } = useClientAuth();
   const { packs, isClient: packsClient } = useClientPacks();
-  const { status } = useRequireAuth("/login");
-  // Ranking agora é sempre agrupado por nome (ad_name)
+  const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
+  // Ranking agora é sempre agrupado por nome (ad_name) sobre a mesma base
+  // de Ad Performance consumida também pela página de Insights.
   const [actionType, setActionType] = useState<string>(() => {
     if (typeof window === "undefined") return "";
 
@@ -168,7 +169,7 @@ export default function RankingsPage() {
   // endDate = limite superior selecionado no filtro
   const endDate = useMemo(() => dateRange.end, [dateRange.end]);
 
-  // Usar hook useRankings para buscar dados
+  // Usar hook semântico para buscar performance agregada de anúncios
   const rankingsRequest: RankingsRequest = useMemo(
     () => ({
       date_start: dateRange.start || "",
@@ -181,7 +182,7 @@ export default function RankingsPage() {
     [dateRange.start, dateRange.end]
   );
 
-  const { data: rankingsData, isLoading: loading, error: rankingsError } = useRankings(rankingsRequest, isClient && status === "authorized" && !!dateRange.start && !!dateRange.end);
+  const { data: rankingsData, isLoading: loading, error: rankingsError } = useAdPerformance(rankingsRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
 
   // Extrair dados do response
   const serverData = rankingsData?.data || null;
@@ -437,13 +438,19 @@ export default function RankingsPage() {
     }
   };
 
+  // Conjunto bruto do backend filtrado por packs selecionados
+  const filteredRankings = useMemo(() => {
+    if (!serverData) return [];
+    return serverData.filter((row: any) => isRankingInSelectedPacks(row));
+  }, [serverData, isRankingInSelectedPacks]);
+
   // Adaptar dados do servidor para a tabela existente (forma "ads" agregada)
   // Calcula results, cpr e page_conv localmente baseado no action_type selecionado
   // E filtra por packs selecionados
   const adsForTable = useMemo(() => {
-    if (!serverData) return [] as any[];
+    if (!filteredRankings || filteredRankings.length === 0) return [] as any[];
 
-    let mappedData = serverData.map((row: any) => {
+    let mappedData = filteredRankings.map((row: any) => {
       // Calcular results baseado no action_type selecionado a partir de row.conversions
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
@@ -529,6 +536,8 @@ export default function RankingsPage() {
         overall_conversion,
         ad_count: Number(row.ad_count || 1),
         thumbnail: row.thumbnail || null, // Thumbnail do servidor
+        // Preservar leadscore_values agregados para cálculo de MQL/CPMQL no frontend
+        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
         conversions: conversionsObj, // Objeto original contendo todos os tipos de conversão
         actions,
         series, // Séries com cpr e page_conv calculados dinamicamente, cpm e website_ctr do backend
@@ -537,8 +546,8 @@ export default function RankingsPage() {
       };
     });
 
-    // Filtrar por packs selecionados
-    let filteredData = mappedData.filter((ranking) => isRankingInSelectedPacks(ranking));
+    // Já filtrado por packs em filteredRankings
+    let filteredData = mappedData;
 
     // Aplicar filtro de validação se habilitado
     if (isValidationFilterEnabled && validationCriteria && validationCriteria.length > 0) {
@@ -597,7 +606,57 @@ export default function RankingsPage() {
     }
 
     return filteredData;
-  }, [serverData, actionType, selectedPackIds, packs, isRankingInSelectedPacks, isValidationFilterEnabled, validationCriteria]);
+  }, [filteredRankings, actionType, isValidationFilterEnabled, validationCriteria]);
+
+  // Conjunto de anúncios que passam pelos critérios de validação globais
+  // Usado apenas para cálculo de médias (baseline de anúncios "maduros")
+  const [validatedRankingsForAverages, validatedAveragesForAverages] = useMemo(() => {
+    if (!filteredRankings || filteredRankings.length === 0) {
+      return [[], undefined] as [any[], any];
+    }
+
+    // Enquanto critérios ainda não carregaram ou não existem, considerar todos como validados
+    if (!validationCriteria || validationCriteria.length === 0) {
+      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredRankings as any, actionType);
+      return [filteredRankings, averagesFromAll] as [any[], any];
+    }
+
+    const validated = filteredRankings.filter((ad: any) => {
+      const impressions = Number(ad.impressions || 0);
+      const spend = Number(ad.spend || 0);
+      const cpm = impressions > 0 ? (spend * 1000) / impressions : Number(ad.cpm || 0);
+      const website_ctr = Number(ad.website_ctr || 0);
+      const connect_rate = Number(ad.connect_rate || 0);
+      const lpv = Number(ad.lpv || 0);
+      const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
+      const page_conv = lpv > 0 ? results / lpv : 0;
+      const overall_conversion = website_ctr * connect_rate * page_conv;
+
+      const metrics: AdMetricsData = {
+        ad_name: ad.ad_name,
+        ad_id: ad.ad_id,
+        account_id: ad.account_id,
+        impressions,
+        spend,
+        cpm,
+        website_ctr,
+        connect_rate,
+        inline_link_clicks: Number(ad.inline_link_clicks || 0),
+        clicks: Number(ad.clicks || 0),
+        plays: Number(ad.plays || 0),
+        hook: Number(ad.hook || 0),
+        ctr: Number(ad.ctr || 0),
+        page_conv,
+        overall_conversion,
+        conversions: ad.conversions || {},
+      };
+
+      return evaluateValidationCriteria(validationCriteria, metrics, "AND");
+    });
+
+    const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType);
+    return [validated, averagesFromValidated] as [any[], any];
+  }, [filteredRankings, validationCriteria, actionType]);
 
   if (!isClient) {
     return (
@@ -607,10 +666,18 @@ export default function RankingsPage() {
     );
   }
 
-  if (status !== "authorized") {
+  if (authStatus !== "authorized") {
     return (
       <div>
         <LoadingState label="Redirecionando para login..." />
+      </div>
+    );
+  }
+
+  if (onboardingStatus === "requires_onboarding") {
+    return (
+      <div>
+        <LoadingState label="Redirecionando para configuração inicial..." />
       </div>
     );
   }
@@ -624,37 +691,9 @@ export default function RankingsPage() {
           description="Análise detalhada de performance dos seus anúncios"
           actions={
             <>
-              <ToggleSwitch
-                id="show-trends"
-                checked={showTrends}
-                onCheckedChange={handleShowTrendsChange}
-                label={showTrends ? "Tendências" : "Performance"}
-              />
-              <ToggleSwitch
-                id="validation-filter"
-                checked={isValidationFilterEnabled}
-                onCheckedChange={setIsValidationFilterEnabled}
-                label="Filtrar por critérios de validação"
-                disabled={!validationCriteria || validationCriteria.length === 0}
-                labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}
-                helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"}
-              />
-              <FiltersDropdown
-                dateRange={dateRange}
-                onDateRangeChange={handleDateRangeChange}
-                actionType={actionType}
-                onActionTypeChange={handleActionTypeChange}
-                actionTypeOptions={uniqueConversionTypes}
-                packs={packs}
-                selectedPackIds={selectedPackIds}
-                onTogglePack={handleTogglePack}
-                packsClient={packsClient}
-                usePackDates={usePackDates}
-                onUsePackDatesChange={handleUsePackDatesChange}
-                dateRangeLabel="Período (Data do Insight)"
-                dateRangeRequireConfirmation={true}
-                dateRangeDisabled={usePackDates}
-              />
+              <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} label={showTrends ? "Tendências" : "Performance"} />
+              <ToggleSwitch id="validation-filter" checked={isValidationFilterEnabled} onCheckedChange={setIsValidationFilterEnabled} label="Filtrar por critérios de validação" disabled={!validationCriteria || validationCriteria.length === 0} labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"} helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"} />
+              <FiltersDropdown dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeLabel="Período (Data do Insight)" dateRangeRequireConfirmation={true} dateRangeDisabled={usePackDates} />
             </>
           }
         />
@@ -758,37 +797,9 @@ export default function RankingsPage() {
           description="Análise detalhada de performance dos seus anúncios"
           actions={
             <>
-              <ToggleSwitch
-                id="show-trends"
-                checked={showTrends}
-                onCheckedChange={handleShowTrendsChange}
-                label={showTrends ? "Tendências" : "Performance"}
-              />
-              <ToggleSwitch
-                id="validation-filter"
-                checked={isValidationFilterEnabled}
-                onCheckedChange={setIsValidationFilterEnabled}
-                label="Filtrar por critérios de validação"
-                disabled={!validationCriteria || validationCriteria.length === 0}
-                labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}
-                helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"}
-              />
-              <FiltersDropdown
-                dateRange={dateRange}
-                onDateRangeChange={handleDateRangeChange}
-                actionType={actionType}
-                onActionTypeChange={handleActionTypeChange}
-                actionTypeOptions={uniqueConversionTypes}
-                packs={packs}
-                selectedPackIds={selectedPackIds}
-                onTogglePack={handleTogglePack}
-                packsClient={packsClient}
-                usePackDates={usePackDates}
-                onUsePackDatesChange={handleUsePackDatesChange}
-                dateRangeLabel="Período (Data do Insight)"
-                dateRangeRequireConfirmation={true}
-                dateRangeDisabled={usePackDates}
-              />
+              <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} label={showTrends ? "Tendências" : "Performance"} />
+              <ToggleSwitch id="validation-filter" checked={isValidationFilterEnabled} onCheckedChange={setIsValidationFilterEnabled} label="Filtrar por critérios de validação" disabled={!validationCriteria || validationCriteria.length === 0} labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"} helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"} />
+              <FiltersDropdown dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeLabel="Período (Data do Insight)" dateRangeRequireConfirmation={true} dateRangeDisabled={usePackDates} />
             </>
           }
         />
@@ -804,37 +815,9 @@ export default function RankingsPage() {
         description="Análise detalhada de performance dos seus anúncios"
         actions={
           <>
-            <ToggleSwitch
-              id="show-trends"
-              checked={showTrends}
-              onCheckedChange={handleShowTrendsChange}
-              label={showTrends ? "Tendências" : "Performance"}
-            />
-            <ToggleSwitch
-              id="validation-filter"
-              checked={isValidationFilterEnabled}
-              onCheckedChange={setIsValidationFilterEnabled}
-              label="Filtrar por critérios de validação"
-              disabled={!validationCriteria || validationCriteria.length === 0}
-              labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"}
-              helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"}
-            />
-            <FiltersDropdown
-              dateRange={dateRange}
-              onDateRangeChange={handleDateRangeChange}
-              actionType={actionType}
-              onActionTypeChange={handleActionTypeChange}
-              actionTypeOptions={uniqueConversionTypes}
-              packs={packs}
-              selectedPackIds={selectedPackIds}
-              onTogglePack={handleTogglePack}
-              packsClient={packsClient}
-              usePackDates={usePackDates}
-              onUsePackDatesChange={handleUsePackDatesChange}
-              dateRangeLabel="Período (Data do Insight)"
-              dateRangeRequireConfirmation={true}
-              dateRangeDisabled={usePackDates}
-            />
+            <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} label={showTrends ? "Tendências" : "Performance"} />
+            <ToggleSwitch id="validation-filter" checked={isValidationFilterEnabled} onCheckedChange={setIsValidationFilterEnabled} label="Filtrar por critérios de validação" disabled={!validationCriteria || validationCriteria.length === 0} labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"} helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"} />
+            <FiltersDropdown dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeLabel="Período (Data do Insight)" dateRangeRequireConfirmation={true} dateRangeDisabled={usePackDates} />
           </>
         }
       />
@@ -847,24 +830,23 @@ export default function RankingsPage() {
         dateStop={dateRange.end}
         availableConversionTypes={uniqueConversionTypes}
         showTrends={showTrends}
+        hasSheetIntegration={selectedPacks.some((p) => !!p.sheet_integration)}
         averagesOverride={(() => {
-          const base = serverAverages || null;
+          // Preferir sempre médias baseadas em anúncios validados; se não houver, usar médias brutas do backend como fallback
+          const base = validatedAveragesForAverages || serverAverages || null;
           if (!base) return undefined;
           const per = (base as any).per_action_type || {};
           const perSel = actionType ? per[actionType] : undefined;
-          
+
           // Verificar inconsistência: se actionType está em availableConversionTypes mas não tem média
           if (actionType && uniqueConversionTypes.includes(actionType) && !perSel) {
-            console.error(
-              `[RankingsPage] Inconsistência detectada: actionType "${actionType}" está em availableConversionTypes mas não tem entrada em per_action_type`,
-              { 
-                actionType, 
-                availableConversionTypes: uniqueConversionTypes,
-                per_action_type_keys: Object.keys(per)
-              }
-            );
+            console.error(`[RankingsPage] Inconsistência detectada: actionType "${actionType}" está em availableConversionTypes mas não tem entrada em per_action_type`, {
+              actionType,
+              availableConversionTypes: uniqueConversionTypes,
+              per_action_type_keys: Object.keys(per),
+            });
           }
-          
+
           return {
             hook: typeof base.hook === "number" ? base.hook : null,
             scroll_stop: typeof base.scroll_stop === "number" ? base.scroll_stop : null,

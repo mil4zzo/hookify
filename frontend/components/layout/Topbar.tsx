@@ -7,7 +7,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useAuthManager } from "@/lib/hooks/useAuthManager";
-import { useFacebookConnections } from "@/lib/hooks/useFacebookConnections";
+import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
 import { showError } from "@/lib/utils/toast";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget } from "@tabler/icons-react";
@@ -41,7 +41,8 @@ export default function Topbar() {
   const { packs } = useClientPacks();
   const { handleLogout } = useAuthManager();
   const { settings, setLanguage, setNiche, setCurrency } = useSettings();
-  const { connections, connect, disconnect } = useFacebookConnections();
+  const { connections, connect, disconnect, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } =
+    useFacebookAccountConnection();
   const router = useRouter();
   const pathname = usePathname();
   const { showModal, packCount, handleConfirm, handleCancel } = useAutoRefreshPacks();
@@ -97,14 +98,10 @@ export default function Topbar() {
     setIsMobileMenuOpen(false);
   };
 
-  // Verifica se há conexão Facebook ativa (considerando loading e status)
-  const activeConnections = connections.data?.filter((conn: any) => conn.status === "active") || [];
-  const expiredConnections = connections.data?.filter((conn: any) => conn.status === "expired" || conn.status === "invalid") || [];
   // Só considera que tem conexão quando não está carregando E há conexões ativas
-  const hasFacebookConnection = !connections.isLoading && activeConnections.length > 0;
+  const hasFacebookConnection = hasActiveConnection;
   // Só mostra botão de conectar quando carregamento terminou E não há conexões ativas
-  const shouldShowConnectButton = !connections.isLoading && activeConnections.length === 0;
-  const hasExpiredConnections = !connections.isLoading && expiredConnections.length > 0;
+  const shouldShowConnectButton = !connections.isLoading && !hasActiveConnection;
 
   const handleConnectFacebook = async () => {
     try {

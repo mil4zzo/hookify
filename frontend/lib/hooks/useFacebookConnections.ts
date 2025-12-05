@@ -5,6 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { facebookConnectorApi } from '@/lib/api/facebookConnector'
 import { showSuccess } from '@/lib/utils/toast'
 import { useClientAuth } from '@/lib/hooks/useClientSession'
+import { openAuthPopup, AuthPopupError } from '@/lib/utils/authPopup'
+import { queryKeys } from '@/lib/api/hooks'
+import { api } from '@/lib/api/endpoints'
 
 const qk = {
   connections: ['facebook', 'connections'] as const,
@@ -38,51 +41,61 @@ export function useFacebookConnections() {
       const redirectUri = window.location.origin + '/callback'
       const state = Math.random().toString(36).slice(2)
       const { auth_url } = await facebookConnectorApi.getAuthUrl(redirectUri, state)
-      const popup = window.open(auth_url, 'facebook-connect', 'width=600,height=700,scrollbars=yes')
-      return new Promise((resolve, reject) => {
-        let resolved = false
-        const listener = async (event: MessageEvent) => {
-          // Verificar origem e tipo antes de processar
-          if (event.origin !== window.location.origin) return
-          
-          // Prevenir processamento duplicado
-          if (resolved) return
-          
-          if (event.data?.type === 'FACEBOOK_AUTH_SUCCESS') {
-            resolved = true
-            try {
-              await facebookConnectorApi.callback(event.data.code, redirectUri)
-              await qc.invalidateQueries({ queryKey: qk.connections })
-              showSuccess('Facebook conectado com sucesso!')
-              resolve(true)
-            } catch (e) {
-              reject(e)
-            } finally {
-              window.removeEventListener('message', listener)
-              popup?.close()
-            }
-          }
-          if (event.data?.type === 'FACEBOOK_AUTH_ERROR') {
-            resolved = true
-            window.removeEventListener('message', listener)
-            popup?.close()
-            reject(new Error(event.data?.error_description || 'Falha na conexão com o Facebook'))
-          }
-        }
-        window.addEventListener('message', listener)
-        
-        // Cleanup se popup for fechado manualmente
-        const checkClosed = setInterval(() => {
-          if (popup?.closed) {
-            clearInterval(checkClosed)
-            if (!resolved) {
-              resolved = true
-              window.removeEventListener('message', listener)
-              reject(new Error('Popup fechado pelo usuário'))
-            }
-          }
-        }, 500)
+
+      const messageData = await openAuthPopup<{
+        type?: string
+        code?: string
+        error?: string
+        errorDescription?: string
+        error_description?: string
+        state?: string
+      }>({
+        url: auth_url,
+        windowName: 'facebook-connect',
+        windowFeatures: 'width=600,height=700,scrollbars=yes',
+        successType: 'FACEBOOK_AUTH_SUCCESS',
+        errorType: 'FACEBOOK_AUTH_ERROR',
+        expectedState: state,
+        // timeout padrão de 5min é suficiente aqui
       })
+
+      if (!messageData.code) {
+        throw new Error('Código de autorização não recebido do Facebook.')
+      }
+
+      try {
+        await facebookConnectorApi.callback(messageData.code, redirectUri)
+        
+        // Sincronizar contas de anúncios explicitamente após conectar
+        // (o backend também tenta sincronizar, mas chamar aqui garante que funcione)
+        try {
+          await api.facebook.syncAdAccounts()
+        } catch (syncError) {
+          // Não falhar o fluxo se a sincronização falhar - o backend já tentou
+          console.warn('Erro ao sincronizar ad accounts após conectar Facebook:', syncError)
+        }
+        
+        // Invalidar e recarregar queries relacionados ao Facebook
+        await qc.invalidateQueries({ queryKey: qk.connections })
+        await qc.invalidateQueries({ queryKey: queryKeys.adAccounts })
+        await qc.invalidateQueries({ queryKey: queryKeys.me })
+        
+        // Forçar refetch imediato para garantir que os dados sejam atualizados
+        await Promise.all([
+          qc.refetchQueries({ queryKey: qk.connections }),
+          qc.refetchQueries({ queryKey: queryKeys.adAccounts }),
+          qc.refetchQueries({ queryKey: queryKeys.me }),
+        ])
+        showSuccess('Facebook conectado com sucesso!')
+        return true
+      } catch (e: any) {
+        const authError = e as AuthPopupError
+        // Tratar cancelamento silenciosamente (se necessário o chamador pode exibir algo)
+        if (authError?.code === 'AUTH_POPUP_CLOSED') {
+          return false
+        }
+        throw e
+      }
     },
   })
 
@@ -90,7 +103,11 @@ export function useFacebookConnections() {
     mutationFn: async (id: string) => {
       await facebookConnectorApi.deleteConnection(id)
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.connections }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: qk.connections })
+      await qc.invalidateQueries({ queryKey: queryKeys.adAccounts })
+      await qc.invalidateQueries({ queryKey: queryKeys.me })
+    },
   })
 
   const setPrimary = useMutation({

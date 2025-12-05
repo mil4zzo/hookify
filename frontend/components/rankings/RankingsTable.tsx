@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, Fragment } from "react";
+import React, { useMemo, useState, useEffect, Fragment, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/common/Modal";
 import { useFormatCurrency } from "@/lib/utils/currency";
@@ -16,6 +16,8 @@ import { api } from "@/lib/api/endpoints";
 import { useAdVariations } from "@/lib/api/hooks";
 import { RankingsItem, RankingsChildrenItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
+import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 
 type Ad = RankingsItem;
 
@@ -38,6 +40,8 @@ interface RankingsTableProps {
     cpr: number | null;
     page_conv: number | null;
   };
+  /** Indica se há integração de planilha (Google Sheets) em pelo menos um dos packs selecionados */
+  hasSheetIntegration?: boolean;
 }
 
 const columnHelper = createColumnHelper<Ad>();
@@ -289,15 +293,21 @@ function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, for
   );
 }
 
-export function RankingsTable({ ads, groupByAdName = true, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride }: RankingsTableProps) {
+export function RankingsTable({ ads, groupByAdName = true, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false }: RankingsTableProps) {
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [videoOpen, setVideoOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<{ videoId: string; actorId: string; title: string } | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   // Os dados já vêm agregados do servidor quando pais; não re-agregar aqui
-  const data = useMemo(() => ads, [ads]);
+  const data = useMemo(() => {
+    if (!ads || !Array.isArray(ads)) {
+      return [];
+    }
+    return ads;
+  }, [ads]);
   const formatCurrency = useFormatCurrency();
+  const { mqlLeadscoreMin } = useMqlLeadscore();
 
   const formatPct = (v: number) => (v != null && !isNaN(v) ? `${Number(v).toFixed(2)}%` : "—");
   const formatNum = (v: number) => (v ? v.toLocaleString("pt-BR") : "—");
@@ -320,6 +330,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     cpm: number | null;
     cpr: number | null;
     page_conv: number | null;
+    cpmql: number | null;
   };
 
   const computedAverages: RankingsAverages = useMemo(() => {
@@ -342,6 +353,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         cpm: null,
         cpr: null,
         page_conv: null,
+        cpmql: null,
       };
     }
 
@@ -430,15 +442,38 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ? sumLPV / sumInlineLinkClicks
         : null;
 
+    // Calcular média de CPMQL (só quando há integração de planilha)
+    let cpmqlAvg: number | null = null;
+    if (hasSheetIntegration) {
+      const cpmqlValues: number[] = [];
+      for (const ad of ads) {
+        const spend = Number((ad as any).spend || 0);
+        const { cpmql } = computeMqlMetricsFromLeadscore({
+          spend,
+          leadscoreRaw: (ad as any).leadscore_values,
+          mqlLeadscoreMin,
+        });
+        // Aceitar qualquer valor finito para calcular a média (incluindo 0 se for válido)
+        if (Number.isFinite(cpmql)) {
+          cpmqlValues.push(cpmql);
+        }
+      }
+      if (cpmqlValues.length > 0) {
+        cpmqlAvg = cpmqlValues.reduce((sum, val) => sum + val, 0) / cpmqlValues.length;
+      }
+    }
+
     return {
       count: n,
-      spend: sumSpend,
-      impressions: sumImpr,
-      clicks: sumClicks,
-      inline_link_clicks: sumInlineLinkClicks,
-      lpv: sumLPV,
-      plays: sumPlays,
-      results: sumResults,
+      // Métricas de soma: dividir por n para calcular média aritmética
+      spend: n > 0 ? sumSpend / n : 0,
+      impressions: n > 0 ? sumImpr / n : 0,
+      clicks: n > 0 ? sumClicks / n : 0,
+      inline_link_clicks: n > 0 ? sumInlineLinkClicks / n : 0,
+      lpv: n > 0 ? sumLPV / n : 0,
+      plays: n > 0 ? sumPlays / n : 0,
+      results: n > 0 ? sumResults / n : 0,
+      // Métricas já calculadas como médias/razões: não dividir
       hook: hookAvg,
       scroll_stop: scrollStopAvg,
       ctr,
@@ -447,8 +482,9 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       cpm,
       cpr,
       page_conv: pageConv,
+      cpmql: cpmqlAvg,
     };
-  }, [ads, actionType]);
+  }, [ads, actionType, hasSheetIntegration, mqlLeadscoreMin]);
 
   const averages = useMemo(() => {
     if (averagesOverride) {
@@ -482,17 +518,22 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         // Mas logar quando isso acontecer para identificar problemas
         cpr: averagesOverride.cpr ?? computedAverages.cpr,
         page_conv: averagesOverride.page_conv ?? computedAverages.page_conv,
+        // CPMQL é calculado localmente e não vem do servidor
+        cpmql: computedAverages.cpmql,
       } as RankingsAverages;
     }
     return computedAverages;
   }, [computedAverages, averagesOverride, actionType, availableConversionTypes]);
 
-  const getRowKey = (row: { original?: RankingsItem } | RankingsItem) => {
-    const original = "original" in row ? row.original : row;
-    if (!original) return "";
-    const item = original as RankingsItem;
-    return groupByAdName ? String(item.ad_name || item.ad_id) : String(item.unique_id || `${item.account_id}:${item.ad_id}`);
-  };
+  const getRowKey = useCallback(
+    (row: { original?: RankingsItem } | RankingsItem) => {
+      const original = "original" in row ? row.original : row;
+      if (!original) return "";
+      const item = original as RankingsItem;
+      return groupByAdName ? String(item.ad_name || item.ad_id) : String(item.unique_id || `${item.account_id}:${item.ad_id}`);
+    },
+    [groupByAdName]
+  );
 
   // Pre-aggregate 5-day daily series ending at provided endDate (fallback se não vier do servidor)
   const { byKey } = useMemo(() => {
@@ -518,17 +559,17 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       dateField: "date",
       windowDays: 5,
     });
-  }, [ads, groupByAdName, actionType, endDate]);
+  }, [ads, groupByAdName, actionType, endDate, getRowKey]);
 
-  const MetricCell = ({ row, value, metric }: { row: RankingsItem | { original?: RankingsItem }; value: React.ReactNode; metric: "hook" | "cpr" | "spend" | "ctr" | "connect_rate" | "page_conv" | "cpm" }) => {
+  const MetricCell = ({ row, value, metric }: { row: RankingsItem | { original?: RankingsItem }; value: React.ReactNode; metric: "hook" | "cpr" | "spend" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" }) => {
     // row já é o objeto agregado (info.row.original), então precisamos ajustar
     const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
     const serverSeries = original.series ? (original.series as any)[metric] : undefined;
     const rowKey = getRowKey(row);
     const s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
 
-    // Determinar se a métrica é "inversa" (menor é melhor: CPR e CPM)
-    const isInverseMetric = metric === "cpr" || metric === "cpm";
+    // Determinar se a métrica é "inversa" (menor é melhor: CPR, CPM e CPMQL)
+    const isInverseMetric = metric === "cpr" || metric === "cpm" || metric === "cpmql";
 
     // Se showTrends estiver ativo, mostrar sparklines
     if (showTrends) {
@@ -539,7 +580,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
               series={s}
               size="small"
               valueFormatter={(n: number) => {
-                if (metric === "spend" || metric === "cpr" || metric === "cpm") {
+                if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
                   return formatCurrency(n || 0);
                 }
                 // percent-based metrics
@@ -554,13 +595,10 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     }
 
     // Modo Performance: mostrar diferença percentual em relação à média
-    const avgValue = averages[metric];
+    // Para CPMQL, acessar explicitamente para evitar problemas de tipagem
+    const avgValue = metric === "cpmql" ? (averages as any).cpmql : averages[metric];
     if (avgValue === null || avgValue === undefined) {
       // Se não há média disponível, mostrar apenas o valor
-      // Log para debug quando for page_conv
-      if (metric === "page_conv") {
-        console.debug(`[MetricCell] page_conv: média não disponível`, { avgValue, actionType, hasPageConv: "page_conv" in original, pageConvValue: (original as any).page_conv });
-      }
       return (
         <div className="flex flex-col items-center gap-3">
           <span className="text-base font-medium leading-none">{value}</span>
@@ -588,6 +626,10 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         currentValue = (original as any).ctr != null ? Number((original as any).ctr) : null;
         // ctr vem em decimal (0-1), média também vem em decimal
         break;
+      case "website_ctr":
+        currentValue = (original as any).website_ctr != null ? Number((original as any).website_ctr) : null;
+        // website_ctr vem em decimal (0-1), média também vem em decimal
+        break;
       case "connect_rate":
         currentValue = (original as any).connect_rate != null ? Number((original as any).connect_rate) : null;
         // connect_rate vem em decimal (0-1), média também vem em decimal
@@ -606,21 +648,24 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       case "cpm":
         currentValue = typeof (original as any).cpm === "number" ? (original as any).cpm : null;
         break;
+      case "cpmql":
+        // CPMQL só é calculado quando há integração de planilha
+        if (hasSheetIntegration) {
+          const { cpmql: computedCpmql } = computeMqlMetricsFromLeadscore({
+            spend: Number((original as any).spend || 0),
+            leadscoreRaw: (original as any).leadscore_values,
+            mqlLeadscoreMin,
+          });
+          // Aceitar qualquer valor finito, mesmo que seja 0 (pode ser válido)
+          currentValue = Number.isFinite(computedCpmql) ? computedCpmql : null;
+        } else {
+          currentValue = null;
+        }
+        break;
     }
 
     if (currentValue === null || isNaN(currentValue) || !isFinite(currentValue)) {
       // Se não conseguimos extrair o valor, mostrar apenas o valor original
-      // Log para debug quando for page_conv
-      if (metric === "page_conv") {
-        console.debug(`[MetricCell] page_conv: não foi possível extrair currentValue`, {
-          currentValue,
-          actionType,
-          hasPageConv: "page_conv" in original,
-          pageConvValue: (original as any).page_conv,
-          conversions: (original as any).conversions,
-          lpv: (original as any).lpv,
-        });
-      }
       return (
         <div className="flex flex-col items-center gap-3">
           <span className="text-base font-medium leading-none">{value}</span>
@@ -648,14 +693,25 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       );
     }
 
-    // Se a média for 0 mas o valor atual não for 0, mostrar como "acima da média" (infinito percentual)
+    // Se a média for 0 mas o valor atual não for 0
     if (avgValue === 0 && currentValue !== 0) {
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-xs font-medium text-green-600 dark:text-green-400">+∞</span>
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
+      if (isInverseMetric) {
+        // Para métricas inversas: valor > 0 quando média é 0 = pior (acima da média) = vermelho com "+"
+        return (
+          <div className="flex flex-col items-center gap-3">
+            <span className="text-xs font-medium text-red-600 dark:text-red-400">+∞</span>
+            <span className="text-base font-medium leading-none">{value}</span>
+          </div>
+        );
+      } else {
+        // Para métricas normais: valor > 0 quando média é 0 = melhor (acima da média) = verde com "+"
+        return (
+          <div className="flex flex-col items-center gap-3">
+            <span className="text-xs font-medium text-green-600 dark:text-green-400">+∞</span>
+            <span className="text-base font-medium leading-none">{value}</span>
+          </div>
+        );
+      }
     }
 
     // Calcular diferença percentual
@@ -676,21 +732,69 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     // Para métricas inversas: positivo (menor que média) = verde, negativo (maior que média) = vermelho
     const isPositive = diffPercent > 0;
     const colorClass = isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400";
-    const sign = isPositive ? "+" : "";
+
+    // Para métricas inversas, inverter o sinal exibido: quando está melhor (positivo), mostrar "-" porque está abaixo da média numericamente
+    // Para métricas normais, manter o sinal original
+    let sign: string;
+    if (isInverseMetric) {
+      // Métricas inversas: diffPercent positivo = melhor = abaixo da média numericamente = mostrar "-"
+      // diffPercent negativo = pior = acima da média numericamente = mostrar "+"
+      sign = isPositive ? "-" : "+";
+    } else {
+      // Métricas normais: diffPercent positivo = melhor = acima da média = mostrar "+"
+      // diffPercent negativo = pior = abaixo da média = mostrar "-"
+      sign = isPositive ? "+" : "-";
+    }
 
     return (
       <div className="flex flex-col items-center gap-3">
         <span className={`text-xs font-medium ${colorClass}`}>
           {sign}
-          {diffPercent.toFixed(1)}%
+          {Math.abs(diffPercent).toFixed(1)}%
         </span>
         <span className="text-base font-medium leading-none">{value}</span>
       </div>
     );
   };
 
-  const columns = useMemo(
-    () => [
+  // Função helper para formatar a média de uma métrica
+  const formatAverage = useMemo(
+    () =>
+      (metricId: string): string => {
+        const metricMap: Record<string, keyof RankingsAverages> = {
+          hook: "hook",
+          cpr: "cpr",
+          cpmql: "cpmql",
+          spend: "spend",
+          ctr: "ctr",
+          website_ctr: "website_ctr",
+          cpm: "cpm",
+          connect_rate: "connect_rate",
+          page_conv: "page_conv",
+        };
+
+        const metricKey = metricMap[metricId];
+        if (!metricKey) return "";
+
+        const avgValue = averages[metricKey];
+        if (avgValue === null || avgValue === undefined || !Number.isFinite(avgValue)) {
+          return "";
+        }
+
+        // Formatar baseado no tipo de métrica
+        if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
+          // Métricas em porcentagem (decimal 0-1)
+          return formatPct(Number(avgValue) * 100);
+        } else {
+          // Métricas monetárias (cpr, cpmql, spend, cpm)
+          return formatCurrency(Number(avgValue));
+        }
+      },
+    [averages, formatPct, formatCurrency]
+  );
+
+  const columns = useMemo(() => {
+    const cols = [
       // AD name
       columnHelper.accessor("ad_name", {
         header: "AD",
@@ -739,7 +843,12 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       }),
       // Hook (retention at 3s)
       columnHelper.accessor("hook", {
-        header: "Hook",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>Hook</span>
+            {formatAverage("hook") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("hook")}</span>}
+          </div>
+        ),
         size: 140,
         minSize: 100,
         cell: (info) => {
@@ -754,7 +863,12 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       // CPR
       columnHelper.display({
         id: "cpr",
-        header: "CPR",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>CPR</span>
+            {formatAverage("cpr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpr")}</span>}
+          </div>
+        ),
         size: 140,
         minSize: 100,
         cell: (info) => {
@@ -764,24 +878,90 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpr)}</span>} metric="cpr" />;
         },
       }),
+    ];
+
+    // CPMQL só deve aparecer quando houver integração de planilha em pelo menos um pack
+    if (hasSheetIntegration) {
+      cols.push(
+        columnHelper.display({
+          id: "cpmql",
+          header: () => (
+            <div className="flex flex-col items-center gap-0.5">
+              <span>CPMQL</span>
+              {formatAverage("cpmql") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpmql")}</span>}
+            </div>
+          ),
+          size: 140,
+          minSize: 100,
+          cell: (info) => {
+            const ad = info.row.original as RankingsItem;
+
+            const spend = Number((ad as any).spend || 0);
+            const { leadscoreValues, mqlCount, cpmql } = computeMqlMetricsFromLeadscore({
+              spend,
+              leadscoreRaw: (ad as any).leadscore_values,
+              mqlLeadscoreMin,
+            });
+
+            const value = cpmql > 0 ? formatCurrency(cpmql) : "—";
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpmql" />;
+          },
+        })
+      );
+    }
+
+    cols.push(
       // Spend
       columnHelper.accessor("spend", {
-        header: "Spend",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>Spend</span>
+            {formatAverage("spend") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("spend")}</span>}
+          </div>
+        ),
         size: 140,
         minSize: 100,
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="spend" />,
-      }),
+      }) as any,
       // CTR
       columnHelper.accessor("ctr", {
-        header: "CTR",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>CTR</span>
+            {formatAverage("ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("ctr")}</span>}
+          </div>
+        ),
         size: 140,
         minSize: 100,
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="ctr" />,
+      }) as any,
+      // Link CTR (Website CTR)
+      columnHelper.display({
+        id: "website_ctr",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>Link CTR</span>
+            {formatAverage("website_ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("website_ctr")}</span>}
+          </div>
+        ),
+        size: 140,
+        minSize: 100,
+        cell: (info) => {
+          const ad = info.row.original;
+          // Usar website_ctr do backend se disponível, senão calcular
+          const websiteCtr = typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr) ? (ad as any).website_ctr : (ad as any).impressions > 0 ? Number((ad as any).inline_link_clicks || 0) / Number((ad as any).impressions || 0) : 0;
+          return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(websiteCtr * 100)}</span>} metric="website_ctr" />;
+        },
       }),
       // CPM
       columnHelper.display({
         id: "cpm",
-        header: "CPM",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>CPM</span>
+            {formatAverage("cpm") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpm")}</span>}
+          </div>
+        ),
         size: 140,
         minSize: 100,
         cell: (info) => {
@@ -794,15 +974,25 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
       }),
       // Connect Rate
       columnHelper.accessor("connect_rate", {
-        header: "Connect Rate",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>Connect Rate</span>
+            {formatAverage("connect_rate") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("connect_rate")}</span>}
+          </div>
+        ),
         size: 160,
         minSize: 120,
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="connect_rate" />,
-      }),
+      }) as any,
       // Page Conversion
       columnHelper.display({
         id: "page_conv",
-        header: "Page",
+        header: () => (
+          <div className="flex flex-col items-center gap-0.5">
+            <span>Page</span>
+            {formatAverage("page_conv") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("page_conv")}</span>}
+          </div>
+        ),
         size: 140,
         minSize: 100,
         cell: (info) => {
@@ -817,10 +1007,11 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           const pageConv = ad.lpv > 0 ? results / ad.lpv : 0;
           return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(pageConv * 100)}</span>} metric="page_conv" />;
         },
-      }),
-    ],
-    [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct, showTrends, averages]
-  );
+      })
+    );
+
+    return cols;
+  }, [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct, showTrends, averages, formatAverage, hasSheetIntegration, mqlLeadscoreMin, getRowKey]);
 
   const table = useReactTable({
     data,
@@ -864,39 +1055,47 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row, index) => {
-              const key = getRowKey(row);
-              const isExpanded = !!expanded[key];
-              const original = row.original as RankingsItem;
-              const adName = String(original?.ad_name || "");
+            {table.getRowModel().rows.length === 0 ? (
+              <tr>
+                <td colSpan={table.getAllColumns().length} className="p-8 text-center text-muted-foreground">
+                  Nenhum dado disponível para exibir.
+                </td>
+              </tr>
+            ) : (
+              table.getRowModel().rows.map((row, index) => {
+                const key = getRowKey(row);
+                const isExpanded = !!expanded[key];
+                const original = row.original as RankingsItem;
+                const adName = String(original?.ad_name || "");
 
-              return (
-                <Fragment key={row.id}>
-                  <tr
-                    key={`${row.id}-parent`}
-                    className="bg-background hover:bg-input-30 cursor-pointer"
-                    onClick={() => {
-                      const original = row.original as RankingsItem;
-                      setSelectedAd(original);
-                    }}
-                  >
-                    {row.getVisibleCells().map((cell) => {
-                      const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
-                      const fixedWidth = "";
-                      const cellIndex = row.getVisibleCells().indexOf(cell);
-                      const isFirst = cellIndex === 0;
-                      const isLast = cellIndex === row.getVisibleCells().length - 1;
-                      return (
-                        <td key={cell.id} className={`p-4 ${cellAlign} ${fixedWidth} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`} style={{ width: cell.column.getSize() }}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  {groupByAdName && isExpanded && adName ? <ExpandedChildrenRow row={row} adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} /> : null}
-                </Fragment>
-              );
-            })}
+                return (
+                  <Fragment key={row.id}>
+                    <tr
+                      key={`${row.id}-parent`}
+                      className="bg-background hover:bg-input-30 cursor-pointer"
+                      onClick={() => {
+                        const original = row.original as RankingsItem;
+                        setSelectedAd(original);
+                      }}
+                    >
+                      {row.getVisibleCells().map((cell) => {
+                        const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
+                        const fixedWidth = "";
+                        const cellIndex = row.getVisibleCells().indexOf(cell);
+                        const isFirst = cellIndex === 0;
+                        const isLast = cellIndex === row.getVisibleCells().length - 1;
+                        return (
+                          <td key={cell.id} className={`p-4 ${cellAlign} ${fixedWidth} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`} style={{ width: cell.column.getSize() }}>
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                    {groupByAdName && isExpanded && adName ? <ExpandedChildrenRow row={row} adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} /> : null}
+                  </Fragment>
+                );
+              })
+            )}
           </tbody>
         </table>
       </div>

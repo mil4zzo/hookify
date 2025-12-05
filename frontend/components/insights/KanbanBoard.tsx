@@ -94,4 +94,3 @@ export function KanbanBoard({ ads, variant, actionType }: KanbanBoardProps) {
     </div>
   );
 }
-

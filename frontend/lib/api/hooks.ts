@@ -32,17 +32,19 @@ export const queryKeys = {
   adNameHistory: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
   rankings: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters] as const,
+  // Alias semântico para consultas de performance agregada de anúncios
+  adPerformance: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters] as const,
 }
 
 // Hooks para queries
 export const useMe = () => {
-  const token = useSessionStore(s => s.accessToken)
+  const { session } = useSupabaseAuth() // Usar sessão do Supabase ao invés de accessToken do store
   const setUser = useSessionStore(s => s.setUser)
   const setAdAccounts = useSessionStore(s => s.setAdAccounts)
   const result = useQuery({
     queryKey: queryKeys.me,
     queryFn: api.facebook.getMe,
-    enabled: !!token,
+    enabled: !!session, // Verificar sessão do Supabase ao invés de token do store
     staleTime: 5 * 60 * 1000, // 5 minutos
     retry: 2,
   })
@@ -247,19 +249,9 @@ export const useAdNameHistory = (
 };
 
 /**
- * Hook para buscar rankings de anúncios
- * 
- * @param params - Parâmetros da requisição de rankings
- * @param enabled - Se deve habilitar a query automaticamente (padrão: true)
- * 
- * @example
- * ```tsx
- * const { data, isLoading } = useRankings({
- *   date_start: '2024-01-01',
- *   date_stop: '2024-01-31',
- *   group_by: 'ad_name',
- * });
- * ```
+ * Hook para buscar rankings/agregados de anúncios (nome histórico).
+ *
+ * Preferir `useAdPerformance` em código novo.
  */
 export const useRankings = (params: RankingsRequest, enabled: boolean = true) => {
   return useQuery<RankingsResponse>({
@@ -268,6 +260,21 @@ export const useRankings = (params: RankingsRequest, enabled: boolean = true) =>
     enabled: enabled && !!params.date_start && !!params.date_stop,
     staleTime: 2 * 60 * 1000, // 2 minutos - rankings podem mudar com novos dados
     gcTime: 10 * 60 * 1000, // 10 minutos - manter em cache por 10min
+    retry: 2,
+  })
+}
+
+/**
+ * Hook semântico para buscar performance agregada de anúncios.
+ * Usa a mesma estrutura de dados de `useRankings`, mas aponta para o novo alias de rota.
+ */
+export const useAdPerformance = (params: RankingsRequest, enabled: boolean = true) => {
+  return useQuery<RankingsResponse>({
+    queryKey: queryKeys.adPerformance(params),
+    queryFn: () => api.analytics.getAdPerformance(params),
+    enabled: enabled && !!params.date_start && !!params.date_stop,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     retry: 2,
   })
 }
@@ -385,11 +392,17 @@ export const useInvalidatePackAds = () => {
       })
     },
     invalidateRankings: () => {
-      // Invalida todas as queries de rankings e força refetch imediato das queries ativas
-      // Isso garante que a página de rankings seja atualizada imediatamente após refresh de packs
+      // Invalida todas as queries de rankings / performance agregada e força refetch
       queryClient.invalidateQueries({ 
         queryKey: ['analytics', 'rankings'],
-        refetchType: 'active' // Força refetch imediato das queries ativas (páginas abertas)
+        refetchType: 'active',
+      })
+    },
+    invalidateAdPerformance: () => {
+      // Alias semântico para invalidação das mesmas queries
+      queryClient.invalidateQueries({
+        queryKey: ['analytics', 'rankings'],
+        refetchType: 'active',
       })
     },
   }

@@ -9,7 +9,14 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: 'var(--background)',
+        background: {
+          DEFAULT: 'var(--background)',
+          50: 'color-mix(in oklab, var(--background) 50%, transparent)',
+          60: 'color-mix(in oklab, var(--background) 60%, transparent)',
+          70: 'color-mix(in oklab, var(--background) 70%, transparent)',
+          80: 'color-mix(in oklab, var(--background) 80%, transparent)',
+          90: 'color-mix(in oklab, var(--background) 90%, transparent)',
+        },
         card: 'var(--card)',
         'card-foreground': 'var(--card-foreground)',
         popover: 'var(--popover)',
@@ -18,6 +25,10 @@ export default {
         'sidebar-foreground': 'rgba(var(--sidebar-foreground-rgb) / <alpha-value>)',
         primary: {
           DEFAULT: 'var(--primary)',
+          50: 'color-mix(in oklab, var(--primary) 50%, transparent)',
+          60: 'color-mix(in oklab, var(--primary) 60%, transparent)',
+          70: 'color-mix(in oklab, var(--primary) 70%, transparent)',
+          80: 'color-mix(in oklab, var(--primary) 80%, transparent)',
           90: 'color-mix(in oklab, var(--primary) 90%, transparent)',
         },
         'primary-foreground': 'var(--primary-foreground)',
@@ -80,7 +91,7 @@ export default {
       },
     },
   },
-  plugins: [],
+  plugins: [require('tailwindcss-animate')],
 } satisfies Config
 
 

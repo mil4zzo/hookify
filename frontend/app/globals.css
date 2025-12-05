@@ -165,25 +165,23 @@ html, body { height: 100%; }
 /* Estilização centralizada de scrollbars para todo o app */
 .custom-scrollbar {
   /* Firefox */
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-width: auto;
+  /* scrollbar-color: var(--primary) transparent; */
 }
 
 .custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 12px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
-  border-radius: 4px;
+	border-radius: 10px;
+	background-color: var(--card);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background-color: var(--border);
-  border-radius: 4px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
+  border-radius: 10px;
+	background-color: var(--secondary);
+  border: 4px solid var(--card);
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
@@ -191,9 +189,6 @@ html, body { height: 100%; }
   background-clip: padding-box;
 }
 
-.custom-scrollbar::-webkit-scrollbar-corner {
-  background: transparent;
-}
 
 /* Customização do toast - background card ao invés de background */
 [data-sonner-toast] {
@@ -208,6 +203,44 @@ html, body { height: 100%; }
 [data-sonner-toast] [data-description] {
   color: var(--card-foreground) !important;
   opacity: 0.8;
+}
+
+/* Layout padrão para colunas de Kanban (reutilizado em Gems, Insights, modais, etc.) */
+.kanban-columns {
+  display: flex;
+  width: 100%;
+  gap: 1.25rem; /* equivalente a gap-3 do Tailwind */
+  align-items: stretch; /* Faz todas as colunas terem a mesma altura (altura da maior coluna) */
+  /* Garante que o container tenha altura mínima baseada no conteúdo mais alto */
+  min-height: fit-content;
+}
+
+.kanban-columns > * {
+  /* Cada coluna:
+     - nunca menor que 20rem
+     - divide o espaço disponível igualmente
+     - não passa de ~25% em telas largas (até 4 colunas visíveis sem scroll)
+     - align-items: stretch faz com que todas tenham a mesma altura */
+  min-width: 20rem;
+  flex: 1 1 25%;
+  max-width: 25%;
+  /* Garante que os filhos se estiquem para a altura do container */
+  align-self: stretch;
+  height: auto; /* Permite que o conteúdo defina a altura inicial, depois o stretch ajusta */
+}
+
+/* Variante vertical: colunas empilhadas ocupando 100% da largura */
+.kanban-columns-vertical {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 1.25rem;
+}
+
+.kanban-columns-vertical > * {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
 }
 
 /* Animação de gradiente em movimento para a linha do CPR */

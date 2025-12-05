@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
 import { LoadingState, EmptyState } from "@/components/common/States";
-import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
+import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { OpportunityCards } from "@/components/insights/OpportunityCards";
 import { calculateGlobalMetricRanks } from "@/lib/utils/metricRankings";
@@ -12,23 +11,26 @@ import { GemsWidget } from "@/components/insights/GemsWidget";
 import { GemsColumnFilter, GemsColumnType } from "@/components/common/GemsColumnFilter";
 import { InsightsKanbanWidget } from "@/components/insights/InsightsKanbanWidget";
 import { api } from "@/lib/api/endpoints";
-import { RankingsRequest, RankingsResponse } from "@/lib/api/schemas";
-import { computeOpportunityScores } from "@/lib/utils/opportunity";
+import { AdPerformanceRequest, AdPerformanceResponse, RankingsItem } from "@/lib/api/schemas";
+import { computeOpportunityScores, OpportunityRow } from "@/lib/utils/opportunity";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
-import { computeValidatedAveragesFromRankings } from "@/lib/utils/validatedAverages";
+import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
 import { Switch } from "@/components/ui/switch";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { IconSparkles } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
-import { OpportunityRow } from "@/lib/utils/opportunity";
-import { RankingsItem } from "@/lib/api/schemas";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { PageSectionHeader } from "@/components/common/PageSectionHeader";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
+import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
+import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 
+// Insights e Rankings compartilham a mesma base de Ad Performance retornada
+// pelo endpoint `/analytics/ad-performance` (histórico `/analytics/rankings`).
+// Aqui usamos esse snapshot para derivar oportunidades, Gems e Kanban.
 const STORAGE_KEY_PACKS = "hookify-insights-selected-packs";
 const STORAGE_KEY_ACTION_TYPE = "hookify-insights-action-type";
 const STORAGE_KEY_GROUP_BY_PACKS = "hookify-insights-group-by-packs";
@@ -142,9 +144,8 @@ const loadGemsColumns = (): Set<GemsColumnType> => {
 };
 
 export default function InsightsPage() {
-  const { isClient, isAuthenticated } = useClientAuth();
   const { packs, isClient: packsClient } = useClientPacks();
-  const { status } = useRequireAuth("/login");
+  const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
   const [actionType, setActionType] = useState<string>(() => {
     if (typeof window === "undefined") return "";
 
@@ -176,7 +177,8 @@ export default function InsightsPage() {
   const [serverData, setServerData] = useState<any[] | null>(null);
   const [availableConversionTypes, setAvailableConversionTypes] = useState<string[]>([]);
   const [averages, setAverages] = useState<any | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
+  // Começar em "true" para evitar piscar EmptyState antes da primeira tentativa de busca
+  const [loading, setLoading] = useState(true);
   const [groupByPacks, setGroupByPacks] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -335,13 +337,16 @@ export default function InsightsPage() {
   }, [usePackDates, calculateDateRangeFromPacks]);
 
   useEffect(() => {
-    if (!isClient || status !== "authorized") return;
+    // Só dispara busca quando o app estiver autorizado (client + auth ok)
+    if (!isAuthorized) {
+      return;
+    }
 
     const start = dateRange.start;
     const end = dateRange.end;
     if (!start || !end) return;
 
-    const req: RankingsRequest = {
+    const req: AdPerformanceRequest = {
       date_start: start,
       date_stop: end,
       group_by: "ad_name",
@@ -351,8 +356,8 @@ export default function InsightsPage() {
 
     setLoading(true);
     api.analytics
-      .getRankings(req)
-      .then((res: RankingsResponse) => {
+      .getAdPerformance(req)
+      .then((res: AdPerformanceResponse) => {
         setServerData(res.data || []);
         setAvailableConversionTypes(res.available_conversion_types || []);
         setAverages(res.averages);
@@ -363,7 +368,7 @@ export default function InsightsPage() {
         setAvailableConversionTypes([]);
       })
       .finally(() => setLoading(false));
-  }, [isClient, status, dateRange.start, dateRange.end]);
+  }, [isAuthorized, dateRange.start, dateRange.end]);
 
   useEffect(() => {
     if (!packsClient || packs.length === 0) return;
@@ -568,7 +573,7 @@ export default function InsightsPage() {
 
     // Enquanto critérios ainda não carregaram, considerar todos como validados
     if (!validationCriteria || validationCriteria.length === 0) {
-      const averagesFromAll = computeValidatedAveragesFromRankings(filteredRankings as any, actionType);
+      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredRankings as any, actionType);
       return [filteredRankings, averagesFromAll] as [any[], any];
     }
 
@@ -604,9 +609,40 @@ export default function InsightsPage() {
       return evaluateValidationCriteria(validationCriteria, metrics, "AND");
     });
 
-    const averagesFromValidated = computeValidatedAveragesFromRankings(validated as any, actionType);
+    const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType);
     return [validated, averagesFromValidated] as [any[], any];
   }, [filteredRankings, validationCriteria, actionType]);
+
+  // Top 5 de cada métrica reaproveitando a mesma lógica de Gems, usando apenas anúncios já validados
+  const topHookFromGems: GemsTopItem[] = useMemo(() => {
+    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!actionType) return [];
+    return computeTopMetric(validatedRankings as RankingsItem[], "hook", actionType, 5);
+  }, [validatedRankings, actionType]);
+
+  const topWebsiteCtrFromGems: GemsTopItem[] = useMemo(() => {
+    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!actionType) return [];
+    return computeTopMetric(validatedRankings as RankingsItem[], "website_ctr", actionType, 5);
+  }, [validatedRankings, actionType]);
+
+  const topCtrFromGems: GemsTopItem[] = useMemo(() => {
+    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!actionType) return [];
+    return computeTopMetric(validatedRankings as RankingsItem[], "ctr", actionType, 5);
+  }, [validatedRankings, actionType]);
+
+  const topPageConvFromGems: GemsTopItem[] = useMemo(() => {
+    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!actionType) return [];
+    return computeTopMetric(validatedRankings as RankingsItem[], "page_conv", actionType, 5);
+  }, [validatedRankings, actionType]);
+
+  const topHoldRateFromGems: GemsTopItem[] = useMemo(() => {
+    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!actionType) return [];
+    return computeTopMetric(validatedRankings as RankingsItem[], "hold_rate", actionType, 5);
+  }, [validatedRankings, actionType]);
 
   // Função para encontrar o anúncio original baseado no OpportunityRow
   const findAdFromOpportunityRow = useMemo(() => {
@@ -738,10 +774,18 @@ export default function InsightsPage() {
     );
   }
 
-  if (status !== "authorized") {
+  if (authStatus !== "authorized") {
     return (
       <div>
         <LoadingState label="Redirecionando para login..." />
+      </div>
+    );
+  }
+
+  if (onboardingStatus === "requires_onboarding") {
+    return (
+      <div>
+        <LoadingState label="Redirecionando para configuração inicial..." />
       </div>
     );
   }
@@ -827,26 +871,38 @@ export default function InsightsPage() {
                       </div>
                     </div>
                   </div>
-                  <OpportunityCards rows={rows} averages={averages} actionType={packActionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} />
+                  <OpportunityCards rows={rows} averages={validatedAverages} actionType={packActionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
                 </div>
               );
             })
         ) : opportunityRows.length > 0 ? (
           // Renderizar slider único (comportamento atual)
           <div>
-            <OpportunityCards rows={opportunityRows} averages={averages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} />
+            <OpportunityCards rows={opportunityRows} averages={validatedAverages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
 
-            {/* Debug: Métricas médias */}
-            {averages && (
+            {/* Debug: Métricas médias (sempre com base em anúncios validados) */}
+            {validatedAverages && (
               <div className="mt-4 p-3 bg-muted rounded text-xs space-y-1">
-                <div className="font-semibold mb-2">Médias (Debug):</div>
+                <div className="font-semibold mb-2">Médias (apenas anúncios validados):</div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
-                  <div>Hook: {((averages.hook || 0) * 100).toFixed(1)}%</div>
-                  <div>CTR: {((averages.website_ctr || 0) * 100).toFixed(2)}%</div>
-                  <div>Connect: {((averages.connect_rate || 0) * 100).toFixed(1)}%</div>
-                  <div>Page: {((averages.per_action_type?.[actionType]?.page_conv || 0) * 100).toFixed(1)}%</div>
-                  <div>CPR: R$ {(averages.per_action_type?.[actionType]?.cpr || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                  <div>CPM: R$ {(averages.cpm || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div>Hook: {((validatedAverages.hook || 0) * 100).toFixed(1)}%</div>
+                  <div>CTR: {((validatedAverages.website_ctr || 0) * 100).toFixed(2)}%</div>
+                  <div>Connect: {((validatedAverages.connect_rate || 0) * 100).toFixed(1)}%</div>
+                  <div>Page: {((validatedAverages.per_action_type?.[actionType]?.page_conv || 0) * 100).toFixed(1)}%</div>
+                  <div>
+                    CPR: R{" "}
+                    {(validatedAverages.per_action_type?.[actionType]?.cpr || 0).toLocaleString("pt-BR", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </div>
+                  <div>
+                    CPM: R{" "}
+                    {(validatedAverages.cpm || 0).toLocaleString("pt-BR", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </div>
                 </div>
               </div>
             )}

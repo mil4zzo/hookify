@@ -9,6 +9,7 @@ import { MetricRanks } from "@/lib/utils/metricRankings";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { InsightsModal } from "./InsightsModal";
+import { GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 
 type OpportunityCardsProps = {
   rows: OpportunityRow[];
@@ -17,6 +18,16 @@ type OpportunityCardsProps = {
   onAdClick?: (row: OpportunityRow, openVideo?: boolean) => void;
   /** Rankings globais de métricas (calculados a partir de todos os anúncios) */
   globalMetricRanks?: MetricRanks;
+  /** Top 5 hooks da seção Gems (para InsightsModal) */
+  gemsTopHook?: GemsTopItem[];
+  /** Top 5 Website CTR da seção Gems (para InsightsModal) */
+  gemsTopWebsiteCtr?: GemsTopItem[];
+  /** Top 5 CTR da seção Gems (para InsightsModal) */
+  gemsTopCtr?: GemsTopItem[];
+  /** Top 5 Page Conv da seção Gems (para InsightsModal) */
+  gemsTopPageConv?: GemsTopItem[];
+  /** Top 5 Hold Rate da seção Gems (para InsightsModal) */
+  gemsTopHoldRate?: GemsTopItem[];
 };
 
 function formatPct(v: number): string {
@@ -112,7 +123,7 @@ function getMetricStatusIcon(current: number, average: number, lowerIsBetter: bo
   return null;
 }
 
-export function OpportunityCards({ rows, averages, actionType, onAdClick, globalMetricRanks }: OpportunityCardsProps) {
+export function OpportunityCards({ rows, averages, actionType, onAdClick, globalMetricRanks, gemsTopHook, gemsTopWebsiteCtr, gemsTopCtr, gemsTopPageConv, gemsTopHoldRate }: OpportunityCardsProps) {
   const formatCurrency = useFormatCurrency();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -206,7 +217,7 @@ export function OpportunityCards({ rows, averages, actionType, onAdClick, global
   return (
     <div className="relative">
       {/* Gradiente lateral esquerdo */}
-      {canScrollLeft && <div className="absolute left-0 top-0 bottom-4 w-20 z-[5] pointer-events-none bg-gradient-to-r from-background via-background/80 to-transparent" />}
+      {canScrollLeft && <div className="absolute left-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-r from-background via-background/80 to-transparent" />}
 
       {/* Botão anterior */}
       {canScrollLeft && (
@@ -224,7 +235,7 @@ export function OpportunityCards({ rows, averages, actionType, onAdClick, global
       </div>
 
       {/* Gradiente lateral direito */}
-      {canScrollRight && <div className="absolute right-0 top-0 bottom-4 w-20 z-[5] pointer-events-none bg-gradient-to-l from-background via-background/80 to-transparent" />}
+      {canScrollRight && <div className="absolute right-0 top-0 bottom-0 w-20 z-[5] pointer-events-none bg-gradient-to-l from-background via-background/80 to-transparent" />}
 
       {/* Botão próximo */}
       {canScrollRight && (
@@ -234,7 +245,23 @@ export function OpportunityCards({ rows, averages, actionType, onAdClick, global
       )}
 
       {/* Modal de Insights */}
-      {selectedCardForInsights && <InsightsModal row={selectedCardForInsights} isOpen={!!selectedCardForInsights} onClose={() => setSelectedCardForInsights(null)} formatCurrency={formatCurrency} avgCpr={avgCpr} actionType={actionType} cardComponent={<OpportunityCard row={selectedCardForInsights} idx={rows.findIndex((r) => r.ad_id === selectedCardForInsights.ad_id || r.ad_name === selectedCardForInsights.ad_name)} formatCurrency={formatCurrency} avgHook={avgHook} avgHoldRate={avgHoldRate} avgWebsiteCtr={avgWebsiteCtr} avgConnectRate={avgConnectRate} avgPageConv={avgPageConv} avgCpr={avgCpr} metricRanks={metricRanks} onAdClick={onAdClick} onInsightsClick={() => setSelectedCardForInsights(null)} isInOverlay={true} />} />}
+      {selectedCardForInsights && (
+        <InsightsModal
+          row={selectedCardForInsights}
+          isOpen={!!selectedCardForInsights}
+          onClose={() => setSelectedCardForInsights(null)}
+          formatCurrency={formatCurrency}
+          avgCpr={avgCpr}
+          actionType={actionType}
+          gemsTopHook={gemsTopHook}
+          gemsTopWebsiteCtr={gemsTopWebsiteCtr}
+          gemsTopCtr={gemsTopCtr}
+          gemsTopPageConv={gemsTopPageConv}
+          gemsTopHoldRate={gemsTopHoldRate}
+          averages={averages}
+          cardComponent={<OpportunityCard row={selectedCardForInsights} idx={rows.findIndex((r) => r.ad_id === selectedCardForInsights.ad_id || r.ad_name === selectedCardForInsights.ad_name)} formatCurrency={formatCurrency} avgHook={avgHook} avgHoldRate={avgHoldRate} avgWebsiteCtr={avgWebsiteCtr} avgConnectRate={avgConnectRate} avgPageConv={avgPageConv} avgCpr={avgCpr} metricRanks={metricRanks} onAdClick={onAdClick} onInsightsClick={() => setSelectedCardForInsights(null)} isInOverlay={true} />}
+        />
+      )}
     </div>
   );
 }
@@ -291,8 +318,12 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
   // Número de variações
   const variationCount = r.ad_count || 1;
 
-  // Obter thumbnail para o player de vídeo (prioridade: adcreatives_videos_thumbs[0], fallback: thumbnail)
-  const videoThumbnail = Array.isArray(r.adcreatives_videos_thumbs) && r.adcreatives_videos_thumbs.length > 0 && r.adcreatives_videos_thumbs[0] ? r.adcreatives_videos_thumbs[0] : r.thumbnail ? getAdThumbnail({ thumbnail: r.thumbnail } as any) : null;
+  // Obter thumbnail para o player de vídeo (prioridade: adcreatives_videos_thumbs[0], fallback: getAdThumbnail com objeto completo)
+  const adcreativesThumbs = (r as any)?.adcreatives_videos_thumbs;
+  const videoThumbnail =
+    Array.isArray(adcreativesThumbs) && adcreativesThumbs.length > 0 && adcreativesThumbs[0]
+      ? String(adcreativesThumbs[0]).trim()
+      : getAdThumbnail(r);
 
   const handleCardClick = () => {
     if (onAdClick) {
@@ -393,7 +424,7 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
           <div className={ROW_MUTED_CLASS} style={holdRateBadgeStyles || undefined}>
             <div className={`col-span-3 ${holdRateBadgeStyles ? "" : "text-foreground"} font-semibold text-xs flex items-center gap-2 min-w-0`} style={holdRateBadgeStyles ? { color: holdRateBadgeStyles.color } : undefined}>
               <div className="flex-shrink-0 w-4 h-4 flex items-center justify-center">{holdRateEmoji ? <span className="text-base leading-none">{holdRateEmoji}</span> : getMetricStatusIcon(r.hold_rate, avgHoldRate)}</div>
-              <span className="truncate">HOLD RATE</span>
+              <span className="truncate">HOLD</span>
             </div>
             <div className={`col-span-2 ${holdRateBadgeStyles ? "" : getValueColor(r.hold_rate, avgHoldRate)} text-xs flex items-center justify-end`} style={holdRateBadgeStyles ? { color: holdRateBadgeStyles.color } : undefined}>
               {formatPct(r.hold_rate)}
@@ -404,7 +435,7 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
           </div>
 
           {/* CTR Link */}
-          <MetricRow label="CTR" current={r.website_ctr} average={avgWebsiteCtr} formatValue={formatPct2} medalEmoji={websiteCtrEmoji} badgeStyles={websiteCtrBadgeStyles} />
+          <MetricRow label="LINK CTR" current={r.website_ctr} average={avgWebsiteCtr} formatValue={formatPct2} medalEmoji={websiteCtrEmoji} badgeStyles={websiteCtrBadgeStyles} />
 
           {/* Connect Rate */}
           <MetricRow label="CONNECT" current={r.connect_rate} average={avgConnectRate} formatValue={formatPct} medalEmoji={connectRateEmoji} badgeStyles={connectRateBadgeStyles} />

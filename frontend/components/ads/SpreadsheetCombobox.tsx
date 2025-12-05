@@ -8,6 +8,8 @@ import { IconCheck, IconChevronDown, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { api } from "@/lib/api/endpoints";
 import { SpreadsheetItem } from "@/lib/api/schemas";
+import { showError } from "@/lib/utils/toast";
+import { AppError } from "@/lib/utils/errors";
 
 interface SpreadsheetComboboxProps {
   value?: string;
@@ -28,6 +30,7 @@ export function SpreadsheetCombobox({
   const [isLoading, setIsLoading] = useState(false);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isLoadingMoreRef = useRef(false);
 
@@ -68,8 +71,60 @@ export function SpreadsheetCombobox({
 
         setNextPageToken(res.next_page_token || null);
         setHasMore(!!res.next_page_token);
+        setError(null); // Limpar erro em caso de sucesso
       } catch (error) {
-        console.error("Erro ao carregar planilhas:", error);
+        // Extrair mensagem de erro do AppError
+        let errorMessage = "Erro ao carregar planilhas. Tente novamente.";
+        
+        if (error && typeof error === "object") {
+          const appError = error as AppError;
+          if (appError.message) {
+            errorMessage = appError.message;
+          } else if (appError.details) {
+            errorMessage = String(appError.details);
+          }
+        } else if (error instanceof Error) {
+          errorMessage = error.message;
+        } else if (typeof error === "string") {
+          errorMessage = error;
+        }
+
+        // Detectar se é erro de token expirado/revogado
+        const isTokenExpired = 
+          errorMessage.toLowerCase().includes("token") && 
+          (errorMessage.toLowerCase().includes("expirado") || 
+           errorMessage.toLowerCase().includes("revogado") ||
+           errorMessage.toLowerCase().includes("inválido") ||
+           errorMessage.toLowerCase().includes("reconecte"));
+
+        // Log detalhado para debug
+        console.error("Erro ao carregar planilhas:", {
+          error,
+          errorType: typeof error,
+          message: errorMessage,
+          status: (error as AppError)?.status,
+          code: (error as AppError)?.code,
+          details: (error as AppError)?.details,
+          isTokenExpired,
+        });
+
+        setError(errorMessage);
+        
+        // Se for erro de token expirado, disparar evento para solicitar reconexão
+        if (isTokenExpired) {
+          // Disparar evento customizado para que o GoogleSheetIntegrationDialog trate
+          window.dispatchEvent(new CustomEvent('google-token-expired', {
+            detail: { 
+              message: errorMessage,
+              source: 'SpreadsheetCombobox'
+            }
+          }));
+        }
+        
+        // Mostrar toast apenas na primeira tentativa (não ao carregar mais)
+        if (!append) {
+          showError(error instanceof Error ? error : { message: errorMessage } as AppError);
+        }
       } finally {
         setIsLoading(false);
         isLoadingMoreRef.current = false;
@@ -120,10 +175,11 @@ export function SpreadsheetCombobox({
 
   const selectedOption = options.find((opt) => opt.value === value);
 
-  // Resetar busca quando fechar
+  // Resetar busca e erro quando fechar
   useEffect(() => {
     if (!open) {
       setSearch("");
+      setError(null);
     }
   }, [open]);
 
@@ -180,7 +236,21 @@ export function SpreadsheetCombobox({
             className="max-h-[300px] overflow-y-auto custom-scrollbar"
             onScroll={handleScroll}
           >
-            {isLoading && options.length === 0 ? (
+            {error ? (
+              <div className="py-6 px-4 text-center">
+                <p className="text-sm text-destructive mb-2">{error}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setError(null);
+                    loadSpreadsheets(debouncedSearch || undefined, undefined, false);
+                  }}
+                >
+                  Tentar novamente
+                </Button>
+              </div>
+            ) : isLoading ? (
               <div className="flex items-center justify-center gap-2 py-6">
                 <IconLoader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Carregando planilhas...</span>
@@ -214,12 +284,6 @@ export function SpreadsheetCombobox({
                     </button>
                   );
                 })}
-                {isLoading && options.length > 0 && (
-                  <div className="flex items-center justify-center gap-2 py-2">
-                    <IconLoader2 className="h-4 w-4 animate-spin" />
-                    <span className="text-xs text-muted-foreground">Carregando mais...</span>
-                  </div>
-                )}
               </div>
             )}
           </div>

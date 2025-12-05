@@ -150,6 +150,7 @@ def _get_thumbnail_with_fallback(ad_row: Dict[str, Any]) -> Optional[str]:
 
 
 @router.post("/rankings")
+@router.post("/ad-performance")
 def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     sb = get_supabase_for_user(user["token"])
 

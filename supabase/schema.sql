@@ -134,6 +134,9 @@ create table if not exists public.user_preferences (
   currency text,
   theme text,
   default_adaccount_id text,
+  -- Onboarding e preferências avançadas do usuário
+  has_completed_onboarding boolean default false,
+  validation_criteria jsonb,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

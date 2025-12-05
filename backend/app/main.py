@@ -6,6 +6,7 @@ from app.routes.facebook import router as facebook_router
 from app.routes.analytics import router as analytics_router
 from app.routes.connectors_facebook import router as fb_connector_router
 from app.routes.google_integration import router as google_integration_router
+from app.routes.onboarding import router as onboarding_router
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper()))
@@ -32,6 +33,7 @@ app.include_router(facebook_router)
 app.include_router(analytics_router)
 app.include_router(fb_connector_router)
 app.include_router(google_integration_router)
+app.include_router(onboarding_router)
 
 @app.get("/")
 def root():

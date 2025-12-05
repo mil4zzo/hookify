@@ -15,7 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
-import { useRequireAuth } from "@/lib/hooks/useRequireAuth";
+import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError, showWarning, showProgressToast, updateProgressToast, finishProgressToast } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
 import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport } from "@tabler/icons-react";
@@ -307,6 +307,7 @@ export default function AdsLoaderPage() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
+  const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>("");
   const [jsonViewerPack, setJsonViewerPack] = useState<any>(null);
@@ -354,8 +355,8 @@ export default function AdsLoaderPage() {
   const { isAuthenticated, user, isClient } = useClientAuth();
   const { packs, addPack, removePack, updatePack } = useClientPacks();
   const { adAccounts } = useClientAdAccounts();
-  const { status } = useRequireAuth("/login");
-  const { invalidatePackAds, invalidateRankings } = useInvalidatePackAds();
+  const { authStatus, onboardingStatus } = useOnboardingGate("app");
+  const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
   const { isLoading: isLoadingPacks } = usePacksLoading();
 
   // API hooks
@@ -578,14 +579,6 @@ export default function AdsLoaderPage() {
           }
 
           const rawAds = Array.isArray((progress as any)?.data) ? (progress as any).data : Array.isArray((progress as any)?.data?.data) ? (progress as any).data.data : [];
-
-          // Log detalhado para debug
-          console.log("=== FRONTEND DEBUG - Progresso do Job ===");
-          console.log("Status:", progress.status);
-          console.log("Progress:", progress.progress);
-          console.log("Message:", progress.message);
-          console.log("Raw ads length:", rawAds.length);
-          console.log("Raw ads sample:", rawAds.slice(0, 2));
 
           // Atualizar feedback visual
           setDebugInfo(`${progress.message || "Processando..."} | Anúncios coletados: ${rawAds.length}`);
@@ -856,8 +849,8 @@ export default function AdsLoaderPage() {
       // Invalidar cache de ads do pack removido
       await invalidatePackAds(packToRemove.id);
 
-      // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
-      invalidateRankings();
+      // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+      invalidateAdPerformance();
 
       showSuccess(`Pack "${packToRemove.name}" removido com sucesso!`);
       setPackToRemove(null);
@@ -869,8 +862,8 @@ export default function AdsLoaderPage() {
       // Invalidar cache mesmo se falhar no servidor
       await invalidatePackAds(packToRemove.id).catch(() => {});
 
-      // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
-      invalidateRankings();
+      // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+      invalidateAdPerformance();
 
       showError({ message: `Pack removido localmente, mas houve erro ao deletar do servidor: ${error}` });
       setPackToRemove(null);
@@ -1216,8 +1209,8 @@ export default function AdsLoaderPage() {
                 }
               }
 
-              // Invalidar rankings para atualizar dados na página de rankings (se estiver aberta)
-              invalidateRankings();
+      // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+      invalidateAdPerformance();
             } catch (error) {
               console.error("Erro ao recarregar pack após refresh:", error);
               // Não bloquear sucesso do refresh se falhar ao recarregar
@@ -1248,6 +1241,52 @@ export default function AdsLoaderPage() {
     }
   };
 
+  const handleSyncSheetIntegration = async (packId: string) => {
+    const pack = packs.find((p) => p.id === packId);
+    if (!pack || !pack.sheet_integration?.id) return;
+
+    setIsSyncingSheetIntegration(packId);
+    const toastId = `sync-sheet-${packId}`;
+
+    try {
+      showProgressToast(toastId, pack.name, 0, 1, "Iniciando sincronização...");
+
+      const syncRes = await api.integrations.google.syncSheetIntegration(pack.sheet_integration.id);
+
+      finishProgressToast(
+        toastId,
+        true,
+        `Enriquecimento de ads atualizado com sucesso! ${syncRes.stats?.updated_rows || 0} registros atualizados.`
+      );
+
+      // Recarregar packs para atualizar last_synced_at
+      try {
+        const response = await api.analytics.listPacks(false);
+        if (response.success && response.packs) {
+          const updatedPack = response.packs.find((p: any) => p.id === packId);
+          if (updatedPack?.sheet_integration) {
+            updatePack(packId, {
+              sheet_integration: updatedPack.sheet_integration,
+            } as Partial<AdsPack>);
+          }
+        }
+      } catch (error) {
+        console.error("Erro ao recarregar pack após sincronização:", error);
+        // Não bloquear sucesso da sincronização se falhar ao recarregar
+      }
+
+      // Invalidar cache de ads e dados agregados para refletir novos dados de enriquecimento
+      await invalidatePackAds(packId);
+      invalidateAdPerformance();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
+      finishProgressToast(toastId, false, `Erro ao sincronizar planilha: ${errorMessage}`);
+      showError({ message: `Erro ao sincronizar planilha: ${errorMessage}` });
+    } finally {
+      setIsSyncingSheetIntegration(null);
+    }
+  };
+
   // Client-side only rendering
   if (!isClient) {
     return (
@@ -1257,10 +1296,18 @@ export default function AdsLoaderPage() {
     );
   }
 
-  if (status !== "authorized") {
+  if (authStatus !== "authorized") {
     return (
       <div>
         <LoadingState label="Redirecionando para login..." />
+      </div>
+    );
+  }
+
+  if (onboardingStatus === "requires_onboarding") {
+    return (
+      <div>
+        <LoadingState label="Redirecionando para configuração inicial..." />
       </div>
     );
   }
@@ -1457,10 +1504,25 @@ export default function AdsLoaderPage() {
                         <IconTableExport className="w-4 h-4 text-green-500" />
                         <p className="text-sm font-medium text-green-500">Planilha conectada</p>
                       </div>
-                      <div className="text-xs text-muted-foreground bg-green-500/10 border border-green-500/20 p-2 rounded">
-                        <p className="font-medium">{pack.sheet_integration.spreadsheet_name || "Planilha desconhecida"}</p>
-                        <p className="text-xs mt-1">Aba: {pack.sheet_integration.worksheet_title || "N/A"}</p>
-                        {pack.sheet_integration.last_synced_at && <p className="text-xs mt-1 opacity-70">Última sincronização: {new Date(pack.sheet_integration.last_synced_at).toLocaleString("pt-BR")}</p>}
+                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground bg-green-500/10 border border-green-500/20 p-2 rounded">
+                        <div className="flex-1">
+                          <p className="font-medium">{pack.sheet_integration.spreadsheet_name || "Planilha desconhecida"}</p>
+                          <p className="text-xs mt-1">Aba: {pack.sheet_integration.worksheet_title || "N/A"}</p>
+                          {pack.sheet_integration.last_synced_at && <p className="text-xs mt-1 opacity-70">Última sincronização: {new Date(pack.sheet_integration.last_synced_at).toLocaleString("pt-BR")}</p>}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="shrink-0 w-10 h-10 border-green-500/30 hover:bg-green-500/10 hover:border-green-500/50"
+                          onClick={() => handleSyncSheetIntegration(pack.id)}
+                          disabled={isSyncingSheetIntegration === pack.id}
+                        >
+                          {isSyncingSheetIntegration === pack.id ? (
+                            <IconLoader2 className="w-5 h-5 animate-spin" />
+                          ) : (
+                            <IconRefresh className="w-5 h-5" />
+                          )}
+                        </Button>
                       </div>
                     </div>
                   )}

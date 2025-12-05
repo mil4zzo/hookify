@@ -84,16 +84,7 @@ class ApiClient {
     // Response interceptor - trata erros
     this.client.interceptors.response.use(
       (response: AxiosResponse) => {
-        // DEBUG: Log detalhado das respostas do Meta
-        if (env.NODE_ENV !== 'production' && response.config.url?.includes('/facebook/')) {
-          console.log('=== FRONTEND DEBUG - Meta API Response ===')
-          console.log('URL:', response.config.url)
-          console.log('Method:', response.config.method)
-          console.log('Status:', response.status)
-          console.log('Headers:', response.headers)
-          console.log('Data:', JSON.stringify(response.data, null, 2))
-          console.log('=== END DEBUG ===')
-        }
+        // Logs detalhados de respostas do Meta removidos para evitar poluição de console.
         return response
       },
       (error) => {

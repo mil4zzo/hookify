@@ -152,8 +152,20 @@ def google_oauth_callback(
             google_user_id = userinfo.get("id")
             google_email = userinfo.get("email")
             google_name = userinfo.get("name")
+            logger.info(
+                "[GOOGLE_OAUTH] Informações do usuário obtidas: email=%s, name=%s, id=%s",
+                google_email,
+                google_name,
+                google_user_id,
+            )
+        else:
+            logger.warning(
+                "[GOOGLE_OAUTH] Erro ao buscar informações do usuário: status=%s, response=%s",
+                userinfo_resp.status_code,
+                userinfo_resp.text[:200],
+            )
     except Exception as e:
-        logger.warning(f"Erro ao buscar informações do usuário Google: {e}")
+        logger.warning(f"[GOOGLE_OAUTH] Erro ao buscar informações do usuário Google: {e}", exc_info=True)
 
     rec = upsert_google_account(
         user_jwt=user["token"],

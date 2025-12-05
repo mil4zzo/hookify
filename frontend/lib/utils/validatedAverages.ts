@@ -2,13 +2,13 @@ import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 
 /**
  * Computa médias globais (hook, ctr, website_ctr, connect_rate, cpm, page_conv, cpr)
- * a partir de um conjunto de RankingsItem, replicando a lógica do backend em
- * backend/app/routes/analytics.py (averages_base + per_action_type[ actionType ]).
+ * a partir de um conjunto de RankingsItem / AdPerformanceItem, replicando a lógica
+ * do backend em backend/app/routes/analytics.py (averages_base + per_action_type[actionType]).
  *
  * Esta função deve ser a FONTE ÚNICA de verdade para médias no frontend.
  * Qualquer widget que dependa de médias deve reusar o resultado desta função.
  */
-export function computeValidatedAveragesFromRankings(
+export function computeValidatedAveragesFromAdPerformance(
   ads: RankingsItem[],
   actionType: string
 ): RankingsResponse["averages"] | undefined {
@@ -95,4 +95,6 @@ export function computeValidatedAveragesFromRankings(
   };
 }
 
-
+// Nome legado mantido como alias para compatibilidade com código existente.
+// Prefira `computeValidatedAveragesFromAdPerformance` em código novo.
+export const computeValidatedAveragesFromRankings = computeValidatedAveragesFromAdPerformance;
