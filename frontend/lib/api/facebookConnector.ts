@@ -22,6 +22,10 @@ export const facebookConnectorApi = {
   async setPrimary(id: string) {
     return apiClient.post(`/facebook/connections/${id}/primary`)
   },
+
+  async testConnection(id: string) {
+    return apiClient.get<{ valid: boolean; expired?: boolean; message?: string }>(`/facebook/connections/${id}/test`)
+  },
 }
 
 

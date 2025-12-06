@@ -617,14 +617,15 @@ export default function RankingsPage() {
 
     // Enquanto critérios ainda não carregaram ou não existem, considerar todos como validados
     if (!validationCriteria || validationCriteria.length === 0) {
-      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredRankings as any, actionType);
+      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredRankings as any, actionType, uniqueConversionTypes);
       return [filteredRankings, averagesFromAll] as [any[], any];
     }
 
     const validated = filteredRankings.filter((ad: any) => {
       const impressions = Number(ad.impressions || 0);
       const spend = Number(ad.spend || 0);
-      const cpm = impressions > 0 ? (spend * 1000) / impressions : Number(ad.cpm || 0);
+      // CPM: priorizar valor do backend, senão calcular
+      const cpm = typeof ad.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm) ? ad.cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
       const website_ctr = Number(ad.website_ctr || 0);
       const connect_rate = Number(ad.connect_rate || 0);
       const lpv = Number(ad.lpv || 0);
@@ -654,9 +655,9 @@ export default function RankingsPage() {
       return evaluateValidationCriteria(validationCriteria, metrics, "AND");
     });
 
-    const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType);
+    const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType, uniqueConversionTypes);
     return [validated, averagesFromValidated] as [any[], any];
-  }, [filteredRankings, validationCriteria, actionType]);
+  }, [filteredRankings, validationCriteria, actionType, uniqueConversionTypes]);
 
   if (!isClient) {
     return (
@@ -838,14 +839,9 @@ export default function RankingsPage() {
           const per = (base as any).per_action_type || {};
           const perSel = actionType ? per[actionType] : undefined;
 
-          // Verificar inconsistência: se actionType está em availableConversionTypes mas não tem média
-          if (actionType && uniqueConversionTypes.includes(actionType) && !perSel) {
-            console.error(`[RankingsPage] Inconsistência detectada: actionType "${actionType}" está em availableConversionTypes mas não tem entrada em per_action_type`, {
-              actionType,
-              availableConversionTypes: uniqueConversionTypes,
-              per_action_type_keys: Object.keys(per),
-            });
-          }
+          // Se não houver entrada para o actionType (deveria ser raro agora), usar valores padrão (0)
+          // Isso garante que a UI não quebre mesmo se houver alguma inconsistência
+          const defaultPerSel = actionType && !perSel ? { cpr: 0, page_conv: 0, results: 0 } : perSel;
 
           return {
             hook: typeof base.hook === "number" ? base.hook : null,
@@ -854,8 +850,8 @@ export default function RankingsPage() {
             website_ctr: typeof base.website_ctr === "number" ? base.website_ctr : null,
             connect_rate: typeof base.connect_rate === "number" ? base.connect_rate : null,
             cpm: typeof base.cpm === "number" ? base.cpm : null,
-            cpr: perSel && typeof perSel.cpr === "number" ? perSel.cpr : null,
-            page_conv: perSel && typeof perSel.page_conv === "number" ? perSel.page_conv : null,
+            cpr: defaultPerSel && typeof defaultPerSel.cpr === "number" ? defaultPerSel.cpr : null,
+            page_conv: defaultPerSel && typeof defaultPerSel.page_conv === "number" ? defaultPerSel.page_conv : null,
           } as any;
         })()}
       />

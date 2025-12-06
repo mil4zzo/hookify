@@ -1,15 +1,18 @@
 import { RankingsItem } from "@/lib/api/schemas";
 
-export type GemsMetricKey = "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate";
+export type GemsMetricKey = "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr";
 
 export type GemsTopItem = RankingsItem & {
   metricValue: number;
   metricFormatted: string;
 };
 
-function formatMetric(value: number, _metric: GemsMetricKey): string {
+function formatMetric(value: number, metric: GemsMetricKey): string {
   if (value == null || !Number.isFinite(value) || value <= 0) return "—";
-  // Todas as métricas são percentuais
+  // CPR é em moeda (R$), as outras são percentuais
+  if (metric === "cpr") {
+    return `R$ ${value.toFixed(2)}`;
+  }
   return `${(value * 100).toFixed(2)}%`;
 }
 
@@ -28,6 +31,18 @@ export function getMetricValue(ad: any, metric: GemsMetricKey, actionType: strin
       const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
       return lpv > 0 ? results / lpv : 0;
     }
+    case "cpr": {
+      // Se o ad já tem CPR calculado (vem do ranking), usar esse valor
+      if ("cpr" in ad && typeof ad.cpr === "number" && ad.cpr > 0) {
+        return ad.cpr;
+      }
+      // Caso contrário, calcular baseado no actionType
+      if (!actionType) return 0;
+      const spend = Number(ad.spend || 0);
+      const results = Number(ad.conversions?.[actionType] || 0);
+      if (!results) return 0;
+      return spend / results;
+    }
     default:
       return 0;
   }
@@ -45,7 +60,8 @@ export function computeTopMetric(ads: RankingsItem[], metric: GemsMetricKey, act
       };
     })
     .filter((ad) => ad.metricValue > 0 && !isNaN(ad.metricValue))
-    .sort((a, b) => b.metricValue - a.metricValue)
+    // Para CPR, ordenar crescente (menor é melhor), para outras métricas, decrescente (maior é melhor)
+    .sort((a, b) => (metric === "cpr" ? a.metricValue - b.metricValue : b.metricValue - a.metricValue))
     .slice(0, limit)
     .map((ad) => ({
       ...(ad as any),

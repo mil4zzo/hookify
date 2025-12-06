@@ -27,7 +27,7 @@ interface GemsWidgetProps {
 }
 
 const STORAGE_KEY_GEMS_COLUMN_ORDER = "hookify-gems-column-order";
-const DEFAULT_GEMS_COLUMN_ORDER: readonly GemsColumnType[] = ["hook", "website_ctr", "page_conv", "ctr", "hold_rate"] as const;
+const DEFAULT_GEMS_COLUMN_ORDER: readonly GemsColumnType[] = ["hook", "website_ctr", "page_conv", "ctr", "hold_rate", "cpr"] as const;
 
 /**
  * Componente wrapper para tornar uma coluna Gems arrastável
@@ -56,7 +56,8 @@ function SortableGemsColumn({ id, ...columnProps }: { id: GemsColumnType } & Rea
 function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsData {
   const impressions = Number((ad as any).impressions || 0);
   const spend = Number((ad as any).spend || 0);
-  const cpm = impressions > 0 ? (spend * 1000) / impressions : Number((ad as any).cpm || 0);
+  // CPM: priorizar valor do backend, senão calcular
+  const cpm = typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm) && isFinite((ad as any).cpm) ? (ad as any).cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
   const website_ctr = Number((ad as any).website_ctr || 0);
   const connect_rate = Number((ad as any).connect_rate || 0);
   const lpv = Number((ad as any).lpv || 0);
@@ -108,6 +109,8 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
 
   const topHoldRate = useMemo(() => computeTopMetric(validatedAds as any, "hold_rate", actionType, limit), [validatedAds, actionType, limit]);
 
+  const topCpr = useMemo(() => computeTopMetric(validatedAds as any, "cpr", actionType, limit), [validatedAds, actionType, limit]);
+
   // 3. Calcular rankings globais usando o utilitário centralizado
   // IMPORTANTE: Os rankings são calculados apenas com anúncios que passam pelos critérios de validação
   // Se não houver critérios definidos (array vazio ou undefined), todos os anúncios são considerados
@@ -132,6 +135,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
         ctrRank: null,
         pageConvRank: null,
         holdRateRank: null,
+        cprRank: null,
       };
     }
 
@@ -142,6 +146,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
       ctrRank: globalMetricRanks.ctrRank.get(adId) ?? null,
       pageConvRank: globalMetricRanks.pageConvRank.get(adId) ?? null,
       holdRateRank: globalMetricRanks.holdRateRank.get(adId) ?? null,
+      cprRank: globalMetricRanks.cprRank.get(adId) ?? null,
     };
   };
 
@@ -151,6 +156,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   const avgCtr = averages?.ctr ?? null;
   const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? averages.per_action_type[actionType].page_conv ?? null : null;
   const avgHoldRate = (averages as any)?.hold_rate ?? null;
+  const avgCpr = actionType && averages?.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].cpr === "number" ? averages.per_action_type[actionType].cpr : null;
 
   // Preparar averages para o AdDetailsDialog
   const dialogAverages = averages
@@ -175,25 +181,95 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   const columnConfigs = useMemo<KanbanColumnConfig<GemsColumnType>[]>(() => {
     const configs: KanbanColumnConfig<GemsColumnType>[] = [];
 
-    const addColumn = (id: GemsColumnType, title: string, items: any[], averageValue: number | null, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate") => {
+    const addColumn = (id: GemsColumnType, title: string, items: any[], averageValue: number | null, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr", tooltipTitle: string, tooltipDescription: string) => {
       configs.push({
         id,
         title,
         items,
         averageValue,
         emptyMessage: "Nenhum anúncio válido encontrado",
-        renderColumn: (config) => <SortableGemsColumn id={config.id} title={config.title} items={config.items} metric={metric} averageValue={config.averageValue} onAdClick={config.onAdClick} getTopMetrics={getTopMetrics} actionType={actionType} isCompact={isCompact} />,
+        renderColumn: (config) => (
+          <SortableGemsColumn
+            id={config.id}
+            title={config.title}
+            items={config.items}
+            metric={metric}
+            averageValue={config.averageValue}
+            onAdClick={config.onAdClick}
+            getTopMetrics={getTopMetrics}
+            actionType={actionType}
+            isCompact={isCompact}
+            tooltip={{
+              title: tooltipTitle,
+              content: (
+                <>
+                  <div className="font-semibold text-sm mb-1">{tooltipTitle}</div>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{tooltipDescription}</p>
+                </>
+              ),
+            }}
+          />
+        ),
       });
     };
 
-    addColumn("hook", "Hooks", topHook, avgHook, "hook");
-    addColumn("website_ctr", "Link CTR", topWebsiteCtr, avgWebsiteCtr, "website_ctr");
-    addColumn("page_conv", "Page", topPageConv, avgPageConv, "page_conv");
-    addColumn("ctr", "CTR", topCtr, avgCtr, "ctr");
-    addColumn("hold_rate", "Hold Rate", topHoldRate, avgHoldRate, "hold_rate");
+    addColumn(
+      "hook",
+      "Hooks",
+      topHook,
+      avgHook,
+      "hook",
+      "Taxa de retenção inicial",
+      "Percentual de pessoas que assistiram pelo menos 3 segundos do vídeo. Mede a capacidade do anúncio de prender atenção nos primeiros segundos."
+    );
+    addColumn(
+      "website_ctr",
+      "Link CTR",
+      topWebsiteCtr,
+      avgWebsiteCtr,
+      "website_ctr",
+      "Taxa de cliques no link",
+      "Percentual de impressões que resultaram em cliques no link. Mede a efetividade do anúncio em gerar interesse e direcionar tráfego."
+    );
+    addColumn(
+      "page_conv",
+      "Page",
+      topPageConv,
+      avgPageConv,
+      "page_conv",
+      "Taxa de conversão na página",
+      "Percentual de visitantes da landing page que converteram. Mede a qualidade da página, copy e público-alvo."
+    );
+    addColumn(
+      "ctr",
+      "CTR",
+      topCtr,
+      avgCtr,
+      "ctr",
+      "Taxa de cliques geral",
+      "Percentual de impressões que resultaram em qualquer tipo de clique. Mede o engajamento geral e relevância do anúncio."
+    );
+    addColumn(
+      "hold_rate",
+      "Hold Rate",
+      topHoldRate,
+      avgHoldRate,
+      "hold_rate",
+      "Taxa de retenção geral",
+      "Percentual de pessoas que assistiram o vídeo até o final. Mede a retenção e qualidade do conteúdo ao longo de toda a duração."
+    );
+    addColumn(
+      "cpr",
+      "CPR",
+      topCpr,
+      avgCpr,
+      "cpr",
+      "Custo por resultado",
+      "Valor gasto para cada conversão obtida. Mede a eficiência do investimento em anúncios. Quanto menor, melhor."
+    );
 
     return configs;
-  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, getTopMetrics, actionType, isCompact]);
+  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, topCpr, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, avgCpr, getTopMetrics, actionType, isCompact]);
 
   return (
     <BaseKanbanWidget

@@ -13,6 +13,7 @@ export type MetricRanks = {
   connectRateRank: Map<string | null, number>;
   pageConvRank: Map<string | null, number>;
   ctrRank: Map<string | null, number>;
+  cprRank: Map<string | null, number>;
   spendRank: Map<string | null, number>;
 };
 
@@ -34,7 +35,8 @@ export interface MetricRankingsOptions {
 function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsData {
   const impressions = Number((ad as any).impressions || 0);
   const spend = Number((ad as any).spend || 0);
-  const cpm = impressions > 0 ? (spend * 1000) / impressions : Number((ad as any).cpm || 0);
+  // CPM: priorizar valor do backend, senão calcular
+  const cpm = typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm) && isFinite((ad as any).cpm) ? (ad as any).cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
   const website_ctr = Number((ad as any).website_ctr || 0);
   const connect_rate = Number((ad as any).connect_rate || 0);
   const lpv = Number((ad as any).lpv || 0);
@@ -64,7 +66,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
 /**
  * Obtém o valor de uma métrica específica de um RankingsItem
  */
-function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate", actionType?: string): number {
+function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr", actionType?: string): number {
   switch (metric) {
     case "hook":
       return Number(ad.hook || 0);
@@ -87,6 +89,18 @@ function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr"
       const lpv = Number(ad.lpv || 0);
       const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
       return lpv > 0 ? results / lpv : 0;
+    }
+    case "cpr": {
+      // Se o ad já tem CPR calculado (vem do ranking), usar esse valor
+      if ("cpr" in ad && typeof (ad as any).cpr === "number" && (ad as any).cpr > 0) {
+        return (ad as any).cpr;
+      }
+      // Caso contrário, calcular baseado no actionType
+      if (!actionType) return 0;
+      const spend = Number(ad.spend || 0);
+      const results = Number((ad as any).conversions?.[actionType] || 0);
+      if (!results) return 0;
+      return spend / results;
     }
     default:
       return 0;
@@ -128,6 +142,7 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
   const connectRateRank = new Map<string | null, number>();
   const pageConvRank = new Map<string | null, number>();
   const ctrRank = new Map<string | null, number>();
+  const cprRank = new Map<string | null, number>();
   const spendRank = new Map<string | null, number>();
 
   // Hook: ordenar por valor decrescente
@@ -202,6 +217,18 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
     if (item.ad_id) ctrRank.set(item.ad_id, idx + 1);
   });
 
+  // CPR: ordenar por valor crescente (menor é melhor)
+  const sortedCpr = validatedAds
+    .map((ad) => ({
+      ad_id: ad.ad_id,
+      value: getMetricValue(ad, "cpr", actionType),
+    }))
+    .filter((item) => !filterValidOnly || (item.value > 0 && Number.isFinite(item.value)))
+    .sort((a, b) => a.value - b.value);
+  sortedCpr.forEach((item, idx) => {
+    if (item.ad_id) cprRank.set(item.ad_id, idx + 1);
+  });
+
   // Spend: ordenar por valor decrescente
   const sortedSpend = validatedAds
     .map((ad) => ({
@@ -221,6 +248,7 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
     connectRateRank,
     pageConvRank,
     ctrRank,
+    cprRank,
     spendRank,
   };
 }

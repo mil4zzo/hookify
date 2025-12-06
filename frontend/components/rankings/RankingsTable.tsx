@@ -540,6 +540,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     if (!endDate) return { byKey: new Map<string, any>() };
     // Verificar se os dados já vêm com séries do servidor
     const hasServerSeries = ads.length > 0 && ads[0]?.series;
+
     if (hasServerSeries) {
       // Construir mapa a partir das séries do servidor
       const map = new Map<string, any>();

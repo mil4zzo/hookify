@@ -239,11 +239,54 @@ def delete_google_connection(
     return {"success": True}
 
 
+@router.get("/connections/{connection_id}/test")
+def test_google_connection(
+    connection_id: str,
+    user=Depends(get_current_user),
+):
+    """
+    Testa se uma conexão Google específica está válida.
+    Faz uma requisição simples para listar planilhas usando os tokens dessa conexão.
+    """
+    try:
+        # Tentar listar planilhas usando essa conexão específica (apenas 1 resultado para teste rápido)
+        spreadsheets, _ = list_spreadsheets(
+            user_jwt=user["token"],
+            user_id=user["user_id"],
+            connection_id=connection_id,
+            page_size=1,
+        )
+        return {"valid": True, "message": "Conexão válida"}
+    except GoogleSheetsError as e:
+        error_message = str(e)
+        # Verificar se é erro de token expirado/revogado
+        is_expired = (
+            "expirado" in error_message.lower()
+            or "revogado" in error_message.lower()
+            or "inválido" in error_message.lower()
+            or "reconecte" in error_message.lower()
+            or "unauthorized" in error_message.lower()
+        )
+        return {
+            "valid": False,
+            "expired": is_expired,
+            "message": error_message,
+        }
+    except Exception as e:
+        logger.exception(f"[GOOGLE_CONNECTION_TEST] Erro inesperado ao testar conexão {connection_id}")
+        return {
+            "valid": False,
+            "expired": False,
+            "message": f"Erro ao testar conexão: {str(e)}",
+        }
+
+
 @router.get("/spreadsheets")
 def list_user_spreadsheets(
     query: Optional[str] = Query(None, description="Busca por nome da planilha"),
     page_size: int = Query(20, ge=1, le=100, description="Número de resultados por página"),
     page_token: Optional[str] = Query(None, description="Token de paginação para próxima página"),
+    connection_id: Optional[str] = Query(None, description="ID da conexão Google específica a usar"),
     user=Depends(get_current_user),
 ):
     """
@@ -257,6 +300,7 @@ def list_user_spreadsheets(
             query=query,
             page_size=page_size,
             page_token=page_token,
+            connection_id=connection_id,
         )
     except GoogleSheetsError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -273,6 +317,7 @@ def list_user_spreadsheets(
 @router.get("/spreadsheets/{spreadsheet_id}/worksheets")
 def list_spreadsheet_worksheets(
     spreadsheet_id: str,
+    connection_id: Optional[str] = Query(None, description="ID da conexão Google específica a usar"),
     user=Depends(get_current_user),
 ):
     """
@@ -283,6 +328,7 @@ def list_spreadsheet_worksheets(
             user_jwt=user["token"],
             user_id=user["user_id"],
             spreadsheet_id=spreadsheet_id,
+            connection_id=connection_id,
         )
     except GoogleSheetsError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -297,6 +343,7 @@ def list_spreadsheet_worksheets(
 def list_sheet_columns(
     spreadsheet_id: str,
     worksheet_title: str,
+    connection_id: Optional[str] = Query(None, description="ID da conexão Google específica a usar"),
     user=Depends(get_current_user),
 ):
     """
@@ -309,6 +356,7 @@ def list_sheet_columns(
             user_id=user["user_id"],
             spreadsheet_id=spreadsheet_id,
             worksheet_title=worksheet_title,
+            connection_id=connection_id,
         )
     except GoogleSheetsError as e:
         raise HTTPException(status_code=400, detail=str(e))

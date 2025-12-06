@@ -224,3 +224,64 @@ def get_primary_facebook_token_with_status(
     return token, expires_at, status
 
 
+def get_facebook_token_for_connection(
+    user_jwt: str,
+    user_id: str,
+    connection_id: Optional[str] = None,
+) -> Tuple[Optional[str], Optional[float], Optional[str]]:
+    """
+    Busca o token de uma conexão Facebook específica ou primária, descriptografa e retorna status.
+    
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        user_id: ID do usuário
+        connection_id: ID da conexão específica (opcional). Se não fornecido, retorna a primária.
+    
+    Returns:
+        Tupla (token_descriptografado, expires_at_timestamp, status) ou (None, None, None)
+        Filtra apenas conexões com status 'active'
+    """
+    sb = get_supabase_for_user(user_jwt)
+    
+    query = (
+        sb.table("facebook_connections")
+        .select("access_token,is_primary,expires_at,status")
+        .eq("user_id", user_id)
+        .eq("status", "active")
+    )
+    
+    # Se connection_id foi fornecido, filtrar por ele; senão, pegar a primária (comportamento legado)
+    if connection_id:
+        query = query.eq("id", connection_id)
+    else:
+        query = query.order("is_primary", desc=True).order("created_at", desc=True)
+    
+    res = query.limit(1).execute()
+    
+    if not res.data or len(res.data) == 0:
+        return None, None, None
+    
+    connection = res.data[0]
+    encrypted_token = connection.get("access_token")
+    status = connection.get("status", "active")
+    
+    if not encrypted_token:
+        return None, None, status
+    
+    # Converter expires_at para timestamp se disponível
+    expires_at = None
+    expires_at_str = connection.get("expires_at")
+    if expires_at_str:
+        try:
+            if isinstance(expires_at_str, str):
+                dt = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                expires_at = dt.timestamp()
+            elif isinstance(expires_at_str, (int, float)):
+                expires_at = float(expires_at_str)
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Could not parse expires_at: {expires_at_str}, error: {e}")
+    
+    token = decrypt_token(encrypted_token)
+    return token, expires_at, status
+
+

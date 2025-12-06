@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 
-export type GemsColumnType = "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate";
+export type GemsColumnType = "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr";
 
 interface GemsColumn {
   id: GemsColumnType;
@@ -19,6 +19,7 @@ const GEMS_COLUMNS: GemsColumn[] = [
   { id: "ctr", name: "CTR" },
   { id: "page_conv", name: "Page" },
   { id: "hold_rate", name: "Hold Rate" },
+  { id: "cpr", name: "CPR" },
 ];
 
 interface GemsColumnFilterProps {

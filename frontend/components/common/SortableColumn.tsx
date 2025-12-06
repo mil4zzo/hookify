@@ -3,7 +3,7 @@
 import { ReactNode } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { IconGripVertical, IconInfoCircle } from "@tabler/icons-react";
+import { IconGripVertical } from "@tabler/icons-react";
 import { GenericColumn, GenericColumnColorScheme } from "./GenericColumn";
 
 /**
@@ -21,6 +21,7 @@ export interface SortableColumnProps {
   /** Tooltip opcional para o header */
   tooltip?: {
     title: string;
+    content?: React.ReactNode;
   };
   /** Habilitar drag (padrão: true) */
   enableDrag?: boolean;
@@ -59,13 +60,9 @@ export function SortableColumn({ id, title, items, colorScheme, emptyMessage = "
         emptyMessage={emptyMessage}
         renderCard={renderCard}
         formatAverage={formatAverage}
+        tooltip={tooltip}
         headerRight={
           <div className="flex items-center gap-1">
-            {tooltip && (
-              <button type="button" className="flex items-center justify-center rounded-md p-1 opacity-60 hover:opacity-100 hover:bg-muted/50 transition-colors" title={tooltip.title}>
-                <IconInfoCircle className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-              </button>
-            )}
             {dragHandle}
           </div>
         }

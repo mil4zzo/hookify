@@ -31,7 +31,8 @@ function formatPct1(v: number): string {
 function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsData {
   const impressions = Number((ad as any).impressions || 0);
   const spend = Number((ad as any).spend || 0);
-  const cpm = impressions > 0 ? (spend * 1000) / impressions : Number((ad as any).cpm || 0);
+  // CPM: priorizar valor do backend, senão calcular
+  const cpm = typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm) && isFinite((ad as any).cpm) ? (ad as any).cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
   const website_ctr = Number((ad as any).website_ctr || 0);
   const connect_rate = Number((ad as any).connect_rate || 0);
   const lpv = Number((ad as any).lpv || 0);

@@ -183,21 +183,32 @@ def delete_google_account(
 def get_google_account_tokens(
     user_jwt: str,
     user_id: str,
+    connection_id: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Optional[float]]:
     """
     Busca tokens do Google para o usuário e descriptografa.
+    
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        user_id: ID do usuário
+        connection_id: ID da conexão Google específica (opcional). Se não fornecido, retorna a primeira conexão encontrada.
 
     Returns:
         (access_token, refresh_token, expires_at_timestamp) — qualquer um pode ser None.
     """
     sb = get_supabase_for_user(user_jwt)
-    res = (
+    query = (
         sb.table("google_accounts")
         .select("access_token,refresh_token,expires_at")
         .eq("user_id", user_id)
-        .limit(1)
-        .execute()
     )
+    
+    # Se connection_id foi fornecido, filtrar por ele; senão, pegar a primeira (comportamento legado)
+    if connection_id:
+        query = query.eq("id", connection_id)
+    
+    res = query.limit(1).execute()
+    
     if not res.data:
         return None, None, None
 

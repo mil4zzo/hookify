@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useAuthManager } from "@/lib/hooks/useAuthManager";
 import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
+import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
+import { FacebookConnectionCard } from "@/components/facebook/FacebookConnectionCard";
 import { showError } from "@/lib/utils/toast";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget } from "@tabler/icons-react";
@@ -25,6 +27,7 @@ import ServerStatusBanner from "./ServerStatusBanner";
 import { ValidationCriteriaBuilder, ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { showSuccess } from "@/lib/utils/toast";
 
@@ -37,14 +40,24 @@ export default function Topbar() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
   const { mqlLeadscoreMin, isLoading: isLoadingMql, isSaving: isSavingMql, updateMqlLeadscoreMin, saveMqlLeadscoreMin } = useMqlLeadscore();
+  const { currency: userCurrency, isLoading: isLoadingCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
   const { isAuthenticated, user, isClient } = useClientAuth();
   const { packs } = useClientPacks();
   const { handleLogout } = useAuthManager();
-  const { settings, setLanguage, setNiche, setCurrency } = useSettings();
+  const { settings, setLanguage, setNiche } = useSettings();
   const { connections, connect, disconnect, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } =
     useFacebookAccountConnection();
+  const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
   const router = useRouter();
   const pathname = usePathname();
+
+  // Verificar conexões quando carregarem na aba de contas
+  useEffect(() => {
+    if (isSettingsOpen && activeSettingsTab === "accounts" && connections.data && connections.data.length > 0) {
+      const connectionIds = connections.data.map((c: any) => c.id);
+      verifyConnections(connectionIds);
+    }
+  }, [isSettingsOpen, activeSettingsTab, connections.data, verifyConnections]);
   const { showModal, packCount, handleConfirm, handleCancel } = useAutoRefreshPacks();
 
   // Initialize theme
@@ -469,7 +482,18 @@ export default function Topbar() {
                         {/* Moeda */}
                         <div className="space-y-2">
                           <label className="text-sm font-medium text-text">Moeda</label>
-                          <Select value={settings.currency} onValueChange={setCurrency}>
+                          <Select 
+                            value={userCurrency} 
+                            onValueChange={async (value) => {
+                              try {
+                                await saveCurrency(value);
+                                showSuccess("Moeda atualizada com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar moeda:", error);
+                              }
+                            }}
+                            disabled={isLoadingCurrency || isSavingCurrency}
+                          >
                             <SelectTrigger className="w-full">
                               <SelectValue placeholder="Selecione uma moeda" />
                             </SelectTrigger>
@@ -485,7 +509,9 @@ export default function Topbar() {
                               <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
                             </SelectContent>
                           </Select>
-                          <p className="text-xs text-muted-foreground">A moeda será aplicada em todas as páginas do app</p>
+                          <p className="text-xs text-muted-foreground">
+                            {isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}
+                          </p>
                         </div>
                       </div>
                     </div>
@@ -504,73 +530,22 @@ export default function Topbar() {
                       ) : connections.data && connections.data.length > 0 ? (
                         <div className="space-y-3">
                           {connections.data.map((connection: any) => (
-                            <div key={connection.id} className="border border-border rounded-lg p-4 bg-secondary/30 hover:bg-secondary/50 transition-colors">
-                              <div className="flex flex-col sm:flex-row gap-4">
-                                {/* Bloco: Imagem + Detalhes */}
-                                <div className="flex items-center gap-4 flex-1 min-w-0">
-                                  {/* Imagem à esquerda */}
-                                  <div className="relative flex-shrink-0">
-                                    {connection.facebook_picture_url ? (
-                                      <img src={connection.facebook_picture_url} alt={connection.facebook_name || "Facebook"} className="w-12 h-12 rounded-full object-cover" />
-                                    ) : (
-                                      <div className="w-12 h-12 rounded-full bg-primary flex items-center justify-center">
-                                        <IconBrandFacebookFilled className="h-6 w-6 text-white" />
-                                      </div>
-                                    )}
-                                    {/* Badge da plataforma */}
-                                    <div className="absolute -bottom-0.5 -right-0.5 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-                                      <IconBrandFacebookFilled className="h-3 w-3 text-white" />
-                                    </div>
-                                  </div>
-
-                                  {/* Bloco de informações (nome + email + id + status) */}
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                      <p className="font-medium text-text truncate">{connection.facebook_name || "Conta do Facebook"}</p>
-                                      {connection.status === "active" && (
-                                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-500 border border-green-500/30">
-                                          <IconCheck className="w-3 h-3" />
-                                          Conectada
-                                        </span>
-                                      )}
-                                      {(connection.status === "expired" || connection.status === "invalid") && (
-                                        <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-500 border border-yellow-500/30">
-                                          <IconAlertCircle className="w-3 h-3" />
-                                          {connection.status === "expired" ? "Expirada" : "Inválida"}
-                                        </span>
-                                      )}
-                                    </div>
-                                    {connection.facebook_email && <p className="text-sm text-muted-foreground truncate">{connection.facebook_email}</p>}
-                                    <p className="text-xs text-muted-foreground truncate">ID: {connection.facebook_user_id}</p>
-                                  </div>
-                                </div>
-
-                                {/* Botões de ação */}
-                                <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
-                                  {(connection.status === "expired" || connection.status === "invalid") && (
-                                    <Button variant="default" size="sm" onClick={handleConnectFacebook} disabled={connect.isPending} className="text-xs w-full sm:w-auto">
-                                      {connect.isPending ? <IconLoader2 className="h-3 w-3 animate-spin mr-1" /> : <IconBrandFacebook className="h-3 w-3 mr-1" />}
-                                      Reconectar
-                                    </Button>
-                                  )}
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={async () => {
-                                      try {
-                                        await disconnect.mutateAsync(connection.id);
-                                      } catch (error) {
-                                        showError(error as any);
-                                      }
-                                    }}
-                                    disabled={disconnect.isPending}
-                                    className="text-xs text-destructive hover:text-destructive w-full sm:w-auto"
-                                  >
-                                    Desconectar
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
+                            <FacebookConnectionCard
+                              key={connection.id}
+                              connection={connection}
+                              onReconnect={handleConnectFacebook}
+                              onDelete={async (connectionId) => {
+                                try {
+                                  clearConnectionCache(connectionId);
+                                  await disconnect.mutateAsync(connectionId);
+                                  showSuccess("Conta desconectada com sucesso!");
+                                } catch (error) {
+                                  showError(error as any);
+                                }
+                              }}
+                              isDeleting={disconnect.isPending}
+                              showActions={true}
+                            />
                           ))}
                         </div>
                       ) : (

@@ -10,9 +10,10 @@ import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
  */
 export function computeValidatedAveragesFromAdPerformance(
   ads: RankingsItem[],
-  actionType: string
+  actionType?: string,
+  availableConversionTypes?: string[]
 ): RankingsResponse["averages"] | undefined {
-  if (!Array.isArray(ads) || ads.length === 0 || !actionType) {
+  if (!Array.isArray(ads) || ads.length === 0) {
     return undefined;
   }
 
@@ -25,7 +26,15 @@ export function computeValidatedAveragesFromAdPerformance(
   let totalHoldRateWsum = 0;
   let totalScrollStopWsum = 0;
   let totalPlays = 0;
-  let totalResultsForAction = 0;
+
+  // Acumular resultados por action_type (igual backend)
+  // Inicializar com todos os tipos disponíveis para garantir que todos tenham entrada
+  const perActionTotals: Record<string, { results: number }> = {};
+  if (availableConversionTypes && Array.isArray(availableConversionTypes)) {
+    availableConversionTypes.forEach((type) => {
+      perActionTotals[type] = { results: 0 };
+    });
+  }
 
   ads.forEach((ad: any) => {
     const impressions = Number(ad.impressions || 0);
@@ -40,7 +49,6 @@ export function computeValidatedAveragesFromAdPerformance(
     const scrollStop = Number(ad.video_watched_p50 || 0);
 
     const conversions = (ad.conversions || {}) as Record<string, number>;
-    const resultsForAction = Number(conversions[actionType] || 0);
 
     totalImpr += impressions;
     totalClicks += clicks;
@@ -54,7 +62,15 @@ export function computeValidatedAveragesFromAdPerformance(
     totalHoldRateWsum += holdRate * plays;
     totalScrollStopWsum += scrollStop * plays;
 
-    totalResultsForAction += resultsForAction;
+    // Somar resultados para TODOS os action_types presentes
+    Object.entries(conversions).forEach(([key, value]) => {
+      const numVal = Number(value || 0);
+      if (!Number.isFinite(numVal) || numVal <= 0) return;
+      if (!perActionTotals[key]) {
+        perActionTotals[key] = { results: 0 };
+      }
+      perActionTotals[key].results += numVal;
+    });
   });
 
   const safeDiv = (num: number, den: number) =>
@@ -68,10 +84,6 @@ export function computeValidatedAveragesFromAdPerformance(
   const avgConnectRate = safeDiv(totalLpv, totalInline);
   const avgCpm = safeDiv(totalSpend, totalImpr) * 1000;
 
-  const totalResults = totalResultsForAction;
-  const pageConv = safeDiv(totalResults, totalLpv);
-  const cpr = safeDiv(totalSpend, totalResults);
-
   const averagesBase = {
     hook: avgHook,
     hold_rate: avgHoldRate,
@@ -83,11 +95,23 @@ export function computeValidatedAveragesFromAdPerformance(
   };
 
   const perActionType: Record<string, { results: number; cpr: number; page_conv: number }> = {};
-  perActionType[actionType] = {
-    results: totalResults,
-    cpr,
-    page_conv: pageConv,
-  };
+
+  // Calcular médias para TODOS os action_types (mesmo os com 0 resultados)
+  // Isso garante consistência com o backend que sempre cria entradas para todos os tipos disponíveis
+  const typesToProcess = availableConversionTypes && Array.isArray(availableConversionTypes) 
+    ? availableConversionTypes 
+    : Object.keys(perActionTotals);
+
+  typesToProcess.forEach((key) => {
+    const results = perActionTotals[key]?.results || 0;
+    const pageConv = safeDiv(results, totalLpv);
+    const cpr = safeDiv(totalSpend, results);
+    perActionType[key] = {
+      results,
+      cpr,
+      page_conv: pageConv,
+    };
+  });
 
   return {
     ...averagesBase,

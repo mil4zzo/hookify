@@ -179,18 +179,36 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         metrics_filters
     )
     
+    # LOG TEMPORÁRIO PARA DEBUG
+    logger.info(f"[INSIGHTS DEBUG] Dados brutos do Supabase: data_count={len(data)}, date_start={full_start}, date_stop={full_stop}")
+    if len(data) > 0:
+        logger.info(f"[INSIGHTS DEBUG] Primeiro registro: ad_name={data[0].get('ad_name')}, date={data[0].get('date')}, impressions={data[0].get('impressions')}")
+    
     # Filtros por contains serão aplicados em memória (pode-se otimizar com ilike + expressões geradas futuramente)
 
-    # Extrair tipos únicos de conversão de todos os dados
+    # Extrair tipos únicos de conversão e actions de todos os dados
     available_conversion_types = set()
     for r in data:
+        # Extrair de conversions
         conversions = r.get("conversions") or []
         if isinstance(conversions, list):
             for conv in conversions:
                 if isinstance(conv, dict):
                     action_type = conv.get("action_type")
                     if action_type:
-                        available_conversion_types.add(str(action_type))
+                        # Prefixar com categoria para diferenciar origem
+                        available_conversion_types.add(f"conversion:{str(action_type)}")
+        
+        # Extrair de actions
+        actions = r.get("actions") or []
+        if isinstance(actions, list):
+            for action in actions:
+                if isinstance(action, dict):
+                    action_type = action.get("action_type")
+                    if action_type:
+                        # Prefixar com categoria para diferenciar origem
+                        available_conversion_types.add(f"action:{str(action_type)}")
+    
     available_conversion_types = sorted(list(available_conversion_types))
 
     def name_ok(val: Optional[str], needle: Optional[str]) -> bool:
@@ -200,6 +218,9 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         return needle.lower() in v
 
     rows: List[Dict[str, Any]] = [r for r in data if name_ok(r.get("campaign_name"), f.campaign_name_contains) and name_ok(r.get("adset_name"), f.adset_name_contains) and name_ok(r.get("ad_name"), f.ad_name_contains)]
+
+    # LOG TEMPORÁRIO PARA DEBUG
+    logger.info(f"[INSIGHTS DEBUG] Após filtros: rows_count={len(rows)}, data_count={len(data)}")
 
     # Agregar por chave (NO NOVO MODELO: sempre por ad_name para ranking pai)
     from collections import defaultdict
@@ -220,8 +241,28 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         ad_id = str(r.get("ad_id") or "")
         ad_name = str(r.get("ad_name") or "")
         key = ad_name or ad_id  # ranking pai sempre por ad_name; fallback para ad_id se faltar
+        # Preservar key original para usar em series_acc (não pode ser sobrescrita)
+        series_key = key
 
-        date = str(r.get("date"))[:10]
+        # Extrair e normalizar data de forma robusta
+        date_raw = r.get("date")
+        if date_raw is None:
+            continue
+        
+        # Normalizar para string YYYY-MM-DD
+        if isinstance(date_raw, str):
+            date = date_raw[:10] if len(date_raw) >= 10 else date_raw
+        elif hasattr(date_raw, 'strftime'):
+            # Se for objeto date/datetime do Python
+            date = date_raw.strftime("%Y-%m-%d")
+        else:
+            # Tentar converter para string e pegar primeiros 10 caracteres
+            date = str(date_raw)[:10]
+        
+        # Validar formato (deve ser YYYY-MM-DD)
+        if len(date) != 10 or date[4] != '-' or date[7] != '-':
+            continue
+
         clicks = int(r.get("clicks") or 0)
         impressions = int(r.get("impressions") or 0)
         inline_link_clicks = int(r.get("inline_link_clicks") or 0)
@@ -323,21 +364,34 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         except Exception:
             pass
         
-        # Agregar todos os conversions por action_type (não filtrar por req.action_type)
+        # Agregar conversions e actions por action_type (com prefixos para diferenciar)
         try:
+            # Processar conversions
             for c in (r.get("conversions") or []):
                 action_type = str(c.get("action_type") or "")
                 value = int(c.get("value") or 0)
                 if action_type:
-                    if action_type not in A["conversions"]:
-                        A["conversions"][action_type] = 0
-                    A["conversions"][action_type] += value
+                    conv_key = f"conversion:{action_type}"
+                    if conv_key not in A["conversions"]:
+                        A["conversions"][conv_key] = 0
+                    A["conversions"][conv_key] += value
+            
+            # Processar actions
+            for a in (r.get("actions") or []):
+                action_type = str(a.get("action_type") or "")
+                value = int(a.get("value") or 0)
+                if action_type:
+                    action_key = f"action:{action_type}"
+                    if action_key not in A["conversions"]:
+                        A["conversions"][action_key] = 0
+                    A["conversions"][action_key] += value
         except Exception:
             pass
 
         # Série 5 dias
         if date in axis:
-            S = series_acc[key]
+            S = series_acc[series_key]
+            
             S["impressions"][date] += impressions
             S["clicks"][date] += clicks
             S["inline"][date] += inline_link_clicks
@@ -346,17 +400,32 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             S["plays"][date] += plays
             S["hook_wsum"][date] += hook * plays
             
-            # Agregar conversions por dia
+            # Agregar conversions e actions por dia
             try:
+                # Processar conversions
                 for c in (r.get("conversions") or []):
                     action_type = str(c.get("action_type") or "")
                     value = int(c.get("value") or 0)
                     if action_type:
-                        if action_type not in S["conversions"][date]:
-                            S["conversions"][date][action_type] = 0
-                        S["conversions"][date][action_type] += value
+                        conv_key = f"conversion:{action_type}"
+                        if conv_key not in S["conversions"][date]:
+                            S["conversions"][date][conv_key] = 0
+                        S["conversions"][date][conv_key] += value
+                
+                # Processar actions
+                for a in (r.get("actions") or []):
+                    action_type = str(a.get("action_type") or "")
+                    value = int(a.get("value") or 0)
+                    if action_type:
+                        action_key = f"action:{action_type}"
+                        if action_key not in S["conversions"][date]:
+                            S["conversions"][date][action_key] = 0
+                        S["conversions"][date][action_key] += value
             except Exception:
                 pass
+
+    # LOG TEMPORÁRIO PARA DEBUG - após processar todos os rows
+    logger.info(f"[INSIGHTS DEBUG] Após processar rows: agg_keys_count={len(agg.keys())}, agg_keys_sample={list(agg.keys())[:5]}")
 
     # Buscar thumbnails da tabela ads (usar ad_id representativo por ad_name)
     ad_ids_in_results = set()
@@ -364,8 +433,6 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         rep_ad_id = A.get("rep_ad_id")
         if rep_ad_id:
             ad_ids_in_results.add(str(rep_ad_id))  # Garantir string
-    
-    logger.info(f"DEBUG: Coletados {len(ad_ids_in_results)} ad_ids únicos para buscar thumbnails")
     
     thumbnails_map: Dict[str, Optional[str]] = {}
     adcreatives_map: Dict[str, Optional[List[str]]] = {}  # Map para adcreatives_videos_thumbs
@@ -392,7 +459,6 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 
                 all_ads_rows.extend(batch_ads_rows)
             
-            logger.info(f"DEBUG: Query retornou {len(all_ads_rows)} registros de ads (processados em lotes)")
             for ad_row in all_ads_rows:
                 ad_id_val = str(ad_row.get("ad_id") or "")
                 thumb = _get_thumbnail_with_fallback(ad_row)
@@ -406,17 +472,14 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                         adcreatives_map[ad_id_val] = valid_thumbs if valid_thumbs else None
                     else:
                         adcreatives_map[ad_id_val] = None
-            
-            logger.info(f"DEBUG: Thumbnails map populado com {len(thumbnails_map)} entradas")
-            if thumbnails_map:
-                sample = dict(list(thumbnails_map.items())[:3])
-                logger.info(f"DEBUG: Exemplo de entradas no map: {sample}")
         except Exception as e:
             logger.warning(f"Erro ao buscar thumbnails: {e}")
 
     # Finalizar métricas derivadas e montar séries
     items: List[Dict[str, Any]] = []
+    key_index = 0
     for key, A in agg.items():
+        key_index += 1
         ctr = _safe_div(A["clicks"], A["impressions"])
         connect_rate = _safe_div(A["lpv"], A["inline_link_clicks"])
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
@@ -432,10 +495,6 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
         adcreatives_thumbs = adcreatives_map.get(ad_id_str) if ad_id_str else None
         
-        # Debug: log se não encontrar thumbnail
-        if not thumbnail and ad_id_str:
-            logger.warning(f"DEBUG: Thumbnail não encontrada para ad_id={ad_id_str}, tipo={type(ad_id_for_thumb)}, ad_ids no map: {list(thumbnails_map.keys())[:5] if thumbnails_map else []}")
-        
         # Fallback: buscar diretamente na tabela se não encontrar no map
         if not thumbnail and ad_id_str:
             try:
@@ -448,9 +507,8 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                     if isinstance(fallback_adcreatives, list) and len(fallback_adcreatives) > 0:
                         valid_thumbs = [str(t) for t in fallback_adcreatives if t and str(t).strip()]
                         adcreatives_thumbs = valid_thumbs if valid_thumbs else None
-                    logger.info(f"DEBUG: Fallback encontrou thumbnail para ad_id={ad_id_str}")
             except Exception as e:
-                logger.warning(f"DEBUG: Fallback falhou para ad_id={ad_id_str}: {e}")
+                pass
 
         S = series_acc.get(key)
         series = None
@@ -464,6 +522,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             cpm_series = []
             website_ctr_series = []
             conversions_series = []  # conversions por dia para o frontend calcular results/cpr/page_conv
+            
             for d in axis:
                 plays = S["plays"][d] or 0
                 hook_day = _safe_div(S["hook_wsum"][d], plays) if plays else None
@@ -635,6 +694,11 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         reverse = order not in {"cpr"}  # cpr menor é melhor; os demais maior é melhor
         items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
 
+    # LOG TEMPORÁRIO PARA DEBUG
+    logger.info(f"[INSIGHTS DEBUG] Retornando resposta: items_count={len(items)}, available_conversion_types_count={len(available_conversion_types)}, has_averages={bool(averages_payload)}")
+    if len(items) == 0:
+        logger.warning(f"[INSIGHTS DEBUG] Nenhum item retornado! data_count={len(data)}, rows_count={len(rows)}, agg_keys_count={len(agg.keys())}, agg_keys={list(agg.keys())[:5]}")
+    
     return {
         "data": items[: max(1, req.limit)],
         "available_conversion_types": available_conversion_types,
@@ -739,15 +803,27 @@ def get_rankings_children(
         A["hold_rate_wsum"] += hold_rate * plays  # Agregar hold_rate ponderado por plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
 
-        # Agregar conversions no total (não apenas nas séries)
+        # Agregar conversions e actions no total (não apenas nas séries)
         try:
+            # Processar conversions
             for c in (r.get("conversions") or []):
                 action_type = str(c.get("action_type") or "")
                 value = int(c.get("value") or 0)
                 if action_type:
-                    if action_type not in A["conversions"]:
-                        A["conversions"][action_type] = 0
-                    A["conversions"][action_type] += value
+                    key_conv = f"conversion:{action_type}"
+                    if key_conv not in A["conversions"]:
+                        A["conversions"][key_conv] = 0
+                    A["conversions"][key_conv] += value
+            
+            # Processar actions
+            for a in (r.get("actions") or []):
+                action_type = str(a.get("action_type") or "")
+                value = int(a.get("value") or 0)
+                if action_type:
+                    key_act = f"action:{action_type}"
+                    if key_act not in A["conversions"]:
+                        A["conversions"][key_act] = 0
+                    A["conversions"][key_act] += value
         except Exception:
             pass
 
@@ -762,13 +838,25 @@ def get_rankings_children(
             S["plays"][date] += plays
             S["hook_wsum"][date] += hook * plays
             try:
+                # Processar conversions
                 for c in (r.get("conversions") or []):
                     action_type = str(c.get("action_type") or "")
                     value = int(c.get("value") or 0)
                     if action_type:
-                        if action_type not in S["conversions"][date]:
-                            S["conversions"][date][action_type] = 0
-                        S["conversions"][date][action_type] += value
+                        key_conv = f"conversion:{action_type}"
+                        if key_conv not in S["conversions"][date]:
+                            S["conversions"][date][key_conv] = 0
+                        S["conversions"][date][key_conv] += value
+                
+                # Processar actions
+                for a in (r.get("actions") or []):
+                    action_type = str(a.get("action_type") or "")
+                    value = int(a.get("value") or 0)
+                    if action_type:
+                        key_act = f"action:{action_type}"
+                        if key_act not in S["conversions"][date]:
+                            S["conversions"][date][key_act] = 0
+                        S["conversions"][date][key_act] += value
             except Exception:
                 pass
 
@@ -1007,15 +1095,27 @@ def get_ad_details(
             except Exception:
                 pass
 
-        # Agregar conversions
+        # Agregar conversions e actions
         try:
+            # Processar conversions
             for c in (r.get("conversions") or []):
                 action_type = str(c.get("action_type") or "")
                 value = int(c.get("value") or 0)
                 if action_type:
-                    if action_type not in agg["conversions"]:
-                        agg["conversions"][action_type] = 0
-                    agg["conversions"][action_type] += value
+                    key = f"conversion:{action_type}"
+                    if key not in agg["conversions"]:
+                        agg["conversions"][key] = 0
+                    agg["conversions"][key] += value
+            
+            # Processar actions
+            for a in (r.get("actions") or []):
+                action_type = str(a.get("action_type") or "")
+                value = int(a.get("value") or 0)
+                if action_type:
+                    key = f"action:{action_type}"
+                    if key not in agg["conversions"]:
+                        agg["conversions"][key] = 0
+                    agg["conversions"][key] += value
         except Exception:
             pass
 
@@ -1029,13 +1129,25 @@ def get_ad_details(
             series_acc["plays"][date] += plays
             series_acc["hook_wsum"][date] += hook * plays
             try:
+                # Processar conversions
                 for c in (r.get("conversions") or []):
                     action_type = str(c.get("action_type") or "")
                     value = int(c.get("value") or 0)
                     if action_type:
-                        if action_type not in series_acc["conversions"][date]:
-                            series_acc["conversions"][date][action_type] = 0
-                        series_acc["conversions"][date][action_type] += value
+                        key = f"conversion:{action_type}"
+                        if key not in series_acc["conversions"][date]:
+                            series_acc["conversions"][date][key] = 0
+                        series_acc["conversions"][date][key] += value
+                
+                # Processar actions
+                for a in (r.get("actions") or []):
+                    action_type = str(a.get("action_type") or "")
+                    value = int(a.get("value") or 0)
+                    if action_type:
+                        key = f"action:{action_type}"
+                        if key not in series_acc["conversions"][date]:
+                            series_acc["conversions"][date][key] = 0
+                        series_acc["conversions"][date][key] += value
             except Exception:
                 pass
 
@@ -1228,7 +1340,7 @@ def get_ad_history(
         except Exception:
             lpv = 0
         
-        # Conversões
+        # Conversões e actions
         conversions = r.get("conversions") or {}
         if isinstance(conversions, list):
             for conv in conversions:
@@ -1236,7 +1348,18 @@ def get_ad_history(
                     action_type = str(conv.get("action_type") or "")
                     value = int(conv.get("value") or 0)
                     if action_type:
-                        data_by_date[date]["conversions"][action_type] = data_by_date[date]["conversions"].get(action_type, 0) + value
+                        key = f"conversion:{action_type}"
+                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
+        
+        actions = r.get("actions") or {}
+        if isinstance(actions, list):
+            for action in actions:
+                if isinstance(action, dict):
+                    action_type = str(action.get("action_type") or "")
+                    value = int(action.get("value") or 0)
+                    if action_type:
+                        key = f"action:{action_type}"
+                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
         
         data_by_date[date]["impressions"] += impressions
         data_by_date[date]["clicks"] += clicks
@@ -1352,7 +1475,7 @@ def get_ad_name_history(
         except Exception:
             lpv = 0
 
-        # Conversões
+        # Conversões e actions
         conversions = r.get("conversions") or {}
         if isinstance(conversions, list):
             for conv in conversions:
@@ -1360,7 +1483,18 @@ def get_ad_name_history(
                     action_type = str(conv.get("action_type") or "")
                     value = int(conv.get("value") or 0)
                     if action_type:
-                        data_by_date[date]["conversions"][action_type] = data_by_date[date]["conversions"].get(action_type, 0) + value
+                        key = f"conversion:{action_type}"
+                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
+        
+        actions = r.get("actions") or {}
+        if isinstance(actions, list):
+            for action in actions:
+                if isinstance(action, dict):
+                    action_type = str(action.get("action_type") or "")
+                    value = int(action.get("value") or 0)
+                    if action_type:
+                        key = f"action:{action_type}"
+                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
 
         data_by_date[date]["impressions"] += impressions
         data_by_date[date]["clicks"] += clicks

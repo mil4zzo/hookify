@@ -149,7 +149,10 @@ export const api = {
       deleteConnection: (connectionId: string): Promise<{ success: boolean }> =>
         apiClient.delete(`/integrations/google/connections/${encodeURIComponent(connectionId)}`),
 
-      listSpreadsheets: (params?: { query?: string; page_size?: number; page_token?: string }): Promise<ListSpreadsheetsResponse> =>
+      testConnection: (connectionId: string): Promise<{ valid: boolean; expired?: boolean; message?: string }> =>
+        apiClient.get(`/integrations/google/connections/${encodeURIComponent(connectionId)}/test`),
+
+      listSpreadsheets: (params?: { query?: string; page_size?: number; page_token?: string; connection_id?: string }): Promise<ListSpreadsheetsResponse> =>
         apiClient.get('/integrations/google/spreadsheets', { params }),
 
       listWorksheets: (spreadsheetId: string): Promise<ListWorksheetsResponse> =>

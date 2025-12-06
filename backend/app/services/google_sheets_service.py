@@ -36,11 +36,19 @@ def fetch_headers(
     user_id: str,
     spreadsheet_id: str,
     worksheet_title: str,
+    connection_id: Optional[str] = None,
 ) -> List[str]:
     """
     Busca apenas a primeira linha (headers) da aba para montar os selects no frontend.
+    
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        user_id: ID do usuário
+        spreadsheet_id: ID da planilha
+        worksheet_title: Título da aba
+        connection_id: ID da conexão Google específica (opcional)
     """
-    access_token = get_google_access_token_for_user(user_jwt, user_id)
+    access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
         raise GoogleSheetsError("Conta Google não conectada para este usuário.")
 
@@ -80,14 +88,22 @@ def fetch_all_rows(
     user_id: str,
     spreadsheet_id: str,
     worksheet_title: str,
+    connection_id: Optional[str] = None,
 ) -> Tuple[List[str], List[List[str]]]:
     """
     Busca toda a aba: primeira linha é header, demais são dados.
 
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        user_id: ID do usuário
+        spreadsheet_id: ID da planilha
+        worksheet_title: Título da aba
+        connection_id: ID da conexão Google específica (opcional)
+
     Retorna:
         headers, rows (sem incluir o header).
     """
-    access_token = get_google_access_token_for_user(user_jwt, user_id)
+    access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
         raise GoogleSheetsError("Conta Google não conectada para este usuário.")
 
@@ -132,6 +148,7 @@ def list_spreadsheets(
     query: Optional[str] = None,
     page_size: int = 20,
     page_token: Optional[str] = None,
+    connection_id: Optional[str] = None,
 ) -> Tuple[List[dict], Optional[str]]:
     """
     Lista planilhas do Google Drive do usuário, ordenadas por modificação recente.
@@ -142,13 +159,14 @@ def list_spreadsheets(
         query: Query de busca opcional (ex: "name contains 'test'")
         page_size: Número de resultados por página (padrão 20, máximo 100)
         page_token: Token de paginação para próxima página (None = primeira página)
+        connection_id: ID da conexão Google específica (opcional)
     
     Returns:
         Tupla (lista_de_planilhas, next_page_token) onde:
         - lista_de_planilhas: Lista de dicts com {id, name, modifiedTime, webViewLink}
         - next_page_token: Token para próxima página ou None se não houver mais
     """
-    access_token = get_google_access_token_for_user(user_jwt, user_id)
+    access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
         raise GoogleSheetsError("Conta Google não conectada para este usuário.")
 
@@ -213,6 +231,7 @@ def list_worksheets(
     user_jwt: str,
     user_id: str,
     spreadsheet_id: str,
+    connection_id: Optional[str] = None,
 ) -> List[dict]:
     """
     Lista todas as abas (worksheets) de uma planilha do Google Sheets.
@@ -221,11 +240,12 @@ def list_worksheets(
         user_jwt: JWT do Supabase do usuário
         user_id: ID do usuário
         spreadsheet_id: ID da planilha
+        connection_id: ID da conexão Google específica (opcional)
     
     Returns:
         Lista de dicts com {id, title, index, sheetType}
     """
-    access_token = get_google_access_token_for_user(user_jwt, user_id)
+    access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
         raise GoogleSheetsError("Conta Google não conectada para este usuário.")
 

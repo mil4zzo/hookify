@@ -14,7 +14,7 @@ interface GemsColumnProps {
     metricFormatted: string;
     [key: string]: any;
   }>;
-  metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate";
+  metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr";
   averageValue?: number | null;
   onAdClick?: (ad: any, openVideo?: boolean) => void;
   getTopMetrics?: (adId: string | null | undefined) => {
@@ -28,10 +28,15 @@ interface GemsColumnProps {
   actionType?: string;
   isCompact?: boolean;
   headerRight?: ReactNode;
+  /** Tooltip opcional para o header */
+  tooltip?: {
+    title: string;
+    content?: React.ReactNode;
+  };
 }
 
-export function GemsColumn({ title, items, metric, averageValue, onAdClick, getTopMetrics, actionType, isCompact = true, headerRight }: GemsColumnProps) {
-  const metricStyles: Record<"hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate", GenericColumnColorScheme> = {
+export function GemsColumn({ title, items, metric, averageValue, onAdClick, getTopMetrics, actionType, isCompact = true, headerRight, tooltip }: GemsColumnProps) {
+  const metricStyles: Record<"hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr", GenericColumnColorScheme> = {
     hook: {
       headerBg: "bg-blue-500/10 border-blue-500/30",
       title: "",
@@ -87,9 +92,20 @@ export function GemsColumn({ title, items, metric, averageValue, onAdClick, getT
         badge: "bg-pink-500 text-white",
       },
     },
+    cpr: {
+      headerBg: "bg-cyan-500/10 border-cyan-500/30",
+      title: "",
+      card: {
+        border: "border-cyan-500/30",
+        bg: "bg-cyan-500/5",
+        text: "text-cyan-600 dark:text-cyan-400",
+        accent: "border-cyan-500",
+        badge: "bg-cyan-500 text-white",
+      },
+    },
   };
 
   const colorScheme = metricStyles[metric];
 
-  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} emptyMessage="Nenhum anúncio válido encontrado" headerRight={headerRight} renderCard={(item, index) => <GenericCard key={`${item.ad_id}-${index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} onClick={(openVideo?: boolean) => onAdClick?.(item, openVideo)} topMetrics={getTopMetrics?.(item.ad_id)} actionType={actionType} isCompact={isCompact} />} />;
+  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} emptyMessage="Nenhum anúncio válido encontrado" headerRight={headerRight} tooltip={tooltip} renderCard={(item, index) => <GenericCard key={`${item.ad_id}-${index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} onClick={(openVideo?: boolean) => onAdClick?.(item, openVideo)} topMetrics={getTopMetrics?.(item.ad_id)} actionType={actionType} isCompact={isCompact} />} />;
 }

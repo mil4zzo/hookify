@@ -11,6 +11,47 @@ logger = logging.getLogger(__name__)
 # Armazena metadados temporários de jobs para enriquecimento posterior
 JOBS_META: Dict[str, Dict[str, Any]] = {}
 
+
+def test_facebook_connection(access_token: str) -> Dict[str, Any]:
+    """
+    Testa se um token do Facebook está válido fazendo uma chamada simples à API.
+    
+    Args:
+        access_token: Token de acesso do Facebook
+    
+    Returns:
+        Dict com:
+        - status: 'success' se válido, 'auth_error' se token expirado/inválido, 'error' para outros erros
+        - message: Mensagem de erro (se houver)
+        - data: Dados do usuário (se válido)
+    """
+    try:
+        # Fazer chamada simples para /me com campos mínimos (mais rápido)
+        url = f"https://graph.facebook.com/v22.0/me?access_token={access_token}"
+        payload = {'fields': 'id,name'}
+        
+        response = requests.get(url, params=payload, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Se chegou aqui, o token é válido
+        return {'status': 'success', 'data': data}
+        
+    except requests.exceptions.HTTPError as http_err:
+        error_data = http_err.response.json() if http_err.response.content else {}
+        error_code = error_data.get('error', {}).get('code')
+        error_message = error_data.get('error', {}).get('message', '')
+        
+        # Código 190 = Token expirado/inválido
+        if error_code == 190:
+            return {'status': 'auth_error', 'message': error_message or 'Token expirado ou inválido'}
+        
+        return {'status': 'http_error', 'message': error_message or str(http_err)}
+        
+    except Exception as err:
+        logger.exception("test_facebook_connection error: %s", err)
+        return {'status': 'error', 'message': str(err)}
+
 class GraphAPI:
     def __init__(self, access_token: str):
         self.base_url = "https://graph.facebook.com/v22.0/"

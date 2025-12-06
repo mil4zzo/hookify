@@ -1,6 +1,11 @@
 "use client";
 
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import React, { useMemo, useState, useEffect } from "react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { IconCheck, IconChevronDown } from "@tabler/icons-react";
+import { cn } from "@/lib/utils/cn";
 
 interface ActionTypeFilterProps {
   label?: string;
@@ -19,21 +24,211 @@ export function ActionTypeFilter({
   className,
   placeholder = "Evento de Conversão"
 }: ActionTypeFilterProps) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  // Função para formatar o label exibido (remover prefixo)
+  const formatLabel = (option: string) => {
+    if (option.includes(":")) {
+      return option.split(":", 2)[1];
+    }
+    return option;
+  };
+
+  // Agrupar opções por categoria
+  const groupedOptions = useMemo(() => {
+    const groups: { conversions: string[]; actions: string[] } = {
+      conversions: [],
+      actions: []
+    };
+    
+    options.forEach(option => {
+      if (option.startsWith("conversion:")) {
+        groups.conversions.push(option);
+      } else if (option.startsWith("action:")) {
+        groups.actions.push(option);
+      }
+    });
+    
+    return groups;
+  }, [options]);
+
+  // Filtrar opções baseado na busca
+  const filteredGroups = useMemo(() => {
+    if (!search) return groupedOptions;
+    
+    const searchLower = search.toLowerCase();
+    const filtered: { conversions: string[]; actions: string[] } = {
+      conversions: [],
+      actions: []
+    };
+
+    groupedOptions.conversions.forEach(option => {
+      const label = formatLabel(option);
+      if (label.toLowerCase().includes(searchLower) || option.toLowerCase().includes(searchLower)) {
+        filtered.conversions.push(option);
+      }
+    });
+
+    groupedOptions.actions.forEach(option => {
+      const label = formatLabel(option);
+      if (label.toLowerCase().includes(searchLower) || option.toLowerCase().includes(searchLower)) {
+        filtered.actions.push(option);
+      }
+    });
+
+    return filtered;
+  }, [groupedOptions, search]);
+
+  // Encontrar opção selecionada
+  const selectedOption = options.find(opt => opt === value);
+
+  // Resetar busca quando fechar
+  useEffect(() => {
+    if (!open) {
+      setSearch("");
+    }
+  }, [open]);
+
+  // Verificar se há resultados filtrados
+  const hasResults = filteredGroups.conversions.length > 0 || filteredGroups.actions.length > 0;
+
   return (
-    <div className={`space-y-2 ${className || ""}`}>
+    <div className={cn("space-y-2", className)}>
       {label && <label className="text-sm font-medium">{label}</label>}
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger>
-          <SelectValue placeholder={placeholder} />
-        </SelectTrigger>
-        <SelectContent>
-          {options.map((option) => (
-            <SelectItem key={option} value={option}>
-              {option}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            role="combobox"
+            aria-expanded={open}
+            className={cn(
+              "h-10 w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1"
+            )}
+          >
+            <span className="truncate text-left">
+              {selectedOption ? formatLabel(selectedOption) : placeholder}
+            </span>
+            <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          className="w-[var(--radix-popover-trigger-width)] p-0 z-[10000] rounded-md border border-border bg-secondary text-text shadow-md"
+          align="start"
+          sideOffset={4}
+        >
+          <div className="flex flex-col">
+            <div className="border-b border-border p-2">
+              <Input
+                placeholder="Buscar evento de conversão..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-9"
+                onKeyDown={(e) => {
+                  // Prevenir que Enter feche o popover
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    // Se houver apenas uma opção filtrada, selecionar ela
+                    const allFiltered = [...filteredGroups.conversions, ...filteredGroups.actions];
+                    if (allFiltered.length === 1) {
+                      onChange(allFiltered[0]);
+                      setOpen(false);
+                    }
+                  }
+                  // Permitir Escape fechar
+                  if (e.key === "Escape") {
+                    setOpen(false);
+                  }
+                }}
+                onClick={(e) => {
+                  // Prevenir que o clique no input feche o popover
+                  e.stopPropagation();
+                }}
+                autoFocus
+              />
+            </div>
+            <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+              {!hasResults ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">
+                  Nenhum evento encontrado.
+                </div>
+              ) : (
+                <div className="p-1">
+                  {/* Grupo Conversions */}
+                  {filteredGroups.conversions.length > 0 && (
+                    <div className="mb-1">
+                      <div className="px-2 py-1.5 text-xs font-semibold text-primary">
+                        Conversions
+                      </div>
+                      {filteredGroups.conversions.map((option) => {
+                        const isSelected = value === option;
+                        return (
+                          <button
+                            key={option}
+                            onClick={() => {
+                              onChange(option);
+                              setOpen(false);
+                            }}
+                            className={cn(
+                              "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 hover:bg-accent hover:text-accent-foreground",
+                              isSelected && "bg-accent"
+                            )}
+                          >
+                            <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                              <IconCheck
+                                className={cn(
+                                  "h-4 w-4",
+                                  isSelected ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                            </span>
+                            {formatLabel(option)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Grupo Actions */}
+                  {filteredGroups.actions.length > 0 && (
+                    <div>
+                      <div className="px-2 py-1.5 text-xs font-semibold text-brand">
+                        Actions
+                      </div>
+                      {filteredGroups.actions.map((option) => {
+                        const isSelected = value === option;
+                        return (
+                          <button
+                            key={option}
+                            onClick={() => {
+                              onChange(option);
+                              setOpen(false);
+                            }}
+                            className={cn(
+                              "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 hover:bg-accent hover:text-accent-foreground",
+                              isSelected && "bg-accent"
+                            )}
+                          >
+                            <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
+                              <IconCheck
+                                className={cn(
+                                  "h-4 w-4",
+                                  isSelected ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                            </span>
+                            {formatLabel(option)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }

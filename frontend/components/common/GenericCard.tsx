@@ -9,6 +9,7 @@ import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { normalizeLeadscoreValues, computeLeadscoreAverage } from "@/lib/utils/mqlMetrics";
+import { isLowerBetterMetric } from "@/lib/constants/metrics";
 
 interface GenericCardProps {
   ad: {
@@ -40,6 +41,8 @@ interface GenericCardProps {
     websiteCtrRank: number | null;
     ctrRank: number | null;
     pageConvRank: number | null;
+    holdRateRank: number | null;
+    cprRank: number | null;
   };
   /** ActionType para calcular CPR */
   actionType?: string;
@@ -123,7 +126,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   };
 
   // Determinar se a métrica é "lower is better" (CPM, CPR) ou "higher is better" (outras)
-  const isLowerBetter = metricKey === "cpm" || metricKey === "cpr";
+  const isLowerBetter = isLowerBetterMetric(metricKey);
 
   // Calcular se está acima da média
   const isAboveAverage = averageValue != null && ad.metricValue > averageValue;
@@ -141,7 +144,8 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   const inlineLinkClicks = Number(ad.inline_link_clicks || 0);
   const plays = Number(ad.plays || 0);
   const lpv = Number(ad.lpv || 0);
-  const cpm = impressions > 0 ? (spend * 1000) / impressions : Number(ad.cpm || 0);
+  // CPM: priorizar valor do backend, senão calcular
+  const cpm = typeof ad.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm) ? ad.cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
   // CTR: priorizar valor do backend, senão calcular
   const ctr = typeof ad.ctr === "number" && !Number.isNaN(ad.ctr) && isFinite(ad.ctr) ? ad.ctr : impressions > 0 ? clicks / impressions : 0;
   // Website CTR: priorizar valor do backend, senão calcular
@@ -226,7 +230,9 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
       case "Page":
         return topMetrics?.pageConvRank ?? null;
       case "Hold Rate":
-        return (topMetrics as any)?.holdRateRank ?? null;
+        return topMetrics?.holdRateRank ?? null;
+      case "CPR":
+        return topMetrics?.cprRank ?? null;
       default:
         return null;
     }
@@ -370,7 +376,9 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                     {diffFromAverage != null && (
                       <div className="flex flex-col items-end gap-1">
                         <div className={cn("flex-shrink-0 inline-flex items-center text-[12px] gap-1 font-semibold", isBetter ? "text-emerald-400" : "text-red-400")}>
-                          {isBetter ? <IconArrowBigUpLinesFilled className="h-3 w-3" /> : <IconArrowBigDownLinesFilled className="h-3 w-3" />}
+                          {/* Para métricas onde menor é melhor (CPM, CPR): quando está ruim (acima da média), mostrar seta para cima */}
+                          {/* Para métricas normais: quando está bom (acima da média), mostrar seta para cima */}
+                          {isLowerBetter ? isBetter ? <IconArrowBigDownLinesFilled className="h-3 w-3" /> : <IconArrowBigUpLinesFilled className="h-3 w-3" /> : isBetter ? <IconArrowBigUpLinesFilled className="h-3 w-3" /> : <IconArrowBigDownLinesFilled className="h-3 w-3" />}
                           <span>{`${diffFromAverage != null ? diffFromAverage.toFixed(0) : "0"}%`}</span>
                         </div>
                       </div>

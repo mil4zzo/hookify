@@ -296,6 +296,22 @@ export const RankingsRequestSchema = z.object({
   filters: RankingsFiltersSchema.optional(),
 })
 
+// Schema centralizado para séries de métricas diárias (sparklines)
+// Mantém compatibilidade com o backend (`analytics.get_rankings`, `get_rankings_children`,
+// `get_ad_details`) e aceita campos extras futuros via .passthrough()
+const RankingsSeriesSchema = z.object({
+  axis: z.array(z.string()),
+  hook: z.array(z.number().nullable()),
+  spend: z.array(z.number().nullable()),
+  ctr: z.array(z.number().nullable()),
+  connect_rate: z.array(z.number().nullable()),
+  lpv: z.array(z.number().nullable()), // lpv por dia para calcular page_conv dinamicamente
+  impressions: z.array(z.number().nullable()),
+  cpm: z.array(z.number().nullable()),
+  website_ctr: z.array(z.number().nullable()),
+  conversions: z.array(z.record(z.string(), z.number())), // conversions por dia para calcular results/cpr/page_conv dinamicamente
+}).passthrough();
+
 export const RankingsItemSchema = z.object({
   unique_id: z.string().nullable().optional(),
   account_id: z.string().nullable().optional(),
@@ -323,15 +339,7 @@ export const RankingsItemSchema = z.object({
   adcreatives_videos_thumbs: z.array(z.string()).nullable().optional(), // Array de thumbnails dos vídeos do adcreative
   video_play_curve_actions: z.array(z.number()).nullable().optional(), // Curva de retenção agregada (ponderada por plays)
   series: z
-    .object({
-      axis: z.array(z.string()),
-      hook: z.array(z.number().nullable()),
-      spend: z.array(z.number().nullable()),
-      ctr: z.array(z.number().nullable()),
-      connect_rate: z.array(z.number().nullable()),
-      lpv: z.array(z.number().nullable()), // lpv por dia para calcular page_conv dinamicamente
-      conversions: z.array(z.record(z.string(), z.number())), // conversions por dia para calcular results/cpr/page_conv dinamicamente
-    })
+    .lazy(() => RankingsSeriesSchema)
     .nullable()
     .optional(),
 })
@@ -383,16 +391,7 @@ export const RankingsChildrenItemSchema = z.object({
   thumbnail: z.string().nullable().optional(),
   video_play_curve_actions: z.array(z.number()).nullable().optional(),
   series: z
-    .object({
-      axis: z.array(z.string()),
-      hook: z.array(z.number().nullable()),
-      spend: z.array(z.number().nullable()),
-      ctr: z.array(z.number().nullable()),
-      connect_rate: z.array(z.number().nullable()),
-      lpv: z.array(z.number().nullable()),
-      impressions: z.array(z.number().nullable()),
-      conversions: z.array(z.record(z.string(), z.number())),
-    })
+    .lazy(() => RankingsSeriesSchema)
     .nullable()
     .optional(),
 })

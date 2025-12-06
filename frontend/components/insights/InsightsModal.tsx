@@ -246,13 +246,12 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="flex items-center justify-center rounded-md p-0.5 opacity-60 hover:opacity-100 hover:bg-muted/50 transition-colors"
+                        <span
+                          className="flex items-center justify-center rounded-md p-0.5 opacity-60 hover:opacity-100 hover:bg-muted/50 transition-colors cursor-help"
                           onClick={(e) => e.stopPropagation()}
                         >
                           <IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                        </button>
+                        </span>
                       </TooltipTrigger>
                       <TooltipContent className="max-w-xs" side="right" sideOffset={8}>
                         <div className="flex flex-col gap-1.5">

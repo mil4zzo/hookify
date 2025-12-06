@@ -8,6 +8,8 @@ import { IconBrandFacebook, IconCheck, IconChevronRight, IconChevronLeft, IconLo
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
+import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
+import { FacebookConnectionCard } from "@/components/facebook/FacebookConnectionCard";
 import { ValidationCondition, ValidationCriteriaBuilder, validateConditions } from "@/components/common/ValidationCriteriaBuilder";
 import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
 import { api } from "@/lib/api/endpoints";
@@ -30,7 +32,16 @@ function useRecommendedCriteria() {
 }
 
 function FacebookStep(props: { onContinue: () => void }) {
-  const { connections, connect, activeConnections, hasActiveConnection } = useFacebookAccountConnection();
+  const { connections, connect, activeConnections, hasActiveConnection, disconnect } = useFacebookAccountConnection();
+  const { verifyConnections } = useFacebookConnectionVerification();
+
+  // Verificar conexões quando carregarem
+  useEffect(() => {
+    if (connections.data && connections.data.length > 0) {
+      const connectionIds = connections.data.map((c: any) => c.id);
+      verifyConnections(connectionIds);
+    }
+  }, [connections.data, verifyConnections]);
 
   const handleConnect = async () => {
     try {
@@ -45,6 +56,22 @@ function FacebookStep(props: { onContinue: () => void }) {
     }
   };
 
+  const handleReconnect = async (connectionId: string) => {
+    await handleConnect();
+  };
+
+  const handleDelete = async (connectionId: string) => {
+    if (!confirm("Tem certeza que deseja desconectar esta conta do Facebook?")) {
+      return;
+    }
+    try {
+      await disconnect.mutateAsync(connectionId);
+      showSuccess("Conta desconectada com sucesso!");
+    } catch (e: any) {
+      showError(e);
+    }
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -52,28 +79,41 @@ function FacebookStep(props: { onContinue: () => void }) {
         <CardDescription>O Hookify precisa da sua conta do Facebook para carregar os anúncios automaticamente. Você pode pular agora, mas algumas funcionalidades ficarão limitadas até a conexão.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
-            <IconBrandFacebook className="w-5 h-5 text-white" />
+        {connections.isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <p className="text-sm text-muted-foreground">Carregando conexões...</p>
           </div>
-          <div className="flex-1">
-            {connections.isLoading ? (
-              <p className="text-sm text-muted-foreground">Verificando conexões do Facebook...</p>
-            ) : hasActiveConnection ? (
-              <>
-                <p className="text-sm font-medium">Conta do Facebook conectada</p>
-                {activeConnections[0]?.facebook_name && <p className="text-xs text-muted-foreground">{activeConnections[0].facebook_name}</p>}
-              </>
-            ) : (
+        ) : connections.data && connections.data.length > 0 ? (
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Conexões existentes</label>
+            <div className="space-y-2">
+              {connections.data.map((connection: any) => (
+                <FacebookConnectionCard
+                  key={connection.id}
+                  connection={connection}
+                  onReconnect={handleReconnect}
+                  onDelete={handleDelete}
+                  isDeleting={disconnect.isPending}
+                  showActions={true}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-primary flex items-center justify-center">
+              <IconBrandFacebook className="w-5 h-5 text-white" />
+            </div>
+            <div className="flex-1">
               <p className="text-sm text-muted-foreground">Nenhuma conta do Facebook conectada ainda.</p>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex gap-3">
           <Button className="flex-1 flex items-center gap-2" variant={hasActiveConnection ? "outline" : "default"} onClick={handleConnect} disabled={connect.isPending}>
             {connect.isPending ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconBrandFacebook className="w-4 h-4" />}
-            {hasActiveConnection ? "Reconectar Facebook" : connect.isPending ? "Conectando..." : "Conectar Facebook"}
+            {hasActiveConnection ? "Adicionar outra conta" : connect.isPending ? "Conectando..." : "Conectar Facebook"}
           </Button>
           {!hasActiveConnection && (
             <Button variant="outline" onClick={props.onContinue}>

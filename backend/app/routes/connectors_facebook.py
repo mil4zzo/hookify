@@ -16,8 +16,10 @@ from app.services.facebook_connections_repo import (
     upsert_connection,
     delete_connection,
     set_primary,
+    get_facebook_token_for_connection,
+    update_connection_status,
 )
-from app.services.graph_api import GraphAPI
+from app.services.graph_api import GraphAPI, test_facebook_connection
 from app.services import supabase_repo
 from app.services.facebook_token_service import invalidate_token_cache
 
@@ -167,5 +169,85 @@ def remove_connection(connection_id: str, user=Depends(get_current_user)):
 def make_primary(connection_id: str, user=Depends(get_current_user)):
     set_primary(user["token"], connection_id, user["user_id"])
     return {"ok": True}
+
+
+@router.get("/connections/{connection_id}/test")
+def test_facebook_connection_endpoint(
+    connection_id: str,
+    user=Depends(get_current_user),
+):
+    """
+    Testa se uma conexão Facebook específica está válida.
+    Faz uma chamada simples para a API do Facebook usando os tokens dessa conexão.
+    """
+    try:
+        # Buscar token da conexão específica
+        access_token, expires_at, status = get_facebook_token_for_connection(
+            user_jwt=user["token"],
+            user_id=user["user_id"],
+            connection_id=connection_id,
+        )
+        
+        if not access_token:
+            return {
+                "valid": False,
+                "expired": True,
+                "message": "Conexão não encontrada ou token não disponível",
+            }
+        
+        # Testar o token
+        result = test_facebook_connection(access_token)
+        
+        if result.get("status") == "success":
+            # Token válido - atualizar status para active se não estiver
+            if status != "active":
+                # Buscar facebook_user_id para atualizar status
+                connections = list_connections(user["token"])
+                connection = next((c for c in connections if c.get("id") == connection_id), None)
+                if connection:
+                    update_connection_status(
+                        user_jwt=user["token"],
+                        user_id=user["user_id"],
+                        facebook_user_id=connection.get("facebook_user_id"),
+                        status="active",
+                    )
+            
+            return {
+                "valid": True,
+                "expired": False,
+                "message": "Conexão válida",
+            }
+        elif result.get("status") == "auth_error":
+            # Token expirado/inválido - atualizar status
+            connections = list_connections(user["token"])
+            connection = next((c for c in connections if c.get("id") == connection_id), None)
+            if connection:
+                update_connection_status(
+                    user_jwt=user["token"],
+                    user_id=user["user_id"],
+                    facebook_user_id=connection.get("facebook_user_id"),
+                    status="expired",
+                )
+            
+            return {
+                "valid": False,
+                "expired": True,
+                "message": result.get("message", "Token expirado ou inválido"),
+            }
+        else:
+            # Outro tipo de erro
+            return {
+                "valid": False,
+                "expired": False,
+                "message": result.get("message", "Erro ao testar conexão"),
+            }
+            
+    except Exception as e:
+        logger.exception(f"[FACEBOOK_CONNECTION_TEST] Erro inesperado ao testar conexão {connection_id}")
+        return {
+            "valid": False,
+            "expired": False,
+            "message": f"Erro ao testar conexão: {str(e)}",
+        }
 
 

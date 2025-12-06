@@ -100,7 +100,8 @@ export function computeOpportunityScores({
   for (const ad of ads) {
     const impressions = toNumber((ad as any).impressions, 0);
     const spend = toNumber((ad as any).spend, 0);
-    const cpm = impressions > 0 ? (spend * 1000) / impressions : toNumber((ad as any).cpm, 0);
+    // CPM: priorizar valor do backend, senão calcular
+    const cpm = typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm) && isFinite((ad as any).cpm) ? (ad as any).cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
 
     const hook = toNumber((ad as any).hook, 0);
     const holdRate = toNumber((ad as any).hold_rate, 0);

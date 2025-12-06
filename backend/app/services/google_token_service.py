@@ -25,11 +25,18 @@ PRE_REFRESH_BUFFER = 300  # 5 minutos
 def get_google_access_token_for_user(
     user_jwt: str,
     user_id: str,
+    connection_id: Optional[str] = None,
     force_refresh: bool = False,
 ) -> Optional[str]:
     """
     Retorna access_token válido do Google para o usuário.
     Tenta refresh com refresh_token se estiver próximo de expirar.
+    
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        user_id: ID do usuário
+        connection_id: ID da conexão Google específica (opcional). Se não fornecido, usa a primeira conexão encontrada.
+        force_refresh: Se True, força refresh do token mesmo que ainda não esteja próximo de expirar
     
     Raises:
         GoogleSheetsError: Se o refresh_token estiver inválido/expirado
@@ -37,6 +44,7 @@ def get_google_access_token_for_user(
     access_token, refresh_token, expires_ts = get_google_account_tokens(
         user_jwt=user_jwt,
         user_id=user_id,
+        connection_id=connection_id,
     )
 
     if not access_token:
@@ -74,13 +82,27 @@ def get_google_access_token_for_user(
                         )
                         expires_at_str = expires_at.isoformat()
 
+                    # Preservar connection_id ao fazer refresh
+                    # Buscar dados da conexão atual para preservar google_user_id, google_email, etc.
+                    from app.core.supabase_client import get_supabase_for_user
+                    sb = get_supabase_for_user(user_jwt)
+                    account_query = sb.table("google_accounts").select("google_user_id,google_email,google_name,scopes").eq("user_id", user_id)
+                    if connection_id:
+                        account_query = account_query.eq("id", connection_id)
+                    account_res = account_query.limit(1).execute()
+                    
+                    account_data = account_res.data[0] if account_res.data else {}
+                    
                     upsert_google_account(
                         user_jwt=user_jwt,
                         user_id=user_id,
                         access_token=new_access,
                         refresh_token=refresh_token,
                         expires_at=expires_at_str,
-                        scopes=None,
+                        scopes=account_data.get("scopes"),
+                        google_user_id=account_data.get("google_user_id"),
+                        google_email=account_data.get("google_email"),
+                        google_name=account_data.get("google_name"),
                     )
                     logger.info(
                         "[GOOGLE_TOKEN] Access token refreshed for user %s", user_id
