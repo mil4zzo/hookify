@@ -146,6 +146,7 @@ export function OpportunityCards({ rows, averages, actionType, onAdClick, global
     connectRateRank: new Map(),
     pageConvRank: new Map(),
     ctrRank: new Map(),
+    cprRank: new Map(),
     spendRank: new Map(),
   };
 

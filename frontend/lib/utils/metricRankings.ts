@@ -269,6 +269,7 @@ export function calculateMetricRanksFromOpportunityRows(rows: OpportunityRow[]):
   const websiteCtrRank = new Map<string | null, number>();
   const connectRateRank = new Map<string | null, number>();
   const pageConvRank = new Map<string | null, number>();
+  const cprRank = new Map<string | null, number>();
 
   // Hook: ordenar por valor decrescente
   const sortedHook = rows
@@ -310,12 +311,21 @@ export function calculateMetricRanksFromOpportunityRows(rows: OpportunityRow[]):
     if (r.ad_id) pageConvRank.set(r.ad_id, idx + 1);
   });
 
+  // CPR: ordenar por valor crescente (menor é melhor)
+  const sortedCpr = rows
+    .filter((r) => r.cpr_actual > 0 && Number.isFinite(r.cpr_actual))
+    .sort((a, b) => a.cpr_actual - b.cpr_actual);
+  sortedCpr.forEach((r, idx) => {
+    if (r.ad_id) cprRank.set(r.ad_id, idx + 1);
+  });
+
   return {
     hookRank,
     holdRateRank,
     websiteCtrRank,
     connectRateRank,
     pageConvRank,
+    cprRank,
   };
 }
 

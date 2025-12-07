@@ -174,6 +174,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
         connectRateRank: new Map(),
         pageConvRank: new Map(),
         ctrRank: new Map(),
+        cprRank: new Map(),
         spendRank: new Map(),
       };
     }
@@ -195,6 +196,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
         ctrRank: null,
         pageConvRank: null,
         holdRateRank: null,
+        cprRank: null,
       };
     }
 
@@ -205,6 +207,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       ctrRank: globalMetricRanks.ctrRank.get(adId) ?? null,
       pageConvRank: globalMetricRanks.pageConvRank.get(adId) ?? null,
       holdRateRank: globalMetricRanks.holdRateRank.get(adId) ?? null,
+      cprRank: globalMetricRanks.cprRank.get(adId) ?? null,
     };
   };
 

@@ -770,6 +770,7 @@ export default function InsightsPage() {
         connectRateRank: new Map(),
         pageConvRank: new Map(),
         ctrRank: new Map(),
+        cprRank: new Map(),
         spendRank: new Map(),
       };
     }

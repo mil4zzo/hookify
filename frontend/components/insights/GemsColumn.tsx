@@ -24,6 +24,7 @@ interface GemsColumnProps {
     ctrRank: number | null;
     pageConvRank: number | null;
     holdRateRank: number | null;
+    cprRank: number | null;
   };
   actionType?: string;
   isCompact?: boolean;
