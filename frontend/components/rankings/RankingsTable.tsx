@@ -70,7 +70,11 @@ function AdStatusIcon({ status }: { status?: string | null }) {
 
   const IconComponent = config.icon;
 
-  return <IconComponent className={`w-4 h-4 ${config.color}`} title={status} />;
+  return (
+    <span title={status}>
+      <IconComponent className={`w-4 h-4 ${config.color}`} />
+    </span>
+  );
 }
 
 // Componente interno para renderizar linha expandida de variações
