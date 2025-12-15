@@ -295,6 +295,19 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
 def get_job_progress(job_id: str, api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any] = Depends(get_current_user), x_supabase_user_id: str | None = Header(default=None, alias="X-Supabase-User-Id")):
     """Get progress of ads job."""
     try:
+        # Verificar se há detalhes no Supabase antes de consultar a API
+        existing_details = None
+        try:
+            from app.core.supabase_client import get_supabase_for_user
+            sb = get_supabase_for_user(user["token"])
+            job_res = sb.table("jobs").select("payload, status, progress, message").eq("id", job_id).eq("user_id", user["user_id"]).execute()
+            if job_res.data and len(job_res.data) > 0:
+                job_payload = job_res.data[0].get("payload")
+                if job_payload and "details" in job_payload:
+                    existing_details = job_payload.get("details")
+        except Exception:
+            logger.debug("Não foi possível buscar detalhes existentes do job")
+        
         progress = api.get_job_progress(job_id)
 
         # Verificar se progresso indica erro de token expirado
@@ -312,11 +325,27 @@ def get_job_progress(job_id: str, api: GraphAPI = Depends(get_graph_api), user: 
                 }
             )
 
-        # Atualiza tracking do job no Supabase
+        # Mesclar detalhes existentes com novos (se houver)
+        details = progress.get("details") or existing_details
+
+        # Atualiza tracking do job no Supabase com detalhes granulares
         try:
-            supabase_repo.record_job(user["token"], job_id, status=progress.get("status", "running"), user_id=user["user_id"], progress=int(progress.get("progress", 0)), message=progress.get("message"), result_count=(len(progress.get("data", [])) if isinstance(progress.get("data"), list) else None))
+            supabase_repo.record_job(
+                user["token"], 
+                job_id, 
+                status=progress.get("status", "running"), 
+                user_id=user["user_id"], 
+                progress=int(progress.get("progress", 0)), 
+                message=progress.get("message"), 
+                result_count=(len(progress.get("data", [])) if isinstance(progress.get("data"), list) else None),
+                details=details
+            )
         except Exception:
             logger.exception("Falha ao atualizar job no Supabase (progress)")
+        
+        # Incluir detalhes na resposta se disponíveis
+        if details:
+            progress["details"] = details
 
         # Se completou, persistir ads, métricas e pack
         try:
@@ -521,7 +550,11 @@ def get_job_progress(job_id: str, api: GraphAPI = Depends(get_graph_api), user: 
                             except Exception as e:
                                 logger.exception(f"[JOB_COMPLETE] ✗ Erro ao chamar upsert_pack: {e}")
                         else:
-                            logger.warning(f"[JOB_COMPLETE] Job payload não contém 'name', não é possível criar pack")
+                            # Melhorar mensagem de warning para incluir mais contexto de debug
+                            logger.warning(
+                                f"[JOB_COMPLETE] Job payload não contém 'name' válido (recebido: {repr(pack_name)}), "
+                                f"não é possível criar pack. Payload keys: {list(job_data.keys()) if job_data else 'None'}"
+                            )
                 else:
                     logger.warning(f"[JOB_COMPLETE] Job {job_id} não tem payload salvo, não é possível criar/atualizar pack")
 

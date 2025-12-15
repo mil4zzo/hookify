@@ -34,9 +34,24 @@ interface GemsColumnProps {
     title: string;
     content?: React.ReactNode;
   };
+  /** Objeto com todas as médias para colorir o tooltip (opcional) */
+  averages?: {
+    hook?: number | null;
+    hold_rate?: number | null;
+    website_ctr?: number | null;
+    connect_rate?: number | null;
+    ctr?: number | null;
+    cpm?: number | null;
+    per_action_type?: {
+      [actionType: string]: {
+        cpr?: number | null;
+        page_conv?: number | null;
+      };
+    };
+  };
 }
 
-export function GemsColumn({ title, items, metric, averageValue, onAdClick, getTopMetrics, actionType, isCompact = true, headerRight, tooltip }: GemsColumnProps) {
+export function GemsColumn({ title, items, metric, averageValue, onAdClick, getTopMetrics, actionType, isCompact = true, headerRight, tooltip, averages }: GemsColumnProps) {
   const metricStyles: Record<"hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr", GenericColumnColorScheme> = {
     hook: {
       headerBg: "bg-blue-500/10 border-blue-500/30",
@@ -108,5 +123,5 @@ export function GemsColumn({ title, items, metric, averageValue, onAdClick, getT
 
   const colorScheme = metricStyles[metric];
 
-  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} emptyMessage="Nenhum anúncio válido encontrado" headerRight={headerRight} tooltip={tooltip} renderCard={(item, index) => <GenericCard key={`${item.ad_id}-${index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} onClick={(openVideo?: boolean) => onAdClick?.(item, openVideo)} topMetrics={getTopMetrics?.(item.ad_id)} actionType={actionType} isCompact={isCompact} />} />;
+  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} emptyMessage="Nenhum anúncio válido encontrado" headerRight={headerRight} tooltip={tooltip} renderCard={(item, index) => <GenericCard key={`${item.ad_id}-${index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} onClick={(openVideo?: boolean) => onAdClick?.(item, openVideo)} topMetrics={getTopMetrics?.(item.ad_id)} actionType={actionType} isCompact={isCompact} averages={averages} />} />;
 }

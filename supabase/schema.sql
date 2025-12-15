@@ -40,6 +40,10 @@ create table if not exists public.ads (
   instagram_permalink_url text,
   adcreatives_videos_ids jsonb,
   adcreatives_videos_thumbs jsonb,
+  -- Cache de thumbnail no Supabase Storage (bucket público)
+  thumb_storage_path text,
+  thumb_cached_at timestamptz,
+  thumb_source_url text,
   leadscore numeric,
   cpr_max numeric,
   created_at timestamptz default now(),

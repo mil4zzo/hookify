@@ -48,9 +48,24 @@ interface GenericCardProps {
   actionType?: string;
   /** Se true, mostra apenas a métrica principal. Se false, mostra todas as métricas */
   isCompact?: boolean;
+  /** Objeto com todas as médias para colorir o tooltip (opcional) */
+  averages?: {
+    hook?: number | null;
+    hold_rate?: number | null;
+    website_ctr?: number | null;
+    connect_rate?: number | null;
+    ctr?: number | null;
+    cpm?: number | null;
+    per_action_type?: {
+      [actionType: string]: {
+        cpr?: number | null;
+        page_conv?: number | null;
+      };
+    };
+  };
 }
 
-export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, metricColor, onClick, topMetrics, actionType, isCompact = true }: GenericCardProps) {
+export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, metricColor, onClick, topMetrics, actionType, isCompact = true, averages }: GenericCardProps) {
   const formatCurrency = useFormatCurrency();
 
   // Estilos padrão para gems (amarelo/dourado sutil)
@@ -136,6 +151,38 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
 
   // Calcular diff percentual (sempre positivo quando melhor)
   const diffFromAverage = averageValue != null && averageValue > 0 ? Math.abs(((ad.metricValue - averageValue) / averageValue) * 100) : null;
+
+  // Função para determinar a cor baseada na relação atual/média (similar a OpportunityCards.tsx)
+  const getValueColor = (current: number, average: number | null | undefined, metricKeyForColor: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "connect_rate"): string => {
+    if (average == null || average <= 0) return "text-foreground"; // Sem média válida
+
+    const lowerIsBetter = isLowerBetterMetric(metricKeyForColor);
+
+    if (lowerIsBetter) {
+      // Para métricas onde menor é melhor (ex: CPR, CPM)
+      // Se atual <= média, está abaixo/igual à média (melhor) = verde
+      if (current <= average) return "text-green-600 dark:text-green-400";
+
+      // Calcular ratio: atual/média (quanto maior que a média)
+      const ratio = current / average;
+
+      // Classificação baseada no ratio
+      if (ratio > 1 && ratio <= 1.25) return "text-yellow-600 dark:text-yellow-400"; // 100%~125% = amarelo
+      if (ratio > 1.25 && ratio <= 1.5) return "text-orange-600 dark:text-orange-400"; // 125%~150% = laranja
+      if (ratio > 1.5) return "text-red-600 dark:text-red-400"; // 150%+ = vermelho
+      return "text-foreground"; // Fallback
+    } else {
+      // Para métricas onde maior é melhor (ex: Hook, CTR, etc)
+      const ratio = current / average;
+      // Se atual >= média, está acima/igual à média (melhor) = verde
+      if (current >= average) return "text-green-600 dark:text-green-400";
+
+      // Classificação baseada no ratio
+      if (ratio >= 0.75 && ratio < 1) return "text-yellow-600 dark:text-yellow-400"; // 75%~100% = amarelo
+      if (ratio >= 0.5 && ratio < 0.75) return "text-orange-600 dark:text-orange-400"; // 50%~75% = laranja
+      return "text-red-600 dark:text-red-400"; // 0%~50% = vermelho
+    }
+  };
 
   // Métricas adicionais para o tooltip e exibição
   const impressions = Number(ad.impressions || 0);
@@ -312,9 +359,8 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
               {/* Thumbnail com botão de play centralizado */}
               <div className="relative h-28 w-20 flex-shrink-0 overflow-hidden rounded-md bg-black/40">
                 {(() => {
-                  // Priorizar adcreatives_videos_thumbs[0] sobre thumbnail_url
-                  const adcreativesThumbs = (ad as any)?.adcreatives_videos_thumbs;
-                  const thumbnail = Array.isArray(adcreativesThumbs) && adcreativesThumbs.length > 0 && adcreativesThumbs[0] ? String(adcreativesThumbs[0]).trim() : getAdThumbnail(ad);
+                  // Usar getAdThumbnail que já prioriza thumbnail (Storage) > thumbnail_url > adcreatives_videos_thumbs[0]
+                  const thumbnail = getAdThumbnail(ad);
 
                   return thumbnail ? (
                     <Image src={thumbnail} alt={ad.ad_name || "Ad thumbnail"} fill className="object-cover" sizes="96px" />
@@ -423,7 +469,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div>
                   <span className="text-muted-foreground">CPR:</span>
-                  <span className="ml-2 font-medium">{cpr > 0 ? formatCurrency(cpr) : "—"}</span>
+                  <span className={cn("ml-2 font-medium", averages && actionType ? getValueColor(cpr, averages.per_action_type?.[actionType]?.cpr ?? null, "cpr") : "")}>{cpr > 0 ? formatCurrency(cpr) : "—"}</span>
                 </div>
                 {cpmql > 0 && (
                   <div>
@@ -439,7 +485,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                 </div>
                 <div>
                   <span className="text-muted-foreground">CPM:</span>
-                  <span className="ml-2 font-medium">{formatCurrency(cpm)}</span>
+                  <span className={cn("ml-2 font-medium", averages ? getValueColor(cpm, averages.cpm ?? null, "cpm") : "")}>{formatCurrency(cpm)}</span>
                 </div>
               </div>
             </div>
@@ -450,19 +496,19 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div>
                   <span className="text-muted-foreground">CTR:</span>
-                  <span className="ml-2 font-medium">{formatPct2(ctr)}</span>
+                  <span className={cn("ml-2 font-medium", averages ? getValueColor(ctr, averages.ctr ?? null, "ctr") : "")}>{formatPct2(ctr)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Link CTR:</span>
-                  <span className="ml-2 font-medium">{formatPct2(websiteCtr)}</span>
+                  <span className={cn("ml-2 font-medium", averages ? getValueColor(websiteCtr, averages.website_ctr ?? null, "website_ctr") : "")}>{formatPct2(websiteCtr)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Connect Rate:</span>
-                  <span className="ml-2 font-medium">{formatPct1(connectRate)}</span>
+                  <span className={cn("ml-2 font-medium", averages ? getValueColor(connectRate, averages.connect_rate ?? null, "connect_rate") : "")}>{formatPct1(connectRate)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Conversão Página:</span>
-                  <span className="ml-2 font-medium">{formatPct1(pageConv)}</span>
+                  <span className={cn("ml-2 font-medium", averages && actionType ? getValueColor(pageConv, averages.per_action_type?.[actionType]?.page_conv ?? null, "page_conv") : "")}>{formatPct1(pageConv)}</span>
                 </div>
               </div>
             </div>
@@ -473,11 +519,11 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div>
                   <span className="text-muted-foreground">Hook Rate:</span>
-                  <span className="ml-2 font-medium">{formatPct1(hook)}</span>
+                  <span className={cn("ml-2 font-medium", averages ? getValueColor(hook, averages.hook ?? null, "hook") : "")}>{formatPct1(hook)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">Hold Rate:</span>
-                  <span className="ml-2 font-medium">{formatPct1(holdRate)}</span>
+                  <span className={cn("ml-2 font-medium", averages ? getValueColor(holdRate, averages.hold_rate ?? null, "hold_rate") : "")}>{formatPct1(holdRate)}</span>
                 </div>
                 <div>
                   <span className="text-muted-foreground">50% View Rate:</span>

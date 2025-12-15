@@ -183,7 +183,7 @@ class GraphAPI:
             
             url = self.base_url + act_id + '/ads' + self.user_token
             payload = {
-                'fields': 'name,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,status,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
+                'fields': 'name,effective_status,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
                 'limit': self.limit,
                 'filtering': "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) +"']}]",
             }
@@ -337,6 +337,7 @@ class GraphAPI:
                     ads_details = self.get_ads_details(act_id, time_range, unique_ids)
                     if ads_details is not None:
                         creative_list = {d['name']: d.get('creative') for d in ads_details}
+                        effective_status_list = {d['name']: d.get('effective_status') for d in ads_details}
                         videos_list = {
                             d['name']: d['adcreatives']['data'][0]['asset_feed_spec']['videos']
                             for d in ads_details
@@ -345,6 +346,7 @@ class GraphAPI:
                         for ad in data:
                             ad_name = ad.get('ad_name')
                             ad['creative'] = creative_list.get(ad_name)
+                            ad['effective_status'] = effective_status_list.get(ad_name)
                             adcreatives = videos_list.get(ad_name)
                             video_ids, video_thumbs = [], []
                             if adcreatives:
@@ -445,12 +447,27 @@ class GraphAPI:
                 logger.info(f"=== PAGINAÇÃO DEBUG - Iniciando coleta de dados ===")
                 logger.info(f"URL inicial: {insights_url}")
                 
+                # Inicializar detalhes de progresso
+                progress_details = {
+                    "stage": "paginação",
+                    "page_count": 0,
+                    "total_collected": 0,
+                    "enrichment_batches": 0,
+                    "enrichment_total": 0,
+                    "ads_before_dedup": 0,
+                    "ads_after_dedup": 0,
+                    "ads_enriched": 0,
+                    "ads_formatted": 0
+                }
+                
                 insights_resp = requests.get(insights_url)
                 insights_resp.raise_for_status()
                 insights_data = insights_resp.json()
                 
                 data = insights_data.get('data', [])
                 logger.info(f"Página 1: {len(data)} anúncios coletados")
+                progress_details["page_count"] = 1
+                progress_details["total_collected"] = len(data)
                 
                 # Handle pagination
                 page_count = 1
@@ -468,6 +485,8 @@ class GraphAPI:
                     data.extend(page_data)
                     total_collected += len(page_data)
                     logger.info(f"Página {page_count}: {len(page_data)} anúncios coletados (Total: {total_collected})")
+                    progress_details["page_count"] = page_count
+                    progress_details["total_collected"] = total_collected
                     
                     # Safety check para evitar loops infinitos
                     if page_count > 100:
@@ -481,6 +500,9 @@ class GraphAPI:
                 
                 # Enriquecimento com detalhes do anúncio (creative e asset_feed_spec videos)
                 job_meta = JOBS_META.get(report_run_id)
+                progress_details["stage"] = "enriquecimento"
+                progress_details["ads_before_dedup"] = len(data)
+                
                 if job_meta and data:
                     try:
                         logger.info(f"=== ENRIQUECIMENTO DEBUG - Iniciando processo ===")
@@ -496,12 +518,22 @@ class GraphAPI:
                         unique_ids = list(unique_ads.values())
                         logger.info(f"Anúncios únicos após deduplicação por nome: {len(unique_ids)}")
                         logger.info(f"Anúncios removidos na deduplicação: {len(data) - len(unique_ids)}")
+                        progress_details["ads_after_dedup"] = len(unique_ids)
+                        
+                        # Calcular número de lotes para enriquecimento
+                        batch_size = 50
+                        total_batches = (len(unique_ids) + batch_size - 1) // batch_size
+                        progress_details["enrichment_total"] = total_batches
                         
                         logger.info(f"[ENRIQUECIMENTO] Iniciando busca de detalhes dos anúncios na Meta API...")
                         ads_details = self.get_ads_details(job_meta['act_id'], job_meta['time_range'], unique_ids)
                         logger.info(f"[ENRIQUECIMENTO] Detalhes de anúncios coletados: {len(ads_details) if ads_details else 0}")
+                        progress_details["ads_enriched"] = len(ads_details) if ads_details else 0
+                        progress_details["enrichment_batches"] = total_batches
+                        
                         if ads_details is not None:
                             creative_list = {d['name']: d.get('creative') for d in ads_details}
+                            effective_status_list = {d['name']: d.get('effective_status') for d in ads_details}
                             videos_list = {
                                 d['name']: d['adcreatives']['data'][0]['asset_feed_spec']['videos']
                                 for d in ads_details
@@ -510,6 +542,7 @@ class GraphAPI:
                             for ad in data:
                                 ad_name = ad.get('ad_name')
                                 ad['creative'] = creative_list.get(ad_name)
+                                ad['effective_status'] = effective_status_list.get(ad_name)
                                 adcreatives = videos_list.get(ad_name)
                                 video_ids, video_thumbs = [], []
                                 if adcreatives:
@@ -523,6 +556,7 @@ class GraphAPI:
                 
                 logger.info(f"=== RESULTADO FINAL (RAW) ===")
                 logger.info(f"Anúncios coletados (raw): {len(data)}")
+                progress_details["stage"] = "formatação"
 
                 # Formatar para o schema do frontend antes de retornar
                 try:
@@ -530,6 +564,9 @@ class GraphAPI:
                     formatted = format_ads_for_api(data, act_id or '')
                     logger.info(f"=== RESULTADO FINAL (FORMATADO) ===")
                     logger.info(f"Anúncios formatados: {len(formatted)}")
+                    progress_details["ads_formatted"] = len(formatted)
+                    progress_details["stage"] = "completo"
+                    
                     if formatted:
                         sample = formatted[0]
                         logger.info(f"Campos exemplo: {list(sample.keys())[:12]} ... total={len(sample.keys())}")
@@ -539,16 +576,20 @@ class GraphAPI:
                         "status": "completed",
                         "progress": 100,
                         "message": f"Job completado! {len(formatted)} anúncios encontrados.",
-                        "data": formatted
+                        "data": formatted,
+                        "details": progress_details
                     }
                 except Exception:
                     logger.exception("Falha ao formatar anúncios para resposta do frontend")
                     # Fallback: retornar raw
+                    progress_details["stage"] = "completo"
+                    progress_details["ads_formatted"] = len(data)
                     return {
                         "status": "completed",
                         "progress": 100,
                         "message": f"Job completado! {len(data)} anúncios encontrados (raw).",
-                        "data": data
+                        "data": data,
+                        "details": progress_details
                     }
             elif async_status == 'Job Failed':
                 error_msg = status_data.get('error', 'Job failed without specific error')

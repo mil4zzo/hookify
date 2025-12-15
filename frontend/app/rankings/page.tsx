@@ -521,6 +521,7 @@ export default function RankingsPage() {
         ad_id: row.ad_id,
         ad_name: row.ad_name,
         unique_id: row.unique_id,
+        effective_status: row.effective_status || null,
         clicks: Number(row.clicks || 0),
         impressions: Number(row.impressions || 0),
         inline_link_clicks: Number(row.inline_link_clicks || 0),

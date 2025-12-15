@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta, date
 
 from app.core.supabase_client import get_supabase_for_user
+from app.services.thumbnail_cache import cache_first_thumbs_for_ads
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +77,124 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
     return all_rows
 
 
+def _process_pack_deletion_in_batches(
+    sb, 
+    table_name: str, 
+    id_field: str,  # "id" para ad_metrics, "ad_id" para ads
+    filters_func, 
+    pack_id: str, 
+    user_id: str,
+    batch_size: int = 500
+) -> Tuple[List[str], List[str]]:
+    """Processa registros durante a busca em lotes, separando IDs para atualizar vs deletar.
+    
+    Otimiza uso de memória ao processar durante a busca em vez de carregar tudo primeiro.
+    
+    Args:
+        sb: Cliente Supabase
+        table_name: Nome da tabela ("ad_metrics" ou "ads")
+        id_field: Nome do campo ID ("id" ou "ad_id")
+        filters_func: Função que recebe query builder e retorna query com filtros
+        pack_id: ID do pack a ser removido
+        user_id: ID do usuário
+        batch_size: Tamanho do lote para batch updates
+    
+    Returns:
+        Tuple[List[str], List[str]]: (ids_to_update, ids_to_delete)
+    """
+    to_update_ids: List[str] = []
+    to_delete_ids: List[str] = []
+    current_batch_ids: List[str] = []
+    offset = 0
+    page_size = 1000
+    total_processed = 0
+    
+    while True:
+        # Buscar página
+        q = sb.table(table_name).select(f"{id_field}, pack_ids")
+        q = filters_func(q)
+        q = q.range(offset, offset + page_size - 1)
+        
+        result = q.execute()
+        page_data = result.data or []
+        
+        if not page_data:
+            break
+        
+        # Processar página atual
+        for row in page_data:
+            packs_arr = row.get("pack_ids") or []
+            row_id = str(row.get(id_field))
+            
+            if pack_id in packs_arr:
+                if len(packs_arr) > 1:
+                    # Usado por outros packs - adicionar ao batch de atualização
+                    current_batch_ids.append(row_id)
+                    
+                    # Se batch cheio, processar via RPC
+                    if len(current_batch_ids) >= batch_size:
+                        try:
+                            rpc_result = sb.rpc(
+                                "batch_remove_pack_id_from_arrays",
+                                {
+                                    "p_user_id": user_id,
+                                    "p_pack_id": pack_id,
+                                    "p_table_name": table_name,
+                                    "p_ids_to_update": current_batch_ids
+                                }
+                            ).execute()
+                            
+                            if rpc_result.data and rpc_result.data.get("status") == "success":
+                                to_update_ids.extend(current_batch_ids)
+                            else:
+                                logger.warning(f"Erro no batch update durante streaming: {rpc_result.data}")
+                                # Adicionar de volta para processar depois
+                                to_update_ids.extend(current_batch_ids)
+                        except Exception as batch_err:
+                            logger.warning(f"Erro ao fazer batch update durante streaming: {batch_err}")
+                            # Adicionar de volta para processar depois
+                            to_update_ids.extend(current_batch_ids)
+                        
+                        current_batch_ids = []
+                else:
+                    # Único pack - marcar para deleção
+                    to_delete_ids.append(row_id)
+        
+        total_processed += len(page_data)
+        
+        # Se retornou menos que page_size, chegamos ao fim
+        if len(page_data) < page_size:
+            break
+        
+        offset += page_size
+    
+    # Processar batch restante
+    if current_batch_ids:
+        try:
+            rpc_result = sb.rpc(
+                "batch_remove_pack_id_from_arrays",
+                {
+                    "p_user_id": user_id,
+                    "p_pack_id": pack_id,
+                    "p_table_name": table_name,
+                    "p_ids_to_update": current_batch_ids
+                }
+            ).execute()
+            
+            if rpc_result.data and rpc_result.data.get("status") == "success":
+                to_update_ids.extend(current_batch_ids)
+            else:
+                logger.warning(f"Erro no batch update final: {rpc_result.data}")
+                to_update_ids.extend(current_batch_ids)
+        except Exception as batch_err:
+            logger.warning(f"Erro ao fazer batch update final: {batch_err}")
+            to_update_ids.extend(current_batch_ids)
+    
+    logger.info(f"Processados {total_processed} registros de {table_name} (streaming): {len(to_update_ids)} para atualizar, {len(to_delete_ids)} para deletar")
+    
+    return (to_update_ids, to_delete_ids)
+
+
 def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Optional[str], pack_id: Optional[str] = None) -> None:
     """Upsert de identidade + creative dos anúncios na tabela ads.
 
@@ -119,7 +238,7 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
             "adset_id": ad.get("adset_id"),
             "adset_name": ad.get("adset_name"),
             "ad_name": ad.get("ad_name"),
-            "effective_status": creative.get("status"),
+            "effective_status": ad.get("effective_status"),
             "creative": creative,
             "creative_video_id": creative.get("video_id"),
             "thumbnail_url": creative.get("thumbnail_url"),
@@ -145,6 +264,65 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
     
     total_rows = len(rows)
     logger.info(f"[UPSERT_ADS] Processando {total_rows} registros de ads")
+
+    # Cache de thumbnails (best-effort) no Supabase Storage (bucket público)
+    # Referência: salvar somente o item[0] de adcreatives_videos_thumbs.
+    try:
+        ad_id_to_thumb_url: Dict[str, str] = {}
+        for r in rows:
+            thumbs = r.get("adcreatives_videos_thumbs")
+            if isinstance(thumbs, list) and thumbs:
+                first = str(thumbs[0] or "").strip()
+                if first:
+                    ad_id_to_thumb_url[str(r.get("ad_id") or "")] = first
+
+        if ad_id_to_thumb_url:
+            # Evitar recache (se já existe thumb_storage_path no banco)
+            try:
+                existing_cached: Dict[str, str] = {}
+                ad_ids = list(ad_id_to_thumb_url.keys())
+                batch_lookup = 400
+                for i in range(0, len(ad_ids), batch_lookup):
+                    batch_ids = ad_ids[i:i + batch_lookup]
+
+                    def ads_thumb_filters(q):
+                        return q.eq("user_id", user_id).in_("ad_id", batch_ids)
+
+                    existing_rows = _fetch_all_paginated(
+                        sb,
+                        "ads",
+                        "ad_id,thumb_storage_path",
+                        ads_thumb_filters,
+                    )
+                    for item in existing_rows:
+                        ad_id_val = str(item.get("ad_id") or "")
+                        p = str(item.get("thumb_storage_path") or "").strip()
+                        if ad_id_val and p:
+                            existing_cached[ad_id_val] = p
+
+                if existing_cached:
+                    for ad_id_val in list(ad_id_to_thumb_url.keys()):
+                        if ad_id_val in existing_cached:
+                            ad_id_to_thumb_url.pop(ad_id_val, None)
+            except Exception as e:
+                logger.info(f"[UPSERT_ADS] Lookup de thumbs já cacheadas falhou (seguindo sem skip): {e}")
+
+            cached = cache_first_thumbs_for_ads(user_id=str(user_id), ad_id_to_thumb_url=ad_id_to_thumb_url)
+            if cached:
+                applied = 0
+                for r in rows:
+                    ad_id = str(r.get("ad_id") or "")
+                    c = cached.get(ad_id)
+                    if not c:
+                        continue
+                    # Só setar campos quando houver sucesso (evita apagar valores existentes)
+                    r["thumb_storage_path"] = c.storage_path
+                    r["thumb_cached_at"] = c.cached_at
+                    r["thumb_source_url"] = c.source_url
+                    applied += 1
+                logger.info(f"[UPSERT_ADS] Thumbnails cacheados: {applied}/{len(ad_id_to_thumb_url)}")
+    except Exception as e:
+        logger.warning(f"[UPSERT_ADS] Falha ao cachear thumbnails (best-effort): {e}")
 
     # Se pack_id foi fornecido, fazer merge de pack_ids com estado existente
     if pack_id and rows:
@@ -199,9 +377,26 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
             sb.table("ads").upsert(batch, on_conflict="ad_id").execute()
             logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
         except Exception as e:
-            logger.error(f"[UPSERT_ADS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
-            # Re-lançar para que o caller possa tratar o erro
-            raise
+            # Se a migration ainda não foi aplicada no ambiente, reprocessar removendo colunas novas
+            msg = str(e or "")
+            if "thumb_storage_path" in msg or "thumb_cached_at" in msg or "thumb_source_url" in msg:
+                logger.warning(
+                    f"[UPSERT_ADS] Colunas de thumbnail cache parecem ausentes no DB; "
+                    f"reprocessando lote {batch_num}/{total_batches} sem thumb_*"
+                )
+                cleaned = []
+                for r in batch:
+                    rr = dict(r)
+                    rr.pop("thumb_storage_path", None)
+                    rr.pop("thumb_cached_at", None)
+                    rr.pop("thumb_source_url", None)
+                    cleaned.append(rr)
+                sb.table("ads").upsert(cleaned, on_conflict="ad_id").execute()
+                logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} reprocessado sem thumb_* ({len(cleaned)} registros)")
+            else:
+                logger.error(f"[UPSERT_ADS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
+                # Re-lançar para que o caller possa tratar o erro
+                raise
     
     logger.info(f"[UPSERT_ADS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
@@ -749,7 +944,7 @@ def upsert_pack(
         return None
 
 
-def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], progress: int = 0, message: Optional[str] = None, payload: Optional[Dict[str, Any]] = None, result_count: Optional[int] = None) -> None:
+def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], progress: int = 0, message: Optional[str] = None, payload: Optional[Dict[str, Any]] = None, result_count: Optional[int] = None, details: Optional[Dict[str, Any]] = None) -> None:
     if not user_id:
         return
     sb = get_supabase_for_user(user_jwt)
@@ -766,14 +961,35 @@ def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], 
     if result_count is not None:
         data["result_count"] = result_count
     
+    # Mesclar details no payload se fornecido
+    # IMPORTANTE: Se apenas details for fornecido (sem payload), buscar payload existente para preservar campos como 'name'
+    final_payload = payload.copy() if payload else {}
+    
+    # Se apenas details foi fornecido (sem payload), buscar payload existente do banco
+    if details is not None and not payload:
+        try:
+            existing_job = sb.table("jobs").select("payload").eq("id", job_id).eq("user_id", user_id).limit(1).execute()
+            if existing_job.data and len(existing_job.data) > 0:
+                existing_payload = existing_job.data[0].get("payload")
+                if existing_payload and isinstance(existing_payload, dict):
+                    final_payload = existing_payload.copy()
+        except Exception:
+            # Se falhar ao buscar, continuar com payload vazio (não é crítico)
+            pass
+    
+    if details is not None:
+        if "details" not in final_payload:
+            final_payload["details"] = {}
+        final_payload["details"].update(details)
+    
     # Estratégia de otimização:
-    # - Se payload foi fornecido: usar UPSERT (pode criar ou atualizar)
+    # - Se payload foi fornecido ou details foi fornecido: usar UPSERT (pode criar ou atualizar)
     # - Se payload NÃO foi fornecido: usar UPDATE (preserva campos não incluídos, como payload)
-    if payload is not None:
+    if final_payload or details is not None:
         # Com payload: fazer UPSERT completo (pode criar novo job ou atualizar existente)
         data["id"] = job_id
         data["user_id"] = user_id
-        data["payload"] = payload
+        data["payload"] = final_payload if final_payload else None
         sb.table("jobs").upsert(data, on_conflict="id").execute()
     else:
         # Sem payload: fazer UPDATE direto (UPDATE preserva campos não fornecidos)
@@ -863,47 +1079,59 @@ def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None,
         # 2. Ajustar/deletar ad_metrics do período do pack
         # Processar sempre, mesmo se ad_ids estiver vazio - usar pack_id no array pack_ids como filtro principal
         # Preserva dados que são usados por outros packs (remove apenas o pack_id do array se houver múltiplos)
+        # Otimizado: processa em lotes durante a busca (streaming) para economizar memória
         try:
-            # Buscar apenas ad_metrics que TÊM esse pack_id no array pack_ids
-            # O filtro pack_ids é suficiente e preciso - é a fonte de verdade
             def metrics_filters(q):
                 q = q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
                 if date_start and date_stop:
                     q = q.gte("date", date_start).lte("date", date_stop)
                 return q
             
-            metrics_rows = _fetch_all_paginated(
-                sb, 
-                "ad_metrics", 
-                "id, pack_ids", 
-                metrics_filters
+            # Processar em lotes durante a busca (streaming) - mais eficiente em memória
+            to_update_ids, to_delete_ids = _process_pack_deletion_in_batches(
+                sb=sb,
+                table_name="ad_metrics",
+                id_field="id",
+                filters_func=metrics_filters,
+                pack_id=pack_id,
+                user_id=user_id,
+                batch_size=500
             )
             
-            logger.info(f"Encontrados {len(metrics_rows)} registros de ad_metrics com pack_id {pack_id} para processar")
-
-            to_delete_ids: List[str] = []
-            to_update_rows: List[Dict[str, Any]] = []
-            for m in metrics_rows:
-                packs_arr = m.get("pack_ids") or []
-                # Verificar se o pack_id está no array (sempre deve estar devido ao filtro, mas verificamos por segurança)
-                if pack_id in packs_arr:
-                    # Se o registro é usado por outros packs, apenas remove o pack_id do array
-                    if len(packs_arr) > 1:
-                        new_arr = [p for p in packs_arr if p != pack_id]
-                        to_update_rows.append({"id": m.get("id"), "pack_ids": new_arr, "updated_at": _now_iso()})
-                    else:
-                        # Se é o único pack usando esse registro, deleta completamente
-                        to_delete_ids.append(str(m.get("id")))
-
-            if to_update_rows:
-                # Usar .update() ao invés de .upsert() já que sabemos que os registros existem
-                # Isso evita problemas de validação de campos obrigatórios
-                for row in to_update_rows:
-                    sb.table("ad_metrics").update({
-                        "pack_ids": row["pack_ids"],
-                        "updated_at": row["updated_at"]
-                    }).eq("id", row["id"]).eq("user_id", user_id).execute()
-                logger.info(f"Atualizados {len(to_update_rows)} registros de ad_metrics (removido pack_id, mantidos por outros packs)")
+            # IDs que não foram processados durante streaming (erros) - processar agora
+            if to_update_ids:
+                batch_size = 500
+                total_batches = (len(to_update_ids) + batch_size - 1) // batch_size
+                total_updated = 0
+                
+                logger.info(f"Processando {len(to_update_ids)} registros de ad_metrics restantes em {total_batches} lote(s)")
+                
+                for i in range(0, len(to_update_ids), batch_size):
+                    batch = to_update_ids[i:i + batch_size]
+                    batch_num = (i // batch_size) + 1
+                    
+                    try:
+                        rpc_result = sb.rpc(
+                            "batch_remove_pack_id_from_arrays",
+                            {
+                                "p_user_id": user_id,
+                                "p_pack_id": pack_id,
+                                "p_table_name": "ad_metrics",
+                                "p_ids_to_update": batch
+                            }
+                        ).execute()
+                        
+                        if rpc_result.data:
+                            batch_updated = rpc_result.data.get("rows_updated", 0)
+                            total_updated += batch_updated
+                            if rpc_result.data.get("status") == "error":
+                                logger.warning(f"Erro no batch update {batch_num}/{total_batches}: {rpc_result.data.get('error_message')}")
+                        logger.debug(f"Batch update {batch_num}/{total_batches}: {len(batch)} IDs processados")
+                    except Exception as batch_err:
+                        logger.warning(f"Erro ao fazer batch update {batch_num}/{total_batches} de ad_metrics: {batch_err}")
+                        continue
+                
+                logger.info(f"Atualizados {total_updated} registros de ad_metrics (removido pack_id, mantidos por outros packs)")
             
             if to_delete_ids:
                 # Deletar em lotes para evitar problemas com muitos IDs
@@ -935,45 +1163,57 @@ def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None,
         # 3. Ajustar/deletar ads
         # Processar sempre, mesmo se ad_ids estiver vazio - usar pack_id no array pack_ids como filtro principal
         # Preserva dados que são usados por outros packs (remove apenas o pack_id do array se houver múltiplos)
+        # Otimizado: processa em lotes durante a busca (streaming) para economizar memória
         try:
-            # Buscar apenas ads que TÊM esse pack_id no array pack_ids
-            # O filtro pack_ids é suficiente e preciso - é a fonte de verdade
             def ads_filters(q):
                 q = q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
                 return q
             
-            ads_rows = _fetch_all_paginated(
-                sb,
-                "ads",
-                "ad_id, pack_ids",
-                ads_filters
+            # Processar em lotes durante a busca (streaming) - mais eficiente em memória
+            to_update_ad_ids, to_delete_ad_ids = _process_pack_deletion_in_batches(
+                sb=sb,
+                table_name="ads",
+                id_field="ad_id",
+                filters_func=ads_filters,
+                pack_id=pack_id,
+                user_id=user_id,
+                batch_size=500
             )
             
-            logger.info(f"Encontrados {len(ads_rows)} registros de ads com pack_id {pack_id} para processar")
-
-            to_delete_ad_ids: List[str] = []
-            to_update_ads: List[Dict[str, Any]] = []
-            for ad in ads_rows:
-                packs_arr = ad.get("pack_ids") or []
-                # Verificar se o pack_id está no array (sempre deve estar devido ao filtro, mas verificamos por segurança)
-                if pack_id in packs_arr:
-                    # Se o registro é usado por outros packs, apenas remove o pack_id do array
-                    if len(packs_arr) > 1:
-                        new_arr = [p for p in packs_arr if p != pack_id]
-                        to_update_ads.append({"ad_id": ad.get("ad_id"), "pack_ids": new_arr, "updated_at": _now_iso()})
-                    else:
-                        # Se é o único pack usando esse registro, deleta completamente
-                        to_delete_ad_ids.append(str(ad.get("ad_id")))
-
-            if to_update_ads:
-                # Usar .update() ao invés de .upsert() já que sabemos que os registros existem
-                # Isso evita problemas de validação de campos obrigatórios
-                for row in to_update_ads:
-                    sb.table("ads").update({
-                        "pack_ids": row["pack_ids"],
-                        "updated_at": row["updated_at"]
-                    }).eq("ad_id", row["ad_id"]).eq("user_id", user_id).execute()
-                logger.info(f"Atualizados {len(to_update_ads)} registros de ads (removido pack_id, mantidos por outros packs)")
+            # IDs que não foram processados durante streaming (erros) - processar agora
+            if to_update_ad_ids:
+                batch_size = 500
+                total_batches = (len(to_update_ad_ids) + batch_size - 1) // batch_size
+                total_updated = 0
+                
+                logger.info(f"Processando {len(to_update_ad_ids)} registros de ads restantes em {total_batches} lote(s)")
+                
+                for i in range(0, len(to_update_ad_ids), batch_size):
+                    batch = to_update_ad_ids[i:i + batch_size]
+                    batch_num = (i // batch_size) + 1
+                    
+                    try:
+                        rpc_result = sb.rpc(
+                            "batch_remove_pack_id_from_arrays",
+                            {
+                                "p_user_id": user_id,
+                                "p_pack_id": pack_id,
+                                "p_table_name": "ads",
+                                "p_ids_to_update": batch
+                            }
+                        ).execute()
+                        
+                        if rpc_result.data:
+                            batch_updated = rpc_result.data.get("rows_updated", 0)
+                            total_updated += batch_updated
+                            if rpc_result.data.get("status") == "error":
+                                logger.warning(f"Erro no batch update {batch_num}/{total_batches}: {rpc_result.data.get('error_message')}")
+                        logger.debug(f"Batch update {batch_num}/{total_batches}: {len(batch)} IDs processados")
+                    except Exception as batch_err:
+                        logger.warning(f"Erro ao fazer batch update {batch_num}/{total_batches} de ads: {batch_err}")
+                        continue
+                
+                logger.info(f"Atualizados {total_updated} registros de ads (removido pack_id, mantidos por outros packs)")
             
             if to_delete_ad_ids:
                 # Deletar em lotes para evitar problemas com muitos IDs

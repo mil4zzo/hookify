@@ -20,6 +20,11 @@ const nextConfig: NextConfig = {
         hostname: 'scontent.fsdu8-1.fna.fbcdn.net',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: '*.supabase.co',
+        pathname: '/storage/v1/object/public/**',
+      },
     ],
   },
 }

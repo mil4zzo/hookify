@@ -295,6 +295,7 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
             "adset_name": str(safe("adset_name", "")),
             "campaign_id": str(safe("campaign_id", "")),
             "campaign_name": str(safe("campaign_name", "")),
+            "effective_status": str(safe("effective_status", "")) if safe("effective_status") else None,
 
             # Métricas inteiras
             "clicks": clicks,

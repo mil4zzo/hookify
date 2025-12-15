@@ -317,6 +317,7 @@ export const RankingsItemSchema = z.object({
   account_id: z.string().nullable().optional(),
   ad_id: z.string().nullable().optional(),
   ad_name: z.string().nullable().optional(),
+  effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
   impressions: z.number(),
   clicks: z.number(),
   inline_link_clicks: z.number(),
@@ -374,6 +375,7 @@ export const RankingsChildrenItemSchema = z.object({
   account_id: z.string().nullable().optional(),
   ad_id: z.string(),
   ad_name: z.string().nullable().optional(),
+  effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
   campaign_name: z.string().nullable().optional(),
   adset_name: z.string().nullable().optional(),
   impressions: z.number(),

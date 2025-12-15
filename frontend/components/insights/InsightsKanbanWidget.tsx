@@ -654,6 +654,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
                 topMetrics={getTopMetrics(item.ad_id)}
                 actionType={actionType}
                 isCompact={true}
+                averages={averages}
               />
             )}
           />

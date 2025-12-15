@@ -20,7 +20,7 @@ def check_backend_config():
         print("""
 FACEBOOK_CLIENT_ID=1013320407465551
 FACEBOOK_CLIENT_SECRET=aff296e102fc1692b97c6c859f314963
-FACEBOOK_TOKEN_URL=https://graph.facebook.com/v20.0/oauth/access_token
+FACEBOOK_TOKEN_URL=https://graph.facebook.com/v22.0/oauth/access_token
 """)
         return False
     

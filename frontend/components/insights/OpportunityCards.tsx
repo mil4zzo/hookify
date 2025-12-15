@@ -319,12 +319,8 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
   // Número de variações
   const variationCount = r.ad_count || 1;
 
-  // Obter thumbnail para o player de vídeo (prioridade: adcreatives_videos_thumbs[0], fallback: getAdThumbnail com objeto completo)
-  const adcreativesThumbs = (r as any)?.adcreatives_videos_thumbs;
-  const videoThumbnail =
-    Array.isArray(adcreativesThumbs) && adcreativesThumbs.length > 0 && adcreativesThumbs[0]
-      ? String(adcreativesThumbs[0]).trim()
-      : getAdThumbnail(r);
+  // Obter thumbnail para o player de vídeo (getAdThumbnail já prioriza thumbnail (Storage) > thumbnail_url > adcreatives_videos_thumbs[0])
+  const videoThumbnail = getAdThumbnail(r);
 
   const handleCardClick = () => {
     if (onAdClick) {

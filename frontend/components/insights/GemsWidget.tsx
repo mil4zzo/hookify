@@ -199,6 +199,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
             getTopMetrics={getTopMetrics}
             actionType={actionType}
             isCompact={isCompact}
+            averages={averages}
             tooltip={{
               title: tooltipTitle,
               content: (
@@ -269,7 +270,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
     );
 
     return configs;
-  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, topCpr, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, avgCpr, getTopMetrics, actionType, isCompact]);
+  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, topCpr, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, avgCpr, getTopMetrics, actionType, isCompact, averages]);
 
   return (
     <BaseKanbanWidget

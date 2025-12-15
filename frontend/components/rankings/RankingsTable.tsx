@@ -8,7 +8,7 @@ import { AdInfoCard } from "@/components/ads/AdInfoCard";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { VideoDialog } from "@/components/ads/VideoDialog";
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, useReactTable, flexRender } from "@tanstack/react-table";
-import { IconArrowsSort, IconPlayerPlay, IconEye } from "@tabler/icons-react";
+import { IconArrowsSort, IconPlayerPlay, IconEye, IconCircleCheck, IconPlayerPause, IconArchive, IconTrash, IconX, IconClock } from "@tabler/icons-react";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
 import { buildDailySeries } from "@/lib/utils/metricsTimeSeries";
@@ -45,6 +45,33 @@ interface RankingsTableProps {
 }
 
 const columnHelper = createColumnHelper<Ad>();
+
+// Função helper para renderizar ícone de status do anúncio
+function AdStatusIcon({ status }: { status?: string | null }) {
+  if (!status) return null;
+
+  const statusUpper = status.toUpperCase();
+
+  // Mapear status para ícone e cor
+  const statusConfig: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string }> = {
+    ACTIVE: { icon: IconCircleCheck, color: "text-green-600 dark:text-green-400" },
+    PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
+    CAMPAIGN_PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
+    ADSET_PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
+    ARCHIVED: { icon: IconArchive, color: "text-gray-500 dark:text-gray-400" },
+    DELETED: { icon: IconTrash, color: "text-red-600 dark:text-red-400" },
+    DISAPPROVED: { icon: IconX, color: "text-red-600 dark:text-red-400" },
+    PENDING_REVIEW: { icon: IconClock, color: "text-orange-600 dark:text-orange-400" },
+    PREAPPROVED: { icon: IconClock, color: "text-blue-600 dark:text-blue-400" },
+  };
+
+  const config = statusConfig[statusUpper];
+  if (!config) return null;
+
+  const IconComponent = config.icon;
+
+  return <IconComponent className={`w-4 h-4 ${config.color}`} title={status} />;
+}
 
 // Componente interno para renderizar linha expandida de variações
 function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, formatCurrency, formatPct }: { row: { getVisibleCells: () => any[] }; adName: string; dateStart: string; dateStop: string; actionType?: string; formatCurrency: (n: number) => string; formatPct: (v: number) => string }) {
@@ -809,6 +836,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           const adCount = original?.ad_count || 1;
           const key = getRowKey(info.row);
           const isExpanded = !!expanded[key];
+          const effectiveStatus = (original as any)?.effective_status;
 
           let secondLine = "";
           if (groupByAdName) {
@@ -826,8 +854,11 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           return (
             <div className="flex items-center gap-3">
               {thumbnail ? <img src={thumbnail} alt="thumb" className="w-14 h-14 object-cover rounded" /> : <div className="w-14 h-14 bg-border rounded" />}
-              <div className="min-w-0">
-                <div className="truncate">{name}</div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 truncate">
+                  <AdStatusIcon status={effectiveStatus} />
+                  <span className="truncate">{name}</span>
+                </div>
                 {groupByAdName ? (
                   <div className="mt-1">
                     <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>

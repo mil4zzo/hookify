@@ -916,7 +916,7 @@ export default function InsightsPage() {
                   return (
                     <div key={packId} className="space-y-2">
                       <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1">
+                        <div className="flex-1 flex flex-row gap-4">
                           <h2 className="text-xl font-semibold">{pack.name}</h2>
                           {pack.date_start && pack.date_stop && (
                             <p className="text-sm text-muted-foreground mt-1">
@@ -945,6 +945,14 @@ export default function InsightsPage() {
         )}
       </div>
 
+      {/* Seção Insights - Kanban */}
+      {hasData && (
+        <div className="space-y-6">
+          <PageSectionHeader title="Insights" description="Insights inteligentes do sistema." icon={<IconSparkles className="w-6 h-6 text-yellow-500" />} />
+          {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages && <InsightsKanbanWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />}
+        </div>
+      )}
+
       {/* Seção Gems - Top Anúncios Validados */}
       {hasData && (
         <div className="space-y-6">
@@ -965,14 +973,6 @@ export default function InsightsPage() {
             }
           />
           {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages && <GemsWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} isCompact={isGemsCompact} activeColumns={activeGemsColumns} />}
-        </div>
-      )}
-
-      {/* Seção Insights - Kanban */}
-      {hasData && (
-        <div className="space-y-6">
-          <PageSectionHeader title="Insights" description="Insights inteligentes do sistema." icon={<IconSparkles className="w-6 h-6 text-yellow-500" />} />
-          {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages && <InsightsKanbanWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />}
         </div>
       )}
 

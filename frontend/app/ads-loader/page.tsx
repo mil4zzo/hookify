@@ -310,6 +310,7 @@ export default function AdsLoaderPage() {
   const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>("");
+  const [progressDetails, setProgressDetails] = useState<any>(null);
   const [jsonViewerPack, setJsonViewerPack] = useState<any>(null);
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
 
@@ -341,8 +342,14 @@ export default function AdsLoaderPage() {
 
   const initialDateRange = getInitialDateRange();
 
+  // Função auxiliar para gerar nome do pack com formatação
+  const getNextPackName = () => {
+    const nextNumber = packs.length + 1;
+    return `Pack ${nextNumber.toString().padStart(2, "0")}`;
+  };
+
   const [formData, setFormData] = useState<PackFormData>({
-    name: "",
+    name: "", // Será atualizado pelo useEffect quando o modal abrir
     adaccount_id: "",
     date_start: initialDateRange.date_start,
     date_stop: initialDateRange.date_stop,
@@ -367,12 +374,6 @@ export default function AdsLoaderPage() {
 
   // Calculate statistics using centralized utility
   const packStats = getAggregatedPackStatistics(packs);
-
-  // Função auxiliar para gerar nome do pack com formatação
-  const getNextPackName = () => {
-    const nextNumber = packs.length + 1;
-    return `Pack ${nextNumber.toString().padStart(2, "0")}`;
-  };
 
   // Update pack name when packs change or modal opens
   useEffect(() => {
@@ -504,6 +505,7 @@ export default function AdsLoaderPage() {
     // Limpar estados
     setIsLoading(false);
     setDebugInfo("");
+    setProgressDetails(null);
 
     // Fechar modal apenas se não estiver sendo chamado pelo onClose do modal
     // (evitar loop infinito)
@@ -532,6 +534,10 @@ export default function AdsLoaderPage() {
         return;
       }
 
+      // Garantir que sempre tenha um nome válido (evita condição de corrida)
+      // Se o nome estiver vazio por algum motivo, usar o nome gerado automaticamente
+      const packName = formData.name.trim() || getNextPackName();
+
       // Start the async job (sempre usa nível "ad")
       const result = await api.facebook.startAdsJob({
         adaccount_id: formData.adaccount_id,
@@ -540,7 +546,7 @@ export default function AdsLoaderPage() {
         level: "ad",
         limit: 1000,
         filters: formData.filters,
-        name: formData.name.trim(),
+        name: packName,
         auto_refresh: formData.auto_refresh || false,
         today_local: getTodayLocal(),
       });
@@ -579,9 +585,34 @@ export default function AdsLoaderPage() {
           }
 
           const rawAds = Array.isArray((progress as any)?.data) ? (progress as any).data : Array.isArray((progress as any)?.data?.data) ? (progress as any).data.data : [];
+          const details = (progress as any)?.details || {};
 
-          // Atualizar feedback visual
-          setDebugInfo(`${progress.message || "Processando..."} | Anúncios coletados: ${rawAds.length}`);
+          // Armazenar detalhes do progresso
+          setProgressDetails(details);
+
+          // Atualizar feedback visual com informações granulares
+          let debugMessage = progress.message || "Processando...";
+
+          if (details.stage) {
+            const stage = details.stage;
+            if (stage === "paginação") {
+              debugMessage = `📄 Paginação: Página ${details.page_count || 0} | ${details.total_collected || 0} anúncios coletados`;
+            } else if (stage === "enriquecimento") {
+              const batchInfo = details.enrichment_total > 0 ? `Lote ${details.enrichment_batches || 0}/${details.enrichment_total}` : "Processando...";
+              debugMessage = `🔍 Enriquecimento: ${batchInfo} | ${details.ads_enriched || 0} anúncios enriquecidos de ${details.ads_after_dedup || 0} únicos`;
+            } else if (stage === "formatação") {
+              debugMessage = `✨ Formatação: ${details.ads_formatted || 0} anúncios formatados`;
+            } else if (stage === "completo") {
+              debugMessage = `✅ ${progress.message || "Processando..."} | ${details.ads_formatted || rawAds.length} anúncios processados`;
+            } else {
+              debugMessage = `${progress.message || "Processando..."} | Anúncios coletados: ${rawAds.length}`;
+            }
+          } else {
+            // Fallback para quando não há detalhes
+            debugMessage = `${progress.message || "Processando..."} | Anúncios coletados: ${rawAds.length}`;
+          }
+
+          setDebugInfo(debugMessage);
 
           if (progress.status === "completed" && Array.isArray(rawAds)) {
             // Verificar se foi cancelado antes de processar
@@ -631,7 +662,7 @@ export default function AdsLoaderPage() {
             // Mas incluir stats para exibição na UI
             const pack = {
               id: packId,
-              name: formData.name.trim(),
+              name: packName, // Usar o nome garantido (evita condição de corrida)
               adaccount_id: formData.adaccount_id,
               date_start: formData.date_start,
               date_stop: formData.date_stop,
@@ -685,9 +716,9 @@ export default function AdsLoaderPage() {
             const totalAds = formattedAds.length;
             const videoAdsCount = videoAds.length;
             if (totalAds === videoAdsCount) {
-              showSuccess(`Pack "${formData.name}" criado com ${videoAdsCount} anúncios de vídeo!`);
+              showSuccess(`Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo!`);
             } else {
-              showSuccess(`Pack "${formData.name}" criado com ${videoAdsCount} anúncios de vídeo (de ${totalAds} total)!`);
+              showSuccess(`Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo (de ${totalAds} total)!`);
             }
 
             // Reset form and close dialog
@@ -698,7 +729,9 @@ export default function AdsLoaderPage() {
               auto_refresh: false,
             }));
             setIsDialogOpen(false);
-            setDebugInfo(""); // Limpar debug info
+            setDebugInfo("");
+            setProgressDetails(null); // Limpar debug info
+            setProgressDetails(null); // Limpar detalhes
             completed = true;
 
             // Limpar refs após sucesso
@@ -792,7 +825,8 @@ export default function AdsLoaderPage() {
         createdPackIdRef.current = null;
       }
       setIsLoading(false);
-      setDebugInfo(""); // Limpar debug info ao finalizar
+      setDebugInfo("");
+      setProgressDetails(null); // Limpar debug info ao finalizar
     }
   };
 
@@ -1209,8 +1243,8 @@ export default function AdsLoaderPage() {
                 }
               }
 
-      // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
-      invalidateAdPerformance();
+              // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+              invalidateAdPerformance();
             } catch (error) {
               console.error("Erro ao recarregar pack após refresh:", error);
               // Não bloquear sucesso do refresh se falhar ao recarregar
@@ -1253,11 +1287,7 @@ export default function AdsLoaderPage() {
 
       const syncRes = await api.integrations.google.syncSheetIntegration(pack.sheet_integration.id);
 
-      finishProgressToast(
-        toastId,
-        true,
-        `Enriquecimento de ads atualizado com sucesso! ${syncRes.stats?.updated_rows || 0} registros atualizados.`
-      );
+      finishProgressToast(toastId, true, `Enriquecimento de ads atualizado com sucesso! ${syncRes.stats?.updated_rows || 0} registros atualizados.`);
 
       // Recarregar packs para atualizar last_synced_at
       try {
@@ -1510,18 +1540,8 @@ export default function AdsLoaderPage() {
                           <p className="text-xs mt-1">Aba: {pack.sheet_integration.worksheet_title || "N/A"}</p>
                           {pack.sheet_integration.last_synced_at && <p className="text-xs mt-1 opacity-70">Última sincronização: {new Date(pack.sheet_integration.last_synced_at).toLocaleString("pt-BR")}</p>}
                         </div>
-                        <Button
-                          variant="outline"
-                          size="icon"
-                          className="shrink-0 w-10 h-10 border-green-500/30 hover:bg-green-500/10 hover:border-green-500/50"
-                          onClick={() => handleSyncSheetIntegration(pack.id)}
-                          disabled={isSyncingSheetIntegration === pack.id}
-                        >
-                          {isSyncingSheetIntegration === pack.id ? (
-                            <IconLoader2 className="w-5 h-5 animate-spin" />
-                          ) : (
-                            <IconRefresh className="w-5 h-5" />
-                          )}
+                        <Button variant="outline" size="icon" className="shrink-0 w-10 h-10 border-green-500/30 hover:bg-green-500/10 hover:border-green-500/50" onClick={() => handleSyncSheetIntegration(pack.id)} disabled={isSyncingSheetIntegration === pack.id}>
+                          {isSyncingSheetIntegration === pack.id ? <IconLoader2 className="w-5 h-5 animate-spin" /> : <IconRefresh className="w-5 h-5" />}
                         </Button>
                       </div>
                     </div>
@@ -1799,10 +1819,58 @@ export default function AdsLoaderPage() {
 
           {/* Debug Info */}
           {isLoading && debugInfo && (
-            <div className="mt-4 p-3 bg-border rounded-lg">
-              <p className="text-sm text-muted-foreground">
-                <strong>Debug:</strong> {debugInfo}
-              </p>
+            <div className="mt-4 p-4 bg-border rounded-lg space-y-3">
+              <div className="flex items-center gap-2">
+                <IconLoader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+                <p className="text-sm font-medium">Progresso do Carregamento</p>
+              </div>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p className="font-medium">{debugInfo}</p>
+                {progressDetails && (
+                  <div className="mt-2 pt-2 border-t border-border/50 space-y-1 text-xs">
+                    {progressDetails.stage && (
+                      <p>
+                        <strong>Etapa:</strong> {progressDetails.stage}
+                      </p>
+                    )}
+                    {progressDetails.page_count > 0 && (
+                      <p>
+                        <strong>Páginas processadas:</strong> {progressDetails.page_count}
+                      </p>
+                    )}
+                    {progressDetails.total_collected > 0 && (
+                      <p>
+                        <strong>Anúncios coletados:</strong> {progressDetails.total_collected}
+                      </p>
+                    )}
+                    {progressDetails.ads_before_dedup > 0 && (
+                      <p>
+                        <strong>Anúncios antes da deduplicação:</strong> {progressDetails.ads_before_dedup}
+                      </p>
+                    )}
+                    {progressDetails.ads_after_dedup > 0 && (
+                      <p>
+                        <strong>Anúncios únicos:</strong> {progressDetails.ads_after_dedup}
+                      </p>
+                    )}
+                    {progressDetails.enrichment_total > 0 && (
+                      <p>
+                        <strong>Lotes de enriquecimento:</strong> {progressDetails.enrichment_batches || 0}/{progressDetails.enrichment_total}
+                      </p>
+                    )}
+                    {progressDetails.ads_enriched > 0 && (
+                      <p>
+                        <strong>Anúncios enriquecidos:</strong> {progressDetails.ads_enriched}
+                      </p>
+                    )}
+                    {progressDetails.ads_formatted > 0 && (
+                      <p>
+                        <strong>Anúncios formatados:</strong> {progressDetails.ads_formatted}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

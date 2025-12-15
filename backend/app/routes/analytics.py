@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.core.supabase_client import get_supabase_for_user
 from app.core.auth import get_current_user
 from app.services import supabase_repo
+from app.services.thumbnail_cache import build_public_storage_url, cache_first_thumbs_for_ads, DEFAULT_BUCKET
 
 
 logger = logging.getLogger(__name__)
@@ -147,6 +148,17 @@ def _get_thumbnail_with_fallback(ad_row: Dict[str, Any]) -> Optional[str]:
             return str(first_thumb)
     
     return None
+
+
+def _get_storage_thumb_if_any(ad_row: Dict[str, Any]) -> Optional[str]:
+    """Retorna URL pública do Storage se `thumb_storage_path` existir; senão None."""
+    try:
+        p = str(ad_row.get("thumb_storage_path") or "").strip()
+        if not p:
+            return None
+        return build_public_storage_url(DEFAULT_BUCKET, p)
+    except Exception:
+        return None
 
 
 @router.post("/rankings")
@@ -436,6 +448,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     
     thumbnails_map: Dict[str, Optional[str]] = {}
     adcreatives_map: Dict[str, Optional[List[str]]] = {}  # Map para adcreatives_videos_thumbs
+    effective_status_map: Dict[str, Optional[str]] = {}  # Map para effective_status
     if ad_ids_in_results:
         try:
             # Processar ad_ids em lotes para evitar URLs muito longas
@@ -453,7 +466,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 batch_ads_rows = _fetch_all_paginated(
                     sb,
                     "ads",
-                    "ad_id,thumbnail_url,adcreatives_videos_thumbs",
+                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,effective_status",
                     ads_filters
                 )
                 
@@ -461,10 +474,12 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             
             for ad_row in all_ads_rows:
                 ad_id_val = str(ad_row.get("ad_id") or "")
-                thumb = _get_thumbnail_with_fallback(ad_row)
+                thumb = _get_storage_thumb_if_any(ad_row) or _get_thumbnail_with_fallback(ad_row)
                 adcreatives = ad_row.get("adcreatives_videos_thumbs")
+                effective_status = ad_row.get("effective_status")
                 if ad_id_val:
                     thumbnails_map[ad_id_val] = thumb
+                    effective_status_map[ad_id_val] = effective_status
                     # Armazenar array completo de adcreatives_videos_thumbs
                     if isinstance(adcreatives, list) and len(adcreatives) > 0:
                         # Filtrar valores válidos (não vazios)
@@ -489,19 +504,21 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
         # results, cpr e page_conv serão calculados no frontend baseado no action_type selecionado
 
-        # Buscar thumbnail e adcreatives_videos_thumbs do map usando rep_ad_id
+        # Buscar thumbnail, adcreatives_videos_thumbs e effective_status do map usando rep_ad_id
         ad_id_for_thumb = A.get("rep_ad_id")
         ad_id_str = str(ad_id_for_thumb or "") if ad_id_for_thumb else ""
         thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
         adcreatives_thumbs = adcreatives_map.get(ad_id_str) if ad_id_str else None
+        effective_status = effective_status_map.get(ad_id_str) if ad_id_str else None
         
         # Fallback: buscar diretamente na tabela se não encontrar no map
         if not thumbnail and ad_id_str:
             try:
-                fallback_res = sb.table("ads").select("ad_id,thumbnail_url,adcreatives_videos_thumbs").eq("ad_id", ad_id_str).limit(1).execute()
+                fallback_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,effective_status").eq("ad_id", ad_id_str).limit(1).execute()
                 if fallback_res.data and len(fallback_res.data) > 0:
                     fallback_row = fallback_res.data[0]
-                    thumbnail = _get_thumbnail_with_fallback(fallback_row)
+                    thumbnail = _get_storage_thumb_if_any(fallback_row) or _get_thumbnail_with_fallback(fallback_row)
+                    effective_status = fallback_row.get("effective_status")
                     # Também buscar adcreatives_videos_thumbs no fallback
                     fallback_adcreatives = fallback_row.get("adcreatives_videos_thumbs")
                     if isinstance(fallback_adcreatives, list) and len(fallback_adcreatives) > 0:
@@ -591,6 +608,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             # Devolver rep_ad_id para facilitar thumb e ações no frontend
             "ad_id": A.get("rep_ad_id"),
             "ad_name": A.get("ad_name"),
+            "effective_status": effective_status,
             "impressions": A["impressions"],
             "clicks": A["clicks"],
             "inline_link_clicks": A["inline_link_clicks"],
@@ -860,9 +878,10 @@ def get_rankings_children(
             except Exception:
                 pass
 
-    # Buscar thumbnails dos filhos
+    # Buscar thumbnails e effective_status dos filhos
     ad_ids_in_results = list(agg.keys())
     thumbnails_map: Dict[str, Optional[str]] = {}
+    effective_status_map: Dict[str, Optional[str]] = {}
     if ad_ids_in_results:
         try:
             # Processar ad_ids em lotes para evitar URLs muito longas
@@ -879,7 +898,7 @@ def get_rankings_children(
                 batch_ads_rows = _fetch_all_paginated(
                     sb,
                     "ads",
-                    "ad_id,thumbnail_url,adcreatives_videos_thumbs,creative_video_id",
+                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id,effective_status",
                     ads_filters
                 )
                 
@@ -887,7 +906,8 @@ def get_rankings_children(
             
             for ad_row in all_ads_rows:
                 aid = str(ad_row.get("ad_id") or "")
-                thumbnails_map[aid] = _get_thumbnail_with_fallback(ad_row)
+                thumbnails_map[aid] = _get_storage_thumb_if_any(ad_row) or _get_thumbnail_with_fallback(ad_row)
+                effective_status_map[aid] = ad_row.get("effective_status")
         except Exception as e:
             logger.warning(f"Erro ao buscar thumbnails (children): {e}")
 
@@ -953,6 +973,7 @@ def get_rankings_children(
             "account_id": A.get("account_id"),
             "ad_id": A.get("ad_id"),
             "ad_name": ad_name,
+            "effective_status": effective_status_map.get(key),
             "campaign_name": A.get("campaign_name"),
             "adset_name": A.get("adset_name"),
             "impressions": A["impressions"],
@@ -1154,9 +1175,9 @@ def get_ad_details(
     # Buscar thumbnail e informações adicionais da tabela ads
     thumbnail: Optional[str] = None
     try:
-        ads_res = sb.table("ads").select("ad_id,thumbnail_url,adcreatives_videos_thumbs,creative_video_id").eq("ad_id", ad_id).limit(1).execute()
+        ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id").eq("ad_id", ad_id).limit(1).execute()
         if ads_res.data:
-            thumbnail = _get_thumbnail_with_fallback(ads_res.data[0])
+            thumbnail = _get_storage_thumb_if_any(ads_res.data[0]) or _get_thumbnail_with_fallback(ads_res.data[0])
     except Exception as e:
         logger.warning(f"Erro ao buscar thumbnail (ad details): {e}")
 
@@ -1713,6 +1734,101 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
     except Exception as e:
         logger.exception(f"Erro ao buscar pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao buscar pack: {str(e)}")
+
+
+@router.post("/packs/{pack_id}/cache-thumbnails")
+def cache_pack_thumbnails(pack_id: str, user=Depends(get_current_user)):
+    """Backfill (on-demand) de thumbnails no Storage para packs antigos.
+
+    - Usa somente `adcreatives_videos_thumbs[0]`
+    - Cacheia apenas quando `ads.thumb_storage_path` estiver vazio
+    - Best-effort: falhas individuais não quebram o processo inteiro
+    """
+    sb = get_supabase_for_user(user["token"])
+    user_id = user["user_id"]
+
+    # 1) Carregar ad_ids do pack
+    pres = sb.table("packs").select("id,ad_ids").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
+    if not pres.data:
+        raise HTTPException(status_code=404, detail="Pack não encontrado")
+    ad_ids = pres.data[0].get("ad_ids") or []
+    if not isinstance(ad_ids, list) or not ad_ids:
+        return {"success": True, "pack_id": pack_id, "cached": 0, "eligible": 0, "skipped": 0, "failed": 0}
+
+    # 2) Buscar ads e determinar elegíveis (sem thumb_storage_path e com thumbs[0])
+    ad_id_to_thumb_url: Dict[str, str] = {}
+    skipped = 0
+    failed = 0
+
+    batch_size = 400
+    for i in range(0, len(ad_ids), batch_size):
+        batch_ids = [str(x) for x in ad_ids[i:i + batch_size] if x]
+        if not batch_ids:
+            continue
+        try:
+            def ads_filters(q):
+                return q.eq("user_id", user_id).in_("ad_id", batch_ids)
+
+            ads_rows = _fetch_all_paginated(
+                sb,
+                "ads",
+                "ad_id,thumb_storage_path,adcreatives_videos_thumbs",
+                ads_filters,
+            )
+        except Exception as e:
+            # Se o schema ainda não estiver aplicado em algum ambiente, degradar com mensagem clara
+            raise HTTPException(status_code=500, detail=f"Falha ao ler ads para backfill: {str(e)}")
+
+        for r in (ads_rows or []):
+            ad_id = str(r.get("ad_id") or "").strip()
+            if not ad_id:
+                continue
+            existing_path = str(r.get("thumb_storage_path") or "").strip()
+            if existing_path:
+                skipped += 1
+                continue
+            thumbs = r.get("adcreatives_videos_thumbs")
+            if isinstance(thumbs, list) and thumbs:
+                first = str(thumbs[0] or "").strip()
+                if first:
+                    ad_id_to_thumb_url[ad_id] = first
+                else:
+                    skipped += 1
+            else:
+                skipped += 1
+
+    eligible = len(ad_id_to_thumb_url)
+    if eligible == 0:
+        return {"success": True, "pack_id": pack_id, "cached": 0, "eligible": 0, "skipped": skipped, "failed": failed}
+
+    # 3) Cache em paralelo
+    cached_map = cache_first_thumbs_for_ads(user_id=str(user_id), ad_id_to_thumb_url=ad_id_to_thumb_url)
+    cached = 0
+    upload_success = len(cached_map)
+
+    # 4) Persistir no DB (update por ad_id)
+    for ad_id, c in cached_map.items():
+        try:
+            sb.table("ads").update(
+                {
+                    "thumb_storage_path": c.storage_path,
+                    "thumb_cached_at": c.cached_at,
+                    "thumb_source_url": c.source_url,
+                }
+            ).eq("ad_id", ad_id).eq("user_id", user_id).execute()
+            cached += 1
+        except Exception:
+            failed += 1
+
+    return {
+        "success": True,
+        "pack_id": pack_id,
+        "eligible": eligible,
+        "upload_success": upload_success,
+        "cached": cached,
+        "skipped": skipped,
+        "failed": max(0, eligible - cached),
+    }
 
 
 @router.delete("/packs/{pack_id}")

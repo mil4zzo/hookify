@@ -60,8 +60,8 @@ function formatPct2(v: number): string {
 /**
  * Componente de coluna para o InsightsModal (sem drag and drop)
  */
-function InsightsModalColumn({ title, items, metric, averageValue, colorScheme, actionType }: { title: string; items: GemsTopItem[]; metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate"; averageValue?: number | null; colorScheme: GenericColumnColorScheme; actionType?: string }) {
-  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} showAverage={false} emptyMessage="Nenhum anúncio válido encontrado" maxHeight="60vh" renderCard={(item, index) => <GenericCard key={`${item.ad_id ?? item.ad_name ?? index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} actionType={actionType} isCompact={true} />} />;
+function InsightsModalColumn({ title, items, metric, averageValue, colorScheme, actionType, averages }: { title: string; items: GemsTopItem[]; metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate"; averageValue?: number | null; colorScheme: GenericColumnColorScheme; actionType?: string; averages?: any }) {
+  return <GenericColumn title={title} items={items} colorScheme={colorScheme} averageValue={averageValue} showAverage={false} emptyMessage="Nenhum anúncio válido encontrado" maxHeight="60vh" renderCard={(item, index) => <GenericCard key={`${item.ad_id ?? item.ad_name ?? index}`} ad={item} metricLabel={title} metricKey={metric} rank={index + 1} averageValue={averageValue} metricColor={colorScheme.card} actionType={actionType} isCompact={true} averages={averages} />} />;
 }
 
 export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, cardComponent, actionType, gemsTopHook, gemsTopWebsiteCtr, gemsTopCtr, gemsTopPageConv, gemsTopHoldRate, averages }: InsightsModalProps) {
@@ -180,7 +180,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
           items,
           averageValue,
           emptyMessage: "Nenhum anúncio válido encontrado",
-          renderColumn: (config) => <InsightsModalColumn title={config.title} items={config.items} metric={metric} averageValue={config.averageValue} colorScheme={metricColorSchemes[metric]} actionType={actionType} />,
+          renderColumn: (config) => <InsightsModalColumn title={config.title} items={config.items} metric={metric} averageValue={config.averageValue} colorScheme={metricColorSchemes[metric]} actionType={actionType} averages={averages} />,
         });
       }
     };

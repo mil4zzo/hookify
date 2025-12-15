@@ -44,7 +44,7 @@ npm run dev
 
 ```
 === META API DEBUG - /me ===
-URL: https://graph.facebook.com/v20.0/me?access_token=...
+URL: https://graph.facebook.com/v22.0/me?access_token=...
 Payload: {'fields': 'email,first_name,last_name,name,picture{url}'}
 Status Code: 200
 Response Headers: {...}

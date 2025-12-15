@@ -6,7 +6,7 @@
 /**
  * Tipo para todas as métricas disponíveis no sistema.
  */
-export type MetricKey = "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr";
+export type MetricKey = "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "connect_rate";
 
 /**
  * Métricas onde menor valor é melhor (ex: CPM, CPR).
