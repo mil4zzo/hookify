@@ -300,11 +300,6 @@ export default function ApiTestPage() {
                         <p>
                           <strong>Status:</strong> {account.account_status === 1 ? "Ativo" : account.account_status === 2 ? "Pausado" : "Com Restrições"}
                         </p>
-                        {account.business && (
-                          <p>
-                            <strong>Business:</strong> {account.business.name}
-                          </p>
-                        )}
                         {Array.isArray(account.instagram_accounts) && account.instagram_accounts.length > 0 && (
                           <p>
                             <strong>Instagram:</strong> {account.instagram_accounts.map((ig: any) => ig.username).join(", ")}

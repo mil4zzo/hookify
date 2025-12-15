@@ -66,7 +66,7 @@ class GraphAPI:
     def get_account_info(self) -> Dict[str, Any]:
         url = self.base_url + 'me' + self.user_token
         payload = {
-            'fields': 'id,email,name,picture{url},adaccounts{name,id,account_status,user_tasks,instagram_accounts{username,id},business{name,id}}'
+            'fields': 'id,email,name,picture{url},adaccounts{name,id,account_status,user_tasks,instagram_accounts{username,id}}'
         }
         try:
             logger.debug("get_account_info url=%s payload=%s", url, payload)
@@ -124,7 +124,7 @@ class GraphAPI:
 
     def get_adaccounts(self) -> Dict[str, Any]:
         url = self.base_url + 'me/adaccounts' + self.user_token
-        payload = {'fields': 'name,id,account_status,user_tasks,instagram_accounts{username,id},business{name,id}'}
+        payload = {'fields': 'name,id,account_status,user_tasks,instagram_accounts{username,id}'}
         try:
             logger.debug("get_adaccounts url=%s payload=%s", url, payload)
             response = requests.get(url, params=payload)

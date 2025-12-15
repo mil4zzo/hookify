@@ -1259,8 +1259,6 @@ def upsert_ad_accounts(user_jwt: str, ad_accounts: List[Dict[str, Any]], user_id
     - name
     - account_status
     - user_tasks (text[])
-    - business_id
-    - business_name
     - instagram_accounts (jsonb)
     """
     if not user_id:
@@ -1274,7 +1272,6 @@ def upsert_ad_accounts(user_jwt: str, ad_accounts: List[Dict[str, Any]], user_id
         acc_id = str(acc.get("id") or "").strip()
         if not acc_id:
             continue
-        business = acc.get("business") or {}
         
         # Garantir que user_tasks seja uma lista válida para text[]
         user_tasks = acc.get("user_tasks")
@@ -1294,8 +1291,6 @@ def upsert_ad_accounts(user_jwt: str, ad_accounts: List[Dict[str, Any]], user_id
             "name": acc.get("name"),
             "account_status": acc.get("account_status"),
             "user_tasks": user_tasks,
-            "business_id": business.get("id"),
-            "business_name": business.get("name"),
             "instagram_accounts": instagram_accounts,
             "updated_at": _now_iso(),
         }

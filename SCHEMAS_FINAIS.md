@@ -30,18 +30,6 @@
   name: string,
   account_status: number, // 1=ativo, 2=pausado, 101=ativo com restrições
   user_tasks?: string[], // ["DRAFT", "ANALYZE", "ADVERTISE", "MANAGE"]
-  business?: {
-    name: string,
-    id: string,
-    picture?: {
-      data: {
-        url: string,
-        height?: number,
-        width?: number,
-        is_silhouette?: boolean,
-      }
-    }
-  },
   instagram_accounts?: {
     data: {
       username: string,
@@ -95,7 +83,6 @@ GetAdAccountsResponseSchema = FacebookAdAccountSchema[]
 ### **✅ UX Melhorada**
 
 - Status das contas traduzido (1=Ativo, 2=Pausado, etc.)
-- Exibição de dados do business
 - Exibição de contas Instagram conectadas
 - Foto de perfil do usuário
 
@@ -103,7 +90,7 @@ GetAdAccountsResponseSchema = FacebookAdAccountSchema[]
 
 - **25 contas de anúncios** carregadas com sucesso
 - **Dados completos** do usuário (nome, email, foto)
-- **Estruturas complexas** (business, instagram_accounts) funcionando
+- **Estruturas complexas** (instagram_accounts) funcionando
 
 ## 🧪 **Teste Agora:**
 
@@ -113,7 +100,7 @@ GetAdAccountsResponseSchema = FacebookAdAccountSchema[]
    - ✅ Dados do usuário com foto
    - ✅ 25 contas de anúncios listadas
    - ✅ Status traduzido (Ativo/Pausado)
-   - ✅ Business names e Instagram accounts
+   - ✅ Instagram accounts
 
 ## 📊 **Resultado:**
 

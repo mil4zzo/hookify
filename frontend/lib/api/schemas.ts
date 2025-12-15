@@ -18,10 +18,6 @@ export const FacebookAdAccountSchema = z.object({
   name: z.string(),
   account_status: z.number(), // 1=ativo, 2=pausado, 101=ativo com restrições
   user_tasks: z.array(z.string()).optional(), // ["DRAFT", "ANALYZE", "ADVERTISE", "MANAGE"]
-  business: z.object({
-    name: z.string(),
-    id: z.string(),
-  }).optional(),
   instagram_accounts: z.array(z.object({
     username: z.string(),
     id: z.string(),

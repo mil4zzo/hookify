@@ -1620,7 +1620,6 @@ export default function AdsLoaderPage() {
                     .map((account: any) => {
                       const accountStatus = account.account_status;
                       const accountName = account.name || account.id;
-                      const displayText = `${accountName}${account.business_name ? ` • ${account.business_name}` : ""}`;
 
                       // Definir ícone e cor baseado no status
                       let StatusIcon;
@@ -1646,11 +1645,10 @@ export default function AdsLoaderPage() {
                       const isActive = accountStatus === 1;
 
                       return (
-                        <SelectItem key={account.id} value={account.id} textValue={displayText}>
+                        <SelectItem key={account.id} value={account.id} textValue={accountName}>
                           <div className={`flex items-center gap-2 w-full min-w-0 ${!isActive ? "opacity-50" : ""}`}>
                             <StatusIcon className={`w-4 h-4 flex-shrink-0 ${iconColor}`} />
                             <span className="font-medium text-sm truncate">{accountName}</span>
-                            {account.business_name && <span className="text-sm text-muted-foreground truncate">• {account.business_name}</span>}
                           </div>
                         </SelectItem>
                       );
