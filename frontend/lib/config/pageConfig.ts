@@ -1,6 +1,5 @@
 import { 
   IconAdFilled, 
-  IconLayoutDashboardFilled,
   IconFlask, 
   IconTable, 
   IconStack2, 
@@ -26,14 +25,6 @@ export const pageConfigs: PageConfig[] = [
     label: "ADs Loader",
     icon: IconAdFilled,
     description: "Carregue seus packs de anúncios e combine-os para análise",
-    showInMenu: true,
-  },
-  {
-    path: "/dashboard",
-    title: "Dashboard",
-    label: "Dashboard",
-    icon: IconLayoutDashboardFilled,
-    description: "Visualize métricas e estatísticas dos seus anúncios",
     showInMenu: true,
   },
   {

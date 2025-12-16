@@ -85,7 +85,7 @@ export function GenericColumn({ title, items, colorScheme, averageValue, renderC
           {headerRight}
         </div>
       </div>
-      <div className={cn("space-y-4", maxHeight && "overflow-y-auto flex-1 min-h-0 custom-scrollbar")} style={maxHeight ? { maxHeight } : undefined}>
+      <div className={cn("space-y-4", maxHeight && "overflow-y-auto flex-1 min-h-0")} style={maxHeight ? { maxHeight } : undefined}>
         {items.length === 0 ? <div className="rounded-xl border border-dashed border-border/60 bg-background/40 px-4 py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : items.map((item, index) => renderCard(item, index, colorScheme))}
       </div>
     </div>

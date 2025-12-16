@@ -1885,7 +1885,7 @@ export default function AdsLoaderPage() {
         </div>
 
         {previewPack && (
-          <div className="overflow-auto max-h-[70vh] custom-scrollbar">
+          <div className="overflow-auto max-h-[70vh]">
             <div className="bg-border p-4 rounded-lg mb-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
@@ -1910,7 +1910,7 @@ export default function AdsLoaderPage() {
             </div>
 
             {/* TanStack Table */}
-            <div className="overflow-x-auto custom-scrollbar">
+            <div className="overflow-x-auto">
               <TanStackTableComponent data={previewPack.ads} formatCurrency={formatCurrency} />
             </div>
           </div>
@@ -1938,7 +1938,7 @@ export default function AdsLoaderPage() {
         </div>
 
         {jsonViewerPack && (
-          <div className="overflow-auto max-h-[70vh] custom-scrollbar">
+          <div className="overflow-auto max-h-[70vh]">
             <div className="bg-border p-4 rounded-lg mb-4">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                 <div>
@@ -1958,7 +1958,7 @@ export default function AdsLoaderPage() {
               </div>
             </div>
 
-            <div className="bg-black rounded-lg p-4 overflow-auto custom-scrollbar">
+            <div className="bg-black rounded-lg p-4 overflow-auto">
               <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap">{JSON.stringify(jsonViewerPack, null, 2)}</pre>
             </div>
           </div>

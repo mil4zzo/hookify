@@ -156,35 +156,40 @@
 
 html, body { height: 100%; }
 
+/* Previne flick horizontal quando scrollbar aparece/desaparece */
+html {
+  scrollbar-gutter: stable;
+}
+
 /* focus styles */
 *:focus-visible {
   outline: 2px solid #3B82F6;
   outline-offset: 2px;
 }
 
-/* Estilização centralizada de scrollbars para todo o app */
-.custom-scrollbar {
+/* Estilização global de scrollbars para todo o app */
+* {
   /* Firefox */
   scrollbar-width: auto;
   /* scrollbar-color: var(--primary) transparent; */
 }
 
-.custom-scrollbar::-webkit-scrollbar {
+*::-webkit-scrollbar {
   width: 12px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
-	border-radius: 10px;
-	background-color: var(--card);
+*::-webkit-scrollbar-track {
+  border-radius: 10px;
+  background-color: var(--card);
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   border-radius: 10px;
-	background-color: var(--secondary);
+  background-color: var(--secondary);
   border: 4px solid var(--card);
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+*::-webkit-scrollbar-thumb:hover {
   background-color: var(--muted-foreground);
   background-clip: padding-box;
 }

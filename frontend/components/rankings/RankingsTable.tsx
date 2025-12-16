@@ -235,7 +235,7 @@ function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, for
     <tr className="bg-card">
       <td className="p-0" colSpan={row.getVisibleCells().length}>
         <div className="">
-          <div className="overflow-x-auto custom-scrollbar">
+          <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-border">
@@ -1066,7 +1066,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
 
   return (
     <div className="w-full">
-      <div className="overflow-x-auto custom-scrollbar">
+      <div className="overflow-x-auto">
         <table className="w-full text-sm border-separate border-spacing-y-4">
           <thead>
             {table.getHeaderGroups().map((hg) => (

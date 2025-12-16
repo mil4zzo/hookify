@@ -294,7 +294,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       return websiteCtrAboveAvg && connectRateAboveAvg && pageConvBelowAvg;
     });
 
-    // 5.3 Calcular impact_relative baseado em cpr_if_page_conv_only (mesma lógica do OpportunityWidget)
+    // 5.3 Calcular impact_relative baseado em cpr_if_page_conv_only
     const scoredAds = filteredAds.map((ad: any) => {
       const opportunityRow = opportunityRowsMap.get(ad.ad_id || "");
 
@@ -314,7 +314,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       // Calcular improvementPct apenas para Page Conv
       const improvementPct = Number.isFinite(cprActual) && cprActual > 0 && Number.isFinite(cprIfPageConvOnly) && cprIfPageConvOnly > 0 ? 1 - cprIfPageConvOnly / cprActual : 0;
 
-      // Calcular impact_relative (mesma fórmula do OpportunityWidget)
+      // Calcular impact_relative: improvementPct * (spend / totalSpend)
       const impactRelative = improvementPct * (spend / totalSpend);
 
       return {
@@ -380,7 +380,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       return websiteCtrAboveAvg && connectRateAboveAvg && pageConvAboveAvg && cpmAboveAvg;
     });
 
-    // 6.3 Calcular impact_relative baseado na redução percentual de CPM (mesma lógica do OpportunityWidget)
+    // 6.3 Calcular impact_relative baseado na redução percentual de CPM
     const scoredAds = filteredAds.map((ad: any) => {
       const spend = Number((ad as any).spend || 0);
       const cpm = Number((ad as any).cpm || 0);
@@ -388,7 +388,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       // Calcular redução percentual do CPM
       const cpmReductionPct = avgCpm != null && avgCpm > 0 && cpm > avgCpm ? (cpm - avgCpm) / cpm : 0;
 
-      // Calcular impact_relative (mesma fórmula do OpportunityWidget)
+      // Calcular impact_relative: cpmReductionPct * (spend / totalSpend)
       const impactRelative = cpmReductionPct * (spend / totalSpend);
 
       return {
@@ -447,7 +447,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       return spendAboveThreshold && cprAboveAvg;
     });
 
-    // 8.3 Calcular impact_relative usando OpportunityRow (mesma lógica do OpportunityWidget)
+    // 8.3 Calcular impact_relative usando OpportunityRow
     const scoredAds = filteredAds.map((ad: any) => {
       const opportunityRow = opportunityRowsMap.get(ad.ad_id || "");
 
@@ -532,7 +532,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       return hookBelowAvg && websiteCtrAboveAvg && connectRateAboveAvg && pageConvAboveAvg;
     });
 
-    // 9.3 Calcular impact_relative baseado em cpr_if_hook_only (mesma lógica do OpportunityWidget)
+    // 9.3 Calcular impact_relative baseado em cpr_if_hook_only
     const scoredAds = filteredAds.map((ad: any) => {
       const opportunityRow = opportunityRowsMap.get(ad.ad_id || "");
 
@@ -598,7 +598,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       // Calcular improvementPct apenas para Hook
       const improvementPct = Number.isFinite(cprActual) && cprActual > 0 && Number.isFinite(cprIfHookOnly) && cprIfHookOnly > 0 ? 1 - cprIfHookOnly / cprActual : 0;
 
-      // Calcular impact_relative (mesma fórmula do OpportunityWidget)
+      // Calcular impact_relative: improvementPct * (spend / totalSpend)
       const impactRelative = improvementPct * (spend / totalSpend);
 
       return {
@@ -622,7 +622,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
         title,
         items,
         averageValue,
-        emptyMessage: "Nenhum item encontrado",
+        emptyMessage: "Tudo bem por aqui",
         formatAverage,
         tooltip,
         renderColumn: (config) => (
@@ -653,7 +653,6 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
                 }}
                 topMetrics={getTopMetrics(item.ad_id)}
                 actionType={actionType}
-                isCompact={true}
                 averages={averages}
               />
             )}

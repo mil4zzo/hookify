@@ -416,30 +416,6 @@ export const AdCreativeResponseSchema = z.object({
 
 export type AdCreativeResponse = z.infer<typeof AdCreativeResponseSchema>
 
-export const DashboardRequestSchema = z.object({
-  date_start: z.string(),
-  date_stop: z.string(),
-  adaccount_ids: z.array(z.string()).optional(),
-})
-
-export const DashboardResponseSchema = z.object({
-  totals: z.object({
-    spend: z.number(),
-    impressions: z.number(),
-    reach: z.number(),
-    clicks: z.number(),
-    inline_link_clicks: z.number(),
-    video_total_plays: z.number(),
-    video_total_thruplays: z.number(),
-    lpv: z.number(),
-    ctr: z.number(),
-    cpm: z.number(),
-    frequency: z.number(),
-    website_ctr: z.number(),
-    connect_rate: z.number(),
-  }),
-})
-
 export type RankingsFilters = z.infer<typeof RankingsFiltersSchema>
 export type RankingsRequest = z.infer<typeof RankingsRequestSchema>
 export type RankingsResponse = z.infer<typeof RankingsResponseSchema>
@@ -449,5 +425,3 @@ export type AdPerformanceRequest = RankingsRequest;
 export type AdPerformanceItem = RankingsItem;
 export type AdPerformanceResponse = RankingsResponse;
 export type AdDetailItem = RankingsChildrenItem;
-export type DashboardRequest = z.infer<typeof DashboardRequestSchema>
-export type DashboardResponse = z.infer<typeof DashboardResponseSchema>

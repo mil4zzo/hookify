@@ -3,13 +3,12 @@
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils/cn";
-import Image from "next/image";
-import { IconPhoto, IconPlayerPlayFilled, IconArrowBigDownLinesFilled, IconArrowBigUpLinesFilled, IconEye } from "@tabler/icons-react";
-import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { IconArrowBigDownLinesFilled, IconArrowBigUpLinesFilled, IconEye } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { normalizeLeadscoreValues, computeLeadscoreAverage } from "@/lib/utils/mqlMetrics";
 import { isLowerBetterMetric } from "@/lib/constants/metrics";
+import { AdPlayArea } from "@/components/common/AdPlayArea";
 
 interface GenericCardProps {
   ad: {
@@ -46,8 +45,6 @@ interface GenericCardProps {
   };
   /** ActionType para calcular CPR */
   actionType?: string;
-  /** Se true, mostra apenas a métrica principal. Se false, mostra todas as métricas */
-  isCompact?: boolean;
   /** Objeto com todas as médias para colorir o tooltip (opcional) */
   averages?: {
     hook?: number | null;
@@ -65,7 +62,7 @@ interface GenericCardProps {
   };
 }
 
-export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, metricColor, onClick, topMetrics, actionType, isCompact = true, averages }: GenericCardProps) {
+export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, metricColor, onClick, topMetrics, actionType, averages }: GenericCardProps) {
   const formatCurrency = useFormatCurrency();
 
   // Estilos padrão para gems (amarelo/dourado sutil)
@@ -152,7 +149,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   // Calcular diff percentual (sempre positivo quando melhor)
   const diffFromAverage = averageValue != null && averageValue > 0 ? Math.abs(((ad.metricValue - averageValue) / averageValue) * 100) : null;
 
-  // Função para determinar a cor baseada na relação atual/média (similar a OpportunityCards.tsx)
+  // Função para determinar a cor baseada na relação atual/média (similar a OpportunityWidget.tsx)
   const getValueColor = (current: number, average: number | null | undefined, metricKeyForColor: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "connect_rate"): string => {
     if (average == null || average <= 0) return "text-foreground"; // Sem média válida
 
@@ -357,38 +354,17 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
           <div className={cn("group p-4 relative cursor-pointer rounded-xl border border-border bg-muted transition-all duration-420 hover:border-primary hover:bg-border opacity-100")} onClick={handleCardClick}>
             <div className="relative flex items-stretch gap-3 sm:gap-4">
               {/* Thumbnail com botão de play centralizado */}
-              <div className="relative h-28 w-20 flex-shrink-0 overflow-hidden rounded-md bg-black/40">
-                {(() => {
-                  // Usar getAdThumbnail que já prioriza thumbnail (Storage) > thumbnail_url > adcreatives_videos_thumbs[0]
-                  const thumbnail = getAdThumbnail(ad);
-
-                  return thumbnail ? (
-                    <Image src={thumbnail} alt={ad.ad_name || "Ad thumbnail"} fill className="object-cover" sizes="96px" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center">
-                      <IconPhoto className="h-8 w-8 text-muted-foreground opacity-50" />
-                    </div>
-                  );
-                })()}
-                {/* Overlay escuro suave */}
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-black/50 via-black/20 to-transparent" />
-                {/* Overlay de background no hover */}
-                <div className="pointer-events-none absolute inset-0 bg-background-70 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                {/* Botão de play */}
-                <button
-                  className="absolute inset-0 flex items-center justify-center z-10 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onClick) {
-                      onClick(true);
-                    }
-                  }}
-                >
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary shadow-lg scale-90 group-hover:scale-100 group-hover:shadow-[0_0_20px_rgba(20,71,230,0.6)] transition-all duration-500">
-                    <IconPlayerPlayFilled className="ml-[1px] h-4 w-4 text-white" />
-                  </div>
-                </button>
-              </div>
+              <AdPlayArea
+                ad={ad}
+                aspectRatio="3:4"
+                size="h-28 w-20"
+                onPlayClick={(e) => {
+                  e.stopPropagation();
+                  if (onClick) {
+                    onClick(true);
+                  }
+                }}
+              />
 
               {/* Conteúdo textual */}
               <div className="flex min-w-0 justify-between flex-1 flex-col">
@@ -429,30 +405,6 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
-
-                {/* Todas as métricas - apenas no modo expandido, na ordem: CPR, Hook, CTR (website), CTR, Connect, Page */}
-                {!isCompact && allMetrics.length > 0 && (
-                  <div className="space-y-1.5 mt-2">
-                    {allMetrics.map((metric) => {
-                      const metricRank = getMetricRank(metric.label);
-                      const badgeVariant = getBadgeVariant(metricRank);
-                      const badgeStyles = getBadgeStyles(badgeVariant);
-                      const hasBadge = !!badgeVariant;
-                      const textColor = hasBadge ? "#1a1a1a" : undefined;
-
-                      return (
-                        <div key={metric.label} className="flex items-baseline justify-between gap-2 px-2 py-1 rounded transition-all" style={badgeStyles || undefined}>
-                          <span className="text-sm font-medium" style={{ color: textColor }}>
-                            {metric.label}
-                          </span>
-                          <span className="text-sm font-medium" style={{ color: textColor }}>
-                            {metric.formatted}
-                          </span>
-                        </div>
-                      );
-                    })}
                   </div>
                 )}
               </div>

@@ -45,8 +45,7 @@ export default function Topbar() {
   const { packs } = useClientPacks();
   const { handleLogout } = useAuthManager();
   const { settings, setLanguage, setNiche } = useSettings();
-  const { connections, connect, disconnect, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } =
-    useFacebookAccountConnection();
+  const { connections, connect, disconnect, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
   const router = useRouter();
   const pathname = usePathname();
@@ -402,7 +401,7 @@ export default function Topbar() {
                 <div className="p-4 border-b border-border">
                   <h2 className="text-lg font-semibold text-text">Configurações</h2>
                 </div>
-                <nav className="flex p-2 space-x-1 overflow-x-auto custom-scrollbar">
+                <nav className="flex p-2 space-x-1 overflow-x-auto">
                   <button onClick={() => setActiveSettingsTab("general")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
                     <IconSettings className="h-5 w-5" />
                     <span className="text-sm font-medium">Geral</span>
@@ -456,7 +455,7 @@ export default function Topbar() {
               </div>
 
               {/* Conteúdo da Aba Ativa */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar w-full max-w-3xl">
+              <div className="flex-1 overflow-y-auto w-full max-w-3xl">
                 <div className="p-4 md:p-6">
                   {activeSettingsTab === "general" && (
                     <div className="space-y-6">
@@ -482,8 +481,8 @@ export default function Topbar() {
                         {/* Moeda */}
                         <div className="space-y-2">
                           <label className="text-sm font-medium text-text">Moeda</label>
-                          <Select 
-                            value={userCurrency} 
+                          <Select
+                            value={userCurrency}
                             onValueChange={async (value) => {
                               try {
                                 await saveCurrency(value);
@@ -509,9 +508,7 @@ export default function Topbar() {
                               <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
                             </SelectContent>
                           </Select>
-                          <p className="text-xs text-muted-foreground">
-                            {isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}
-                          </p>
+                          <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
                         </div>
                       </div>
                     </div>
@@ -626,10 +623,7 @@ export default function Topbar() {
                             </div>
                           )}
                         </div>
-                        <p className="text-sm text-muted-foreground mb-4">
-                          Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). 
-                          Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.
-                        </p>
+                        <p className="text-sm text-muted-foreground mb-4">Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.</p>
                       </div>
 
                       <div className="space-y-4">
@@ -640,9 +634,7 @@ export default function Topbar() {
                         ) : (
                           <>
                             <div className="space-y-2">
-                              <label className="text-sm font-medium text-text">
-                                Leadscore mínimo para MQL
-                              </label>
+                              <label className="text-sm font-medium text-text">Leadscore mínimo para MQL</label>
                               <Input
                                 type="number"
                                 min="0"
@@ -658,9 +650,7 @@ export default function Topbar() {
                                 className="w-full"
                                 placeholder="0"
                               />
-                              <p className="text-xs text-muted-foreground">
-                                Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs
-                              </p>
+                              <p className="text-xs text-muted-foreground">Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs</p>
                             </div>
 
                             <Button

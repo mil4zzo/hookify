@@ -177,7 +177,7 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
         {columnsInner}
       </KanbanScrollContainer>
     ) : (
-      <div className="w-full overflow-y-auto custom-scrollbar">{columnsInner}</div>
+      <div className="w-full overflow-y-auto">{columnsInner}</div>
     );
 
     if (enableDrag) {

@@ -55,7 +55,7 @@ export function GemsColumnFilter({ activeColumns, onToggleColumn, className }: G
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[300px] p-0" align="start">
-          <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+          <div className="max-h-[300px] overflow-y-auto">
             <div className="p-2">
               <div className="space-y-1">
                 {GEMS_COLUMNS.map((column) => {

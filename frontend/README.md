@@ -100,7 +100,7 @@ Teste em diferentes breakpoints:
 5. 🔄 Camada de API (Axios + TanStack Query)
 6. 🔄 Estado global (Zustand)
 7. 🔄 OAuth Facebook
-8. 🔄 Páginas principais (Login, Ads Loader, Dashboard, etc)
+8. 🔄 Páginas principais (Login, Ads Loader, Rankings, Insights, etc)
 
 ## 📦 Dependências Principais
 

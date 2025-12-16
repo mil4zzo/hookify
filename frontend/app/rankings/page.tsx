@@ -702,7 +702,7 @@ export default function RankingsPage() {
 
         {/* Skeleton da tabela */}
         <div className="w-full">
-          <div className="overflow-x-auto custom-scrollbar">
+          <div className="overflow-x-auto">
             <table className="w-full text-sm border-separate border-spacing-y-4">
               <thead>
                 <tr className="sticky top-0 z-10 text-text/80">

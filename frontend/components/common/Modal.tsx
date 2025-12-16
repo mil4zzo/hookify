@@ -100,14 +100,9 @@ export function Modal({ isOpen, onClose, children, className, size = "lg", paddi
 
   const modalContent = (
     <div className={cn("fixed inset-0 z-[9999] flex items-center justify-center", overlayClassName)} style={overlayStyle} onClick={handleOverlayClick}>
-      <div className={cn("m-0 relative bg-card border border-border rounded-lg shadow-lg", "max-h-[90vh] overflow-y-auto custom-scrollbar w-full", sizeClasses[size], paddingClasses[padding], className)} onClick={(e) => e.stopPropagation()}>
+      <div className={cn("m-0 relative bg-card border border-border rounded-lg shadow-lg", "max-h-[90vh] overflow-y-auto w-full", sizeClasses[size], paddingClasses[padding], className)} onClick={(e) => e.stopPropagation()}>
         {showCloseButton && (
-          <button 
-            onClick={handleClose} 
-            disabled={!closeOnOverlayClick && !closeOnEscape}
-            className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 disabled:opacity-30 disabled:cursor-not-allowed" 
-            aria-label="Fechar modal"
-          >
+          <button onClick={handleClose} disabled={!closeOnOverlayClick && !closeOnEscape} className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 z-10 disabled:opacity-30 disabled:cursor-not-allowed" aria-label="Fechar modal">
             <IconX className="h-4 w-4 text-text" />
           </button>
         )}

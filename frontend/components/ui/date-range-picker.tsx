@@ -12,6 +12,9 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Modal } from "@/components/common/Modal";
+import { FilterSelectButton } from "@/components/common/FilterSelectButton";
+import { Switch } from "@/components/ui/switch";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export interface DateRangePickerProps {
   date?: DateRange;
@@ -24,9 +27,13 @@ export interface DateRangePickerProps {
   useModal?: boolean; // Se true, abre um modal ao invés de popover
   disableFutureDates?: boolean; // Se true, desabilita datas posteriores a hoje
   requireConfirmation?: boolean; // Se true, requer confirmação antes de aplicar (mostra botão "Aplicar")
+  usePackDates?: boolean; // Se true, usa datas dos packs (desabilita seleção manual)
+  onUsePackDatesChange?: (checked: boolean) => void; // Handler para mudança do switch
+  showPackDatesSwitch?: boolean; // Se true, mostra o switch "Usar datas dos packs" dentro do popup
+  packDatesRange?: DateRange; // Datas dos packs para selecionar no calendário quando switch for ativado
 }
 
-export function DateRangePicker({ date, onDateChange, className, placeholder = "Selecione um período", label, showLabel = false, disabled, useModal = false, disableFutureDates = false, requireConfirmation = false }: DateRangePickerProps) {
+export function DateRangePicker({ date, onDateChange, className, placeholder = "Selecione um período", label, showLabel = false, disabled, useModal = false, disableFutureDates = false, requireConfirmation = false, usePackDates = false, onUsePackDatesChange, showPackDatesSwitch = false, packDatesRange }: DateRangePickerProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [tempDateRange, setTempDateRange] = useState<DateRange | undefined>(date);
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
@@ -104,21 +111,43 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
   }, []); // Executa apenas na montagem
 
   // Atualizar tempDateRange quando date muda externamente (mas modal não está aberto)
+  // Não atualizar se usePackDates estiver ativo, pois as datas dos packs têm prioridade
   React.useEffect(() => {
-    if (!isModalOpen) {
+    if (!isModalOpen && !usePackDates) {
       setTempDateRange(date || getDefaultDateRange());
     }
-  }, [date, isModalOpen]);
+  }, [date, isModalOpen, usePackDates]);
 
   // Atualizar tempDateRangePopover quando date muda externamente (mas popover não está aberto)
+  // Não atualizar se usePackDates estiver ativo, pois as datas dos packs têm prioridade
   React.useEffect(() => {
-    if (!isPopoverOpen) {
+    if (!isPopoverOpen && !usePackDates) {
       setTempDateRangePopover(date || getDefaultDateRange());
     }
-  }, [date, isPopoverOpen]);
+  }, [date, isPopoverOpen, usePackDates]);
+
+  // Quando usePackDates for ativado e packDatesRange existir, atualizar tempDateRange apenas no calendário
+  // (sem aplicar as datas - aguarda confirmação do usuário)
+  // Isso permite que o usuário veja quais datas serão aplicadas quando clicar em "Aplicar"
+  React.useEffect(() => {
+    if (usePackDates && packDatesRange && packDatesRange.from) {
+      // Sempre atualizar tempDateRange e tempDateRangePopover com as datas dos packs quando switch está ativo
+      setTempDateRange(packDatesRange);
+      setTempDateRangePopover(packDatesRange);
+    } else if (!usePackDates) {
+      // Quando o switch é desativado, resetar para o valor atual (date)
+      setTempDateRange(date || getDefaultDateRange());
+      setTempDateRangePopover(date || getDefaultDateRange());
+    }
+  }, [usePackDates, packDatesRange, date]);
 
   const handleModalOpen = () => {
-    setTempDateRange(date || getDefaultDateRange());
+    // Quando abre modal, inicializar com datas dos packs se usePackDates estiver ativo, senão usar valor atual
+    if (usePackDates && packDatesRange && packDatesRange.from) {
+      setTempDateRange(packDatesRange);
+    } else {
+      setTempDateRange(date || getDefaultDateRange());
+    }
     setIsModalOpen(true);
   };
 
@@ -136,10 +165,20 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
     setIsPopoverOpen(open);
     if (!open) {
       // Se o popover está fechando e não foi confirmado, resetar para o valor original
-      setTempDateRangePopover(date || getDefaultDateRange());
+      // Se usePackDates estiver ativo, resetar para packDatesRange, senão para date
+      if (usePackDates && packDatesRange && packDatesRange.from) {
+        setTempDateRangePopover(packDatesRange);
+      } else {
+        setTempDateRangePopover(date || getDefaultDateRange());
+      }
     } else {
-      // Quando abre, inicializar com o valor atual
-      setTempDateRangePopover(date || getDefaultDateRange());
+      // Quando abre, inicializar com datas dos packs se usePackDates estiver ativo, senão usar valor atual
+      // O useEffect já atualiza tempDateRangePopover quando packDatesRange muda, mas garantimos aqui também
+      if (usePackDates && packDatesRange && packDatesRange.from) {
+        setTempDateRangePopover(packDatesRange);
+      } else {
+        setTempDateRangePopover(date || getDefaultDateRange());
+      }
     }
   };
 
@@ -175,29 +214,62 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
   // Usar date ou valor padrão
   const currentDateRange = date || getDefaultDateRange();
 
+  // Verificar se está carregando datas dos packs
+  const isLoadingPackDates = usePackDates && (!packDatesRange || !packDatesRange.from);
+  
+  // Desabilitar o botão se disabled for true ou se estiver carregando datas dos packs
+  const isButtonDisabled = disabled || isLoadingPackDates;
+
   const buttonContent = (
-    <Button id="date" type="button" variant="outline" disabled={disabled} onClick={useModal ? handleModalOpen : undefined} className={cn("w-full justify-start text-left font-normal", "h-10 sm:h-11", "text-sm sm:text-base", "px-3 sm:px-4", "transition-colors", !currentDateRange?.from && "text-muted-foreground", "hover:bg-accent hover:text-accent-foreground", "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2")}>
-      <CalendarIcon className="mr-2 h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0" />
-      <span className="truncate">
-        {currentDateRange?.from ? (
-          currentDateRange.to ? (
-            // Se início e fim são o mesmo dia, mostrar apenas uma data
-            isSameDay(currentDateRange.from, currentDateRange.to) ? (
-              formatDateOrToday(currentDateRange.from)
-            ) : (
-              <>
-                {formatDateOrToday(currentDateRange.from)} → {formatDateOrToday(currentDateRange.to)}
-              </>
-            )
-          ) : (
+    <FilterSelectButton
+      id="date"
+      type="button"
+      disabled={isButtonDisabled}
+      onClick={useModal ? handleModalOpen : undefined}
+      iconPosition="start"
+      icon={<CalendarIcon className="mr-2 h-4 w-4 flex-shrink-0" />}
+      className={cn(
+        "justify-start text-left font-normal",
+        "h-10",
+        !currentDateRange?.from && "text-muted-foreground"
+      )}
+    >
+      {isLoadingPackDates ? (
+        <span className="text-muted-foreground flex items-center gap-2">
+          <Skeleton className="h-4 w-24" />
+        </span>
+      ) : currentDateRange?.from ? (
+        currentDateRange.to ? (
+          // Se início e fim são o mesmo dia, mostrar apenas uma data
+          isSameDay(currentDateRange.from, currentDateRange.to) ? (
             formatDateOrToday(currentDateRange.from)
+          ) : (
+            <>
+              {formatDateOrToday(currentDateRange.from)} → {formatDateOrToday(currentDateRange.to)}
+            </>
           )
         ) : (
-          <span className="text-muted-foreground">{placeholder}</span>
-        )}
-      </span>
-    </Button>
+          formatDateOrToday(currentDateRange.from)
+        )
+      ) : (
+        <span className="text-muted-foreground">{placeholder}</span>
+      )}
+    </FilterSelectButton>
   );
+
+  // Função para desabilitar datas quando usePackDates estiver ativo
+  const getDisabledDatesWithPackDates = () => {
+    const baseDisabled = getDisabledDates();
+    if (usePackDates) {
+      // Desabilitar todas as datas quando usePackDates estiver ativo
+      // Retornar um objeto que desabilita todas as datas (antes de 0 e depois de 9999)
+      return {
+        before: new Date(0),
+        after: new Date(9999, 11, 31),
+      };
+    }
+    return baseDisabled;
+  };
 
   if (useModal) {
     return (
@@ -214,9 +286,25 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
               <p className="text-sm sm:text-base text-muted-foreground">Escolha a data de início e fim do período</p>
             </div>
 
-            <div className="flex justify-center w-full min-w-0 overflow-x-auto custom-scrollbar pb-2">
-              <div className="w-fit min-w-0 mx-auto">
-                <Calendar initialFocus mode="range" defaultMonth={getDefaultMonth(true)} selected={tempDateRange || getDefaultDateRange()} onSelect={setTempDateRange} numberOfMonths={isMobile ? 1 : 2} locale={ptBR} disabled={getDisabledDates()} />
+            {showPackDatesSwitch && onUsePackDatesChange && (
+              <div className="flex items-center gap-2 p-3 bg-card border border-border rounded-md">
+                <Switch
+                  id="use-pack-dates-modal"
+                  checked={usePackDates}
+                  onCheckedChange={onUsePackDatesChange}
+                />
+                <label
+                  htmlFor="use-pack-dates-modal"
+                  className="text-sm font-medium cursor-pointer"
+                >
+                  Usar datas dos packs
+                </label>
+              </div>
+            )}
+
+            <div className="flex justify-center w-full min-w-0 overflow-x-auto pb-2">
+              <div className={cn("w-fit min-w-0 mx-auto", usePackDates && "opacity-50 pointer-events-none")}>
+                <Calendar initialFocus mode="range" defaultMonth={getDefaultMonth(true)} selected={tempDateRange || (usePackDates && packDatesRange ? packDatesRange : getDefaultDateRange())} onSelect={usePackDates ? () => {} : setTempDateRange} numberOfMonths={isMobile ? 1 : 2} locale={ptBR} disabled={getDisabledDatesWithPackDates()} />
               </div>
             </div>
 
@@ -242,16 +330,33 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
         <PopoverTrigger asChild>{buttonContent}</PopoverTrigger>
         <PopoverContent className="w-auto p-0 z-[10000] max-w-[95vw] sm:max-w-none" align="start">
           <div className="space-y-2">
-            <Calendar 
-              initialFocus 
-              mode="range" 
-              defaultMonth={getDefaultMonth(false)} 
-              selected={requireConfirmation ? tempDateRangePopover : currentDateRange} 
-              onSelect={requireConfirmation ? setTempDateRangePopover : onDateChange} 
-              numberOfMonths={isMobile ? 1 : 2} 
-              locale={ptBR} 
-              disabled={getDisabledDates()} 
-            />
+            {showPackDatesSwitch && onUsePackDatesChange && (
+              <div className="flex items-center gap-2 p-3 border-b border-border">
+                <Switch
+                  id="use-pack-dates-popover"
+                  checked={usePackDates}
+                  onCheckedChange={onUsePackDatesChange}
+                />
+                <label
+                  htmlFor="use-pack-dates-popover"
+                  className="text-sm font-medium cursor-pointer"
+                >
+                  Usar datas dos packs
+                </label>
+              </div>
+            )}
+            <div className={cn("relative", usePackDates && "opacity-50 pointer-events-none")}>
+              <Calendar 
+                initialFocus 
+                mode="range" 
+                defaultMonth={getDefaultMonth(false)} 
+                selected={tempDateRangePopover || (usePackDates && packDatesRange ? packDatesRange : undefined)} 
+                onSelect={usePackDates ? () => {} : setTempDateRangePopover} 
+                numberOfMonths={isMobile ? 1 : 2} 
+                locale={ptBR} 
+                disabled={getDisabledDatesWithPackDates()} 
+              />
+            </div>
             {requireConfirmation && (
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 p-3 pt-2 border-t border-border">
                 <Button variant="outline" onClick={handlePopoverCancel} className="w-full sm:w-auto text-sm sm:text-base h-9 sm:h-10">

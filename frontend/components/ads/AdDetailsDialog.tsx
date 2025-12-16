@@ -430,7 +430,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
               )}
             </div>
           ) : (
-            <div className="overflow-x-auto custom-scrollbar">
+            <div className="overflow-x-auto">
               <table className="w-full text-xs border-collapse">
                 <thead>
                   <tr className="bg-border">

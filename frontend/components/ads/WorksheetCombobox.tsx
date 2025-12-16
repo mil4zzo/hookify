@@ -18,14 +18,7 @@ interface WorksheetComboboxProps {
   disabled?: boolean;
 }
 
-export function WorksheetCombobox({
-  spreadsheetId,
-  value,
-  onValueChange,
-  placeholder = "Selecione uma aba...",
-  className,
-  disabled = false,
-}: WorksheetComboboxProps) {
+export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeholder = "Selecione uma aba...", className, disabled = false }: WorksheetComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [options, setOptions] = useState<Array<{ label: string; value: string }>>([]);
@@ -73,10 +66,7 @@ export function WorksheetCombobox({
   const filteredOptions = options.filter((option) => {
     if (!search) return true;
     const searchLower = search.toLowerCase();
-    return (
-      option.label.toLowerCase().includes(searchLower) ||
-      option.value.toLowerCase().includes(searchLower)
-    );
+    return option.label.toLowerCase().includes(searchLower) || option.value.toLowerCase().includes(searchLower);
   });
 
   const selectedOption = options.find((opt) => opt.value === value);
@@ -91,27 +81,12 @@ export function WorksheetCombobox({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          disabled={disabled || !spreadsheetId}
-          className={cn(
-            "h-10 w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
-            className,
-          )}
-        >
-          <span className="truncate text-left">
-            {selectedOption ? selectedOption.label : placeholder}
-          </span>
+        <Button variant="outline" role="combobox" aria-expanded={open} disabled={disabled || !spreadsheetId} className={cn("h-10 w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
+          <span className="truncate text-left">{selectedOption ? selectedOption.label : placeholder}</span>
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0 z-[10000] rounded-md border border-border bg-secondary text-text shadow-md"
-        align="start"
-        sideOffset={4}
-      >
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 z-[10000] rounded-md border border-border bg-secondary text-text shadow-md" align="start" sideOffset={4}>
         <div className="flex flex-col">
           <div className="border-b border-border p-2">
             <Input
@@ -137,20 +112,14 @@ export function WorksheetCombobox({
               autoFocus
             />
           </div>
-          <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+          <div className="max-h-[300px] overflow-y-auto">
             {isLoading ? (
               <div className="flex items-center justify-center gap-2 py-6">
                 <IconLoader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Carregando abas...</span>
               </div>
             ) : !isLoading && filteredOptions.length === 0 ? (
-              <div className="py-6 text-center text-sm text-muted-foreground">
-                {!spreadsheetId
-                  ? "Selecione uma planilha primeiro."
-                  : search
-                    ? "Nenhuma aba encontrada."
-                    : "Nenhuma aba disponível."}
-              </div>
+              <div className="py-6 text-center text-sm text-muted-foreground">{!spreadsheetId ? "Selecione uma planilha primeiro." : search ? "Nenhuma aba encontrada." : "Nenhuma aba disponível."}</div>
             ) : (
               <div className="p-1">
                 {filteredOptions.map((option) => {
@@ -162,15 +131,10 @@ export function WorksheetCombobox({
                         onValueChange(option.value);
                         setOpen(false);
                       }}
-                      className={cn(
-                        "relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 hover:bg-accent hover:text-accent-foreground",
-                        isSelected && "bg-accent",
-                      )}
+                      className={cn("relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 hover:bg-accent hover:text-accent-foreground", isSelected && "bg-accent")}
                     >
                       <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-                        <IconCheck
-                          className={cn("h-4 w-4", isSelected ? "opacity-100" : "opacity-0")}
-                        />
+                        <IconCheck className={cn("h-4 w-4", isSelected ? "opacity-100" : "opacity-0")} />
                       </span>
                       {option.label}
                     </button>
@@ -184,4 +148,3 @@ export function WorksheetCombobox({
     </Popover>
   );
 }
-

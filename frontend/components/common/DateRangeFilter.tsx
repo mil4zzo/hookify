@@ -19,6 +19,10 @@ interface DateRangeFilterProps {
   disableFutureDates?: boolean; // Se true, desabilita datas posteriores a hoje
   requireConfirmation?: boolean; // Se true, requer confirmação antes de aplicar (mostra botão "Aplicar")
   disabled?: boolean; // Se true, desabilita o seletor de data
+  usePackDates?: boolean; // Se true, usa datas dos packs (desabilita seleção manual)
+  onUsePackDatesChange?: (checked: boolean) => void; // Handler para mudança do switch
+  showPackDatesSwitch?: boolean; // Se true, mostra o switch "Usar datas dos packs" dentro do popup
+  packDatesRange?: DateRangeValue; // Datas dos packs para selecionar no calendário quando switch for ativado
 }
 
 // Helper para converter DateRange para DateRangeValue
@@ -52,14 +56,16 @@ function valueToDateRange(value: DateRangeValue): DateRange | undefined {
   }
 }
 
-export function DateRangeFilter({ label = "Período", showLabel = true, value, onChange, className, useModal = false, disableFutureDates = false, requireConfirmation = false, disabled = false }: DateRangeFilterProps) {
+export function DateRangeFilter({ label = "Período", showLabel = true, value, onChange, className, useModal = false, disableFutureDates = false, requireConfirmation = false, disabled = false, usePackDates = false, onUsePackDatesChange, showPackDatesSwitch = false, packDatesRange }: DateRangeFilterProps) {
   const dateRange = valueToDateRange(value);
+  const packDatesRangeDateRange = packDatesRange ? valueToDateRange(packDatesRange) : undefined;
 
   const handleDateChange = (range: DateRange | undefined) => {
     if (disabled) return; // Não permitir mudança quando desabilitado
+    // Permitir mudança mesmo quando usePackDates estiver ativo, pois o usuário pode estar confirmando as datas dos packs
     const newValue = dateRangeToValue(range);
     onChange(newValue);
   };
 
-  return <DateRangePicker label={label} showLabel={showLabel} date={dateRange} onDateChange={handleDateChange} className={className} placeholder="Selecione um período" useModal={useModal} disableFutureDates={disableFutureDates} requireConfirmation={requireConfirmation} disabled={disabled} />;
+  return <DateRangePicker label={label} showLabel={showLabel} date={dateRange} onDateChange={handleDateChange} className={className} placeholder="Selecione um período" useModal={useModal} disableFutureDates={disableFutureDates} requireConfirmation={requireConfirmation} disabled={disabled} usePackDates={usePackDates} onUsePackDatesChange={onUsePackDatesChange} showPackDatesSwitch={showPackDatesSwitch} packDatesRange={packDatesRangeDateRange} />;
 }

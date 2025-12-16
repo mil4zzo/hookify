@@ -10,8 +10,6 @@ import {
   AuthUrlResponse,
   RankingsRequest,
   RankingsResponse,
-  DashboardRequest,
-  DashboardResponse,
   RankingsChildrenItem,
   AdCreativeResponse,
   ListSpreadsheetsResponse,
@@ -86,8 +84,6 @@ export const api = {
 
   // Analytics (Supabase)
   analytics: {
-    getDashboard: (params: DashboardRequest): Promise<DashboardResponse> =>
-      apiClient.post('/analytics/dashboard', params),
     // Endpoint histórico, mantido por compatibilidade
     getRankings: (params: RankingsRequest): Promise<RankingsResponse> =>
       apiClient.post('/analytics/rankings', params),

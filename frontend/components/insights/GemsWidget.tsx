@@ -22,7 +22,6 @@ interface GemsWidgetProps {
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
-  isCompact?: boolean;
   activeColumns?: Set<GemsColumnType>; // Colunas ativas
 }
 
@@ -84,7 +83,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
   };
 }
 
-export function GemsWidget({ ads, averages, actionType, validationCriteria, limit = 5, dateStart, dateStop, availableConversionTypes = [], isCompact = true, activeColumns }: GemsWidgetProps) {
+export function GemsWidget({ ads, averages, actionType, validationCriteria, limit = 5, dateStart, dateStop, availableConversionTypes = [], activeColumns }: GemsWidgetProps) {
   // 1. Filtrar apenas anúncios validados
   const validatedAds = useMemo(() => {
     if (!validationCriteria || validationCriteria.length === 0) {
@@ -198,7 +197,6 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
             onAdClick={config.onAdClick}
             getTopMetrics={getTopMetrics}
             actionType={actionType}
-            isCompact={isCompact}
             averages={averages}
             tooltip={{
               title: tooltipTitle,
@@ -214,63 +212,15 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
       });
     };
 
-    addColumn(
-      "hook",
-      "Hooks",
-      topHook,
-      avgHook,
-      "hook",
-      "Taxa de retenção inicial",
-      "Percentual de pessoas que assistiram pelo menos 3 segundos do vídeo. Mede a capacidade do anúncio de prender atenção nos primeiros segundos."
-    );
-    addColumn(
-      "website_ctr",
-      "Link CTR",
-      topWebsiteCtr,
-      avgWebsiteCtr,
-      "website_ctr",
-      "Taxa de cliques no link",
-      "Percentual de impressões que resultaram em cliques no link. Mede a efetividade do anúncio em gerar interesse e direcionar tráfego."
-    );
-    addColumn(
-      "page_conv",
-      "Page",
-      topPageConv,
-      avgPageConv,
-      "page_conv",
-      "Taxa de conversão na página",
-      "Percentual de visitantes da landing page que converteram. Mede a qualidade da página, copy e público-alvo."
-    );
-    addColumn(
-      "ctr",
-      "CTR",
-      topCtr,
-      avgCtr,
-      "ctr",
-      "Taxa de cliques geral",
-      "Percentual de impressões que resultaram em qualquer tipo de clique. Mede o engajamento geral e relevância do anúncio."
-    );
-    addColumn(
-      "hold_rate",
-      "Hold Rate",
-      topHoldRate,
-      avgHoldRate,
-      "hold_rate",
-      "Taxa de retenção geral",
-      "Percentual de pessoas que assistiram o vídeo até o final. Mede a retenção e qualidade do conteúdo ao longo de toda a duração."
-    );
-    addColumn(
-      "cpr",
-      "CPR",
-      topCpr,
-      avgCpr,
-      "cpr",
-      "Custo por resultado",
-      "Valor gasto para cada conversão obtida. Mede a eficiência do investimento em anúncios. Quanto menor, melhor."
-    );
+    addColumn("hook", "Hooks", topHook, avgHook, "hook", "Taxa de retenção inicial", "Percentual de pessoas que assistiram pelo menos 3 segundos do vídeo. Mede a capacidade do anúncio de prender atenção nos primeiros segundos.");
+    addColumn("website_ctr", "Link CTR", topWebsiteCtr, avgWebsiteCtr, "website_ctr", "Taxa de cliques no link", "Percentual de impressões que resultaram em cliques no link. Mede a efetividade do anúncio em gerar interesse e direcionar tráfego.");
+    addColumn("page_conv", "Page", topPageConv, avgPageConv, "page_conv", "Taxa de conversão na página", "Percentual de visitantes da landing page que converteram. Mede a qualidade da página, copy e público-alvo.");
+    addColumn("ctr", "CTR", topCtr, avgCtr, "ctr", "Taxa de cliques geral", "Percentual de impressões que resultaram em qualquer tipo de clique. Mede o engajamento geral e relevância do anúncio.");
+    addColumn("hold_rate", "Hold Rate", topHoldRate, avgHoldRate, "hold_rate", "Taxa de retenção geral", "Percentual de pessoas que assistiram o vídeo até o final. Mede a retenção e qualidade do conteúdo ao longo de toda a duração.");
+    addColumn("cpr", "CPR", topCpr, avgCpr, "cpr", "Custo por resultado", "Valor gasto para cada conversão obtida. Mede a eficiência do investimento em anúncios. Quanto menor, melhor.");
 
     return configs;
-  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, topCpr, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, avgCpr, getTopMetrics, actionType, isCompact, averages]);
+  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, topCpr, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, avgCpr, getTopMetrics, actionType, averages]);
 
   return (
     <BaseKanbanWidget

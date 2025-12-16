@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
-import { OpportunityCards } from "@/components/insights/OpportunityCards";
+import { OpportunityWidget } from "@/components/insights/OpportunityWidget";
 import { calculateGlobalMetricRanks } from "@/lib/utils/metricRankings";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { GemsWidget } from "@/components/insights/GemsWidget";
@@ -17,16 +17,18 @@ import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
-import { Switch } from "@/components/ui/switch";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
-import { IconSparkles, IconDiamond, IconBulb } from "@tabler/icons-react";
+import { IconSparkles, IconDiamond, IconBulb, IconStarFilled } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { PageSectionHeader } from "@/components/common/PageSectionHeader";
-import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { HookifyWidget } from "@/components/common/HookifyWidget";
 
 // Insights e Rankings compartilham a mesma base de Ad Performance retornada
 // pelo endpoint `/analytics/ad-performance` (histórico `/analytics/rankings`).
@@ -37,8 +39,18 @@ const STORAGE_KEY_GROUP_BY_PACKS = "hookify-insights-group-by-packs";
 const STORAGE_KEY_DATE_RANGE = "hookify-insights-date-range";
 const STORAGE_KEY_USE_PACK_DATES = "hookify-insights-use-pack-dates";
 const STORAGE_KEY_PACK_ACTION_TYPES = "hookify-insights-pack-action-types";
-const STORAGE_KEY_GEMS_COMPACT = "hookify-insights-gems-compact";
 const STORAGE_KEY_GEMS_COLUMNS = "hookify-insights-gems-columns";
+const STORAGE_KEY_ACTIVE_TAB = "hookify-insights-active-tab";
+
+// Classe padronizada para títulos das tabs
+const TAB_TITLE_CLASS = "text-xl font-normal";
+
+// Títulos das tabs para tooltips
+const TAB_TITLES = {
+  opportunities: "Melhorias para maximizar seus lucros",
+  insights: "Melhorias pontuais por métrica",
+  gems: "Os melhores de cada métrica",
+} as const;
 
 type PackPreferences = Record<string, boolean>;
 
@@ -177,8 +189,7 @@ export default function InsightsPage() {
   const [serverData, setServerData] = useState<any[] | null>(null);
   const [availableConversionTypes, setAvailableConversionTypes] = useState<string[]>([]);
   const [averages, setAverages] = useState<any | undefined>(undefined);
-  // Começar em "true" para evitar piscar EmptyState antes da primeira tentativa de busca
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [groupByPacks, setGroupByPacks] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -187,17 +198,6 @@ export default function InsightsPage() {
     } catch (e) {
       console.error("Erro ao carregar groupByPacks do localStorage:", e);
       return false;
-    }
-  });
-
-  const [isGemsCompact, setIsGemsCompact] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_GEMS_COMPACT);
-      return saved !== "false"; // Default é true (compacto)
-    } catch (e) {
-      console.error("Erro ao carregar isGemsCompact do localStorage:", e);
-      return true;
     }
   });
 
@@ -245,6 +245,17 @@ export default function InsightsPage() {
   const [selectedAd, setSelectedAd] = useState<RankingsItem | null>(null);
   // Estado para controlar se deve abrir na aba de vídeo
   const [openInVideoTab, setOpenInVideoTab] = useState(false);
+  // Estado para controlar a tab ativa
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    if (typeof window === "undefined") return "opportunities";
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_TAB);
+      return saved || "opportunities";
+    } catch (e) {
+      console.error("Erro ao carregar activeTab do localStorage:", e);
+      return "opportunities";
+    }
+  });
 
   const uniqueConversionTypes = useMemo(() => {
     return availableConversionTypes;
@@ -308,7 +319,7 @@ export default function InsightsPage() {
 
   // Handler para mudança de dateRange com salvamento no localStorage
   const handleDateRangeChange = (value: { start?: string; end?: string }) => {
-    if (usePackDates) return; // Não permitir mudança manual quando usar datas dos packs
+    // Permitir mudança mesmo quando usePackDates estiver ativo, pois o usuário pode estar confirmando as datas dos packs
     setDateRange(value);
     saveDateRange(value);
   };
@@ -321,20 +332,8 @@ export default function InsightsPage() {
     } catch (e) {
       console.error("Erro ao salvar usePackDates no localStorage:", e);
     }
-
-    if (checked && calculateDateRangeFromPacks) {
-      setDateRange(calculateDateRangeFromPacks);
-      saveDateRange(calculateDateRangeFromPacks);
-    }
+    // Não aplicar datas automaticamente - apenas selecionar no calendário e aguardar confirmação
   };
-
-  // Atualizar dateRange quando packs selecionados mudarem (se usePackDates estiver ativo)
-  useEffect(() => {
-    if (usePackDates && calculateDateRangeFromPacks) {
-      setDateRange(calculateDateRangeFromPacks);
-      saveDateRange(calculateDateRangeFromPacks);
-    }
-  }, [usePackDates, calculateDateRangeFromPacks]);
 
   useEffect(() => {
     // Só dispara busca quando o app estiver autorizado (client + auth ok)
@@ -437,37 +436,6 @@ export default function InsightsPage() {
     });
   }, [packsClient, packs.length, packs.map((p) => p.id).join(",")]);
 
-  // Atualizar dateRange quando um pack foi selecionado automaticamente após deleção (se usePackDates estiver ativo)
-  useEffect(() => {
-    if (!packsClient || !usePackDates) return;
-    if (selectedPackIds.size === 0) return;
-
-    const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
-    if (selectedPacks.length === 0) return;
-
-    // Calcular dateRange dos packs selecionados
-    let minStart: string | null = null;
-    let maxEnd: string | null = null;
-
-    selectedPacks.forEach((pack) => {
-      if (pack.date_start && (!minStart || pack.date_start < minStart)) {
-        minStart = pack.date_start;
-      }
-      if (pack.date_stop && (!maxEnd || pack.date_stop > maxEnd)) {
-        maxEnd = pack.date_stop;
-      }
-    });
-
-    if (minStart && maxEnd) {
-      const newDateRange = { start: minStart, end: maxEnd };
-      // Só atualizar se for diferente do atual (para evitar loops)
-      if (dateRange.start !== minStart || dateRange.end !== maxEnd) {
-        setDateRange(newDateRange);
-        saveDateRange(newDateRange);
-      }
-    }
-  }, [packsClient, usePackDates, selectedPackIds, packs]);
-
   // Buscar ads dos packs selecionados usando cache
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
@@ -545,15 +513,6 @@ export default function InsightsPage() {
     }
   };
 
-  const handleToggleGemsCompact = (checked: boolean) => {
-    setIsGemsCompact(checked);
-    try {
-      localStorage.setItem(STORAGE_KEY_GEMS_COMPACT, checked.toString());
-    } catch (e) {
-      console.error("Erro ao salvar isGemsCompact no localStorage:", e);
-    }
-  };
-
   const handleToggleGemsColumn = (columnId: GemsColumnType) => {
     const newColumns = new Set(activeGemsColumns);
     if (newColumns.has(columnId)) {
@@ -563,6 +522,16 @@ export default function InsightsPage() {
     }
     setActiveGemsColumns(newColumns);
     saveGemsColumns(newColumns);
+  };
+
+  // Handler para mudança de tab
+  const handleTabChange = (value: string) => {
+    setActiveTab(value);
+    try {
+      localStorage.setItem(STORAGE_KEY_ACTIVE_TAB, value);
+    } catch (e) {
+      console.error("Erro ao salvar activeTab no localStorage:", e);
+    }
   };
 
   // Função para identificar qual pack pertence um ranking
@@ -848,133 +817,241 @@ export default function InsightsPage() {
     );
   }
 
-  if (loading) {
-    return (
-      <div>
-        <LoadingState label="Carregando insights..." />
-      </div>
-    );
-  }
-
   const hasData = serverData && serverData.length > 0;
 
-  return (
-    <div className="space-y-12">
-      {/* Seção Oportunidades */}
-      <div className="space-y-6">
-        <PageSectionHeader
-          title="Oportunidades"
-          description="As maiores oportunidades de melhoria, por ordem."
-          icon={<IconBulb className="w-6 h-6 text-yellow-500" />}
-          actions={
-            <>
-              {/* Toggle Agrupar por Packs */}
-              {packsClient && packs.length > 0 && selectedPackIds.size > 0 && <ToggleSwitch id="group-by-packs" checked={groupByPacks} onCheckedChange={handleToggleGroupByPacks} label="Agrupar por Packs" />}
-              <FiltersDropdown dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} />
-            </>
-          }
-        />
+  // Detectar se é primeiro carregamento ou recarregamento
+  const isInitialLoad = serverData === null && loading;
+  const isLoadingData = loading;
 
-        {/* Mostrar EmptyState se não houver dados, mas manter os filtros visíveis */}
-        {!hasData ? (
-          <div className="py-12">
-            <EmptyState message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." />
+  // Componentes de Skeleton para cada tab
+  const OpportunitiesSkeleton = () => (
+    <div className="space-y-6">
+      {/* Skeleton para slider horizontal de cards */}
+      <div className="relative">
+        <div className="flex gap-4 overflow-hidden">
+          {[1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-80 w-80 flex-shrink-0 rounded-lg" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  const InsightsSkeleton = () => (
+    <div className="space-y-6">
+      {/* Skeleton para kanban com múltiplas colunas */}
+      <div className="flex gap-4 overflow-x-auto">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="flex-shrink-0 w-80 space-y-4">
+            <Skeleton className="h-12 w-full rounded-md" />
+            <div className="space-y-2">
+              {[1, 2, 3].map((j) => (
+                <Skeleton key={j} className="h-32 w-full rounded-md" />
+              ))}
+            </div>
           </div>
-        ) : (
-          <>
+        ))}
+      </div>
+    </div>
+  );
+
+  const GemsSkeleton = () => (
+    <div className="space-y-6">
+      {/* Skeleton para filtro de colunas */}
+      <div className="flex items-center justify-end gap-4 mb-4">
+        <Skeleton className="h-10 w-48 rounded-md" />
+      </div>
+      {/* Skeleton para grid de gems */}
+      <div className="flex gap-4 overflow-x-auto">
+        {[1, 2, 3, 4, 5, 6].map((i) => (
+          <div key={i} className="flex-shrink-0 w-80 space-y-4">
+            <Skeleton className="h-12 w-full rounded-md" />
+            <div className="space-y-2">
+              {[1, 2, 3, 4, 5].map((j) => (
+                <Skeleton key={j} className="h-32 w-full rounded-md" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Header com filtros globais */}
+      <PageSectionHeader title="Insights" description="Análises e oportunidades para melhorar seus anúncios." icon={<IconSparkles className="w-6 h-6 text-yellow-500" />} actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks || undefined} groupByPacks={activeTab === "opportunities" ? groupByPacks : false} onGroupByPacksChange={activeTab === "opportunities" ? handleToggleGroupByPacks : undefined} />} />
+
+      {/* Tabs */}
+      <TooltipProvider>
+        <Tabs value={activeTab} onValueChange={handleTabChange}>
+          <TabsList>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="opportunities">
+                  <div className="flex items-center gap-2">
+                    <IconStarFilled className="w-4 h-4" />
+                    <span>Oportunidades</span>
+                  </div>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{TAB_TITLES.opportunities}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="insights">
+                  <div className="flex items-center gap-2">
+                    <IconSparkles className="w-4 h-4" />
+                    <span>Insights</span>
+                  </div>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{TAB_TITLES.insights}</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <TabsTrigger value="gems">
+                  <div className="flex items-center gap-2">
+                    <IconDiamond className="w-4 h-4" />
+                    <span>Gems</span>
+                  </div>
+                </TabsTrigger>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{TAB_TITLES.gems}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TabsList>
+
+        {/* Tab Oportunidades */}
+        <TabsContent value="opportunities" className="space-y-6">
+          <HookifyWidget
+            title={TAB_TITLES.opportunities}
+            titleClassName={TAB_TITLE_CLASS}
+            isLoading={isLoadingData || isInitialLoad}
+            isEmpty={!hasData}
+            emptyMessage="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período."
+            skeleton={<OpportunitiesSkeleton />}
+            contentSpacing="space-y-6"
+          >
             {/* Cards de Oportunidades */}
             {groupByPacks && opportunityRowsByPack ? (
               // Renderizar um slider para cada pack
-              Array.from(opportunityRowsByPack.entries())
-                .filter(([packId, rows]) => {
-                  const pack = packs.find((p) => p.id === packId);
-                  return pack && rows.length > 0;
-                })
-                .map(([packId, rows]) => {
-                  const pack = packs.find((p) => p.id === packId);
-                  if (!pack) return null;
-                  // Usar actionType específico do pack, ou fallback para o global
-                  const packActionType = packActionTypes[packId] || actionType;
+              Array.from(opportunityRowsByPack.entries()).length > 0 ? (
+                Array.from(opportunityRowsByPack.entries())
+                  .filter(([packId, rows]) => {
+                    const pack = packs.find((p) => p.id === packId);
+                    return pack; // Removido filtro de rows.length > 0 para permitir empty state
+                  })
+                  .map(([packId, rows]) => {
+                    const pack = packs.find((p) => p.id === packId);
+                    if (!pack) return null;
+                    // Usar actionType específico do pack, ou fallback para o global
+                    const packActionType = packActionTypes[packId] || actionType;
 
-                  const handlePackActionTypeChange = (value: string) => {
-                    const newPackActionTypes = { ...packActionTypes, [packId]: value };
-                    setPackActionTypes(newPackActionTypes);
-                    try {
-                      localStorage.setItem(STORAGE_KEY_PACK_ACTION_TYPES, JSON.stringify(newPackActionTypes));
-                    } catch (e) {
-                      console.error("Erro ao salvar packActionTypes no localStorage:", e);
-                    }
-                  };
+                    const handlePackActionTypeChange = (value: string) => {
+                      const newPackActionTypes = { ...packActionTypes, [packId]: value };
+                      setPackActionTypes(newPackActionTypes);
+                      try {
+                        localStorage.setItem(STORAGE_KEY_PACK_ACTION_TYPES, JSON.stringify(newPackActionTypes));
+                      } catch (e) {
+                        console.error("Erro ao salvar packActionTypes no localStorage:", e);
+                      }
+                    };
 
-                  // Função para formatar data de YYYY-MM-DD para DD/MM/YYYY
-                  const formatDate = (dateStr: string): string => {
-                    if (!dateStr) return "";
-                    const [year, month, day] = dateStr.split("-");
-                    return `${day}/${month}/${year}`;
-                  };
+                    // Função para formatar data de YYYY-MM-DD para DD/MM/YYYY
+                    const formatDate = (dateStr: string): string => {
+                      if (!dateStr) return "";
+                      const [year, month, day] = dateStr.split("-");
+                      return `${day}/${month}/${year}`;
+                    };
 
-                  return (
-                    <div key={packId} className="space-y-2">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1 flex flex-row gap-4">
-                          <h2 className="text-xl font-semibold">{pack.name}</h2>
-                          {pack.date_start && pack.date_stop && (
-                            <p className="text-sm text-muted-foreground mt-1">
-                              {formatDate(pack.date_start)} - {formatDate(pack.date_stop)}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <label className="text-sm font-medium text-foreground whitespace-nowrap">Evento de Conversão:</label>
-                          <div style={{ width: "200px" }}>
-                            <ActionTypeFilter label="" value={packActionType} onChange={handlePackActionTypeChange} options={uniqueConversionTypes} className="w-full" />
+                    return (
+                      <div key={packId} className="space-y-2">
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex-1 flex flex-row gap-4">
+                            <h2 className="text-xl font-semibold">{pack.name}</h2>
+                            {pack.date_start && pack.date_stop && (
+                              <p className="text-sm text-muted-foreground mt-1">
+                                {formatDate(pack.date_start)} - {formatDate(pack.date_stop)}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <label className="text-sm font-medium text-foreground whitespace-nowrap">Evento de Conversão:</label>
+                            <div style={{ width: "200px" }}>
+                              <ActionTypeFilter label="" value={packActionType} onChange={handlePackActionTypeChange} options={uniqueConversionTypes} className="w-full" />
+                            </div>
                           </div>
                         </div>
+                        <OpportunityWidget rows={rows} averages={validatedAverages} actionType={packActionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
                       </div>
-                      <OpportunityCards rows={rows} averages={validatedAverages} actionType={packActionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
-                    </div>
-                  );
-                })
-            ) : opportunityRows.length > 0 ? (
-              // Renderizar slider único (comportamento atual)
-              <div>
-                <OpportunityCards rows={opportunityRows} averages={validatedAverages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
-              </div>
-            ) : null}
-          </>
-        )}
-      </div>
-
-      {/* Seção Insights - Kanban */}
-      {hasData && (
-        <div className="space-y-6">
-          <PageSectionHeader title="Insights" description="Insights inteligentes do sistema." icon={<IconSparkles className="w-6 h-6 text-yellow-500" />} />
-          {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages && <InsightsKanbanWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />}
-        </div>
-      )}
-
-      {/* Seção Gems - Top Anúncios Validados */}
-      {hasData && (
-        <div className="space-y-6">
-          <PageSectionHeader
-            title="Gems"
-            description="Os melhores de cada métrica."
-            icon={<IconDiamond className="w-6 h-6 text-yellow-500" />}
-            actions={
-              <>
-                <div className="flex items-center gap-2 p-2 bg-card border border-border rounded-md">
-                  <Switch id="gems-compact" checked={isGemsCompact} onCheckedChange={handleToggleGemsCompact} />
-                  <label htmlFor="gems-compact" className="text-sm font-medium cursor-pointer">
-                    Compacto
-                  </label>
+                    );
+                  })
+              ) : (
+                // Quando agrupado por packs mas nenhum pack tem oportunidades, mostrar empty state
+                <div>
+                  <OpportunityWidget rows={[]} averages={validatedAverages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
                 </div>
-                <GemsColumnFilter activeColumns={activeGemsColumns} onToggleColumn={handleToggleGemsColumn} />
-              </>
-            }
-          />
-          {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages && <GemsWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} isCompact={isGemsCompact} activeColumns={activeGemsColumns} />}
-        </div>
-      )}
+              )
+            ) : (
+              // Renderizar slider único (comportamento atual)
+              // Sempre renderizar o widget para permitir empty state quando não houver dados
+              <div>
+                <OpportunityWidget rows={opportunityRows} averages={validatedAverages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
+              </div>
+            )}
+          </HookifyWidget>
+        </TabsContent>
+
+        {/* Tab Insights */}
+        <TabsContent value="insights" className="space-y-6">
+          <HookifyWidget
+            title={TAB_TITLES.insights}
+            titleClassName={TAB_TITLE_CLASS}
+            isLoading={isLoadingData || isInitialLoad}
+            isEmpty={!hasData}
+            emptyMessage="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período."
+            skeleton={<InsightsSkeleton />}
+            contentSpacing="space-y-6"
+          >
+            {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
+              <InsightsKanbanWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />
+            ) : (
+              <div className="py-12">
+                <EmptyState message="Configure critérios de validação nas configurações para ver insights." />
+              </div>
+            )}
+          </HookifyWidget>
+        </TabsContent>
+
+        {/* Tab Gems */}
+        <TabsContent value="gems" className="space-y-6">
+          <HookifyWidget
+            title={TAB_TITLES.gems}
+            titleClassName={TAB_TITLE_CLASS}
+            isLoading={isLoadingData || isInitialLoad}
+            isEmpty={!hasData}
+            emptyMessage="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período."
+            skeleton={<GemsSkeleton />}
+            headerActions={<GemsColumnFilter activeColumns={activeGemsColumns} onToggleColumn={handleToggleGemsColumn} />}
+            contentSpacing="space-y-6"
+          >
+            {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
+              <GemsWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} activeColumns={activeGemsColumns} />
+            ) : (
+              <div className="py-12">
+                <EmptyState message="Configure critérios de validação nas configurações para ver gems." />
+              </div>
+            )}
+          </HookifyWidget>
+        </TabsContent>
+        </Tabs>
+      </TooltipProvider>
 
       {/* Modal com detalhes do anúncio */}
       <Modal

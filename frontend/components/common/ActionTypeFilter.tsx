@@ -2,10 +2,12 @@
 
 import React, { useMemo, useState, useEffect } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { IconCheck, IconChevronDown } from "@tabler/icons-react";
+import { IconCheck, IconFocus2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
+import { FilterSelectButton } from "@/components/common/FilterSelectButton";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface ActionTypeFilterProps {
   label?: string;
@@ -14,6 +16,7 @@ interface ActionTypeFilterProps {
   options: string[];
   className?: string;
   placeholder?: string;
+  isLoading?: boolean; // Se true, mostra loading state
 }
 
 export function ActionTypeFilter({ 
@@ -22,10 +25,14 @@ export function ActionTypeFilter({
   onChange, 
   options, 
   className,
-  placeholder = "Evento de Conversão"
+  placeholder = "Evento de Conversão",
+  isLoading = false
 }: ActionTypeFilterProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  
+  // Determinar se está carregando (prop explícita ou quando não há opções ainda)
+  const isActuallyLoading = isLoading || options.length === 0;
 
   // Função para formatar o label exibido (remover prefixo)
   const formatLabel = (option: string) => {
@@ -96,22 +103,33 @@ export function ActionTypeFilter({
   return (
     <div className={cn("space-y-2", className)}>
       {label && <label className="text-sm font-medium">{label}</label>}
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <Button
-            variant="outline"
-            role="combobox"
-            aria-expanded={open}
-            className={cn(
-              "h-10 w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1"
-            )}
-          >
-            <span className="truncate text-left">
-              {selectedOption ? formatLabel(selectedOption) : placeholder}
-            </span>
-            <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-          </Button>
-        </PopoverTrigger>
+      <TooltipProvider>
+        <Popover open={open} onOpenChange={setOpen}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <FilterSelectButton
+                  aria-expanded={open}
+                  disabled={isActuallyLoading}
+                  iconPosition="start"
+                  icon={<IconFocus2 className="mr-2 h-4 w-4 flex-shrink-0" />}
+                >
+                  {isActuallyLoading ? (
+                    <span className="text-muted-foreground flex items-center gap-2">
+                      <Skeleton className="h-4 w-32" />
+                    </span>
+                  ) : (
+                    <span className="truncate text-left">
+                      {selectedOption ? formatLabel(selectedOption) : placeholder}
+                    </span>
+                  )}
+                </FilterSelectButton>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Evento de conversão</p>
+            </TooltipContent>
+          </Tooltip>
         <PopoverContent
           className="w-[var(--radix-popover-trigger-width)] p-0 z-[10000] rounded-md border border-border bg-secondary text-text shadow-md"
           align="start"
@@ -147,7 +165,7 @@ export function ActionTypeFilter({
                 autoFocus
               />
             </div>
-            <div className="max-h-[300px] overflow-y-auto custom-scrollbar">
+            <div className="max-h-[300px] overflow-y-auto">
               {!hasResults ? (
                 <div className="py-6 text-center text-sm text-muted-foreground">
                   Nenhum evento encontrado.
@@ -229,6 +247,7 @@ export function ActionTypeFilter({
           </div>
         </PopoverContent>
       </Popover>
+      </TooltipProvider>
     </div>
   );
 }

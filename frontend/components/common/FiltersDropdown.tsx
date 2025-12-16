@@ -8,7 +8,6 @@ import { DateRangeFilter } from "@/components/common/DateRangeFilter";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { PackFilter } from "@/components/common/PackFilter";
 import { DateRangeValue } from "@/components/common/DateRangeFilter";
-import { Switch } from "@/components/ui/switch";
 
 interface Pack {
   id: string;
@@ -38,14 +37,39 @@ export interface FiltersDropdownProps {
   dateRangeLabel?: string;
   dateRangeRequireConfirmation?: boolean;
   dateRangeDisabled?: boolean;
+  expanded?: boolean;
+  packDatesRange?: DateRangeValue; // Datas dos packs para selecionar no calendário quando switch for ativado
+  groupByPacks?: boolean; // Se true, agrupa por packs
+  onGroupByPacksChange?: (checked: boolean) => void; // Handler para mudança do switch
 }
 
 /**
  * Componente reutilizável de dropdown de filtros.
  * Agrupa os filtros de Período, Evento de Conversão e Packs em um menu compacto.
  * 
+ * @param expanded - Se true, renderiza os filtros horizontalmente lado a lado.
+ *                   Se false (padrão), renderiza em um menu collapsado (Popover).
+ * 
  * @example
+ * // Modo collapsado (padrão)
  * <FiltersDropdown
+ *   dateRange={dateRange}
+ *   onDateRangeChange={handleDateRangeChange}
+ *   actionType={actionType}
+ *   onActionTypeChange={handleActionTypeChange}
+ *   actionTypeOptions={uniqueConversionTypes}
+ *   packs={packs}
+ *   selectedPackIds={selectedPackIds}
+ *   onTogglePack={handleTogglePack}
+ *   packsClient={packsClient}
+ *   usePackDates={usePackDates}
+ *   onUsePackDatesChange={handleUsePackDatesChange}
+ * />
+ * 
+ * @example
+ * // Modo expandido (horizontal)
+ * <FiltersDropdown
+ *   expanded={true}
  *   dateRange={dateRange}
  *   onDateRangeChange={handleDateRangeChange}
  *   actionType={actionType}
@@ -74,6 +98,10 @@ export function FiltersDropdown({
   dateRangeLabel = "Período",
   dateRangeRequireConfirmation = true,
   dateRangeDisabled = false,
+  expanded = false,
+  packDatesRange,
+  groupByPacks = false,
+  onGroupByPacksChange,
 }: FiltersDropdownProps) {
   const [open, setOpen] = useState(false);
 
@@ -88,6 +116,102 @@ export function FiltersDropdown({
 
   const activeFiltersCount = getActiveFiltersCount();
 
+  // Conteúdo dos filtros para modo collapsado (vertical)
+  const filtersContentCollapsed = (
+    <>
+      <div className="space-y-2">
+        <DateRangeFilter
+          label={dateRangeLabel}
+          value={dateRange}
+          onChange={onDateRangeChange}
+          requireConfirmation={dateRangeRequireConfirmation}
+          disabled={dateRangeDisabled}
+          usePackDates={usePackDates}
+          onUsePackDatesChange={packsClient && packs.length > 0 && selectedPackIds.size > 0 ? onUsePackDatesChange : undefined}
+          showPackDatesSwitch={packsClient && packs.length > 0 && selectedPackIds.size > 0 && !!onUsePackDatesChange}
+          packDatesRange={packDatesRange}
+        />
+      </div>
+      
+      <ActionTypeFilter
+        label="Evento de Conversão"
+        value={actionType}
+        onChange={onActionTypeChange}
+        options={actionTypeOptions}
+        isLoading={actionTypeOptions.length === 0}
+      />
+      
+      {packsClient && (
+        <PackFilter
+          packs={packs}
+          selectedPackIds={selectedPackIds}
+          onTogglePack={onTogglePack}
+          isLoading={packs.length === 0}
+          packsClient={packsClient}
+          groupByPacks={groupByPacks}
+          onGroupByPacksChange={onGroupByPacksChange}
+          showGroupByPacksSwitch={packs.length > 0 && selectedPackIds.size > 0 && !!onGroupByPacksChange}
+        />
+      )}
+    </>
+  );
+
+  // Conteúdo dos filtros para modo expandido (horizontal)
+  const filtersContentExpanded = (
+    <>
+      {packsClient && (
+        <div className="flex flex-col min-w-[200px]">
+          <PackFilter
+            packs={packs}
+            selectedPackIds={selectedPackIds}
+            onTogglePack={onTogglePack}
+            showLabel={false}
+            isLoading={packs.length === 0}
+            packsClient={packsClient}
+            groupByPacks={groupByPacks}
+            onGroupByPacksChange={onGroupByPacksChange}
+            showGroupByPacksSwitch={packs.length > 0 && selectedPackIds.size > 0 && !!onGroupByPacksChange}
+          />
+        </div>
+      )}
+      
+      <div className="flex flex-col min-w-[200px]">
+        <ActionTypeFilter
+          label=""
+          value={actionType}
+          onChange={onActionTypeChange}
+          options={actionTypeOptions}
+          isLoading={actionTypeOptions.length === 0}
+        />
+      </div>
+      
+      <div className="flex flex-col min-w-[200px]">
+        <DateRangeFilter
+          label={dateRangeLabel}
+          showLabel={false}
+          value={dateRange}
+          onChange={onDateRangeChange}
+          requireConfirmation={dateRangeRequireConfirmation}
+          disabled={dateRangeDisabled}
+          usePackDates={usePackDates}
+          onUsePackDatesChange={packsClient && packs.length > 0 && selectedPackIds.size > 0 ? onUsePackDatesChange : undefined}
+          showPackDatesSwitch={packsClient && packs.length > 0 && selectedPackIds.size > 0 && !!onUsePackDatesChange}
+          packDatesRange={packDatesRange}
+        />
+      </div>
+    </>
+  );
+
+  // Modo expandido: renderizar filtros horizontalmente
+  if (expanded) {
+    return (
+      <div className="flex flex-wrap items-end gap-4">
+        {filtersContentExpanded}
+      </div>
+    );
+  }
+
+  // Modo collapsado: renderizar com Popover (comportamento padrão)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -109,49 +233,12 @@ export function FiltersDropdown({
           </div>
           
           <div className="space-y-4">
-            <div className="space-y-2">
-              <DateRangeFilter
-                label={dateRangeLabel}
-                value={dateRange}
-                onChange={onDateRangeChange}
-                requireConfirmation={dateRangeRequireConfirmation}
-                disabled={dateRangeDisabled || usePackDates}
-              />
-              {packsClient && packs.length > 0 && selectedPackIds.size > 0 && onUsePackDatesChange && (
-                <div className="flex items-center gap-2 p-2 bg-card border border-border rounded-md">
-                  <Switch
-                    id="use-pack-dates"
-                    checked={usePackDates}
-                    onCheckedChange={onUsePackDatesChange}
-                  />
-                  <label
-                    htmlFor="use-pack-dates"
-                    className="text-sm font-medium cursor-pointer"
-                  >
-                    Usar datas dos packs
-                  </label>
-                </div>
-              )}
-            </div>
-            
-            <ActionTypeFilter
-              label="Evento de Conversão"
-              value={actionType}
-              onChange={onActionTypeChange}
-              options={actionTypeOptions}
-            />
-            
-            {packsClient && packs.length > 0 && (
-              <PackFilter
-                packs={packs}
-                selectedPackIds={selectedPackIds}
-                onTogglePack={onTogglePack}
-              />
-            )}
+            {filtersContentCollapsed}
           </div>
         </div>
       </PopoverContent>
     </Popover>
   );
 }
+
 
