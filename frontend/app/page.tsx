@@ -24,7 +24,7 @@ export default function HomePage() {
     if (isLoadingOnboarding) return;
 
     if (data?.has_completed_onboarding) {
-      router.replace("/ads-loader");
+      router.replace("/packs");
     } else {
       router.replace("/onboarding");
     }

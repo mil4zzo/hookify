@@ -4,11 +4,13 @@ import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils/cn";
 import { IconArrowBigDownLinesFilled, IconArrowBigUpLinesFilled, IconEye } from "@tabler/icons-react";
+import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { normalizeLeadscoreValues, computeLeadscoreAverage } from "@/lib/utils/mqlMetrics";
 import { isLowerBetterMetric } from "@/lib/constants/metrics";
 import { AdPlayArea } from "@/components/common/AdPlayArea";
+import { StandardCard } from "@/components/common/StandardCard";
 
 interface GenericCardProps {
   ad: {
@@ -351,7 +353,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
       <Tooltip>
         <TooltipTrigger asChild>
           {/* Card */}
-          <div className={cn("group p-4 relative cursor-pointer rounded-xl border border-border bg-muted transition-all duration-420 hover:border-primary hover:bg-border opacity-100")} onClick={handleCardClick}>
+          <StandardCard variant="default" padding="md" interactive={true} onClick={handleCardClick} className="group relative opacity-100">
             <div className="relative flex items-stretch gap-3 sm:gap-4">
               {/* Thumbnail com botão de play centralizado */}
               <AdPlayArea
@@ -380,6 +382,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                     </div>
                   </div>
                   <p className="text-[11px] text-muted-foreground flex items-center gap-3">
+                    <AdStatusIcon status={(ad as any).effective_status} />
                     <span className="leading-none">{formatCurrency(spend)}</span>
                     <span className="flex items-center gap-1">
                       <IconEye className="h-3 w-3" /> <span className="leading-none">{impressions.toLocaleString("pt-BR")}</span>
@@ -409,7 +412,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                 )}
               </div>
             </div>
-          </div>
+          </StandardCard>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs" side="right" sideOffset={12} align="start" alignOffset={-16}>
           <div className="space-y-4">

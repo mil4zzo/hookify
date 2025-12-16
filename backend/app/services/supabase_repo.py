@@ -374,7 +374,7 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
         batch_num = (batch_idx // batch_size) + 1
         
         try:
-            sb.table("ads").upsert(batch, on_conflict="ad_id").execute()
+            sb.table("ads").upsert(batch, on_conflict="ad_id,user_id").execute()
             logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
         except Exception as e:
             # Se a migration ainda não foi aplicada no ambiente, reprocessar removendo colunas novas
@@ -391,7 +391,7 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
                     rr.pop("thumb_cached_at", None)
                     rr.pop("thumb_source_url", None)
                     cleaned.append(rr)
-                sb.table("ads").upsert(cleaned, on_conflict="ad_id").execute()
+                sb.table("ads").upsert(cleaned, on_conflict="ad_id,user_id").execute()
                 logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} reprocessado sem thumb_* ({len(cleaned)} registros)")
             else:
                 logger.error(f"[UPSERT_ADS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
@@ -575,7 +575,7 @@ def upsert_ad_metrics(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_i
         batch_num = (batch_idx // batch_size) + 1
         
         try:
-            sb.table("ad_metrics").upsert(batch, on_conflict="id").execute()
+            sb.table("ad_metrics").upsert(batch, on_conflict="id,user_id").execute()
             logger.info(f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
         except Exception as e:
             logger.error(f"[UPSERT_AD_METRICS] Erro ao processar lote {batch_num}/{total_batches}: {e}")

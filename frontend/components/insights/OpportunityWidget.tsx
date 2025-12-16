@@ -2,6 +2,7 @@ import { OpportunityRow } from "@/lib/utils/opportunity";
 import { RankingsResponse } from "@/lib/api/schemas";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { IconChevronLeft, IconChevronRight, IconBulbFilled, IconMoodEmptyFilled } from "@tabler/icons-react";
+import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import type { CSSProperties } from "react";
 import { getTopBadgeVariantFromRank, getTopBadgeRowStyles, getTopBadgeEmoji } from "@/lib/utils/topBadgeStyles";
 import { MetricRanks } from "@/lib/utils/metricRankings";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { InsightsModal } from "./InsightsModal";
 import { GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { AdPlayArea } from "@/components/common/AdPlayArea";
+import { StandardCard } from "@/components/common/StandardCard";
 
 type OpportunityWidgetProps = {
   rows: OpportunityRow[];
@@ -350,12 +352,15 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
   };
 
   return (
-    <div
-      className={`bg-card border border-border rounded-lg overflow-hidden flex flex-col flex-shrink-0 hover:bg-border hover:border-primary transition-all duration-420 ${isInOverlay ? "" : "cursor-pointer hover:shadow-lg"}`}
+    <StandardCard
+      variant="default"
+      padding="none"
+      interactive={!isInOverlay}
+      onClick={isInOverlay ? undefined : handleCardClick}
+      className="overflow-hidden flex flex-col flex-shrink-0"
       style={{
         width: "280px",
       }}
-      onClick={isInOverlay ? undefined : handleCardClick}
     >
       {/* Conteúdo */}
       <div className="flex flex-col gap-3 p-4">
@@ -378,9 +383,12 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
             {/* Título e gasto */}
             <div className="flex flex-col gap-1 flex-1 min-w-0">
               <h3 className="text-lg font-bold leading-tight text-foreground truncate">{r.ad_name || r.ad_id || "—"}</h3>
-              <span className="text-xs text-muted-foreground">
-                {formatCurrency(r.spend)} ({variationCount} ads)
-              </span>
+              <div className="flex items-center gap-2">
+                <AdStatusIcon status={(r as any).effective_status} />
+                <span className="text-xs text-muted-foreground">
+                  {formatCurrency(r.spend)} ({variationCount} ads)
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -467,8 +475,8 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
           {/* Botão INSIGHTS */}
           {!isInOverlay && (
             <Button
-              variant="outline"
-              className="w-full flex items-center justify-center gap-2 mt-2 hover:bg-primary hover:text-primary-foreground hover:border-primary"
+              variant="ghost"
+              className="w-full flex items-center justify-center gap-2 mt-2 statuhover:text-primary-foreground hover:border-primary"
               onClick={(e) => {
                 e.stopPropagation();
                 if (onInsightsClick) {
@@ -483,7 +491,7 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
           )}
         </div>
       </div>
-    </div>
+    </StandardCard>
   );
 }
 

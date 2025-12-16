@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
+import { StandardCard } from "@/components/common/StandardCard";
 import { cn } from "@/lib/utils/cn";
 import Image from "next/image";
 import { IconPhoto } from "@tabler/icons-react";
@@ -38,7 +39,12 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank }: Kanba
   const styles = variantStyles[variant];
 
   return (
-    <Card className={cn("transition-all hover:shadow-md", styles.border, styles.bg)}>
+    <StandardCard
+      variant="default"
+      padding="none"
+      interactive={true}
+      className={cn(styles.border, styles.bg)}
+    >
       <CardContent className="p-1">
         <div className="flex items-start gap-3">
           {/* Thumbnail */}
@@ -77,6 +83,6 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank }: Kanba
           </div>
         </div>
       </CardContent>
-    </Card>
+    </StandardCard>
   );
 }

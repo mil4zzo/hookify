@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { StandardCard } from "@/components/common/StandardCard";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -32,7 +33,7 @@ import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { filterVideoAds } from "@/lib/utils/filterVideoAds";
 
-const STORAGE_KEY_DATE_RANGE = "hookify-ads-loader-date-range";
+const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
 
 // Funções auxiliares para gerenciar dateRange no localStorage
 const saveDateRange = (dateRange: { start?: string; end?: string }) => {
@@ -293,7 +294,7 @@ const TanStackTableComponent = ({ data, formatCurrency }: { data: any[]; formatC
   );
 };
 
-export default function AdsLoaderPage() {
+export default function PacksPage() {
   const pageConfig = usePageConfig();
   const formatCurrency = useFormatCurrency();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -1362,7 +1363,7 @@ export default function AdsLoaderPage() {
           // Skeleton enquanto carrega packs
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map((i) => (
-              <Card key={i}>
+              <StandardCard key={i} variant="default" padding="lg" className="flex flex-col">
                 <CardHeader className="pb-3">
                   <Skeleton className="h-6 w-32 mb-2" />
                   <Skeleton className="h-4 w-48" />
@@ -1378,11 +1379,11 @@ export default function AdsLoaderPage() {
                     <Skeleton className="h-8 w-8" />
                   </div>
                 </CardContent>
-              </Card>
+              </StandardCard>
             ))}
           </div>
         ) : packs.length === 0 ? (
-          <Card>
+          <StandardCard variant="card" padding="lg">
             <CardContent className="p-12 text-center">
               <IconChartBar className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2">Nenhum Pack Carregado</h3>
@@ -1392,11 +1393,11 @@ export default function AdsLoaderPage() {
                 Carregar Primeiro Pack
               </Button>
             </CardContent>
-          </Card>
+          </StandardCard>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {packs.map((pack) => (
-              <Card key={pack.id} className="hover:shadow-lg transition-shadow">
+              <StandardCard key={pack.id} variant="default" padding="lg" interactive={true} className="flex flex-col">
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">{pack.name}</CardTitle>
@@ -1547,7 +1548,7 @@ export default function AdsLoaderPage() {
                     </div>
                   )}
                 </CardContent>
-              </Card>
+              </StandardCard>
             ))}
           </div>
         )}

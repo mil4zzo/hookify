@@ -14,6 +14,7 @@ export type OpportunityRow = {
   account_id?: string | null;
   ad_id?: string | null;
   ad_name?: string | null;
+  effective_status?: string | null;
   thumbnail?: string | null;
   adcreatives_videos_thumbs?: string[] | null;
   ad_count?: number;
@@ -189,6 +190,7 @@ export function computeOpportunityScores({
       account_id: (ad as any).account_id,
       ad_id: (ad as any).ad_id,
       ad_name: (ad as any).ad_name,
+      effective_status: (ad as any).effective_status || null,
       thumbnail: (ad as any).thumbnail || null,
       adcreatives_videos_thumbs: (ad as any).adcreatives_videos_thumbs || null,
       ad_count: (ad as any).ad_count || 1,

@@ -218,7 +218,7 @@ export default function Topbar() {
       className: "flex items-center gap-2",
     };
 
-    if (pathname === "/ads-loader") {
+    if (pathname === "/packs") {
       return (
         <Button
           {...buttonProps}
@@ -233,7 +233,7 @@ export default function Topbar() {
     }
 
     return (
-      <Button {...buttonProps} onClick={() => router.push("/ads-loader?openDialog=true")}>
+      <Button {...buttonProps} onClick={() => router.push("/packs?openDialog=true")}>
         <IconPlus className="h-4 w-4" />
         Carregar Packs
       </Button>
@@ -272,7 +272,7 @@ export default function Topbar() {
                       {connect.isPending ? "Conectando..." : "Conectar Facebook"}
                     </Button>
                   ) : hasFacebookConnection ? (
-                    <Button variant="outline" size="sm" onClick={() => router.push("/ads-loader?openDialog=true")} className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={() => router.push("/packs?openDialog=true")} className="flex items-center gap-2">
                       <IconPlus className="h-4 w-4" />
                       Carregar Packs
                     </Button>

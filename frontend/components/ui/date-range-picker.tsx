@@ -228,6 +228,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
       onClick={useModal ? handleModalOpen : undefined}
       iconPosition="start"
       icon={<CalendarIcon className="mr-2 h-4 w-4 flex-shrink-0" />}
+      showCaretDown={false}
       className={cn(
         "justify-start text-left font-normal",
         "h-10",

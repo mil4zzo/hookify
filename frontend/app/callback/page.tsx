@@ -62,7 +62,7 @@ function CallbackContent() {
           // Usar o hook de gerenciamento de auth
           const success = handleLoginSuccess(res.access_token, res.user_info);
           if (success) {
-            router.replace("/ads-loader");
+            router.replace("/packs");
           }
         } catch (e: any) {
           showError({ message: e?.message ?? "Falha ao autenticar" });

@@ -8,7 +8,8 @@ import { AdInfoCard } from "@/components/ads/AdInfoCard";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { VideoDialog } from "@/components/ads/VideoDialog";
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, useReactTable, flexRender } from "@tanstack/react-table";
-import { IconArrowsSort, IconPlayerPlay, IconEye, IconCircleCheck, IconPlayerPause, IconArchive, IconTrash, IconX, IconClock } from "@tabler/icons-react";
+import { IconArrowsSort, IconPlayerPlay, IconEye } from "@tabler/icons-react";
+import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
 import { buildDailySeries } from "@/lib/utils/metricsTimeSeries";
@@ -45,37 +46,6 @@ interface RankingsTableProps {
 }
 
 const columnHelper = createColumnHelper<Ad>();
-
-// Função helper para renderizar ícone de status do anúncio
-function AdStatusIcon({ status }: { status?: string | null }) {
-  if (!status) return null;
-
-  const statusUpper = status.toUpperCase();
-
-  // Mapear status para ícone e cor
-  const statusConfig: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string }> = {
-    ACTIVE: { icon: IconCircleCheck, color: "text-green-600 dark:text-green-400" },
-    PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
-    CAMPAIGN_PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
-    ADSET_PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
-    ARCHIVED: { icon: IconArchive, color: "text-gray-500 dark:text-gray-400" },
-    DELETED: { icon: IconTrash, color: "text-red-600 dark:text-red-400" },
-    DISAPPROVED: { icon: IconX, color: "text-red-600 dark:text-red-400" },
-    PENDING_REVIEW: { icon: IconClock, color: "text-orange-600 dark:text-orange-400" },
-    PREAPPROVED: { icon: IconClock, color: "text-blue-600 dark:text-blue-400" },
-  };
-
-  const config = statusConfig[statusUpper];
-  if (!config) return null;
-
-  const IconComponent = config.icon;
-
-  return (
-    <span title={status}>
-      <IconComponent className={`w-4 h-4 ${config.color}`} />
-    </span>
-  );
-}
 
 // Componente interno para renderizar linha expandida de variações
 function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, formatCurrency, formatPct }: { row: { getVisibleCells: () => any[] }; adName: string; dateStart: string; dateStop: string; actionType?: string; formatCurrency: (n: number) => string; formatPct: (v: number) => string }) {

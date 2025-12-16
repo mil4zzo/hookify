@@ -487,3 +487,5 @@ O sistema calcula **rankings globais** de métricas para identificar anúncios n
 
 
 
+
+

@@ -222,7 +222,7 @@ function SuccessStep(props: { onBack: () => void }) {
     try {
       await api.onboarding.complete();
       // Enviar usuário direto para o fluxo de carregamento de packs
-      router.replace("/ads-loader?openDialog=true");
+      router.replace("/packs?openDialog=true");
     } catch (e: any) {
       showError(e);
     }

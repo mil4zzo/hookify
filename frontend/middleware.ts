@@ -45,7 +45,7 @@ export async function middleware(req: NextRequest) {
   const PUBLIC_ROUTES = ['/login', '/signup', '/callback']
   
   // Rotas protegidas (requerem autenticação)
-  const PROTECTED_ROUTES = ['/rankings', '/ads-loader', '/onboarding', '/']
+  const PROTECTED_ROUTES = ['/rankings', '/packs', '/onboarding', '/']
 
   // Verificar se a rota é protegida
   const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))
@@ -59,10 +59,10 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url)
   }
   
-  // Se está logado e tenta acessar login/signup, redirecionar para ads-loader
+  // Se está logado e tenta acessar login/signup, redirecionar para packs
   if ((pathname === '/login' || pathname === '/signup') && session) {
     const url = req.nextUrl.clone()
-    url.pathname = '/ads-loader'
+    url.pathname = '/packs'
     return NextResponse.redirect(url)
   }
 

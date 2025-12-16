@@ -1,10 +1,10 @@
 import { 
-  IconAdFilled, 
+  IconCardsFilled, 
   IconFlask, 
   IconTable, 
   IconStack2, 
   IconTrophyFilled,
-  IconBulb
+  IconBulbFilled
 } from "@tabler/icons-react";
 import { ComponentType } from "react";
 
@@ -20,10 +20,10 @@ export interface PageConfig {
 
 export const pageConfigs: PageConfig[] = [
   {
-    path: "/ads-loader",
-    title: "ADs Loader",
-    label: "ADs Loader",
-    icon: IconAdFilled,
+    path: "/packs",
+    title: "Packs",
+    label: "Packs",
+    icon: IconCardsFilled,
     description: "Carregue seus packs de anúncios e combine-os para análise",
     showInMenu: true,
   },
@@ -39,7 +39,7 @@ export const pageConfigs: PageConfig[] = [
     path: "/insights",
     title: "Insights",
     label: "Insights",
-    icon: IconBulb,
+    icon: IconBulbFilled,
     description: "Análises e insights sobre seus anúncios",
     showInMenu: true,
   },

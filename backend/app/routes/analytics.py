@@ -461,7 +461,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 batch_ad_ids = ad_ids_list[i:i + batch_size]
                 
                 def ads_filters(q):
-                    return q.in_("ad_id", batch_ad_ids)
+                    return q.eq("user_id", user["user_id"]).in_("ad_id", batch_ad_ids)
                 
                 batch_ads_rows = _fetch_all_paginated(
                     sb,
@@ -514,7 +514,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         # Fallback: buscar diretamente na tabela se não encontrar no map
         if not thumbnail and ad_id_str:
             try:
-                fallback_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,effective_status").eq("ad_id", ad_id_str).limit(1).execute()
+                fallback_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,effective_status").eq("user_id", user["user_id"]).eq("ad_id", ad_id_str).limit(1).execute()
                 if fallback_res.data and len(fallback_res.data) > 0:
                     fallback_row = fallback_res.data[0]
                     thumbnail = _get_storage_thumb_if_any(fallback_row) or _get_thumbnail_with_fallback(fallback_row)
@@ -1021,7 +1021,7 @@ def get_ad_details(
     # Usar paginação para contornar limite de 1000 linhas do Supabase
     # ALTO RISCO: Pode haver mais de 1000 registros se o período for longo (ex: vários anos)
     def metrics_filters(q):
-        return q.eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
+        return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
     
     data = _fetch_all_paginated(
         sb,
@@ -1175,7 +1175,7 @@ def get_ad_details(
     # Buscar thumbnail e informações adicionais da tabela ads
     thumbnail: Optional[str] = None
     try:
-        ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id").eq("ad_id", ad_id).limit(1).execute()
+        ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
         if ads_res.data:
             thumbnail = _get_storage_thumb_if_any(ads_res.data[0]) or _get_thumbnail_with_fallback(ads_res.data[0])
     except Exception as e:
@@ -1281,7 +1281,7 @@ def get_ad_creative(ad_id: str, user=Depends(get_current_user)):
     """Retorna apenas creative e video_ids de um anúncio (leve, para uso em player de vídeo)."""
     sb = get_supabase_for_user(user["token"])
     try:
-        ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id").eq("ad_id", ad_id).limit(1).execute()
+        ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
         if ads_res.data and len(ads_res.data) > 0:
             ad_row = ads_res.data[0]
             creative = ad_row.get("creative") or {}

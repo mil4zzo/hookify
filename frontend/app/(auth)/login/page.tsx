@@ -24,7 +24,7 @@ function LoginContent() {
   const [showPassword, setShowPassword] = useState(false);
 
   // Verificar se há redirect após login
-  const redirectTo = searchParams.get("redirect") || "/ads-loader";
+  const redirectTo = searchParams.get("redirect") || "/packs";
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
