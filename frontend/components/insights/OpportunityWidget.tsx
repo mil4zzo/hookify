@@ -1,7 +1,7 @@
 import { OpportunityRow } from "@/lib/utils/opportunity";
 import { RankingsResponse } from "@/lib/api/schemas";
 import { useFormatCurrency } from "@/lib/utils/currency";
-import { IconChevronLeft, IconChevronRight, IconSparkles, IconMoodEmptyFilled } from "@tabler/icons-react";
+import { IconChevronLeft, IconChevronRight, IconBulbFilled, IconMoodEmptyFilled } from "@tabler/icons-react";
 import type { CSSProperties } from "react";
 import { getTopBadgeVariantFromRank, getTopBadgeRowStyles, getTopBadgeEmoji } from "@/lib/utils/topBadgeStyles";
 import { MetricRanks } from "@/lib/utils/metricRankings";
@@ -467,8 +467,8 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
           {/* Botão INSIGHTS */}
           {!isInOverlay && (
             <Button
-              variant="default"
-              className="w-full flex items-center justify-center gap-2 mt-2"
+              variant="outline"
+              className="w-full flex items-center justify-center gap-2 mt-2 hover:bg-primary hover:text-primary-foreground hover:border-primary"
               onClick={(e) => {
                 e.stopPropagation();
                 if (onInsightsClick) {
@@ -477,8 +477,8 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
               }}
               aria-label="Insights"
             >
-              <IconSparkles className="h-4 w-4" />
-              <span className="text-sm font-medium">INSIGHTS</span>
+              <IconBulbFilled className="h-4 w-4" />
+              <span className="text-sm font-medium">Como melhorar?</span>
             </Button>
           )}
         </div>

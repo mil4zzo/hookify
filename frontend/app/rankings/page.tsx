@@ -237,6 +237,16 @@ export default function RankingsPage() {
     const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
     if (selectedPacks.length === 0) return null;
 
+    // Se apenas 1 pack está selecionado, usar suas datas diretamente
+    if (selectedPacks.length === 1) {
+      const pack = selectedPacks[0];
+      if (pack.date_start && pack.date_stop) {
+        return { start: pack.date_start, end: pack.date_stop };
+      }
+      return null;
+    }
+
+    // Se 2 ou mais packs estão selecionados, usar menor since e maior until
     let minStart: string | null = null;
     let maxEnd: string | null = null;
 
@@ -283,7 +293,7 @@ export default function RankingsPage() {
       setDateRange(calculateDateRangeFromPacks);
       saveDateRange(calculateDateRangeFromPacks);
     }
-  }, [usePackDates, calculateDateRangeFromPacks]);
+  }, [usePackDates, calculateDateRangeFromPacks, selectedPackIds.size]); // Adicionar selectedPackIds.size para garantir atualização ao ativar/desativar packs
 
   // Atualizar serverAverages quando dados mudarem
   useEffect(() => {
