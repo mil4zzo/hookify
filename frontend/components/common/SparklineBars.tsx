@@ -15,37 +15,37 @@ function getSeriesTrendPct(series: Array<number | null | undefined>): number {
 function colorByTrend(pct: number, inverse: boolean = false): string {
   if (inverse) {
     // Invertido: subir é ruim (vermelho), descer é bom (verde)
-    if (pct >= 0.15) return "bg-danger/70"; // strong up = ruim
-    if (pct >= 0.05) return "bg-warning/70"; // mild up = ruim
-    if (pct <= -0.15) return "bg-brand/70"; // strong down = bom
-    if (pct <= -0.05) return "bg-brand/60"; // mild down = bom
+    if (pct >= 0.15) return "bg-danger-70"; // strong up = ruim
+    if (pct >= 0.05) return "bg-warning-70"; // mild up = ruim
+    if (pct <= -0.15) return "bg-brand-70"; // strong down = bom
+    if (pct <= -0.05) return "bg-brand-60"; // mild down = bom
     return "bg-muted"; // flat
   }
   // Normal: subir é bom (verde), descer é ruim (vermelho)
-  if (pct >= 0.15) return "bg-brand/70"; // strong up
-  if (pct >= 0.05) return "bg-brand/60"; // mild up
-  if (pct <= -0.15) return "bg-danger/70"; // strong down
-  if (pct <= -0.05) return "bg-warning/70"; // mild down
+  if (pct >= 0.15) return "bg-brand-70"; // strong up
+  if (pct >= 0.05) return "bg-brand-60"; // mild up
+  if (pct <= -0.15) return "bg-danger-70"; // strong down
+  if (pct <= -0.05) return "bg-warning-70"; // mild down
   return "bg-muted"; // flat
 }
 
 function perBarColor(curr: number | null | undefined, prev: number | null | undefined, inverse: boolean = false): string {
   if (curr == null || Number.isNaN(curr as number) || prev == null || Number.isNaN(prev as number)) {
-    return "bg-muted/20";
+    return "bg-muted-20";
   }
   const c = Number(curr);
   const p = Number(prev);
   
   if (inverse) {
     // Invertido: aumentar é ruim, diminuir é bom
-    if (c > p) return "bg-danger/70"; // aumentou = ruim
-    if (c < p) return "bg-brand/60"; // diminuiu = bom
-    return "bg-muted/30";
+    if (c > p) return "bg-danger-70"; // aumentou = ruim
+    if (c < p) return "bg-brand-60"; // diminuiu = bom
+    return "bg-muted-30";
   }
   // Normal: aumentar é bom, diminuir é ruim
-  if (c > p) return "bg-brand/60";
-  if (c < p) return "bg-danger/70";
-  return "bg-muted/30";
+  if (c > p) return "bg-brand-60";
+  if (c < p) return "bg-danger-70";
+  return "bg-muted-30";
 }
 
 // Gradiente contínuo por valor normalizado: 0 -> vermelho, 0.5 -> laranja, 1 -> verde
@@ -100,16 +100,16 @@ function getInterpolatedBarColor(norm01: number, inverse: boolean = false): stri
 function getHexColorFromClass(colorClass: string): string {
   // Mapeamento de classes Tailwind para cores hexadecimais
   if (colorClass.includes("brand")) {
-    if (colorClass.includes("/70")) return "#62C254"; // brand com opacidade
-    if (colorClass.includes("/60")) return "#62C254"; // brand com opacidade
+    if (colorClass.includes("-70")) return "#62C254"; // brand com opacidade
+    if (colorClass.includes("-60")) return "#62C254"; // brand com opacidade
     return "#62C254"; // brand DEFAULT
   }
   if (colorClass.includes("danger")) {
-    if (colorClass.includes("/70")) return "#E26F62";
+    if (colorClass.includes("-70")) return "#E26F62";
     return "#E26F62"; // danger
   }
   if (colorClass.includes("warning")) {
-    if (colorClass.includes("/70")) return "#F3BC4F";
+    if (colorClass.includes("-70")) return "#F3BC4F";
     return "#F3BC4F"; // warning
   }
   if (colorClass.includes("muted")) {
@@ -151,7 +151,7 @@ type SparklineBarsProps = {
   inverseColors?: boolean; // Se true, inverte a lógica de cores (menor é melhor, ex: CPR, CPM)
 };
 
-export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand/70", nullClass = "bg-muted/20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false }: SparklineBarsProps) {
+export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand-70", nullClass = "bg-muted-20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false }: SparklineBarsProps) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;

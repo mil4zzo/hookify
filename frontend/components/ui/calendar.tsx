@@ -57,9 +57,9 @@ function Calendar({
         week_number_header: cn("w-[--cell-size] select-none", defaultClassNames.week_number_header),
         week_number: cn("text-muted-foreground select-none text-xs sm:text-sm", defaultClassNames.week_number),
         day: cn("group/day relative aspect-square h-full w-full select-none p-0 text-center", "[&:first-child[data-selected=true]_button]:rounded-l-md [&:last-child[data-selected=true]_button]:rounded-r-md", defaultClassNames.day),
-        range_start: cn("!bg-primary/20 rounded-md", defaultClassNames.range_start),
+        range_start: cn("!bg-primary-20 rounded-md", defaultClassNames.range_start),
         range_middle: cn("!bg-popover", "[&:first-child]:rounded-l-md [&:last-child]:rounded-r-md", defaultClassNames.range_middle),
-        range_end: cn("!bg-primary/20 rounded-md", defaultClassNames.range_end),
+        range_end: cn("!bg-primary-20 rounded-md", defaultClassNames.range_end),
         today: cn("underline underline-offset-4 decoration-2 decoration-dotted decoration-primary text-accent-foreground rounded-md font-semibold", "data-[selected=true]:rounded-md data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground", defaultClassNames.today),
         outside: cn("text-muted-foreground/60 aria-selected:text-muted-foreground/60", defaultClassNames.outside),
         disabled: cn("text-muted-foreground/40 opacity-50 cursor-not-allowed", defaultClassNames.disabled),
@@ -122,7 +122,7 @@ function CalendarDayButton({ className, day, modifiers, ...props }: React.Compon
         "data-[range-start=true]:bg-primary data-[range-start=true]:text-primary-foreground",
         "data-[range-start=true]:font-semibold",
         // Estados de range - MEIO (mais visível agora)
-        "data-[range-middle=true]:bg-primary/20 data-[range-middle=true]:text-primary",
+        "data-[range-middle=true]:bg-primary-20 data-[range-middle=true]:text-primary",
         "data-[range-middle=true]:font-medium",
         // Estados de range - FIM
         "data-[range-end=true]:bg-primary data-[range-end=true]:text-primary-foreground",
@@ -143,9 +143,9 @@ function CalendarDayButton({ className, day, modifiers, ...props }: React.Compon
         // Hover e interatividade
         "hover:bg-accent hover:text-accent-foreground",
         // Hover específico para range
-        "data-[selected-single=true]:hover:bg-primary/90",
-        "data-[range-start=true]:hover:bg-primary/90 data-[range-end=true]:hover:bg-primary/90",
-        "data-[range-middle=true]:hover:bg-primary/30",
+        "data-[selected-single=true]:hover:bg-primary-90",
+        "data-[range-start=true]:hover:bg-primary-90 data-[range-end=true]:hover:bg-primary-90",
+        "data-[range-middle=true]:hover:bg-primary-30",
         // Focus states
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10",

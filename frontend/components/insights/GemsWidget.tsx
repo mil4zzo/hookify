@@ -40,7 +40,7 @@ function SortableGemsColumn({ id, ...columnProps }: { id: GemsColumnType } & Rea
   };
 
   const dragHandle = (
-    <button type="button" {...attributes} {...listeners} className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 cursor-grab active:cursor-grabbing transition-colors" title="Arraste para reordenar" aria-label="Arraste para reordenar">
+    <button type="button" {...attributes} {...listeners} className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted-hover cursor-grab active:cursor-grabbing transition-colors" title="Arraste para reordenar" aria-label="Arraste para reordenar">
       <IconGripVertical className="h-4 w-4" />
     </button>
   );

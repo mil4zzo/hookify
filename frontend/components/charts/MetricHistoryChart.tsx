@@ -243,7 +243,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
             const requiresActionType = (metric.key === "cpr" || metric.key === "page_conv") && !actionType;
 
             return (
-              <label key={metric.key} className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer transition-colors text-xs ${isSelected ? "bg-primary/10 border border-primary" : "bg-background border border-border hover:bg-muted"} ${requiresActionType ? "opacity-50 cursor-not-allowed" : ""}`}>
+              <label key={metric.key} className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer transition-colors text-xs ${isSelected ? "bg-primary-10 border border-primary" : "bg-background border border-border hover:bg-muted"} ${requiresActionType ? "opacity-50 cursor-not-allowed" : ""}`}>
                 <input
                   type="checkbox"
                   checked={isSelected}

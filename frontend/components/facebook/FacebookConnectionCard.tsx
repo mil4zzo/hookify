@@ -65,9 +65,9 @@ export function FacebookConnectionCard({
     <div
       className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${
         isSelected && canSelect
-          ? "border-primary bg-primary/5 cursor-pointer"
+          ? "border-primary bg-primary-5 cursor-pointer"
           : isExpired
-          ? "border-destructive/50 bg-destructive/5 cursor-not-allowed opacity-75"
+          ? "border-destructive-50 bg-destructive-5 cursor-not-allowed opacity-75"
           : canSelect
           ? "border-border hover:bg-accent cursor-pointer"
           : "border-border cursor-not-allowed opacity-50"
@@ -113,7 +113,7 @@ export function FacebookConnectionCard({
                 </span>
               )}
               {connection.is_primary && (
-                <span className="text-xs px-2 py-0.5 rounded bg-primary/20 text-primary font-medium">Primária</span>
+                <span className="text-xs px-2 py-0.5 rounded bg-primary-20 text-primary font-medium">Primária</span>
               )}
             </div>
             {connection.facebook_email && connection.facebook_email !== connection.facebook_name && (
@@ -156,7 +156,7 @@ export function FacebookConnectionCard({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10"
                   onClick={handleDelete}
                   disabled={isDeleting}
                 >

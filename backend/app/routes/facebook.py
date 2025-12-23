@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Body
+from fastapi import APIRouter, Depends, HTTPException, Header, Body, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from typing import Dict, Any
 from datetime import datetime, timezone, timedelta, date
@@ -21,6 +21,19 @@ from app.core.auth import get_current_user
 from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest
 from app.core.config import FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET, FACEBOOK_TOKEN_URL, FACEBOOK_AUTH_BASE_URL
 from fastapi import Query
+
+# Novos imports para arquitetura "2 fases"
+from app.services.job_tracker import (
+    get_job_tracker,
+    STATUS_META_RUNNING,
+    STATUS_META_COMPLETED,
+    STATUS_PROCESSING,
+    STATUS_PERSISTING,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+)
+from app.services.meta_job_client import get_meta_job_client
+from app.services.job_processor import process_job_async
 
 logger = logging.getLogger(__name__)
 
@@ -292,30 +305,74 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/ads-progress/{job_id}")
-def get_job_progress(job_id: str, api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any] = Depends(get_current_user), x_supabase_user_id: str | None = Header(default=None, alias="X-Supabase-User-Id")):
-    """Get progress of ads job."""
+def get_job_progress(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+    x_supabase_user_id: str | None = Header(default=None, alias="X-Supabase-User-Id")
+):
+    """
+    Get progress of ads job (arquitetura "2 fases").
+    
+    - Fase 1: Consulta rápida do status na Meta API
+    - Fase 2: Quando Meta completa, dispara processamento em background
+    
+    O frontend recebe respostas rápidas e não fica bloqueado.
+    """
     try:
-        # Verificar se há detalhes no Supabase antes de consultar a API
-        existing_details = None
-        try:
-            from app.core.supabase_client import get_supabase_for_user
-            sb = get_supabase_for_user(user["token"])
-            job_res = sb.table("jobs").select("payload, status, progress, message").eq("id", job_id).eq("user_id", user["user_id"]).execute()
-            if job_res.data and len(job_res.data) > 0:
-                job_payload = job_res.data[0].get("payload")
-                if job_payload and "details" in job_payload:
-                    existing_details = job_payload.get("details")
-        except Exception:
-            logger.debug("Não foi possível buscar detalhes existentes do job")
+        user_jwt = user["token"]
+        user_id = user["user_id"]
         
-        progress = api.get_job_progress(job_id)
-
-        # Verificar se progresso indica erro de token expirado
-        progress_message = progress.get("message", "")
-        if progress.get("status") in ["error", "failed"] and check_meta_error_for_token_expiry(progress_message):
-            user_jwt = user["token"]
-            user_id = user["user_id"]
-            mark_connection_as_expired(user_jwt, user_id)
+        # Criar tracker para este job
+        tracker = get_job_tracker(user_jwt, user_id)
+        
+        # 1) Verificar status atual no Supabase (rápido)
+        job = tracker.get_job(job_id)
+        current_status = job.get("status") if job else None
+        
+        # Se job já está em estado final, retornar diretamente
+        if current_status == STATUS_COMPLETED:
+            logger.debug(f"[JOB_PROGRESS] Job {job_id} já completado, retornando progresso salvo")
+            return tracker.get_public_progress(job_id)
+        
+        if current_status == STATUS_FAILED:
+            logger.debug(f"[JOB_PROGRESS] Job {job_id} já falhou, retornando progresso salvo")
+            return tracker.get_public_progress(job_id)
+        
+        # Se job está em processing/persisting, retornar progresso atual (background está trabalhando)
+        if current_status in (STATUS_PROCESSING, STATUS_PERSISTING):
+            # Verificar se precisa retomar (self-healing para jobs "stale")
+            if tracker.should_resume_processing(job_id):
+                logger.warning(f"[JOB_PROGRESS] Job {job_id} parece stale, tentando retomar...")
+                # Buscar token do Facebook para reprocessar
+                fb_token = get_facebook_token_for_user(user_jwt, user_id)
+                if fb_token:
+                    background_tasks.add_task(
+                        process_job_async,
+                        user_jwt,
+                        user_id,
+                        fb_token,
+                        job_id
+                    )
+            return tracker.get_public_progress(job_id)
+        
+        # 2) Consultar status na Meta API (rápido, sem paginação)
+        fb_token = get_facebook_token_for_user(user_jwt, user_id)
+        if not fb_token:
+            raise HTTPException(
+                status_code=403,
+                detail="Token do Facebook não encontrado. Conecte sua conta do Facebook."
+            )
+        
+        meta_client = get_meta_job_client(fb_token)
+        meta_status = meta_client.get_status(job_id)
+        
+        # Verificar erros da Meta
+        if not meta_status.get("success"):
+            error_msg = meta_status.get("error", "Erro desconhecido")
+            if check_meta_error_for_token_expiry(error_msg):
+                mark_connection_as_expired(user_jwt, user_id)
             raise HTTPException(
                 status_code=401,
                 detail={
@@ -324,252 +381,94 @@ def get_job_progress(job_id: str, api: GraphAPI = Depends(get_graph_api), user: 
                     "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
                 }
             )
-
-        # Mesclar detalhes existentes com novos (se houver)
-        details = progress.get("details") or existing_details
-
-        # Atualiza tracking do job no Supabase com detalhes granulares
-        try:
-            supabase_repo.record_job(
-                user["token"], 
-                job_id, 
-                status=progress.get("status", "running"), 
-                user_id=user["user_id"], 
-                progress=int(progress.get("progress", 0)), 
-                message=progress.get("message"), 
-                result_count=(len(progress.get("data", [])) if isinstance(progress.get("data"), list) else None),
-                details=details
+            # Se Meta falhou mas não é erro de token, atualizar status
+            tracker.heartbeat(
+                job_id,
+                status=STATUS_META_RUNNING,
+                progress=0,
+                message=f"Erro ao verificar status: {error_msg}"
             )
-        except Exception:
-            logger.exception("Falha ao atualizar job no Supabase (progress)")
+            return tracker.get_public_progress(job_id)
         
-        # Incluir detalhes na resposta se disponíveis
-        if details:
-            progress["details"] = details
-
-        # Se completou, persistir ads, métricas e pack
-        try:
-            if progress.get("status") == "completed":
-                data = progress.get("data") or []
-                # Buscar dados do pack do payload do job
-                job_data = None
-                try:
-                    logger.info(f"[JOB_COMPLETE] Buscando payload do job {job_id} no Supabase...")
-                    from app.core.supabase_client import get_supabase_for_user
-                    sb = get_supabase_for_user(user["token"])
-                    job_res = sb.table("jobs").select("payload").eq("id", job_id).eq("user_id", user["user_id"]).execute()
-                    logger.info(f"[JOB_COMPLETE] Resposta da busca do job: data={job_res.data is not None}, len={len(job_res.data) if job_res.data else 0}")
-                    
-                    if job_res.data and len(job_res.data) > 0:
-                        job_data = job_res.data[0].get("payload")
-                        logger.info(f"[JOB_COMPLETE] Job payload encontrado: {job_data}")
-                    else:
-                        logger.warning(f"[JOB_COMPLETE] Job {job_id} não encontrado no Supabase ou sem payload")
-                except Exception as e:
-                    logger.exception(f"[JOB_COMPLETE] Falha ao buscar payload do job {job_id}: {e}")
-                
-                # Verificar se é refresh de pack ou criação de novo pack
-                pack_id = None
-                is_refresh = False
-                
-                if job_data:
-                    # Verificar se é refresh
-                    is_refresh = job_data.get("is_refresh", False)
-                    pack_id_from_payload = job_data.get("pack_id")
-                    
-                    if is_refresh and pack_id_from_payload:
-                        # É refresh: pack_id já existe
-                        pack_id = pack_id_from_payload
-                        logger.info(f"[JOB_COMPLETE] Atualizando pack após refresh: {pack_id}")
-                        try:
-                            # 1) Persistir ads e métricas com merge de pack_id
-                            if isinstance(data, list) and data:
-                                supabase_repo.upsert_ads(user["token"], data, user_id=user["user_id"], pack_id=pack_id)
-                                supabase_repo.upsert_ad_metrics(user["token"], data, user_id=user["user_id"], pack_id=pack_id)
-                                # Atualizar lista de ad_ids do pack
-                                ad_ids = sorted(list({str(a.get("ad_id")) for a in data if a.get("ad_id")}))
-                                supabase_repo.update_pack_ad_ids(user["token"], pack_id, ad_ids, user_id=user["user_id"])
-                                
-                                # Verificar se métricas foram persistidas antes de calcular stats
-                                expected_metrics = len(data)
-                                metrics_verified, metrics_count = supabase_repo.verify_metrics_persisted(
-                                    user["token"],
-                                    pack_id,
-                                    user_id=user["user_id"],
-                                    expected_min_count=min(10, expected_metrics),
-                                    max_retries=5,
-                                    initial_delay=0.2
-                                )
-                                
-                                if not metrics_verified:
-                                    logger.warning(f"[JOB_COMPLETE] ⚠ Métricas podem não estar totalmente persistidas para pack {pack_id} (encontradas: {metrics_count})")
-                                    if isinstance(progress, dict):
-                                        if "warnings" not in progress:
-                                            progress["warnings"] = []
-                                        progress["warnings"].append(
-                                            f"Métricas podem não estar totalmente disponíveis ({metrics_count} encontradas). "
-                                            "Os stats podem ser recalculados automaticamente."
-                                        )
-
-                            # 2) Atualizar status de refresh (usar o mesmo dia lógico do until)
-                            last_refreshed_at = None
-                            try:
-                                last_refreshed_at = str(job_data.get("date_stop")) if job_data else None
-                            except Exception:
-                                last_refreshed_at = None
-                            supabase_repo.update_pack_refresh_status(
-                                user["token"],
-                                pack_id,
-                                user_id=user["user_id"],
-                                last_refreshed_at=last_refreshed_at,
-                                refresh_status="success"
-                            )
-                            # 3) Calcular/atualizar stats
-                            if isinstance(data, list) and data:
-                                stats = supabase_repo.calculate_pack_stats(
-                                    user["token"],
-                                    pack_id,
-                                    user_id=user["user_id"]
-                                )
-                                if stats and stats.get("totalSpend") is not None:
-                                    supabase_repo.update_pack_stats(
-                                        user["token"],
-                                        pack_id,
-                                        stats,
-                                        user_id=user["user_id"]
-                                    )
-                                    logger.info(f"[JOB_COMPLETE] ✓ Stats atualizados para pack {pack_id}: totalSpend={stats.get('totalSpend')}")
-                                else:
-                                    logger.warning(f"[JOB_COMPLETE] ⚠ Stats vazios ou inválidos para pack {pack_id}")
-                                    if isinstance(progress, dict):
-                                        if "warnings" not in progress:
-                                            progress["warnings"] = []
-                                        progress["warnings"].append(
-                                            "Não foi possível calcular o investimento total. "
-                                            "Os stats serão recalculados automaticamente ao carregar o pack."
-                                        )
-                            logger.info(f"[JOB_COMPLETE] ✓ Pack {pack_id} atualizado após refresh bem-sucedido")
-                            if isinstance(progress, dict):
-                                progress["pack_id"] = pack_id
-                        except Exception as e:
-                            logger.exception(f"[JOB_COMPLETE] ✗ Erro ao atualizar pack após refresh: {e}")
-                    else:
-                        # É criação de novo pack
-                        pack_name = job_data.get("name")
-                        logger.info(f"[JOB_COMPLETE] Tentando criar pack com nome: {pack_name}")
-                        if pack_name:
-                            try:
-                                # 1) Criar pack
-                                pack_id = supabase_repo.upsert_pack(
-                                    user["token"],
-                                    user_id=user["user_id"],
-                                    adaccount_id=job_data.get("adaccount_id", ""),
-                                    name=pack_name,
-                                    date_start=job_data.get("date_start", ""),
-                                    date_stop=job_data.get("date_stop", ""),
-                                    level=job_data.get("level", "ad"),
-                                    filters=job_data.get("filters", []),
-                                    auto_refresh=job_data.get("auto_refresh", False),
-                                    today_local=job_data.get("today_local"),
-                                )
-                                if pack_id:
-                                    logger.info(f"[JOB_COMPLETE] ✓ Pack criado/atualizado no Supabase: {pack_id} (nome: {pack_name})")
-                                    # Atualizar last_refreshed_at para o dia lógico informado
-                                    try:
-                                        today_local = job_data.get("today_local") or job_data.get("date_stop")
-                                        if today_local:
-                                            supabase_repo.update_pack_refresh_status(
-                                                user["token"],
-                                                pack_id,
-                                                user_id=user["user_id"],
-                                                last_refreshed_at=str(today_local),
-                                                refresh_status="success",
-                                            )
-                                    except Exception:
-                                        logger.exception("Falha ao atualizar last_refreshed_at na criação do pack")
-                                    # 2) Persistir ads e métricas com merge de pack_id
-                                    if isinstance(data, list) and data:
-                                        supabase_repo.upsert_ads(user["token"], data, user_id=user["user_id"], pack_id=pack_id)
-                                        supabase_repo.upsert_ad_metrics(user["token"], data, user_id=user["user_id"], pack_id=pack_id)
-                                        # 3) Atualizar ad_ids do pack
-                                        ad_ids = sorted(list({str(a.get("ad_id")) for a in data if a.get("ad_id")}))
-                                        supabase_repo.update_pack_ad_ids(user["token"], pack_id, ad_ids, user_id=user["user_id"])
-                                        
-                                        # 4) Verificar se métricas foram persistidas antes de calcular stats
-                                        expected_metrics = len(data)
-                                        metrics_verified, metrics_count = supabase_repo.verify_metrics_persisted(
-                                            user["token"],
-                                            pack_id,
-                                            user_id=user["user_id"],
-                                            expected_min_count=min(10, expected_metrics),  # Pelo menos 10 ou o total, o que for menor
-                                            max_retries=5,
-                                            initial_delay=0.2
-                                        )
-                                        
-                                        if not metrics_verified:
-                                            logger.warning(f"[JOB_COMPLETE] ⚠ Métricas podem não estar totalmente persistidas para pack {pack_id} (encontradas: {metrics_count})")
-                                            # Adicionar warning ao progress para feedback no frontend
-                                            if isinstance(progress, dict):
-                                                if "warnings" not in progress:
-                                                    progress["warnings"] = []
-                                                progress["warnings"].append(
-                                                    f"Métricas podem não estar totalmente disponíveis ({metrics_count} encontradas). "
-                                                    "Os stats podem ser recalculados automaticamente."
-                                                )
-                                        
-                                        # 5) Calcular/atualizar stats
-                                        stats = supabase_repo.calculate_pack_stats(
-                                            user["token"],
-                                            pack_id,
-                                            user_id=user["user_id"]
-                                        )
-                                        
-                                        if stats and stats.get("totalSpend") is not None:
-                                            supabase_repo.update_pack_stats(
-                                                user["token"],
-                                                pack_id,
-                                                stats,
-                                                user_id=user["user_id"]
-                                            )
-                                            logger.info(f"[JOB_COMPLETE] ✓ Stats calculados e salvos para pack {pack_id}: totalSpend={stats.get('totalSpend')}")
-                                        else:
-                                            logger.warning(f"[JOB_COMPLETE] ⚠ Stats vazios ou inválidos para pack {pack_id}")
-                                            # Adicionar warning ao progress
-                                            if isinstance(progress, dict):
-                                                if "warnings" not in progress:
-                                                    progress["warnings"] = []
-                                                progress["warnings"].append(
-                                                    "Não foi possível calcular o investimento total. "
-                                                    "Os stats serão recalculados automaticamente ao carregar o pack."
-                                                )
-                                    # Adicionar pack_id à resposta de progress
-                                    if isinstance(progress, dict):
-                                        progress["pack_id"] = pack_id
-                                else:
-                                    logger.error(f"[JOB_COMPLETE] ✗ Falha ao criar pack no Supabase para job {job_id} - upsert_pack retornou None")
-                            except Exception as e:
-                                logger.exception(f"[JOB_COMPLETE] ✗ Erro ao chamar upsert_pack: {e}")
-                        else:
-                            # Melhorar mensagem de warning para incluir mais contexto de debug
-                            logger.warning(
-                                f"[JOB_COMPLETE] Job payload não contém 'name' válido (recebido: {repr(pack_name)}), "
-                                f"não é possível criar pack. Payload keys: {list(job_data.keys()) if job_data else 'None'}"
-                            )
-                else:
-                    logger.warning(f"[JOB_COMPLETE] Job {job_id} não tem payload salvo, não é possível criar/atualizar pack")
-
-                # Pequeno delay para garantir consistência após todas as escritas
-                if isinstance(data, list) and data:
-                    import time
-                    time.sleep(0.5)
-        except Exception as e:
-            logger.exception(f"[JOB_COMPLETE] Falha ao persistir dados no Supabase ao concluir o job {job_id}: {e}")
-
-        return progress
+        # 3) Processar resultado da Meta
+        meta_job_status = meta_status.get("status")
+        meta_percent = meta_status.get("percent", 0)
+        
+        if meta_job_status == "running":
+            # Meta ainda processando - atualizar progresso e retornar
+            tracker.heartbeat(
+                job_id, 
+                status=STATUS_META_RUNNING,
+                progress=meta_percent,
+                message=f"Meta API processando... {meta_percent}%"
+            )
+            return {
+                "status": "running",
+                "progress": meta_percent,
+                "message": f"Meta API processando... {meta_percent}%",
+                "details": {"stage": "meta_processing"}
+            }
+        
+        elif meta_job_status == "failed":
+            # Meta falhou
+            error_msg = meta_status.get("error", "Job falhou na Meta API")
+            tracker.mark_failed(job_id, error_msg)
+            
+            if check_meta_error_for_token_expiry(error_msg):
+                mark_connection_as_expired(user_jwt, user_id)
+                raise HTTPException(
+                    status_code=401,
+                    detail={
+                        "error": "facebook_token_expired",
+                        "code": "TOKEN_EXPIRED",
+                        "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
+                    }
+                )
+            
+            return {
+                "status": "failed",
+                "progress": 0,
+                "message": error_msg
+            }
+        
+        elif meta_job_status == "completed":
+            # Meta completou! Disparar processamento em background
+            logger.info(f"[JOB_PROGRESS] Meta API completou para job {job_id}, disparando processamento...")
+            
+            # Marcar como meta_completed e iniciar processamento
+            tracker.mark_meta_completed(job_id)
+            
+            # Verificar se podemos marcar como processing (lock otimista)
+            if tracker.try_mark_processing(job_id):
+                # Disparar processamento em background
+                background_tasks.add_task(
+                    process_job_async,
+                    user_jwt,
+                    user_id,
+                    fb_token,
+                    job_id
+                )
+                logger.info(f"[JOB_PROGRESS] Processamento em background iniciado para job {job_id}")
+            
+            return {
+                "status": "processing",
+                "progress": 100,
+                "message": "Processando dados coletados...",
+                "details": {"stage": "paginação"}
+            }
+        
+        else:
+            # Status desconhecido
+            return {
+                "status": "running",
+                "progress": meta_percent,
+                "message": f"Status: {meta_job_status}"
+            }
+    
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error getting job progress")
+        logger.exception(f"Error getting job progress for {job_id}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/video-source")

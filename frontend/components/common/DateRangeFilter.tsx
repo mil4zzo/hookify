@@ -22,7 +22,7 @@ interface DateRangeFilterProps {
   usePackDates?: boolean; // Se true, usa datas dos packs (desabilita seleção manual)
   onUsePackDatesChange?: (checked: boolean) => void; // Handler para mudança do switch
   showPackDatesSwitch?: boolean; // Se true, mostra o switch "Usar datas dos packs" dentro do popup
-  packDatesRange?: DateRangeValue; // Datas dos packs para selecionar no calendário quando switch for ativado
+  packDatesRange?: DateRangeValue | null; // Datas dos packs para selecionar no calendário quando switch for ativado. null = sem dados disponíveis, undefined = aguardando dados
 }
 
 // Helper para converter DateRange para DateRangeValue
@@ -58,7 +58,8 @@ function valueToDateRange(value: DateRangeValue): DateRange | undefined {
 
 export function DateRangeFilter({ label = "Período", showLabel = true, value, onChange, className, useModal = false, disableFutureDates = false, requireConfirmation = false, disabled = false, usePackDates = false, onUsePackDatesChange, showPackDatesSwitch = false, packDatesRange }: DateRangeFilterProps) {
   const dateRange = valueToDateRange(value);
-  const packDatesRangeDateRange = packDatesRange ? valueToDateRange(packDatesRange) : undefined;
+  // Preservar null explicitamente para distinguir entre "sem dados" (null) e "aguardando" (undefined)
+  const packDatesRangeDateRange = packDatesRange === null ? null : packDatesRange ? valueToDateRange(packDatesRange) : undefined;
 
   const handleDateChange = (range: DateRange | undefined) => {
     if (disabled) return; // Não permitir mudança quando desabilitado

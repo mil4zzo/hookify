@@ -402,23 +402,23 @@ export default function Topbar() {
                   <h2 className="text-lg font-semibold text-text">Configurações</h2>
                 </div>
                 <nav className="flex p-2 space-x-1 overflow-x-auto">
-                  <button onClick={() => setActiveSettingsTab("general")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("general")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconSettings className="h-5 w-5" />
                     <span className="text-sm font-medium">Geral</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("accounts")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("accounts")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconUsers className="h-5 w-5" />
                     <span className="text-sm font-medium">Contas</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("validation")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "validation" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("validation")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "validation" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconCheck className="h-5 w-5" />
                     <span className="text-sm font-medium">Critério de validação</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("integrations")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("integrations")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconTableExport className="h-5 w-5" />
                     <span className="text-sm font-medium">Integrações</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconTarget className="h-5 w-5" />
                     <span className="text-sm font-medium">Leadscore</span>
                   </button>
@@ -431,23 +431,23 @@ export default function Topbar() {
                   <h2 className="text-lg font-semibold text-text">Configurações</h2>
                 </div>
                 <nav className="flex-1 p-2 space-y-1">
-                  <button onClick={() => setActiveSettingsTab("general")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("general")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconSettings className="h-5 w-5" />
                     <span className="text-sm font-medium">Geral</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("accounts")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("accounts")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconUsers className="h-5 w-5" />
                     <span className="text-sm font-medium">Contas</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("validation")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "validation" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("validation")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "validation" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconCheck className="h-5 w-5" />
                     <span className="text-sm font-medium">Critério de validação</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("integrations")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("integrations")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconTableExport className="h-5 w-5" />
                     <span className="text-sm font-medium">Integrações</span>
                   </button>
-                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent/50 hover:text-text"}`}>
+                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconTarget className="h-5 w-5" />
                     <span className="text-sm font-medium">Leadscore</span>
                   </button>
@@ -688,7 +688,7 @@ export default function Topbar() {
                       </div>
 
                       <div className="space-y-4">
-                        <div className="border border-border rounded-lg p-6 bg-secondary/30">
+                        <div className="border border-border rounded-lg p-6 bg-secondary-30">
                           <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-3">
                               <IconTableExport className="h-6 w-6 text-brand" />

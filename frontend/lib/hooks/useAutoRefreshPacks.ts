@@ -133,19 +133,30 @@ export function useAutoRefreshPacks() {
       // Atualizar toast com informações reais
       updateProgressToast(toastId, pack.name, 1, totalDays);
 
-      // Fazer polling do job
+      // Fazer polling do job (arquitetura "2 fases" - requests rápidos)
       let completed = false;
       let attempts = 0;
-      const maxAttempts = 150; // 5 minutos máximo
+      const maxAttempts = 300; // 10 minutos máximo (300 * 2s = 600s)
 
       while (!completed && attempts < maxAttempts) {
         await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
 
         try {
           const progress = await api.facebook.getJobProgress(refreshResult.job_id);
+          const details = (progress as any)?.details || {};
+          
+          // Estimar progresso baseado no estágio
+          let stageProgress = progress.progress || 0;
+          if (details.stage) {
+            if (details.stage === "paginação") stageProgress = 30;
+            else if (details.stage === "enriquecimento") stageProgress = 60;
+            else if (details.stage === "formatação") stageProgress = 85;
+            else if (details.stage === "persistência") stageProgress = 95;
+            else if (details.stage === "completo") stageProgress = 100;
+          }
           
           // Estimar dia atual baseado no progresso
-          const currentDay = estimateCurrentDay(progress.progress || 0, totalDays);
+          const currentDay = estimateCurrentDay(stageProgress, totalDays);
           
           // Atualizar toast com progresso
           updateProgressToast(
@@ -157,7 +168,7 @@ export function useAutoRefreshPacks() {
           );
 
           if (progress.status === "completed") {
-            const adsCount = Array.isArray(progress.data) ? progress.data.length : 0;
+            const adsCount = (progress as any).result_count || 0;
             finishProgressToast(
               toastId,
               true,
@@ -178,8 +189,8 @@ export function useAutoRefreshPacks() {
                     auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
                   } as Partial<AdsPack>);
                   
-              // Invalidar cache de ads (faz usePacksAds refazer a query)
-              await invalidatePackAds(pack.id);
+                  // Invalidar cache de ads (faz usePacksAds refazer a query)
+                  await invalidatePackAds(pack.id);
                 }
               }
               
@@ -199,6 +210,7 @@ export function useAutoRefreshPacks() {
             );
             completed = true;
           }
+          // Status "running", "processing", "persisting" continuam o polling
         } catch (error) {
           console.error(`Erro ao verificar progresso do pack ${pack.id}:`, error);
           // Continuar tentando, mas atualizar toast com mensagem de erro
@@ -217,7 +229,7 @@ export function useAutoRefreshPacks() {
       }
 
       if (!completed) {
-        finishProgressToast(toastId, false, `Timeout ao atualizar "${pack.name}" (demorou mais de 5 minutos)`);
+        finishProgressToast(toastId, false, `Timeout ao atualizar "${pack.name}" (demorou mais de 10 minutos)`);
       }
     } catch (error) {
       console.error(`Erro ao atualizar pack ${pack.id}:`, error);

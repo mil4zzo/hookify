@@ -148,7 +148,20 @@ create table if not exists public.user_preferences (
 create table if not exists public.jobs (
   id text primary key,
   user_id uuid not null,
-  status text not null check (status in ('pending','running','completed','failed','error')),
+  status text not null check (status in (
+    -- Status antigos (mantidos para compatibilidade)
+    'pending',
+    'running',
+    'completed',
+    'failed',
+    'error',
+    -- Novos status para arquitetura "2 fases"
+    'meta_running',      -- Meta API ainda processando
+    'meta_completed',    -- Meta terminou, aguardando processamento interno
+    'processing',        -- Coletando/paginando/enriquecendo/formatando
+    'persisting',        -- Gravando ads/metrics/pack/stats
+    'cancelled'          -- Cancelado pelo usuário
+  )),
   progress int default 0,
   message text,
   payload jsonb,

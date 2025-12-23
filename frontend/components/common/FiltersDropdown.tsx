@@ -38,7 +38,7 @@ export interface FiltersDropdownProps {
   dateRangeRequireConfirmation?: boolean;
   dateRangeDisabled?: boolean;
   expanded?: boolean;
-  packDatesRange?: DateRangeValue; // Datas dos packs para selecionar no calendário quando switch for ativado
+  packDatesRange?: DateRangeValue | null; // Datas dos packs para selecionar no calendário quando switch for ativado. null = sem dados disponíveis, undefined = aguardando dados
   groupByPacks?: boolean; // Se true, agrupa por packs
   onGroupByPacksChange?: (checked: boolean) => void; // Handler para mudança do switch
 }

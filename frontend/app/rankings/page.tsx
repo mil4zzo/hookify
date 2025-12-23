@@ -19,10 +19,11 @@ import { PageSectionHeader } from "@/components/common/PageSectionHeader";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 
-const STORAGE_KEY_PACKS = "hookify-rankings-selected-packs";
-const STORAGE_KEY_ACTION_TYPE = "hookify-rankings-action-type";
-const STORAGE_KEY_DATE_RANGE = "hookify-rankings-date-range";
-const STORAGE_KEY_USE_PACK_DATES = "hookify-rankings-use-pack-dates";
+// Chaves compartilhadas entre Insights e Rankings
+const STORAGE_KEY_PACKS = "hookify-selected-packs";
+const STORAGE_KEY_ACTION_TYPE = "hookify-action-type";
+const STORAGE_KEY_DATE_RANGE = "hookify-date-range";
+const STORAGE_KEY_USE_PACK_DATES = "hookify-use-pack-dates";
 
 // Tipo para as preferências de packs no localStorage
 // Estrutura: { [packId: string]: boolean } onde true = habilitado, false = desabilitado
@@ -40,7 +41,32 @@ const savePackPreferences = (prefs: PackPreferences) => {
 const loadPackPreferences = (): PackPreferences => {
   if (typeof window === "undefined") return {};
   try {
-    const saved = localStorage.getItem(STORAGE_KEY_PACKS);
+    // Primeiro tentar carregar da chave compartilhada
+    let saved = localStorage.getItem(STORAGE_KEY_PACKS);
+
+    // Se não existir, tentar migrar das chaves antigas (insights ou rankings)
+    if (!saved) {
+      const insightsKey = "hookify-insights-selected-packs";
+      const rankingsKey = "hookify-rankings-selected-packs";
+      const insightsSaved = localStorage.getItem(insightsKey);
+      const rankingsSaved = localStorage.getItem(rankingsKey);
+
+      // Priorizar insights, depois rankings
+      if (insightsSaved) {
+        saved = insightsSaved;
+        // Migrar para chave compartilhada
+        localStorage.setItem(STORAGE_KEY_PACKS, insightsSaved);
+        // Opcional: remover chave antiga após migração
+        localStorage.removeItem(insightsKey);
+      } else if (rankingsSaved) {
+        saved = rankingsSaved;
+        // Migrar para chave compartilhada
+        localStorage.setItem(STORAGE_KEY_PACKS, rankingsSaved);
+        // Opcional: remover chave antiga após migração
+        localStorage.removeItem(rankingsKey);
+      }
+    }
+
     if (!saved) return {};
 
     const parsed = JSON.parse(saved);
@@ -80,7 +106,28 @@ const saveDateRange = (dateRange: { start?: string; end?: string }) => {
 const loadDateRange = (): { start?: string; end?: string } | null => {
   if (typeof window === "undefined") return null;
   try {
-    const saved = localStorage.getItem(STORAGE_KEY_DATE_RANGE);
+    // Primeiro tentar carregar da chave compartilhada
+    let saved = localStorage.getItem(STORAGE_KEY_DATE_RANGE);
+
+    // Se não existir, tentar migrar das chaves antigas (insights ou rankings)
+    if (!saved) {
+      const insightsKey = "hookify-insights-date-range";
+      const rankingsKey = "hookify-rankings-date-range";
+      const insightsSaved = localStorage.getItem(insightsKey);
+      const rankingsSaved = localStorage.getItem(rankingsKey);
+
+      // Priorizar insights, depois rankings
+      if (insightsSaved) {
+        saved = insightsSaved;
+        localStorage.setItem(STORAGE_KEY_DATE_RANGE, insightsSaved);
+        localStorage.removeItem(insightsKey);
+      } else if (rankingsSaved) {
+        saved = rankingsSaved;
+        localStorage.setItem(STORAGE_KEY_DATE_RANGE, rankingsSaved);
+        localStorage.removeItem(rankingsKey);
+      }
+    }
+
     if (!saved) return null;
     const parsed = JSON.parse(saved);
     // Validar que tem start e end
@@ -158,7 +205,28 @@ export default function RankingsPage() {
   const [usePackDates, setUsePackDates] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
-      const saved = localStorage.getItem(STORAGE_KEY_USE_PACK_DATES);
+      // Primeiro tentar carregar da chave compartilhada
+      let saved = localStorage.getItem(STORAGE_KEY_USE_PACK_DATES);
+
+      // Se não existir, tentar migrar das chaves antigas
+      if (!saved) {
+        const insightsKey = "hookify-insights-use-pack-dates";
+        const rankingsKey = "hookify-rankings-use-pack-dates";
+        const insightsSaved = localStorage.getItem(insightsKey);
+        const rankingsSaved = localStorage.getItem(rankingsKey);
+
+        // Priorizar insights, depois rankings
+        if (insightsSaved) {
+          saved = insightsSaved;
+          localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, insightsSaved);
+          localStorage.removeItem(insightsKey);
+        } else if (rankingsSaved) {
+          saved = rankingsSaved;
+          localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, rankingsSaved);
+          localStorage.removeItem(rankingsKey);
+        }
+      }
+
       return saved === "true";
     } catch (e) {
       console.error("Erro ao carregar usePackDates do localStorage:", e);
@@ -267,7 +335,7 @@ export default function RankingsPage() {
 
   // Handler para mudança de dateRange com salvamento no localStorage
   const handleDateRangeChange = (value: { start?: string; end?: string }) => {
-    if (usePackDates) return; // Não permitir mudança manual quando usar datas dos packs
+    // Permitir mudança mesmo quando usePackDates estiver ativo, pois o usuário pode estar confirmando as datas dos packs
     setDateRange(value);
     saveDateRange(value);
   };
@@ -280,20 +348,28 @@ export default function RankingsPage() {
     } catch (e) {
       console.error("Erro ao salvar usePackDates no localStorage:", e);
     }
-
-    if (checked && calculateDateRangeFromPacks) {
-      setDateRange(calculateDateRangeFromPacks);
-      saveDateRange(calculateDateRangeFromPacks);
-    }
+    // Não aplicar datas automaticamente - apenas selecionar no calendário e aguardar confirmação
   };
 
-  // Atualizar dateRange quando packs selecionados mudarem (se usePackDates estiver ativo)
+  // Aplicar dateRange automaticamente quando packs são selecionados/deselecionados
+  // e usePackDates está ativo (sem necessidade de confirmação do usuário)
   useEffect(() => {
-    if (usePackDates && calculateDateRangeFromPacks) {
-      setDateRange(calculateDateRangeFromPacks);
-      saveDateRange(calculateDateRangeFromPacks);
+    // Só aplicar automaticamente se usePackDates estiver ativo
+    if (!usePackDates) return;
+
+    // Só aplicar se calculateDateRangeFromPacks retornar um valor válido
+    if (!calculateDateRangeFromPacks) return;
+
+    // Só aplicar se o dateRange calculado for diferente do atual
+    // (evita loops infinitos e aplicações desnecessárias)
+    if (dateRange.start === calculateDateRangeFromPacks.start && dateRange.end === calculateDateRangeFromPacks.end) {
+      return;
     }
-  }, [usePackDates, calculateDateRangeFromPacks, selectedPackIds.size]); // Adicionar selectedPackIds.size para garantir atualização ao ativar/desativar packs
+
+    // Aplicar automaticamente o novo dateRange
+    setDateRange(calculateDateRangeFromPacks);
+    saveDateRange(calculateDateRangeFromPacks);
+  }, [usePackDates, selectedPackIds, calculateDateRangeFromPacks]); // Monitora mudanças em selectedPackIds (quando packs são selecionados/deselecionados)
 
   // Atualizar serverAverages quando dados mudarem
   useEffect(() => {
@@ -705,7 +781,7 @@ export default function RankingsPage() {
             <>
               <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} label={showTrends ? "Tendências" : "Performance"} />
               <ToggleSwitch id="validation-filter" checked={isValidationFilterEnabled} onCheckedChange={setIsValidationFilterEnabled} label="Filtrar por critérios de validação" disabled={!validationCriteria || validationCriteria.length === 0} labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"} helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"} />
-              <FiltersDropdown dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeLabel="Período (Data do Insight)" dateRangeRequireConfirmation={true} dateRangeDisabled={usePackDates} />
+              <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} />
             </>
           }
         />
@@ -811,7 +887,7 @@ export default function RankingsPage() {
             <>
               <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} label={showTrends ? "Tendências" : "Performance"} />
               <ToggleSwitch id="validation-filter" checked={isValidationFilterEnabled} onCheckedChange={setIsValidationFilterEnabled} label="Filtrar por critérios de validação" disabled={!validationCriteria || validationCriteria.length === 0} labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"} helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"} />
-              <FiltersDropdown dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeLabel="Período (Data do Insight)" dateRangeRequireConfirmation={true} dateRangeDisabled={usePackDates} />
+              <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} />
             </>
           }
         />
@@ -829,7 +905,7 @@ export default function RankingsPage() {
           <>
             <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} label={showTrends ? "Tendências" : "Performance"} />
             <ToggleSwitch id="validation-filter" checked={isValidationFilterEnabled} onCheckedChange={setIsValidationFilterEnabled} label="Filtrar por critérios de validação" disabled={!validationCriteria || validationCriteria.length === 0} labelClassName={!validationCriteria || validationCriteria.length === 0 ? "text-muted-foreground" : "text-foreground"} helperText={(!validationCriteria || validationCriteria.length === 0) && "(Configure os critérios nas configurações)"} />
-            <FiltersDropdown dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeLabel="Período (Data do Insight)" dateRangeRequireConfirmation={true} dateRangeDisabled={usePackDates} />
+            <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} />
           </>
         }
       />

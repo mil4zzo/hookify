@@ -72,8 +72,8 @@ export const api = {
     startAdsJob: (params: GetAdsRequest): Promise<{ job_id: string; status: string; message: string }> =>
       apiClient.post('/facebook/ads-progress', params),
     
-    getJobProgress: (jobId: string): Promise<{ status: string; progress: number; message: string; data?: any }> =>
-      apiClient.getWithTimeout(`/facebook/ads-progress/${jobId}`, 300000), // 5 minutos para getJobProgress (backend pode estar processando)
+    getJobProgress: (jobId: string): Promise<{ status: string; progress: number; message: string; data?: any; pack_id?: string; result_count?: number; details?: any }> =>
+      apiClient.getWithTimeout(`/facebook/ads-progress/${jobId}`, 60000), // 60 segundos (requests agora são rápidos com arquitetura "2 fases")
     
     getVideoSource: (params: GetVideoSourceRequest): Promise<GetVideoSourceResponse> =>
       apiClient.get('/facebook/video-source', { params }),

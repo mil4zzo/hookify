@@ -475,7 +475,7 @@ export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = 
             </div>
           )}
           {/* Card do grupo alinhado aos seletores de campo */}
-          <div className="flex-1 border border-border rounded-lg p-3 pt-1 bg-secondary/30 space-y-2">
+          <div className="flex-1 border border-border rounded-lg p-3 pt-1 bg-secondary-30 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-muted-foreground">{groupLogic === "OR" ? "Any of the following are true…" : "All of the following are true…"}</span>
@@ -529,12 +529,12 @@ export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = 
 
       {/* Mensagens de erro de validação */}
       {validationErrors.length > 0 && (
-        <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+        <div className="mt-4 p-3 bg-destructive-10 border border-destructive-20 rounded-lg">
           <div className="flex items-start gap-2">
             <IconAlertCircle className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium text-destructive mb-1">Erros de validação:</p>
-              <ul className="text-sm text-destructive/90 list-disc list-inside space-y-1">
+              <ul className="text-sm text-destructive-90 list-disc list-inside space-y-1">
                 {validationErrors.map((error, index) => (
                   <li key={index}>{error}</li>
                 ))}

@@ -65,7 +65,7 @@ export function GenericColumn({ title, items, colorScheme, averageValue, renderC
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button type="button" className="flex items-center justify-center rounded-md p-0.5 opacity-60 hover:opacity-100 hover:bg-muted/50 transition-colors">
+                  <button type="button" className="flex items-center justify-center rounded-md p-0.5 opacity-60 hover:opacity-100 hover:bg-muted-hover transition-colors">
                     <IconInfoCircle className="h-4 w-4 text-muted-foreground hover:text-foreground" />
                   </button>
                 </TooltipTrigger>

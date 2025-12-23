@@ -22,9 +22,9 @@ export interface StandardCardProps extends React.HTMLAttributes<HTMLDivElement> 
  *
  * Baseado no estilo usado em GenericCard.tsx:
  * - rounded-xl border border-border
- * - bg-muted (variante padrão)
+ * - bg-card (variante padrão)
  * - transition-all duration-420
- * - hover:border-primary hover:bg-border (quando interactive)
+ * - hover:border-primary hover:bg-card-hover hover:shadow-lg (quando interactive)
  * - padding padrão: p-4
  */
 export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(({ children, className, variant = "default", padding = "md", interactive, disabled = false, onClick, ...props }, ref) => {
@@ -33,8 +33,8 @@ export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(
 
   // Variantes de background
   const variantStyles = {
-    default: "bg-muted",
-    muted: "bg-muted/50",
+    default: "bg-card",
+    muted: "bg-muted-50",
     card: "bg-card",
   };
 
@@ -53,7 +53,7 @@ export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(
     paddingStyles[padding],
     "transition-all duration-420",
     // Hover effects apenas quando interativo e não desabilitado
-    isInteractive && !disabled && "hover:border-primary hover:bg-border hover:shadow-lg",
+    isInteractive && !disabled && "hover:border-primary hover:bg-card-hover hover:shadow-lg",
     // Cursor pointer apenas quando clicável e não desabilitado
     onClick && !disabled && "cursor-pointer",
     // Opacidade reduzida quando desabilitado

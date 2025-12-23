@@ -16,7 +16,7 @@ interface StatCardProps {
   className?: string;
 }
 
-export function StatCard({ icon: IconComponent, value, label, title, description, additionalData, iconBgColor = "bg-brand/20", iconColor = "text-brand", className }: StatCardProps) {
+export function StatCard({ icon: IconComponent, value, label, title, description, additionalData, iconBgColor = "bg-brand-20", iconColor = "text-brand", className }: StatCardProps) {
   return (
     <Card className={cn("", className)}>
       {(title || description || IconComponent) && (

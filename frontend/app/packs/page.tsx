@@ -5,13 +5,14 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StandardCard } from "@/components/common/StandardCard";
+import { PackCard } from "@/components/packs/PackCard";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/common/Modal";
 import { LoadingState, EmptyState } from "@/components/common/States";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 import { Switch } from "@/components/ui/switch";
+import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
@@ -19,14 +20,14 @@ import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError, showWarning, showProgressToast, updateProgressToast, finishProgressToast } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport } from "@tabler/icons-react";
+import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport, IconStack2Filled } from "@tabler/icons-react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, createColumnHelper, flexRender, ColumnDef } from "@tanstack/react-table";
 
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { getAggregatedPackStatistics, getAdStatistics } from "@/lib/utils/adCounting";
 import { useFormatCurrency } from "@/lib/utils/currency";
-import { PageHeader } from "@/components/layout/PageHeader";
+import { PageSectionHeader } from "@/components/common/PageSectionHeader";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
@@ -593,37 +594,110 @@ export default function PacksPage() {
 
           // Atualizar feedback visual com informações granulares
           let debugMessage = progress.message || "Processando...";
+          let stageEmoji = "⏳";
+          let stagePercent = 0;
 
           if (details.stage) {
             const stage = details.stage;
-            if (stage === "paginação") {
-              debugMessage = `📄 Paginação: Página ${details.page_count || 0} | ${details.total_collected || 0} anúncios coletados`;
+            
+            // Calcular progresso por etapa
+            if (stage === "meta_processing") {
+              stageEmoji = "🔄";
+              stagePercent = Math.min(progress.progress || 0, 30); // Meta API = 0-30%
+              debugMessage = `${stageEmoji} Meta API processando... ${progress.progress || 0}%`;
+            } else if (stage === "paginação") {
+              stageEmoji = "📄";
+              stagePercent = 30 + Math.min((details.page_count || 0) * 2, 20); // Paginação = 30-50%
+              const pageInfo = details.page_count ? `Página ${details.page_count}` : "Iniciando...";
+              const adsInfo = details.total_collected ? `${details.total_collected.toLocaleString()} anúncios` : "";
+              debugMessage = `${stageEmoji} Coletando dados: ${pageInfo}${adsInfo ? ` | ${adsInfo}` : ""}`;
             } else if (stage === "enriquecimento") {
-              const batchInfo = details.enrichment_total > 0 ? `Lote ${details.enrichment_batches || 0}/${details.enrichment_total}` : "Processando...";
-              debugMessage = `🔍 Enriquecimento: ${batchInfo} | ${details.ads_enriched || 0} anúncios enriquecidos de ${details.ads_after_dedup || 0} únicos`;
+              stageEmoji = "🔍";
+              const batchProgress = details.enrichment_total > 0 
+                ? Math.round((details.enrichment_batches || 0) / details.enrichment_total * 100) 
+                : 0;
+              stagePercent = 50 + Math.round(batchProgress * 0.3); // Enriquecimento = 50-80%
+              const batchInfo = details.enrichment_total > 0 
+                ? `Lote ${details.enrichment_batches || 0}/${details.enrichment_total}` 
+                : "Processando...";
+              
+              // Construir info de enriquecimento apenas se tiver dados válidos
+              let enrichedInfo = "";
+              if (details.ads_enriched && details.ads_enriched > 0) {
+                const uniqueCount = details.ads_after_dedup;
+                if (uniqueCount && uniqueCount > 0) {
+                  enrichedInfo = `${details.ads_enriched.toLocaleString()} de ${uniqueCount.toLocaleString()} únicos`;
+                } else {
+                  // Fallback: usar ads_before_dedup se ads_after_dedup não estiver disponível
+                  const beforeDedup = details.ads_before_dedup || details.total_collected || 0;
+                  if (beforeDedup > 0) {
+                    enrichedInfo = `${details.ads_enriched.toLocaleString()} anúncios enriquecidos`;
+                  } else {
+                    enrichedInfo = `${details.ads_enriched.toLocaleString()} anúncios enriquecidos`;
+                  }
+                }
+              }
+              
+              debugMessage = `${stageEmoji} Enriquecendo dados: ${batchInfo}${enrichedInfo ? ` | ${enrichedInfo}` : ""}`;
             } else if (stage === "formatação") {
-              debugMessage = `✨ Formatação: ${details.ads_formatted || 0} anúncios formatados`;
+              stageEmoji = "✨";
+              stagePercent = 85; // Formatação = 85%
+              const formattedCount = (details.ads_formatted || 0).toLocaleString();
+              debugMessage = `${stageEmoji} Formatando ${formattedCount} anúncios...`;
+            } else if (stage === "persistência") {
+              stageEmoji = "💾";
+              stagePercent = 95; // Persistência = 95%
+              debugMessage = `${stageEmoji} Salvando dados no banco...`;
             } else if (stage === "completo") {
-              debugMessage = `✅ ${progress.message || "Processando..."} | ${details.ads_formatted || rawAds.length} anúncios processados`;
+              stageEmoji = "✅";
+              stagePercent = 100;
+              const adsCount = (details.ads_formatted || rawAds.length).toLocaleString();
+              debugMessage = `${stageEmoji} Concluído! ${adsCount} anúncios processados`;
             } else {
-              debugMessage = `${progress.message || "Processando..."} | Anúncios coletados: ${rawAds.length}`;
+              // Fallback para estágios desconhecidos
+              debugMessage = `⏳ ${progress.message || "Processando..."} | ${rawAds.length} anúncios`;
             }
           } else {
-            // Fallback para quando não há detalhes
-            debugMessage = `${progress.message || "Processando..."} | Anúncios coletados: ${rawAds.length}`;
+            // Fallback para quando não há detalhes (status antigo)
+            if (progress.status === "running" && progress.progress) {
+              stagePercent = Math.min(progress.progress, 30);
+              debugMessage = `🔄 Meta API processando... ${progress.progress}%`;
+            } else if (progress.status === "processing") {
+              stagePercent = 50;
+              debugMessage = `⏳ Processando dados coletados...`;
+            } else {
+              debugMessage = `⏳ ${progress.message || "Processando..."}`;
+            }
           }
 
-          setDebugInfo(debugMessage);
+          // Adicionar barra de progresso visual ao debug
+          const progressBar = `[${"█".repeat(Math.round(stagePercent / 5))}${"░".repeat(20 - Math.round(stagePercent / 5))}] ${stagePercent}%`;
+          setDebugInfo(`${debugMessage}\n${progressBar}`);
 
-          if (progress.status === "completed" && Array.isArray(rawAds)) {
+          if (progress.status === "completed") {
             // Verificar se foi cancelado antes de processar
             if (isCancelledRef.current) {
               completed = true;
               break;
             }
 
-            // Dados já vêm formatados do backend
-            const formattedAds = rawAds as any[];
+            // Usar pack_id retornado pelo backend
+            const packId = (progress as any).pack_id;
+            const resultCount = (progress as any).result_count || 0;
+
+            if (!packId) {
+              // Fallback: se não tiver pack_id, pode ser nenhum anúncio encontrado
+              if (resultCount === 0) {
+                showError({ message: "Nenhum anúncio encontrado para os parâmetros selecionados." });
+              } else {
+                showError({ message: "Erro: Pack ID não retornado pelo backend." });
+              }
+              completed = true;
+              break;
+            }
+
+            // Armazenar packId para possível cancelamento futuro
+            createdPackIdRef.current = packId;
 
             // Verificar warnings do backend
             const warnings = (progress as any).warnings || [];
@@ -633,21 +707,34 @@ export default function PacksPage() {
               });
             }
 
+            // Verificar se foi cancelado antes de buscar pack
+            if (isCancelledRef.current) {
+              completed = true;
+              break;
+            }
+
+            // Buscar pack completo do backend (com ads e stats)
+            setDebugInfo("🔄 Finalizando... Carregando dados do pack...");
+            const packResponse = await api.analytics.getPack(packId, true);
+            
+            if (!packResponse.success || !packResponse.pack) {
+              showError({ message: "Erro ao carregar pack criado." });
+              completed = true;
+              break;
+            }
+
+            const backendPack = packResponse.pack;
+            const formattedAds = Array.isArray(backendPack.ads) ? backendPack.ads : [];
+
             // Filtrar apenas ads de vídeo para exibição
             const videoAds = filterVideoAds(formattedAds);
 
-            // Evitar criar pack vazio
+            // Verificar se há anúncios de vídeo
             if (!videoAds || videoAds.length === 0) {
               showError({ message: "Nenhum anúncio de vídeo retornado para os parâmetros selecionados." });
               completed = true;
               break;
             }
-
-            // Usar pack_id retornado pelo backend se disponível, senão usar ID local temporário
-            const packId = (progress as any).pack_id || `pack_${Date.now()}`;
-
-            // Armazenar packId para possível cancelamento futuro
-            createdPackIdRef.current = packId;
 
             // Verificar se foi cancelado antes de criar o pack
             if (isCancelledRef.current) {
@@ -655,40 +742,39 @@ export default function PacksPage() {
               break;
             }
 
-            // Calcular stats dos ads para incluir no pack (usar todos os ads, não apenas vídeos)
-            const stats = getAdStatistics(formattedAds);
-
-            // Create pack (sempre usa nível "ad")
-            // IMPORTANTE: Não salvar ads no pack - eles são salvos no cache IndexedDB
-            // Mas incluir stats para exibição na UI
+            // Usar stats do backend (já calculados) ou calcular localmente como fallback
+            const backendStats = backendPack.stats || {};
+            const localStats = getAdStatistics(formattedAds);
+            
+            // Create pack para o store local
             const pack = {
               id: packId,
-              name: packName, // Usar o nome garantido (evita condição de corrida)
-              adaccount_id: formData.adaccount_id,
-              date_start: formData.date_start,
-              date_stop: formData.date_stop,
+              name: backendPack.name || packName,
+              adaccount_id: backendPack.adaccount_id || formData.adaccount_id,
+              date_start: backendPack.date_start || formData.date_start,
+              date_stop: backendPack.date_stop || formData.date_stop,
               level: "ad" as const,
-              filters: formData.filters,
-              auto_refresh: formData.auto_refresh || false,
+              filters: backendPack.filters || formData.filters,
+              auto_refresh: backendPack.auto_refresh || formData.auto_refresh || false,
               ads: [], // Não salvar ads no store - usar cache IndexedDB
               stats: {
-                totalAds: formattedAds.length,
-                uniqueAds: stats.uniqueAds,
-                uniqueCampaigns: stats.uniqueCampaigns,
-                uniqueAdsets: stats.uniqueAdsets,
-                totalSpend: stats.totalSpend,
-                totalClicks: formattedAds.reduce((sum, ad) => sum + (ad.clicks || 0), 0),
-                totalImpressions: formattedAds.reduce((sum, ad) => sum + (ad.impressions || 0), 0),
-                totalReach: formattedAds.reduce((sum, ad) => sum + (ad.reach || 0), 0),
-                totalInlineLinkClicks: formattedAds.reduce((sum, ad) => sum + (ad.inline_link_clicks || 0), 0),
-                totalPlays: formattedAds.reduce((sum, ad) => sum + (ad.video_plays || 0), 0),
-                totalThruplays: formattedAds.reduce((sum, ad) => sum + (ad.video_thruplay || 0), 0),
-                ctr: stats.totalSpend > 0 ? (formattedAds.reduce((sum, ad) => sum + (ad.clicks || 0), 0) / formattedAds.reduce((sum, ad) => sum + (ad.impressions || 0), 1)) * 100 : 0,
-                cpm: stats.totalSpend > 0 ? (stats.totalSpend / formattedAds.reduce((sum, ad) => sum + (ad.impressions || 0), 1)) * 1000 : 0,
-                frequency: formattedAds.reduce((sum, ad) => sum + (ad.reach || 0), 0) > 0 ? formattedAds.reduce((sum, ad) => sum + (ad.impressions || 0), 0) / formattedAds.reduce((sum, ad) => sum + (ad.reach || 0), 1) : 0,
+                totalAds: backendStats.totalAds || formattedAds.length,
+                uniqueAds: backendStats.uniqueAds || localStats.uniqueAds,
+                uniqueCampaigns: backendStats.uniqueCampaigns || localStats.uniqueCampaigns,
+                uniqueAdsets: backendStats.uniqueAdsets || localStats.uniqueAdsets,
+                totalSpend: backendStats.totalSpend || localStats.totalSpend,
+                totalClicks: backendStats.totalClicks || formattedAds.reduce((sum: number, ad: any) => sum + (ad.clicks || 0), 0),
+                totalImpressions: backendStats.totalImpressions || formattedAds.reduce((sum: number, ad: any) => sum + (ad.impressions || 0), 0),
+                totalReach: backendStats.totalReach || formattedAds.reduce((sum: number, ad: any) => sum + (ad.reach || 0), 0),
+                totalInlineLinkClicks: backendStats.totalInlineLinkClicks || formattedAds.reduce((sum: number, ad: any) => sum + (ad.inline_link_clicks || 0), 0),
+                totalPlays: backendStats.totalPlays || formattedAds.reduce((sum: number, ad: any) => sum + (ad.video_plays || 0), 0),
+                totalThruplays: backendStats.totalThruplays || formattedAds.reduce((sum: number, ad: any) => sum + (ad.video_thruplay || 0), 0),
+                ctr: backendStats.ctr || 0,
+                cpm: backendStats.cpm || 0,
+                frequency: backendStats.frequency || 0,
               },
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
+              created_at: backendPack.created_at || new Date().toISOString(),
+              updated_at: backendPack.updated_at || new Date().toISOString(),
             };
 
             // Verificar novamente antes de adicionar ao store
@@ -779,13 +865,9 @@ export default function PacksPage() {
             // Tentar uma última verificação antes de falhar
             try {
               const lastProgress = await api.facebook.getJobProgress(result.job_id);
-              if (lastProgress.status === "completed") {
-                // Job completou, processar normalmente
-                const rawAds = Array.isArray((lastProgress as any)?.data) ? (lastProgress as any).data : Array.isArray((lastProgress as any)?.data?.data) ? (lastProgress as any).data.data : [];
-                if (rawAds.length > 0) {
-                  // Continuar processamento normalmente (sem incrementar attempts novamente)
-                  continue;
-                }
+              if (lastProgress.status === "completed" && (lastProgress as any).pack_id) {
+                // Job completou, continuar processamento normalmente
+                continue;
               }
             } catch (retryError) {
               // Se a retentativa também falhar, continuar polling (não é erro fatal)
@@ -1347,9 +1429,10 @@ export default function PacksPage() {
     <>
       <div className="space-y-8">
         {/* Page Header */}
-        <PageHeader
-          title="Packs de Anúncios"
-          description="Gerencie seus packs carregados"
+        <PageSectionHeader
+          title="Biblioteca"
+          description="Gerencie seus Packs de anúncios."
+          icon={<IconStack2Filled className="w-6 h-6 text-yellow-500" />}
           actions={
             <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
               <IconPlus className="w-4 h-4" />
@@ -1363,22 +1446,50 @@ export default function PacksPage() {
           // Skeleton enquanto carrega packs
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[1, 2, 3].map((i) => (
-              <StandardCard key={i} variant="default" padding="lg" className="flex flex-col">
-                <CardHeader className="pb-3">
-                  <Skeleton className="h-6 w-32 mb-2" />
-                  <Skeleton className="h-4 w-48" />
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-3 gap-4">
-                    <Skeleton className="h-16" />
-                    <Skeleton className="h-16" />
-                    <Skeleton className="h-16" />
+              <StandardCard key={i} variant="default" padding="none" className="flex flex-col overflow-hidden">
+                {/* Header Skeleton */}
+                <div className="px-5 pt-5 pb-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1">
+                      <Skeleton className="h-6 w-32 mb-2" />
+                      <Skeleton className="h-4 w-40" />
+                    </div>
+                    <Skeleton className="h-8 w-8 rounded-md" />
                   </div>
-                  <Skeleton className="h-8 w-full" />
-                  <div className="flex gap-2">
-                    <Skeleton className="h-8 w-8" />
+                </div>
+                {/* Métricas Skeleton */}
+                <div className="px-5 py-4 bg-background/50 border-y border-border/50">
+                  <div className="grid grid-cols-3 gap-3">
+                    {[1, 2, 3].map((j) => (
+                      <div key={j} className="text-center">
+                        <Skeleton className="h-8 w-12 mx-auto mb-1" />
+                        <Skeleton className="h-3 w-16 mx-auto" />
+                      </div>
+                    ))}
                   </div>
-                </CardContent>
+                </div>
+                {/* Investimento Skeleton */}
+                <div className="px-5 py-4">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-6 w-24" />
+                  </div>
+                </div>
+                {/* Info Skeleton */}
+                <div className="px-5 pb-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-32" />
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <Skeleton className="h-4 w-24" />
+                    <Skeleton className="h-4 w-28" />
+                  </div>
+                </div>
+                {/* Footer Skeleton */}
+                <div className="mt-auto px-5 py-3 bg-border/30 border-t border-border/50">
+                  <Skeleton className="h-6 w-24" />
+                </div>
               </StandardCard>
             ))}
           </div>
@@ -1395,160 +1506,9 @@ export default function PacksPage() {
             </CardContent>
           </StandardCard>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {packs.map((pack) => (
-              <StandardCard key={pack.id} variant="default" padding="lg" interactive={true} className="flex flex-col">
-                <CardHeader className="pb-3">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{pack.name}</CardTitle>
-                    <div className="flex items-center gap-2">
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div className="flex items-center gap-2">
-                              <Switch checked={pack.auto_refresh || false} onCheckedChange={(checked) => handleToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} className="data-[state=checked]:bg-green-500" onClick={(e) => e.stopPropagation()} />
-                              <div className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium ${pack.auto_refresh ? "bg-green-500/20 text-green-500 border border-green-500/30" : "bg-muted text-muted-foreground border border-border"}`}>
-                                <IconRefresh className={`w-3 h-3 ${pack.auto_refresh ? "animate-spin [animation-duration:3s]" : ""}`} />
-                                <span>{pack.auto_refresh ? "Auto" : "Manual"}</span>
-                              </div>
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>{pack.auto_refresh ? "Atualização automática ativada - clique no switch para desativar" : "Atualização manual - clique no switch para ativar"}</p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="sm" disabled={isRefreshing}>
-                            <IconDotsVertical className="w-4 h-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleRenamePack(pack.id)} disabled={isRenaming}>
-                            <IconPencil className="w-4 h-4 mr-2" />
-                            Renomear pack
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleRefreshPack(pack.id)} disabled={isRefreshing}>
-                            <IconRotateClockwise className="w-4 h-4 mr-2" />
-                            Atualizar pack
-                          </DropdownMenuItem>
-                          {pack.sheet_integration ? (
-                            <DropdownMenuItem disabled className="opacity-100">
-                              <IconTableExport className="w-4 h-4 mr-2 text-green-500" />
-                              <div className="flex flex-col items-start">
-                                <span className="text-xs font-medium text-green-500">Planilha conectada</span>
-                                <span className="text-xs text-muted-foreground">
-                                  {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
-                                </span>
-                              </div>
-                            </DropdownMenuItem>
-                          ) : (
-                            <DropdownMenuItem onClick={() => setSheetIntegrationPack(pack)}>
-                              <IconTableExport className="w-4 h-4 mr-2" />
-                              Enriquecer leadscore (Google Sheets)
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem onClick={() => handlePreviewPack(pack)}>
-                            <IconEye className="w-4 h-4 mr-2" />
-                            Visualizar tabela
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleViewJson(pack)}>
-                            <IconCode className="w-4 h-4 mr-2" />
-                            Ver JSON
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => handleRemovePack(pack.id)} className="text-red-500 focus:text-red-500 focus:bg-red-500/10">
-                            <IconTrash className="w-4 h-4 mr-2" />
-                            Remover pack
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </div>
-                  <CardDescription>
-                    {formatDate(pack.date_start)} - {formatDate(pack.date_stop)}
-                  </CardDescription>
-                </CardHeader>
-
-                <CardContent className="space-y-4">
-                  {/* Última atualização */}
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Última atualização:</p>
-                    <p className="text-sm text-muted-foreground">{formatDateTime(pack.updated_at)}</p>
-                  </div>
-
-                  {/* Stats */}
-                  {(() => {
-                    // Usar stats do pack se disponível (preferencialmente do backend)
-                    // Se não tiver stats, mostra 0 (não calcula dos ads porque ads estão no cache)
-                    const stats = pack.stats;
-                    return (
-                      <div className="grid grid-cols-3 gap-4 text-center">
-                        <div>
-                          <p className="text-2xl font-bold text-brand">{stats?.uniqueCampaigns || 0}</p>
-                          <p className="text-xs text-muted-foreground">Campanhas</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold text-green-500">{stats?.uniqueAdsets || 0}</p>
-                          <p className="text-xs text-muted-foreground">Adsets</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold text-blue-500">{stats?.uniqueAds || 0}</p>
-                          <p className="text-xs text-muted-foreground">Anúncios Únicos</p>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {/* Account */}
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Conta:</p>
-                    <p className="text-sm text-muted-foreground">{getAccountName(pack.adaccount_id)}</p>
-                  </div>
-
-                  {/* Total Spent */}
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Investimento Total:</p>
-                    <p className="text-lg font-bold text-yellow-500">{formatCurrency(pack.stats?.totalSpend || 0)}</p>
-                  </div>
-
-                  {/* Filters */}
-                  {pack.filters && pack.filters.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium">Filtros aplicados:</p>
-                      <div className="space-y-1">
-                        {pack.filters.map((filter: FilterRule, index: number) => (
-                          <div key={index} className="text-xs text-muted-foreground bg-border p-2 rounded">
-                            <span className="font-medium">{getFilterFieldLabel(filter.field)}</span> {filter.operator.toLowerCase().replace("_", " ")} <span className="font-medium">"{filter.value}"</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Sheet Integration Status */}
-                  {pack.sheet_integration && (
-                    <div className="space-y-2 pt-2 border-t border-border">
-                      <div className="flex items-center gap-2">
-                        <IconTableExport className="w-4 h-4 text-green-500" />
-                        <p className="text-sm font-medium text-green-500">Planilha conectada</p>
-                      </div>
-                      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground bg-green-500/10 border border-green-500/20 p-2 rounded">
-                        <div className="flex-1">
-                          <p className="font-medium">{pack.sheet_integration.spreadsheet_name || "Planilha desconhecida"}</p>
-                          <p className="text-xs mt-1">Aba: {pack.sheet_integration.worksheet_title || "N/A"}</p>
-                          {pack.sheet_integration.last_synced_at && <p className="text-xs mt-1 opacity-70">Última sincronização: {new Date(pack.sheet_integration.last_synced_at).toLocaleString("pt-BR")}</p>}
-                        </div>
-                        <Button variant="outline" size="icon" className="shrink-0 w-10 h-10 border-green-500/30 hover:bg-green-500/10 hover:border-green-500/50" onClick={() => handleSyncSheetIntegration(pack.id)} disabled={isSyncingSheetIntegration === pack.id}>
-                          {isSyncingSheetIntegration === pack.id ? <IconLoader2 className="w-5 h-5 animate-spin" /> : <IconRefresh className="w-5 h-5" />}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-              </StandardCard>
+              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRename={handleRenamePack} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onPreview={handlePreviewPack} onViewJson={handleViewJson} onSetSheetIntegration={setSheetIntegrationPack} isRefreshing={isRefreshing} isRenaming={isRenaming} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
             ))}
           </div>
         )}
@@ -1657,7 +1617,7 @@ export default function PacksPage() {
                 </SelectContent>
               </Select>
             ) : (
-              <div className="flex flex-col gap-2 p-4 border border-border rounded-md bg-muted/50">
+              <div className="flex flex-col gap-2 p-4 border border-border rounded-md bg-muted-50">
                 <p className="text-sm text-muted-foreground">Nenhuma conta de anúncios encontrada. Conecte sua conta do Facebook primeiro.</p>
                 <Button
                   type="button"
@@ -1684,20 +1644,7 @@ export default function PacksPage() {
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium">Período</label>
               <div className="flex items-center gap-2">
-                <label htmlFor="auto-refresh-switch" className={`text-sm font-medium flex items-center gap-2 ${formData.date_stop !== getTodayLocal() ? "text-muted-foreground cursor-not-allowed" : "cursor-pointer"}`}>
-                  Manter atualizado
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <IconInfoCircle className={`w-4 h-4 ${formData.date_stop !== getTodayLocal() ? "text-muted-foreground" : "text-muted-foreground"}`} />
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{formData.date_stop !== getTodayLocal() ? "Disponível apenas quando a data final é hoje." : "Quando ativado, o pack será atualizado automaticamente."}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </label>
-                <Switch
+                <ToggleSwitch
                   id="auto-refresh-switch"
                   checked={formData.auto_refresh || false}
                   onCheckedChange={(checked: boolean) => {
@@ -1709,7 +1656,21 @@ export default function PacksPage() {
                     }
                   }}
                   disabled={formData.date_stop !== getTodayLocal()}
+                  labelLeft="Manter atualizado"
+                  variant="minimal"
+                  size="md"
+                  labelClassName={formData.date_stop !== getTodayLocal() ? "text-muted-foreground cursor-not-allowed" : "cursor-pointer"}
                 />
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <IconInfoCircle className="w-4 h-4 text-muted-foreground cursor-help" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{formData.date_stop !== getTodayLocal() ? "Disponível apenas quando a data final é hoje." : "Quando ativado, o pack será atualizado automaticamente."}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
             </div>
             <DateRangeFilter

@@ -9,6 +9,7 @@ import { FilterSelectButton } from "@/components/common/FilterSelectButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from "@/components/ui/switch";
+import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 
 interface Pack {
   id: string;
@@ -108,12 +109,14 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, className, sh
           </Tooltip>
           <PopoverContent className="w-[300px] p-0" align="start">
             {showGroupByPacksSwitch && onGroupByPacksChange && (
-              <div className="flex items-center gap-2 p-3 border-b border-border">
-                <Switch id="group-by-packs-popover" checked={groupByPacks} onCheckedChange={onGroupByPacksChange} />
-                <label htmlFor="group-by-packs-popover" className="text-sm font-medium cursor-pointer">
-                  Agrupar por packs
-                </label>
-              </div>
+              <ToggleSwitch
+                id="group-by-packs-popover"
+                checked={groupByPacks}
+                onCheckedChange={onGroupByPacksChange}
+                label="Agrupar por packs"
+                variant="default"
+                size="md"
+              />
             )}
             <div className="max-h-[300px] overflow-y-auto">
               <div className="p-2">

@@ -590,14 +590,15 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         // Não avança automaticamente, usuário precisa clicar em "Avançar"
       }
     } catch (e: any) {
-      console.error("Erro completo na conexão Google:", e);
-
-      // Se o usuário apenas fechou o popup, não tratar como erro "vermelho"
+      // Se o usuário apenas fechou o popup, não tratar como erro
       const authError = e as AuthPopupError;
       if (authError?.code === "AUTH_POPUP_CLOSED") {
-        // Cancelamento explícito pelo usuário – opcionalmente poderíamos exibir um toast informativo.
+        // Cancelamento explícito pelo usuário – não logar como erro
         return;
       }
+
+      // Logar apenas erros reais (não cancelamentos pelo usuário)
+      console.error("Erro completo na conexão Google:", e);
 
       // Ajustar mensagem específica para timeout no contexto de Google Sheets
       if (authError?.code === "AUTH_POPUP_TIMEOUT") {
@@ -802,7 +803,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
                     const canSelect = !isExpired && !isTesting;
 
                     return (
-                      <div key={conn.id} className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary/5 cursor-pointer" : isExpired ? "border-destructive/50 bg-destructive/5 cursor-not-allowed opacity-75" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && handleSelectConnection(conn.id)}>
+                      <div key={conn.id} className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-5 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-5 cursor-not-allowed opacity-75" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && handleSelectConnection(conn.id)}>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <div className="font-medium text-sm truncate">{conn.google_email || conn.google_name || conn.google_user_id || "Conta Google"}</div>
@@ -830,7 +831,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
                                   <IconRefresh className="w-3.5 h-3.5 text-muted-foreground" />
                                 </div>
                               </Button>
-                              <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive/10" onClick={(e) => handleDeleteConnection(conn.id, e)} disabled={isDeletingConnection}>
+                              <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => handleDeleteConnection(conn.id, e)} disabled={isDeletingConnection}>
                                 <IconTrash className="w-4 h-4" />
                               </Button>
                             </>

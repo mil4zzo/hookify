@@ -802,6 +802,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         header: "AD",
         size: 140,
         minSize: 140,
+        sortingFn: "auto",
         cell: (info) => {
           const original = info.row.original as RankingsItem;
           const thumbnail = getAdThumbnail(original);
@@ -877,6 +878,15 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ),
         size: 140,
         minSize: 100,
+        sortingFn: (rowA, rowB) => {
+          const adA = rowA.original;
+          const adB = rowB.original;
+          const resultsA = actionType ? adA.conversions?.[actionType] || 0 : 0;
+          const resultsB = actionType ? adB.conversions?.[actionType] || 0 : 0;
+          const cprA = resultsA > 0 ? adA.spend / resultsA : 0;
+          const cprB = resultsB > 0 ? adB.spend / resultsB : 0;
+          return cprA - cprB;
+        },
         cell: (info) => {
           const ad = info.row.original;
           const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
@@ -899,6 +909,25 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           ),
           size: 140,
           minSize: 100,
+          sortingFn: (rowA, rowB) => {
+            const adA = rowA.original as RankingsItem;
+            const adB = rowB.original as RankingsItem;
+            const spendA = Number((adA as any).spend || 0);
+            const spendB = Number((adB as any).spend || 0);
+            const { cpmql: cpmqlA } = computeMqlMetricsFromLeadscore({
+              spend: spendA,
+              leadscoreRaw: (adA as any).leadscore_values,
+              mqlLeadscoreMin,
+            });
+            const { cpmql: cpmqlB } = computeMqlMetricsFromLeadscore({
+              spend: spendB,
+              leadscoreRaw: (adB as any).leadscore_values,
+              mqlLeadscoreMin,
+            });
+            const valA = Number.isFinite(cpmqlA) ? cpmqlA : 0;
+            const valB = Number.isFinite(cpmqlB) ? cpmqlB : 0;
+            return valA - valB;
+          },
           cell: (info) => {
             const ad = info.row.original as RankingsItem;
 
@@ -927,6 +956,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ),
         size: 140,
         minSize: 100,
+        sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="spend" />,
       }) as any,
       // CTR
@@ -939,6 +969,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ),
         size: 140,
         minSize: 100,
+        sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="ctr" />,
       }) as any,
       // Link CTR (Website CTR)
@@ -952,6 +983,21 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ),
         size: 140,
         minSize: 100,
+        sortingFn: (rowA, rowB) => {
+          const adA = rowA.original;
+          const adB = rowB.original;
+          const websiteCtrA = typeof (adA as any).website_ctr === "number" && !Number.isNaN((adA as any).website_ctr) && isFinite((adA as any).website_ctr)
+            ? (adA as any).website_ctr
+            : (adA as any).impressions > 0
+            ? Number((adA as any).inline_link_clicks || 0) / Number((adA as any).impressions || 0)
+            : 0;
+          const websiteCtrB = typeof (adB as any).website_ctr === "number" && !Number.isNaN((adB as any).website_ctr) && isFinite((adB as any).website_ctr)
+            ? (adB as any).website_ctr
+            : (adB as any).impressions > 0
+            ? Number((adB as any).inline_link_clicks || 0) / Number((adB as any).impressions || 0)
+            : 0;
+          return websiteCtrA - websiteCtrB;
+        },
         cell: (info) => {
           const ad = info.row.original;
           // Usar website_ctr do backend se disponível, senão calcular
@@ -970,6 +1016,11 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ),
         size: 140,
         minSize: 100,
+        sortingFn: (rowA, rowB) => {
+          const cpmA = typeof rowA.original.cpm === "number" ? rowA.original.cpm : 0;
+          const cpmB = typeof rowB.original.cpm === "number" ? rowB.original.cpm : 0;
+          return cpmA - cpmB;
+        },
         cell: (info) => {
           const ad = info.row.original;
           // Usar cpm do backend se disponível, senão calcular
@@ -988,6 +1039,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ),
         size: 160,
         minSize: 120,
+        sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="connect_rate" />,
       }) as any,
       // Page Conversion
@@ -1001,6 +1053,34 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         ),
         size: 140,
         minSize: 100,
+        sortingFn: (rowA, rowB) => {
+          const adA = rowA.original;
+          const adB = rowB.original;
+          // Se o ad já tem page_conv calculado (vem do ranking), usar esse valor
+          let pageConvA: number;
+          if ("page_conv" in adA && typeof (adA as any).page_conv === "number" && !Number.isNaN((adA as any).page_conv) && isFinite((adA as any).page_conv)) {
+            pageConvA = (adA as any).page_conv;
+          } else if (actionType) {
+            const resultsA = adA.conversions?.[actionType] || 0;
+            const lpvA = Number((adA as any).lpv || 0);
+            pageConvA = lpvA > 0 ? resultsA / lpvA : 0;
+          } else {
+            pageConvA = 0;
+          }
+
+          let pageConvB: number;
+          if ("page_conv" in adB && typeof (adB as any).page_conv === "number" && !Number.isNaN((adB as any).page_conv) && isFinite((adB as any).page_conv)) {
+            pageConvB = (adB as any).page_conv;
+          } else if (actionType) {
+            const resultsB = adB.conversions?.[actionType] || 0;
+            const lpvB = Number((adB as any).lpv || 0);
+            pageConvB = lpvB > 0 ? resultsB / lpvB : 0;
+          } else {
+            pageConvB = 0;
+          }
+
+          return pageConvA - pageConvB;
+        },
         cell: (info) => {
           const ad = info.row.original;
           // Se o ad já tem page_conv calculado (vem do ranking), usar esse valor
@@ -1024,6 +1104,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     columns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    enableSorting: true,
     columnResizeMode: "onChange",
     initialState: {
       sorting: [{ id: "spend", desc: true }],
