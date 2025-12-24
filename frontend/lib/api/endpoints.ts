@@ -169,6 +169,9 @@ export const api = {
 
       listSheetIntegrations: (packId?: string): Promise<{ integrations: any[] }> =>
         apiClient.get('/integrations/google/ad-sheet-integrations', { params: packId ? { pack_id: packId } : {} }),
+
+      deleteSheetIntegration: (integrationId: string): Promise<{ success: boolean }> =>
+        apiClient.delete(`/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}`),
     },
   },
 }

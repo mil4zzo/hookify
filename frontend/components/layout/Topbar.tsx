@@ -99,7 +99,7 @@ export default function Topbar() {
 
   const handleLogoutClick = async () => {
     await handleLogout();
-    // handleLogout já faz o redirect internamente, mas garantimos aqui também
+    // handleLogout faz o redirect usando window.location.href para forçar reload completo
   };
 
   const toggleMobileMenu = () => {

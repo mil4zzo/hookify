@@ -30,6 +30,7 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageSectionHeader } from "@/components/common/PageSectionHeader";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
+import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { filterVideoAds } from "@/lib/utils/filterVideoAds";
@@ -307,8 +308,9 @@ export default function PacksPage() {
   const [packToRename, setPackToRename] = useState<{ id: string; name: string } | null>(null);
   const [newPackName, setNewPackName] = useState<string>("");
   const [isRenaming, setIsRenaming] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshingPackId, setRefreshingPackId] = useState<string | null>(null);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
+  const { addUpdatingPack, removeUpdatingPack, isPackUpdating } = useUpdatingPacksStore();
   const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>("");
@@ -1250,16 +1252,17 @@ export default function PacksPage() {
   };
 
   const cancelRefreshPack = () => {
-    if (isRefreshing) return; // Não permite cancelar durante o refresh
+    if (refreshingPackId) return; // Não permite cancelar durante o refresh
     setPackToRefresh(null);
   };
 
   const confirmRefreshPack = async () => {
-    if (!packToRefresh || isRefreshing) return;
+    if (!packToRefresh || refreshingPackId) return;
 
-    setIsRefreshing(true);
     const packId = packToRefresh.id;
     const packName = packToRefresh.name;
+    setRefreshingPackId(packId);
+    addUpdatingPack(packId);
 
     // Fechar modal imediatamente após confirmar
     setPackToRefresh(null);
@@ -1275,7 +1278,8 @@ export default function PacksPage() {
 
       if (!refreshResult.job_id) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
-        setIsRefreshing(false);
+        setRefreshingPackId(null);
+        removeUpdatingPack(packId);
         return;
       }
 
@@ -1318,6 +1322,7 @@ export default function PacksPage() {
                     stats: updatedPack.stats || {},
                     updated_at: updatedPack.updated_at || new Date().toISOString(),
                     auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
+                    date_stop: updatedPack.date_stop, // Atualizar date_stop para mostrar "HOJE" corretamente
                     // Não precisa atualizar ads - stats já contém tudo necessário para o card
                   } as Partial<AdsPack>);
 
@@ -1354,7 +1359,8 @@ export default function PacksPage() {
       console.error(`Erro ao atualizar pack ${packId}:`, error);
       finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
     } finally {
-      setIsRefreshing(false);
+      setRefreshingPackId(null);
+      removeUpdatingPack(packId);
     }
   };
 
@@ -1397,6 +1403,40 @@ export default function PacksPage() {
       showError({ message: `Erro ao sincronizar planilha: ${errorMessage}` });
     } finally {
       setIsSyncingSheetIntegration(null);
+    }
+  };
+
+  const handleEditSheetIntegration = (pack: AdsPack) => {
+    setSheetIntegrationPack(pack);
+  };
+
+  const handleDeleteSheetIntegration = async (pack: AdsPack) => {
+    if (!pack.sheet_integration?.id) return;
+
+    if (!confirm(`Tem certeza que deseja remover a integração de planilha do pack "${pack.name}"?`)) {
+      return;
+    }
+
+    try {
+      await api.integrations.google.deleteSheetIntegration(pack.sheet_integration.id);
+      showSuccess("Integração removida com sucesso!");
+
+      // Recarregar packs para atualizar dados
+      try {
+        const response = await api.analytics.listPacks(false);
+        if (response.success && response.packs) {
+          const updatedPack = response.packs.find((p: any) => p.id === pack.id);
+          if (updatedPack) {
+            updatePack(pack.id, {
+              sheet_integration: updatedPack.sheet_integration || null,
+            } as Partial<AdsPack>);
+          }
+        }
+      } catch (error) {
+        console.error("Erro ao recarregar pack após deletar integração:", error);
+      }
+    } catch (error) {
+      showError(error instanceof Error ? error : new Error("Erro ao remover integração"));
     }
   };
 
@@ -1444,53 +1484,76 @@ export default function PacksPage() {
         {/* Packs Grid */}
         {isLoadingPacks ? (
           // Skeleton enquanto carrega packs
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map((i) => (
-              <StandardCard key={i} variant="default" padding="none" className="flex flex-col overflow-hidden">
-                {/* Header Skeleton */}
-                <div className="px-5 pt-5 pb-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1">
-                      <Skeleton className="h-6 w-32 mb-2" />
-                      <Skeleton className="h-4 w-40" />
-                    </div>
-                    <Skeleton className="h-8 w-8 rounded-md" />
-                  </div>
-                </div>
-                {/* Métricas Skeleton */}
-                <div className="px-5 py-4 bg-background/50 border-y border-border/50">
-                  <div className="grid grid-cols-3 gap-3">
-                    {[1, 2, 3].map((j) => (
-                      <div key={j} className="text-center">
-                        <Skeleton className="h-8 w-12 mx-auto mb-1" />
-                        <Skeleton className="h-3 w-16 mx-auto" />
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="relative inline-block w-full">
+                {/* Cards decorativos atrás */}
+                <div className="absolute inset-0 rounded-xl bg-card rotate-2 pointer-events-none" />
+                <div className="absolute inset-0 rounded-xl bg-secondary rotate-1 pointer-events-none" />
+                
+                <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full">
+                  <div className="p-6 space-y-6 flex flex-col justify-between h-full">
+                    {/* Header: Nome do pack */}
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex w-full items-start justify-between gap-3">
+                        <div className="flex flex-col items-center justify-center flex-1 min-w-0">
+                          <Skeleton className="h-6 w-32" />
+                        </div>
                       </div>
-                    ))}
+                    </div>
+
+                    {/* Date range e valor monetário */}
+                    <div className="flex flex-col items-center gap-2">
+                      <div className="flex flex-col items-center">
+                        {/* Date range skeleton */}
+                        <Skeleton className="h-4 w-32 mb-1" />
+                        {/* Duração skeleton */}
+                        <Skeleton className="h-3 w-16" />
+                      </div>
+                      {/* Valor monetário em destaque */}
+                      <div className="flex items-center justify-center gap-2">
+                        <Skeleton className="h-4 w-8" />
+                        <Skeleton className="h-9 w-32" />
+                      </div>
+                    </div>
+
+                    {/* Métricas: Lista vertical com separadores */}
+                    <div className="flex flex-col">
+                      <div className="flex items-center justify-between py-2 border-b border-border">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 w-8" />
+                      </div>
+                      <div className="flex items-center justify-between py-2 border-b border-border">
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-8" />
+                      </div>
+                      <div className="flex items-center justify-between py-2">
+                        <Skeleton className="h-4 w-18" />
+                        <Skeleton className="h-4 w-8" />
+                      </div>
+                    </div>
+
+                    {/* Footer: Toggles e última atualização */}
+                    <div className="flex flex-col gap-2">
+                      {/* Toggle Atualização automática */}
+                      <div className="flex items-center justify-between">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-5 w-10 rounded-full" />
+                      </div>
+                      {/* Toggle Leadscore */}
+                      <div className="flex items-center justify-between">
+                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-5 w-10 rounded-full" />
+                      </div>
+                      {/* Última atualização */}
+                      <div className="flex items-center justify-between mt-3">
+                        <Skeleton className="h-3 w-28" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                    </div>
                   </div>
-                </div>
-                {/* Investimento Skeleton */}
-                <div className="px-5 py-4">
-                  <div className="flex items-center justify-between">
-                    <Skeleton className="h-4 w-28" />
-                    <Skeleton className="h-6 w-24" />
-                  </div>
-                </div>
-                {/* Info Skeleton */}
-                <div className="px-5 pb-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Skeleton className="h-4 w-16" />
-                    <Skeleton className="h-4 w-32" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Skeleton className="h-4 w-24" />
-                    <Skeleton className="h-4 w-28" />
-                  </div>
-                </div>
-                {/* Footer Skeleton */}
-                <div className="mt-auto px-5 py-3 bg-border/30 border-t border-border/50">
-                  <Skeleton className="h-6 w-24" />
-                </div>
-              </StandardCard>
+                </StandardCard>
+              </div>
             ))}
           </div>
         ) : packs.length === 0 ? (
@@ -1508,7 +1571,7 @@ export default function PacksPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {packs.map((pack) => (
-              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRename={handleRenamePack} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onPreview={handlePreviewPack} onViewJson={handleViewJson} onSetSheetIntegration={setSheetIntegrationPack} isRefreshing={isRefreshing} isRenaming={isRenaming} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
+              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRename={handleRenamePack} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onPreview={handlePreviewPack} onViewJson={handleViewJson} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} isUpdating={isPackUpdating(pack.id)} isRenaming={isRenaming} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
             ))}
           </div>
         )}
@@ -1953,7 +2016,7 @@ export default function PacksPage() {
       </Modal>
 
       {/* Refresh Pack Confirmation Dialog */}
-      <Modal isOpen={!!packToRefresh} onClose={() => !isRefreshing && cancelRefreshPack()} size="md" padding="md" closeOnOverlayClick={!isRefreshing} closeOnEscape={!isRefreshing} showCloseButton={!isRefreshing}>
+      <Modal isOpen={!!packToRefresh} onClose={() => !refreshingPackId && cancelRefreshPack()} size="md" padding="md" closeOnOverlayClick={!refreshingPackId} closeOnEscape={!refreshingPackId} showCloseButton={!refreshingPackId}>
         <div className="flex flex-col items-center gap-6 py-4">
           <h2 className="text-xl font-semibold text-text">Atualizar Pack?</h2>
 
@@ -1962,13 +2025,13 @@ export default function PacksPage() {
           </p>
 
           <div className="flex gap-4 w-full">
-            <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={isRefreshing}>
+            <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={!!refreshingPackId}>
               <IconCircleX className="h-5 w-5" />
               Não
             </Button>
 
-            <Button onClick={confirmRefreshPack} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" disabled={isRefreshing}>
-              {isRefreshing ? (
+            <Button onClick={confirmRefreshPack} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" disabled={!!refreshingPackId}>
+              {refreshingPackId ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Atualizando...

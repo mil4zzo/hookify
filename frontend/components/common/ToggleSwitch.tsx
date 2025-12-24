@@ -131,5 +131,20 @@ export function ToggleSwitch({ id, checked, onCheckedChange, label, labelLeft, l
     </>
   );
 
-  return <div className={cn(containerVariants({ variant, size }), className)}>{content}</div>;
+  return (
+    <div
+      className={cn(containerVariants({ variant, size }), className)}
+      onClick={(e) => {
+        e.stopPropagation();
+      }}
+      onPointerDown={(e) => {
+        e.stopPropagation();
+      }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+      }}
+    >
+      {content}
+    </div>
+  );
 }

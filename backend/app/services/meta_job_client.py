@@ -167,3 +167,4 @@ def get_meta_job_client(access_token: str) -> MetaJobClient:
     """Factory function para criar MetaJobClient."""
     return MetaJobClient(access_token)
 
+

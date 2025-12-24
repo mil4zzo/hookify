@@ -7,6 +7,7 @@ import { showProgressToast, updateProgressToast, finishProgressToast, showError 
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { AdsPack } from "@/lib/types";
+import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 
 const STORAGE_KEY = "hookify_auto_refresh_checked";
 
@@ -36,6 +37,7 @@ export function useAutoRefreshPacks() {
   const { isAuthenticated, isClient } = useClientAuth();
   const { updatePack } = useClientPacks();
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
+  const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
   const [showModal, setShowModal] = useState(false);
   const [packCount, setPackCount] = useState(0);
   const checkedRef = useRef(false);
@@ -114,6 +116,9 @@ export function useAutoRefreshPacks() {
   const refreshPackWithProgress = async (pack: any) => {
     const toastId = `refresh-pack-${pack.id}`;
     
+    // Adicionar pack ao store de atualização para feedback visual no card
+    addUpdatingPack(pack.id);
+    
     // Mostrar toast imediatamente para feedback visual instantâneo
     showProgressToast(toastId, pack.name, 0, 1, "Inicializando...");
     
@@ -123,6 +128,7 @@ export function useAutoRefreshPacks() {
       
       if (!refreshResult.job_id) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${pack.name}"`);
+        removeUpdatingPack(pack.id);
         return;
       }
 
@@ -187,6 +193,7 @@ export function useAutoRefreshPacks() {
                     stats: updatedPack.stats || {},
                     updated_at: updatedPack.updated_at || new Date().toISOString(),
                     auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
+                    date_stop: updatedPack.date_stop, // Atualizar date_stop para mostrar "HOJE" corretamente
                   } as Partial<AdsPack>);
                   
                   // Invalidar cache de ads (faz usePacksAds refazer a query)
@@ -202,6 +209,7 @@ export function useAutoRefreshPacks() {
             }
             
             completed = true;
+            removeUpdatingPack(pack.id);
           } else if (progress.status === "failed" || progress.status === "error") {
             finishProgressToast(
               toastId,
@@ -209,6 +217,7 @@ export function useAutoRefreshPacks() {
               `Erro ao atualizar "${pack.name}": ${progress.message || "Erro desconhecido"}`
             );
             completed = true;
+            removeUpdatingPack(pack.id);
           }
           // Status "running", "processing", "persisting" continuam o polling
         } catch (error) {
@@ -230,10 +239,12 @@ export function useAutoRefreshPacks() {
 
       if (!completed) {
         finishProgressToast(toastId, false, `Timeout ao atualizar "${pack.name}" (demorou mais de 10 minutos)`);
+        removeUpdatingPack(pack.id);
       }
     } catch (error) {
       console.error(`Erro ao atualizar pack ${pack.id}:`, error);
       finishProgressToast(toastId, false, `Erro ao atualizar "${pack.name}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
+      removeUpdatingPack(pack.id);
     }
   };
 

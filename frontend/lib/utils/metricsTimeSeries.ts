@@ -16,6 +16,9 @@ export type DailySeriesByKey = Map<
       page_conv: Array<number | null>;
       cpm: Array<number | null>;
       website_ctr: Array<number | null>;
+      // Opcional: em rankings usamos `series.cpmql` vinda do backend.
+      // O fallback de `buildDailySeries` não calcula CPMQL por não ter leadscore por dia.
+      cpmql?: Array<number | null>;
     };
   }
 >;

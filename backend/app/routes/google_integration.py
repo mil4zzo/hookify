@@ -571,4 +571,54 @@ def list_ad_sheet_integrations(
     return {"integrations": enriched_integrations}
 
 
+@router.delete("/ad-sheet-integrations/{integration_id}")
+def delete_ad_sheet_integration(
+    integration_id: str,
+    user=Depends(get_current_user),
+):
+    """
+    Deleta uma integração de planilha específica.
+    Se a integração estiver associada a um pack, remove a referência do pack também.
+    """
+    sb = get_supabase_for_user(user["token"])
+    
+    # Buscar a integração para verificar se existe e se pertence ao usuário
+    res = (
+        sb.table("ad_sheet_integrations")
+        .select("id, pack_id")
+        .eq("id", integration_id)
+        .eq("owner_id", user["user_id"])
+        .limit(1)
+        .execute()
+    )
+    
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+    
+    integration = res.data[0]
+    pack_id = integration.get("pack_id")
+    
+    # Deletar a integração
+    try:
+        sb.table("ad_sheet_integrations").delete().eq("id", integration_id).eq("owner_id", user["user_id"]).execute()
+    except Exception as e:
+        logger.exception("[AD_SHEET_INTEGRATION] Erro ao deletar integração")
+        raise HTTPException(status_code=500, detail="Erro ao deletar integração")
+    
+    # Se estava associada a um pack, remover a referência do pack
+    if pack_id:
+        try:
+            from datetime import datetime as dt
+            now_iso = dt.utcnow().isoformat(timespec="seconds") + "Z"
+            sb.table("packs").update({
+                "sheet_integration_id": None,
+                "updated_at": now_iso
+            }).eq("id", pack_id).eq("user_id", user["user_id"]).execute()
+            logger.info(f"[AD_SHEET_INTEGRATION] Referência removida do pack {pack_id}")
+        except Exception as e:
+            logger.warning(f"[AD_SHEET_INTEGRATION] Erro ao remover referência do pack {pack_id}: {e}")
+            # Não falhar a operação principal se isso falhar
+    
+    return {"success": True}
+
 

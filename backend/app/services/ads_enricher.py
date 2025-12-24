@@ -89,7 +89,8 @@ class AdsEnricher:
             
             url = f"{self.base_url}{act_id}/ads?access_token={self.access_token}"
             payload = {
-                "fields": "name,effective_status,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}",
+                # Importante: incluir "id" para permitir mapeamento por ad_id quando necessário
+                "fields": "id,name,effective_status,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}",
                 "limit": self.limit,
                 "filtering": "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) + "']}]",
             }
@@ -129,6 +130,64 @@ class AdsEnricher:
         
         logger.info(f"[AdsEnricher] Busca de detalhes concluída: {len(all_results)} de {len(ad_ids)} anúncios")
         return all_results if all_results else None
+
+    def fetch_status_only(
+        self,
+        act_id: str,
+        ad_ids: List[str]
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Busca apenas id + effective_status (requisição leve)."""
+        if not ad_ids:
+            return []
+
+        all_results: List[Dict[str, Any]] = []
+        total_batches = (len(ad_ids) + BATCH_SIZE - 1) // BATCH_SIZE
+
+        logger.info(f"[AdsEnricher] Iniciando busca de STATUS para {len(ad_ids)} anúncios em {total_batches} lote(s)")
+
+        for i in range(0, len(ad_ids), BATCH_SIZE):
+            batch_ids = ad_ids[i:i + BATCH_SIZE]
+            batch_num = (i // BATCH_SIZE) + 1
+
+            logger.info(f"[AdsEnricher] Processando lote STATUS {batch_num}/{total_batches} ({len(batch_ids)} anúncios)")
+
+            url = f"{self.base_url}{act_id}/ads?access_token={self.access_token}"
+            payload = {
+                "fields": "id,effective_status",
+                "limit": self.limit,
+                "filtering": "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) + "']}]",
+            }
+
+            try:
+                response = requests.get(url, params=payload, timeout=REQUEST_TIMEOUT)
+                response.raise_for_status()
+                batch_data = response.json().get("data", [])
+                all_results.extend(batch_data)
+
+                logger.info(f"[AdsEnricher] Lote STATUS {batch_num} concluído: {len(batch_data)} anúncios retornados")
+            except requests.exceptions.Timeout:
+                logger.error(f"[AdsEnricher] Timeout no lote STATUS {batch_num} após {REQUEST_TIMEOUT} segundos")
+                continue
+            except requests.exceptions.HTTPError as http_err:
+                decoded_text = urllib.parse.unquote(http_err.response.text)
+                if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
+                    logger.warning(f"[AdsEnricher] Meta API pediu para reduzir dados no lote STATUS {batch_num}, dividindo...")
+                    mid = len(batch_ids) // 2
+                    first = self.fetch_status_only(act_id, batch_ids[:mid])
+                    second = self.fetch_status_only(act_id, batch_ids[mid:])
+                    if first is not None:
+                        all_results.extend(first)
+                    if second is not None:
+                        all_results.extend(second)
+                    continue
+                logger.error(f"[AdsEnricher] HTTP error no lote STATUS {batch_num}: {http_err.response.status_code} - {decoded_text[:200]}")
+                continue
+            except Exception as err:
+                logger.exception(f"[AdsEnricher] Erro inesperado no lote STATUS {batch_num}: {err}")
+                continue
+
+        logger.info(f"[AdsEnricher] Busca de STATUS concluída: {len(all_results)} de {len(ad_ids)} anúncios")
+        return all_results if all_results else None
     
     def merge_details(
         self,
@@ -148,8 +207,9 @@ class AdsEnricher:
         if not details:
             return raw_data
         
-        # Criar mapas por nome
+        # Criar mapas por nome (mídia/creative é tratada como representativa por ad_name)
         creative_map = {d.get("name"): d.get("creative") for d in details}
+        # Manter status por nome apenas como fallback (o status correto será aplicado por ad_id no pipeline)
         status_map = {d.get("name"): d.get("effective_status") for d in details}
         
         # Mapa de vídeos do asset_feed_spec
@@ -168,7 +228,10 @@ class AdsEnricher:
             ad_name = ad.get("ad_name")
             if ad_name:
                 ad["creative"] = creative_map.get(ad_name)
-                ad["effective_status"] = status_map.get(ad_name)
+                # Não fixar status por nome aqui; isso é bug quando há múltiplos ad_ids por ad_name.
+                # Apenas fallback (será sobrescrito se tivermos status por ad_id).
+                if not ad.get("effective_status"):
+                    ad["effective_status"] = status_map.get(ad_name)
                 
                 # Videos do asset_feed_spec
                 videos = videos_map.get(ad_name, [])
@@ -214,21 +277,44 @@ class AdsEnricher:
                     "enriched_count": 0
                 }
             
-            # 1. Deduplicar por nome
-            unique_ads = self.deduplicate_by_name(raw_data)
-            unique_ids = list(unique_ads.values())
-            
-            # 2. Buscar detalhes
-            details = self.fetch_details(act_id, unique_ids)
-            
-            # 3. Mesclar
-            enriched = self.merge_details(raw_data, details or [])
-            
+            # Estratégia híbrida:
+            # - Creative/mídia: 1 ad_id por ad_name (payload pesado)
+            # - Status: por ad_id (payload leve)
+
+            # 1) IDs únicos
+            unique_ad_ids: List[str] = sorted(list({str(a.get("ad_id")) for a in raw_data if a.get("ad_id")}))
+
+            # 2) Deduplicar por nome para mídia
+            unique_ads = self.deduplicate_by_name(raw_data)  # ad_name -> rep_ad_id
+            rep_ids = list(unique_ads.values())
+
+            # 3) Buscar mídia (pesado) e status (leve)
+            media_details = self.fetch_details(act_id, rep_ids)
+            status_details = self.fetch_status_only(act_id, unique_ad_ids)
+
+            # 4) Mesclar mídia por ad_name (mantém fallback de status por nome, mas não confia nele)
+            enriched = self.merge_details(raw_data, media_details or [])
+
+            # 5) Aplicar status por ad_id (corrige bug)
+            status_by_ad_id: Dict[str, Any] = {}
+            if status_details:
+                for d in status_details:
+                    aid = d.get("id")
+                    if aid:
+                        status_by_ad_id[str(aid)] = d.get("effective_status")
+
+            for ad in enriched:
+                ad_id = ad.get("ad_id")
+                if ad_id:
+                    status = status_by_ad_id.get(str(ad_id))
+                    if status is not None:
+                        ad["effective_status"] = status
+
             return {
                 "success": True,
                 "data": enriched,
-                "unique_count": len(unique_ids),
-                "enriched_count": len(details) if details else 0
+                "unique_count": len(rep_ids),  # únicos por nome (mídia)
+                "enriched_count": len(media_details) if media_details else 0
             }
             
         except Exception as e:
@@ -248,4 +334,5 @@ def get_ads_enricher(
 ) -> AdsEnricher:
     """Factory function para criar AdsEnricher."""
     return AdsEnricher(access_token, on_progress=on_progress)
+
 

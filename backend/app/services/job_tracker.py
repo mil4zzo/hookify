@@ -314,3 +314,4 @@ def get_job_tracker(user_jwt: str, user_id: str) -> JobTracker:
     """Factory function para criar JobTracker."""
     return JobTracker(user_jwt, user_id)
 
+

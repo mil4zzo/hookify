@@ -10,6 +10,7 @@ export interface Step {
   label: string;
   description?: string;
   status?: StepStatus;
+  disabled?: boolean;
 }
 
 export interface MultiStepBreadcrumbProps {
@@ -65,8 +66,9 @@ export function MultiStepBreadcrumb({ steps, currentStepId, variant = "simple", 
           const status = getStepStatus(step, index);
           const isCompleted = status === "completed";
           const isActive = status === "active";
-          // Todos os steps são navegáveis quando onStepClick é fornecido
-          const isClickable = !!onStepClick;
+          const isDisabled = step.disabled === true;
+          // Steps são navegáveis quando onStepClick é fornecido e não estão desabilitados
+          const isClickable = !!onStepClick && !isDisabled;
           // A linha conectora é verde apenas se o step atual está completo (já foi passado)
           // Isso garante que apenas conectores anteriores ao step selecionado sejam verdes
           const connectorIsGreen = isCompleted;
@@ -74,7 +76,7 @@ export function MultiStepBreadcrumb({ steps, currentStepId, variant = "simple", 
           return (
             <div key={step.id} className="flex flex-col items-center gap-2 flex-1 min-w-0 relative">
               {/* Wrapper do step (clicável) */}
-              <div className={cn("flex flex-col items-center gap-2 w-full transition-opacity", isClickable && "cursor-pointer hover:opacity-80")} onClick={() => onStepClick?.(step.id)}>
+              <div className={cn("flex flex-col items-center gap-2 w-full transition-opacity", isClickable && "cursor-pointer hover:opacity-80", isDisabled && "cursor-not-allowed opacity-50")} onClick={() => isClickable && onStepClick?.(step.id)}>
                 {/* Círculo do step */}
                 <div className={cn("flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-200 flex-shrink-0 relative z-10", isCompleted ? "bg-green-500 border-green-500 text-white" : isActive ? "bg-primary border-primary text-white" : "bg-background border-border text-muted-foreground")}>{isCompleted ? <IconCheck className="w-5 h-5" /> : <span className="text-sm font-semibold">{index + 1}</span>}</div>
 
@@ -108,12 +110,13 @@ export function MultiStepBreadcrumb({ steps, currentStepId, variant = "simple", 
       {steps.map((step, index) => {
         const status = getStepStatus(step, index);
         const isActive = status === "active";
-        // Todos os steps são navegáveis quando onStepClick é fornecido
-        const isClickable = !!onStepClick;
+        const isDisabled = step.disabled === true;
+        // Steps são navegáveis quando onStepClick é fornecido e não estão desabilitados
+        const isClickable = !!onStepClick && !isDisabled;
 
         return (
           <div key={step.id} className="flex items-center gap-2">
-            <span className={cn("transition-colors", isActive && "font-semibold text-foreground", isClickable && "cursor-pointer hover:text-foreground")} onClick={() => onStepClick?.(step.id)}>
+            <span className={cn("transition-colors", isActive && "font-semibold text-foreground", isClickable && "cursor-pointer hover:text-foreground", isDisabled && "cursor-not-allowed opacity-50")} onClick={() => isClickable && onStepClick?.(step.id)}>
               {index + 1}. {step.label}
             </span>
             {index < steps.length - 1 && <span>·</span>}

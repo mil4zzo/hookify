@@ -1437,6 +1437,7 @@ def update_pack_refresh_status(
     user_id: Optional[str],
     last_refreshed_at: Optional[str] = None,
     refresh_status: str = "success",
+    date_stop: Optional[str] = None,
 ) -> None:
     """Atualiza o status de refresh de um pack no Supabase.
     
@@ -1446,6 +1447,7 @@ def update_pack_refresh_status(
         user_id: ID do usuário
         last_refreshed_at: Data de último refresh no formato YYYY-MM-DD (None = hoje)
         refresh_status: Status do refresh ('success', 'failed', 'running', etc.)
+        date_stop: Data final do pack no formato YYYY-MM-DD (opcional, atualiza date_stop do pack)
     """
     if not user_id or not pack_id:
         logger.warning("[UPDATE_REFRESH_STATUS] Skipped: missing user_id or pack_id")
@@ -1463,9 +1465,16 @@ def update_pack_refresh_status(
         "updated_at": _now_iso(),
     }
     
+    # Atualizar date_stop se fornecido (útil para manter o pack sincronizado com a data de atualização)
+    if date_stop:
+        update_data["date_stop"] = date_stop
+    
     try:
         sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute()
-        logger.info(f"[UPDATE_REFRESH_STATUS] ✓ Pack {pack_id} atualizado - last_refreshed_at={last_refreshed_at}, status={refresh_status}")
+        log_msg = f"[UPDATE_REFRESH_STATUS] ✓ Pack {pack_id} atualizado - last_refreshed_at={last_refreshed_at}, status={refresh_status}"
+        if date_stop:
+            log_msg += f", date_stop={date_stop}"
+        logger.info(log_msg)
     except Exception as e:
         logger.exception(f"[UPDATE_REFRESH_STATUS] ✗ Erro ao atualizar pack {pack_id}: {e}")
         raise

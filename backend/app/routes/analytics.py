@@ -119,6 +119,96 @@ def _safe_div(a: float, b: float) -> float:
     return (a / b) if b else 0.0
 
 
+def _get_user_mql_leadscore_min(sb, user_id: str) -> float:
+    """Busca mql_leadscore_min do usuário. Fallback seguro para 0."""
+    try:
+        res = sb.table("user_preferences").select("mql_leadscore_min").eq("user_id", user_id).limit(1).execute()
+        if res and res.data:
+            raw = res.data[0].get("mql_leadscore_min")
+            v = float(raw) if raw is not None else 0.0
+            return v if v >= 0 else 0.0
+    except Exception:
+        pass
+    return 0.0
+
+
+def _count_mql(leadscore_values: Any, mql_leadscore_min: float) -> int:
+    """Conta quantos leadscores são >= mql_leadscore_min (valores inválidos são ignorados)."""
+    if not isinstance(leadscore_values, list) or not leadscore_values:
+        return 0
+    cnt = 0
+    for v in leadscore_values:
+        try:
+            n = float(v)
+        except Exception:
+            continue
+        if n >= mql_leadscore_min:
+            cnt += 1
+    return cnt
+
+
+def _build_rankings_series(axis: List[str], S: Dict[str, Any], include_cpmql: bool = True) -> Dict[str, Any]:
+    """Constrói payload `series` no formato consumido pelo frontend (sparklines)."""
+    hook_series: List[Optional[float]] = []
+    spend_series: List[Optional[float]] = []
+    ctr_series: List[Optional[float]] = []
+    connect_series: List[Optional[float]] = []
+    lpv_series: List[Optional[int]] = []
+    impressions_series: List[Optional[int]] = []
+    cpm_series: List[Optional[float]] = []
+    website_ctr_series: List[Optional[float]] = []
+    conversions_series: List[Dict[str, int]] = []  # conversions por dia
+    cpmql_series: List[Optional[float]] = []
+
+    for d in axis:
+        plays = (S.get("plays") or {}).get(d, 0) or 0
+        hook_wsum = (S.get("hook_wsum") or {}).get(d, 0.0) or 0.0
+        hook_day = _safe_div(hook_wsum, plays) if plays else None
+
+        spend_day = (S.get("spend") or {}).get(d, 0.0) or 0.0
+        clicks_day = (S.get("clicks") or {}).get(d, 0) or 0
+        impr_day = (S.get("impressions") or {}).get(d, 0) or 0
+        inline_day = (S.get("inline") or {}).get(d, 0) or 0
+        lpv_day = (S.get("lpv") or {}).get(d, 0) or 0
+
+        ctr_day = (clicks_day / impr_day) if impr_day else None
+        connect_day = (lpv_day / inline_day) if inline_day else None
+        cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
+        website_ctr_day = (inline_day / impr_day) if impr_day else None
+
+        conversions_day = ((S.get("conversions") or {}).get(d, {})) or {}
+
+        hook_series.append(hook_day)
+        spend_series.append(spend_day if spend_day else None)
+        ctr_series.append(ctr_day)
+        connect_series.append(connect_day)
+        lpv_series.append(lpv_day)
+        impressions_series.append(impr_day if impr_day else None)
+        cpm_series.append(cpm_day)
+        website_ctr_series.append(website_ctr_day)
+        conversions_series.append(conversions_day)
+
+        if include_cpmql:
+            mql_count_day = ((S.get("mql_count") or {}).get(d, 0)) or 0
+            cpmql_day = (spend_day / mql_count_day) if (mql_count_day and spend_day > 0) else None
+            cpmql_series.append(cpmql_day)
+
+    series: Dict[str, Any] = {
+        "axis": axis,
+        "hook": hook_series,
+        "spend": spend_series,
+        "ctr": ctr_series,
+        "connect_rate": connect_series,
+        "lpv": lpv_series,
+        "impressions": impressions_series,
+        "cpm": cpm_series,
+        "website_ctr": website_ctr_series,
+        "conversions": conversions_series,
+    }
+    if include_cpmql:
+        series["cpmql"] = cpmql_series
+    return series
+
 def _hook_at_3_from_curve(curve: Any) -> float:
     try:
         if not isinstance(curve, list) or not curve:
@@ -165,6 +255,7 @@ def _get_storage_thumb_if_any(ad_row: Dict[str, Any]) -> Optional[str]:
 @router.post("/ad-performance")
 def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
     # Window para sparklines (5 dias terminando em date_stop)
     axis = _axis_5_days(req.date_stop)
@@ -247,6 +338,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         "lpv": {d: 0 for d in axis},
         "hook_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},  # conversions por dia: {date: {action_type: value}}
+        "mql_count": {d: 0 for d in axis},  # MQLs por dia (a partir de leadscore_values)
     })
 
     for r in rows:
@@ -411,6 +503,11 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             S["lpv"][date] += lpv
             S["plays"][date] += plays
             S["hook_wsum"][date] += hook * plays
+            # MQLs por dia
+            try:
+                S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+            except Exception:
+                pass
             
             # Agregar conversions e actions por dia
             try:
@@ -440,11 +537,16 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     logger.info(f"[INSIGHTS DEBUG] Após processar rows: agg_keys_count={len(agg.keys())}, agg_keys_sample={list(agg.keys())[:5]}")
 
     # Buscar thumbnails da tabela ads (usar ad_id representativo por ad_name)
+    # Também buscar todos os ad_ids do grupo para verificar se há pelo menos um ACTIVE
     ad_ids_in_results = set()
     for A in agg.values():
         rep_ad_id = A.get("rep_ad_id")
         if rep_ad_id:
             ad_ids_in_results.add(str(rep_ad_id))  # Garantir string
+        # Adicionar TODOS os ad_ids do grupo para verificar status
+        ad_ids_set = A.get("ad_ids") or set()
+        for ad_id_in_group in ad_ids_set:
+            ad_ids_in_results.add(str(ad_id_in_group))
     
     thumbnails_map: Dict[str, Optional[str]] = {}
     adcreatives_map: Dict[str, Optional[List[str]]] = {}  # Map para adcreatives_videos_thumbs
@@ -509,7 +611,33 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         ad_id_str = str(ad_id_for_thumb or "") if ad_id_for_thumb else ""
         thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
         adcreatives_thumbs = adcreatives_map.get(ad_id_str) if ad_id_str else None
-        effective_status = effective_status_map.get(ad_id_str) if ad_id_str else None
+        
+        # NOVA LÓGICA: Verificar se há pelo menos um ad_id com effective_status = 'ACTIVE' no grupo
+        # Se houver, usar 'ACTIVE' como status do grupo (indica que pelo menos um anúncio está rodando)
+        effective_status = None
+        ad_ids_in_group = A.get("ad_ids") or set()
+        has_active = False
+        
+        # Verificar todos os ad_ids do grupo
+        for ad_id_in_group in ad_ids_in_group:
+            ad_id_group_str = str(ad_id_in_group)
+            status = effective_status_map.get(ad_id_group_str)
+            if status and str(status).upper() == "ACTIVE":
+                has_active = True
+                effective_status = "ACTIVE"
+                break  # Encontrou um ACTIVE, pode parar
+        
+        # Se não encontrou ACTIVE, usar o status do rep_ad_id (ou primeiro disponível)
+        if not has_active:
+            effective_status = effective_status_map.get(ad_id_str) if ad_id_str else None
+            # Se ainda não tiver, tentar pegar o primeiro status disponível do grupo
+            if not effective_status:
+                for ad_id_in_group in ad_ids_in_group:
+                    ad_id_group_str = str(ad_id_in_group)
+                    status = effective_status_map.get(ad_id_group_str)
+                    if status:
+                        effective_status = status
+                        break
         
         # Fallback: buscar diretamente na tabela se não encontrar no map
         if not thumbnail and ad_id_str:
@@ -518,7 +646,9 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 if fallback_res.data and len(fallback_res.data) > 0:
                     fallback_row = fallback_res.data[0]
                     thumbnail = _get_storage_thumb_if_any(fallback_row) or _get_thumbnail_with_fallback(fallback_row)
-                    effective_status = fallback_row.get("effective_status")
+                    # Atualizar effective_status apenas se ainda não foi definido
+                    if not effective_status:
+                        effective_status = fallback_row.get("effective_status")
                     # Também buscar adcreatives_videos_thumbs no fallback
                     fallback_adcreatives = fallback_row.get("adcreatives_videos_thumbs")
                     if isinstance(fallback_adcreatives, list) and len(fallback_adcreatives) > 0:
@@ -528,55 +658,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 pass
 
         S = series_acc.get(key)
-        series = None
-        if S:
-            hook_series = []
-            spend_series = []
-            ctr_series = []
-            connect_series = []
-            lpv_series = []
-            impressions_series = []
-            cpm_series = []
-            website_ctr_series = []
-            conversions_series = []  # conversions por dia para o frontend calcular results/cpr/page_conv
-            
-            for d in axis:
-                plays = S["plays"][d] or 0
-                hook_day = _safe_div(S["hook_wsum"][d], plays) if plays else None
-                spend_day = S["spend"][d] or 0.0
-                clicks_day = S["clicks"][d] or 0
-                impr_day = S["impressions"][d] or 0
-                inline_day = S["inline"][d] or 0
-                lpv_day = S["lpv"][d] or 0
-                ctr_day = (clicks_day / impr_day) if impr_day else None
-                connect_day = (lpv_day / inline_day) if inline_day else None
-                cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
-                website_ctr_day = (inline_day / impr_day) if impr_day else None
-                # conversions por dia: {action_type: value}
-                conversions_day = S["conversions"].get(d, {})
-                
-                hook_series.append(hook_day)
-                spend_series.append(spend_day if spend_day else None)
-                ctr_series.append(ctr_day)
-                connect_series.append(connect_day)
-                lpv_series.append(lpv_day)
-                impressions_series.append(impr_day if impr_day else None)
-                cpm_series.append(cpm_day)
-                website_ctr_series.append(website_ctr_day)
-                conversions_series.append(conversions_day)
-
-            series = {
-                "axis": axis,
-                "hook": hook_series,
-                "spend": spend_series,
-                "ctr": ctr_series,
-                "connect_rate": connect_series,
-                "lpv": lpv_series,  # Para o frontend calcular page_conv dinamicamente
-                "impressions": impressions_series,
-                "cpm": cpm_series,
-                "website_ctr": website_ctr_series,
-                "conversions": conversions_series,  # Para o frontend calcular results/cpr/page_conv dinamicamente
-            }
+        series = _build_rankings_series(axis, S, include_cpmql=True) if S else None
 
         # Calcular ad_scale (distinct ad_ids) e preencher ad_count com este valor
         ad_scale = 0
@@ -736,6 +818,7 @@ def get_rankings_children(
     Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
     """
     sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
     axis = _axis_5_days(date_stop)
     
@@ -747,7 +830,7 @@ def get_rankings_children(
     data = _fetch_all_paginated(
         sb,
         "ad_metrics",
-        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,hold_rate",
+        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,hold_rate,leadscore_values",
         metrics_filters
     )
 
@@ -763,6 +846,7 @@ def get_rankings_children(
         "lpv": {d: 0 for d in axis},
         "hook_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
+        "mql_count": {d: 0 for d in axis},
     })
 
     for r in data:
@@ -774,6 +858,7 @@ def get_rankings_children(
         impressions = int(r.get("impressions") or 0)
         inline_link_clicks = int(r.get("inline_link_clicks") or 0)
         spend = float(r.get("spend") or 0)
+        leadscore_values = r.get("leadscore_values") or []
         plays = int(r.get("video_total_plays") or 0)
         thruplays = int(r.get("video_total_thruplays") or 0)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
@@ -856,6 +941,10 @@ def get_rankings_children(
             S["plays"][date] += plays
             S["hook_wsum"][date] += hook * plays
             try:
+                S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+            except Exception:
+                pass
+            try:
                 # Processar conversions
                 for c in (r.get("conversions") or []):
                     action_type = str(c.get("action_type") or "")
@@ -921,53 +1010,7 @@ def get_rankings_children(
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
 
         S = series_acc.get(key)
-        series = None
-        if S:
-            hook_series = []
-            spend_series = []
-            ctr_series = []
-            connect_series = []
-            lpv_series = []
-            impressions_series = []
-            cpm_series = []
-            website_ctr_series = []
-            conversions_series = []
-            for d in axis:
-                plays_val = S["plays"][d] or 0
-                hook_day = _safe_div(S["hook_wsum"][d], plays_val) if plays_val else None
-                spend_day = S["spend"][d] or 0.0
-                clicks_day = S["clicks"][d] or 0
-                impr_day = S["impressions"][d] or 0
-                inline_day = S["inline"][d] or 0
-                lpv_day = S["lpv"][d] or 0
-                ctr_day = (clicks_day / impr_day) if impr_day else None
-                connect_day = (lpv_day / inline_day) if inline_day else None
-                cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
-                website_ctr_day = (inline_day / impr_day) if impr_day else None
-                conversions_day = S["conversions"].get(d, {})
-
-                hook_series.append(hook_day)
-                spend_series.append(spend_day if spend_day else None)
-                ctr_series.append(ctr_day)
-                connect_series.append(connect_day)
-                lpv_series.append(lpv_day)
-                impressions_series.append(impr_day if impr_day else None)
-                cpm_series.append(cpm_day)
-                website_ctr_series.append(website_ctr_day)
-                conversions_series.append(conversions_day)
-
-            series = {
-                "axis": axis,
-                "hook": hook_series,
-                "spend": spend_series,
-                "ctr": ctr_series,
-                "connect_rate": connect_series,
-                "lpv": lpv_series,
-                "impressions": impressions_series,
-                "cpm": cpm_series,
-                "website_ctr": website_ctr_series,
-                "conversions": conversions_series,
-            }
+        series = _build_rankings_series(axis, S, include_cpmql=True) if S else None
 
         items.append({
             "account_id": A.get("account_id"),
@@ -1015,6 +1058,7 @@ def get_ad_details(
     Reutiliza a lógica de get_rankings_children, mas retorna um único item.
     """
     sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
     axis = _axis_5_days(date_stop)
     
@@ -1026,7 +1070,7 @@ def get_ad_details(
     data = _fetch_all_paginated(
         sb,
         "ad_metrics",
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions",
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,leadscore_values",
         metrics_filters
     )
     
@@ -1065,6 +1109,7 @@ def get_ad_details(
         "lpv": {d: 0 for d in axis},
         "hook_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
+        "mql_count": {d: 0 for d in axis},
     }
 
     for r in data:
@@ -1080,6 +1125,7 @@ def get_ad_details(
         impressions = int(r.get("impressions") or 0)
         inline_link_clicks = int(r.get("inline_link_clicks") or 0)
         spend = float(r.get("spend") or 0)
+        leadscore_values = r.get("leadscore_values") or []
         plays = int(r.get("video_total_plays") or 0)
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
@@ -1150,6 +1196,10 @@ def get_ad_details(
             series_acc["plays"][date] += plays
             series_acc["hook_wsum"][date] += hook * plays
             try:
+                series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+            except Exception:
+                pass
+            try:
                 # Processar conversions
                 for c in (r.get("conversions") or []):
                     action_type = str(c.get("action_type") or "")
@@ -1203,53 +1253,7 @@ def get_ad_details(
             else:
                 aggregated_curve.append(0)
 
-    # Construir série temporal
-    hook_series = []
-    spend_series = []
-    ctr_series = []
-    connect_series = []
-    lpv_series = []
-    impressions_series = []
-    cpm_series = []
-    website_ctr_series = []
-    conversions_series = []
-    
-    for d in axis:
-        plays_val = series_acc["plays"][d] or 0
-        hook_day = _safe_div(series_acc["hook_wsum"][d], plays_val) if plays_val else None
-        spend_day = series_acc["spend"][d] or 0.0
-        clicks_day = series_acc["clicks"][d] or 0
-        impr_day = series_acc["impressions"][d] or 0
-        inline_day = series_acc["inline"][d] or 0
-        lpv_day = series_acc["lpv"][d] or 0
-        ctr_day = (clicks_day / impr_day) if impr_day else None
-        connect_day = (lpv_day / inline_day) if inline_day else None
-        cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
-        website_ctr_day = (inline_day / impr_day) if impr_day else None
-        conversions_day = series_acc["conversions"].get(d, {})
-
-        hook_series.append(hook_day)
-        spend_series.append(spend_day if spend_day else None)
-        ctr_series.append(ctr_day)
-        connect_series.append(connect_day)
-        lpv_series.append(lpv_day)
-        impressions_series.append(impr_day if impr_day else None)
-        cpm_series.append(cpm_day)
-        website_ctr_series.append(website_ctr_day)
-        conversions_series.append(conversions_day)
-
-    series = {
-        "axis": axis,
-        "hook": hook_series,
-        "spend": spend_series,
-        "ctr": ctr_series,
-        "connect_rate": connect_series,
-        "lpv": lpv_series,
-        "impressions": impressions_series,
-        "cpm": cpm_series,
-        "website_ctr": website_ctr_series,
-        "conversions": conversions_series,
-    }
+    series = _build_rankings_series(axis, series_acc, include_cpmql=True)
 
     return {
         "account_id": agg["account_id"],

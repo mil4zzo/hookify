@@ -233,14 +233,16 @@ class JobProcessor:
                     ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
                     supabase_repo.update_pack_ad_ids(self.user_jwt, pack_id, ad_ids, user_id=self.user_id)
                 
-                # Atualizar status de refresh
+                # Atualizar status de refresh e date_stop do pack
                 last_refreshed_at = str(payload.get("date_stop")) if payload else None
+                date_stop = str(payload.get("date_stop")) if payload else None
                 supabase_repo.update_pack_refresh_status(
                     self.user_jwt,
                     pack_id,
                     user_id=self.user_id,
                     last_refreshed_at=last_refreshed_at,
-                    refresh_status="success"
+                    refresh_status="success",
+                    date_stop=date_stop,  # Atualizar date_stop para manter sincronizado
                 )
             else:
                 # É criação de novo pack

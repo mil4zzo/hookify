@@ -4,13 +4,11 @@ import { setAuthToken } from '@/lib/api/client'
 import { showSuccess, showError } from '@/lib/utils/toast'
 import { queryKeys } from '@/lib/api/hooks'
 import { useSupabaseAuth } from './useSupabaseAuth'
-import { useRouter } from 'next/navigation'
 
 export const useAuthManager = () => {
   const queryClient = useQueryClient()
   const { setUser, logout } = useSessionStore()
   const { signOut } = useSupabaseAuth()
-  const router = useRouter()
 
   const handleLoginSuccess = (_accessToken: string, userInfo?: any) => {
     try {
@@ -50,10 +48,13 @@ export const useAuthManager = () => {
       // 5. Limpar cache do React Query (depois de cancelar)
       queryClient.clear()
       
-      // 6. Redirecionar para login
-      router.push('/login')
-      
+      // 6. Mostrar mensagem de sucesso
       showSuccess('Logout realizado com sucesso!')
+      
+      // 7. Redirecionar para login usando window.location para forçar reload completo
+      // Isso garante que todos os hooks sejam reinicializados com a nova sessão (sem sessão)
+      // Similar ao que é feito no login para garantir reset completo do estado
+      window.location.href = '/login'
     } catch (error) {
       showError(error as any)
       // Mesmo com erro, cancelar queries, limpar localmente e redirecionar
@@ -61,7 +62,8 @@ export const useAuthManager = () => {
       setAuthToken(null)
       logout()
       queryClient.clear()
-      router.push('/login')
+      // Usar window.location para forçar reload completo mesmo em caso de erro
+      window.location.href = '/login'
     }
   }
 

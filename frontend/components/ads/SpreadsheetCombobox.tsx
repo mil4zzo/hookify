@@ -23,6 +23,7 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
   const [search, setSearch] = useState("");
   const [options, setOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [nextPageToken, setNextPageToken] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +44,13 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
   const loadSpreadsheets = useCallback(async (query?: string, pageToken?: string, append = false) => {
     if (isLoadingMoreRef.current) return;
     isLoadingMoreRef.current = true;
-    setIsLoading(true);
+    
+    // Usar isLoadingMore quando for append, isLoading quando for carregamento inicial
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+    }
 
     try {
       const res = await api.integrations.google.listSpreadsheets({
@@ -117,7 +124,11 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
         showError(error instanceof Error ? error : ({ message: errorMessage } as AppError));
       }
     } finally {
-      setIsLoading(false);
+      if (append) {
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
       isLoadingMoreRef.current = false;
     }
   }, []);
@@ -245,6 +256,12 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
                     </button>
                   );
                 })}
+                {isLoadingMore && (
+                  <div className="flex items-center justify-center gap-2 py-2">
+                    <IconLoader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Carregando mais...</span>
+                  </div>
+                )}
               </div>
             )}
           </div>

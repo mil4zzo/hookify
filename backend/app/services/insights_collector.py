@@ -131,3 +131,4 @@ def get_insights_collector(
     """Factory function para criar InsightsCollector."""
     return InsightsCollector(access_token, on_progress=on_progress)
 
+

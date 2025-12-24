@@ -250,6 +250,8 @@ export const SheetSyncStatsSchema = z.object({
   updated_rows: z.number(),
   skipped_no_match: z.number(),
   skipped_invalid: z.number(),
+  utilized_sheet_rows: z.number().optional(),
+  skipped_sheet_rows: z.number().optional(),
 })
 
 export const SheetSyncResponseSchema = z.object({
@@ -304,6 +306,9 @@ const RankingsSeriesSchema = z.object({
   lpv: z.array(z.number().nullable()), // lpv por dia para calcular page_conv dinamicamente
   impressions: z.array(z.number().nullable()),
   cpm: z.array(z.number().nullable()),
+  // CPMQL diário (calculado no backend usando leadscore_values por dia + mql_leadscore_min do usuário)
+  // Opcional para manter compatibilidade com backends antigos.
+  cpmql: z.array(z.number().nullable()).optional(),
   website_ctr: z.array(z.number().nullable()),
   conversions: z.array(z.record(z.string(), z.number())), // conversions por dia para calcular results/cpr/page_conv dinamicamente
 }).passthrough();

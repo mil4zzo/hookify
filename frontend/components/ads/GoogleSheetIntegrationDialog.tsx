@@ -5,16 +5,19 @@ import { Modal } from "@/components/common/Modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { api } from "@/lib/api/endpoints";
 import { env } from "@/lib/config/env";
 import { SheetIntegrationRequest, SheetColumnsResponse, SheetSyncResponse, GoogleConnection } from "@/lib/api/schemas";
 import { showError, showSuccess } from "@/lib/utils/toast";
-import { IconBrandGoogle, IconRefresh, IconTableExport, IconCheck, IconCircle, IconTrash, IconPlus, IconChevronLeft, IconLoader2, IconAlertCircle } from "@tabler/icons-react";
+import { IconBrandGoogle, IconRefresh, IconTableExport, IconCheck, IconCircle, IconTrash, IconPlus, IconChevronLeft, IconLoader2, IconAlertCircle, IconInfoCircle } from "@tabler/icons-react";
 import { Progress } from "@/components/ui/progress";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SpreadsheetCombobox } from "./SpreadsheetCombobox";
 import { WorksheetCombobox } from "./WorksheetCombobox";
 import { openAuthPopup, AuthPopupError } from "@/lib/utils/authPopup";
 import { MultiStepBreadcrumb, Step } from "@/components/common/MultiStepBreadcrumb";
+import { cn } from "@/lib/utils/cn";
 
 export interface GoogleSheetIntegrationDialogProps {
   isOpen: boolean;
@@ -55,6 +58,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
 
   const [lastSyncStats, setLastSyncStats] = useState<SheetSyncResponse["stats"] | null>(null);
   const [integrationId, setIntegrationId] = useState<string | null>(null);
+  const [loadedIntegrationData, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
 
   // Constantes para cache de verificação
   const VERIFICATION_CACHE_KEY = "google_connections_verification_cache";
@@ -355,6 +359,79 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     }
   }, [isOpen, loadConnections]);
 
+  // Carregar integração existente quando packId for fornecido
+  useEffect(() => {
+    if (isOpen && packId) {
+      const loadExistingIntegration = async () => {
+        try {
+          const res = await api.integrations.google.listSheetIntegrations(packId);
+          if (res.integrations && res.integrations.length > 0) {
+            const integration = res.integrations[0];
+            // Preencher os campos com os dados existentes
+            setSelectedSpreadsheetId(integration.spreadsheet_id || "");
+            setWorksheetTitle(integration.worksheet_title || "");
+            setAdIdColumn(integration.ad_id_column || "");
+            setDateColumn(integration.date_column || "");
+            setDateFormat((integration.date_format as "DD/MM/YYYY" | "MM/DD/YYYY") || "DD/MM/YYYY");
+            setLeadscoreColumn(integration.leadscore_column || "");
+            setCprMaxColumn(integration.cpr_max_column || "");
+            setIntegrationId(integration.id);
+            
+            // Armazenar dados para tentar carregar colunas depois
+            if (integration.spreadsheet_id && integration.worksheet_title) {
+              setLoadedIntegrationData({
+                spreadsheetId: integration.spreadsheet_id,
+                worksheetTitle: integration.worksheet_title,
+              });
+            }
+          }
+        } catch (error) {
+          console.error("Erro ao carregar integração existente:", error);
+        }
+      };
+      loadExistingIntegration();
+    } else if (isOpen && !packId) {
+      // Se não há packId, resetar estado ao abrir
+      setStep("connect");
+      setSelectedSpreadsheetId("");
+      setWorksheetTitle("");
+      setColumns([]);
+      setAdIdColumn("");
+      setDateColumn("");
+      setLeadscoreColumn("");
+      setCprMaxColumn("");
+      setIntegrationId("");
+      setLoadedIntegrationData(null);
+    }
+  }, [isOpen, packId]);
+
+  // Tentar carregar colunas quando conexões estiverem disponíveis e houver dados de integração carregados
+  useEffect(() => {
+    if (loadedIntegrationData && connections.length > 0 && !isLoadingConnections) {
+      const loadColumnsForIntegration = async () => {
+        // Tentar com a primeira conexão disponível
+        const firstConn = connections[0];
+        try {
+          setSelectedConnectionId(firstConn.id);
+          setIsGoogleConnected(true);
+          const columnsRes = await api.integrations.google.listColumns(
+            loadedIntegrationData.spreadsheetId,
+            loadedIntegrationData.worksheetTitle
+          );
+          setColumns(columnsRes.columns || []);
+          // Avançar para o step 3 (select-columns) já que temos todos os dados
+          setStep("select-columns");
+          setLoadedIntegrationData(null); // Limpar flag para não tentar novamente
+        } catch (error) {
+          console.error("Erro ao carregar colunas:", error);
+          // Se falhar, o usuário precisará selecionar uma conexão manualmente
+          setLoadedIntegrationData(null);
+        }
+      };
+      loadColumnsForIntegration();
+    }
+  }, [loadedIntegrationData, connections, isLoadingConnections]);
+
   // Listener para detectar quando token expira durante uso
   useEffect(() => {
     const handleTokenExpired = (event: CustomEvent) => {
@@ -490,7 +567,10 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
 
   const canLoadColumns = useMemo(() => !!selectedSpreadsheetId && !!worksheetTitle, [selectedSpreadsheetId, worksheetTitle]);
 
-  const canImport = useMemo(() => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && (!!leadscoreColumn || !!cprMaxColumn), [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, leadscoreColumn, cprMaxColumn]);
+  const canImport = useMemo(() => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!leadscoreColumn, [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, leadscoreColumn]);
+
+  // Converter colunas para formato de options do Combobox
+  const columnOptions = useMemo(() => columns.map((c) => ({ label: c, value: c })), [columns]);
 
   const handleConnectGoogle = async () => {
     try {
@@ -750,7 +830,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             Enriquecer anúncios com Google Sheets
           </h2>
           <p className="text-sm text-muted-foreground">
-            Conecte uma planilha com colunas de <strong>ad_id</strong>, <strong>Data</strong>, <strong>Leadscore</strong> e/ou <strong>CPR max</strong>. Os dados serão aplicados como patch direto na tabela <code>ad_metrics</code> do Supabase.
+            Conecte uma planilha com colunas de <strong>ad_id</strong>, <strong>data</strong> e <strong>leadscore</strong> para habilitar métricas de Marketing Qualified Lead.
           </p>
         </div>
 
@@ -761,17 +841,19 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
               id: "connect",
               label: "Conectar Google",
               description: isGoogleConnected ? (selectedConnectionId ? connections.find((c) => c.id === selectedConnectionId)?.google_name || connections.find((c) => c.id === selectedConnectionId)?.google_email || "Conta Google" : "Conectado") : undefined,
-              status: isGoogleConnected ? "completed" : step === "connect" ? "active" : "pending",
+              status: step !== "connect" ? "completed" : step === "connect" ? "active" : "pending",
             },
             {
               id: "select-sheet",
               label: "Selecionar planilha",
-              status: selectedSpreadsheetId && worksheetTitle ? "completed" : step === "select-sheet" && isGoogleConnected ? "active" : "pending",
+              status: step === "select-columns" || step === "summary" ? "completed" : step === "select-sheet" ? "active" : "pending",
+              disabled: !isGoogleConnected,
             },
             {
               id: "select-columns",
               label: "Selecionar colunas",
-              status: step === "summary" ? "completed" : step === "select-columns" && selectedSpreadsheetId && worksheetTitle ? "active" : "pending",
+              status: step === "summary" ? "completed" : step === "select-columns" ? "active" : "pending",
+              disabled: !isGoogleConnected || !selectedSpreadsheetId || !worksheetTitle,
             },
           ]}
           currentStepId={step}
@@ -784,7 +866,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
           <section className="space-y-4">
             <h3 className="font-semibold text-lg flex items-center gap-2">Conectar conta Google</h3>
             <p className="text-sm text-muted-foreground">
-              Selecione uma conexão existente ou crie uma nova para acessar as planilhas do Google Sheets. Usamos apenas permissão de leitura (<code>spreadsheets.readonly</code>) para importar os valores.
+              Selecione ou crie uma conexão para conectar uma planilha do Google Sheets. Usamos apenas permissão de leitura para importar os valores.
             </p>
 
             {/* Lista de conexões existentes */}
@@ -861,7 +943,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
 
             {/* Botão para criar nova conexão */}
             <div className="pt-4 border-t border-border">
-              <Button type="button" variant="outline" size="lg" className="flex items-center gap-2 w-full" onClick={handleConnectGoogle} disabled={isConnecting}>
+              <Button type="button" variant={connections.length === 0 ? "default" : "outline"} size="lg" className="flex items-center gap-2 w-full" onClick={handleConnectGoogle} disabled={isConnecting}>
                 <IconPlus className="w-5 h-5" />
                 {isConnecting ? "Conectando..." : "Criar nova conexão"}
               </Button>
@@ -870,21 +952,17 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         )}
 
         {/* Step 2: Selecionar planilha e aba */}
-        {step === "select-sheet" && isGoogleConnected && (
-          <section className="space-y-4">
+        {isGoogleConnected && (
+          <section className={cn("space-y-4", step !== "select-sheet" && "hidden")}>
             <h3 className="font-semibold text-lg flex items-center gap-2">Selecionar planilha e aba</h3>
 
             <div className="space-y-3">
               <div className="space-y-2">
-                <label className="text-sm font-medium">Selecione a planilha</label>
-                <SpreadsheetCombobox value={selectedSpreadsheetId} onValueChange={setSelectedSpreadsheetId} placeholder="Busque e selecione uma planilha..." />
-                <p className="text-xs text-muted-foreground">As planilhas são ordenadas por modificação recente. Role para carregar mais.</p>
+                <SpreadsheetCombobox value={selectedSpreadsheetId} onValueChange={setSelectedSpreadsheetId} placeholder="Selecione uma planilha..." />
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium">Nome da aba</label>
                 <WorksheetCombobox spreadsheetId={selectedSpreadsheetId} value={worksheetTitle} onValueChange={setWorksheetTitle} placeholder="Selecione uma aba..." disabled={!selectedSpreadsheetId} />
-                {!selectedSpreadsheetId && <p className="text-xs text-muted-foreground">Selecione uma planilha primeiro para carregar as abas disponíveis.</p>}
               </div>
             </div>
 
@@ -926,201 +1004,220 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
           </section>
         )}
 
-        {/* Step 3: Selecionar colunas */}
-        {step === "select-columns" && isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
-          <section className="space-y-4">
-            <h3 className="font-semibold text-lg flex items-center gap-2">Selecionar colunas</h3>
+        {/* Step 3: Selecionar colunas ou Summary */}
+        {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
+          <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
+            {step === "summary" && lastSyncStats ? (
+              /* Card de sucesso - substitui completamente o conteúdo do passo 3 */
+              <div className="border border-green-500/30 bg-green-500/10 rounded-lg p-6">
+                <h3 className="font-semibold text-lg flex items-center gap-2 text-green-500 mb-4">
+                  <IconCheck className="w-5 h-5" />
+                  Importação concluída com sucesso!
+                </h3>
+                <div className="space-y-4">
+                  {/* Total de linhas processadas */}
+                  <div className="text-center">
+                    <div className="text-sm text-muted-foreground mb-1">Linhas processadas</div>
+                    <div className="text-2xl font-bold">{lastSyncStats.processed_rows.toLocaleString()}</div>
+                  </div>
 
-            {columns.length === 0 ? (
-              <div className="text-sm text-muted-foreground">Carregando colunas...</div>
+                  {/* Grupos de métricas */}
+                  <div className="flex flex-col">
+                    {(() => {
+                      const total = lastSyncStats.processed_rows;
+                      const validas = total - lastSyncStats.skipped_invalid;
+                      // Usar novas métricas de linhas da planilha quando disponíveis, fallback para compatibilidade
+                      const utilizadas = lastSyncStats.utilized_sheet_rows ?? lastSyncStats.updated_rows;
+                      const ignoradas = lastSyncStats.skipped_sheet_rows ?? lastSyncStats.skipped_no_match;
+                      const invalidas = lastSyncStats.skipped_invalid;
+
+                      const pctValidas = total > 0 ? ((validas / total) * 100).toFixed(1) : "0.0";
+                      const pctUtilizadas = total > 0 ? ((utilizadas / total) * 100).toFixed(1) : "0.0";
+                      const pctIgnoradas = total > 0 ? ((ignoradas / total) * 100).toFixed(1) : "0.0";
+                      const pctInvalidas = total > 0 ? ((invalidas / total) * 100).toFixed(1) : "0.0";
+
+                      return (
+                        <TooltipProvider>
+                          <div className="flex items-center justify-between py-2 border-b border-border">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm text-foreground">Válidas</span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Linhas com ad_id não nulo, data válida e leadscore não nulo</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-foreground">{validas.toLocaleString()}</span>
+                              <span className="text-xs text-muted-foreground">({pctValidas}%)</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between py-2 border-b border-border">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm text-foreground">Utilizadas</span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Linhas válidas com match por ad_id no ad_metrics</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-green-500">{utilizadas.toLocaleString()}</span>
+                              <span className="text-xs text-muted-foreground">({pctUtilizadas}%)</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between py-2 border-b border-border">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm text-foreground">Ignoradas</span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Linhas válidas com ad_id sem match no ad_metrics</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-yellow-500">{ignoradas.toLocaleString()}</span>
+                              <span className="text-xs text-muted-foreground">({pctIgnoradas}%)</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between py-2">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-sm text-foreground">Inválidas</span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>Linhas com ad_id nulo, data inválida ou leadscore nulo</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-medium text-red-500">{invalidas.toLocaleString()}</span>
+                              <span className="text-xs text-muted-foreground">({pctInvalidas}%)</span>
+                            </div>
+                          </div>
+                        </TooltipProvider>
+                      );
+                    })()}
+                  </div>
+                  <div className="flex gap-2 pt-4">
+                    <Button type="button" variant="outline" onClick={handleSyncAgain} disabled={isImporting} className="flex items-center gap-2">
+                      <IconRefresh className="w-4 h-4" />
+                      Atualizar dados novamente
+                    </Button>
+                    <Button type="button" variant="default" onClick={handleClose} disabled={isImporting}>
+                      Fechar
+                    </Button>
+                  </div>
+                </div>
+              </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Coluna de Ad ID *</label>
-                  <Select value={adIdColumn} onValueChange={setAdIdColumn}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione a coluna de ad_id" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {columns.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              /* Conteúdo normal do passo 3 */
+              <>
+                <h3 className="font-semibold text-lg flex items-center gap-2">Selecionar colunas</h3>
 
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Coluna de Data *</label>
-                  <Select value={dateColumn} onValueChange={setDateColumn}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione a coluna de data" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {columns.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Formato de Data *</label>
-                  <Select value={dateFormat} onValueChange={(val) => setDateFormat(val as "DD/MM/YYYY" | "MM/DD/YYYY")}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione o formato de data" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="DD/MM/YYYY">DD/MM/YYYY (ex: 15/01/2025)</SelectItem>
-                      <SelectItem value="MM/DD/YYYY">MM/DD/YYYY (ex: 01/15/2025)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">A data na planilha pode conter hora (ex: "DD/MM/YYYY HH:mm"), mas apenas a data será extraída.</p>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Coluna de Leadscore (opcional)</label>
-                  <Select value={leadscoreColumn || "__none__"} onValueChange={(val) => setLeadscoreColumn(val === "__none__" ? "" : val)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione a coluna de Leadscore" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Nenhuma</SelectItem>
-                      {columns.map((c) => (
-                        <SelectItem key={c} value={c}>
-                          {c}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Coluna de CPR max (opcional)</label>
-                  <Select value={cprMaxColumn || "__none__"} onValueChange={(val) => setCprMaxColumn(val === "__none__" ? "" : val)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Selecione a coluna de CPR max" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Nenhuma</SelectItem>
-                      {columns
-                        .filter((c) => c !== leadscoreColumn)
-                        .map((c) => (
-                          <SelectItem key={c} value={c}>
-                            {c}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            )}
-
-            {/* Progresso da importação */}
-            {isImporting && (
-              <div className="space-y-4 pt-4 border-t border-border">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">Progresso da importação</span>
-                    <span className="text-muted-foreground">{importProgress}%</span>
-                  </div>
-                  <Progress value={importProgress} />
-                </div>
-
-                <div className="space-y-2">
-                  <div className={`flex items-center gap-2 text-sm ${importStep === "saving" ? "text-primary" : importStep === "reading" || importStep === "processing" || importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
-                    {importStep === "saving" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "reading" || importStep === "processing" || importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
-                    <span>Salvando configuração da integração...</span>
-                  </div>
-
-                  <div className={`flex items-center gap-2 text-sm ${importStep === "reading" ? "text-primary" : importStep === "processing" || importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
-                    {importStep === "reading" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "processing" || importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
-                    <span>Lendo dados da planilha do Google Sheets...</span>
-                  </div>
-
-                  <div className={`flex items-center gap-2 text-sm ${importStep === "processing" ? "text-primary" : importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
-                    {importStep === "processing" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
-                    <span>Processando e aplicando dados em ad_metrics...</span>
-                  </div>
-
-                  {importStep === "complete" && (
-                    <div className="flex items-center gap-2 text-sm text-green-500">
-                      <IconCheck className="w-4 h-4" />
-                      <span>Importação concluída com sucesso!</span>
+                {columns.length === 0 ? (
+                  <div className="text-sm text-muted-foreground">Carregando colunas...</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">AD ID</label>
+                      <Combobox value={adIdColumn} onValueChange={setAdIdColumn} options={columnOptions} placeholder="Selecione..." searchPlaceholder="Buscar coluna..." />
                     </div>
-                  )}
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Leadscore</label>
+                      <Combobox value={leadscoreColumn} onValueChange={setLeadscoreColumn} options={columnOptions} placeholder="Selecione..." searchPlaceholder="Buscar coluna..." />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Data</label>
+                      <Combobox value={dateColumn} onValueChange={setDateColumn} options={columnOptions} placeholder="Selecione..." searchPlaceholder="Buscar coluna..." />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Formato da data</label>
+                      <Select value={dateFormat} onValueChange={(val) => setDateFormat(val as "DD/MM/YYYY" | "MM/DD/YYYY")}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Selecione o formato de data" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="DD/MM/YYYY">DD/MM/YYYY</SelectItem>
+                          <SelectItem value="MM/DD/YYYY">MM/DD/YYYY</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Progresso da importação */}
+                {isImporting && (
+                  <div className="space-y-4 pt-4 border-t border-border">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="font-medium">Progresso da importação</span>
+                        <span className="text-muted-foreground">{importProgress}%</span>
+                      </div>
+                      <Progress value={importProgress} />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className={`flex items-center gap-2 text-sm ${importStep === "saving" ? "text-primary" : importStep === "reading" || importStep === "processing" || importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
+                        {importStep === "saving" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "reading" || importStep === "processing" || importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
+                        <span>Salvando configuração da integração...</span>
+                      </div>
+
+                      <div className={`flex items-center gap-2 text-sm ${importStep === "reading" ? "text-primary" : importStep === "processing" || importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
+                        {importStep === "reading" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "processing" || importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
+                        <span>Lendo dados da planilha do Google Sheets...</span>
+                      </div>
+
+                      <div className={`flex items-center gap-2 text-sm ${importStep === "processing" ? "text-primary" : importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
+                        {importStep === "processing" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
+                        <span>Processando e aplicando dados em ad_metrics...</span>
+                      </div>
+
+                      {importStep === "complete" && (
+                        <div className="flex items-center gap-2 text-sm text-green-500">
+                          <IconCheck className="w-4 h-4" />
+                          <span>Importação concluída com sucesso!</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Ações do Step 3 */}
+                <div className="space-y-3 pt-4 border-t border-border">
+                  <div className="flex items-center justify-between gap-2">
+                    <Button type="button" variant="ghost" size="sm" onClick={() => setStep("select-sheet")} className="flex items-center gap-1 text-muted-foreground hover:text-foreground" disabled={isImporting}>
+                      <IconChevronLeft className="w-4 h-4" />
+                      Voltar
+                    </Button>
+                    <Button type="button" onClick={handleImport} disabled={!canImport || isImporting}>
+                      {isImporting ? (
+                        <span className="flex items-center gap-2">
+                          <IconLoader2 className="w-4 h-4 animate-spin" />
+                          Aplicando...
+                        </span>
+                      ) : (
+                        "Aplicar"
+                      )}
+                    </Button>
+                  </div>
                 </div>
-              </div>
+              </>
             )}
-
-            {/* Ações do Step 3 */}
-            <div className="space-y-3 pt-4 border-t border-border">
-              <div className="flex items-center justify-between gap-2">
-                <Button type="button" variant="ghost" size="sm" onClick={() => setStep("select-sheet")} className="flex items-center gap-1 text-muted-foreground hover:text-foreground" disabled={isImporting}>
-                  <IconChevronLeft className="w-4 h-4" />
-                  Voltar
-                </Button>
-                <Button type="button" onClick={handleImport} disabled={!canImport || isImporting}>
-                  {isImporting ? (
-                    <span className="flex items-center gap-2">
-                      <IconLoader2 className="w-4 h-4 animate-spin" />
-                      Aplicando...
-                    </span>
-                  ) : (
-                    "Aplicar"
-                  )}
-                </Button>
-              </div>
-              {!isImporting && (
-                <div className="text-xs text-muted-foreground">
-                  Os valores serão aplicados apenas em linhas existentes em <code>ad_metrics</code> (match por <code>ad_id</code> + <code>date</code>). Linhas sem correspondência serão ignoradas.
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* Step 3: Summary (opcional, após importação) */}
-        {step === "summary" && lastSyncStats && (
-          <section className="space-y-4">
-            <div className="border border-green-500/30 bg-green-500/10 rounded-lg p-6">
-              <h3 className="font-semibold text-lg flex items-center gap-2 text-green-500 mb-4">
-                <IconCheck className="w-5 h-5" />
-                Importação concluída com sucesso!
-              </h3>
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <div className="text-muted-foreground">Linhas processadas</div>
-                    <div className="font-semibold text-lg">{lastSyncStats.processed_rows}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">Linhas atualizadas</div>
-                    <div className="font-semibold text-lg text-green-500">{lastSyncStats.updated_rows}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">Sem correspondência</div>
-                    <div className="font-semibold text-lg text-yellow-500">{lastSyncStats.skipped_no_match}</div>
-                  </div>
-                  <div>
-                    <div className="text-muted-foreground">Inválidas/sem dados</div>
-                    <div className="font-semibold text-lg text-red-500">{lastSyncStats.skipped_invalid}</div>
-                  </div>
-                </div>
-                <div className="flex gap-2 pt-4">
-                  <Button type="button" variant="outline" onClick={handleSyncAgain} disabled={isImporting} className="flex items-center gap-2">
-                    <IconRefresh className="w-4 h-4" />
-                    Atualizar dados novamente
-                  </Button>
-                  <Button type="button" variant="default" onClick={handleClose} disabled={isImporting}>
-                    Fechar
-                  </Button>
-                </div>
-              </div>
-            </div>
           </section>
         )}
       </div>

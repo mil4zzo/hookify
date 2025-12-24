@@ -183,7 +183,8 @@ class GraphAPI:
             
             url = self.base_url + act_id + '/ads' + self.user_token
             payload = {
-                'fields': 'name,effective_status,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
+                # Importante: incluir "id" para permitir mapeamento por ad_id quando necessário
+                'fields': 'id,name,effective_status,creative{actor_id,body,call_to_action_type,instagram_permalink_url,object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},adcreatives{asset_feed_spec}',
                 'limit': self.limit,
                 'filtering': "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) +"']}]",
             }
@@ -223,6 +224,65 @@ class GraphAPI:
                 continue
         
         logger.info(f"[GET_ADS_DETAILS] Busca de detalhes concluída: {len(all_results)} anúncios retornados de {len(ads_ids)} solicitados")
+        return all_results if all_results else None
+
+    def get_ads_status_only(self, act_id: str, time_range: Dict[str, str], ads_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
+        """Busca apenas id + effective_status dos anúncios (requisição leve).
+
+        Objetivo: permitir status correto por ad_id mesmo quando há múltiplos ad_ids com o mesmo ad_name,
+        sem carregar payload pesado de creative/adcreatives.
+        """
+        if not ads_ids:
+            return []
+
+        batch_size = 50
+        all_results: List[Dict[str, Any]] = []
+        total_batches = (len(ads_ids) + batch_size - 1) // batch_size
+
+        logger.info(f"[GET_ADS_STATUS_ONLY] Iniciando busca de status para {len(ads_ids)} anúncios em {total_batches} lote(s)")
+
+        for i in range(0, len(ads_ids), batch_size):
+            batch_ids = ads_ids[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            logger.info(f"[GET_ADS_STATUS_ONLY] Processando lote {batch_num}/{total_batches} ({len(batch_ids)} anúncios)")
+
+            url = self.base_url + act_id + '/ads' + self.user_token
+            payload = {
+                'fields': 'id,effective_status',
+                'limit': self.limit,
+                'filtering': "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) + "']}]",
+            }
+
+            try:
+                response = requests.get(url, params=payload, timeout=90)
+                response.raise_for_status()
+                batch_data = response.json().get('data', [])
+                all_results.extend(batch_data)
+                logger.info(f"[GET_ADS_STATUS_ONLY] Lote {batch_num} concluído: {len(batch_data)} anúncios retornados")
+            except requests.exceptions.Timeout:
+                logger.error(f"[GET_ADS_STATUS_ONLY] Timeout no lote {batch_num} após 90 segundos")
+                continue
+            except requests.exceptions.HTTPError as http_err:
+                decoded_text = urllib.parse.unquote(http_err.response.text)
+                # Meta error: reduce the amount of data → split recursivo
+                if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
+                    logger.warning(f"[GET_ADS_STATUS_ONLY] Meta API pediu para reduzir dados no lote {batch_num}, dividindo...")
+                    mid = len(batch_ids) // 2
+                    first = self.get_ads_status_only(act_id, time_range, batch_ids[:mid])
+                    second = self.get_ads_status_only(act_id, time_range, batch_ids[mid:])
+                    if first is not None:
+                        all_results.extend(first)
+                    if second is not None:
+                        all_results.extend(second)
+                    continue
+                decoded_url = urllib.parse.unquote(http_err.request.url) if http_err.request.url else 'decode-error'
+                logger.error(f"[GET_ADS_STATUS_ONLY] HTTP error no lote {batch_num}: {http_err.response.status_code} - {decoded_text[:200]} ({decoded_url})")
+                continue
+            except Exception as err:
+                logger.exception(f"[GET_ADS_STATUS_ONLY] Erro inesperado no lote {batch_num}: {err}")
+                continue
+
+        logger.info(f"[GET_ADS_STATUS_ONLY] Busca de status concluída: {len(all_results)} anúncios retornados de {len(ads_ids)} solicitados")
         return all_results if all_results else None
 
     def get_ads(self, act_id: str, time_range: Dict[str, str], filters: List[Dict[str, Any]]) -> Union[List[Dict[str, Any]], Any]:
@@ -326,28 +386,54 @@ class GraphAPI:
                     data.extend(insights_resp.json().get('data', []))
 
                 if data:
-                    # enriquecer com detalhes
-                    unique_ads = {}
+                    # OTIMIZAÇÃO HÍBRIDA:
+                    # - creative/mídia: buscar 1 ad_id por ad_name (payload pesado)
+                    # - effective_status: buscar por ad_id (payload leve)
+                    unique_ad_ids: set[str] = set()
+                    ad_name_to_rep_ad_id: Dict[str, str] = {}
                     for ad in data:
-                        ad_name = ad.get("ad_name")
                         ad_id = ad.get("ad_id")
-                        if ad_name and ad_name not in unique_ads:
-                            unique_ads[ad_name] = ad_id
-                    unique_ids = list(unique_ads.values())
-                    ads_details = self.get_ads_details(act_id, time_range, unique_ids)
+                        ad_name = ad.get("ad_name")
+                        if ad_id:
+                            unique_ad_ids.add(str(ad_id))
+                        if ad_name and ad_id and ad_name not in ad_name_to_rep_ad_id:
+                            ad_name_to_rep_ad_id[str(ad_name)] = str(ad_id)
+
+                    # 1) creative/mídia (1 por ad_name)
+                    creative_by_name: Dict[str, Any] = {}
+                    status_fallback_by_name: Dict[str, Any] = {}
+                    videos_by_name: Dict[str, Any] = {}
+                    rep_ids = list(ad_name_to_rep_ad_id.values())
+                    ads_details = self.get_ads_details(act_id, time_range, rep_ids)
                     if ads_details is not None:
-                        creative_list = {d['name']: d.get('creative') for d in ads_details}
-                        effective_status_list = {d['name']: d.get('effective_status') for d in ads_details}
-                        videos_list = {
-                            d['name']: d['adcreatives']['data'][0]['asset_feed_spec']['videos']
+                        creative_by_name = {str(d.get('name') or ""): d.get('creative') for d in ads_details if d.get('name')}
+                        status_fallback_by_name = {str(d.get('name') or ""): d.get('effective_status') for d in ads_details if d.get('name')}
+                        videos_by_name = {
+                            str(d.get('name') or ""): d['adcreatives']['data'][0]['asset_feed_spec']['videos']
                             for d in ads_details
-                            if 'adcreatives' in d and d['adcreatives']['data'] and 'asset_feed_spec' in d['adcreatives']['data'][0] and 'videos' in d['adcreatives']['data'][0]['asset_feed_spec']
+                            if d.get('name')
+                            and 'adcreatives' in d and d['adcreatives'].get('data')
+                            and 'asset_feed_spec' in d['adcreatives']['data'][0]
+                            and 'videos' in d['adcreatives']['data'][0]['asset_feed_spec']
                         }
-                        for ad in data:
-                            ad_name = ad.get('ad_name')
-                            ad['creative'] = creative_list.get(ad_name)
-                            ad['effective_status'] = effective_status_list.get(ad_name)
-                            adcreatives = videos_list.get(ad_name)
+
+                    # 2) status por ad_id (leve)
+                    status_by_ad_id: Dict[str, Any] = {}
+                    status_details = self.get_ads_status_only(act_id, time_range, list(unique_ad_ids))
+                    if status_details is not None:
+                        for d in status_details:
+                            aid = d.get("id")
+                            if aid:
+                                status_by_ad_id[str(aid)] = d.get("effective_status")
+
+                    # 3) merge nos insights
+                    for ad in data:
+                        ad_id = str(ad.get("ad_id") or "")
+                        ad_name = str(ad.get("ad_name") or "")
+
+                        if ad_name:
+                            ad['creative'] = creative_by_name.get(ad_name)
+                            adcreatives = videos_by_name.get(ad_name)
                             video_ids, video_thumbs = [], []
                             if adcreatives:
                                 for v in adcreatives:
@@ -355,6 +441,12 @@ class GraphAPI:
                                     video_thumbs.append(v.get('thumbnail_url'))
                             ad['adcreatives_videos_ids'] = video_ids
                             ad['adcreatives_videos_thumbs'] = video_thumbs
+
+                        # status correto por ad_id; fallback por ad_name se não vier (evita regressão)
+                        if ad_id:
+                            ad['effective_status'] = status_by_ad_id.get(ad_id)
+                        if not ad.get('effective_status') and ad_name:
+                            ad['effective_status'] = status_fallback_by_name.get(ad_name)
 
                     total_data.extend(data)
 
@@ -508,16 +600,22 @@ class GraphAPI:
                         logger.info(f"=== ENRIQUECIMENTO DEBUG - Iniciando processo ===")
                         logger.info(f"Total de anúncios antes da deduplicação: {len(data)}")
                         
-                        unique_ads: Dict[str, str] = {}
+                        # OTIMIZAÇÃO HÍBRIDA:
+                        # - creative/mídia: buscar 1 ad_id por ad_name (payload pesado)
+                        # - effective_status: buscar por ad_id (payload leve)
+                        unique_ad_ids: set[str] = set()
+                        ad_name_to_rep_ad_id: Dict[str, str] = {}
                         for ad in data:
                             ad_name = ad.get('ad_name')
                             ad_id = ad.get('ad_id')
-                            if ad_name and ad_name not in unique_ads:
-                                unique_ads[ad_name] = ad_id
+                            if ad_id:
+                                unique_ad_ids.add(str(ad_id))
+                            if ad_name and ad_id and str(ad_name) not in ad_name_to_rep_ad_id:
+                                ad_name_to_rep_ad_id[str(ad_name)] = str(ad_id)
                         
-                        unique_ids = list(unique_ads.values())
-                        logger.info(f"Anúncios únicos após deduplicação por nome: {len(unique_ids)}")
-                        logger.info(f"Anúncios removidos na deduplicação: {len(data) - len(unique_ids)}")
+                        unique_ids = list(ad_name_to_rep_ad_id.values())
+                        logger.info(f"Anúncios únicos para CREATIVE após deduplicação por nome: {len(unique_ids)}")
+                        logger.info(f"Anúncios removidos na deduplicação (somente para CREATIVE): {len(data) - len(unique_ids)}")
                         progress_details["ads_after_dedup"] = len(unique_ids)
                         
                         # Calcular número de lotes para enriquecimento
@@ -525,25 +623,43 @@ class GraphAPI:
                         total_batches = (len(unique_ids) + batch_size - 1) // batch_size
                         progress_details["enrichment_total"] = total_batches
                         
-                        logger.info(f"[ENRIQUECIMENTO] Iniciando busca de detalhes dos anúncios na Meta API...")
+                        logger.info(f"[ENRIQUECIMENTO] Iniciando busca de detalhes de CREATIVE (1 por ad_name) na Meta API...")
                         ads_details = self.get_ads_details(job_meta['act_id'], job_meta['time_range'], unique_ids)
-                        logger.info(f"[ENRIQUECIMENTO] Detalhes de anúncios coletados: {len(ads_details) if ads_details else 0}")
+                        logger.info(f"[ENRIQUECIMENTO] Detalhes de CREATIVE coletados: {len(ads_details) if ads_details else 0}")
                         progress_details["ads_enriched"] = len(ads_details) if ads_details else 0
                         progress_details["enrichment_batches"] = total_batches
-                        
+
+                        creative_by_name: Dict[str, Any] = {}
+                        status_fallback_by_name: Dict[str, Any] = {}
+                        videos_by_name: Dict[str, Any] = {}
                         if ads_details is not None:
-                            creative_list = {d['name']: d.get('creative') for d in ads_details}
-                            effective_status_list = {d['name']: d.get('effective_status') for d in ads_details}
-                            videos_list = {
-                                d['name']: d['adcreatives']['data'][0]['asset_feed_spec']['videos']
+                            creative_by_name = {str(d.get('name') or ""): d.get('creative') for d in ads_details if d.get('name')}
+                            status_fallback_by_name = {str(d.get('name') or ""): d.get('effective_status') for d in ads_details if d.get('name')}
+                            videos_by_name = {
+                                str(d.get('name') or ""): d['adcreatives']['data'][0]['asset_feed_spec']['videos']
                                 for d in ads_details
-                                if 'adcreatives' in d and d['adcreatives']['data'] and 'asset_feed_spec' in d['adcreatives']['data'][0] and 'videos' in d['adcreatives']['data'][0]['asset_feed_spec']
+                                if d.get('name')
+                                and 'adcreatives' in d and d['adcreatives'].get('data')
+                                and 'asset_feed_spec' in d['adcreatives']['data'][0]
+                                and 'videos' in d['adcreatives']['data'][0]['asset_feed_spec']
                             }
-                            for ad in data:
-                                ad_name = ad.get('ad_name')
-                                ad['creative'] = creative_list.get(ad_name)
-                                ad['effective_status'] = effective_status_list.get(ad_name)
-                                adcreatives = videos_list.get(ad_name)
+
+                        logger.info(f"[ENRIQUECIMENTO] Iniciando busca de STATUS (por ad_id) na Meta API...")
+                        status_details = self.get_ads_status_only(job_meta['act_id'], job_meta['time_range'], list(unique_ad_ids))
+                        status_by_ad_id: Dict[str, Any] = {}
+                        if status_details is not None:
+                            for d in status_details:
+                                aid = d.get("id")
+                                if aid:
+                                    status_by_ad_id[str(aid)] = d.get("effective_status")
+
+                        for ad in data:
+                            ad_id = str(ad.get('ad_id') or "")
+                            ad_name = str(ad.get('ad_name') or "")
+
+                            if ad_name:
+                                ad['creative'] = creative_by_name.get(ad_name)
+                                adcreatives = videos_by_name.get(ad_name)
                                 video_ids, video_thumbs = [], []
                                 if adcreatives:
                                     for v in adcreatives:
@@ -551,6 +667,11 @@ class GraphAPI:
                                         video_thumbs.append(v.get('thumbnail_url'))
                                 ad['adcreatives_videos_ids'] = video_ids
                                 ad['adcreatives_videos_thumbs'] = video_thumbs
+
+                            if ad_id:
+                                ad['effective_status'] = status_by_ad_id.get(ad_id)
+                            if not ad.get('effective_status') and ad_name:
+                                ad['effective_status'] = status_fallback_by_name.get(ad_name)
                     except Exception:
                         logger.exception("Erro no enriquecimento de detalhes dos anúncios")
                 

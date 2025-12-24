@@ -1,7 +1,8 @@
 "use client";
 
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -9,6 +10,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { IconCalendar, IconFilter, IconTrash, IconEye, IconCode, IconLoader2, IconRotateClockwise, IconRefresh, IconPencil, IconTableExport, IconBuilding } from "@tabler/icons-react";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
+import { api } from "@/lib/api/endpoints";
+import { showSuccess, showError } from "@/lib/utils/toast";
+import { useClientPacks } from "@/lib/hooks/useClientSession";
+import { getTodayLocal } from "@/lib/utils/dateFilters";
 
 const FILTER_FIELDS = [
   { label: "Campaign Name", value: "campaign.name" },
@@ -31,8 +36,10 @@ export interface PackCardProps {
   onPreview: (pack: AdsPack) => void;
   onViewJson: (pack: AdsPack) => void;
   onSetSheetIntegration: (pack: AdsPack) => void;
+  onEditSheetIntegration?: (pack: AdsPack) => void;
+  onDeleteSheetIntegration?: (pack: AdsPack) => void;
   // Estados de loading
-  isRefreshing: boolean;
+  isUpdating: boolean;
   isRenaming: boolean;
   isTogglingAutoRefresh: string | null;
   packToDisableAutoRefresh: { id: string; name: string } | null;
@@ -49,8 +56,93 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRename, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onPreview, onViewJson, onSetSheetIntegration, isRefreshing, isRenaming, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
+export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRename, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onPreview, onViewJson, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, isUpdating, isRenaming, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
   const stats = pack.stats;
+  const { updatePack } = useClientPacks();
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editingName, setEditingName] = useState(pack.name);
+  const [isSavingName, setIsSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
+  const isSavingNameRef = useRef(false);
+
+  // Focar no input quando começar a editar
+  useEffect(() => {
+    if (isEditingName && nameInputRef.current) {
+      nameInputRef.current.focus();
+      nameInputRef.current.select();
+    }
+  }, [isEditingName]);
+
+  const handleStartEditName = (e: React.MouseEvent | React.PointerEvent) => {
+    e.stopPropagation(); // Prevenir que o dropdown abra
+    e.preventDefault(); // Prevenir comportamento padrão
+    setIsEditingName(true);
+    setEditingName(pack.name);
+  };
+
+  const handleNamePointerDown = (e: React.PointerEvent) => {
+    e.stopPropagation(); // Prevenir que o dropdown abra no pointerdown
+    e.preventDefault(); // Prevenir comportamento padrão
+  };
+
+  const handleCancelEditName = () => {
+    setIsEditingName(false);
+    setEditingName(pack.name);
+  };
+
+  const handleSaveName = async () => {
+    if (isSavingNameRef.current) return;
+
+    const trimmedName = editingName.trim();
+
+    if (!trimmedName) {
+      showError({ message: "Nome do pack não pode ser vazio" });
+      setEditingName(pack.name);
+      setIsEditingName(false);
+      return;
+    }
+
+    if (trimmedName === pack.name) {
+      // Nome não mudou
+      setIsEditingName(false);
+      return;
+    }
+
+    isSavingNameRef.current = true;
+    setIsSavingName(true);
+    try {
+      await api.analytics.updatePackName(pack.id, trimmedName);
+
+      // Atualizar pack no store local
+      updatePack(pack.id, {
+        name: trimmedName,
+      } as Partial<AdsPack>);
+
+      showSuccess(`Pack renomeado para "${trimmedName}"`);
+      setIsEditingName(false);
+    } catch (error) {
+      console.error("Erro ao renomear pack:", error);
+      showError({ message: `Erro ao renomear pack: ${error instanceof Error ? error.message : "Erro desconhecido"}` });
+      setEditingName(pack.name);
+    } finally {
+      setIsSavingName(false);
+      isSavingNameRef.current = false;
+    }
+  };
+
+  const handleInputBlur = () => {
+    handleSaveName();
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleSaveName();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleCancelEditName();
+    }
+  };
 
   const getFilterFieldLabel = (fieldValue: string) => {
     const field = FILTER_FIELDS.find((f) => f.value === fieldValue);
@@ -66,11 +158,10 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
     return diffDays + 1; // +1 para incluir o dia final
   };
 
-  // Verificar se a data final é hoje
+  // Verificar se a data final é hoje (usando comparação de strings para evitar problemas de fuso horário)
   const isToday = (dateString: string): boolean => {
-    const today = new Date();
-    const date = new Date(dateString);
-    return date.toDateString() === today.toDateString();
+    const today = getTodayLocal(); // Retorna "YYYY-MM-DD" no fuso local
+    return dateString === today;
   };
 
   const daysCount = calculateDays(pack.date_start, pack.date_stop);
@@ -82,17 +173,87 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
       <div className="absolute inset-0 rounded-xl bg-card rotate-2 pointer-events-none" />
       <div className="absolute inset-0 rounded-xl bg-secondary rotate-1 pointer-events-none" />
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <StandardCard variant="default" padding="none" interactive={true} className="relative flex flex-col cursor-pointer hover:opacity-90 transition-opacity z-10 w-full">
-            <div className="p-6 space-y-6 flex flex-col justify-between h-full">
+      <DropdownMenu open={isEditingName ? false : undefined}>
+        <DropdownMenuTrigger asChild disabled={isEditingName}>
+          <StandardCard variant="default" padding="none" interactive={!isEditingName} className="relative flex flex-col cursor-pointer hover:opacity-90 transition-opacity z-10 w-full overflow-hidden">
+            {/* Feedback visual de atualização */}
+            {isUpdating && (
+              <>
+                {/* Overlay sutil com animação */}
+                <div className="absolute inset-0 bg-blue-500/10 rounded-xl pointer-events-none z-[15] animate-pulse" />
+
+                {/* Borda animada */}
+                <div className="absolute inset-0 rounded-xl border-2 border-blue-500 pointer-events-none z-[16] animate-pulse" />
+
+                {/* Badge no topo direito */}
+                <div className="absolute top-3 right-3 bg-blue-500 text-white px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-lg">
+                  <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Atualizando...</span>
+                </div>
+              </>
+            )}
+            <div className="p-6 space-y-6 flex flex-col justify-between h-full relative z-10">
               <div className="flex flex-col items-center gap-1">
                 {/* Header: Nome do pack */}
-                <div className="flex w-full items-start justify-between gap-3">
-                  <div className="flex flex-col items-center justify-center flex-1 min-w-0">
-                    <h3 className="text-xl font-semibold truncate" title={pack.name}>
-                      {pack.name}
-                    </h3>
+                <div className="flex w-fit items-start justify-between gap-3">
+                  <div className="flex flex-col items-center justify-center flex-1 min-w-0 w-full">
+                    {isEditingName ? (
+                      <div
+                        className="inline-flex items-center gap-2 relative z-20"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        }}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        }}
+                      >
+                        <Input
+                          ref={nameInputRef}
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onKeyDown={handleNameKeyDown}
+                          onBlur={handleInputBlur}
+                          disabled={isSavingName}
+                          className="text-xl font-semibold h-8 px-0 text-center bg-transparent border-0 border-b-2 border-white rounded-none focus-visible:ring-0 focus-visible:ring-offset-0 w-fit inline-block"
+                          maxLength={100}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                          }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                          }}
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="w-full relative z-20"
+                        onClick={handleStartEditName}
+                        onPointerDown={handleNamePointerDown}
+                        onMouseDown={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        }}
+                      >
+                        <h3 className="text-xl font-semibold truncate cursor-pointer hover:text-blue-400 transition-colors w-full text-center group" title={`Clique para editar: ${pack.name}`}>
+                          <span className="flex items-center justify-center gap-1.5">
+                            {pack.name}
+                            <IconPencil className="w-4 h-4 opacity-0 group-hover:opacity-50 transition-opacity" />
+                          </span>
+                        </h3>
+                      </div>
+                    )}
                   </div>
                 </div>
                 {/* Filtros */}
@@ -157,10 +318,32 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
 
               {/* Footer: Toggles e última atualização */}
               <div className="flex flex-col gap-2">
-                <div onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="relative z-20"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                >
                   <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} labelLeft="Atualização automática:" variant="default" size="md" className="w-full justify-between" labelClassName="text-sm text-foreground" switchClassName="data-[state=checked]:bg-green-500" />
                 </div>
-                <div onClick={(e) => e.stopPropagation()}>
+                <div
+                  className="relative z-20"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                  }}
+                >
                   <ToggleSwitch
                     id={`leadscore-${pack.id}`}
                     checked={!!pack.sheet_integration}
@@ -192,20 +375,34 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
             Renomear pack
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => onRefresh(pack.id)} disabled={isRefreshing}>
+          <DropdownMenuItem onClick={() => onRefresh(pack.id)} disabled={isUpdating}>
             <IconRotateClockwise className="w-4 h-4 mr-2" />
             Atualizar pack
           </DropdownMenuItem>
           {pack.sheet_integration ? (
-            <DropdownMenuItem disabled className="opacity-100">
-              <IconTableExport className="w-4 h-4 mr-2 text-green-500" />
-              <div className="flex flex-col items-start">
-                <span className="text-xs font-medium text-green-500">Planilha conectada</span>
-                <span className="text-xs text-muted-foreground">
-                  {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
-                </span>
-              </div>
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem disabled className="opacity-100">
+                <IconTableExport className="w-4 h-4 mr-2 text-green-500" />
+                <div className="flex flex-col items-start">
+                  <span className="text-xs font-medium text-green-500">Planilha conectada</span>
+                  <span className="text-xs text-muted-foreground">
+                    {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
+                  </span>
+                </div>
+              </DropdownMenuItem>
+              {onEditSheetIntegration && (
+                <DropdownMenuItem onClick={() => onEditSheetIntegration(pack)}>
+                  <IconPencil className="w-4 h-4 mr-2" />
+                  Editar integração
+                </DropdownMenuItem>
+              )}
+              {onDeleteSheetIntegration && (
+                <DropdownMenuItem onClick={() => onDeleteSheetIntegration(pack)} className="text-red-500 focus:text-red-500 focus:bg-red-500/10">
+                  <IconTrash className="w-4 h-4 mr-2" />
+                  Remover integração
+                </DropdownMenuItem>
+              )}
+            </>
           ) : (
             <DropdownMenuItem onClick={() => onSetSheetIntegration(pack)}>
               <IconTableExport className="w-4 h-4 mr-2" />

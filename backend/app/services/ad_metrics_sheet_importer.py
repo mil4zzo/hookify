@@ -157,6 +157,8 @@ def run_ad_metrics_sheet_import(
     total_updated = 0
     total_update_queries = 0
     failed_chunks = 0
+    utilized_sheet_rows = 0
+    skipped_sheet_rows = 0
     updates_by_values = defaultdict(list)
     unique_ad_ids_set: set = set()
     unique_dates_set: set = set()
@@ -365,7 +367,9 @@ def run_ad_metrics_sheet_import(
             'leads_aggregated': 0,
             'updated_rows': 0,
             'skipped_no_match': 0,
-            'skipped_invalid': skipped_invalid
+            'skipped_invalid': skipped_invalid,
+            'utilized_sheet_rows': 0,
+            'skipped_sheet_rows': 0
         }
 
     logger.info(f"[AD_METRICS_IMPORT] {len(final_data)} IDs únicos gerados para verificação")
@@ -482,6 +486,18 @@ def run_ad_metrics_sheet_import(
 
     skipped_no_match = len(final_data) - len(updates_to_apply)
 
+    # Calcular número de linhas da planilha utilizadas (não apenas registros em ad_metrics)
+    # Se 5 linhas da planilha têm o mesmo (ad_id, date), elas são agregadas em 1 registro
+    # Mas devemos contar as 5 linhas, não apenas 1 registro
+    utilized_sheet_rows = sum(data.get('lead_count', 0) for data in updates_to_apply.values())
+    
+    # Calcular número de linhas da planilha ignoradas (válidas mas sem match)
+    skipped_sheet_rows = sum(
+        final_data[metric_id].get('lead_count', 0) 
+        for metric_id in final_data.keys() 
+        if metric_id not in existing_ids
+    )
+
     if not updates_to_apply:
         logger.warning(f"[AD_METRICS_IMPORT] Nenhum registro encontrado em ad_metrics para os IDs da planilha")
         return {
@@ -490,7 +506,9 @@ def run_ad_metrics_sheet_import(
             'leads_aggregated': sum(len(agg['leadscore_values']) for agg in aggregated_data.values()),
             'updated_rows': 0,
             'skipped_no_match': skipped_no_match,
-            'skipped_invalid': skipped_invalid
+            'skipped_invalid': skipped_invalid,
+            'utilized_sheet_rows': 0,
+            'skipped_sheet_rows': skipped_sheet_rows
         }
 
     logger.info(f"[AD_METRICS_IMPORT] ===== INICIANDO ATUALIZAÇÕES =====")
@@ -626,13 +644,15 @@ def run_ad_metrics_sheet_import(
     # Estatísticas finais
     stats = {
         "processed_rows": processed,
-        "unique_ad_date_pairs": len(final_data) if 'final_data' in locals() else 0,
-        "leads_aggregated": sum(len(agg['leadscore_values']) for agg in aggregated_data.values()) if 'aggregated_data' in locals() else 0,
+        "unique_ad_date_pairs": len(final_data),
+        "leads_aggregated": sum(len(agg['leadscore_values']) for agg in aggregated_data.values()),
         "updated_rows": total_updated,
-        "skipped_no_match": skipped_no_match if 'skipped_no_match' in locals() else 0,
+        "skipped_no_match": skipped_no_match,
         "skipped_invalid": skipped_invalid,
         "total_update_queries": total_update_queries,
         "failed_chunks": failed_chunks,
+        "utilized_sheet_rows": utilized_sheet_rows,
+        "skipped_sheet_rows": skipped_sheet_rows,
     }
 
     # Atualizar status da integração
