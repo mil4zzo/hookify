@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,27 +8,27 @@ import { IconCheck, IconChevronDown, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { api } from "@/lib/api/endpoints";
 import { SpreadsheetItem } from "@/lib/api/schemas";
-import { showError } from "@/lib/utils/toast";
 import { AppError } from "@/lib/utils/errors";
+import { handleGoogleAuthError } from "@/lib/utils/googleAuthError";
+import { useInfiniteQuery } from "@tanstack/react-query";
 
 interface SpreadsheetComboboxProps {
   value?: string;
+  valueLabel?: string;
   onValueChange: (value: string) => void;
+  onValueLabelChange?: (label: string) => void;
   placeholder?: string;
   className?: string;
+  connectionId?: string;
+  disabled?: boolean;
+  active?: boolean;
 }
 
-export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selecione uma planilha...", className }: SpreadsheetComboboxProps) {
+export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueLabelChange, placeholder = "Selecione uma planilha...", className, connectionId, disabled = false, active = true }: SpreadsheetComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [options, setOptions] = useState<Array<{ label: string; value: string }>>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [nextPageToken, setNextPageToken] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const isLoadingMoreRef = useRef(false);
 
   // Debounce para busca
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -40,128 +40,74 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
     return () => clearTimeout(timer);
   }, [search]);
 
-  // Carregar planilhas
-  const loadSpreadsheets = useCallback(async (query?: string, pageToken?: string, append = false) => {
-    if (isLoadingMoreRef.current) return;
-    isLoadingMoreRef.current = true;
-    
-    // Usar isLoadingMore quando for append, isLoading quando for carregamento inicial
-    if (append) {
-      setIsLoadingMore(true);
-    } else {
-      setIsLoading(true);
-    }
+  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage, refetch } = useInfiniteQuery({
+    queryKey: ["google-spreadsheets", connectionId, debouncedSearch],
+    enabled: open && !disabled,
+    initialPageParam: undefined as string | undefined,
+    retry: 0,
+    queryFn: async ({ pageParam }) => {
+      try {
+        const res = await api.integrations.google.listSpreadsheets({
+          query: debouncedSearch || undefined,
+          page_size: 20,
+          page_token: pageParam,
+          connection_id: connectionId || undefined,
+        });
+        setError(null);
+        return res;
+      } catch (err) {
+        const appError = err as AppError;
+        const { shouldReconnect, message } = handleGoogleAuthError(appError, connectionId);
+        console.error("Erro ao carregar planilhas:", {
+          err,
+          shouldReconnect,
+          code: appError?.code,
+          status: appError?.status,
+          details: appError?.details,
+        });
+        setError(message || "Erro ao carregar planilhas. Tente novamente.");
+        throw err;
+      }
+    },
+    getNextPageParam: (lastPage) => lastPage.next_page_token || undefined,
+    staleTime: 60_000,
+    gcTime: 2 * 60_000,
+  });
 
-    try {
-      const res = await api.integrations.google.listSpreadsheets({
-        query: query || undefined,
-        page_size: 20,
-        page_token: pageToken || undefined,
-      });
-
-      const newOptions = res.spreadsheets.map((sheet: SpreadsheetItem) => ({
+  const options = useMemo(() => {
+    const pages = data?.pages || [];
+    const all = pages.flatMap((page) =>
+      page.spreadsheets.map((sheet: SpreadsheetItem) => ({
         label: sheet.name,
         value: sheet.id,
-      }));
-
-      if (append) {
-        setOptions((prev) => [...prev, ...newOptions]);
-      } else {
-        setOptions(newOptions);
-      }
-
-      setNextPageToken(res.next_page_token || null);
-      setHasMore(!!res.next_page_token);
-      setError(null); // Limpar erro em caso de sucesso
-    } catch (error) {
-      // Extrair mensagem de erro do AppError
-      let errorMessage = "Erro ao carregar planilhas. Tente novamente.";
-
-      if (error && typeof error === "object") {
-        const appError = error as AppError;
-        if (appError.message) {
-          errorMessage = appError.message;
-        } else if (appError.details) {
-          errorMessage = String(appError.details);
-        }
-      } else if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (typeof error === "string") {
-        errorMessage = error;
-      }
-
-      // Detectar se é erro de token expirado/revogado
-      const isTokenExpired = errorMessage.toLowerCase().includes("token") && (errorMessage.toLowerCase().includes("expirado") || errorMessage.toLowerCase().includes("revogado") || errorMessage.toLowerCase().includes("inválido") || errorMessage.toLowerCase().includes("reconecte"));
-
-      // Log detalhado para debug
-      console.error("Erro ao carregar planilhas:", {
-        error,
-        errorType: typeof error,
-        message: errorMessage,
-        status: (error as AppError)?.status,
-        code: (error as AppError)?.code,
-        details: (error as AppError)?.details,
-        isTokenExpired,
-      });
-
-      setError(errorMessage);
-
-      // Se for erro de token expirado, disparar evento para solicitar reconexão
-      if (isTokenExpired) {
-        // Disparar evento customizado para que o GoogleSheetIntegrationDialog trate
-        window.dispatchEvent(
-          new CustomEvent("google-token-expired", {
-            detail: {
-              message: errorMessage,
-              source: "SpreadsheetCombobox",
-            },
-          })
-        );
-      }
-
-      // Mostrar toast apenas na primeira tentativa (não ao carregar mais)
-      if (!append) {
-        showError(error instanceof Error ? error : ({ message: errorMessage } as AppError));
-      }
-    } finally {
-      if (append) {
-        setIsLoadingMore(false);
-      } else {
-        setIsLoading(false);
-      }
-      isLoadingMoreRef.current = false;
-    }
-  }, []);
-
-  // Carregar inicialmente quando abrir
-  useEffect(() => {
-    if (open && options.length === 0) {
-      loadSpreadsheets();
-    }
-  }, [open, options.length, loadSpreadsheets]);
+      }))
+    );
+    // dedupe por id (podem ocorrer repetições em edge cases de paginação)
+    const seen = new Set<string>();
+    return all.filter((opt) => {
+      if (seen.has(opt.value)) return false;
+      seen.add(opt.value);
+      return true;
+    });
+  }, [data]);
 
   // Recarregar quando busca mudar (debounced)
   useEffect(() => {
-    if (open && debouncedSearch !== undefined) {
-      setNextPageToken(null);
-      setHasMore(true);
-      loadSpreadsheets(debouncedSearch || undefined, undefined, false);
+    if (!open) return;
+    // React Query já revalida pela queryKey; apenas garantir scroll top
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0;
     }
-  }, [debouncedSearch, open, loadSpreadsheets]);
+  }, [debouncedSearch, open]);
 
   // Lazy load on scroll
-  const handleScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>) => {
-      const target = e.currentTarget;
-      const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
-
-      // Carregar mais quando estiver a 100px do fim
-      if (scrollBottom < 100 && hasMore && nextPageToken && !isLoadingMoreRef.current) {
-        loadSpreadsheets(debouncedSearch || undefined, nextPageToken, true);
-      }
-    },
-    [hasMore, nextPageToken, debouncedSearch, loadSpreadsheets]
-  );
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    const scrollBottom = target.scrollHeight - target.scrollTop - target.clientHeight;
+    if (scrollBottom < 100 && hasNextPage && !isFetchingNextPage) {
+      fetchNextPage();
+    }
+  };
 
   // Filtrar opções localmente (busca instantânea enquanto digita)
   const filteredOptions = options.filter((option) => {
@@ -172,6 +118,9 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
 
   const selectedOption = options.find((opt) => opt.value === value);
 
+  // Exibir label imediatamente: preferir valueLabel (estado do wizard), depois option carregada, senão placeholder
+  const displayLabel = (value && valueLabel) || selectedOption?.label || placeholder;
+
   // Resetar busca e erro quando fechar
   useEffect(() => {
     if (!open) {
@@ -180,11 +129,21 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
     }
   }, [open]);
 
+  // Se o step ficar inativo (wizard mudou de etapa), fechar o popover para não "vazar" UI
+  useEffect(() => {
+    if (!active && open) {
+      setOpen(false);
+    }
+    if (!active) {
+      setSearch("");
+    }
+  }, [active, open]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" aria-expanded={open} className={cn("h-10 w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
-          <span className="truncate text-left">{selectedOption ? selectedOption.label : placeholder}</span>
+        <Button variant="outline" role="combobox" aria-expanded={open} disabled={disabled} className={cn("h-10 w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
+          <span className="truncate text-left">{displayLabel}</span>
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -196,11 +155,13 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9"
+              disabled={disabled}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
                   if (filteredOptions.length === 1) {
                     onValueChange(filteredOptions[0].value);
+                    onValueLabelChange?.(filteredOptions[0].label);
                     setOpen(false);
                   }
                 }
@@ -223,7 +184,7 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
                   size="sm"
                   onClick={() => {
                     setError(null);
-                    loadSpreadsheets(debouncedSearch || undefined, undefined, false);
+                    refetch();
                   }}
                 >
                   Tentar novamente
@@ -245,6 +206,7 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
                       key={option.value}
                       onClick={() => {
                         onValueChange(option.value);
+                        onValueLabelChange?.(option.label);
                         setOpen(false);
                       }}
                       className={cn("relative flex w-full cursor-default select-none items-center rounded-sm py-1.5 pl-8 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 hover:bg-accent hover:text-accent-foreground", isSelected && "bg-accent")}
@@ -256,7 +218,7 @@ export function SpreadsheetCombobox({ value, onValueChange, placeholder = "Selec
                     </button>
                   );
                 })}
-                {isLoadingMore && (
+                {isFetchingNextPage && (
                   <div className="flex items-center justify-center gap-2 py-2">
                     <IconLoader2 className="h-4 w-4 animate-spin" />
                     <span className="text-sm text-muted-foreground">Carregando mais...</span>

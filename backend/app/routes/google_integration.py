@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, BackgroundTasks
 from pydantic import BaseModel
 
 from app.core.auth import get_current_user
@@ -17,12 +17,20 @@ from app.core.config import (
     GOOGLE_OAUTH_SCOPES,
 )
 from app.services.google_accounts_repo import upsert_google_account, list_google_accounts, delete_google_account
-from app.services.google_sheets_service import fetch_headers, list_spreadsheets, list_worksheets, GoogleSheetsError
+from app.services.google_sheets_service import fetch_headers, list_spreadsheets, list_worksheets, get_spreadsheet_name, GoogleSheetsError
+from app.services.google_errors import (
+    raise_google_http_error,
+    GOOGLE_TOKEN_EXPIRED,
+    GOOGLE_SHEETS_ERROR,
+    GOOGLE_DRIVE_ERROR,
+)
 from app.services.ad_metrics_sheet_importer import (
     run_ad_metrics_sheet_import,
     AdMetricsImportError,
 )
 from app.core.supabase_client import get_supabase_for_user
+from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
+from app.services.job_tracker import get_job_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -258,19 +266,15 @@ def test_google_connection(
         )
         return {"valid": True, "message": "Conexão válida"}
     except GoogleSheetsError as e:
-        error_message = str(e)
-        # Verificar se é erro de token expirado/revogado
-        is_expired = (
-            "expirado" in error_message.lower()
-            or "revogado" in error_message.lower()
-            or "inválido" in error_message.lower()
-            or "reconecte" in error_message.lower()
-            or "unauthorized" in error_message.lower()
-        )
+        error_message = e.message if hasattr(e, 'message') else str(e)
+        error_code = getattr(e, 'code', None)
+        # Verificar se é erro de token expirado/revogado usando código estruturado
+        is_expired = error_code == GOOGLE_TOKEN_EXPIRED
         return {
             "valid": False,
             "expired": is_expired,
             "message": error_message,
+            "code": error_code,
         }
     except Exception as e:
         logger.exception(f"[GOOGLE_CONNECTION_TEST] Erro inesperado ao testar conexão {connection_id}")
@@ -303,7 +307,15 @@ def list_user_spreadsheets(
             connection_id=connection_id,
         )
     except GoogleSheetsError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_code = getattr(e, 'code', GOOGLE_SHEETS_ERROR)
+        error_message = e.message if hasattr(e, 'message') else str(e)
+        error_details = getattr(e, 'details', {})
+        raise_google_http_error(
+            code=error_code,
+            message=error_message,
+            status_code=400,
+            details=error_details,
+        )
     except Exception as e:
         logger.exception("[GOOGLE_DRIVE] Erro inesperado ao listar planilhas")
         raise HTTPException(status_code=500, detail="Erro ao listar planilhas do Google Drive")
@@ -331,7 +343,15 @@ def list_spreadsheet_worksheets(
             connection_id=connection_id,
         )
     except GoogleSheetsError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_code = getattr(e, 'code', GOOGLE_SHEETS_ERROR)
+        error_message = e.message if hasattr(e, 'message') else str(e)
+        error_details = getattr(e, 'details', {})
+        raise_google_http_error(
+            code=error_code,
+            message=error_message,
+            status_code=400,
+            details=error_details,
+        )
     except Exception as e:
         logger.exception("[GOOGLE_SHEETS] Erro inesperado ao listar abas")
         raise HTTPException(status_code=500, detail="Erro ao listar abas da planilha")
@@ -359,7 +379,15 @@ def list_sheet_columns(
             connection_id=connection_id,
         )
     except GoogleSheetsError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        error_code = getattr(e, 'code', GOOGLE_SHEETS_ERROR)
+        error_message = e.message if hasattr(e, 'message') else str(e)
+        error_details = getattr(e, 'details', {})
+        raise_google_http_error(
+            code=error_code,
+            message=error_message,
+            status_code=400,
+            details=error_details,
+        )
     except Exception as e:
         logger.exception("[GOOGLE_SHEETS] Erro inesperado ao listar colunas")
         raise HTTPException(status_code=500, detail="Erro ao listar colunas da planilha")
@@ -377,6 +405,8 @@ class SheetIntegrationRequest(BaseModel):
     cpr_max_column: Optional[str] = None
     # Quando informado, a integração passa a ser específica daquele pack
     pack_id: Optional[str] = None
+    # ID da conexão Google específica a usar para esta integração
+    connection_id: Optional[str] = None
 
 
 @router.post("/ad-sheet-integrations")
@@ -416,6 +446,7 @@ def save_ad_sheet_integration(
         "date_format": payload.date_format,
         "leadscore_column": payload.leadscore_column,
         "cpr_max_column": payload.cpr_max_column,
+        "connection_id": payload.connection_id,
     }
     try:
         # A partir de agora, permitimos múltiplas integrações por usuário (uma por pack).
@@ -441,7 +472,7 @@ def save_ad_sheet_integration(
         raise HTTPException(status_code=500, detail="Erro ao salvar configuração.")
 
     rec = (res.data or [{}])[0]
-    integration_id = rec.get("id")
+    integration_id = rec.get("id") if isinstance(rec, dict) else None
     
     # Se pack_id foi fornecido, atualizar o pack com sheet_integration_id
     if payload.pack_id and integration_id:
@@ -460,13 +491,109 @@ def save_ad_sheet_integration(
     return {"integration": rec}
 
 
+@router.post("/ad-sheet-integrations/{integration_id}/sync-job")
+def start_sync_job(
+    integration_id: str,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
+    """
+    Inicia um job assíncrono de sincronização da planilha Google Sheets.
+    Retorna job_id para polling de progresso.
+    """
+    try:
+        # Verificar se a integração existe
+        sb = get_supabase_for_user(user["token"])
+        integration = (
+            sb.table("ad_sheet_integrations")
+            .select("*")
+            .eq("id", integration_id)
+            .eq("owner_id", user["user_id"])
+            .limit(1)
+            .execute()
+        )
+        
+        if not integration.data or len(integration.data) == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="Integração não encontrada.",
+            )
+        
+        # Criar job
+        job_id = create_sync_job(
+            user_jwt=user["token"],
+            user_id=user["user_id"],
+            integration_id=integration_id,
+        )
+        
+        # Iniciar processamento em background
+        background_tasks.add_task(
+            process_sync_job,
+            user_jwt=user["token"],
+            user_id=user["user_id"],
+            job_id=job_id,
+            integration_id=integration_id,
+        )
+        
+        logger.info(f"[GOOGLE_SYNC] Job {job_id} iniciado para integração {integration_id}")
+        
+        return {"job_id": job_id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[GOOGLE_SYNC] Erro ao iniciar job para integração {integration_id}")
+        raise HTTPException(status_code=500, detail=f"Erro ao iniciar sincronização: {str(e)}")
+
+
+@router.get("/sync-jobs/{job_id}")
+def get_sync_job_progress(
+    job_id: str,
+    user=Depends(get_current_user),
+):
+    """
+    Retorna o progresso de um job de sincronização.
+    """
+    try:
+        tracker = get_job_tracker(user["token"], user["user_id"])
+        progress = tracker.get_public_progress(job_id)
+        
+        if not progress or progress.get("status") == "error":
+            raise HTTPException(
+                status_code=404,
+                detail="Job não encontrado.",
+            )
+        
+        # Se completed, incluir stats do payload
+        if progress.get("status") == "completed":
+            job = tracker.get_job(job_id)
+            if job and job.get("payload"):
+                details = job.get("payload", {}).get("details", {})
+                if details:
+                    progress["stats"] = {
+                        "rows_read": details.get("rows_read", 0),
+                        "rows_processed": details.get("rows_processed", 0),
+                        "rows_updated": details.get("rows_updated", 0),
+                        "rows_skipped": details.get("rows_skipped", 0),
+                        "errors": details.get("errors", []),
+                    }
+        
+        return progress
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[GOOGLE_SYNC] Erro ao obter progresso do job {job_id}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter progresso: {str(e)}")
+
+
 @router.post("/ad-sheet-integrations/{integration_id}/sync")
 def sync_ad_sheet_integration(
     integration_id: str,
     user=Depends(get_current_user),
 ):
     """
-    Dispara o import/patch da planilha para ad_metrics.
+    Dispara o import/patch da planilha para ad_metrics (síncrono - legado).
     Para o MVP, roda síncrono e retorna estatísticas simples.
     """
     try:
@@ -532,33 +659,45 @@ def list_ad_sheet_integrations(
     
     integrations = res.data or []
     
-    # Para cada integração, buscar nome da planilha via Google API
-    # (spreadsheet_id está armazenado, mas nome não)
-    enriched_integrations = []
+    # Enriquecer com nomes das planilhas usando connection_id salvo
+    enriched_integrations: List[Dict[str, Any]] = []
     for integration in integrations:
+        if not isinstance(integration, dict):
+            # Pular integrações que não são dicts (não deveria acontecer, mas type checker precisa)
+            continue
+            
         spreadsheet_id = integration.get("spreadsheet_id")
-        if spreadsheet_id:
+        connection_id = integration.get("connection_id")
+        
+        if spreadsheet_id and isinstance(spreadsheet_id, str):
             try:
-                # Buscar nome da planilha via Google API
-                from app.services.google_sheets_service import list_spreadsheets
-                spreadsheets, _ = list_spreadsheets(
+                # Buscar nome da planilha diretamente pelo ID (muito mais eficiente)
+                spreadsheet_name = get_spreadsheet_name(
                     user_jwt=user["token"],
                     user_id=user["user_id"],
-                    query=None,
-                    page_size=100,  # Buscar até 100 para encontrar a planilha
+                    spreadsheet_id=spreadsheet_id,
+                    connection_id=connection_id if isinstance(connection_id, str) else None,
                 )
-                # Encontrar a planilha pelo ID
-                matching_spreadsheet = next(
-                    (s for s in spreadsheets if s.get("id") == spreadsheet_id),
-                    None
-                )
-                if matching_spreadsheet:
-                    integration["spreadsheet_name"] = matching_spreadsheet.get("name", "Planilha desconhecida")
+                integration["spreadsheet_name"] = spreadsheet_name or "Planilha desconhecida"
+            except GoogleSheetsError as e:
+                # Se for erro de token expirado, não falhar completamente
+                error_code = getattr(e, 'code', None)
+                if error_code == GOOGLE_TOKEN_EXPIRED:
+                    logger.warning(
+                        "[AD_SHEET_INTEGRATION] Token expirado ao buscar nome da planilha %s (connection_id: %s)",
+                        spreadsheet_id,
+                        connection_id,
+                    )
                 else:
-                    integration["spreadsheet_name"] = None  # Não encontrada ou sem acesso
+                    logger.warning(
+                        "[AD_SHEET_INTEGRATION] Erro ao buscar nome da planilha %s: %s",
+                        spreadsheet_id,
+                        e,
+                    )
+                integration["spreadsheet_name"] = None
             except Exception as e:
                 logger.warning(
-                    "[AD_SHEET_INTEGRATION] Erro ao buscar nome da planilha %s: %s",
+                    "[AD_SHEET_INTEGRATION] Erro inesperado ao buscar nome da planilha %s: %s",
                     spreadsheet_id,
                     e,
                 )
@@ -596,7 +735,7 @@ def delete_ad_sheet_integration(
         raise HTTPException(status_code=404, detail="Integração não encontrada")
     
     integration = res.data[0]
-    pack_id = integration.get("pack_id")
+    pack_id = integration.get("pack_id") if isinstance(integration, dict) else None
     
     # Deletar a integração
     try:

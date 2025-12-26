@@ -13,6 +13,15 @@ FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET")
 FACEBOOK_AUTH_BASE_URL = os.getenv("FACEBOOK_AUTH_BASE_URL", "https://www.facebook.com/v22.0/dialog/oauth")
 FACEBOOK_TOKEN_URL = os.getenv("FACEBOOK_TOKEN_URL", "https://graph.facebook.com/v22.0/oauth/access_token")
 
+# Facebook OAuth scopes
+# Nota: para obter o vídeo (Video.source) de anúncios de forma consistente, geralmente é necessário
+# conseguir um Page Access Token via /me/accounts (token de usuário + permissões de Pages).
+# Em produção, permissões de Pages podem exigir App Review dependendo do cenário.
+FACEBOOK_OAUTH_SCOPES = os.getenv(
+    "FACEBOOK_OAUTH_SCOPES",
+    "public_profile,email,ads_read,ads_management,pages_show_list,pages_read_engagement",
+)
+
 # Google OAuth / Sheets
 GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID")
 GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET")

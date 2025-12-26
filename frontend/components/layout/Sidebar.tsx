@@ -5,6 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
+import { useOnboardingStatus } from "@/lib/hooks/useOnboardingStatus";
 import { IconChevronLeft, IconChevronRight, IconSearch } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { env } from "@/lib/config/env";
@@ -20,6 +21,7 @@ export default function Sidebar() {
   const { isAuthenticated, isClient } = useClientAuth();
   const { isCollapsed, toggleCollapse } = useSidebar();
   const [showLabels, setShowLabels] = useState(!isCollapsed);
+  const { data: onboardingData } = useOnboardingStatus(isAuthenticated);
 
   // Controla a exibição dos labels baseado no estado de colapso e na animação
   useEffect(() => {
@@ -38,8 +40,12 @@ export default function Sidebar() {
 
   // Não mostrar em rotas de autenticação
   const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/signup") || pathname?.startsWith("/callback");
+  
+  // Não mostrar durante o onboarding (rota /onboarding ou onboarding não completo)
+  const isOnboardingRoute = pathname?.startsWith("/onboarding");
+  const hasCompletedOnboarding = onboardingData?.has_completed_onboarding ?? false;
 
-  if (!isClient || !isAuthenticated || isAuthRoute) {
+  if (!isClient || !isAuthenticated || isAuthRoute || isOnboardingRoute || !hasCompletedOnboarding) {
     return null;
   }
 

@@ -12,13 +12,13 @@ import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnec
 import { FacebookConnectionCard } from "@/components/facebook/FacebookConnectionCard";
 import { showError } from "@/lib/utils/toast";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
-import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget } from "@tabler/icons-react";
+import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
 import { useSettings } from "@/lib/store/settings";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { pageTitles } from "@/lib/config/pageConfig";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAutoRefreshPacks } from "@/lib/hooks/useAutoRefreshPacks";
 import { AutoRefreshConfirmModal } from "@/components/common/AutoRefreshConfirmModal";
@@ -28,8 +28,16 @@ import { ValidationCriteriaBuilder, ValidationCondition } from "@/components/com
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useLanguage } from "@/lib/hooks/useLanguage";
+import { useNiche } from "@/lib/hooks/useNiche";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { showSuccess } from "@/lib/utils/toast";
+import { api } from "@/lib/api/endpoints";
+import { clearAllPacks } from "@/lib/storage/indexedDB";
+import { useInvalidatePackAds } from "@/lib/api/hooks";
+import { getSupabaseClient } from "@/lib/supabase/client";
+import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
+import { useQueryClient } from "@tanstack/react-query";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
@@ -41,14 +49,21 @@ export default function Topbar() {
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
   const { mqlLeadscoreMin, isLoading: isLoadingMql, isSaving: isSavingMql, updateMqlLeadscoreMin, saveMqlLeadscoreMin } = useMqlLeadscore();
   const { currency: userCurrency, isLoading: isLoadingCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
+  const { language: userLanguage, isLoading: isLoadingLanguage, isSaving: isSavingLanguage, saveLanguage } = useLanguage();
+  const { niche: userNiche, isLoading: isLoadingNiche, isSaving: isSavingNiche, updateNiche, saveNiche } = useNiche();
   const { isAuthenticated, user, isClient } = useClientAuth();
-  const { packs } = useClientPacks();
+  const { packs, removePack } = useClientPacks();
   const { handleLogout } = useAuthManager();
-  const { settings, setLanguage, setNiche } = useSettings();
+  const { settings, setLanguage, setNiche, updateSettings } = useSettings();
   const { connections, connect, disconnect, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
+  const { invalidateAllPacksAds, invalidateAdPerformance } = useInvalidatePackAds();
+  const { user: supabaseUser } = useSupabaseAuth();
+  const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
+  const [isClearingPacks, setIsClearingPacks] = useState(false);
+  const [isResettingPreferences, setIsResettingPreferences] = useState(false);
 
   // Verificar conexões quando carregarem na aba de contas
   useEffect(() => {
@@ -121,6 +136,181 @@ export default function Topbar() {
     } catch (error) {
       showError(error as any);
     }
+  };
+
+  // Função para limpar todos os packs
+  const handleClearAllPacks = async () => {
+    if (packs.length === 0) {
+      showSuccess("Não há packs para limpar");
+      return;
+    }
+
+    if (!confirm(`Tem certeza que deseja limpar todos os ${packs.length} pack(s)? Esta ação não pode ser desfeita.`)) {
+      return;
+    }
+
+    setIsClearingPacks(true);
+    try {
+      // Deletar todos os packs do backend
+      const deletePromises = packs.map((pack) => 
+        api.analytics.deletePack(pack.id, []).catch((error) => {
+          console.error(`Erro ao deletar pack ${pack.id}:`, error);
+          // Continuar mesmo se algum falhar
+          return null;
+        })
+      );
+      await Promise.all(deletePromises);
+
+      // Remover do estado local
+      packs.forEach((pack) => {
+        removePack(pack.id);
+      });
+
+      // Limpar IndexedDB
+      const clearResult = await clearAllPacks();
+      if (!clearResult.success) {
+        console.warn("Erro ao limpar IndexedDB:", clearResult.error);
+      }
+
+      // Limpar cache de ads
+      await invalidateAllPacksAds();
+
+      // Invalidar dados agregados
+      invalidateAdPerformance();
+
+      // Limpar cache de ads do IndexedDB também
+      const { clearAllAdsCache } = await import("@/lib/storage/adsCache");
+      await clearAllAdsCache();
+
+      showSuccess("Todos os packs foram limpos com sucesso!");
+    } catch (error) {
+      console.error("Erro ao limpar packs:", error);
+      showError({ message: `Erro ao limpar packs: ${error}` });
+    } finally {
+      setIsClearingPacks(false);
+    }
+  };
+
+  // Função para resetar preferências
+  const handleResetPreferences = async () => {
+    if (!confirm("Tem certeza que deseja resetar todas as preferências? Esta ação não pode ser desfeita.")) {
+      return;
+    }
+
+    setIsResettingPreferences(true);
+    try {
+      // Resetar settings store
+      const defaultSettings = {
+        language: 'pt-BR',
+        niche: '',
+        currency: 'BRL',
+      };
+      updateSettings(defaultSettings);
+
+      // Limpar preferências de packs do localStorage
+      const packPreferenceKeys = [
+        'hookify-selected-packs',
+        'hookify-insights-selected-packs',
+        'hookify-rankings-selected-packs',
+        'hookify-insights-date-range',
+        'hookify-rankings-date-range',
+        'hookify-packs-date-range',
+        'hookify-insights-gems-columns',
+        'hookify-insights-action-type',
+        'hookify-insights-group-by-packs',
+        'hookify-insights-use-pack-dates',
+        'hookify-insights-pack-action-types',
+        'hookify-insights-active-tab',
+        'hookify-rankings-action-type',
+        'hookify-rankings-show-trends',
+        'hookify-rankings-use-pack-dates',
+      ];
+
+      packPreferenceKeys.forEach((key) => {
+        localStorage.removeItem(key);
+      });
+
+      // Resetar estado do onboarding no Supabase
+      if (supabaseUser?.id) {
+        try {
+          const supabase = getSupabaseClient();
+          const { error: upsertError } = await supabase
+            .from("user_preferences")
+            .upsert(
+              {
+                user_id: supabaseUser.id,
+                has_completed_onboarding: false,
+                updated_at: new Date().toISOString(),
+              } as any,
+              {
+                onConflict: "user_id",
+              }
+            );
+
+          if (upsertError) {
+            console.warn("Erro ao resetar onboarding no Supabase:", upsertError);
+            // Não falhar a operação inteira se apenas o onboarding falhar
+          } else {
+            // Invalidar cache do React Query para forçar refetch do status de onboarding
+            queryClient.invalidateQueries({ queryKey: ["onboarding", "status"] });
+          }
+        } catch (error) {
+          console.warn("Erro ao resetar onboarding:", error);
+          // Não falhar a operação inteira se apenas o onboarding falhar
+        }
+      }
+
+      showSuccess("Preferências resetadas com sucesso!");
+    } catch (error) {
+      console.error("Erro ao resetar preferências:", error);
+      showError({ message: `Erro ao resetar preferências: ${error}` });
+    } finally {
+      setIsResettingPreferences(false);
+    }
+  };
+
+  // Função para renderizar o menu de reset
+  const renderResetMenu = () => {
+    if (!isAuthenticated) return null;
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button 
+            className="relative flex items-center justify-center w-10 h-10 rounded-full hover:bg-accent transition-all focus:outline-none focus:ring-2 focus:ring-info" 
+            aria-label="Menu de reset"
+          >
+            <IconDotsVertical className="h-5 w-5 text-text" />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuItem
+            onClick={handleClearAllPacks}
+            disabled={isClearingPacks || packs.length === 0}
+            className="flex items-center gap-2 text-destructive focus:text-destructive"
+          >
+            {isClearingPacks ? (
+              <IconLoader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <IconTrash className="h-4 w-4" />
+            )}
+            <span>Limpar todos os packs</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={handleResetPreferences}
+            disabled={isResettingPreferences}
+            className="flex items-center gap-2 text-destructive focus:text-destructive"
+          >
+            {isResettingPreferences ? (
+              <IconLoader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <IconRefresh className="h-4 w-4" />
+            )}
+            <span>Resetar preferências</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
   };
 
   // Função para renderizar o menu dropdown do perfil com Radix
@@ -278,6 +468,9 @@ export default function Topbar() {
                     </Button>
                   ) : null}
 
+                  {/* Reset Menu - only show when authenticated */}
+                  {renderResetMenu()}
+
                   {/* Profile Avatar - apenas visual no SSR */}
                   {user ? (
                     renderProfileMenu()
@@ -337,6 +530,9 @@ export default function Topbar() {
               </>
             )}
 
+            {/* Reset Menu - only show when authenticated */}
+            {isAuthenticated && renderResetMenu()}
+
             {/* Profile Avatar with Dropdown */}
             {isAuthenticated && user ? (
               renderProfileMenu()
@@ -355,7 +551,7 @@ export default function Topbar() {
             <Image src="/logo-hookify-alpha.png" alt="Hookify" width={80} height={21} className="h-[21px] w-[80px]" priority />
           </Link>
 
-          {/* Right Side: Carregar Pack Button + Profile Avatar */}
+          {/* Right Side: Carregar Pack Button + Reset Menu + Profile Avatar */}
           <div className="flex items-center gap-3">
             {isAuthenticated && (
               <>
@@ -371,6 +567,9 @@ export default function Topbar() {
                 ) : null}
               </>
             )}
+
+            {/* Reset Menu - only show when authenticated */}
+            {isAuthenticated && renderResetMenu()}
 
             {/* Profile Avatar - Right */}
             {isAuthenticated && user ? (
@@ -404,7 +603,7 @@ export default function Topbar() {
                 <nav className="flex p-2 space-x-1 overflow-x-auto">
                   <button onClick={() => setActiveSettingsTab("general")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconSettings className="h-5 w-5" />
-                    <span className="text-sm font-medium">Geral</span>
+                    <span className="text-sm font-medium">Preferências</span>
                   </button>
                   <button onClick={() => setActiveSettingsTab("accounts")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconUsers className="h-5 w-5" />
@@ -433,7 +632,7 @@ export default function Topbar() {
                 <nav className="flex-1 p-2 space-y-1">
                   <button onClick={() => setActiveSettingsTab("general")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconSettings className="h-5 w-5" />
-                    <span className="text-sm font-medium">Geral</span>
+                    <span className="text-sm font-medium">Preferências</span>
                   </button>
                   <button onClick={() => setActiveSettingsTab("accounts")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
                     <IconUsers className="h-5 w-5" />
@@ -460,22 +659,36 @@ export default function Topbar() {
                   {activeSettingsTab === "general" && (
                     <div className="space-y-6">
                       <div>
-                        <h3 className="text-lg font-semibold text-text mb-6">Geral</h3>
+                        <h3 className="text-lg font-semibold text-text mb-6">Preferências</h3>
                       </div>
 
                       <div className="space-y-4">
                         {/* Idioma */}
                         <div className="space-y-2">
                           <label className="text-sm font-medium text-text">Idioma</label>
-                          <Input type="text" placeholder="pt-BR" value={settings.language} onChange={(e) => setLanguage(e.target.value)} disabled className="bg-border/50" />
-                          <p className="text-xs text-muted-foreground">Configuração visual por enquanto</p>
-                        </div>
-
-                        {/* Nicho */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-text">Nicho</label>
-                          <Input type="text" placeholder="Ex: E-commerce, SaaS, etc." value={settings.niche} onChange={(e) => setNiche(e.target.value)} disabled className="bg-border/50" />
-                          <p className="text-xs text-muted-foreground">Configuração visual por enquanto</p>
+                          <Select
+                            value={userLanguage}
+                            onValueChange={async (value) => {
+                              try {
+                                await saveLanguage(value);
+                                showSuccess("Idioma atualizado com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar idioma:", error);
+                                showError({ message: "Erro ao salvar idioma" });
+                              }
+                            }}
+                            disabled={isLoadingLanguage || isSavingLanguage}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Selecione um idioma" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pt-BR">Português</SelectItem>
+                              <SelectItem value="en-US" disabled>Inglês</SelectItem>
+                              <SelectItem value="es-ES" disabled>Espanhol</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
                         </div>
 
                         {/* Moeda */}
@@ -509,6 +722,36 @@ export default function Topbar() {
                             </SelectContent>
                           </Select>
                           <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
+                        </div>
+
+                        {/* Nicho */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text">Nicho</label>
+                          <Input 
+                            type="text" 
+                            placeholder="Ex: E-commerce, SaaS, etc." 
+                            value={userNiche} 
+                            onChange={(e) => {
+                              // Atualizar estado local imediatamente para feedback visual
+                              updateNiche(e.target.value);
+                            }}
+                            onBlur={async (e) => {
+                              // Salvar quando o usuário sair do campo
+                              const newValue = e.target.value;
+                              try {
+                                await saveNiche(newValue);
+                                showSuccess("Nicho atualizado com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar nicho:", error);
+                                showError({ message: "Erro ao salvar nicho" });
+                              }
+                            }}
+                            disabled={isLoadingNiche || isSavingNiche}
+                            className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}
+                          </p>
                         </div>
                       </div>
                     </div>

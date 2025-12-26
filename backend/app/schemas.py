@@ -22,6 +22,8 @@ class AdsRequestFrontend(BaseModel):
 class RefreshPackRequest(BaseModel):
     # Dia lógico do usuário (YYYY-MM-DD) que deve ser usado como until do range
     until_date: str
+    # Tipo de atualização: 'since_last_refresh' (desde última atualização) ou 'full_period' (todo o período)
+    refresh_type: str = "since_last_refresh"
 
 class VideoSourceRequest(BaseModel):
     video_id: Union[str, int]
@@ -34,6 +36,11 @@ class FacebookTokenRequest(BaseModel):
 class ErrorResponse(BaseModel):
     status: str
     message: str
+
+class InitialSettingsRequest(BaseModel):
+    language: str  # Ex: "pt-BR", "en-US", "es-ES"
+    currency: str  # Ex: "BRL", "USD", "EUR"
+    niche: Optional[str] = ""  # Texto livre para o nicho
 
 
 # ===== Optional: Backend validation models (mirror of frontend FormattedAdSchema) ===== #

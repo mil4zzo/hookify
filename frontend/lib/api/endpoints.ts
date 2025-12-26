@@ -19,6 +19,7 @@ import {
   SheetIntegrationRequest,
   SaveSheetIntegrationResponse,
   SheetSyncResponse,
+  SheetSyncJobProgress,
 } from './schemas'
 import { env } from '@/lib/config/env'
 
@@ -31,6 +32,14 @@ export interface OnboardingStatusResponse {
 
 export type OnboardingCompleteResponse = OnboardingStatusResponse
 
+export interface InitialSettingsRequest {
+  language: string
+  currency: string
+  niche?: string
+}
+
+export type InitialSettingsResponse = OnboardingStatusResponse
+
 export const api = {
   // Health check
   health: {
@@ -42,6 +51,8 @@ export const api = {
   onboarding: {
     getStatus: (): Promise<OnboardingStatusResponse> =>
       apiClient.get('/onboarding/status'),
+    saveInitialSettings: (data: InitialSettingsRequest): Promise<InitialSettingsResponse> =>
+      apiClient.post('/onboarding/initial-settings', data),
     complete: (): Promise<OnboardingCompleteResponse> =>
       apiClient.post('/onboarding/complete'),
   },
@@ -78,8 +89,8 @@ export const api = {
     getVideoSource: (params: GetVideoSourceRequest): Promise<GetVideoSourceResponse> =>
       apiClient.get('/facebook/video-source', { params }),
     
-    refreshPack: (packId: string, untilDate: string): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string } }> =>
-      apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate }),
+    refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh"): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string } }> =>
+      apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType }),
   },
 
   // Analytics (Supabase)
@@ -151,14 +162,19 @@ export const api = {
       listSpreadsheets: (params?: { query?: string; page_size?: number; page_token?: string; connection_id?: string }): Promise<ListSpreadsheetsResponse> =>
         apiClient.get('/integrations/google/spreadsheets', { params }),
 
-      listWorksheets: (spreadsheetId: string): Promise<ListWorksheetsResponse> =>
-        apiClient.get(`/integrations/google/spreadsheets/${encodeURIComponent(spreadsheetId)}/worksheets`),
+      listWorksheets: (spreadsheetId: string, connectionId?: string): Promise<ListWorksheetsResponse> =>
+        apiClient.get(`/integrations/google/spreadsheets/${encodeURIComponent(spreadsheetId)}/worksheets`, {
+          params: connectionId ? { connection_id: connectionId } : undefined,
+        }),
 
-      listColumns: (spreadsheetId: string, worksheetTitle: string): Promise<SheetColumnsResponse> =>
+      listColumns: (spreadsheetId: string, worksheetTitle: string, connectionId?: string): Promise<SheetColumnsResponse> =>
         apiClient.get(
           `/integrations/google/sheets/${encodeURIComponent(
             spreadsheetId,
           )}/worksheets/${encodeURIComponent(worksheetTitle)}/columns`,
+          {
+            params: connectionId ? { connection_id: connectionId } : undefined,
+          },
         ),
 
       saveSheetIntegration: (payload: SheetIntegrationRequest): Promise<SaveSheetIntegrationResponse> =>
@@ -166,6 +182,12 @@ export const api = {
 
       syncSheetIntegration: (integrationId: string): Promise<SheetSyncResponse> =>
         apiClient.post(`/integrations/google/ad-sheet-integrations/${integrationId}/sync`),
+
+      startSyncJob: (integrationId: string): Promise<{ job_id: string }> =>
+        apiClient.post(`/integrations/google/ad-sheet-integrations/${integrationId}/sync-job`),
+
+      getSyncJobProgress: (jobId: string): Promise<SheetSyncJobProgress> =>
+        apiClient.get(`/integrations/google/sync-jobs/${encodeURIComponent(jobId)}`),
 
       listSheetIntegrations: (packId?: string): Promise<{ integrations: any[] }> =>
         apiClient.get('/integrations/google/ad-sheet-integrations', { params: packId ? { pack_id: packId } : {} }),

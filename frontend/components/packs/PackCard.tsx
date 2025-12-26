@@ -2,12 +2,11 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconCalendar, IconFilter, IconTrash, IconEye, IconCode, IconLoader2, IconRotateClockwise, IconRefresh, IconPencil, IconTableExport, IconBuilding } from "@tabler/icons-react";
+import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport } from "@tabler/icons-react";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { api } from "@/lib/api/endpoints";
@@ -28,19 +27,15 @@ export interface PackCardProps {
   formatDateTime: (dateTimeString: string) => string;
   getAccountName: (accountId: string) => string;
   // Handlers
-  onRename: (packId: string) => void;
   onRefresh: (packId: string) => void;
   onRemove: (packId: string) => void;
   onToggleAutoRefresh: (packId: string, checked: boolean) => void;
   onSyncSheetIntegration: (packId: string) => void;
-  onPreview: (pack: AdsPack) => void;
-  onViewJson: (pack: AdsPack) => void;
   onSetSheetIntegration: (pack: AdsPack) => void;
   onEditSheetIntegration?: (pack: AdsPack) => void;
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
   // Estados de loading
   isUpdating: boolean;
-  isRenaming: boolean;
   isTogglingAutoRefresh: string | null;
   packToDisableAutoRefresh: { id: string; name: string } | null;
   isSyncingSheetIntegration: string | null;
@@ -56,20 +51,31 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRename, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onPreview, onViewJson, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, isUpdating, isRenaming, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
+export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
   const stats = pack.stats;
   const { updatePack } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(pack.name);
   const [isSavingName, setIsSavingName] = useState(false);
-  const nameInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLTextAreaElement>(null);
   const isSavingNameRef = useRef(false);
+
+  const resizeNameTextarea = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    // Auto-resize para caber o conteúdo sem empurrar o layout com scroll interno
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  };
 
   // Focar no input quando começar a editar
   useEffect(() => {
     if (isEditingName && nameInputRef.current) {
       nameInputRef.current.focus();
-      nameInputRef.current.select();
+      // Colocar o cursor no final do texto em vez de selecionar tudo
+      // Isso permite que o usuário clique em qualquer posição para editar parcialmente
+      const length = nameInputRef.current.value.length;
+      nameInputRef.current.setSelectionRange(length, length);
+      resizeNameTextarea(nameInputRef.current);
     }
   }, [isEditingName]);
 
@@ -110,20 +116,30 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
 
     isSavingNameRef.current = true;
     setIsSavingName(true);
+
+    // OTIMISTIC UPDATE: Sair do modo de edição imediatamente para melhor UX
+    setIsEditingName(false);
+
+    // Guardar nome anterior para reverter em caso de erro
+    const previousName = pack.name;
+
+    // Atualizar estado local imediatamente (optimistic update)
+    updatePack(pack.id, {
+      name: trimmedName,
+    } as Partial<AdsPack>);
+
     try {
       await api.analytics.updatePackName(pack.id, trimmedName);
-
-      // Atualizar pack no store local
-      updatePack(pack.id, {
-        name: trimmedName,
-      } as Partial<AdsPack>);
-
       showSuccess(`Pack renomeado para "${trimmedName}"`);
-      setIsEditingName(false);
     } catch (error) {
       console.error("Erro ao renomear pack:", error);
+      // REVERTER em caso de erro
+      updatePack(pack.id, {
+        name: previousName,
+      } as Partial<AdsPack>);
+      setEditingName(previousName);
+      setIsEditingName(true); // Voltar ao modo de edição para o usuário tentar novamente
       showError({ message: `Erro ao renomear pack: ${error instanceof Error ? error.message : "Erro desconhecido"}` });
-      setEditingName(pack.name);
     } finally {
       setIsSavingName(false);
       isSavingNameRef.current = false;
@@ -134,7 +150,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
     handleSaveName();
   };
 
-  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       handleSaveName();
@@ -193,52 +209,35 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
               </>
             )}
             <div className="p-6 space-y-6 flex flex-col justify-between h-full relative z-10">
-              <div className="flex flex-col items-center gap-1">
+              <div className="flex flex-col items-center gap-2">
                 {/* Header: Nome do pack */}
-                <div className="flex w-fit items-start justify-between gap-3">
-                  <div className="flex flex-col items-center justify-center flex-1 min-w-0 w-full">
+                <div className="flex items-start justify-center">
+                  <div className="flex flex-col items-center justify-center min-w-0">
                     {isEditingName ? (
-                      <div
-                        className="inline-flex items-center gap-2 relative z-20"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                        }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                        }}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                        }}
-                      >
-                        <Input
+                      <div className="inline-flex items-center gap-2 relative z-20 max-w-full" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+                        <textarea
                           ref={nameInputRef}
                           value={editingName}
-                          onChange={(e) => setEditingName(e.target.value)}
+                          onChange={(e) => {
+                            setEditingName(e.target.value);
+                            resizeNameTextarea(e.currentTarget);
+                          }}
                           onKeyDown={handleNameKeyDown}
                           onBlur={handleInputBlur}
                           disabled={isSavingName}
-                          className="text-xl font-semibold h-8 px-0 text-center bg-transparent border-0 border-b-2 border-white rounded-none focus-visible:ring-0 focus-visible:ring-offset-0 w-fit inline-block"
+                          rows={1}
+                          // `textarea` permite quebra de linha (ao contrário de `input`), evitando overflow e deslocamento do card.
+                          // `fit-content` + `maxWidth: 100%` faz a borda acompanhar o conteúdo até o limite do card.
+                          className="text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 border-white rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere]"
+                          style={{ width: "fit-content", maxWidth: "100%" }}
                           maxLength={100}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                          }}
-                          onPointerDown={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                          }}
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            e.preventDefault();
-                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onPointerDown={(e) => e.stopPropagation()}
                         />
                       </div>
                     ) : (
                       <div
-                        className="w-full relative z-20"
+                        className="relative z-20"
                         onClick={handleStartEditName}
                         onPointerDown={handleNamePointerDown}
                         onMouseDown={(e) => {
@@ -246,11 +245,8 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                           e.preventDefault();
                         }}
                       >
-                        <h3 className="text-xl font-semibold truncate cursor-pointer hover:text-blue-400 transition-colors w-full text-center group" title={`Clique para editar: ${pack.name}`}>
-                          <span className="flex items-center justify-center gap-1.5">
-                            {pack.name}
-                            <IconPencil className="w-4 h-4 opacity-0 group-hover:opacity-50 transition-opacity" />
-                          </span>
+                        <h3 className="text-xl font-semibold cursor-text text-center whitespace-normal break-words [overflow-wrap:anywhere] leading-tight" title={`Clique para editar: ${pack.name}`}>
+                          {pack.name}
                         </h3>
                       </div>
                     )}
@@ -370,11 +366,6 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
           </StandardCard>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="right">
-          <DropdownMenuItem onClick={() => onRename(pack.id)} disabled={isRenaming}>
-            <IconPencil className="w-4 h-4 mr-2" />
-            Renomear pack
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => onRefresh(pack.id)} disabled={isUpdating}>
             <IconRotateClockwise className="w-4 h-4 mr-2" />
             Atualizar pack
@@ -403,20 +394,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                 </DropdownMenuItem>
               )}
             </>
-          ) : (
-            <DropdownMenuItem onClick={() => onSetSheetIntegration(pack)}>
-              <IconTableExport className="w-4 h-4 mr-2" />
-              Enriquecer leadscore (Google Sheets)
-            </DropdownMenuItem>
-          )}
-          <DropdownMenuItem onClick={() => onPreview(pack)}>
-            <IconEye className="w-4 h-4 mr-2" />
-            Visualizar tabela
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onViewJson(pack)}>
-            <IconCode className="w-4 h-4 mr-2" />
-            Ver JSON
-          </DropdownMenuItem>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => onRemove(pack.id)} className="text-red-500 focus:text-red-500 focus:bg-red-500/10">
             <IconTrash className="w-4 h-4 mr-2" />

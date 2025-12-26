@@ -15,6 +15,9 @@ from app.services.google_accounts_repo import (
     get_google_account_tokens,
     upsert_google_account,
 )
+from app.services.google_errors import (
+    GOOGLE_TOKEN_EXPIRED,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +132,14 @@ def get_google_access_token_for_user(
                         # Importar aqui para evitar circular dependency
                         from app.services.google_sheets_service import GoogleSheetsError
                         raise GoogleSheetsError(
-                            "Token do Google expirado ou revogado. Por favor, reconecte sua conta Google."
+                            "Token do Google expirado ou revogado. Por favor, reconecte sua conta Google.",
+                            code=GOOGLE_TOKEN_EXPIRED,
+                            details={
+                                "error_code": error_code,
+                                "error_description": error_description,
+                                "user_id": user_id,
+                                "connection_id": connection_id,
+                            }
                         )
                 except (ValueError, KeyError):
                     # Se não conseguir parsear JSON, continuar com log normal

@@ -351,3 +351,34 @@ html {
   height: 100%;
 }
 
+/* Estilização para inputs com autofill do navegador */
+/* Sobrescreve os estilos padrão do navegador quando autofill é aplicado */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px var(--input) inset !important;
+  -webkit-text-fill-color: var(--input-foreground) !important;
+  box-shadow: 0 0 0 30px var(--input) inset !important;
+  caret-color: var(--input-foreground) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Para dark mode, garantir que o autofill também use as cores corretas */
+:root[data-theme="dark"] input:-webkit-autofill,
+:root[data-theme="dark"] input:-webkit-autofill:hover,
+:root[data-theme="dark"] input:-webkit-autofill:focus,
+:root[data-theme="dark"] input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px var(--input) inset !important;
+  -webkit-text-fill-color: var(--input-foreground) !important;
+  box-shadow: 0 0 0 30px var(--input) inset !important;
+  caret-color: var(--input-foreground) !important;
+}
+
+/* Para Firefox (usa -moz-autofill) */
+input:-moz-autofill {
+  background-color: var(--input) !important;
+  color: var(--input-foreground) !important;
+  box-shadow: 0 0 0 30px var(--input) inset !important;
+}
+

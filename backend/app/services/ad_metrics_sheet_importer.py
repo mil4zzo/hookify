@@ -8,6 +8,10 @@ from typing import Any, Dict, List, Tuple
 
 from app.core.supabase_client import get_supabase_for_user
 from app.services.google_sheets_service import fetch_all_rows, GoogleSheetsError
+from app.services.google_errors import (
+    GOOGLE_TOKEN_EXPIRED,
+    GOOGLE_SHEETS_ERROR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +185,7 @@ def run_ad_metrics_sheet_import(
         sb.table("ad_sheet_integrations")
         .select(
             "id, spreadsheet_id, worksheet_title, ad_id_column, date_column, "
-            "leadscore_column, cpr_max_column, date_format, pack_id"
+            "leadscore_column, cpr_max_column, date_format, pack_id, connection_id"
         )
         .eq("id", integration_id)
         .eq("owner_id", user_id)
@@ -201,6 +205,7 @@ def run_ad_metrics_sheet_import(
     cpr_max_col_name = cfg.get("cpr_max_column")
     date_format = cfg.get("date_format")
     pack_id = cfg.get("pack_id")
+    connection_id = cfg.get("connection_id")
     
     # Validar que o formato de data foi configurado
     if not date_format or date_format not in ("DD/MM/YYYY", "MM/DD/YYYY"):
@@ -219,9 +224,17 @@ def run_ad_metrics_sheet_import(
             user_id=user_id,
             spreadsheet_id=spreadsheet_id,
             worksheet_title=worksheet_title,
+            connection_id=connection_id,
         )
     except GoogleSheetsError as e:
-        raise AdMetricsImportError(str(e))
+        error_message = e.message if hasattr(e, 'message') else str(e)
+        # Preservar código do erro se disponível
+        error_code = getattr(e, 'code', None)
+        if error_code == GOOGLE_TOKEN_EXPIRED:
+            raise AdMetricsImportError(
+                f"Token do Google expirado ou revogado. Por favor, reconecte sua conta Google. ({error_message})"
+            )
+        raise AdMetricsImportError(error_message)
     except Exception as e:
         logger.exception("[AD_METRICS_IMPORT] Erro inesperado ao ler planilha")
         raise AdMetricsImportError("Erro ao ler planilha do Google.") from e

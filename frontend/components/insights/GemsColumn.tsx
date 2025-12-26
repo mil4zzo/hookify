@@ -14,7 +14,7 @@ interface GemsColumnProps {
     metricFormatted: string;
     [key: string]: any;
   }>;
-  metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr";
+  metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql";
   averageValue?: number | null;
   onAdClick?: (ad: any, openVideo?: boolean) => void;
   getTopMetrics?: (adId: string | null | undefined) => {
@@ -25,6 +25,7 @@ interface GemsColumnProps {
     pageConvRank: number | null;
     holdRateRank: number | null;
     cprRank: number | null;
+    cpmqlRank: number | null;
   };
   actionType?: string;
   headerRight?: ReactNode;
@@ -51,7 +52,7 @@ interface GemsColumnProps {
 }
 
 export function GemsColumn({ title, items, metric, averageValue, onAdClick, getTopMetrics, actionType, headerRight, tooltip, averages }: GemsColumnProps) {
-  const metricStyles: Record<"hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr", GenericColumnColorScheme> = {
+  const metricStyles: Record<"hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql", GenericColumnColorScheme> = {
     hook: {
       headerBg: "bg-blue-500/10 border-blue-500/30",
       title: "",
@@ -116,6 +117,17 @@ export function GemsColumn({ title, items, metric, averageValue, onAdClick, getT
         text: "text-cyan-600 dark:text-cyan-400",
         accent: "border-cyan-500",
         badge: "bg-cyan-500 text-white",
+      },
+    },
+    cpmql: {
+      headerBg: "bg-amber-500/10 border-amber-500/30",
+      title: "",
+      card: {
+        border: "border-amber-500/30",
+        bg: "bg-amber-500/5",
+        text: "text-amber-600 dark:text-amber-400",
+        accent: "border-amber-500",
+        badge: "bg-amber-500 text-white",
       },
     },
   };

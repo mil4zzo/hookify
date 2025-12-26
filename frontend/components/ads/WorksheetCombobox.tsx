@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,9 @@ import { IconCheck, IconChevronDown, IconLoader2 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { api } from "@/lib/api/endpoints";
 import { WorksheetItem } from "@/lib/api/schemas";
+import { AppError } from "@/lib/utils/errors";
+import { handleGoogleAuthError } from "@/lib/utils/googleAuthError";
+import { useQuery } from "@tanstack/react-query";
 
 interface WorksheetComboboxProps {
   spreadsheetId?: string;
@@ -16,60 +19,61 @@ interface WorksheetComboboxProps {
   placeholder?: string;
   className?: string;
   disabled?: boolean;
+  connectionId?: string;
+  active?: boolean;
 }
 
-export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeholder = "Selecione uma aba...", className, disabled = false }: WorksheetComboboxProps) {
+export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeholder = "Selecione uma aba...", className, disabled = false, connectionId, active = true }: WorksheetComboboxProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [options, setOptions] = useState<Array<{ label: string; value: string }>>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const {
+    data,
+    isLoading,
+    error: queryError,
+  } = useQuery({
+    queryKey: ["google-worksheets", connectionId, spreadsheetId],
+    enabled: open && !!spreadsheetId && !disabled,
+    retry: 0,
+    queryFn: async () => {
+      try {
+        const res = await api.integrations.google.listWorksheets(spreadsheetId as string, connectionId);
+        return res.worksheets || [];
+      } catch (err) {
+        const appError = err as AppError;
+        handleGoogleAuthError(appError, connectionId);
+        throw err;
+      }
+    },
+    staleTime: 60_000,
+    gcTime: 2 * 60_000,
+  });
 
-  // Carregar abas quando abrir e tiver spreadsheetId
-  const loadWorksheets = useCallback(async () => {
-    if (!spreadsheetId) {
-      setOptions([]);
-      return;
-    }
-
-    setIsLoading(true);
-    try {
-      const res = await api.integrations.google.listWorksheets(spreadsheetId);
-      const newOptions = res.worksheets.map((worksheet: WorksheetItem) => ({
-        label: worksheet.title,
-        value: worksheet.title,
-      }));
-      setOptions(newOptions);
-    } catch (error) {
-      console.error("Erro ao carregar abas:", error);
-      setOptions([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [spreadsheetId]);
-
-  // Carregar abas quando abrir o popover e tiver spreadsheetId
-  useEffect(() => {
-    if (open && spreadsheetId) {
-      loadWorksheets();
-    }
-  }, [open, spreadsheetId, loadWorksheets]);
-
-  // Limpar seleção quando spreadsheetId mudar
+  // Se trocar a planilha no wizard, limpar a aba selecionada (o wizard também faz isso, mas aqui evitamos UI inconsistente)
   useEffect(() => {
     if (!spreadsheetId) {
-      setOptions([]);
       onValueChange("");
     }
   }, [spreadsheetId, onValueChange]);
 
   // Filtrar opções localmente (busca instantânea enquanto digita)
-  const filteredOptions = options.filter((option) => {
-    if (!search) return true;
+  const options = useMemo(() => {
+    const rows = data || [];
+    return rows.map((worksheet: WorksheetItem) => ({
+      label: worksheet.title,
+      value: worksheet.title,
+    }));
+  }, [data]);
+
+  const filteredOptions = useMemo(() => {
+    if (!search) return options;
     const searchLower = search.toLowerCase();
-    return option.label.toLowerCase().includes(searchLower) || option.value.toLowerCase().includes(searchLower);
-  });
+    return options.filter((option) => option.label.toLowerCase().includes(searchLower));
+  }, [options, search]);
 
   const selectedOption = options.find((opt) => opt.value === value);
+
+  // Como worksheetTitle == label, podemos exibir `value` mesmo sem options carregadas
+  const displayLabel = selectedOption?.label || value || placeholder;
 
   // Resetar busca quando fechar
   useEffect(() => {
@@ -78,11 +82,21 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
     }
   }, [open]);
 
+  // Se o step ficar inativo (wizard mudou de etapa), fechar o popover para não "vazar" UI
+  useEffect(() => {
+    if (!active && open) {
+      setOpen(false);
+    }
+    if (!active) {
+      setSearch("");
+    }
+  }, [active, open]);
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" role="combobox" aria-expanded={open} disabled={disabled || !spreadsheetId} className={cn("h-10 w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
-          <span className="truncate text-left">{selectedOption ? selectedOption.label : placeholder}</span>
+          <span className="truncate text-left">{displayLabel}</span>
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -94,6 +108,7 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-9"
+              disabled={disabled || !spreadsheetId}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -113,7 +128,11 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
             />
           </div>
           <div className="max-h-[300px] overflow-y-auto">
-            {isLoading ? (
+            {queryError ? (
+              <div className="py-6 px-4 text-center">
+                <p className="text-sm text-destructive mb-2">{(queryError as any)?.message || "Erro ao carregar abas. Tente novamente."}</p>
+              </div>
+            ) : isLoading ? (
               <div className="flex items-center justify-center gap-2 py-6">
                 <IconLoader2 className="h-4 w-4 animate-spin" />
                 <span className="text-sm text-muted-foreground">Carregando abas...</span>

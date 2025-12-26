@@ -28,3 +28,7 @@ COMMENT ON CONSTRAINT jobs_status_check ON public.jobs IS
 'Status permitidos para jobs. Novos status (meta_running, meta_completed, processing, persisting, cancelled) foram adicionados para suportar arquitetura "2 fases" de processamento.';
 
 
+
+
+
+

@@ -175,6 +175,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
         pageConvRank: new Map(),
         ctrRank: new Map(),
         cprRank: new Map(),
+        cpmqlRank: new Map(),
         spendRank: new Map(),
       };
     }
@@ -183,8 +184,9 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       validationCriteria: criteriaToUse,
       actionType,
       filterValidOnly: true,
+      mqlLeadscoreMin,
     });
-  }, [ads, validationCriteria, actionType]);
+  }, [ads, validationCriteria, actionType, mqlLeadscoreMin]);
 
   // 3. Função helper para obter ranks de um anúncio
   const getTopMetrics = (adId: string | null | undefined) => {
@@ -197,6 +199,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
         pageConvRank: null,
         holdRateRank: null,
         cprRank: null,
+        cpmqlRank: null,
       };
     }
 
@@ -208,6 +211,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       pageConvRank: globalMetricRanks.pageConvRank.get(adId) ?? null,
       holdRateRank: globalMetricRanks.holdRateRank.get(adId) ?? null,
       cprRank: globalMetricRanks.cprRank.get(adId) ?? null,
+      cpmqlRank: globalMetricRanks.cpmqlRank.get(adId) ?? null,
     };
   };
 

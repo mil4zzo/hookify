@@ -19,7 +19,13 @@ from app.services.facebook_connections_repo import (
 )
 from app.core.auth import get_current_user
 from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest
-from app.core.config import FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET, FACEBOOK_TOKEN_URL, FACEBOOK_AUTH_BASE_URL
+from app.core.config import (
+    FACEBOOK_CLIENT_ID,
+    FACEBOOK_CLIENT_SECRET,
+    FACEBOOK_TOKEN_URL,
+    FACEBOOK_AUTH_BASE_URL,
+    FACEBOOK_OAUTH_SCOPES,
+)
 from fastapi import Query
 
 # Novos imports para arquitetura "2 fases"
@@ -50,7 +56,7 @@ def get_auth_url(redirect_uri: str = Query(..., description="Frontend OAuth redi
             "redirect_uri": redirect_uri,
             "response_type": "code",
             # scopes mínimos necessários podem ser ajustados conforme necessidade
-            "scope": "public_profile,email,ads_read,ads_management",
+            "scope": FACEBOOK_OAUTH_SCOPES,
         }
         # Montar URL
         from urllib.parse import urlencode
@@ -611,9 +617,9 @@ def refresh_pack(
 ):
     """Atualiza um pack existente buscando novos dados do Meta.
     
-    Calcula o range de datas como:
-    - since: last_refreshed_at - 1 dia
-    - until: hoje
+    Calcula o range de datas baseado no refresh_type:
+    - 'since_last_refresh': desde last_refreshed_at - 1 dia até until_date
+    - 'full_period': desde date_start até date_stop (ou até hoje se auto_refresh estiver ativado)
     
     Args:
         pack_id: ID do pack a atualizar
@@ -635,22 +641,46 @@ def refresh_pack(
         if not pack.get("adaccount_id"):
             raise HTTPException(status_code=400, detail="Pack não tem adaccount_id configurado")
         
-        if not pack.get("last_refreshed_at"):
-            raise HTTPException(status_code=400, detail="Pack não tem last_refreshed_at configurado")
-        
         # Obter filtros do pack
         filters = pack.get("filters", [])
         if not isinstance(filters, list):
             filters = []
         
-        # Calcular range de datas (datas lógicas YYYY-MM-DD)
-        last_refreshed_str = pack["last_refreshed_at"]
-        last_refreshed_date = datetime.strptime(last_refreshed_str, "%Y-%m-%d").date()
-        since_date = last_refreshed_date - timedelta(days=1)
-        since_str = since_date.strftime("%Y-%m-%d")
-        until_str = request.until_date
+        # Validar refresh_type
+        refresh_type = request.refresh_type
+        if refresh_type not in ["since_last_refresh", "full_period"]:
+            raise HTTPException(status_code=400, detail="refresh_type deve ser 'since_last_refresh' ou 'full_period'")
         
-        logger.info(f"[REFRESH_PACK] Pack {pack_id} - Range: {since_str} até {until_str} (last_refreshed: {last_refreshed_str})")
+        # Calcular range de datas baseado no refresh_type (datas lógicas YYYY-MM-DD)
+        if refresh_type == "since_last_refresh":
+            # Opção 1: Desde a última atualização
+            if not pack.get("last_refreshed_at"):
+                raise HTTPException(status_code=400, detail="Pack não tem last_refreshed_at configurado. Use 'full_period' para atualizar todo o período.")
+            
+            last_refreshed_str = pack["last_refreshed_at"]
+            last_refreshed_date = datetime.strptime(last_refreshed_str, "%Y-%m-%d").date()
+            since_date = last_refreshed_date - timedelta(days=1)
+            since_str = since_date.strftime("%Y-%m-%d")
+            until_str = request.until_date
+            
+            logger.info(f"[REFRESH_PACK] Pack {pack_id} - Tipo: desde última atualização - Range: {since_str} até {until_str} (last_refreshed: {last_refreshed_str})")
+        else:
+            # Opção 2: Todo o período
+            if not pack.get("date_start"):
+                raise HTTPException(status_code=400, detail="Pack não tem date_start configurado")
+            
+            since_str = pack["date_start"]
+            
+            # Se auto_refresh estiver ativado, usar até hoje (until_date), senão usar date_stop
+            auto_refresh = pack.get("auto_refresh", False)
+            if auto_refresh:
+                until_str = request.until_date
+            else:
+                if not pack.get("date_stop"):
+                    raise HTTPException(status_code=400, detail="Pack não tem date_stop configurado")
+                until_str = pack["date_stop"]
+            
+            logger.info(f"[REFRESH_PACK] Pack {pack_id} - Tipo: todo o período - Range: {since_str} até {until_str} (auto_refresh: {auto_refresh})")
         
         # Atualizar status do pack para "running"
         supabase_repo.update_pack_refresh_status(

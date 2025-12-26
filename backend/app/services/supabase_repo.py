@@ -1350,29 +1350,39 @@ def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
                 integrations_map = {str(int["id"]): int for int in integrations}
                 
                 # Enriquecer packs com dados da integração
-                # Também buscar nomes das planilhas via Google API
-                from app.services.google_sheets_service import list_spreadsheets
-                try:
-                    # Buscar todas as planilhas de uma vez (até 100)
-                    spreadsheets, _ = list_spreadsheets(
-                        user_jwt=user_jwt,
-                        user_id=user_id,
-                        query=None,
-                        page_size=100,
-                    )
-                    spreadsheets_map = {s.get("id"): s.get("name") for s in spreadsheets}
-                except Exception as e:
-                    logger.warning(f"[LIST_PACKS] Erro ao buscar nomes das planilhas: {e}")
-                    spreadsheets_map = {}
+                # Buscar nomes das planilhas individualmente usando connection_id salvo (mais eficiente)
+                from app.services.google_sheets_service import get_spreadsheet_name
                 
                 for pack in packs:
+                    if not isinstance(pack, dict):
+                        continue
                     sheet_integration_id = pack.get("sheet_integration_id")
                     if sheet_integration_id and str(sheet_integration_id) in integrations_map:
                         integration = integrations_map[str(sheet_integration_id)]
-                        # Adicionar nome da planilha se disponível
+                        if not isinstance(integration, dict):
+                            pack["sheet_integration"] = integration
+                            continue
+                            
                         spreadsheet_id = integration.get("spreadsheet_id")
-                        if spreadsheet_id and spreadsheet_id in spreadsheets_map:
-                            integration["spreadsheet_name"] = spreadsheets_map[spreadsheet_id]
+                        connection_id = integration.get("connection_id")
+                        
+                        # Buscar nome da planilha diretamente pelo ID
+                        if spreadsheet_id and isinstance(spreadsheet_id, str):
+                            try:
+                                spreadsheet_name = get_spreadsheet_name(
+                                    user_jwt=user_jwt,
+                                    user_id=user_id,
+                                    spreadsheet_id=spreadsheet_id,
+                                    connection_id=connection_id if isinstance(connection_id, str) else None,
+                                )
+                                if spreadsheet_name:
+                                    integration["spreadsheet_name"] = spreadsheet_name
+                            except Exception as e:
+                                logger.warning(
+                                    f"[LIST_PACKS] Erro ao buscar nome da planilha {spreadsheet_id}: {e}"
+                                )
+                                # Não falhar completamente, apenas não adicionar o nome
+                        
                         pack["sheet_integration"] = integration
             except Exception as e:
                 logger.warning(f"[LIST_PACKS] Erro ao buscar integrações: {e}")
@@ -1536,9 +1546,9 @@ def update_pack_name(
     
     sb = get_supabase_for_user(user_jwt)
     
+    # Não atualizar updated_at ao renomear - essa data deve ser exclusiva para atualizações de métricas
     update_data = {
         "name": name.strip(),
-        "updated_at": _now_iso(),
     }
     
     try:

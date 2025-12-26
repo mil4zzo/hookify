@@ -161,6 +161,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
     pageConvRank: new Map(),
     ctrRank: new Map(),
     cprRank: new Map(),
+    cpmqlRank: new Map(),
     spendRank: new Map(),
   };
 

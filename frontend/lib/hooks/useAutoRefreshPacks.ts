@@ -123,8 +123,8 @@ export function useAutoRefreshPacks() {
     showProgressToast(toastId, pack.name, 0, 1, "Inicializando...");
     
     try {
-      // Iniciar refresh
-      const refreshResult = await api.facebook.refreshPack(pack.id, getTodayLocal());
+      // Iniciar refresh (auto-refresh sempre usa "since_last_refresh")
+      const refreshResult = await api.facebook.refreshPack(pack.id, getTodayLocal(), "since_last_refresh");
       
       if (!refreshResult.job_id) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${pack.name}"`);

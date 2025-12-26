@@ -161,7 +161,14 @@ class GraphAPI:
             if page['id'] == actor_id:
                 self.page_token = f"?access_token={page['access_token']}"
                 return self.page_token
-        raise RuntimeError(f"Page with ID {actor_id} not found")
+        
+        # Fallback: se a página não for encontrada, usar token do usuário
+        # Isso pode funcionar se o vídeo for acessível com o token do usuário
+        logger.warning(
+            f"Sua conta do Facebook não tem acesso direto à página {actor_id}. "
+            f"Tentando usar token do usuário como alternativa."
+        )
+        return self.user_token
 
     def get_ads_details(self, act_id: str, time_range: Dict[str, str], ads_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
         if not ads_ids:
@@ -739,7 +746,9 @@ class GraphAPI:
             raise ValueError("actor_id and video_id are required")
 
         try:
-            video_url = self.base_url + str(video_id) + self.get_page_access_token(actor_id)
+            # Tentar obter token da página (com fallback para token do usuário)
+            page_token = self.get_page_access_token(actor_id)
+            video_url = self.base_url + str(video_id) + page_token
             payload = {'fields': 'source'}
             resp = requests.get(video_url, params=payload)
             resp.raise_for_status()
@@ -751,11 +760,53 @@ class GraphAPI:
             decoded_url = urllib.parse.unquote(http_err.request.url)  # type: ignore
             decoded_text = urllib.parse.unquote(http_err.response.text)
             try:
-                error_message = json.loads(decoded_text)['error']['message']
+                error_data = json.loads(decoded_text)
+                error_message = error_data.get('error', {}).get('message', decoded_text)
+                error_code = error_data.get('error', {}).get('code')
+                
+                # Mensagens de erro mais claras baseadas no código de erro
+                if error_code == 100:
+                    user_friendly_message = (
+                        f"Sua conta do Facebook não tem acesso à página {actor_id}. "
+                        f"O vídeo pode estar associado a uma página que você não gerencia ou que foi removida."
+                    )
+                elif error_code == 190:
+                    user_friendly_message = (
+                        f"Token do Facebook expirado ou inválido. "
+                        f"Por favor, reconecte sua conta do Facebook."
+                    )
+                elif "does not exist" in error_message.lower() or "not found" in error_message.lower():
+                    user_friendly_message = (
+                        f"O vídeo {video_id} não foi encontrado ou não está mais disponível. "
+                        f"Isso pode acontecer se o anúncio foi removido ou se você não tem permissão para acessá-lo."
+                    )
+                else:
+                    user_friendly_message = (
+                        f"Não foi possível acessar o vídeo. "
+                        f"Erro da API do Facebook: {error_message}"
+                    )
             except Exception:
-                error_message = decoded_text
+                user_friendly_message = (
+                    f"Não foi possível acessar o vídeo do anúncio. "
+                    f"Verifique se sua conta do Facebook tem as permissões necessárias."
+                )
+            
             logger.error("get_video_source_url http_error: %s %s for %s", http_err.response.status_code, decoded_text, decoded_url)
-            return {'status': f"Status: {http_err.response.status_code} - http_error", 'message': error_message}
+            return {
+                'status': f"Status: {http_err.response.status_code} - http_error", 
+                'message': user_friendly_message
+            }
         except Exception as err:
+            error_message = str(err)
+            if "Page with ID" in error_message and "not found" in error_message:
+                user_friendly_message = (
+                    f"Sua conta do Facebook não tem acesso à página {actor_id}. "
+                    f"O vídeo pode estar associado a uma página que você não gerencia."
+                )
+            else:
+                user_friendly_message = (
+                    f"Erro ao acessar o vídeo: {error_message}"
+                )
+            
             logger.exception("get_video_source_url error: %s", err)
-            return {'status': 'error', 'message': str(err)}
+            return {'status': 'error', 'message': user_friendly_message}

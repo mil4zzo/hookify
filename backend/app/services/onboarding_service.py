@@ -75,6 +75,54 @@ def get_onboarding_status(user_jwt: str, user_id: str) -> Dict[str, Any]:
   }
 
 
+def save_initial_settings(
+  user_jwt: str,
+  user_id: str,
+  language: str,
+  currency: str,
+  niche: str,
+) -> Dict[str, Any]:
+  """
+  Salva as configurações iniciais do usuário (idioma, moeda, nicho).
+  
+  Valida os valores e salva na tabela user_preferences.
+  Cria o registro se ainda não existir.
+  """
+  sb = get_supabase_for_user(user_jwt)
+
+  # Validar idioma
+  supported_languages = ["pt-BR", "en-US", "es-ES"]
+  if language not in supported_languages:
+    raise ValueError(f"Idioma não suportado. Use um dos seguintes: {', '.join(supported_languages)}")
+
+  # Validar moeda (código ISO 4217 básico)
+  if not currency or len(currency) != 3:
+    raise ValueError("Moeda deve ser um código válido de 3 letras (ex: BRL, USD, EUR)")
+
+  try:
+    # Usar upsert para criar/atualizar em uma única operação.
+    update_payload = {
+      "user_id": user_id,
+      "locale": language,
+      "currency": currency,
+      "niche": niche or "",
+    }
+
+    res = (
+      sb.table("user_preferences")
+      .upsert(update_payload, on_conflict="user_id")
+      .execute()
+    )
+
+    logger.info(f"[ONBOARDING] Configurações iniciais salvas para user {user_id}: language={language}, currency={currency}, niche={niche}")
+  except Exception as e:
+    logger.exception(f"[ONBOARDING] Erro ao salvar configurações iniciais para {user_id}: {e}")
+    raise
+
+  # Retornar status consolidado após atualização
+  return get_onboarding_status(user_jwt, user_id)
+
+
 def complete_onboarding(user_jwt: str, user_id: str) -> Dict[str, Any]:
   """
   Marca o onboarding como concluído na tabela user_preferences.

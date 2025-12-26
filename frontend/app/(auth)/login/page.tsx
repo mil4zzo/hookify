@@ -70,7 +70,7 @@ function LoginContent() {
   // Só renderizar quando estiver no cliente para evitar problemas de hidratação
   if (!isClient) {
     return (
-      <div className="w-full max-w-md space-y-6">
+      <div className="w-full max-w-md space-y-6 mx-auto">
         <div className="space-y-2 text-center">
           <h1 className="text-3xl font-semibold">Entrar</h1>
           <p className="text-muted-foreground">Carregando...</p>
@@ -80,17 +80,18 @@ function LoginContent() {
   }
 
   return (
-    <div className="w-full max-w-md space-y-6 px-4">
-      {/* Logo */}
-      <div className="flex justify-center mb-4">
-        <Image src="/logo-hookify-alpha.png" alt="Hookify" width={120} height={32} className="h-[32px] w-[120px]" priority />
-      </div>
-
+    <div className="w-full max-w-md space-y-6 px-4 mx-auto">
       {/* Card com formulário */}
       <Card>
         <CardHeader className="mb-4">
-          <CardTitle className="text-center">{isSignUp ? "Criar conta" : "Entrar"}</CardTitle>
-          <CardDescription className="text-center">{isSignUp ? "Crie sua conta para começar" : "Acesse sua conta para continuar"}</CardDescription>
+          {isSignUp ? (
+            <CardTitle className="text-center">Criar conta</CardTitle>
+          ) : (
+            <div className="flex justify-center mb-2">
+              <Image src="/logo-hookify-alpha.png" alt="Hookify" width={120} height={32} className="h-[32px] w-[120px]" priority />
+            </div>
+          )}
+          <CardDescription className="text-center">{isSignUp ? "Crie sua conta para começar" : "Seja bem-vindo ao Hookify! Entre na plataforma:"}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={isSignUp ? handleSignUp : handleEmailLogin}>

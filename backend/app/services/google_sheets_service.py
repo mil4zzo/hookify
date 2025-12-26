@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict, Any
 from urllib.parse import quote
 
 import requests
 
 from app.services.google_token_service import get_google_access_token_for_user
+from app.services.google_errors import (
+    raise_google_http_error,
+    GOOGLE_TOKEN_EXPIRED,
+    GOOGLE_SHEETS_ERROR,
+    GOOGLE_DRIVE_ERROR,
+    GOOGLE_CONNECTION_NOT_FOUND,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +22,15 @@ DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 
 
 class GoogleSheetsError(Exception):
-    pass
+    """
+    Exceção interna para erros do Google Sheets.
+    Deve ser convertida para HTTPException com código estruturado antes de chegar ao frontend.
+    """
+    def __init__(self, message: str, code: str = GOOGLE_SHEETS_ERROR, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.details = details or {}
 
 
 def _build_sheet_range(worksheet_title: str, range_suffix: str | None = None) -> str:
@@ -50,7 +65,11 @@ def fetch_headers(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
-        raise GoogleSheetsError("Conta Google não conectada para este usuário.")
+        raise GoogleSheetsError(
+            "Conta Google não conectada para este usuário.",
+            code=GOOGLE_CONNECTION_NOT_FOUND,
+            details={"connection_id": connection_id, "operation": "fetch_headers"}
+        )
 
     value_range = _build_sheet_range(worksheet_title, "1:1")
     url = f"{SHEETS_API_BASE}/{quote(spreadsheet_id)}/values/{quote(value_range)}"
@@ -62,16 +81,44 @@ def fetch_headers(
         timeout=15,
     )
 
+    # Retry com force_refresh se receber 401
     if resp.status_code == 401:
-        logger.warning("[GOOGLE_SHEETS] Unauthorized when fetching headers")
-        raise GoogleSheetsError("Token do Google inválido ou expirado. Refaça a conexão.")
+        logger.warning("[GOOGLE_SHEETS] Unauthorized when fetching headers, attempting refresh")
+        try:
+            # Tentar refresh forçado do token
+            access_token = get_google_access_token_for_user(
+                user_jwt, user_id, connection_id, force_refresh=True
+            )
+            if access_token:
+                # Retry com token atualizado
+                resp = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={"majorDimension": "ROWS"},
+                    timeout=15,
+                )
+        except Exception as refresh_error:
+            logger.warning(f"[GOOGLE_SHEETS] Refresh failed: {refresh_error}")
+        
+        # Se ainda for 401 após retry, lançar erro
+        if resp.status_code == 401:
+            logger.warning("[GOOGLE_SHEETS] Unauthorized after refresh when fetching headers")
+            raise GoogleSheetsError(
+                "Token do Google inválido ou expirado. Refaça a conexão.",
+                code=GOOGLE_TOKEN_EXPIRED,
+                details={"http_status": 401, "operation": "fetch_headers"}
+            )
     if resp.status_code != 200:
         logger.error(
             "[GOOGLE_SHEETS] Error fetching headers: %s - %s",
             resp.status_code,
             resp.text,
         )
-        raise GoogleSheetsError(f"Erro ao ler planilha do Google (status {resp.status_code}).")
+        raise GoogleSheetsError(
+            f"Erro ao ler planilha do Google (status {resp.status_code}).",
+            code=GOOGLE_SHEETS_ERROR,
+            details={"http_status": resp.status_code, "operation": "fetch_headers"}
+        )
 
     data = resp.json()
     values = data.get("values") or []
@@ -105,7 +152,11 @@ def fetch_all_rows(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
-        raise GoogleSheetsError("Conta Google não conectada para este usuário.")
+        raise GoogleSheetsError(
+            "Conta Google não conectada para este usuário.",
+            code=GOOGLE_CONNECTION_NOT_FOUND,
+            details={"connection_id": connection_id, "operation": "fetch_headers"}
+        )
 
     value_range = _build_sheet_range(worksheet_title)
     url = f"{SHEETS_API_BASE}/{quote(spreadsheet_id)}/values/{quote(value_range)}"
@@ -121,16 +172,48 @@ def fetch_all_rows(
         timeout=30,
     )
 
+    # Retry com force_refresh se receber 401
     if resp.status_code == 401:
-        logger.warning("[GOOGLE_SHEETS] Unauthorized when fetching rows")
-        raise GoogleSheetsError("Token do Google inválido ou expirado. Refaça a conexão.")
+        logger.warning("[GOOGLE_SHEETS] Unauthorized when fetching rows, attempting refresh")
+        try:
+            # Tentar refresh forçado do token
+            access_token = get_google_access_token_for_user(
+                user_jwt, user_id, connection_id, force_refresh=True
+            )
+            if access_token:
+                # Retry com token atualizado
+                resp = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={
+                        "majorDimension": "ROWS",
+                        "valueRenderOption": "UNFORMATTED_VALUE",
+                        "dateTimeRenderOption": "FORMATTED_STRING",
+                    },
+                    timeout=30,
+                )
+        except Exception as refresh_error:
+            logger.warning(f"[GOOGLE_SHEETS] Refresh failed: {refresh_error}")
+        
+        # Se ainda for 401 após retry, lançar erro
+        if resp.status_code == 401:
+            logger.warning("[GOOGLE_SHEETS] Unauthorized after refresh when fetching rows")
+            raise GoogleSheetsError(
+                "Token do Google inválido ou expirado. Refaça a conexão.",
+                code=GOOGLE_TOKEN_EXPIRED,
+                details={"http_status": 401, "operation": "fetch_all_rows"}
+            )
     if resp.status_code != 200:
         logger.error(
             "[GOOGLE_SHEETS] Error fetching rows: %s - %s",
             resp.status_code,
             resp.text,
         )
-        raise GoogleSheetsError(f"Erro ao ler planilha do Google (status {resp.status_code}).")
+        raise GoogleSheetsError(
+            f"Erro ao ler planilha do Google (status {resp.status_code}).",
+            code=GOOGLE_SHEETS_ERROR,
+            details={"http_status": resp.status_code, "operation": "fetch_all_rows"}
+        )
 
     data = resp.json()
     values = data.get("values") or []
@@ -168,7 +251,11 @@ def list_spreadsheets(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
-        raise GoogleSheetsError("Conta Google não conectada para este usuário.")
+        raise GoogleSheetsError(
+            "Conta Google não conectada para este usuário.",
+            code=GOOGLE_CONNECTION_NOT_FOUND,
+            details={"connection_id": connection_id, "operation": "fetch_headers"}
+        )
 
     # Construir query para buscar apenas arquivos do tipo spreadsheet
     # MIME type do Google Sheets: application/vnd.google-apps.spreadsheet
@@ -197,16 +284,44 @@ def list_spreadsheets(
         timeout=15,
     )
 
+    # Retry com force_refresh se receber 401
     if resp.status_code == 401:
-        logger.warning("[GOOGLE_DRIVE] Unauthorized when listing spreadsheets")
-        raise GoogleSheetsError("Token do Google inválido ou expirado. Refaça a conexão.")
+        logger.warning("[GOOGLE_DRIVE] Unauthorized when listing spreadsheets, attempting refresh")
+        try:
+            # Tentar refresh forçado do token
+            access_token = get_google_access_token_for_user(
+                user_jwt, user_id, connection_id, force_refresh=True
+            )
+            if access_token:
+                # Retry com token atualizado
+                resp = requests.get(
+                    f"{DRIVE_API_BASE}/files",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params=params,
+                    timeout=15,
+                )
+        except Exception as refresh_error:
+            logger.warning(f"[GOOGLE_DRIVE] Refresh failed: {refresh_error}")
+        
+        # Se ainda for 401 após retry, lançar erro
+        if resp.status_code == 401:
+            logger.warning("[GOOGLE_DRIVE] Unauthorized after refresh when listing spreadsheets")
+            raise GoogleSheetsError(
+                "Token do Google inválido ou expirado. Refaça a conexão.",
+                code=GOOGLE_TOKEN_EXPIRED,
+                details={"http_status": 401, "operation": "list_spreadsheets"}
+            )
     if resp.status_code != 200:
         logger.error(
             "[GOOGLE_DRIVE] Error listing spreadsheets: %s - %s",
             resp.status_code,
             resp.text,
         )
-        raise GoogleSheetsError(f"Erro ao listar planilhas do Google (status {resp.status_code}).")
+        raise GoogleSheetsError(
+            f"Erro ao listar planilhas do Google (status {resp.status_code}).",
+            code=GOOGLE_DRIVE_ERROR,
+            details={"http_status": resp.status_code, "operation": "list_spreadsheets"}
+        )
 
     data = resp.json()
     files = data.get("files") or []
@@ -247,7 +362,11 @@ def list_worksheets(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
-        raise GoogleSheetsError("Conta Google não conectada para este usuário.")
+        raise GoogleSheetsError(
+            "Conta Google não conectada para este usuário.",
+            code=GOOGLE_CONNECTION_NOT_FOUND,
+            details={"connection_id": connection_id, "operation": "fetch_headers"}
+        )
 
     url = f"{SHEETS_API_BASE}/{quote(spreadsheet_id)}"
     
@@ -258,16 +377,44 @@ def list_worksheets(
         timeout=15,
     )
 
+    # Retry com force_refresh se receber 401
     if resp.status_code == 401:
-        logger.warning("[GOOGLE_SHEETS] Unauthorized when listing worksheets")
-        raise GoogleSheetsError("Token do Google inválido ou expirado. Refaça a conexão.")
+        logger.warning("[GOOGLE_SHEETS] Unauthorized when listing worksheets, attempting refresh")
+        try:
+            # Tentar refresh forçado do token
+            access_token = get_google_access_token_for_user(
+                user_jwt, user_id, connection_id, force_refresh=True
+            )
+            if access_token:
+                # Retry com token atualizado
+                resp = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={"fields": "sheets.properties"},
+                    timeout=15,
+                )
+        except Exception as refresh_error:
+            logger.warning(f"[GOOGLE_SHEETS] Refresh failed: {refresh_error}")
+        
+        # Se ainda for 401 após retry, lançar erro
+        if resp.status_code == 401:
+            logger.warning("[GOOGLE_SHEETS] Unauthorized after refresh when listing worksheets")
+            raise GoogleSheetsError(
+                "Token do Google inválido ou expirado. Refaça a conexão.",
+                code=GOOGLE_TOKEN_EXPIRED,
+                details={"http_status": 401, "operation": "list_worksheets"}
+            )
     if resp.status_code != 200:
         logger.error(
             "[GOOGLE_SHEETS] Error listing worksheets: %s - %s",
             resp.status_code,
             resp.text,
         )
-        raise GoogleSheetsError(f"Erro ao listar abas da planilha (status {resp.status_code}).")
+        raise GoogleSheetsError(
+            f"Erro ao listar abas da planilha (status {resp.status_code}).",
+            code=GOOGLE_SHEETS_ERROR,
+            details={"http_status": resp.status_code, "operation": "list_worksheets"}
+        )
 
     data = resp.json()
     sheets = data.get("sheets") or []
@@ -288,5 +435,87 @@ def list_worksheets(
     worksheets.sort(key=lambda x: x.get("index", 0))
     
     return worksheets
+
+
+def get_spreadsheet_name(
+    user_jwt: str,
+    user_id: str,
+    spreadsheet_id: str,
+    connection_id: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Busca apenas o nome de uma planilha específica pelo ID.
+    Muito mais eficiente que listar todas as planilhas.
+    
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        user_id: ID do usuário
+        spreadsheet_id: ID da planilha
+        connection_id: ID da conexão Google específica (opcional)
+    
+    Returns:
+        Nome da planilha ou None se não encontrada/sem acesso
+    """
+    access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
+    if not access_token:
+        raise GoogleSheetsError(
+            "Conta Google não conectada para este usuário.",
+            code=GOOGLE_CONNECTION_NOT_FOUND,
+            details={"connection_id": connection_id, "operation": "get_spreadsheet_name"}
+        )
+
+    # Usar files.get para buscar apenas o arquivo específico
+    url = f"{DRIVE_API_BASE}/files/{quote(spreadsheet_id)}"
+    
+    resp = requests.get(
+        url,
+        headers={"Authorization": f"Bearer {access_token}"},
+        params={"fields": "name"},
+        timeout=15,
+    )
+
+    # Retry com force_refresh se receber 401
+    if resp.status_code == 401:
+        logger.warning("[GOOGLE_DRIVE] Unauthorized when getting spreadsheet name, attempting refresh")
+        try:
+            # Tentar refresh forçado do token
+            access_token = get_google_access_token_for_user(
+                user_jwt, user_id, connection_id, force_refresh=True
+            )
+            if access_token:
+                # Retry com token atualizado
+                resp = requests.get(
+                    url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={"fields": "name"},
+                    timeout=15,
+                )
+        except Exception as refresh_error:
+            logger.warning(f"[GOOGLE_DRIVE] Refresh failed: {refresh_error}")
+        
+        # Se ainda for 401 após retry, lançar erro
+        if resp.status_code == 401:
+            logger.warning("[GOOGLE_DRIVE] Unauthorized after refresh when getting spreadsheet name")
+            raise GoogleSheetsError(
+                "Token do Google inválido ou expirado. Refaça a conexão.",
+                code=GOOGLE_TOKEN_EXPIRED,
+                details={"http_status": 401, "operation": "get_spreadsheet_name"}
+            )
+    
+    if resp.status_code == 404:
+        # Planilha não encontrada ou sem acesso
+        logger.warning(f"[GOOGLE_DRIVE] Spreadsheet {spreadsheet_id} not found or no access")
+        return None
+    
+    if resp.status_code != 200:
+        logger.error(
+            "[GOOGLE_DRIVE] Error getting spreadsheet name: %s - %s",
+            resp.status_code,
+            resp.text,
+        )
+        return None
+
+    data = resp.json()
+    return data.get("name")
 
 

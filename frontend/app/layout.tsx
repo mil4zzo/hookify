@@ -3,12 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ReactQueryProvider } from "../components/providers/ReactQueryProvider";
 import { SidebarProvider } from "../components/layout/SidebarContext";
 import { Toaster } from "sonner";
-import Topbar from "../components/layout/Topbar";
-import { PacksLoader } from "../components/layout/PacksLoader";
-import Sidebar from "../components/layout/Sidebar";
-import LayoutContent from "../components/layout/LayoutContent";
-import BottomNavigationBar from "../components/layout/BottomNavigationBar";
-import ServerStatusBanner from "../components/layout/ServerStatusBanner";
+import AppLayout from "../components/layout/AppLayout";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -31,16 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geist.className} bg-background text-text antialiased`}>
         <ReactQueryProvider>
           <SidebarProvider>
-            <PacksLoader>
-              <Sidebar />
-              <LayoutContent>
-                <Topbar />
-                <main className="flex-1 container mx-auto px-4 md:px-6 lg:px-8 py-8 pb-20 md:pb-8">{children}</main>
-              </LayoutContent>
-            </PacksLoader>
+            <AppLayout>{children}</AppLayout>
+            <Toaster position="bottom-right" richColors theme="dark" />
           </SidebarProvider>
-          <BottomNavigationBar />
-          <Toaster position="bottom-right" richColors theme="dark" />
         </ReactQueryProvider>
       </body>
     </html>

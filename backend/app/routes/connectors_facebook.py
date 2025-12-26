@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from pydantic import BaseModel
 
 from app.core.auth import get_current_user
-from app.core.config import FACEBOOK_AUTH_BASE_URL, FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET, FACEBOOK_TOKEN_URL
+from app.core.config import (
+    FACEBOOK_AUTH_BASE_URL,
+    FACEBOOK_CLIENT_ID,
+    FACEBOOK_CLIENT_SECRET,
+    FACEBOOK_TOKEN_URL,
+    FACEBOOK_OAUTH_SCOPES,
+)
 from app.services.facebook_connections_repo import (
     list_connections,
     upsert_connection,
@@ -39,7 +45,7 @@ def get_connect_url(redirect_uri: str = Query(..., description="OAuth redirect U
         "client_id": FACEBOOK_CLIENT_ID,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": "public_profile,email,ads_read,ads_management",
+        "scope": FACEBOOK_OAUTH_SCOPES,
     }
     if state:
         params["state"] = state

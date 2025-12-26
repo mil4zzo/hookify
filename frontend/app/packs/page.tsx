@@ -304,6 +304,7 @@ export default function PacksPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [packToRemove, setPackToRemove] = useState<{ id: string; name: string; adsCount: number } | null>(null);
   const [packToRefresh, setPackToRefresh] = useState<{ id: string; name: string } | null>(null);
+  const [refreshType, setRefreshType] = useState<"since_last_refresh" | "full_period">("since_last_refresh");
   const [packToDisableAutoRefresh, setPackToDisableAutoRefresh] = useState<{ id: string; name: string } | null>(null);
   const [packToRename, setPackToRename] = useState<{ id: string; name: string } | null>(null);
   const [newPackName, setNewPackName] = useState<string>("");
@@ -1200,6 +1201,8 @@ export default function PacksPage() {
       id: pack.id,
       name: pack.name,
     });
+    // Resetar para opção padrão (desde última atualização)
+    setRefreshType("since_last_refresh");
   };
 
   const handleToggleAutoRefresh = (packId: string, newValue: boolean) => {
@@ -1254,6 +1257,7 @@ export default function PacksPage() {
   const cancelRefreshPack = () => {
     if (refreshingPackId) return; // Não permite cancelar durante o refresh
     setPackToRefresh(null);
+    setRefreshType("since_last_refresh"); // Resetar para padrão
   };
 
   const confirmRefreshPack = async () => {
@@ -1273,8 +1277,8 @@ export default function PacksPage() {
     showProgressToast(toastId, packName, 0, 1, "Inicializando...");
 
     try {
-      // Iniciar refresh
-      const refreshResult = await api.facebook.refreshPack(packId, getTodayLocal());
+      // Iniciar refresh com o tipo escolhido
+      const refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), refreshType);
 
       if (!refreshResult.job_id) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
@@ -1571,7 +1575,7 @@ export default function PacksPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {packs.map((pack) => (
-              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRename={handleRenamePack} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onPreview={handlePreviewPack} onViewJson={handleViewJson} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} isUpdating={isPackUpdating(pack.id)} isRenaming={isRenaming} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
+              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
             ))}
           </div>
         )}
@@ -2021,13 +2025,70 @@ export default function PacksPage() {
           <h2 className="text-xl font-semibold text-text">Atualizar Pack?</h2>
 
           <p className="text-center text-sm text-text-muted">
-            Deseja atualizar o pack <strong>"{packToRefresh?.name}"</strong>? Esta ação irá buscar novos dados desde a última atualização até hoje.
+            Deseja atualizar o pack <strong>"{packToRefresh?.name}"</strong>? Escolha o tipo de atualização:
           </p>
+
+          {/* Opções de atualização */}
+          <div className="w-full space-y-3">
+            <button
+              type="button"
+              onClick={() => setRefreshType("since_last_refresh")}
+              disabled={!!refreshingPackId}
+              className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+                refreshType === "since_last_refresh"
+                  ? "border-green-500 bg-green-500/10"
+                  : "border-border hover:border-green-500/50 bg-input-30"
+              } ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  refreshType === "since_last_refresh" ? "border-green-500" : "border-border"
+                }`}>
+                  {refreshType === "since_last_refresh" && (
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold text-text">Desde a última atualização</div>
+                  <div className="text-xs text-text-muted mt-1">
+                    Busca novos dados desde a última atualização até hoje
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setRefreshType("full_period")}
+              disabled={!!refreshingPackId}
+              className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
+                refreshType === "full_period"
+                  ? "border-green-500 bg-green-500/10"
+                  : "border-border hover:border-green-500/50 bg-input-30"
+              } ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            >
+              <div className="flex items-start gap-3">
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${
+                  refreshType === "full_period" ? "border-green-500" : "border-border"
+                }`}>
+                  {refreshType === "full_period" && (
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                  )}
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold text-text">Todo o período</div>
+                  <div className="text-xs text-text-muted mt-1">
+                    Atualiza todos os dados do pack desde a data inicial até a data final
+                  </div>
+                </div>
+              </div>
+            </button>
+          </div>
 
           <div className="flex gap-4 w-full">
             <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={!!refreshingPackId}>
               <IconCircleX className="h-5 w-5" />
-              Não
+              Cancelar
             </Button>
 
             <Button onClick={confirmRefreshPack} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" disabled={!!refreshingPackId}>
@@ -2039,7 +2100,7 @@ export default function PacksPage() {
               ) : (
                 <>
                   <IconCircleCheck className="h-5 w-5" />
-                  Sim
+                  Confirmar
                 </>
               )}
             </Button>
@@ -2092,16 +2153,16 @@ export default function PacksPage() {
       {/* Disable Auto-Refresh Confirmation Dialog */}
       <Modal isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} size="md" padding="md" closeOnOverlayClick={!isTogglingAutoRefresh} closeOnEscape={!isTogglingAutoRefresh} showCloseButton={!isTogglingAutoRefresh}>
         <div className="flex flex-col items-center gap-6 py-4">
-          <h2 className="text-xl font-semibold text-text">Desativar Auto-Refresh?</h2>
+          <h2 className="text-xl font-semibold text-text">Desativar atualização automática?</h2>
 
           <p className="text-center text-sm text-text-muted">
-            Deseja desativar a atualização automática do pack <strong>"{packToDisableAutoRefresh?.name}"</strong>? O pack não será mais atualizado automaticamente e você precisará atualizá-lo manualmente quando necessário.
+            Ao desativar você precisará lembrar de atualizá-lo manualmente quando necessário.
           </p>
 
           <div className="flex gap-4 w-full">
             <Button onClick={cancelDisableAutoRefresh} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={!!isTogglingAutoRefresh}>
               <IconCircleX className="h-5 w-5" />
-              Não
+              Cancelar
             </Button>
 
             <Button onClick={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" disabled={!!isTogglingAutoRefresh}>
@@ -2113,7 +2174,7 @@ export default function PacksPage() {
               ) : (
                 <>
                   <IconCircleCheck className="h-5 w-5" />
-                  Sim
+                  Desativar
                 </>
               )}
             </Button>

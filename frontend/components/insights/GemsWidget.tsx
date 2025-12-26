@@ -12,6 +12,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconGripVertical } from "@tabler/icons-react";
 import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
+import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 
 interface GemsWidgetProps {
   ads: RankingsItem[];
@@ -26,7 +27,7 @@ interface GemsWidgetProps {
 }
 
 const STORAGE_KEY_GEMS_COLUMN_ORDER = "hookify-gems-column-order";
-const DEFAULT_GEMS_COLUMN_ORDER: readonly GemsColumnType[] = ["hook", "website_ctr", "page_conv", "ctr", "hold_rate", "cpr"] as const;
+const DEFAULT_GEMS_COLUMN_ORDER: readonly GemsColumnType[] = ["hook", "website_ctr", "page_conv", "ctr", "hold_rate", "cpr", "cpmql"] as const;
 
 /**
  * Componente wrapper para tornar uma coluna Gems arrastável
@@ -84,6 +85,8 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
 }
 
 export function GemsWidget({ ads, averages, actionType, validationCriteria, limit = 5, dateStart, dateStop, availableConversionTypes = [], activeColumns }: GemsWidgetProps) {
+  const { mqlLeadscoreMin } = useMqlLeadscore();
+
   // 1. Filtrar apenas anúncios validados
   const validatedAds = useMemo(() => {
     if (!validationCriteria || validationCriteria.length === 0) {
@@ -98,17 +101,19 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   }, [ads, validationCriteria, actionType]);
 
   // 2. Calcular top por cada métrica
-  const topHook = useMemo(() => computeTopMetric(validatedAds as any, "hook", actionType, limit), [validatedAds, actionType, limit]);
+  const topHook = useMemo(() => computeTopMetric(validatedAds as any, "hook", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
 
-  const topWebsiteCtr = useMemo(() => computeTopMetric(validatedAds as any, "website_ctr", actionType, limit), [validatedAds, actionType, limit]);
+  const topWebsiteCtr = useMemo(() => computeTopMetric(validatedAds as any, "website_ctr", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
 
-  const topCtr = useMemo(() => computeTopMetric(validatedAds as any, "ctr", actionType, limit), [validatedAds, actionType, limit]);
+  const topCtr = useMemo(() => computeTopMetric(validatedAds as any, "ctr", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
 
-  const topPageConv = useMemo(() => computeTopMetric(validatedAds as any, "page_conv", actionType, limit), [validatedAds, actionType, limit]);
+  const topPageConv = useMemo(() => computeTopMetric(validatedAds as any, "page_conv", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
 
-  const topHoldRate = useMemo(() => computeTopMetric(validatedAds as any, "hold_rate", actionType, limit), [validatedAds, actionType, limit]);
+  const topHoldRate = useMemo(() => computeTopMetric(validatedAds as any, "hold_rate", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
 
-  const topCpr = useMemo(() => computeTopMetric(validatedAds as any, "cpr", actionType, limit), [validatedAds, actionType, limit]);
+  const topCpr = useMemo(() => computeTopMetric(validatedAds as any, "cpr", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
+
+  const topCpmql = useMemo(() => computeTopMetric(validatedAds as any, "cpmql", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
 
   // 3. Calcular rankings globais usando o utilitário centralizado
   // IMPORTANTE: Os rankings são calculados apenas com anúncios que passam pelos critérios de validação
@@ -121,8 +126,9 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
       validationCriteria: criteriaToUse,
       actionType,
       filterValidOnly: true,
+      mqlLeadscoreMin,
     });
-  }, [ads, validationCriteria, actionType]);
+  }, [ads, validationCriteria, actionType, mqlLeadscoreMin]);
 
   // 4. Função helper para obter ranks de um anúncio em todas as métricas
   const getTopMetrics = (adId: string | null | undefined) => {
@@ -135,6 +141,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
         pageConvRank: null,
         holdRateRank: null,
         cprRank: null,
+        cpmqlRank: null,
       };
     }
 
@@ -146,6 +153,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
       pageConvRank: globalMetricRanks.pageConvRank.get(adId) ?? null,
       holdRateRank: globalMetricRanks.holdRateRank.get(adId) ?? null,
       cprRank: globalMetricRanks.cprRank.get(adId) ?? null,
+      cpmqlRank: globalMetricRanks.cpmqlRank.get(adId) ?? null,
     };
   };
 
@@ -156,6 +164,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? averages.per_action_type[actionType].page_conv ?? null : null;
   const avgHoldRate = (averages as any)?.hold_rate ?? null;
   const avgCpr = actionType && averages?.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].cpr === "number" ? averages.per_action_type[actionType].cpr : null;
+  const avgCpmql = (averages as any)?.cpmql ?? null;
 
   // Preparar averages para o AdDetailsDialog
   const dialogAverages = averages
@@ -180,7 +189,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   const columnConfigs = useMemo<KanbanColumnConfig<GemsColumnType>[]>(() => {
     const configs: KanbanColumnConfig<GemsColumnType>[] = [];
 
-    const addColumn = (id: GemsColumnType, title: string, items: any[], averageValue: number | null, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr", tooltipTitle: string, tooltipDescription: string) => {
+    const addColumn = (id: GemsColumnType, title: string, items: any[], averageValue: number | null, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql", tooltipTitle: string, tooltipDescription: string) => {
       configs.push({
         id,
         title,
@@ -218,9 +227,10 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
     addColumn("ctr", "CTR", topCtr, avgCtr, "ctr", "Taxa de cliques geral", "Percentual de impressões que resultaram em qualquer tipo de clique. Mede o engajamento geral e relevância do anúncio.");
     addColumn("hold_rate", "Hold Rate", topHoldRate, avgHoldRate, "hold_rate", "Taxa de retenção geral", "Percentual de pessoas que assistiram o vídeo até o final. Mede a retenção e qualidade do conteúdo ao longo de toda a duração.");
     addColumn("cpr", "CPR", topCpr, avgCpr, "cpr", "Custo por resultado", "Valor gasto para cada conversão obtida. Mede a eficiência do investimento em anúncios. Quanto menor, melhor.");
+    addColumn("cpmql", "CPMQL", topCpmql, avgCpmql, "cpmql", "Custo por MQL", "Valor gasto para cada MQL (Marketing Qualified Lead) obtido. Mede a eficiência do investimento em gerar leads qualificados. Quanto menor, melhor.");
 
     return configs;
-  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, topCpr, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, avgCpr, getTopMetrics, actionType, averages]);
+  }, [topHook, topWebsiteCtr, topPageConv, topCtr, topHoldRate, topCpr, topCpmql, avgHook, avgWebsiteCtr, avgPageConv, avgCtr, avgHoldRate, avgCpr, avgCpmql, getTopMetrics, actionType, averages]);
 
   return (
     <BaseKanbanWidget

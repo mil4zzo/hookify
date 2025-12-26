@@ -223,6 +223,8 @@ export const SheetIntegrationRequestSchema = z.object({
   cpr_max_column: z.string().optional().nullable(),
   // Quando presente, a integração é específica daquele pack (booster por pack)
   pack_id: z.string().optional().nullable(),
+  // ID da conexão Google específica a usar para esta integração
+  connection_id: z.string().optional().nullable(),
 })
 
 export const SheetIntegrationSchema = z.object({
@@ -253,6 +255,24 @@ export const SheetSyncStatsSchema = z.object({
   utilized_sheet_rows: z.number().optional(),
   skipped_sheet_rows: z.number().optional(),
 })
+
+export const SheetSyncJobProgressSchema = z.object({
+  status: z.enum(["processing", "persisting", "completed", "failed", "cancelled"]),
+  progress: z.number(),
+  message: z.string(),
+  details: z.record(z.any()).optional(),
+  stats: z.object({
+    rows_read: z.number().optional(),
+    rows_processed: z.number().optional(),
+    rows_updated: z.number().optional(),
+    rows_skipped: z.number().optional(),
+    unique_ad_date_pairs: z.number().optional(),
+    total_update_queries: z.number().optional(),
+  }).optional(),
+  result_count: z.number().optional(),
+})
+
+export type SheetSyncJobProgress = z.infer<typeof SheetSyncJobProgressSchema>
 
 export const SheetSyncResponseSchema = z.object({
   status: z.literal('ok'),

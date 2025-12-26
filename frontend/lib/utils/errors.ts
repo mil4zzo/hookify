@@ -30,8 +30,23 @@ export function parseError(err: unknown): AppError {
         .join(', ')
       message = `Erro de validação: ${validationErrors}`
     } else if (data?.detail) {
-      // Se detail é string, usar diretamente
-      message = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
+      // Se detail é objeto estruturado (com code/message), extrair message
+      if (typeof data.detail === 'object' && data.detail !== null && 'message' in data.detail) {
+        message = data.detail.message
+        // Preservar code se disponível
+        if (data.detail.code) {
+          return {
+            status,
+            message,
+            code: data.detail.code,
+            details: data.detail.details || data.detail,
+          }
+        }
+      } else if (typeof data.detail === 'string') {
+        message = data.detail
+      } else {
+        message = JSON.stringify(data.detail)
+      }
     } else if (data?.message) {
       message = typeof data.message === 'string' ? data.message : JSON.stringify(data.message)
     } else if (data?.error?.message) {

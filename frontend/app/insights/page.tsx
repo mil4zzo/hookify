@@ -862,6 +862,7 @@ export default function InsightsPage() {
         pageConvRank: new Map(),
         ctrRank: new Map(),
         cprRank: new Map(),
+        cpmqlRank: new Map(),
         spendRank: new Map(),
       };
     }
@@ -872,8 +873,9 @@ export default function InsightsPage() {
       validationCriteria: criteriaToUse,
       actionType,
       filterValidOnly: true,
+      mqlLeadscoreMin,
     });
-  }, [filteredRankings, validationCriteria, actionType]);
+  }, [filteredRankings, validationCriteria, actionType, mqlLeadscoreMin]);
 
   // Agrupar oportunidades por pack quando groupByPacks estiver ativo
   const opportunityRowsByPack = useMemo(() => {

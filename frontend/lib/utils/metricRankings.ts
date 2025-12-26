@@ -2,6 +2,7 @@ import { RankingsItem } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { OpportunityRow } from "./opportunity";
+import { computeMqlMetricsFromLeadscore } from "./mqlMetrics";
 
 /**
  * Rankings globais de métricas por ad_id
@@ -14,6 +15,7 @@ export type MetricRanks = {
   pageConvRank: Map<string | null, number>;
   ctrRank: Map<string | null, number>;
   cprRank: Map<string | null, number>;
+  cpmqlRank: Map<string | null, number>;
   spendRank: Map<string | null, number>;
 };
 
@@ -27,6 +29,8 @@ export interface MetricRankingsOptions {
   actionType?: string;
   /** Se true, inclui apenas anúncios com métricas válidas (> 0 e finitas) */
   filterValidOnly?: boolean;
+  /** Leadscore mínimo para calcular MQL/CPMQL */
+  mqlLeadscoreMin?: number;
 }
 
 /**
@@ -66,7 +70,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
 /**
  * Obtém o valor de uma métrica específica de um RankingsItem
  */
-function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr", actionType?: string): number {
+function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql", actionType?: string, mqlLeadscoreMin: number = 0): number {
   switch (metric) {
     case "hook":
       return Number(ad.hook || 0);
@@ -102,6 +106,16 @@ function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr"
       if (!results) return 0;
       return spend / results;
     }
+    case "cpmql": {
+      // Calcular CPMQL usando a função centralizada
+      const spend = Number(ad.spend || 0);
+      const { cpmql } = computeMqlMetricsFromLeadscore({
+        spend,
+        leadscoreRaw: (ad as any).leadscore_values,
+        mqlLeadscoreMin,
+      });
+      return Number.isFinite(cpmql) && cpmql > 0 ? cpmql : 0;
+    }
     default:
       return 0;
   }
@@ -123,7 +137,7 @@ function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr"
  * @returns Rankings globais por métrica (Map<ad_id, rank>)
  */
 export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricRankingsOptions = {}): MetricRanks {
-  const { validationCriteria, actionType, filterValidOnly = true } = options;
+  const { validationCriteria, actionType, filterValidOnly = true, mqlLeadscoreMin = 0 } = options;
 
   // 1. Filtrar anúncios validados se houver critérios definidos
   // Se validationCriteria for undefined, null ou array vazio, todos os anúncios são válidos
@@ -143,6 +157,7 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
   const pageConvRank = new Map<string | null, number>();
   const ctrRank = new Map<string | null, number>();
   const cprRank = new Map<string | null, number>();
+  const cpmqlRank = new Map<string | null, number>();
   const spendRank = new Map<string | null, number>();
 
   // Hook: ordenar por valor decrescente
@@ -229,6 +244,18 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
     if (item.ad_id) cprRank.set(item.ad_id, idx + 1);
   });
 
+  // CPMQL: ordenar por valor crescente (menor é melhor)
+  const sortedCpmql = validatedAds
+    .map((ad) => ({
+      ad_id: ad.ad_id,
+      value: getMetricValue(ad, "cpmql", actionType, mqlLeadscoreMin),
+    }))
+    .filter((item) => !filterValidOnly || (item.value > 0 && Number.isFinite(item.value)))
+    .sort((a, b) => a.value - b.value);
+  sortedCpmql.forEach((item, idx) => {
+    if (item.ad_id) cpmqlRank.set(item.ad_id, idx + 1);
+  });
+
   // Spend: ordenar por valor decrescente
   const sortedSpend = validatedAds
     .map((ad) => ({
@@ -249,6 +276,7 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
     pageConvRank,
     ctrRank,
     cprRank,
+    cpmqlRank,
     spendRank,
   };
 }
@@ -270,6 +298,7 @@ export function calculateMetricRanksFromOpportunityRows(rows: OpportunityRow[]):
   const connectRateRank = new Map<string | null, number>();
   const pageConvRank = new Map<string | null, number>();
   const cprRank = new Map<string | null, number>();
+  const cpmqlRank = new Map<string | null, number>();
 
   // Hook: ordenar por valor decrescente
   const sortedHook = rows
@@ -319,6 +348,14 @@ export function calculateMetricRanksFromOpportunityRows(rows: OpportunityRow[]):
     if (r.ad_id) cprRank.set(r.ad_id, idx + 1);
   });
 
+  // CPMQL: ordenar por valor crescente (menor é melhor)
+  const sortedCpmql = rows
+    .filter((r) => r.cpmql != null && r.cpmql > 0 && Number.isFinite(r.cpmql))
+    .sort((a, b) => (a.cpmql || 0) - (b.cpmql || 0));
+  sortedCpmql.forEach((r, idx) => {
+    if (r.ad_id) cpmqlRank.set(r.ad_id, idx + 1);
+  });
+
   return {
     hookRank,
     holdRateRank,
@@ -326,6 +363,7 @@ export function calculateMetricRanksFromOpportunityRows(rows: OpportunityRow[]):
     connectRateRank,
     pageConvRank,
     cprRank,
+    cpmqlRank,
   };
 }
 

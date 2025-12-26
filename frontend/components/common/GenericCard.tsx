@@ -25,7 +25,7 @@ interface GenericCardProps {
   metricLabel: string;
   rank: number;
   /** Identificador da métrica – usado para ajustar badges/cores conforme o print */
-  metricKey: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr";
+  metricKey: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "cpmql";
   averageValue?: number | null;
   metricColor?: {
     border: string;
@@ -44,6 +44,7 @@ interface GenericCardProps {
     pageConvRank: number | null;
     holdRateRank: number | null;
     cprRank: number | null;
+    cpmqlRank: number | null;
   };
   /** ActionType para calcular CPR */
   actionType?: string;
@@ -93,6 +94,8 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
         return "CPM";
       case "cpr":
         return "CPR";
+      case "cpmql":
+        return "CPMQL";
       case "ctr":
       default:
         return "CTR";
@@ -152,7 +155,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   const diffFromAverage = averageValue != null && averageValue > 0 ? Math.abs(((ad.metricValue - averageValue) / averageValue) * 100) : null;
 
   // Função para determinar a cor baseada na relação atual/média (similar a OpportunityWidget.tsx)
-  const getValueColor = (current: number, average: number | null | undefined, metricKeyForColor: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "connect_rate"): string => {
+  const getValueColor = (current: number, average: number | null | undefined, metricKeyForColor: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "cpmql" | "connect_rate"): string => {
     if (average == null || average <= 0) return "text-foreground"; // Sem média válida
 
     const lowerIsBetter = isLowerBetterMetric(metricKeyForColor);
@@ -279,12 +282,14 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
         return topMetrics?.holdRateRank ?? null;
       case "CPR":
         return topMetrics?.cprRank ?? null;
+      case "CPMQL":
+        return topMetrics?.cpmqlRank ?? null;
       default:
         return null;
     }
   };
 
-  // Definir todas as métricas na ordem solicitada: CPR, Hook, Hold Rate, CTR (website), CTR, Connect, Page, CPM
+  // Definir todas as métricas na ordem solicitada: CPR, Hook, Hold Rate, CTR (website), CTR, Connect, Page, CPM, CPMQL
   // Para a métrica destacada, usar o valor já formatado que vem do ranking
   const metricsList = [
     { label: "CPR", value: cpr, formatted: cpr > 0 ? formatCurrency(cpr) : "—", isHighlighted: false },
@@ -325,6 +330,12 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
       value: cpr,
       formatted: metricKey === "cpr" ? ad.metricFormatted : formatCurrency(cpr),
       isHighlighted: metricKey === "cpr",
+    },
+    {
+      label: "CPMQL",
+      value: cpmql,
+      formatted: metricKey === "cpmql" ? ad.metricFormatted : formatCurrency(cpmql),
+      isHighlighted: metricKey === "cpmql",
     },
   ];
 

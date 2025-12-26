@@ -102,6 +102,8 @@ create table if not exists public.ad_sheet_integrations (
   date_format text,
   leadscore_column text,
   cpr_max_column text,
+  -- ID da conexão Google específica a usar para esta integração
+  connection_id uuid,
   last_synced_at timestamptz,
   last_sync_status text,
   created_at timestamptz default now(),
