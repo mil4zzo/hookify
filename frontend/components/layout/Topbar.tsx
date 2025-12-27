@@ -486,6 +486,12 @@ export default function Topbar() {
 
       // Calcular total de dias
       const dateRange = refreshResult.date_range;
+      if (!dateRange) {
+        finishProgressToast(toastId, false, `Erro: intervalo de datas não disponível para "${packName}"`);
+        setRefreshingPackId(null);
+        removeUpdatingPack(packId);
+        return;
+      }
       const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
       updateProgressToast(toastId, packName, 1, totalDays);
 

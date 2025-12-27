@@ -144,6 +144,11 @@ export function useAutoRefreshPacks() {
 
       // Calcular total de dias
       const dateRange = refreshResult.date_range;
+      if (!dateRange) {
+        finishProgressToast(toastId, false, `Erro: intervalo de datas não disponível para "${pack.name}"`);
+        removeUpdatingPack(pack.id);
+        return;
+      }
       const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
       
       // Atualizar toast com informações reais
