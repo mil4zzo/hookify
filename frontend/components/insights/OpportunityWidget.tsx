@@ -5,7 +5,7 @@ import { IconChevronLeft, IconChevronRight, IconBulbFilled, IconMoodEmptyFilled 
 import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import type { CSSProperties } from "react";
 import { getTopBadgeVariantFromRank, getTopBadgeRowStyles, getTopBadgeEmoji } from "@/lib/utils/topBadgeStyles";
-import { MetricRanks } from "@/lib/utils/metricRankings";
+import { MetricRanks, createEmptyMetricRanks } from "@/lib/utils/metricRankings";
 import { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { InsightsModal } from "./InsightsModal";
@@ -153,17 +153,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
   const avgCpr = averages?.per_action_type?.[actionType]?.cpr || 0;
 
   // Usar rankings globais se fornecidos, senão criar rankings vazios (sem medalhas)
-  const metricRanks: MetricRanks = globalMetricRanks || {
-    hookRank: new Map(),
-    holdRateRank: new Map(),
-    websiteCtrRank: new Map(),
-    connectRateRank: new Map(),
-    pageConvRank: new Map(),
-    ctrRank: new Map(),
-    cprRank: new Map(),
-    cpmqlRank: new Map(),
-    spendRank: new Map(),
-  };
+  const metricRanks: MetricRanks = globalMetricRanks || createEmptyMetricRanks();
 
   // Função para verificar se pode rolar
   const checkScrollability = useCallback(() => {

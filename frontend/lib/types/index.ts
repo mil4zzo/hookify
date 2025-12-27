@@ -26,6 +26,15 @@ export interface AdsPack {
     ctr: number
     cpm: number
     frequency: number
+    // Métricas adicionais agregadas
+    holdRate?: number
+    connectRate?: number
+    websiteCtr?: number
+    profileCtr?: number
+    videoWatchedP50?: number
+    totalLandingPageViews?: number
+    actions?: Record<string, number>  // {action_type: total_value}
+    conversions?: Record<string, number>  // {action_type: total_value}
   }
   sheet_integration?: SheetIntegration & {
     spreadsheet_name?: string // Adicionado pelo backend ao buscar nomes das planilhas

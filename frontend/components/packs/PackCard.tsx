@@ -6,7 +6,7 @@ import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport } from "@tabler/icons-react";
+import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle } from "@tabler/icons-react";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { api } from "@/lib/api/endpoints";
@@ -53,10 +53,11 @@ export interface PackCardProps {
  */
 export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
   const stats = pack.stats;
-  const { updatePack } = useClientPacks();
+  const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(pack.name);
   const [isSavingName, setIsSavingName] = useState(false);
+  const [hasNameError, setHasNameError] = useState(false);
   const nameInputRef = useRef<HTMLTextAreaElement>(null);
   const isSavingNameRef = useRef(false);
 
@@ -84,6 +85,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
     e.preventDefault(); // Prevenir comportamento padrão
     setIsEditingName(true);
     setEditingName(pack.name);
+    setHasNameError(false); // Resetar erro ao iniciar edição
   };
 
   const handleNamePointerDown = (e: React.PointerEvent) => {
@@ -94,6 +96,21 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
   const handleCancelEditName = () => {
     setIsEditingName(false);
     setEditingName(pack.name);
+    setHasNameError(false); // Resetar erro ao cancelar
+  };
+
+  // Verificar se o nome é único em tempo real
+  const checkNameUniqueness = (name: string) => {
+    const trimmedName = name.trim();
+    if (!trimmedName || trimmedName === pack.name) {
+      setHasNameError(false);
+      return true;
+    }
+
+    const existingPack = packs.find((p) => p.id !== pack.id && p.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    const isUnique = !existingPack;
+    setHasNameError(!isUnique);
+    return isUnique;
   };
 
   const handleSaveName = async () => {
@@ -114,11 +131,16 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
       return;
     }
 
+    // Verificar se já existe outro pack com o mesmo nome
+    const isUnique = checkNameUniqueness(trimmedName);
+    if (!isUnique) {
+      showError({ message: `Já existe um pack com o nome "${trimmedName}"` });
+      // Manter o input aberto com borda vermelha (não fechar)
+      return;
+    }
+
     isSavingNameRef.current = true;
     setIsSavingName(true);
-
-    // OTIMISTIC UPDATE: Sair do modo de edição imediatamente para melhor UX
-    setIsEditingName(false);
 
     // Guardar nome anterior para reverter em caso de erro
     const previousName = pack.name;
@@ -131,6 +153,9 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
     try {
       await api.analytics.updatePackName(pack.id, trimmedName);
       showSuccess(`Pack renomeado para "${trimmedName}"`);
+      // Sair do modo de edição apenas após sucesso
+      setIsEditingName(false);
+      setHasNameError(false); // Resetar erro ao salvar com sucesso
     } catch (error) {
       console.error("Erro ao renomear pack:", error);
       // REVERTER em caso de erro
@@ -138,8 +163,17 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
         name: previousName,
       } as Partial<AdsPack>);
       setEditingName(previousName);
-      setIsEditingName(true); // Voltar ao modo de edição para o usuário tentar novamente
-      showError({ message: `Erro ao renomear pack: ${error instanceof Error ? error.message : "Erro desconhecido"}` });
+      // Verificar se o erro é de nome duplicado
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes("já existe") || errorMessage.includes("already exists")) {
+        setHasNameError(true);
+        // Manter o input aberto (já está aberto)
+      } else {
+        // Para outros erros, também manter aberto
+        setIsEditingName(true);
+        setHasNameError(false);
+      }
+      showError({ message: `Erro ao renomear pack: ${errorMessage}` });
     } finally {
       setIsSavingName(false);
       isSavingNameRef.current = false;
@@ -196,13 +230,13 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
             {isUpdating && (
               <>
                 {/* Overlay sutil com animação */}
-                <div className="absolute inset-0 bg-blue-500/10 rounded-xl pointer-events-none z-[15] animate-pulse" />
+                <div className="absolute inset-0 bg-primary/10 rounded-xl pointer-events-none z-[15] animate-pulse" />
 
                 {/* Borda animada */}
-                <div className="absolute inset-0 rounded-xl border-2 border-blue-500 pointer-events-none z-[16] animate-pulse" />
+                <div className="absolute inset-0 rounded-xl border-2 border-primary pointer-events-none z-[16] animate-pulse" />
 
                 {/* Badge no topo direito */}
-                <div className="absolute top-3 right-3 bg-blue-500 text-white px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-lg">
+                <div className="absolute top-3 right-3 bg-primary text-primary-foreground px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-lg">
                   <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Atualizando...</span>
                 </div>
@@ -221,6 +255,8 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                           onChange={(e) => {
                             setEditingName(e.target.value);
                             resizeNameTextarea(e.currentTarget);
+                            // Validar em tempo real se o nome é único
+                            checkNameUniqueness(e.target.value);
                           }}
                           onKeyDown={handleNameKeyDown}
                           onBlur={handleInputBlur}
@@ -228,7 +264,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                           rows={1}
                           // `textarea` permite quebra de linha (ao contrário de `input`), evitando overflow e deslocamento do card.
                           // `fit-content` + `maxWidth: 100%` faz a borda acompanhar o conteúdo até o limite do card.
-                          className="text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 border-white rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere]"
+                          className={`text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere] transition-colors ${hasNameError ? "border-red-500" : "border-white"}`}
                           style={{ width: "fit-content", maxWidth: "100%" }}
                           maxLength={100}
                           onClick={(e) => e.stopPropagation()}
@@ -270,10 +306,35 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
               <div className="flex flex-col items-center gap-2">
                 <div className="flex flex-col items-center">
                   {/* Date range */}
-                  <div className="flex items-center text-sm">
+                  <div className="flex items-center text-sm gap-1.5">
                     <span>
                       {formatDate(pack.date_start)} → {dateEndDisplay}
                     </span>
+                    {pack.auto_refresh && !isToday(pack.date_stop) && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="relative z-20"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                              }}
+                              onPointerDown={(e) => {
+                                e.stopPropagation();
+                              }}
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                              }}
+                            >
+                              <IconAlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Os dados podem estar desatualizados. Atualize para garantir uma análise atual.</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
                   </div>
                   {/* Duração */}
                   <div className="text-xs text-muted-foreground mt-0.5">

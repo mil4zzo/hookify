@@ -9,7 +9,7 @@ import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { VideoDialog } from "@/components/ads/VideoDialog";
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, useReactTable, flexRender } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconArrowsSort, IconPlayerPlay, IconEye } from "@tabler/icons-react";
+import { IconArrowsSort, IconPlayerPlay, IconEye, IconAlertTriangle } from "@tabler/icons-react";
 import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
@@ -20,6 +20,8 @@ import { RankingsItem, RankingsChildrenItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { useSettingsModalStore } from "@/lib/store/settingsModal";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Ad = RankingsItem;
 
@@ -454,23 +456,30 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
         : null;
 
     // Calcular média de CPMQL (só quando há integração de planilha)
+    // IMPORTANTE: CPMQL é uma razão (Spend / MQL), então a média correta é:
+    // CPMQL médio = (Spend total) / (MQL total)
+    // NÃO é a média aritmética dos CPMQLs individuais
     let cpmqlAvg: number | null = null;
     if (hasSheetIntegration) {
-      const cpmqlValues: number[] = [];
+      let totalSpend = 0;
+      let totalMql = 0;
+      
       for (const ad of ads) {
         const spend = Number((ad as any).spend || 0);
-        const { cpmql } = computeMqlMetricsFromLeadscore({
+        const { mqlCount } = computeMqlMetricsFromLeadscore({
           spend,
           leadscoreRaw: (ad as any).leadscore_values,
           mqlLeadscoreMin,
         });
-        // Aceitar qualquer valor finito para calcular a média (incluindo 0 se for válido)
-        if (Number.isFinite(cpmql)) {
-          cpmqlValues.push(cpmql);
+        
+        if (spend > 0 && mqlCount > 0) {
+          totalSpend += spend;
+          totalMql += mqlCount;
         }
       }
-      if (cpmqlValues.length > 0) {
-        cpmqlAvg = cpmqlValues.reduce((sum, val) => sum + val, 0) / cpmqlValues.length;
+      
+      if (totalMql > 0 && totalSpend > 0) {
+        cpmqlAvg = totalSpend / totalMql;
       }
     }
 
@@ -579,12 +588,88 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     const serverSeries = original.series ? (original.series as any)[metric] : undefined;
     const rowKey = getRowKey(row);
     const s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
+    // Obter axis (datas) da mesma fonte da série
+    const dates = original.series?.axis || (endDate ? byKey.get(rowKey)?.axis : null);
 
     // Determinar se a métrica é "inversa" (menor é melhor: CPR, CPM e CPMQL)
     const isInverseMetric = metric === "cpr" || metric === "cpm" || metric === "cpmql";
 
     // Se showTrends estiver ativo, mostrar sparklines
     if (showTrends) {
+      // Obter média do pack para esta métrica
+      const avgValue = metric === "cpmql" ? (averages as any).cpmql : averages[metric];
+
+      // Para spend, usar modo de tendência (byTrend) em vez de comparação com média
+      const useTrendMode = metric === "spend";
+      const packAverageForMetric = useTrendMode ? null : avgValue != null && Number.isFinite(avgValue) ? avgValue : null;
+
+      // Obter série apropriada para determinar disponibilidade de dados baseada na métrica
+      const seriesData = original.series ? (original.series as any) : undefined;
+      let dataAvailability: boolean[] = [];
+      let zeroValueLabel: string | undefined;
+      
+      if (seriesData) {
+        switch (metric) {
+          case "hook":
+            // Hook precisa de plays, mas podemos usar impressions como proxy (se há impressões, pode haver plays)
+            const impressionsForHook = seriesData.impressions || [];
+            dataAvailability = impressionsForHook.map((imp: number | null) => imp != null && imp > 0);
+            zeroValueLabel = "Sem hook";
+            break;
+          case "ctr":
+            // CTR precisa de impressions
+            const impressionsForCtr = seriesData.impressions || [];
+            dataAvailability = impressionsForCtr.map((imp: number | null) => imp != null && imp > 0);
+            zeroValueLabel = "Sem cliques";
+            break;
+          case "website_ctr":
+            // Website CTR precisa de impressions
+            const impressionsForWebsiteCtr = seriesData.impressions || [];
+            dataAvailability = impressionsForWebsiteCtr.map((imp: number | null) => imp != null && imp > 0);
+            zeroValueLabel = "Sem cliques";
+            break;
+          case "connect_rate":
+            // Connect rate precisa de inline_link_clicks, mas podemos usar impressions como proxy
+            const impressionsForConnect = seriesData.impressions || [];
+            dataAvailability = impressionsForConnect.map((imp: number | null) => imp != null && imp > 0);
+            zeroValueLabel = "Sem conexões";
+            break;
+          case "page_conv":
+            // Page conv precisa de lpv
+            const lpvSeries = seriesData.lpv || [];
+            dataAvailability = lpvSeries.map((lpv: number | null) => lpv != null && lpv > 0);
+            zeroValueLabel = "Sem leads";
+            break;
+          case "cpr":
+            // CPR precisa de spend (para saber se houve investimento)
+            const spendForCpr = seriesData.spend || [];
+            dataAvailability = spendForCpr.map((spend: number | null) => spend != null && spend > 0);
+            zeroValueLabel = "Sem leads";
+            break;
+          case "cpmql":
+            // CPMQL precisa de spend (para saber se houve investimento)
+            const spendForCpmql = seriesData.spend || [];
+            dataAvailability = spendForCpmql.map((spend: number | null) => spend != null && spend > 0);
+            zeroValueLabel = "Sem MQLs";
+            break;
+          case "cpm":
+            // CPM precisa de impressions
+            const impressionsForCpm = seriesData.impressions || [];
+            dataAvailability = impressionsForCpm.map((imp: number | null) => imp != null && imp > 0);
+            // CPM não precisa de label especial, 0 é um valor válido
+            break;
+          case "spend":
+            // Spend sempre tem dados se existe (não precisa de label especial)
+            const spendSeries = seriesData.spend || [];
+            dataAvailability = spendSeries.map((spend: number | null) => spend != null && spend > 0);
+            break;
+          default:
+            // Para outras métricas, usar spend como fallback
+            const fallbackSpend = seriesData.spend || [];
+            dataAvailability = fallbackSpend.map((spend: number | null) => spend != null && spend > 0);
+        }
+      }
+
       return (
         <div className="flex flex-col items-center gap-3">
           {s ? (
@@ -599,6 +684,11 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
                 return `${(n * 100).toFixed(2)}%`;
               }}
               inverseColors={isInverseMetric}
+              packAverage={packAverageForMetric}
+              colorMode={useTrendMode ? "series" : undefined}
+              dataAvailability={dataAvailability}
+              zeroValueLabel={zeroValueLabel}
+              dates={dates}
             />
           ) : null}
           <span className="text-base font-medium leading-none">{value}</span>
@@ -805,6 +895,7 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
     [averages, formatPct, formatCurrency]
   );
 
+
   const columns = useMemo<ColumnDef<Ad, any>[]>(() => {
     const cols: ColumnDef<Ad, any>[] = [
       // AD name
@@ -920,19 +1011,62 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           },
           {
             id: "cpmql",
-            header: () => (
-              <div className="flex flex-col items-center gap-0.5">
-                <span>CPMQL</span>
-                {formatAverage("cpmql") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpmql")}</span>}
-              </div>
-            ),
+            header: () => {
+              const { openSettings } = useSettingsModalStore();
+              return (
+                <div className="flex flex-col items-center gap-0.5">
+                  <div className="flex items-center gap-1.5">
+                    {mqlLeadscoreMin === 0 && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openSettings("leadscore");
+                              }}
+                              className="text-warning hover:text-warning/80 transition-colors"
+                            >
+                              <IconAlertTriangle className="h-4 w-4" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>
+                              Configure seu leadscore mínimo{" "}
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openSettings("leadscore");
+                                }}
+                                className="underline font-medium hover:text-primary"
+                              >
+                                clicando aqui
+                              </button>
+                              .
+                            </p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                    <span>CPMQL</span>
+                  </div>
+                  {formatAverage("cpmql") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpmql")}</span>}
+                </div>
+              );
+            },
             size: 140,
             minSize: 100,
             sortingFn: "auto",
             cell: (info) => {
               const ad = info.row.original as RankingsItem;
-              const cpmql = Number(info.getValue() || 0);
-              const value = cpmql > 0 ? formatCurrency(cpmql) : "—";
+              // Recalcular CPMQL diretamente no cell para garantir que use o mqlLeadscoreMin atualizado
+              const spend = Number((ad as any).spend || 0);
+              const { cpmql } = computeMqlMetricsFromLeadscore({
+                spend,
+                leadscoreRaw: (ad as any).leadscore_values,
+                mqlLeadscoreMin,
+              });
+              const value = cpmql > 0 && Number.isFinite(cpmql) ? formatCurrency(cpmql) : "—";
               return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpmql" />;
             },
           }

@@ -40,6 +40,7 @@ export function useAutoRefreshPacks() {
   const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
   const [showModal, setShowModal] = useState(false);
   const [packCount, setPackCount] = useState(0);
+  const [autoRefreshPacks, setAutoRefreshPacks] = useState<any[]>([]);
   const checkedRef = useRef(false);
 
   useEffect(() => {
@@ -64,6 +65,7 @@ export function useAutoRefreshPacks() {
           
           if (autoRefreshPacks.length > 0) {
             setPackCount(autoRefreshPacks.length);
+            setAutoRefreshPacks(autoRefreshPacks);
             setShowModal(true);
           }
         }
@@ -79,29 +81,26 @@ export function useAutoRefreshPacks() {
     return () => clearTimeout(timeout);
   }, [isClient, isAuthenticated]);
 
-  const handleConfirm = async () => {
+  const handleConfirm = async (selectedPackIds: string[]) => {
     sessionStorage.setItem(STORAGE_KEY, "true");
     setShowModal(false);
 
-    try {
-      // Buscar packs com auto_refresh=true
-      const response = await api.analytics.listPacks(false);
-      
-      if (!response.success || !response.packs) {
-        showError({ message: "Erro ao buscar packs para atualização" });
-        return;
-      }
+    if (selectedPackIds.length === 0) {
+      return;
+    }
 
-      const autoRefreshPacks = response.packs.filter(
-        (pack: any) => pack.auto_refresh === true
+    try {
+      // Filtrar apenas os packs selecionados
+      const packsToUpdate = autoRefreshPacks.filter((pack: any) =>
+        selectedPackIds.includes(pack.id)
       );
 
-      if (autoRefreshPacks.length === 0) {
+      if (packsToUpdate.length === 0) {
         return;
       }
 
       // Atualizar cada pack sequencialmente
-      for (const pack of autoRefreshPacks) {
+      for (const pack of packsToUpdate) {
         await refreshPackWithProgress(pack);
       }
     } catch (error) {
@@ -253,5 +252,5 @@ export function useAutoRefreshPacks() {
     setShowModal(false);
   };
 
-  return { showModal, packCount, handleConfirm, handleCancel };
+  return { showModal, packCount, autoRefreshPacks, handleConfirm, handleCancel };
 }

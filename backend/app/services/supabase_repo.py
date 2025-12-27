@@ -688,6 +688,14 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
             "ctr": float,
             "cpm": float,
             "frequency": float,
+            "holdRate": float,
+            "connectRate": float,
+            "websiteCtr": float,
+            "profileCtr": float,
+            "videoWatchedP50": float,
+            "totalLandingPageViews": int,
+            "actions": Dict[str, int],
+            "conversions": Dict[str, int],
         }
     """
     if not user_id:
@@ -711,6 +719,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
         # Buscar métricas que pertencem ao pack (via pack_ids array)
         # Isso inclui TODAS as métricas do pack, independente da data (criadas + refresh)
         # Usar operador PostgREST @> (contains) via query parameter
+        # Incluir campos adicionais para novas métricas agregadas
         try:
             # Tentar usar filtro direto com contains (PostgREST @> operator)
             def metrics_filters(q):
@@ -719,7 +728,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
             metrics = _fetch_all_paginated(
                 sb,
                 "ad_metrics",
-                "ad_id, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency",
+                "ad_id, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency, hold_rate, connect_rate, website_ctr, profile_ctr, video_watched_p50, actions, conversions",
                 metrics_filters
             )
         except Exception as filter_error:
@@ -732,7 +741,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
             all_metrics = _fetch_all_paginated(
                 sb,
                 "ad_metrics",
-                "ad_id, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency, pack_ids",
+                "ad_id, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency, hold_rate, connect_rate, website_ctr, profile_ctr, video_watched_p50, actions, conversions, pack_ids",
                 all_metrics_filters
             )
             
@@ -758,6 +767,14 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
                 "ctr": 0.0,
                 "cpm": 0.0,
                 "frequency": 0.0,
+                "holdRate": 0.0,
+                "connectRate": 0.0,
+                "websiteCtr": 0.0,
+                "profileCtr": 0.0,
+                "videoWatchedP50": 0.0,
+                "totalLandingPageViews": 0,
+                "actions": {},
+                "conversions": {},
             }
         
         # Agregar métricas
@@ -773,6 +790,17 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
         total_plays = 0
         total_thruplays = 0
         
+        # Métricas ponderadas (para médias)
+        hold_rate_wsum = 0.0  # Soma ponderada de hold_rate por plays
+        video_watched_p50_wsum = 0.0  # Soma ponderada de video_watched_p50 por plays
+        profile_ctr_wsum = 0.0  # Soma ponderada de profile_ctr por impressions
+        connect_rate_wsum = 0.0  # Soma ponderada de connect_rate por inline_link_clicks
+        
+        # Agregar actions e conversions
+        total_landing_page_views = 0
+        actions_agg: Dict[str, int] = {}  # {action_type: total_value}
+        conversions_agg: Dict[str, int] = {}  # {action_type: total_value}
+        
         for metric in metrics:
             ad_id = metric.get("ad_id")
             campaign_id = metric.get("campaign_id")
@@ -785,19 +813,86 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
             if adset_id:
                 unique_adset_ids.add(str(adset_id))
             
-            # Somar valores numéricos
-            total_spend += float(metric.get("spend", 0) or 0)
-            total_clicks += int(metric.get("clicks", 0) or 0)
-            total_impressions += int(metric.get("impressions", 0) or 0)
-            total_reach += int(metric.get("reach", 0) or 0)
-            total_inline_link_clicks += int(metric.get("inline_link_clicks", 0) or 0)
-            total_plays += int(metric.get("video_total_plays", 0) or 0)
-            total_thruplays += int(metric.get("video_total_thruplays", 0) or 0)
+            # Somar valores numéricos básicos
+            spend = float(metric.get("spend", 0) or 0)
+            clicks = int(metric.get("clicks", 0) or 0)
+            impressions = int(metric.get("impressions", 0) or 0)
+            reach = int(metric.get("reach", 0) or 0)
+            inline_link_clicks = int(metric.get("inline_link_clicks", 0) or 0)
+            plays = int(metric.get("video_total_plays", 0) or 0)
+            thruplays = int(metric.get("video_total_thruplays", 0) or 0)
+            
+            total_spend += spend
+            total_clicks += clicks
+            total_impressions += impressions
+            total_reach += reach
+            total_inline_link_clicks += inline_link_clicks
+            total_plays += plays
+            total_thruplays += thruplays
+            
+            # Agregar métricas ponderadas
+            hold_rate = float(metric.get("hold_rate", 0) or 0)
+            if hold_rate > 0 and plays > 0:
+                hold_rate_wsum += hold_rate * plays
+            
+            video_watched_p50 = float(metric.get("video_watched_p50", 0) or 0)
+            if video_watched_p50 > 0 and plays > 0:
+                video_watched_p50_wsum += video_watched_p50 * plays
+            
+            profile_ctr = float(metric.get("profile_ctr", 0) or 0)
+            if profile_ctr > 0 and impressions > 0:
+                profile_ctr_wsum += profile_ctr * impressions
+            
+            connect_rate = float(metric.get("connect_rate", 0) or 0)
+            if connect_rate > 0 and inline_link_clicks > 0:
+                connect_rate_wsum += connect_rate * inline_link_clicks
+            
+            # Agregar actions e conversions
+            actions = metric.get("actions") or []
+            if isinstance(actions, list):
+                for action in actions:
+                    action_type = str(action.get("action_type") or "").strip()
+                    value = int(action.get("value") or 0)
+                    if action_type:
+                        if action_type not in actions_agg:
+                            actions_agg[action_type] = 0
+                        actions_agg[action_type] += value
+                        
+                        # Extrair landing_page_views para calcular connect_rate agregado
+                        if action_type == "landing_page_view":
+                            total_landing_page_views += value
+            
+            conversions = metric.get("conversions") or []
+            if isinstance(conversions, list):
+                for conversion in conversions:
+                    action_type = str(conversion.get("action_type") or "").strip()
+                    value = int(conversion.get("value") or 0)
+                    if action_type:
+                        if action_type not in conversions_agg:
+                            conversions_agg[action_type] = 0
+                        conversions_agg[action_type] += value
         
         # Calcular métricas derivadas
-        calculated_ctr = (total_clicks / total_impressions) if total_impressions > 0 else 0.0
-        calculated_cpm = (total_spend * 1000 / total_impressions) if total_impressions > 0 else 0.0
-        calculated_frequency = (total_impressions / total_reach) if total_reach > 0 else 0.0
+        calculated_ctr = _safe_div(total_clicks, total_impressions)
+        calculated_cpm = _safe_div(total_spend * 1000, total_impressions)
+        calculated_frequency = _safe_div(total_impressions, total_reach)
+        
+        # Calcular médias ponderadas
+        calculated_hold_rate = _safe_div(hold_rate_wsum, total_plays)
+        calculated_video_watched_p50 = _safe_div(video_watched_p50_wsum, total_plays)
+        calculated_profile_ctr = _safe_div(profile_ctr_wsum, total_impressions)
+        
+        # Calcular connect_rate agregado: total_landing_page_views / total_inline_link_clicks
+        # Priorizar cálculo agregado a partir das actions (mais preciso)
+        # Se não houver landing_page_views nas actions, usar valor ponderado do banco
+        if total_landing_page_views > 0:
+            calculated_connect_rate = _safe_div(total_landing_page_views, total_inline_link_clicks)
+        else:
+            # Fallback: usar valor ponderado do banco
+            calculated_connect_rate = _safe_div(connect_rate_wsum, total_inline_link_clicks)
+        
+        # Calcular website_ctr agregado: total_inline_link_clicks / total_impressions
+        calculated_website_ctr = _safe_div(total_inline_link_clicks, total_impressions)
         
         stats = {
             "totalAds": len(metrics),
@@ -814,6 +909,14 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
             "ctr": round(calculated_ctr, 4),
             "cpm": round(calculated_cpm, 2),
             "frequency": round(calculated_frequency, 2),
+            "holdRate": round(calculated_hold_rate, 4),
+            "connectRate": round(calculated_connect_rate, 4),
+            "websiteCtr": round(calculated_website_ctr, 4),
+            "profileCtr": round(calculated_profile_ctr, 4),
+            "videoWatchedP50": round(calculated_video_watched_p50, 0),  # Arredondar para inteiro (segundos)
+            "totalLandingPageViews": total_landing_page_views,
+            "actions": actions_agg,
+            "conversions": conversions_agg,
         }
         
         logger.info(f"[CALCULATE_PACK_STATS] Stats calculados para pack {pack_id}: {stats}")
@@ -903,6 +1006,12 @@ def upsert_pack(
         else:
             # Criar novo pack (o ID será gerado pelo Supabase)
             logger.info(f"[UPSERT_PACK] Criando novo pack")
+            
+            # Verificar se já existe um pack com o mesmo nome
+            if check_pack_name_exists(user_jwt, user_id, name):
+                logger.warning(f"[UPSERT_PACK] ✗ Pack com nome '{name}' já existe para user_id={user_id}")
+                raise ValueError(f"Já existe um pack com o nome '{name}'")
+            
             logger.info(f"[UPSERT_PACK] Executando insert na tabela packs...")
             res = sb.table("packs").insert(pack_data).execute()
             logger.info(f"[UPSERT_PACK] Insert executado. Resposta: data={res.data is not None}, len={len(res.data) if res.data else 0}")
@@ -1523,6 +1632,45 @@ def update_pack_auto_refresh(
         raise
 
 
+def check_pack_name_exists(
+    user_jwt: str,
+    user_id: str,
+    name: str,
+    exclude_pack_id: Optional[str] = None,
+) -> bool:
+    """Verifica se já existe um pack com o mesmo nome para o usuário.
+    
+    Args:
+        user_jwt: JWT do Supabase do usuário
+        user_id: ID do usuário
+        name: Nome do pack a verificar
+        exclude_pack_id: ID do pack a excluir da verificação (útil para atualizações)
+    
+    Returns:
+        True se já existe um pack com o mesmo nome, False caso contrário
+    """
+    if not user_id or not name or not name.strip():
+        return False
+    
+    try:
+        sb = get_supabase_for_user(user_jwt)
+        query = sb.table("packs").select("id").eq("user_id", user_id).eq("name", name.strip())
+        
+        # Excluir o pack atual se for uma atualização
+        if exclude_pack_id:
+            query = query.neq("id", exclude_pack_id)
+        
+        res = query.limit(1).execute()
+        exists = res.data and len(res.data) > 0
+        logger.info(f"[CHECK_PACK_NAME] Nome '{name.strip()}' {'já existe' if exists else 'disponível'} para user_id={user_id}")
+        return exists
+    except Exception as e:
+        logger.exception(f"[CHECK_PACK_NAME] ✗ Erro ao verificar nome do pack: {e}")
+        # Em caso de erro, retornar False para não bloquear a operação
+        # Mas logar o erro para investigação
+        return False
+
+
 def update_pack_name(
     user_jwt: str,
     pack_id: str,
@@ -1536,6 +1684,9 @@ def update_pack_name(
         pack_id: ID do pack a atualizar
         user_id: ID do usuário
         name: Novo nome do pack
+    
+    Raises:
+        ValueError: Se o nome estiver vazio ou se já existir outro pack com o mesmo nome
     """
     if not user_id or not pack_id:
         logger.warning("[UPDATE_PACK_NAME] Skipped: missing user_id or pack_id")
@@ -1543,6 +1694,10 @@ def update_pack_name(
     
     if not name or not name.strip():
         raise ValueError("Nome do pack não pode ser vazio")
+    
+    # Verificar se já existe outro pack com o mesmo nome
+    if check_pack_name_exists(user_jwt, user_id, name.strip(), exclude_pack_id=pack_id):
+        raise ValueError(f"Já existe um pack com o nome '{name.strip()}'")
     
     sb = get_supabase_for_user(user_jwt)
     

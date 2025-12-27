@@ -10,15 +10,17 @@ import { useAuthManager } from "@/lib/hooks/useAuthManager";
 import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
 import { FacebookConnectionCard } from "@/components/facebook/FacebookConnectionCard";
-import { showError } from "@/lib/utils/toast";
+import { showError, showSuccess, showProgressToast, updateProgressToast, finishProgressToast } from "@/lib/utils/toast";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
-import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
+import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useSettings } from "@/lib/store/settings";
+import { useSettingsModalStore } from "@/lib/store/settingsModal";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { pageTitles } from "@/lib/config/pageConfig";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAutoRefreshPacks } from "@/lib/hooks/useAutoRefreshPacks";
 import { AutoRefreshConfirmModal } from "@/components/common/AutoRefreshConfirmModal";
@@ -31,19 +33,20 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useLanguage } from "@/lib/hooks/useLanguage";
 import { useNiche } from "@/lib/hooks/useNiche";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
-import { showSuccess } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
 import { clearAllPacks } from "@/lib/storage/indexedDB";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
 import { useQueryClient } from "@tanstack/react-query";
+import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
+import { getTodayLocal } from "@/lib/utils/dateFilters";
+import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [activeSettingsTab, setActiveSettingsTab] = useState<"general" | "accounts" | "validation" | "integrations" | "leadscore">("general");
+  const { isOpen: isSettingsOpen, activeTab: activeSettingsTab, openSettings, closeSettings, setActiveTab: setActiveSettingsTab } = useSettingsModalStore();
   const [isSheetsDialogOpen, setIsSheetsDialogOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
@@ -57,13 +60,18 @@ export default function Topbar() {
   const { settings, setLanguage, setNiche, updateSettings } = useSettings();
   const { connections, connect, disconnect, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
-  const { invalidateAllPacksAds, invalidateAdPerformance } = useInvalidatePackAds();
+  const { invalidateAllPacksAds, invalidateAdPerformance, invalidatePackAds } = useInvalidatePackAds();
   const { user: supabaseUser } = useSupabaseAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
   const [isClearingPacks, setIsClearingPacks] = useState(false);
   const [isResettingPreferences, setIsResettingPreferences] = useState(false);
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
+  const [isConfirmingUpdate, setIsConfirmingUpdate] = useState(false);
+  const [refreshingPackId, setRefreshingPackId] = useState<string | null>(null);
+  const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
+  const { updatePack } = useClientPacks();
 
   // Verificar conexões quando carregarem na aba de contas
   useEffect(() => {
@@ -72,7 +80,7 @@ export default function Topbar() {
       verifyConnections(connectionIds);
     }
   }, [isSettingsOpen, activeSettingsTab, connections.data, verifyConnections]);
-  const { showModal, packCount, handleConfirm, handleCancel } = useAutoRefreshPacks();
+  const { showModal, packCount, autoRefreshPacks, handleConfirm, handleCancel } = useAutoRefreshPacks();
 
   // Initialize theme
   useEffect(() => {
@@ -152,7 +160,7 @@ export default function Topbar() {
     setIsClearingPacks(true);
     try {
       // Deletar todos os packs do backend
-      const deletePromises = packs.map((pack) => 
+      const deletePromises = packs.map((pack) =>
         api.analytics.deletePack(pack.id, []).catch((error) => {
           console.error(`Erro ao deletar pack ${pack.id}:`, error);
           // Continuar mesmo se algum falhar
@@ -201,30 +209,14 @@ export default function Topbar() {
     try {
       // Resetar settings store
       const defaultSettings = {
-        language: 'pt-BR',
-        niche: '',
-        currency: 'BRL',
+        language: "pt-BR",
+        niche: "",
+        currency: "BRL",
       };
       updateSettings(defaultSettings);
 
       // Limpar preferências de packs do localStorage
-      const packPreferenceKeys = [
-        'hookify-selected-packs',
-        'hookify-insights-selected-packs',
-        'hookify-rankings-selected-packs',
-        'hookify-insights-date-range',
-        'hookify-rankings-date-range',
-        'hookify-packs-date-range',
-        'hookify-insights-gems-columns',
-        'hookify-insights-action-type',
-        'hookify-insights-group-by-packs',
-        'hookify-insights-use-pack-dates',
-        'hookify-insights-pack-action-types',
-        'hookify-insights-active-tab',
-        'hookify-rankings-action-type',
-        'hookify-rankings-show-trends',
-        'hookify-rankings-use-pack-dates',
-      ];
+      const packPreferenceKeys = ["hookify-selected-packs", "hookify-insights-selected-packs", "hookify-rankings-selected-packs", "hookify-insights-date-range", "hookify-rankings-date-range", "hookify-packs-date-range", "hookify-insights-gems-columns", "hookify-insights-action-type", "hookify-insights-group-by-packs", "hookify-insights-use-pack-dates", "hookify-insights-pack-action-types", "hookify-insights-active-tab", "hookify-rankings-action-type", "hookify-rankings-show-trends", "hookify-rankings-use-pack-dates"];
 
       packPreferenceKeys.forEach((key) => {
         localStorage.removeItem(key);
@@ -234,18 +226,16 @@ export default function Topbar() {
       if (supabaseUser?.id) {
         try {
           const supabase = getSupabaseClient();
-          const { error: upsertError } = await supabase
-            .from("user_preferences")
-            .upsert(
-              {
-                user_id: supabaseUser.id,
-                has_completed_onboarding: false,
-                updated_at: new Date().toISOString(),
-              } as any,
-              {
-                onConflict: "user_id",
-              }
-            );
+          const { error: upsertError } = await supabase.from("user_preferences").upsert(
+            {
+              user_id: supabaseUser.id,
+              has_completed_onboarding: false,
+              updated_at: new Date().toISOString(),
+            } as any,
+            {
+              onConflict: "user_id",
+            }
+          );
 
           if (upsertError) {
             console.warn("Erro ao resetar onboarding no Supabase:", upsertError);
@@ -276,36 +266,17 @@ export default function Topbar() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button 
-            className="relative flex items-center justify-center w-10 h-10 rounded-full hover:bg-accent transition-all focus:outline-none focus:ring-2 focus:ring-info" 
-            aria-label="Menu de reset"
-          >
+          <button className="relative flex items-center justify-center w-10 h-10 rounded-full hover:bg-accent transition-all focus:outline-none focus:ring-2 focus:ring-info" aria-label="Menu de reset">
             <IconDotsVertical className="h-5 w-5 text-text" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem
-            onClick={handleClearAllPacks}
-            disabled={isClearingPacks || packs.length === 0}
-            className="flex items-center gap-2 text-destructive focus:text-destructive"
-          >
-            {isClearingPacks ? (
-              <IconLoader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <IconTrash className="h-4 w-4" />
-            )}
+          <DropdownMenuItem onClick={handleClearAllPacks} disabled={isClearingPacks || packs.length === 0} className="flex items-center gap-2 text-destructive focus:text-destructive">
+            {isClearingPacks ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconTrash className="h-4 w-4" />}
             <span>Limpar todos os packs</span>
           </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleResetPreferences}
-            disabled={isResettingPreferences}
-            className="flex items-center gap-2 text-destructive focus:text-destructive"
-          >
-            {isResettingPreferences ? (
-              <IconLoader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <IconRefresh className="h-4 w-4" />
-            )}
+          <DropdownMenuItem onClick={handleResetPreferences} disabled={isResettingPreferences} className="flex items-center gap-2 text-destructive focus:text-destructive">
+            {isResettingPreferences ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconRefresh className="h-4 w-4" />}
             <span>Resetar preferências</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -313,9 +284,42 @@ export default function Topbar() {
     );
   };
 
+  // Função para extrair iniciais do nome do usuário
+  const getUserInitials = (user: any): string | null => {
+    const name = user?.user_metadata?.name || user?.user_metadata?.full_name;
+
+    if (!name || name.trim().length === 0) {
+      return null;
+    }
+
+    const nameParts = name
+      .trim()
+      .split(/\s+/)
+      .filter((part: string) => part.length > 0);
+
+    if (nameParts.length >= 2) {
+      // Tem nome e sobrenome: primeira letra do nome + primeira letra do último sobrenome
+      const firstName = nameParts[0];
+      const lastName = nameParts[nameParts.length - 1];
+      return (firstName[0] + lastName[0]).toUpperCase();
+    } else if (nameParts.length === 1) {
+      // Tem apenas nome: duas primeiras letras do nome
+      const firstName = nameParts[0];
+      if (firstName.length >= 2) {
+        return firstName.substring(0, 2).toUpperCase();
+      } else {
+        return firstName[0].toUpperCase();
+      }
+    }
+
+    return null;
+  };
+
   // Função para renderizar o menu dropdown do perfil com Radix
   const renderProfileMenu = () => {
     if (!isAuthenticated || !user) return null;
+
+    const initials = getUserInitials(user);
 
     return (
       <DropdownMenu>
@@ -323,9 +327,13 @@ export default function Topbar() {
           <button className="relative flex items-center justify-center w-10 h-10 rounded-full overflow-hidden hover:ring-2 hover:ring-border transition-all focus:outline-none focus:ring-2 focus:ring-info" aria-label="Perfil do usuário">
             {user.user_metadata?.avatar_url ? (
               <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+            ) : initials ? (
+              <div className="w-full h-full bg-brand flex items-center justify-center">
+                <span className="text-sm font-semibold text-white">{initials}</span>
+              </div>
             ) : (
               <div className="w-full h-full bg-brand flex items-center justify-center">
-                <IconUser className="h-5 w-5 text-white" />
+                <IconUserFilled className="h-5 w-5 text-white" />
               </div>
             )}
           </button>
@@ -336,9 +344,13 @@ export default function Topbar() {
             <div className="flex items-center gap-3">
               {user.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} alt="Profile" className="w-12 h-12 rounded-full" />
+              ) : initials ? (
+                <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center">
+                  <span className="text-base font-semibold text-white">{initials}</span>
+                </div>
               ) : (
                 <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center">
-                  <IconUser className="h-6 w-6 text-white" />
+                  <IconUserFilled className="h-6 w-6 text-white" />
                 </div>
               )}
               <div className="flex-1 min-w-0">
@@ -378,7 +390,7 @@ export default function Topbar() {
               variant="outline"
               className="w-full flex items-center gap-2 justify-start"
               onClick={() => {
-                setIsSettingsOpen(true);
+                openSettings();
               }}
             >
               <IconSettings className="h-4 w-4" />
@@ -398,35 +410,196 @@ export default function Topbar() {
     );
   };
 
-  // Função para renderizar o botão de Carregar Packs
-  const renderLoadPackButton = () => {
-    if (!isAuthenticated || !hasFacebookConnection) return null;
+  // Funções auxiliares para calcular dias e estimar progresso
+  const calculateDaysBetween = (startDate: string, endDate: string): number => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays + 1; // +1 para incluir o dia final
+  };
 
-    const buttonProps = {
-      variant: "outline" as const,
-      size: "sm" as const,
-      className: "flex items-center gap-2",
-    };
+  const estimateCurrentDay = (progress: number, totalDays: number): number => {
+    if (progress <= 0) return 1;
+    if (progress >= 100) return totalDays;
+    const estimatedDay = Math.ceil((progress / 100) * totalDays);
+    return Math.max(1, Math.min(estimatedDay, totalDays));
+  };
 
-    if (pathname === "/packs") {
+  // Função para selecionar um pack para atualização
+  const handleSelectPack = (packId: string) => {
+    setSelectedPackId(packId);
+    setIsConfirmingUpdate(true);
+  };
+
+  // Função para cancelar confirmação
+  const handleCancelConfirmation = () => {
+    if (refreshingPackId) return; // Não permite cancelar durante o refresh
+    setIsConfirmingUpdate(false);
+    setSelectedPackId(null);
+  };
+
+  // Função para confirmar e executar atualização
+  const handleConfirmUpdate = async () => {
+    if (!selectedPackId || refreshingPackId) return;
+
+    const pack = packs.find((p) => p.id === selectedPackId);
+    if (!pack) {
+      showError({ message: "Pack não encontrado" });
+      return;
+    }
+
+    const packId = selectedPackId;
+    const packName = pack.name;
+    setRefreshingPackId(packId);
+    addUpdatingPack(packId);
+
+    // Fechar modal imediatamente após confirmar
+    setIsConfirmingUpdate(false);
+    setSelectedPackId(null);
+
+    const toastId = `refresh-pack-${packId}`;
+    showProgressToast(toastId, packName, 0, 1, "Inicializando...");
+
+    try {
+      // Iniciar refresh com tipo padrão "since_last_refresh"
+      const refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), "since_last_refresh");
+
+      if (!refreshResult.job_id) {
+        finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
+        setRefreshingPackId(null);
+        removeUpdatingPack(packId);
+        return;
+      }
+
+      // Calcular total de dias
+      const dateRange = refreshResult.date_range;
+      const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
+      updateProgressToast(toastId, packName, 1, totalDays);
+
+      // Fazer polling do job
+      let completed = false;
+      let attempts = 0;
+      const maxAttempts = 150; // 5 minutos máximo
+
+      while (!completed && attempts < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
+
+        try {
+          const progress = await api.facebook.getJobProgress(refreshResult.job_id);
+          const currentDay = estimateCurrentDay(progress.progress || 0, totalDays);
+          updateProgressToast(toastId, packName, currentDay, totalDays, progress.message || undefined);
+
+          if (progress.status === "completed") {
+            const adsCount = Array.isArray(progress.data) ? progress.data.length : 0;
+            finishProgressToast(toastId, true, `"${packName}" atualizado com sucesso! ${adsCount > 0 ? `${adsCount} anúncios atualizados.` : ""}`);
+
+            // Recarregar pack do backend para atualizar dados
+            try {
+              const response = await api.analytics.listPacks(false);
+              if (response.success && response.packs) {
+                const updatedPack = response.packs.find((p: any) => p.id === packId);
+                if (updatedPack) {
+                  updatePack(packId, {
+                    stats: updatedPack.stats || {},
+                    updated_at: updatedPack.updated_at || new Date().toISOString(),
+                    auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
+                    date_stop: updatedPack.date_stop,
+                  } as Partial<any>);
+
+                  await invalidatePackAds(packId);
+                }
+              }
+
+              invalidateAdPerformance();
+            } catch (error) {
+              console.error("Erro ao recarregar pack após refresh:", error);
+            }
+
+            completed = true;
+          } else if (progress.status === "failed" || progress.status === "error") {
+            finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
+            completed = true;
+          }
+        } catch (error) {
+          console.error(`Erro ao verificar progresso do pack ${packId}:`, error);
+          const lastKnownDay = attempts > 0 ? Math.min(attempts, totalDays) : 1;
+          updateProgressToast(toastId, packName, lastKnownDay, totalDays, "Erro ao verificar progresso, tentando novamente...");
+        }
+
+        attempts++;
+      }
+
+      if (!completed) {
+        finishProgressToast(toastId, false, `Timeout ao atualizar "${packName}" (demorou mais de 5 minutos)`);
+      }
+    } catch (error) {
+      console.error(`Erro ao atualizar pack ${packId}:`, error);
+      finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
+    } finally {
+      setRefreshingPackId(null);
+      removeUpdatingPack(packId);
+    }
+  };
+
+  // Função auxiliar para formatar data de YYYY-MM-DD para DD/MM/YYYY
+  const formatDate = (dateString: string) => {
+    if (!dateString) return "";
+    const [year, month, day] = dateString.split("-");
+    return `${day}/${month}/${year}`;
+  };
+
+  // Função para renderizar o botão de Atualizar Dados
+  const renderUpdateDataButton = () => {
+    if (!isAuthenticated || !hasFacebookConnection || packs.length === 0) return null;
+
+    // Se está atualizando, mostra botão desabilitado
+    if (refreshingPackId !== null) {
       return (
-        <Button
-          {...buttonProps}
-          onClick={() => {
-            window.dispatchEvent(new CustomEvent("openLoadPackDialog"));
-          }}
-        >
-          <IconPlus className="h-4 w-4" />
-          Carregar Packs
+        <Button variant="outline" size="sm" className="flex items-center gap-2" disabled>
+          <IconLoader2 className="h-4 w-4 animate-spin" />
+          Atualizando...
         </Button>
       );
     }
 
+    // Se há apenas um pack, vai direto para confirmação ao clicar
+    if (packs.length === 1) {
+      return (
+        <Button variant="outline" size="sm" className="flex items-center gap-2" onClick={() => handleSelectPack(packs[0].id)}>
+          <IconRefresh className="h-4 w-4" />
+          Atualizar dados
+        </Button>
+      );
+    }
+
+    // Se há múltiplos packs, mostra dropdown
     return (
-      <Button {...buttonProps} onClick={() => router.push("/packs?openDialog=true")}>
-        <IconPlus className="h-4 w-4" />
-        Carregar Packs
-      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="flex items-center gap-2">
+            <IconRefresh className="h-4 w-4" />
+            Atualizar dados
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-64">
+          <DropdownMenuLabel className="bg-card">Atualizar pack:</DropdownMenuLabel>
+          {packs.map((pack) => (
+            <DropdownMenuItem key={pack.id} onClick={() => handleSelectPack(pack.id)} className="flex flex-col items-start gap-1 py-3">
+              <div className="flex items-center justify-between w-full">
+                <span className="font-medium text-text truncate flex-1">{pack.name}</span>
+                <IconRefresh className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
+              </div>
+              <div className="flex flex-col items-start gap-0.5 w-full">
+                <span className="text-xs text-muted-foreground">
+                  {formatDate(pack.date_start)} → {formatDate(pack.date_stop)}
+                </span>
+                <span className="text-xs text-muted-foreground">{formatRelativeTime(pack.updated_at)}</span>
+              </div>
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   };
 
@@ -462,10 +635,7 @@ export default function Topbar() {
                       {connect.isPending ? "Conectando..." : "Conectar Facebook"}
                     </Button>
                   ) : hasFacebookConnection ? (
-                    <Button variant="outline" size="sm" onClick={() => router.push("/packs?openDialog=true")} className="flex items-center gap-2">
-                      <IconPlus className="h-4 w-4" />
-                      Carregar Packs
-                    </Button>
+                    renderUpdateDataButton()
                   ) : null}
 
                   {/* Reset Menu - only show when authenticated */}
@@ -502,7 +672,7 @@ export default function Topbar() {
 
           {/* User Section - Right Side */}
           <div className="flex items-center gap-3">
-            {/* Conectar Facebook ou Carregar Packs Button - only show when authenticated */}
+            {/* Conectar Facebook ou Atualizar Dados Button - only show when authenticated */}
             {isAuthenticated && (
               <>
                 {/* Stats Info - only show when authenticated and has packs */}
@@ -525,7 +695,7 @@ export default function Topbar() {
                     {connect.isPending ? "Conectando..." : "Conectar Facebook"}
                   </Button>
                 ) : hasFacebookConnection ? (
-                  renderLoadPackButton()
+                  renderUpdateDataButton()
                 ) : null}
               </>
             )}
@@ -551,7 +721,7 @@ export default function Topbar() {
             <Image src="/logo-hookify-alpha.png" alt="Hookify" width={80} height={21} className="h-[21px] w-[80px]" priority />
           </Link>
 
-          {/* Right Side: Carregar Pack Button + Reset Menu + Profile Avatar */}
+          {/* Right Side: Atualizar Dados Button + Reset Menu + Profile Avatar */}
           <div className="flex items-center gap-3">
             {isAuthenticated && (
               <>
@@ -563,7 +733,7 @@ export default function Topbar() {
                     {connect.isPending ? "Conectando..." : "Conectar Facebook"}
                   </Button>
                 ) : hasFacebookConnection ? (
-                  renderLoadPackButton()
+                  renderUpdateDataButton()
                 ) : null}
               </>
             )}
@@ -587,8 +757,7 @@ export default function Topbar() {
           <Modal
             isOpen={isSettingsOpen}
             onClose={() => {
-              setIsSettingsOpen(false);
-              setActiveSettingsTab("general");
+              closeSettings();
               setIsSheetsDialogOpen(false);
             }}
             size="4xl"
@@ -684,8 +853,12 @@ export default function Topbar() {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="pt-BR">Português</SelectItem>
-                              <SelectItem value="en-US" disabled>Inglês</SelectItem>
-                              <SelectItem value="es-ES" disabled>Espanhol</SelectItem>
+                              <SelectItem value="en-US" disabled>
+                                Inglês
+                              </SelectItem>
+                              <SelectItem value="es-ES" disabled>
+                                Espanhol
+                              </SelectItem>
                             </SelectContent>
                           </Select>
                           <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
@@ -727,10 +900,10 @@ export default function Topbar() {
                         {/* Nicho */}
                         <div className="space-y-2">
                           <label className="text-sm font-medium text-text">Nicho</label>
-                          <Input 
-                            type="text" 
-                            placeholder="Ex: E-commerce, SaaS, etc." 
-                            value={userNiche} 
+                          <Input
+                            type="text"
+                            placeholder="Ex: E-commerce, SaaS, etc."
+                            value={userNiche}
                             onChange={(e) => {
                               // Atualizar estado local imediatamente para feedback visual
                               updateNiche(e.target.value);
@@ -749,9 +922,7 @@ export default function Topbar() {
                             disabled={isLoadingNiche || isSavingNiche}
                             className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
                           />
-                          <p className="text-xs text-muted-foreground">
-                            {isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}
-                          </p>
+                          <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
                         </div>
                       </div>
                     </div>
@@ -960,10 +1131,30 @@ export default function Topbar() {
           </Modal>
         )}
 
-        <AutoRefreshConfirmModal isOpen={showModal} packCount={packCount} onConfirm={handleConfirm} onCancel={handleCancel} />
+        <AutoRefreshConfirmModal isOpen={showModal} packCount={packCount} autoRefreshPacks={autoRefreshPacks} onConfirm={handleConfirm} onCancel={handleCancel} />
 
         {/* Modal de integração Google Sheets */}
         <GoogleSheetIntegrationDialog isOpen={isSheetsDialogOpen} onClose={() => setIsSheetsDialogOpen(false)} />
+
+        {/* Modal de confirmação de atualização */}
+        {isConfirmingUpdate && selectedPackId && (
+          <ConfirmDialog
+            isOpen={isConfirmingUpdate}
+            onClose={handleCancelConfirmation}
+            title="Confirmar atualização"
+            message={
+              <>
+                Deseja atualizar o pack <strong>"{packs.find((p) => p.id === selectedPackId)?.name || "desconhecido"}"</strong>?
+                <br />
+                <span className="text-xs">A atualização buscará novos dados desde a última atualização até hoje.</span>
+              </>
+            }
+            confirmText="Confirmar atualização"
+            onConfirm={handleConfirmUpdate}
+            isLoading={!!refreshingPackId}
+            confirmIcon={<IconRefresh className="h-4 w-4" />}
+          />
+        )}
       </header>
     </>
   );

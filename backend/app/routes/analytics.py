@@ -1929,6 +1929,12 @@ def update_pack_name(
         }
     except HTTPException:
         raise
+    except ValueError as e:
+        # Tratar erros de validação (nome vazio ou duplicado)
+        error_msg = str(e)
+        if "já existe" in error_msg.lower() or "already exists" in error_msg.lower():
+            raise HTTPException(status_code=400, detail=error_msg)
+        raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
         logger.exception(f"Erro ao atualizar nome do pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar nome: {str(e)}")

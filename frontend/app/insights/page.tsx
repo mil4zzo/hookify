@@ -5,7 +5,7 @@ import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { OpportunityWidget } from "@/components/insights/OpportunityWidget";
-import { calculateGlobalMetricRanks } from "@/lib/utils/metricRankings";
+import { calculateGlobalMetricRanks, createEmptyMetricRanks } from "@/lib/utils/metricRankings";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { GemsWidget } from "@/components/insights/GemsWidget";
 import { GemsColumnFilter, GemsColumnType } from "@/components/common/GemsColumnFilter";
@@ -22,7 +22,7 @@ import { IconSparkles, IconDiamond, IconBulbFilled, IconStarFilled } from "@tabl
 import { Modal } from "@/components/common/Modal";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
-import { PageSectionHeader } from "@/components/common/PageSectionHeader";
+import { PageContainer } from "@/components/common/PageContainer";
 import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -854,17 +854,7 @@ export default function InsightsPage() {
   // Se não houver critérios definidos (array vazio ou undefined), todos os anúncios são considerados
   const globalMetricRanks = useMemo(() => {
     if (!filteredRankings || filteredRankings.length === 0) {
-      return {
-        hookRank: new Map(),
-        holdRateRank: new Map(),
-        websiteCtrRank: new Map(),
-        connectRateRank: new Map(),
-        pageConvRank: new Map(),
-        ctrRank: new Map(),
-        cprRank: new Map(),
-        cpmqlRank: new Map(),
-        spendRank: new Map(),
-      };
+      return createEmptyMetricRanks();
     }
     // Passar validationCriteria apenas se houver critérios definidos (array não vazio)
     // Array vazio ou undefined significa "sem critérios" (todos os anúncios são válidos)
@@ -1014,33 +1004,30 @@ export default function InsightsPage() {
   const HeaderIcon = headerConfig.icon;
 
   return (
-    <div className="space-y-6">
-      {/* Header com filtros globais */}
-      <PageSectionHeader
-        title={headerConfig.title}
-        description={headerConfig.description}
-        icon={<HeaderIcon className="w-6 h-6 text-yellow-500" />}
-        actions={
-          <FiltersDropdown
-            expanded={true}
-            dateRange={dateRange}
-            onDateRangeChange={handleDateRangeChange}
-            actionType={actionType}
-            onActionTypeChange={handleActionTypeChange}
-            actionTypeOptions={uniqueConversionTypes}
-            packs={packs}
-            selectedPackIds={selectedPackIds}
-            onTogglePack={handleTogglePack}
-            packsClient={packsClient}
-            usePackDates={usePackDates}
-            onUsePackDatesChange={handleUsePackDatesChange}
-            packDatesRange={calculateDateRangeFromPacks ?? null}
-            groupByPacks={activeTab === "opportunities" ? groupByPacks : false}
-            onGroupByPacksChange={activeTab === "opportunities" ? handleToggleGroupByPacks : undefined}
-          />
-        }
-      />
-
+    <PageContainer
+      title={headerConfig.title}
+      description={headerConfig.description}
+      icon={<HeaderIcon className="w-6 h-6 text-yellow-500" />}
+      actions={
+        <FiltersDropdown
+          expanded={true}
+          dateRange={dateRange}
+          onDateRangeChange={handleDateRangeChange}
+          actionType={actionType}
+          onActionTypeChange={handleActionTypeChange}
+          actionTypeOptions={uniqueConversionTypes}
+          packs={packs}
+          selectedPackIds={selectedPackIds}
+          onTogglePack={handleTogglePack}
+          packsClient={packsClient}
+          usePackDates={usePackDates}
+          onUsePackDatesChange={handleUsePackDatesChange}
+          packDatesRange={calculateDateRangeFromPacks ?? null}
+          groupByPacks={activeTab === "opportunities" ? groupByPacks : false}
+          onGroupByPacksChange={activeTab === "opportunities" ? handleToggleGroupByPacks : undefined}
+        />
+      }
+    >
       {/* Tabs */}
       <TooltipProvider>
         <Tabs value={activeTab} onValueChange={handleTabChange}>
@@ -1248,6 +1235,6 @@ export default function InsightsPage() {
           />
         )}
       </Modal>
-    </div>
+    </PageContainer>
   );
 }

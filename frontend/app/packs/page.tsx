@@ -9,6 +9,7 @@ import { PackCard } from "@/components/packs/PackCard";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Modal } from "@/components/common/Modal";
+import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { LoadingState, EmptyState } from "@/components/common/States";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 import { Switch } from "@/components/ui/switch";
@@ -27,7 +28,7 @@ import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { getAggregatedPackStatistics, getAdStatistics } from "@/lib/utils/adCounting";
 import { useFormatCurrency } from "@/lib/utils/currency";
-import { PageSectionHeader } from "@/components/common/PageSectionHeader";
+import { PageContainer } from "@/components/common/PageContainer";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
@@ -543,6 +544,14 @@ export default function PacksPage() {
       // Se o nome estiver vazio por algum motivo, usar o nome gerado automaticamente
       const packName = formData.name.trim() || getNextPackName();
 
+      // Verificar se já existe um pack com o mesmo nome
+      const existingPack = packs.find((p) => p.name.trim().toLowerCase() === packName.toLowerCase());
+      if (existingPack) {
+        showError({ message: `Já existe um pack com o nome "${packName}"` });
+        setIsLoading(false);
+        return;
+      }
+
       // Start the async job (sempre usa nível "ad")
       const result = await api.facebook.startAdsJob({
         adaccount_id: formData.adaccount_id,
@@ -602,7 +611,7 @@ export default function PacksPage() {
 
           if (details.stage) {
             const stage = details.stage;
-            
+
             // Calcular progresso por etapa
             if (stage === "meta_processing") {
               stageEmoji = "🔄";
@@ -616,14 +625,10 @@ export default function PacksPage() {
               debugMessage = `${stageEmoji} Coletando dados: ${pageInfo}${adsInfo ? ` | ${adsInfo}` : ""}`;
             } else if (stage === "enriquecimento") {
               stageEmoji = "🔍";
-              const batchProgress = details.enrichment_total > 0 
-                ? Math.round((details.enrichment_batches || 0) / details.enrichment_total * 100) 
-                : 0;
+              const batchProgress = details.enrichment_total > 0 ? Math.round(((details.enrichment_batches || 0) / details.enrichment_total) * 100) : 0;
               stagePercent = 50 + Math.round(batchProgress * 0.3); // Enriquecimento = 50-80%
-              const batchInfo = details.enrichment_total > 0 
-                ? `Lote ${details.enrichment_batches || 0}/${details.enrichment_total}` 
-                : "Processando...";
-              
+              const batchInfo = details.enrichment_total > 0 ? `Lote ${details.enrichment_batches || 0}/${details.enrichment_total}` : "Processando...";
+
               // Construir info de enriquecimento apenas se tiver dados válidos
               let enrichedInfo = "";
               if (details.ads_enriched && details.ads_enriched > 0) {
@@ -640,7 +645,7 @@ export default function PacksPage() {
                   }
                 }
               }
-              
+
               debugMessage = `${stageEmoji} Enriquecendo dados: ${batchInfo}${enrichedInfo ? ` | ${enrichedInfo}` : ""}`;
             } else if (stage === "formatação") {
               stageEmoji = "✨";
@@ -719,7 +724,7 @@ export default function PacksPage() {
             // Buscar pack completo do backend (com ads e stats)
             setDebugInfo("🔄 Finalizando... Carregando dados do pack...");
             const packResponse = await api.analytics.getPack(packId, true);
-            
+
             if (!packResponse.success || !packResponse.pack) {
               showError({ message: "Erro ao carregar pack criado." });
               completed = true;
@@ -748,7 +753,7 @@ export default function PacksPage() {
             // Usar stats do backend (já calculados) ou calcular localmente como fallback
             const backendStats = backendPack.stats || {};
             const localStats = getAdStatistics(formattedAds);
-            
+
             // Create pack para o store local
             const pack = {
               id: packId,
@@ -1010,6 +1015,13 @@ export default function PacksPage() {
       // Nome não mudou, apenas fechar o modal
       setPackToRename(null);
       setNewPackName("");
+      return;
+    }
+
+    // Verificar se já existe outro pack com o mesmo nome
+    const existingPack = packs.find((p) => p.id !== packToRename.id && p.name.trim().toLowerCase() === trimmedName.toLowerCase());
+    if (existingPack) {
+      showError({ message: `Já existe um pack com o nome "${trimmedName}"` });
       return;
     }
 
@@ -1471,20 +1483,17 @@ export default function PacksPage() {
 
   return (
     <>
-      <div className="space-y-8">
-        {/* Page Header */}
-        <PageSectionHeader
-          title="Biblioteca"
-          description="Gerencie seus Packs de anúncios."
-          icon={<IconStack2Filled className="w-6 h-6 text-yellow-500" />}
-          actions={
-            <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
-              <IconPlus className="w-4 h-4" />
-              Carregar Pack
-            </Button>
-          }
-        />
-
+      <PageContainer
+        title="Biblioteca"
+        description="Gerencie seus Packs de anúncios."
+        icon={<IconStack2Filled className="w-6 h-6 text-yellow-500" />}
+        actions={
+          <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
+            <IconPlus className="w-4 h-4" />
+            Carregar Pack
+          </Button>
+        }
+      >
         {/* Packs Grid */}
         {isLoadingPacks ? (
           // Skeleton enquanto carrega packs
@@ -1494,7 +1503,7 @@ export default function PacksPage() {
                 {/* Cards decorativos atrás */}
                 <div className="absolute inset-0 rounded-xl bg-card rotate-2 pointer-events-none" />
                 <div className="absolute inset-0 rounded-xl bg-secondary rotate-1 pointer-events-none" />
-                
+
                 <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full">
                   <div className="p-6 space-y-6 flex flex-col justify-between h-full">
                     {/* Header: Nome do pack */}
@@ -1579,7 +1588,7 @@ export default function PacksPage() {
             ))}
           </div>
         )}
-      </div>
+      </PageContainer>
 
       {/* Load Pack Modal */}
       <Modal
@@ -2030,56 +2039,22 @@ export default function PacksPage() {
 
           {/* Opções de atualização */}
           <div className="w-full space-y-3">
-            <button
-              type="button"
-              onClick={() => setRefreshType("since_last_refresh")}
-              disabled={!!refreshingPackId}
-              className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
-                refreshType === "since_last_refresh"
-                  ? "border-green-500 bg-green-500/10"
-                  : "border-border hover:border-green-500/50 bg-input-30"
-              } ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-            >
+            <button type="button" onClick={() => setRefreshType("since_last_refresh")} disabled={!!refreshingPackId} className={`w-full p-4 rounded-lg border-2 text-left transition-all ${refreshType === "since_last_refresh" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"} ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
               <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                  refreshType === "since_last_refresh" ? "border-green-500" : "border-border"
-                }`}>
-                  {refreshType === "since_last_refresh" && (
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                  )}
-                </div>
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "since_last_refresh" ? "border-green-500" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-green-500" />}</div>
                 <div className="flex-1">
                   <div className="font-semibold text-text">Desde a última atualização</div>
-                  <div className="text-xs text-text-muted mt-1">
-                    Busca novos dados desde a última atualização até hoje
-                  </div>
+                  <div className="text-xs text-text-muted mt-1">Busca novos dados desde a última atualização até hoje</div>
                 </div>
               </div>
             </button>
 
-            <button
-              type="button"
-              onClick={() => setRefreshType("full_period")}
-              disabled={!!refreshingPackId}
-              className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
-                refreshType === "full_period"
-                  ? "border-green-500 bg-green-500/10"
-                  : "border-border hover:border-green-500/50 bg-input-30"
-              } ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
-            >
+            <button type="button" onClick={() => setRefreshType("full_period")} disabled={!!refreshingPackId} className={`w-full p-4 rounded-lg border-2 text-left transition-all ${refreshType === "full_period" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"} ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
               <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${
-                  refreshType === "full_period" ? "border-green-500" : "border-border"
-                }`}>
-                  {refreshType === "full_period" && (
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                  )}
-                </div>
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "full_period" ? "border-green-500" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-green-500" />}</div>
                 <div className="flex-1">
                   <div className="font-semibold text-text">Todo o período</div>
-                  <div className="text-xs text-text-muted mt-1">
-                    Atualiza todos os dados do pack desde a data inicial até a data final
-                  </div>
+                  <div className="text-xs text-text-muted mt-1">Atualiza todos os dados do pack desde a data inicial até a data final</div>
                 </div>
               </div>
             </button>
@@ -2109,78 +2084,27 @@ export default function PacksPage() {
       </Modal>
 
       {/* Confirmation Dialog */}
-      <Modal isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} size="md" padding="md" closeOnOverlayClick={!isDeleting} closeOnEscape={!isDeleting}>
-        <div className="space-y-1.5 mb-6">
-          <h2 className="text-lg font-semibold leading-none tracking-tight">{isDeleting ? "Deletando Pack..." : "Confirmar Remoção"}</h2>
-          <p className="text-sm text-muted-foreground">{isDeleting ? `Deletando pack "${packToRemove?.name}" e todos os dados relacionados do servidor...` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`}</p>
-        </div>
-
-        <div className="py-4">
-          <div className="bg-border p-4 rounded-lg">
-            <p className="text-sm text-muted-foreground mb-2">Esta ação irá remover:</p>
-            <ul className="text-sm space-y-1">
-              <li>
-                • <strong>{packToRemove?.adsCount}</strong> anúncios
-              </li>
-              <li>• Todos os dados e métricas associados</li>
-              <li>
-                • Esta ação <strong>não pode ser desfeita</strong>
-              </li>
-            </ul>
+      <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Deletando pack "${packToRemove?.name}" e todos os dados relacionados do servidor...` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
+        {!isDeleting && (
+          <div className="py-4">
+            <div className="bg-border p-4 rounded-lg">
+              <p className="text-sm text-muted-foreground mb-2">Esta ação irá remover:</p>
+              <ul className="text-sm space-y-1">
+                <li>
+                  • <strong>{packToRemove?.adsCount}</strong> anúncios
+                </li>
+                <li>• Todos os dados e métricas associados</li>
+                <li>
+                  • Esta ação <strong>não pode ser desfeita</strong>
+                </li>
+              </ul>
+            </div>
           </div>
-        </div>
-
-        <div className="flex justify-end gap-3 mt-6">
-          <Button variant="outline" onClick={cancelRemovePack} disabled={isDeleting}>
-            Cancelar
-          </Button>
-          <Button variant="destructive" onClick={confirmRemovePack} disabled={isDeleting}>
-            {isDeleting ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                Deletando...
-              </>
-            ) : (
-              <>
-                <IconTrash className="w-4 h-4 mr-2" />
-                Remover Pack
-              </>
-            )}
-          </Button>
-        </div>
-      </Modal>
+        )}
+      </ConfirmDialog>
 
       {/* Disable Auto-Refresh Confirmation Dialog */}
-      <Modal isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} size="md" padding="md" closeOnOverlayClick={!isTogglingAutoRefresh} closeOnEscape={!isTogglingAutoRefresh} showCloseButton={!isTogglingAutoRefresh}>
-        <div className="flex flex-col items-center gap-6 py-4">
-          <h2 className="text-xl font-semibold text-text">Desativar atualização automática?</h2>
-
-          <p className="text-center text-sm text-text-muted">
-            Ao desativar você precisará lembrar de atualizá-lo manualmente quando necessário.
-          </p>
-
-          <div className="flex gap-4 w-full">
-            <Button onClick={cancelDisableAutoRefresh} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={!!isTogglingAutoRefresh}>
-              <IconCircleX className="h-5 w-5" />
-              Cancelar
-            </Button>
-
-            <Button onClick={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" disabled={!!isTogglingAutoRefresh}>
-              {isTogglingAutoRefresh ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Desativando...
-                </>
-              ) : (
-                <>
-                  <IconCircleCheck className="h-5 w-5" />
-                  Desativar
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      <ConfirmDialog isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} title="Desativar atualização automática?" message="Ao desativar você precisará lembrar de atualizá-lo manualmente quando necessário." onConfirm={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} onCancel={cancelDisableAutoRefresh} confirmText="Desativar" isLoading={!!isTogglingAutoRefresh} />
 
       {/* Rename Pack Dialog */}
       <Modal isOpen={!!packToRename} onClose={() => !isRenaming && cancelRenamePack()} size="md" padding="md" closeOnOverlayClick={!isRenaming} closeOnEscape={!isRenaming} showCloseButton={!isRenaming}>

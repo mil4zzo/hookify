@@ -312,6 +312,11 @@ class JobProcessor:
             
             return pack_id
             
+        except ValueError as e:
+            # Propagar erros de validação (ex: nome duplicado) para que a mensagem seja preservada
+            error_msg = str(e)
+            logger.warning(f"[JobProcessor] Erro de validação ao persistir dados: {error_msg}")
+            raise  # Relançar para que seja capturado no process() e marcado como falho com a mensagem correta
         except Exception as e:
             logger.exception(f"[JobProcessor] Erro ao persistir dados: {e}")
             return None

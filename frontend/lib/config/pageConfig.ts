@@ -1,10 +1,11 @@
 import { 
   IconCardsFilled, 
   IconFlask, 
-  IconTable, 
   IconStack2, 
   IconTrophyFilled,
-  IconBulbFilled
+  IconBulbFilled,
+  IconPalette,
+  IconDiamond
 } from "@tabler/icons-react";
 import { ComponentType } from "react";
 
@@ -44,26 +45,34 @@ export const pageConfigs: PageConfig[] = [
     showInMenu: true,
   },
   {
-    path: "/api-test",
-    title: "API Test",
-    label: "API Test",
-    icon: IconFlask,
-    isDevelopment: true,
+    path: "/gold",
+    title: "G.O.L.D.",
+    label: "G.O.L.D.",
+    icon: IconDiamond,
+    description: "G.O.L.D.",
     showInMenu: true,
   },
   {
-    path: "/table-demo",
-    title: "Table Demo",
-    label: "Table Demo",
-    icon: IconTable,
+    path: "/cores",
+    title: "Cores",
+    label: "Cores",
+    icon: IconPalette,
     isDevelopment: true,
     showInMenu: true,
   },
   {
     path: "/components-showcase",
     title: "Components Showcase",
-    label: "Components Showcase",
+    label: "Components",
     icon: IconStack2,
+    isDevelopment: true,
+    showInMenu: true,
+  },
+  {
+    path: "/api-test",
+    title: "API Test",
+    label: "API Test",
+    icon: IconFlask,
     isDevelopment: true,
     showInMenu: true,
   },

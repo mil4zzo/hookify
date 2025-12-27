@@ -20,6 +20,24 @@ export type MetricRanks = {
 };
 
 /**
+ * Cria um objeto MetricRanks vazio (todos os Maps vazios)
+ * Útil para casos onde não há dados ou como fallback
+ */
+export function createEmptyMetricRanks(): MetricRanks {
+  return {
+    hookRank: new Map(),
+    holdRateRank: new Map(),
+    websiteCtrRank: new Map(),
+    connectRateRank: new Map(),
+    pageConvRank: new Map(),
+    ctrRank: new Map(),
+    cprRank: new Map(),
+    cpmqlRank: new Map(),
+    spendRank: new Map(),
+  };
+}
+
+/**
  * Opções para cálculo de rankings
  */
 export interface MetricRankingsOptions {

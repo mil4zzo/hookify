@@ -6,7 +6,7 @@ import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { GenericCard } from "@/components/common/GenericCard";
-import { calculateGlobalMetricRanks } from "@/lib/utils/metricRankings";
+import { calculateGlobalMetricRanks, createEmptyMetricRanks } from "@/lib/utils/metricRankings";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
 import { SortableColumn } from "@/components/common/SortableColumn";
@@ -167,17 +167,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
   // 2. Calcular rankings globais
   const globalMetricRanks = useMemo(() => {
     if (!ads || ads.length === 0) {
-      return {
-        hookRank: new Map(),
-        holdRateRank: new Map(),
-        websiteCtrRank: new Map(),
-        connectRateRank: new Map(),
-        pageConvRank: new Map(),
-        ctrRank: new Map(),
-        cprRank: new Map(),
-        cpmqlRank: new Map(),
-        spendRank: new Map(),
-      };
+      return createEmptyMetricRanks();
     }
     const criteriaToUse = validationCriteria && validationCriteria.length > 0 ? validationCriteria : undefined;
     return calculateGlobalMetricRanks(ads, {
