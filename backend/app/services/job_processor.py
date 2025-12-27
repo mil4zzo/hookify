@@ -11,6 +11,7 @@ Executa fora do request de polling para não bloquear.
 """
 import logging
 from typing import Any, Dict, Optional
+import time
 from app.services.job_tracker import (
     JobTracker,
     get_job_tracker,
@@ -81,7 +82,7 @@ class JobProcessor:
                     job_id,
                     status=STATUS_PROCESSING,
                     progress=100,
-                    message=f"Coletando dados: página {page_count}...",
+                    message=f"Coletando dados: bloco {page_count}...",
                     details={
                         "stage": STAGE_PAGINATION,
                         "page_count": page_count,
@@ -132,7 +133,7 @@ class JobProcessor:
                     job_id,
                     status=STATUS_PROCESSING,
                     progress=100,
-                    message=f"Enriquecendo dados: lote {batch_num}/{total_batches}...",
+                    message=f"Enriquecendo dados: bloco {batch_num}/{total_batches}...",
                     details={
                         "stage": STAGE_ENRICHMENT,
                         "page_count": page_count,
@@ -172,14 +173,8 @@ class JobProcessor:
             logger.info(f"[JobProcessor] Formatação concluída: {len(formatted_data)} anúncios formatados")
             
             # ===== FASE 4: PERSISTÊNCIA =====
-            self.tracker.mark_persisting(job_id, {
-                "page_count": page_count,
-                "total_collected": total_collected,
-                "ads_after_dedup": unique_count,
-                "ads_enriched": enriched_count,
-                "ads_formatted": len(formatted_data)
-            })
-            
+            # Não chamar mark_persisting aqui - os heartbeats específicos dentro de _persist_data
+            # vão atualizar o status com mensagens detalhadas por etapa
             pack_id = self._persist_data(job_id, payload, formatted_data, is_refresh, pack_id_from_payload)
             
             if not pack_id:
@@ -219,6 +214,29 @@ class JobProcessor:
     ) -> Optional[str]:
         """Persiste dados no Supabase."""
         try:
+            # Heartbeat limiter: evita spam de updates no jobs durante loops longos
+            # Intervalo reduzido para 1s para garantir feedback mais frequente durante batches
+            last_hb_ts = 0.0
+            hb_min_interval_s = 1.0
+
+            def hb(message: str, force: bool = False) -> None:
+                nonlocal last_hb_ts
+                now = time.monotonic()
+                if not force and (now - last_hb_ts) < hb_min_interval_s:
+                    return
+                last_hb_ts = now
+                # Sempre incluir stage no details para consistência com frontend
+                self.tracker.heartbeat(
+                    job_id,
+                    status=STATUS_PERSISTING,
+                    progress=100,
+                    message=message,
+                    details={"stage": STAGE_PERSISTENCE}
+                )
+
+            # Marcar início da persistência imediatamente
+            hb("Salvando tudo...", force=True)
+
             pack_id = None
             
             if is_refresh and pack_id_from_payload:
@@ -227,10 +245,25 @@ class JobProcessor:
                 logger.info(f"[JobProcessor] Atualizando pack após refresh: {pack_id}")
                 
                 if formatted_data:
-                    supabase_repo.upsert_ads(self.user_jwt, formatted_data, user_id=self.user_id, pack_id=pack_id)
-                    supabase_repo.upsert_ad_metrics(self.user_jwt, formatted_data, user_id=self.user_id, pack_id=pack_id)
+                    hb("Salvando anúncios...", force=True)
+                    supabase_repo.upsert_ads(
+                        self.user_jwt,
+                        formatted_data,
+                        user_id=self.user_id,
+                        pack_id=pack_id,
+                        on_batch_progress=lambda b, t: hb(f"Salvando anúncios: bloco {b}/{t}..."),
+                    )
+                    hb("Salvando métricas...", force=True)
+                    supabase_repo.upsert_ad_metrics(
+                        self.user_jwt,
+                        formatted_data,
+                        user_id=self.user_id,
+                        pack_id=pack_id,
+                        on_batch_progress=lambda b, t: hb(f"Salvando métricas: bloco {b}/{t}..."),
+                    )
                     
                     ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
+                    hb("Otimizando tudo...", force=True)
                     supabase_repo.update_pack_ad_ids(self.user_jwt, pack_id, ad_ids, user_id=self.user_id)
                 
                 # Atualizar status de refresh e date_stop do pack
@@ -251,6 +284,7 @@ class JobProcessor:
                     logger.error(f"[JobProcessor] Payload não contém 'name', não é possível criar pack")
                     return None
                 
+                hb("Salvando pack...", force=True)
                 pack_id = supabase_repo.upsert_pack(
                     self.user_jwt,
                     user_id=self.user_id,
@@ -283,18 +317,33 @@ class JobProcessor:
                 
                 # Persistir ads e métricas
                 if formatted_data:
-                    supabase_repo.upsert_ads(self.user_jwt, formatted_data, user_id=self.user_id, pack_id=pack_id)
-                    supabase_repo.upsert_ad_metrics(self.user_jwt, formatted_data, user_id=self.user_id, pack_id=pack_id)
+                    hb("Salvando anúncios...", force=True)
+                    supabase_repo.upsert_ads(
+                        self.user_jwt,
+                        formatted_data,
+                        user_id=self.user_id,
+                        pack_id=pack_id,
+                        on_batch_progress=lambda b, t: hb(f"Salvando anúncios: bloco {b}/{t}..."),
+                    )
+                    hb("Salvando métricas...", force=True)
+                    supabase_repo.upsert_ad_metrics(
+                        self.user_jwt,
+                        formatted_data,
+                        user_id=self.user_id,
+                        pack_id=pack_id,
+                        on_batch_progress=lambda b, t: hb(f"Salvando métricas: bloco {b}/{t}..."),
+                    )
                     
                     ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
+                    hb("Otimizando tudo...", force=True)
                     supabase_repo.update_pack_ad_ids(self.user_jwt, pack_id, ad_ids, user_id=self.user_id)
             
             # Calcular e salvar stats
             if formatted_data and pack_id:
                 # Aguardar um pouco para garantir consistência
-                import time
                 time.sleep(0.5)
                 
+                hb("Calculando resumo...", force=True)
                 stats = supabase_repo.calculate_pack_stats(
                     self.user_jwt,
                     pack_id,
@@ -302,6 +351,7 @@ class JobProcessor:
                 )
                 
                 if stats and stats.get("totalSpend") is not None:
+                    hb("Finalizando...", force=True)
                     supabase_repo.update_pack_stats(
                         self.user_jwt,
                         pack_id,
@@ -309,6 +359,9 @@ class JobProcessor:
                         user_id=self.user_id
                     )
                     logger.info(f"[JobProcessor] Stats salvos para pack {pack_id}: totalSpend={stats.get('totalSpend')}")
+                else:
+                    # Stats é best-effort: não travar job por isso
+                    logger.warning(f"[JobProcessor] Stats não calculados/salvos para pack {pack_id} (best-effort)")
             
             return pack_id
             

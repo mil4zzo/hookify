@@ -8,6 +8,7 @@ import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { AdsPack } from "@/lib/types";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
+import { useActiveJobsStore } from "@/lib/store/activeJobs";
 
 const STORAGE_KEY = "hookify_auto_refresh_checked";
 
@@ -38,6 +39,7 @@ export function useAutoRefreshPacks() {
   const { updatePack } = useClientPacks();
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
   const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
+  const { addActiveJob, removeActiveJob } = useActiveJobsStore();
   const [showModal, setShowModal] = useState(false);
   const [packCount, setPackCount] = useState(0);
   const [autoRefreshPacks, setAutoRefreshPacks] = useState<any[]>([]);
@@ -121,12 +123,21 @@ export function useAutoRefreshPacks() {
     // Mostrar toast imediatamente para feedback visual instantâneo
     showProgressToast(toastId, pack.name, 0, 1, "Inicializando...");
     
+    let refreshResult: { job_id?: string; date_range?: { since: string; until: string } } | null = null; // Para poder limpar no finally
     try {
       // Iniciar refresh (auto-refresh sempre usa "since_last_refresh")
-      const refreshResult = await api.facebook.refreshPack(pack.id, getTodayLocal(), "since_last_refresh");
+      refreshResult = await api.facebook.refreshPack(pack.id, getTodayLocal(), "since_last_refresh");
       
       if (!refreshResult.job_id) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${pack.name}"`);
+        removeUpdatingPack(pack.id);
+        return;
+      }
+
+      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
+      if (!addActiveJob(refreshResult.job_id)) {
+        console.warn(`Polling já ativo para job ${refreshResult.job_id}. Ignorando nova tentativa...`);
+        finishProgressToast(toastId, false, `Este job já está sendo processado. Aguarde a conclusão.`);
         removeUpdatingPack(pack.id);
         return;
       }
@@ -244,6 +255,11 @@ export function useAutoRefreshPacks() {
       console.error(`Erro ao atualizar pack ${pack.id}:`, error);
       finishProgressToast(toastId, false, `Erro ao atualizar "${pack.name}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
       removeUpdatingPack(pack.id);
+    } finally {
+      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
+      if (refreshResult?.job_id) {
+        removeActiveJob(refreshResult.job_id);
+      }
     }
   };
 

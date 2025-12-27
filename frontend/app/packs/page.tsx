@@ -15,6 +15,7 @@ import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFi
 import { Switch } from "@/components/ui/switch";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Progress } from "@/components/ui/progress";
 import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
@@ -35,6 +36,7 @@ import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { filterVideoAds } from "@/lib/utils/filterVideoAds";
+import { useActiveJobsStore } from "@/lib/store/activeJobs";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
 
@@ -313,10 +315,12 @@ export default function PacksPage() {
   const [refreshingPackId, setRefreshingPackId] = useState<string | null>(null);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
   const { addUpdatingPack, removeUpdatingPack, isPackUpdating } = useUpdatingPacksStore();
+  const { addActiveJob, removeActiveJob } = useActiveJobsStore();
   const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>("");
   const [progressDetails, setProgressDetails] = useState<any>(null);
+  const [animatedPercent, setAnimatedPercent] = useState(0);
   const [jsonViewerPack, setJsonViewerPack] = useState<any>(null);
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
 
@@ -534,6 +538,12 @@ export default function PacksPage() {
     createdPackIdRef.current = null;
 
     setIsLoading(true);
+    // Inicializar progresso imediatamente
+    setDebugInfo("Solicitando pack ao Meta...");
+    setProgressDetails({ stage: "meta_processing" });
+    setAnimatedPercent(0);
+
+    let jobId: string | null = null; // Para poder limpar no finally
     try {
       // Verificar se foi cancelado antes de iniciar
       if (isCancelledRef.current) {
@@ -567,6 +577,46 @@ export default function PacksPage() {
 
       if (!result.job_id) {
         throw new Error("Falha ao iniciar job de busca de anúncios");
+      }
+
+      jobId = result.job_id; // Armazenar para limpar no finally
+
+      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
+      if (!addActiveJob(jobId)) {
+        console.warn(`Polling já ativo para job ${jobId}. Ignorando nova tentativa...`);
+        showError({ message: "Este job já está sendo processado. Aguarde a conclusão." });
+        setIsLoading(false);
+        return;
+      }
+
+      // Primeira chamada imediata (sem esperar 2s)
+      try {
+        const initialProgress = await api.facebook.getJobProgress(result.job_id);
+        const details = (initialProgress as any)?.details || {};
+        setProgressDetails({ ...details, status: initialProgress.status });
+        setDebugInfo(initialProgress.message || "Solicitando pack ao Meta...");
+
+        // Calcular percentual inicial
+        let initialPercent = 0;
+        if (initialProgress.status === "meta_running" || initialProgress.status === "running") {
+          initialPercent = Math.min(initialProgress.progress || 0, 30);
+        } else if (initialProgress.status === "processing") {
+          if (details.stage === "paginação") {
+            initialPercent = 30 + Math.min((details.page_count || 0) * 2, 20);
+          } else if (details.stage === "enriquecimento") {
+            const batchProgress = details.enrichment_total > 0 ? Math.round(((details.enrichment_batches || 0) / details.enrichment_total) * 100) : 0;
+            initialPercent = 50 + Math.round(batchProgress * 0.3);
+          } else if (details.stage === "formatação") {
+            initialPercent = 85;
+          } else {
+            initialPercent = 50;
+          }
+        } else if (initialProgress.status === "persisting") {
+          initialPercent = 95;
+        }
+        setAnimatedPercent(initialPercent);
+      } catch (error) {
+        console.warn("Erro ao buscar progresso inicial:", error);
       }
 
       // Poll for completion
@@ -604,83 +654,44 @@ export default function PacksPage() {
           // Armazenar detalhes do progresso
           setProgressDetails(details);
 
-          // Atualizar feedback visual com informações granulares
+          // Simplificado: usar progress.message como fonte única de verdade
+          // details.stage e progress.status apenas para calcular percentual e emoji
           let debugMessage = progress.message || "Processando...";
           let stageEmoji = "⏳";
           let stagePercent = 0;
 
-          if (details.stage) {
-            const stage = details.stage;
-
-            // Calcular progresso por etapa
-            if (stage === "meta_processing") {
-              stageEmoji = "🔄";
-              stagePercent = Math.min(progress.progress || 0, 30); // Meta API = 0-30%
-              debugMessage = `${stageEmoji} Meta API processando... ${progress.progress || 0}%`;
-            } else if (stage === "paginação") {
-              stageEmoji = "📄";
-              stagePercent = 30 + Math.min((details.page_count || 0) * 2, 20); // Paginação = 30-50%
-              const pageInfo = details.page_count ? `Página ${details.page_count}` : "Iniciando...";
-              const adsInfo = details.total_collected ? `${details.total_collected.toLocaleString()} anúncios` : "";
-              debugMessage = `${stageEmoji} Coletando dados: ${pageInfo}${adsInfo ? ` | ${adsInfo}` : ""}`;
-            } else if (stage === "enriquecimento") {
-              stageEmoji = "🔍";
+          // Calcular percentual e emoji baseado em status e stage
+          if (progress.status === "meta_running" || progress.status === "running") {
+            stageEmoji = "🔄";
+            stagePercent = Math.min(progress.progress || 0, 30);
+          } else if (progress.status === "processing") {
+            stageEmoji = "⏳";
+            // Calcular percentual baseado no stage dentro de processing
+            if (details.stage === "paginação") {
+              stagePercent = 30 + Math.min((details.page_count || 0) * 2, 20);
+            } else if (details.stage === "enriquecimento") {
               const batchProgress = details.enrichment_total > 0 ? Math.round(((details.enrichment_batches || 0) / details.enrichment_total) * 100) : 0;
-              stagePercent = 50 + Math.round(batchProgress * 0.3); // Enriquecimento = 50-80%
-              const batchInfo = details.enrichment_total > 0 ? `Lote ${details.enrichment_batches || 0}/${details.enrichment_total}` : "Processando...";
-
-              // Construir info de enriquecimento apenas se tiver dados válidos
-              let enrichedInfo = "";
-              if (details.ads_enriched && details.ads_enriched > 0) {
-                const uniqueCount = details.ads_after_dedup;
-                if (uniqueCount && uniqueCount > 0) {
-                  enrichedInfo = `${details.ads_enriched.toLocaleString()} de ${uniqueCount.toLocaleString()} únicos`;
-                } else {
-                  // Fallback: usar ads_before_dedup se ads_after_dedup não estiver disponível
-                  const beforeDedup = details.ads_before_dedup || details.total_collected || 0;
-                  if (beforeDedup > 0) {
-                    enrichedInfo = `${details.ads_enriched.toLocaleString()} anúncios enriquecidos`;
-                  } else {
-                    enrichedInfo = `${details.ads_enriched.toLocaleString()} anúncios enriquecidos`;
-                  }
-                }
-              }
-
-              debugMessage = `${stageEmoji} Enriquecendo dados: ${batchInfo}${enrichedInfo ? ` | ${enrichedInfo}` : ""}`;
-            } else if (stage === "formatação") {
-              stageEmoji = "✨";
-              stagePercent = 85; // Formatação = 85%
-              const formattedCount = (details.ads_formatted || 0).toLocaleString();
-              debugMessage = `${stageEmoji} Formatando ${formattedCount} anúncios...`;
-            } else if (stage === "persistência") {
-              stageEmoji = "💾";
-              stagePercent = 95; // Persistência = 95%
-              debugMessage = `${stageEmoji} Salvando dados no banco...`;
-            } else if (stage === "completo") {
-              stageEmoji = "✅";
-              stagePercent = 100;
-              const adsCount = (details.ads_formatted || rawAds.length).toLocaleString();
-              debugMessage = `${stageEmoji} Concluído! ${adsCount} anúncios processados`;
+              stagePercent = 50 + Math.round(batchProgress * 0.3);
+            } else if (details.stage === "formatação") {
+              stagePercent = 85;
             } else {
-              // Fallback para estágios desconhecidos
-              debugMessage = `⏳ ${progress.message || "Processando..."} | ${rawAds.length} anúncios`;
+              stagePercent = 50; // fallback
             }
-          } else {
-            // Fallback para quando não há detalhes (status antigo)
-            if (progress.status === "running" && progress.progress) {
-              stagePercent = Math.min(progress.progress, 30);
-              debugMessage = `🔄 Meta API processando... ${progress.progress}%`;
-            } else if (progress.status === "processing") {
-              stagePercent = 50;
-              debugMessage = `⏳ Processando dados coletados...`;
-            } else {
-              debugMessage = `⏳ ${progress.message || "Processando..."}`;
-            }
+          } else if (progress.status === "persisting") {
+            stageEmoji = "💾";
+            stagePercent = 95;
+          } else if (progress.status === "completed") {
+            stageEmoji = "✅";
+            stagePercent = 100;
+          } else if (progress.status === "failed" || progress.status === "error") {
+            stageEmoji = "❌";
+            stagePercent = 0;
           }
 
-          // Adicionar barra de progresso visual ao debug
-          const progressBar = `[${"█".repeat(Math.round(stagePercent / 5))}${"░".repeat(20 - Math.round(stagePercent / 5))}] ${stagePercent}%`;
-          setDebugInfo(`${debugMessage}\n${progressBar}`);
+          // Atualizar mensagem, percentual animado e detalhes com status
+          setDebugInfo(debugMessage);
+          setAnimatedPercent(stagePercent);
+          setProgressDetails({ ...details, status: progress.status });
 
           if (progress.status === "completed") {
             // Verificar se foi cancelado antes de processar
@@ -908,6 +919,10 @@ export default function PacksPage() {
         showError(error as any);
       }
     } finally {
+      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
+      if (jobId) {
+        removeActiveJob(jobId);
+      }
       // Limpar refs ao finalizar
       if (isCancelledRef.current) {
         // Já foi limpo pelo handleCancelLoadPack
@@ -1288,12 +1303,22 @@ export default function PacksPage() {
     // Mostrar toast imediatamente para feedback visual instantâneo
     showProgressToast(toastId, packName, 0, 1, "Inicializando...");
 
+    let refreshResult: { job_id?: string; date_range?: { since: string; until: string } } | null = null; // Para poder limpar no finally
     try {
       // Iniciar refresh com o tipo escolhido
-      const refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), refreshType);
+      refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), refreshType);
 
       if (!refreshResult.job_id) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
+        setRefreshingPackId(null);
+        removeUpdatingPack(packId);
+        return;
+      }
+
+      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
+      if (!addActiveJob(refreshResult.job_id)) {
+        console.warn(`Polling já ativo para job ${refreshResult.job_id}. Ignorando nova tentativa...`);
+        finishProgressToast(toastId, false, `Este job já está sendo processado. Aguarde a conclusão.`);
         setRefreshingPackId(null);
         removeUpdatingPack(packId);
         return;
@@ -1375,6 +1400,10 @@ export default function PacksPage() {
       console.error(`Erro ao atualizar pack ${packId}:`, error);
       finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
     } finally {
+      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
+      if (refreshResult?.job_id) {
+        removeActiveJob(refreshResult.job_id);
+      }
       setRefreshingPackId(null);
       removeUpdatingPack(packId);
     }
@@ -1832,81 +1861,82 @@ export default function PacksPage() {
           </div>
 
           {/* Submit Button */}
-          <div className="flex gap-3">
-            <Button onClick={handleLoadPack} disabled={isLoading || !!validateForm()} className="flex-1" size="lg">
-              {isLoading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                  Carregando Anúncios...
-                </>
-              ) : (
-                <>
-                  <IconChartBar className="w-4 h-4 mr-2" />
-                  Carregar Pack
-                </>
-              )}
-            </Button>
-            {isLoading && (
-              <Button onClick={handleCancelLoadPack} variant="outline" size="lg" className="shrink-0">
-                <IconCircleX className="w-4 h-4" />
+          {!isLoading && (
+            <div className="flex gap-3">
+              <Button onClick={handleLoadPack} disabled={!!validateForm()} className="flex-1" size="lg">
+                <IconChartBar className="w-4 h-4 mr-2" />
+                Carregar Pack
               </Button>
-            )}
-          </div>
+            </div>
+          )}
 
-          {/* Debug Info */}
-          {isLoading && debugInfo && (
-            <div className="mt-4 p-4 bg-border rounded-lg space-y-3">
-              <div className="flex items-center gap-2">
-                <IconLoader2 className="h-4 w-4 animate-spin flex-shrink-0" />
-                <p className="text-sm font-medium">Progresso do Carregamento</p>
+          {/* Progress Component */}
+          {isLoading && (
+            <div className="mt-4 p-6 bg-card border border-border rounded-lg space-y-4">
+              {/* Header com emoji, mensagem e botão cancelar */}
+              <div className="flex items-center gap-3">
+                <div className="text-2xl">
+                  {(progressDetails?.status === "failed" || progressDetails?.status === "error") && "❌"}
+                  {progressDetails?.status === "completed" && "✅"}
+                  {progressDetails?.status === "persisting" && "💾"}
+                  {progressDetails?.status === "meta_running" || progressDetails?.status === "running" ? "🔄" : null}
+                  {progressDetails?.status === "processing" && progressDetails?.stage === "paginação" && "📄"}
+                  {progressDetails?.status === "processing" && progressDetails?.stage === "enriquecimento" && "🔍"}
+                  {progressDetails?.status === "processing" && progressDetails?.stage === "formatação" && "✨"}
+                  {progressDetails?.status === "processing" && !progressDetails?.stage && "⏳"}
+                  {!progressDetails?.status && "⏳"}
+                </div>
+                <div className="flex-1">
+                  <p className="font-semibold text-base">{debugInfo || "Iniciando..."}</p>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {progressDetails?.stage === "meta_processing" && "Aguardando resposta do Facebook..."}
+                    {progressDetails?.stage === "paginação" && "Coletando dados dos anúncios..."}
+                    {progressDetails?.stage === "enriquecimento" && "Enriquecendo dados coletados..."}
+                    {progressDetails?.stage === "formatação" && "Organizando dados..."}
+                    {progressDetails?.stage === "persistência" && "Salvando no banco de dados..."}
+                    {progressDetails?.stage === "completo" && "Processo concluído!"}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold">{animatedPercent}%</p>
+                  <p className="text-xs text-muted-foreground">Progresso</p>
+                </div>
               </div>
-              <div className="text-sm text-muted-foreground space-y-1">
-                <p className="font-medium">{debugInfo}</p>
-                {progressDetails && (
-                  <div className="mt-2 pt-2 border-t border-border/50 space-y-1 text-xs">
-                    {progressDetails.stage && (
-                      <p>
-                        <strong>Etapa:</strong> {progressDetails.stage}
-                      </p>
-                    )}
+
+              {/* Barra de progresso */}
+              <Progress value={animatedPercent} max={100} className="h-3" />
+
+              {/* Botão de cancelamento */}
+              <Button onClick={handleCancelLoadPack} variant="outline" size="sm" className="w-full">
+                <IconCircleX className="w-4 h-4 mr-2" />
+                Cancelar
+              </Button>
+
+              {/* Informações secundárias - Ocultas, mas dados mantidos em progressDetails para uso futuro */}
+              {/* {progressDetails && (
+                <div className="pt-3">
+                  <div className="grid grid-cols-2 gap-3 text-xs">
                     {progressDetails.page_count > 0 && (
-                      <p>
-                        <strong>Páginas processadas:</strong> {progressDetails.page_count}
-                      </p>
+                      <div>
+                        <span className="text-muted-foreground">Blocos:</span>
+                        <span className="ml-1 font-medium">{progressDetails.page_count}</span>
+                      </div>
                     )}
                     {progressDetails.total_collected > 0 && (
-                      <p>
-                        <strong>Anúncios coletados:</strong> {progressDetails.total_collected}
-                      </p>
-                    )}
-                    {progressDetails.ads_before_dedup > 0 && (
-                      <p>
-                        <strong>Anúncios antes da deduplicação:</strong> {progressDetails.ads_before_dedup}
-                      </p>
+                      <div>
+                        <span className="text-muted-foreground">Coletados:</span>
+                        <span className="ml-1 font-medium">{progressDetails.total_collected.toLocaleString()}</span>
+                      </div>
                     )}
                     {progressDetails.ads_after_dedup > 0 && (
-                      <p>
-                        <strong>Anúncios únicos:</strong> {progressDetails.ads_after_dedup}
-                      </p>
-                    )}
-                    {progressDetails.enrichment_total > 0 && (
-                      <p>
-                        <strong>Lotes de enriquecimento:</strong> {progressDetails.enrichment_batches || 0}/{progressDetails.enrichment_total}
-                      </p>
-                    )}
-                    {progressDetails.ads_enriched > 0 && (
-                      <p>
-                        <strong>Anúncios enriquecidos:</strong> {progressDetails.ads_enriched}
-                      </p>
-                    )}
-                    {progressDetails.ads_formatted > 0 && (
-                      <p>
-                        <strong>Anúncios formatados:</strong> {progressDetails.ads_formatted}
-                      </p>
+                      <div>
+                        <span className="text-muted-foreground">Únicos:</span>
+                        <span className="ml-1 font-medium">{progressDetails.ads_after_dedup.toLocaleString()}</span>
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              )} */}
             </div>
           )}
         </div>
@@ -2084,7 +2114,7 @@ export default function PacksPage() {
       </Modal>
 
       {/* Confirmation Dialog */}
-      <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Deletando pack "${packToRemove?.name}" e todos os dados relacionados do servidor...` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
+      <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Excluindo os dados do pack "${packToRemove?.name}..."` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} loadingText="Deletando..." layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>
         {!isDeleting && (
           <div className="py-4">
             <div className="bg-border p-4 rounded-lg">

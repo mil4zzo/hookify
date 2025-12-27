@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta, date
 
 from app.core.supabase_client import get_supabase_for_user
@@ -195,7 +196,13 @@ def _process_pack_deletion_in_batches(
     return (to_update_ids, to_delete_ids)
 
 
-def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Optional[str], pack_id: Optional[str] = None) -> None:
+def upsert_ads(
+    user_jwt: str,
+    formatted_ads: List[Dict[str, Any]],
+    user_id: Optional[str],
+    pack_id: Optional[str] = None,
+    on_batch_progress: Optional[Callable[[int, int], None]] = None,
+) -> None:
     """Upsert de identidade + creative dos anúncios na tabela ads.
 
     - Requer: ad_id
@@ -376,6 +383,16 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
         try:
             sb.table("ads").upsert(batch, on_conflict="ad_id,user_id").execute()
             logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
+            # Chamar callback ANTES do delay para feedback imediato
+            if on_batch_progress:
+                try:
+                    on_batch_progress(batch_num, total_batches)
+                except Exception:
+                    # Callback é best-effort e não deve quebrar persistência
+                    pass
+            # Pequeno delay entre batches para não sobrecarregar Supabase e dar tempo de processar updates
+            if batch_num < total_batches:  # Não delay no último batch
+                time.sleep(0.1)
         except Exception as e:
             # Se a migration ainda não foi aplicada no ambiente, reprocessar removendo colunas novas
             msg = str(e or "")
@@ -393,6 +410,11 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
                     cleaned.append(rr)
                 sb.table("ads").upsert(cleaned, on_conflict="ad_id,user_id").execute()
                 logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} reprocessado sem thumb_* ({len(cleaned)} registros)")
+                if on_batch_progress:
+                    try:
+                        on_batch_progress(batch_num, total_batches)
+                    except Exception:
+                        pass
             else:
                 logger.error(f"[UPSERT_ADS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
                 # Re-lançar para que o caller possa tratar o erro
@@ -401,7 +423,13 @@ def upsert_ads(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Opti
     logger.info(f"[UPSERT_ADS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
 
-def upsert_ad_metrics(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_id: Optional[str], pack_id: Optional[str] = None) -> None:
+def upsert_ad_metrics(
+    user_jwt: str,
+    formatted_ads: List[Dict[str, Any]],
+    user_id: Optional[str],
+    pack_id: Optional[str] = None,
+    on_batch_progress: Optional[Callable[[int, int], None]] = None,
+) -> None:
     """Upsert diário por (ad_id, date) com métricas agregáveis/derivadas e jsonb auxiliares.
     - Requer: ad_id e date (YYYY-MM-DD)
     - Denormaliza ids/nomes para evitar joins em rankings/dashboards
@@ -577,6 +605,15 @@ def upsert_ad_metrics(user_jwt: str, formatted_ads: List[Dict[str, Any]], user_i
         try:
             sb.table("ad_metrics").upsert(batch, on_conflict="id,user_id").execute()
             logger.info(f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
+            # Chamar callback ANTES do delay para feedback imediato
+            if on_batch_progress:
+                try:
+                    on_batch_progress(batch_num, total_batches)
+                except Exception:
+                    pass
+            # Pequeno delay entre batches para não sobrecarregar Supabase e dar tempo de processar updates
+            if batch_num < total_batches:  # Não delay no último batch
+                time.sleep(0.1)
         except Exception as e:
             logger.error(f"[UPSERT_AD_METRICS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
             # Re-lançar para que o caller possa tratar o erro
@@ -732,24 +769,15 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
                 metrics_filters
             )
         except Exception as filter_error:
-            # Fallback: buscar todas métricas do usuário e filtrar em Python
-            logger.warning(f"[CALCULATE_PACK_STATS] Erro ao usar filtro pack_ids, usando fallback: {filter_error}")
-            
-            def all_metrics_filters(q):
-                return q.eq("user_id", user_id)
-            
-            all_metrics = _fetch_all_paginated(
-                sb,
-                "ad_metrics",
-                "ad_id, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency, hold_rate, connect_rate, website_ctr, profile_ctr, video_watched_p50, actions, conversions, pack_ids",
-                all_metrics_filters
+            # IMPORTANTE:
+            # O fallback antigo varria TODAS as métricas do usuário e filtrava em Python.
+            # Em produção isso pode ser enorme e travar requests e jobs (especialmente durante persistência).
+            # Melhor prática aqui é degradar com segurança (stats best-effort) e preservar a saúde do sistema.
+            logger.warning(
+                f"[CALCULATE_PACK_STATS] Erro ao filtrar ad_metrics por pack_ids (cs) para pack {pack_id}; "
+                f"pulando cálculo de stats (best-effort). Erro: {filter_error}"
             )
-            
-            # Filtrar em Python
-            metrics = [
-                m for m in all_metrics 
-                if m.get("pack_ids") and pack_id in (m.get("pack_ids") or [])
-            ]
+            return {}
         
         if not metrics:
             return {

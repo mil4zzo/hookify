@@ -42,6 +42,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
+import { useActiveJobsStore } from "@/lib/store/activeJobs";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
@@ -71,6 +72,7 @@ export default function Topbar() {
   const [isConfirmingUpdate, setIsConfirmingUpdate] = useState(false);
   const [refreshingPackId, setRefreshingPackId] = useState<string | null>(null);
   const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
+  const { addActiveJob, removeActiveJob } = useActiveJobsStore();
   const { updatePack } = useClientPacks();
 
   // Verificar conexões quando carregarem na aba de contas
@@ -461,12 +463,22 @@ export default function Topbar() {
     const toastId = `refresh-pack-${packId}`;
     showProgressToast(toastId, packName, 0, 1, "Inicializando...");
 
+    let refreshResult: { job_id?: string; date_range?: { since: string; until: string } } | null = null; // Para poder limpar no finally
     try {
       // Iniciar refresh com tipo padrão "since_last_refresh"
-      const refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), "since_last_refresh");
+      refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), "since_last_refresh");
 
       if (!refreshResult.job_id) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
+        setRefreshingPackId(null);
+        removeUpdatingPack(packId);
+        return;
+      }
+
+      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
+      if (!addActiveJob(refreshResult.job_id)) {
+        console.warn(`Polling já ativo para job ${refreshResult.job_id}. Ignorando nova tentativa...`);
+        finishProgressToast(toastId, false, `Este job já está sendo processado. Aguarde a conclusão.`);
         setRefreshingPackId(null);
         removeUpdatingPack(packId);
         return;
@@ -537,6 +549,10 @@ export default function Topbar() {
       console.error(`Erro ao atualizar pack ${packId}:`, error);
       finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
     } finally {
+      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
+      if (refreshResult?.job_id) {
+        removeActiveJob(refreshResult.job_id);
+      }
       setRefreshingPackId(null);
       removeUpdatingPack(packId);
     }

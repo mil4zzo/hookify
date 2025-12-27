@@ -142,7 +142,7 @@ export function useLoadPacks() {
     return () => {
       window.removeEventListener('pack-integration-updated', handleIntegrationUpdate as unknown as EventListener)
     }
-  }, [isClient, isAuthenticated, user?.id, packs.length, addPack, updatePack])
+  }, [isClient, isAuthenticated, user?.id]) // Removido packs.length, addPack, updatePack para evitar re-execuções desnecessárias
 
   return { isLoading }
 }

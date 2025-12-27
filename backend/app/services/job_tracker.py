@@ -157,7 +157,7 @@ class JobTracker:
                     job_id,
                     status=STATUS_PROCESSING,
                     progress=100,
-                    message="Iniciando processamento interno...",
+                    message="Iniciando coleta de anúncios...",
                     details={"stage": STAGE_PAGINATION, "started_processing_at": _now_iso()}
                 )
                 logger.info(f"[JobTracker] Job {job_id} marcado como processing")
@@ -179,7 +179,7 @@ class JobTracker:
             job_id,
             status=STATUS_META_COMPLETED,
             progress=100,
-            message="Meta API concluiu. Aguardando processamento..."
+            message="Iniciando coleta de anúncios..."
         )
     
     def mark_processing(
@@ -192,11 +192,20 @@ class JobTracker:
         full_details = {"stage": stage}
         if details:
             full_details.update(details)
+        
+        # Mensagens customizadas por stage
+        stage_messages = {
+            STAGE_PAGINATION: "Coletando dados: bloco 1...",
+            STAGE_ENRICHMENT: "Enriquecendo dados...",
+            STAGE_FORMATTING: "Deixando tudo perfeito...",
+        }
+        message = stage_messages.get(stage, f"Processando: {stage}...")
+        
         return self.heartbeat(
             job_id,
             status=STATUS_PROCESSING,
             progress=100,
-            message=f"Processando: {stage}...",
+            message=message,
             details=full_details
         )
     
@@ -228,7 +237,7 @@ class JobTracker:
             job_id,
             status=STATUS_COMPLETED,
             progress=100,
-            message=f"Concluído! {result_count} anúncios processados.",
+            message=f"Concluído! {result_count} anúncios coletados.",
             details=full_details,
             result_count=result_count
         )
@@ -313,6 +322,8 @@ class JobTracker:
 def get_job_tracker(user_jwt: str, user_id: str) -> JobTracker:
     """Factory function para criar JobTracker."""
     return JobTracker(user_jwt, user_id)
+
+
 
 
 

@@ -327,6 +327,8 @@ def get_job_progress(
     O frontend recebe respostas rápidas e não fica bloqueado.
     """
     try:
+        from datetime import datetime, timezone
+
         user_jwt = user["token"]
         user_id = user["user_id"]
         
@@ -336,6 +338,20 @@ def get_job_progress(
         # 1) Verificar status atual no Supabase (rápido)
         job = tracker.get_job(job_id)
         current_status = job.get("status") if job else None
+
+        def _is_job_stale(job_row: Dict[str, Any], stale_threshold_seconds: int = 120) -> bool:
+            # Sem updated_at, assumir stale para tentar self-healing
+            updated_at_str = job_row.get("updated_at")
+            if not updated_at_str:
+                return True
+            try:
+                # updated_at costuma vir ISO com Z
+                updated_at = datetime.fromisoformat(str(updated_at_str).replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                return (now - updated_at).total_seconds() > stale_threshold_seconds
+            except Exception:
+                # Se não conseguir parsear, tentar retomar
+                return True
         
         # Se job já está em estado final, retornar diretamente
         if current_status == STATUS_COMPLETED:
@@ -349,7 +365,7 @@ def get_job_progress(
         # Se job está em processing/persisting, retornar progresso atual (background está trabalhando)
         if current_status in (STATUS_PROCESSING, STATUS_PERSISTING):
             # Verificar se precisa retomar (self-healing para jobs "stale")
-            if tracker.should_resume_processing(job_id):
+            if job and _is_job_stale(job):
                 logger.warning(f"[JOB_PROGRESS] Job {job_id} parece stale, tentando retomar...")
                 # Buscar token do Facebook para reprocessar
                 fb_token = get_facebook_token_for_user(user_jwt, user_id)
@@ -406,14 +422,10 @@ def get_job_progress(
                 job_id, 
                 status=STATUS_META_RUNNING,
                 progress=meta_percent,
-                message=f"Meta API processando... {meta_percent}%"
+                message="Solicitando pack ao Meta...",
+                details={"stage": "meta_processing"}
             )
-            return {
-                "status": "running",
-                "progress": meta_percent,
-                "message": f"Meta API processando... {meta_percent}%",
-                "details": {"stage": "meta_processing"}
-            }
+            return tracker.get_public_progress(job_id)
         
         elif meta_job_status == "failed":
             # Meta falhou
@@ -431,11 +443,7 @@ def get_job_progress(
                     }
                 )
             
-            return {
-                "status": "failed",
-                "progress": 0,
-                "message": error_msg
-            }
+            return tracker.get_public_progress(job_id)
         
         elif meta_job_status == "completed":
             # Meta completou! Disparar processamento em background
@@ -456,20 +464,18 @@ def get_job_progress(
                 )
                 logger.info(f"[JOB_PROGRESS] Processamento em background iniciado para job {job_id}")
             
-            return {
-                "status": "processing",
-                "progress": 100,
-                "message": "Processando dados coletados...",
-                "details": {"stage": "paginação"}
-            }
+            return tracker.get_public_progress(job_id)
         
         else:
-            # Status desconhecido
-            return {
-                "status": "running",
-                "progress": meta_percent,
-                "message": f"Status: {meta_job_status}"
-            }
+            # Status desconhecido - atualizar e retornar do banco
+            tracker.heartbeat(
+                job_id,
+                status=STATUS_META_RUNNING,
+                progress=meta_percent,
+                message=f"Status: {meta_job_status}",
+                details={"stage": "meta_processing"}
+            )
+            return tracker.get_public_progress(job_id)
     
     except HTTPException:
         raise

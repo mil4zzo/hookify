@@ -27,6 +27,16 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  webpack: (config, { isServer }) => {
+    // Otimizar cache para strings grandes
+    if (config.cache) {
+      config.cache = {
+        ...config.cache,
+        compression: 'gzip' as const,
+      };
+    }
+    return config;
+  },
 }
 
 export default nextConfig

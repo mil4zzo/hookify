@@ -42,6 +42,8 @@ export interface ConfirmDialogProps {
   cancelIcon?: React.ReactNode;
   /** Layout do diálogo (padrão: "centered") */
   layout?: "centered" | "left-aligned";
+  /** Texto customizado para o botão quando está em loading (padrão: "Processando...") */
+  loadingText?: string;
 }
 
 const variantClasses = {
@@ -50,7 +52,7 @@ const variantClasses = {
   success: "bg-green-600 hover:bg-green-700 text-white",
 };
 
-export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText = "Confirmar", cancelText = "Cancelar", variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered" }: ConfirmDialogProps) {
+export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText = "Confirmar", cancelText = "Cancelar", variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered", loadingText = "Processando..." }: ConfirmDialogProps) {
   // Se não especificado, não permite fechar durante loading
   const canClose = !isLoading;
   const effectiveCloseOnOverlayClick = closeOnOverlayClick ?? canClose;
@@ -91,7 +93,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
             {isLoading ? (
               <>
                 <IconLoader2 className="h-4 w-4 animate-spin" />
-                Processando...
+                {loadingText}
               </>
             ) : (
               <>
@@ -105,4 +107,6 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
     </Modal>
   );
 }
+
+
 

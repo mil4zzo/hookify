@@ -215,7 +215,10 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
   };
 
   const daysCount = calculateDays(pack.date_start, pack.date_stop);
+  const isSameDate = pack.date_start === pack.date_stop;
+  const dateStartDisplay = isToday(pack.date_start) ? "HOJE" : formatDate(pack.date_start);
   const dateEndDisplay = isToday(pack.date_stop) ? "HOJE" : formatDate(pack.date_stop);
+  const dateRangeDisplay = isSameDate ? dateStartDisplay : `${formatDate(pack.date_start)} → ${dateEndDisplay}`;
 
   return (
     <div className="relative inline-block w-full">
@@ -308,7 +311,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                   {/* Date range */}
                   <div className="flex items-center text-sm gap-1.5">
                     <span>
-                      {formatDate(pack.date_start)} → {dateEndDisplay}
+                      {dateRangeDisplay}
                     </span>
                     {pack.auto_refresh && !isToday(pack.date_stop) && (
                       <TooltipProvider>
@@ -387,7 +390,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                     e.stopPropagation();
                   }}
                 >
-                  <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} labelLeft="Atualização automática:" variant="default" size="md" className="w-full justify-between" labelClassName="text-sm text-foreground" switchClassName="data-[state=checked]:bg-green-500" />
+                  <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} labelLeft="Manter atualizado:" variant="default" size="md" className="w-full justify-between" labelClassName="text-sm text-foreground" switchClassName="data-[state=checked]:bg-green-500" />
                 </div>
                 <div
                   className="relative z-20"
