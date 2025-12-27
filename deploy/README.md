@@ -72,6 +72,22 @@ cd /var/www/hookify/deploy
 ./deploy.sh
 ```
 
+### Opções de Build
+
+O script `deploy.sh` agora usa **cache por padrão** para builds mais rápidos e eficientes:
+
+- **Build com cache (padrão)**: `./deploy.sh`
+  - Reutiliza layers do Docker quando possível
+  - Mais rápido e usa menos espaço em disco
+  - Recomendado para a maioria dos casos
+
+- **Build sem cache**: `./deploy.sh --no-cache`
+  - Força rebuild completo de todas as imagens
+  - Útil quando há problemas de cache ou dependências
+  - Mais lento, mas garante build limpo
+
+**Nota**: O script automaticamente limpa imagens antigas/orfãs após cada build para evitar acúmulo de espaço.
+
 ## 📊 Monitoramento
 
 ### Ver logs em tempo real:
@@ -141,6 +157,10 @@ docker compose restart frontend
 
 ### Rebuild sem cache:
 ```bash
+# Opção 1: Usar o script com flag
+./deploy.sh --no-cache
+
+# Opção 2: Manualmente
 docker compose build --no-cache
 docker compose up -d
 ```

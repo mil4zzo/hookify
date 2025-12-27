@@ -6,6 +6,17 @@ echo "🚀 Iniciando deploy do Hookify..."
 PROJECT_DIR="/var/www/hookify"
 DEPLOY_DIR="$PROJECT_DIR/deploy"
 
+# Verificar se foi passada flag --no-cache
+USE_CACHE=true
+if [ "$1" == "--no-cache" ]; then
+    USE_CACHE=false
+    echo "⚠️  Modo: Build sem cache (rebuild completo)"
+else
+    echo "💡 Modo: Build com cache (mais rápido, reutiliza layers)"
+    echo "   Use './deploy.sh --no-cache' para forçar rebuild completo"
+fi
+echo ""
+
 cd $PROJECT_DIR
 
 # Função para verificar espaço em disco
@@ -114,8 +125,19 @@ echo "🐳 Parando containers existentes..."
 cd $DEPLOY_DIR
 docker compose down || echo "⚠️  Nenhum container rodando"
 
-echo "🔨 Fazendo build das imagens..."
-docker compose build --no-cache
+# Fazer build com ou sem cache dependendo da flag
+if [ "$USE_CACHE" == "true" ]; then
+    echo "🔨 Fazendo build das imagens (com cache - reutilizando layers)..."
+    docker compose build
+else
+    echo "🔨 Fazendo build das imagens (sem cache - rebuild completo)..."
+    docker compose build --no-cache
+fi
+
+echo "🧹 Removendo imagens antigas/orfãs do projeto..."
+# Remover imagens dangling (sem tag) - imagens antigas que não estão sendo usadas
+# Isso remove automaticamente imagens que foram substituídas por novas builds
+docker image prune -f || true
 
 echo "🚀 Iniciando containers..."
 docker compose up -d
