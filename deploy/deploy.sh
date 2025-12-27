@@ -8,6 +8,72 @@ DEPLOY_DIR="$PROJECT_DIR/deploy"
 
 cd $PROJECT_DIR
 
+# Função para verificar espaço em disco
+check_disk_space() {
+    echo "💾 Verificando espaço em disco..."
+    
+    # Obter espaço disponível em KB (partição raiz)
+    AVAILABLE_SPACE_KB=$(df / | tail -1 | awk '{print $4}')
+    AVAILABLE_SPACE_GB=$(df -h / | tail -1 | awk '{print $4}')
+    
+    # Requer pelo menos 5GB (5242880 KB) para build seguro
+    REQUIRED_SPACE_KB=5242880
+    
+    if [ "$AVAILABLE_SPACE_KB" -lt "$REQUIRED_SPACE_KB" ]; then
+        echo "⚠️  AVISO: Espaço em disco baixo!"
+        echo "   Espaço disponível: ${AVAILABLE_SPACE_GB}"
+        echo "   Espaço recomendado: 5GB"
+        echo ""
+        echo "💡 Opções:"
+        echo "   1. Executar limpeza automática do Docker (recomendado)"
+        echo "   2. Continuar mesmo assim (pode falhar)"
+        echo "   3. Cancelar e executar limpeza manual"
+        echo ""
+        read -p "Escolha uma opção (1/2/3): " -n 1 -r
+        echo
+        
+        case $REPLY in
+            1)
+                echo "🧹 Executando limpeza automática..."
+                if [ -f "$DEPLOY_DIR/cleanup.sh" ]; then
+                    bash "$DEPLOY_DIR/cleanup.sh"
+                else
+                    echo "⚠️  Script cleanup.sh não encontrado, executando limpeza básica..."
+                    docker system prune -a --volumes -f
+                fi
+                echo ""
+                echo "💾 Verificando espaço novamente..."
+                NEW_AVAILABLE_SPACE_KB=$(df / | tail -1 | awk '{print $4}')
+                NEW_AVAILABLE_SPACE_GB=$(df -h / | tail -1 | awk '{print $4}')
+                echo "   Novo espaço disponível: ${NEW_AVAILABLE_SPACE_GB}"
+                
+                if [ "$NEW_AVAILABLE_SPACE_KB" -lt "$REQUIRED_SPACE_KB" ]; then
+                    echo "❌ Ainda há pouco espaço. Por favor, libere mais espaço manualmente."
+                    exit 1
+                fi
+                ;;
+            2)
+                echo "⚠️  Continuando com espaço baixo (pode falhar)..."
+                ;;
+            3)
+                echo "❌ Deploy cancelado. Execute manualmente:"
+                echo "   cd $DEPLOY_DIR && bash cleanup.sh"
+                exit 1
+                ;;
+            *)
+                echo "❌ Opção inválida. Deploy cancelado."
+                exit 1
+                ;;
+        esac
+    else
+        echo "✅ Espaço em disco suficiente: ${AVAILABLE_SPACE_GB}"
+    fi
+    echo ""
+}
+
+# Verificar espaço antes de continuar
+check_disk_space
+
 echo "📦 Fazendo pull do código..."
 git pull origin main || echo "⚠️  Git pull falhou, continuando com código local..."
 

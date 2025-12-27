@@ -59,7 +59,7 @@ Ou configure o Traefik para criar/gerenciar a rede automaticamente.
 
 ```bash
 cd /var/www/hookify/deploy
-chmod +x deploy.sh
+chmod +x deploy.sh cleanup.sh
 ./deploy.sh
 ```
 
@@ -99,6 +99,33 @@ curl http://localhost:8000/health
 curl https://hookifyads.com
 ```
 
+## 🧹 Limpeza de Espaço em Disco
+
+### Limpeza Automática (Recomendado)
+O script `deploy.sh` agora verifica automaticamente o espaço em disco antes do build. Se houver pouco espaço, você pode optar por executar uma limpeza automática.
+
+### Limpeza Manual
+Execute o script de limpeza para remover recursos Docker não utilizados:
+
+```bash
+cd /var/www/hookify/deploy
+chmod +x cleanup.sh
+./cleanup.sh
+```
+
+Este script remove:
+- Containers parados
+- Imagens não utilizadas
+- Volumes não utilizados
+- Build cache
+- Networks não utilizadas
+
+### Verificar Espaço em Disco
+```bash
+df -h
+docker system df
+```
+
 ## 🛠️ Comandos Úteis
 
 ### Parar serviços:
@@ -124,6 +151,16 @@ docker stats
 ```
 
 ## 🔧 Troubleshooting
+
+### Erro "no space left on device"
+Se você encontrar este erro durante o build:
+
+1. **Opção Automática**: O `deploy.sh` detecta automaticamente e oferece limpeza
+2. **Opção Manual**: Execute `./cleanup.sh` antes do deploy
+3. **Limpeza Completa**: 
+   ```bash
+   docker system prune -a --volumes -f
+   ```
 
 ### Container não inicia:
 ```bash

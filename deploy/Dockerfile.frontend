@@ -16,16 +16,19 @@ ENV NEXT_PUBLIC_USE_REMOTE_API=$NEXT_PUBLIC_USE_REMOTE_API
 ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
 
-# Copiar arquivos de dependências
+# Copiar apenas arquivos de dependências primeiro (para cache de layers)
 COPY package*.json ./
+
+# Instalar dependências com limpeza automática de cache
+RUN npm ci --prefer-offline --no-audit && \
+    npm cache clean --force
+
+# Copiar arquivos de configuração
 COPY tsconfig.json ./
 COPY next.config.ts ./
 COPY tailwind.config.ts ./
 COPY postcss.config.js ./
 COPY components.json ./
-
-# Instalar dependências
-RUN npm ci
 
 # Copiar código fonte
 COPY app/ ./app/
@@ -39,6 +42,11 @@ COPY next-env.d.ts ./
 
 # Build da aplicação
 RUN npm run build
+
+# Limpar node_modules de desenvolvimento após o build e reinstalar apenas produção
+RUN rm -rf node_modules && \
+    npm ci --only=production --prefer-offline --no-audit && \
+    npm cache clean --force
 
 # Imagem de produção
 FROM node:20-alpine AS runner
