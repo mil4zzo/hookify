@@ -857,6 +857,7 @@ export default function RankingsPage() {
         availableConversionTypes={uniqueConversionTypes}
         showTrends={showTrends}
         hasSheetIntegration={selectedPacks.some((p) => !!p.sheet_integration)}
+        isLoading={loading}
         averagesOverride={(() => {
           // Preferir sempre médias baseadas em anúncios validados; se não houver, usar médias brutas do backend como fallback
           const base = validatedAveragesForAverages || serverAverages || null;

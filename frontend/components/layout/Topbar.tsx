@@ -442,6 +442,70 @@ export default function Topbar() {
   };
 
   // Função para confirmar e executar atualização
+  /**
+   * Faz polling do job de sincronização do Google Sheets em paralelo
+   */
+  const pollSheetSyncJob = async (
+    syncJobId: string,
+    toastId: string,
+    packName: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    let completed = false;
+    let attempts = 0;
+    const maxAttempts = 300; // 10 minutos máximo (300 * 2s = 600s)
+
+    while (!completed && attempts < maxAttempts) {
+      await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
+
+      try {
+        const progress = await api.integrations.google.getSyncJobProgress(syncJobId);
+        const details = (progress as any)?.details || {};
+
+        // Atualizar mensagem baseada no estágio
+        let message = progress.message || "Sincronizando planilha...";
+        if (details.stage === "lendo_planilha") {
+          message = `Lendo planilha... ${details.rows_read || 0} linhas`;
+        } else if (details.stage === "processando_dados") {
+          message = `Processando dados... ${details.rows_processed || 0} linhas`;
+        } else if (details.stage === "persistindo") {
+          message = "Salvando dados de enriquecimento...";
+        }
+
+        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, message);
+
+        if (progress.status === "completed") {
+          const stats = (progress as any)?.stats || {};
+          const updatedRows = stats.rows_updated || stats.updated_rows || 0;
+          finishProgressToast(
+            toastId,
+            true,
+            `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
+          );
+          return { success: true };
+        } else if (progress.status === "failed" || progress.status === "error") {
+          finishProgressToast(
+            toastId,
+            false,
+            `Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`
+          );
+          return { success: false, error: progress.message || "Erro desconhecido" };
+        }
+      } catch (error) {
+        console.error(`Erro ao verificar progresso do sync job ${syncJobId}:`, error);
+        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...");
+      }
+
+      attempts++;
+    }
+
+    if (!completed) {
+      finishProgressToast(toastId, false, `Timeout ao sincronizar planilha (demorou mais de 10 minutos)`);
+      return { success: false, error: "Timeout" };
+    }
+
+    return { success: false, error: "Job não completou" };
+  };
+
   const handleConfirmUpdate = async () => {
     if (!selectedPackId || refreshingPackId) return;
 
@@ -464,6 +528,9 @@ export default function Topbar() {
     showProgressToast(toastId, packName, 0, 1, "Inicializando...");
 
     let refreshResult: { job_id?: string; date_range?: { since: string; until: string } } | null = null; // Para poder limpar no finally
+    let sheetSyncJobId: string | null = null;
+    let sheetSyncToastId: string | null = null;
+    
     try {
       // Iniciar refresh com tipo padrão "since_last_refresh"
       refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), "since_last_refresh");
@@ -505,6 +572,22 @@ export default function Topbar() {
 
         try {
           const progress = await api.facebook.getJobProgress(refreshResult.job_id);
+          const details = (progress as any)?.details || {};
+          
+          // Verificar se há sync_job_id e ainda não iniciamos o polling de Sheets
+          if (details.sync_job_id && !sheetSyncJobId) {
+            sheetSyncJobId = details.sync_job_id;
+            sheetSyncToastId = `sync-sheet-${packId}`;
+            
+            // Iniciar polling paralelo do job de Sheets
+            showProgressToast(sheetSyncToastId, `Planilha: ${packName}`, 0, 1, "Iniciando sincronização...");
+            
+            // Executar polling em paralelo (não bloquear)
+            pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, packName).catch((error) => {
+              console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
+            });
+          }
+          
           const currentDay = estimateCurrentDay(progress.progress || 0, totalDays);
           updateProgressToast(toastId, packName, currentDay, totalDays, progress.message || undefined);
 

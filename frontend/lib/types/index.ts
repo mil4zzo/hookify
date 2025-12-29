@@ -39,6 +39,7 @@ export interface AdsPack {
   sheet_integration?: SheetIntegration & {
     spreadsheet_name?: string // Adicionado pelo backend ao buscar nomes das planilhas
   }
+  last_refreshed_at?: string // Data do último refresh no formato YYYY-MM-DD
   created_at: string
   updated_at: string
 }

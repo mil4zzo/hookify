@@ -103,11 +103,11 @@ export function useLoadPacks() {
                 date_stop: pack.date_stop,
                 level: pack.level || 'ad',
                 filters: pack.filters || [],
-                ads: [],
                 auto_refresh: pack.auto_refresh || false,
                 stats: stats || undefined,
                 created_at: pack.created_at,
                 updated_at: pack.updated_at,
+                last_refreshed_at: pack.last_refreshed_at || undefined, // Incluir last_refreshed_at se disponível
                 sheet_integration: pack.sheet_integration || undefined, // Incluir dados de integração se disponível
               }
             })

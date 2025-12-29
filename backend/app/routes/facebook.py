@@ -741,7 +741,67 @@ def refresh_pack(
             
             raise HTTPException(status_code=502, detail=error_msg)
         
-        # Registrar job no Supabase com payload indicando que é refresh
+        # Preparar payload do job
+        payload_data = {
+            "pack_id": pack_id,
+            "adaccount_id": pack["adaccount_id"],
+            "date_start": since_str,
+            "date_stop": until_str,
+            "level": pack.get("level", "ad"),
+            "filters": filters,
+            "name": pack.get("name", ""),
+            "auto_refresh": pack.get("auto_refresh", False),
+            "is_refresh": True,  # Flag para identificar que é refresh
+        }
+        
+        # Verificar se pack tem integração Sheets e criar job paralelo ANTES de iniciar processamento
+        # Isso permite que o frontend veja ambos os toasts simultaneamente desde o início
+        sheet_integration_id = pack.get("sheet_integration_id")
+        sync_job_id = None
+        
+        if sheet_integration_id:
+            try:
+                from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
+                import threading
+                
+                logger.info(f"[REFRESH_PACK] Pack {pack_id} tem integração Sheets ({sheet_integration_id}). Criando job paralelo...")
+                
+                # Criar job de sincronização ANTES de iniciar processamento Meta
+                sync_job_id = create_sync_job(
+                    user_jwt=user["token"],
+                    user_id=user["user_id"],
+                    integration_id=sheet_integration_id,
+                )
+                
+                # Adicionar sync_job_id no payload desde o início (em details para o frontend acessar)
+                payload_data["details"] = {
+                    "sync_job_id": sync_job_id,
+                    "has_sheet_sync": True
+                }
+                
+                # Iniciar processamento em thread separada (não bloqueia)
+                def run_sync():
+                    try:
+                        logger.info(f"[REFRESH_PACK] Iniciando processamento do sync job {sync_job_id} em thread separada")
+                        process_sync_job(
+                            user_jwt=user["token"],
+                            user_id=user["user_id"],
+                            job_id=sync_job_id,
+                            integration_id=sheet_integration_id,
+                        )
+                        logger.info(f"[REFRESH_PACK] Sync job {sync_job_id} concluído com sucesso")
+                    except Exception as e:
+                        logger.error(f"[REFRESH_PACK] Erro ao processar sync job {sync_job_id}: {e}")
+                
+                thread = threading.Thread(target=run_sync, daemon=True)
+                thread.start()
+                logger.info(f"[REFRESH_PACK] Thread de sync Sheets iniciada para job {sync_job_id}")
+                
+            except Exception as e:
+                # Não falhar refresh se criação do sync job falhar
+                logger.warning(f"[REFRESH_PACK] Erro ao criar job de sync Sheets para pack {pack_id}: {e}")
+        
+        # Registrar job no Supabase com payload (já incluindo sync_job_id se houver)
         try:
             supabase_repo.record_job(
                 user["token"],
@@ -750,17 +810,7 @@ def refresh_pack(
                 user_id=user["user_id"],
                 progress=0,
                 message="Refresh de pack iniciado",
-                payload={
-                    "pack_id": pack_id,
-                    "adaccount_id": pack["adaccount_id"],
-                    "date_start": since_str,
-                    "date_stop": until_str,
-                    "level": pack.get("level", "ad"),
-                    "filters": filters,
-                    "name": pack.get("name", ""),
-                    "auto_refresh": pack.get("auto_refresh", False),
-                    "is_refresh": True,  # Flag para identificar que é refresh
-                }
+                payload=payload_data
             )
         except Exception:
             logger.exception("Falha ao registrar job no Supabase (refresh)")

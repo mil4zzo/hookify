@@ -109,10 +109,33 @@ export function ToggleSwitch({ id, checked, onCheckedChange, label, labelLeft, l
   const effectiveLabelLeft = labelLeft;
   const effectiveLabelRight = labelRight || (label && !labelLeft ? label : undefined);
 
+  // Quando ambos os labels estão presentes, alternar text-muted baseado no estado do toggle
+  // Quando checked = false: labelLeft está ativo (sem muted), labelRight está inativo (com muted)
+  // Quando checked = true: labelLeft está inativo (com muted), labelRight está ativo (sem muted)
+  const hasBothLabels = effectiveLabelLeft && effectiveLabelRight;
+  const leftLabelClasses = cn(
+    "flex items-center gap-1",
+    labelVariants({ size }),
+    "transition-colors duration-200", // Transição suave para mudança de cor
+    disabled && "text-muted-foreground cursor-not-allowed",
+    !disabled && "cursor-pointer",
+    hasBothLabels && checked && "text-muted-foreground", // Quando ligado, labelLeft está inativo
+    labelClassName
+  );
+  const rightLabelClasses = cn(
+    "flex items-center gap-1",
+    labelVariants({ size }),
+    "transition-colors duration-200", // Transição suave para mudança de cor
+    disabled && "text-muted-foreground cursor-not-allowed",
+    !disabled && "cursor-pointer",
+    hasBothLabels && !checked && "text-muted-foreground", // Quando desligado, labelRight está inativo
+    labelClassName
+  );
+
   const content = (
     <>
       {effectiveLabelLeft && (
-        <label htmlFor={id} className={cn("flex items-center gap-1", labelVariants({ size }), disabled && "text-muted-foreground cursor-not-allowed", !disabled && "cursor-pointer", labelClassName)}>
+        <label htmlFor={id} className={leftLabelClasses}>
           {icon && <span className="flex-shrink-0">{icon}</span>}
           {effectiveLabelLeft}
         </label>
@@ -121,7 +144,7 @@ export function ToggleSwitch({ id, checked, onCheckedChange, label, labelLeft, l
       <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className={switchClassName} />
 
       {effectiveLabelRight && (
-        <label htmlFor={id} className={cn("flex items-center gap-1", labelVariants({ size }), disabled && "text-muted-foreground cursor-not-allowed", !disabled && "cursor-pointer", labelClassName)}>
+        <label htmlFor={id} className={rightLabelClasses}>
           {icon && !effectiveLabelLeft && <span className="flex-shrink-0">{icon}</span>}
           {effectiveLabelRight}
         </label>

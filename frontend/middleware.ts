@@ -60,7 +60,10 @@ export async function middleware(req: NextRequest) {
   }
   
   // Se está logado e tenta acessar login/signup, redirecionar para packs
-  if ((pathname === '/login' || pathname === '/signup') && session) {
+  // EXCETO se houver parâmetro ?logout=true (permite acesso após logout mesmo com cookies residuais)
+  // Isso resolve o problema onde cookies ainda não foram completamente limpos após signOut
+  const isLogoutRequest = req.nextUrl.searchParams.get('logout') === 'true'
+  if ((pathname === '/login' || pathname === '/signup') && session && !isLogoutRequest) {
     const url = req.nextUrl.clone()
     url.pathname = '/packs'
     return NextResponse.redirect(url)

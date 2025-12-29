@@ -152,7 +152,12 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   const isBetter = isLowerBetter ? averageValue != null && ad.metricValue < averageValue : isAboveAverage;
 
   // Calcular diff percentual (sempre positivo quando melhor)
-  const diffFromAverage = averageValue != null && averageValue > 0 ? Math.abs(((ad.metricValue - averageValue) / averageValue) * 100) : null;
+  const diffFromAverage = (() => {
+    if (averageValue == null || averageValue <= 0) return null;
+    if (ad.metricValue == null || !Number.isFinite(ad.metricValue)) return null;
+    const diff = Math.abs(((ad.metricValue - averageValue) / averageValue) * 100);
+    return Number.isFinite(diff) ? diff : null;
+  })();
 
   // Função para determinar a cor baseada na relação atual/média (similar a OpportunityWidget.tsx)
   const getValueColor = (current: number, average: number | null | undefined, metricKeyForColor: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "cpmql" | "connect_rate"): string => {

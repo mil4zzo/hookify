@@ -363,6 +363,10 @@ class JobProcessor:
                     # Stats é best-effort: não travar job por isso
                     logger.warning(f"[JobProcessor] Stats não calculados/salvos para pack {pack_id} (best-effort)")
             
+            # Nota: O job de sincronização do Google Sheets é criado no endpoint refresh_pack
+            # ANTES de iniciar o processamento do Meta, para que o frontend possa ver ambos os toasts
+            # simultaneamente desde o início. Não precisamos criar aqui.
+            
             return pack_id
             
         except ValueError as e:

@@ -46,6 +46,8 @@ interface RankingsTableProps {
   };
   /** Indica se há integração de planilha (Google Sheets) em pelo menos um dos packs selecionados */
   hasSheetIntegration?: boolean;
+  /** Indica se os dados estão sendo carregados */
+  isLoading?: boolean;
 }
 
 const columnHelper = createColumnHelper<Ad>();
@@ -306,7 +308,7 @@ function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, for
   );
 }
 
-export function RankingsTable({ ads, groupByAdName = true, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false }: RankingsTableProps) {
+export function RankingsTable({ ads, groupByAdName = true, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false }: RankingsTableProps) {
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [videoOpen, setVideoOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<{ videoId: string; actorId: string; title: string } | null>(null);
@@ -1242,11 +1244,13 @@ export function RankingsTable({ ads, groupByAdName = true, actionType = "", endD
           </thead>
           <tbody>
             {table.getRowModel().rows.length === 0 ? (
-              <tr>
-                <td colSpan={table.getAllColumns().length} className="p-8 text-center text-muted-foreground">
-                  Nenhum dado disponível para exibir.
-                </td>
-              </tr>
+              isLoading ? null : (
+                <tr>
+                  <td colSpan={table.getAllColumns().length} className="p-8 text-center text-muted-foreground">
+                    Nenhum dado disponível para exibir.
+                  </td>
+                </tr>
+              )
             ) : (
               table.getRowModel().rows.map((row, index) => {
                 const key = getRowKey(row);

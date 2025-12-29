@@ -64,8 +64,12 @@ export function useSupabaseAuth() {
 
   const signOut = useCallback(async () => {
     const supabase = getSupabaseClient()
-    const { error } = await supabase.auth.signOut()
+    // Limpar sessão e todos os cookies relacionados
+    const { error } = await supabase.auth.signOut({ scope: 'global' })
     if (error) throw error
+    // Aguardar um pouco para garantir que os cookies sejam limpos
+    // Isso é necessário porque o middleware pode verificar os cookies antes que sejam completamente removidos
+    await new Promise(resolve => setTimeout(resolve, 100))
   }, [])
 
   return {
