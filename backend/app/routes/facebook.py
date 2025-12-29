@@ -843,3 +843,43 @@ def refresh_pack(
         except:
             pass
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/jobs/cancel-batch")
+def cancel_jobs_batch(
+    request: Dict[str, Any] = Body(...),
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Cancela múltiplos jobs de uma vez (útil para logout).
+    
+    Request body:
+    {
+        "job_ids": ["job_id_1", "job_id_2", ...],
+        "reason": "Cancelado durante logout" (opcional)
+    }
+    """
+    try:
+        job_ids = request.get("job_ids", [])
+        reason = request.get("reason", "Cancelado durante logout")
+        
+        if not job_ids:
+            return {"cancelled_count": 0, "total_requested": 0, "message": "Nenhum job para cancelar"}
+        
+        if not isinstance(job_ids, list):
+            raise HTTPException(status_code=400, detail="job_ids deve ser uma lista")
+        
+        tracker = get_job_tracker(user["token"], user["user_id"])
+        cancelled_count = tracker.cancel_jobs_batch(job_ids, reason)
+        
+        logger.info(f"[CANCEL_JOBS_BATCH] Cancelados {cancelled_count}/{len(job_ids)} jobs para usuário {user['user_id']}")
+        
+        return {
+            "cancelled_count": cancelled_count,
+            "total_requested": len(job_ids),
+            "message": f"{cancelled_count} job(s) cancelado(s)"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[CANCEL_JOBS_BATCH] Erro ao cancelar jobs: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

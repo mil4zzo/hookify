@@ -91,6 +91,9 @@ export const api = {
     
     refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh"): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string } }> =>
       apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType }),
+    
+    cancelJobsBatch: (jobIds: string[], reason?: string): Promise<{ cancelled_count: number; total_requested: number; message: string }> =>
+      apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout' }),
   },
 
   // Analytics (Supabase)

@@ -482,7 +482,7 @@ export default function Topbar() {
             `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
           );
           return { success: true };
-        } else if (progress.status === "failed" || progress.status === "error") {
+        } else if (progress.status === "failed") {
           finishProgressToast(
             toastId,
             false,
@@ -583,9 +583,11 @@ export default function Topbar() {
             showProgressToast(sheetSyncToastId, `Planilha: ${packName}`, 0, 1, "Iniciando sincronização...");
             
             // Executar polling em paralelo (não bloquear)
-            pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, packName).catch((error) => {
-              console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
-            });
+            if (sheetSyncJobId) {
+              pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, packName).catch((error) => {
+                console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
+              });
+            }
           }
           
           const currentDay = estimateCurrentDay(progress.progress || 0, totalDays);
@@ -618,7 +620,7 @@ export default function Topbar() {
             }
 
             completed = true;
-          } else if (progress.status === "failed" || progress.status === "error") {
+          } else if (progress.status === "failed") {
             finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
             completed = true;
           }

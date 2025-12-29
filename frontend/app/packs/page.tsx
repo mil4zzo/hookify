@@ -683,7 +683,7 @@ export default function PacksPage() {
           } else if (progress.status === "completed") {
             stageEmoji = "✅";
             stagePercent = 100;
-          } else if (progress.status === "failed" || progress.status === "error") {
+          } else if (progress.status === "failed") {
             stageEmoji = "❌";
             stagePercent = 0;
           }
@@ -842,7 +842,7 @@ export default function PacksPage() {
 
             // Limpar refs após sucesso
             createdPackIdRef.current = null;
-          } else if (progress.status === "failed" || progress.status === "error") {
+          } else if (progress.status === "failed") {
             throw new Error(progress.message || "Job falhou");
           }
         } catch (error) {
@@ -1327,7 +1327,7 @@ export default function PacksPage() {
             `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
           );
           return { success: true };
-        } else if (progress.status === "failed" || progress.status === "error") {
+        } else if (progress.status === "failed") {
           finishProgressToast(
             toastId,
             false,
@@ -1425,9 +1425,11 @@ export default function PacksPage() {
             showProgressToast(sheetSyncToastId, `Planilha: ${packName}`, 0, 1, "Iniciando sincronização...");
             
             // Executar polling em paralelo (não bloquear)
-            pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, packName).catch((error) => {
-              console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
-            });
+            if (sheetSyncJobId) {
+              pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, packName).catch((error) => {
+                console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
+              });
+            }
           }
 
           // Estimar dia atual baseado no progresso
@@ -1468,7 +1470,7 @@ export default function PacksPage() {
             }
 
             completed = true;
-          } else if (progress.status === "failed" || progress.status === "error") {
+          } else if (progress.status === "failed") {
             finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
             completed = true;
           }

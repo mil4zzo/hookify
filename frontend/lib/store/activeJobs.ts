@@ -5,6 +5,7 @@ interface ActiveJobsStore {
   addActiveJob: (jobId: string) => boolean; // retorna false se já existe
   removeActiveJob: (jobId: string) => void;
   isJobActive: (jobId: string) => boolean;
+  clearAll: () => void; // Limpa todos os jobs ativos
 }
 
 export const useActiveJobsStore = create<ActiveJobsStore>((set, get) => ({
@@ -25,6 +26,9 @@ export const useActiveJobsStore = create<ActiveJobsStore>((set, get) => ({
   },
   isJobActive: (jobId: string) => {
     return get().activeJobIds.has(jobId);
+  },
+  clearAll: () => {
+    set({ activeJobIds: new Set() });
   },
 }));
 

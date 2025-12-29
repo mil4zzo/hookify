@@ -188,7 +188,7 @@ export function useAutoRefreshPacks() {
             `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
           );
           return { success: true };
-        } else if (progress.status === "failed" || progress.status === "error") {
+        } else if (progress.status === "failed") {
           finishProgressToast(
             toastId,
             false,
@@ -279,9 +279,11 @@ export function useAutoRefreshPacks() {
             showProgressToast(sheetSyncToastId, `Planilha: ${pack.name}`, 0, 1, "Iniciando sincronização...");
             
             // Executar polling em paralelo (não bloquear)
-            pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, pack.name).catch((error) => {
-              console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
-            });
+            if (sheetSyncJobId) {
+              pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, pack.name).catch((error) => {
+                console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
+              });
+            }
           }
           
           // Estimar progresso baseado no estágio
@@ -343,7 +345,7 @@ export function useAutoRefreshPacks() {
             
             completed = true;
             removeUpdatingPack(pack.id);
-          } else if (progress.status === "failed" || progress.status === "error") {
+          } else if (progress.status === "failed") {
             finishProgressToast(
               toastId,
               false,

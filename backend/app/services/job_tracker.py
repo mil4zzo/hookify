@@ -12,7 +12,7 @@ Estados do job:
 """
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from app.core.supabase_client import get_supabase_for_user
 
 logger = logging.getLogger(__name__)
@@ -251,6 +251,37 @@ class JobTracker:
             message=f"Erro: {error_message}",
             details={"stage": "erro", "error": error_message}
         )
+    
+    def mark_cancelled(self, job_id: str, reason: str = "Cancelado pelo usuário") -> bool:
+        """Marca job como cancelled."""
+        return self.heartbeat(
+            job_id,
+            status=STATUS_CANCELLED,
+            progress=0,
+            message=f"Cancelado: {reason}",
+            details={"stage": "cancelado", "cancelled_at": _now_iso(), "reason": reason}
+        )
+    
+    def cancel_jobs_batch(self, job_ids: List[str], reason: str = "Cancelado durante logout") -> int:
+        """Cancela múltiplos jobs de uma vez. Retorna quantidade cancelada."""
+        cancelled_count = 0
+        for job_id in job_ids:
+            try:
+                # Verificar se o job existe e está em estado cancelável
+                job = self.get_job(job_id)
+                if job:
+                    current_status = job.get("status")
+                    # Só cancelar se não estiver em estado final
+                    if current_status not in (STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED):
+                        if self.mark_cancelled(job_id, reason):
+                            cancelled_count += 1
+                            logger.info(f"[JobTracker] Job {job_id} cancelado: {reason}")
+                    else:
+                        logger.debug(f"[JobTracker] Job {job_id} já está em estado final ({current_status}), ignorando cancelamento")
+            except Exception as e:
+                logger.warning(f"[JobTracker] Erro ao cancelar job {job_id}: {e}")
+                # Continuar com os próximos jobs mesmo se um falhar
+        return cancelled_count
     
     def get_public_progress(self, job_id: str) -> Dict[str, Any]:
         """Retorna progresso público do job para o frontend."""
