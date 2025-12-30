@@ -172,7 +172,7 @@ def get_graph_api(user: Dict[str, Any] = Depends(get_current_user)) -> GraphAPI:
                 }
             )
         
-        return GraphAPI(fb_token)
+        return GraphAPI(fb_token, user_id=user_id)
         
     except TokenFetchError as e:
         # Erro ao buscar token (ex: banco indisponível)

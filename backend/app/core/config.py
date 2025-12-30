@@ -15,7 +15,8 @@ FACEBOOK_TOKEN_URL = os.getenv("FACEBOOK_TOKEN_URL", "https://graph.facebook.com
 
 # Facebook OAuth scopes
 # Nota: para obter o vídeo (Video.source) de anúncios de forma consistente, geralmente é necessário
-# conseguir um Page Access Token via /me/accounts (token de usuário + permissões de Pages).
+# conseguir um Page Access Token. No Hookify, nós resolvemos isso via:
+# /me/adaccounts?fields=...promote_pages{access_token} (token de usuário + permissões adequadas).
 # Em produção, permissões de Pages podem exigir App Review dependendo do cenário.
 FACEBOOK_OAUTH_SCOPES = os.getenv(
     "FACEBOOK_OAUTH_SCOPES",

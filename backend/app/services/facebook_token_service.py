@@ -6,6 +6,7 @@ import threading
 from typing import Optional, Dict, Any, Tuple
 from app.core.supabase_client import get_supabase_for_user
 from app.services.token_encryption import decrypt_token
+from app.services.facebook_page_token_service import invalidate_page_token_cache
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,8 @@ def invalidate_token_cache(user_id: str) -> None:
     with _cache_lock:
         _token_cache.pop(user_id, None)
         _failed_users.pop(user_id, None)
+    # Invalidação em cascata: Page Access Tokens dependem do user access_token.
+    invalidate_page_token_cache(user_id)
     logger.debug(f"[FB_TOKEN] Cache invalidated for user {user_id[:8]}...")
 
 def get_cache_stats() -> Dict[str, Any]:

@@ -109,7 +109,7 @@ def connect_callback(
         logger.warning(f"Facebook returned invalid expires_in value: {expires_in} (type: {type(expires_in)}). Token expiration will not be saved.")
 
     # Validate by fetching user info
-    api = GraphAPI(access_token)
+    api = GraphAPI(access_token, user_id=user.get("user_id"))
     info = api.get_account_info()
     if info.get("status") != "success":
         raise HTTPException(status_code=400, detail=f"Invalid access token: {info.get('message')}")

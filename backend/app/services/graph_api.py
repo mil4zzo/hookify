@@ -5,6 +5,7 @@ import logging
 from typing import Any, Dict, List, Optional, Union
 import requests
 from app.services.dataformatter import split_date_range, format_ads_for_api
+from app.services.facebook_page_token_service import get_page_access_token_for_page_id
 
 logger = logging.getLogger(__name__)
 
@@ -53,10 +54,11 @@ def test_facebook_connection(access_token: str) -> Dict[str, Any]:
         return {'status': 'error', 'message': str(err)}
 
 class GraphAPI:
-    def __init__(self, access_token: str):
+    def __init__(self, access_token: str, user_id: Optional[str] = None):
         self.base_url = "https://graph.facebook.com/v22.0/"
+        self.access_token = access_token
         self.user_token = f"?access_token={access_token}"
-        self.page_token: Optional[str] = None
+        self.user_id = user_id
         self.limit = 5000
         self.level = "ad"
         self.action_attribution_windows = '["7d_click","1d_view"]'
@@ -153,20 +155,35 @@ class GraphAPI:
             return {'status': 'error', 'message': str(err)}
 
     def get_page_access_token(self, actor_id: str) -> str:
-        url = self.base_url + 'me/accounts' + self.user_token
-        response = requests.get(url)
-        response.raise_for_status()
-        pages = response.json().get('data', [])
-        for page in pages:
-            if page['id'] == actor_id:
-                self.page_token = f"?access_token={page['access_token']}"
-                return self.page_token
-        
-        # Fallback: se a página não for encontrada, usar token do usuário
-        # Isso pode funcionar se o vídeo for acessível com o token do usuário
+        """
+        Resolve o Page Access Token a partir do actor_id (Page ID) sem chamar /me/accounts.
+
+        Estratégia:
+        - Usa /me/adaccounts?fields=...promote_pages{access_token} com cache em memória por user_id.
+        - Fallback: se não encontrar token da página, usa token do usuário (pode funcionar em alguns casos).
+        """
+        if not actor_id:
+            return self.user_token
+
+        # Sem user_id (ex.: fluxos de validação/diagnóstico), não cacheia e não tenta resolver.
+        if not self.user_id:
+            return self.user_token
+
+        try:
+            page_access_token = get_page_access_token_for_page_id(
+                user_id=self.user_id,
+                user_access_token=self.access_token,
+                page_id=str(actor_id),
+                graph_base_url=self.base_url,
+            )
+            if page_access_token:
+                return f"?access_token={page_access_token}"
+        except Exception as e:
+            logger.warning("get_page_access_token fallback to user token due to error: %s", e)
+
         logger.warning(
-            f"Sua conta do Facebook não tem acesso direto à página {actor_id}. "
-            f"Tentando usar token do usuário como alternativa."
+            "Não foi possível resolver Page Access Token para page_id=%s. Usando token do usuário como fallback.",
+            actor_id,
         )
         return self.user_token
 
