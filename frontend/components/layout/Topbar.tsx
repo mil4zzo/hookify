@@ -218,7 +218,7 @@ export default function Topbar() {
       updateSettings(defaultSettings);
 
       // Limpar preferências de packs do localStorage
-      const packPreferenceKeys = ["hookify-selected-packs", "hookify-insights-selected-packs", "hookify-rankings-selected-packs", "hookify-insights-date-range", "hookify-rankings-date-range", "hookify-packs-date-range", "hookify-insights-gems-columns", "hookify-insights-action-type", "hookify-insights-group-by-packs", "hookify-insights-use-pack-dates", "hookify-insights-pack-action-types", "hookify-insights-active-tab", "hookify-rankings-action-type", "hookify-rankings-show-trends", "hookify-rankings-use-pack-dates"];
+      const packPreferenceKeys = ["hookify-selected-packs", "hookify-insights-selected-packs", "hookify-manager-selected-packs", "hookify-insights-date-range", "hookify-manager-date-range", "hookify-packs-date-range", "hookify-insights-gems-columns", "hookify-insights-action-type", "hookify-insights-group-by-packs", "hookify-insights-use-pack-dates", "hookify-insights-pack-action-types", "hookify-insights-active-tab", "hookify-manager-action-type", "hookify-manager-show-trends", "hookify-manager-use-pack-dates"];
 
       packPreferenceKeys.forEach((key) => {
         localStorage.removeItem(key);
@@ -1168,7 +1168,7 @@ export default function Topbar() {
                                   }
                                 }}
                                 disabled={isLoadingMql || isSavingMql}
-                                className="w-full"
+                                className="w-full [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                                 placeholder="0"
                               />
                               <p className="text-xs text-muted-foreground">Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs</p>

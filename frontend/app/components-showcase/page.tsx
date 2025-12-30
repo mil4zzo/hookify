@@ -14,7 +14,7 @@ import { Modal } from "@/components/common/Modal";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { DateRangeFilter } from "@/components/common/DateRangeFilter";
 import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
-import { RankingsTable } from "@/components/rankings/RankingsTable";
+import { ManagerTable } from "@/components/manager/ManagerTable";
 
 interface ColorVariable {
   name: string;
@@ -224,7 +224,7 @@ export default function ComponentsShowcase() {
               <Input type="text" placeholder="Digite algo..." />
               <Input type="email" placeholder="email@exemplo.com" />
               <Input type="password" placeholder="Senha" />
-              <Input type="number" placeholder="Número" />
+              <Input type="number" placeholder="Número" className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" />
               <Input disabled placeholder="Desabilitado" />
             </CardContent>
           </Card>
@@ -529,16 +529,16 @@ export default function ComponentsShowcase() {
         </div>
       </section>
 
-      {/* RankingsTable */}
+      {/* ManagerTable */}
       <section className="space-y-4">
-        <h2 className="text-2xl font-semibold mb-4">RankingsTable</h2>
+        <h2 className="text-2xl font-semibold mb-4">ManagerTable</h2>
         <Card>
           <CardHeader>
-            <CardTitle>Tabela de Rankings</CardTitle>
-            <CardDescription>Componente completo de rankings com sparklines e métricas</CardDescription>
+            <CardTitle>Tabela de Manager</CardTitle>
+            <CardDescription>Componente completo de manager com sparklines e métricas</CardDescription>
           </CardHeader>
           <CardContent>
-            <RankingsTable
+            <ManagerTable
               ads={[
                 {
                   ad_name: "Anúncio Premium - Produto A",

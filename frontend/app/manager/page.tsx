@@ -4,7 +4,7 @@ import { useMemo, useState, useEffect } from "react";
 import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
-import { RankingsTable } from "@/components/rankings/RankingsTable";
+import { ManagerTable } from "@/components/manager/ManagerTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api/endpoints";
 import { RankingsRequest, RankingsResponse } from "@/lib/api/schemas";
@@ -20,7 +20,7 @@ import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { IconCompass } from "@tabler/icons-react";
 
-// Chaves compartilhadas entre Insights e Rankings
+// Chaves compartilhadas entre Insights e Manager
 const STORAGE_KEY_PACKS = "hookify-selected-packs";
 const STORAGE_KEY_ACTION_TYPE = "hookify-action-type";
 const STORAGE_KEY_DATE_RANGE = "hookify-date-range";
@@ -45,26 +45,26 @@ const loadPackPreferences = (): PackPreferences => {
     // Primeiro tentar carregar da chave compartilhada
     let saved = localStorage.getItem(STORAGE_KEY_PACKS);
 
-    // Se não existir, tentar migrar das chaves antigas (insights ou rankings)
+    // Se não existir, tentar migrar das chaves antigas (insights ou manager)
     if (!saved) {
       const insightsKey = "hookify-insights-selected-packs";
-      const rankingsKey = "hookify-rankings-selected-packs";
+      const managerKey = "hookify-manager-selected-packs";
       const insightsSaved = localStorage.getItem(insightsKey);
-      const rankingsSaved = localStorage.getItem(rankingsKey);
+      const managerSaved = localStorage.getItem(managerKey);
 
-      // Priorizar insights, depois rankings
+      // Priorizar insights, depois manager
       if (insightsSaved) {
         saved = insightsSaved;
         // Migrar para chave compartilhada
         localStorage.setItem(STORAGE_KEY_PACKS, insightsSaved);
         // Opcional: remover chave antiga após migração
         localStorage.removeItem(insightsKey);
-      } else if (rankingsSaved) {
-        saved = rankingsSaved;
+      } else if (managerSaved) {
+        saved = managerSaved;
         // Migrar para chave compartilhada
-        localStorage.setItem(STORAGE_KEY_PACKS, rankingsSaved);
+        localStorage.setItem(STORAGE_KEY_PACKS, managerSaved);
         // Opcional: remover chave antiga após migração
-        localStorage.removeItem(rankingsKey);
+        localStorage.removeItem(managerKey);
       }
     }
 
@@ -110,22 +110,22 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
     // Primeiro tentar carregar da chave compartilhada
     let saved = localStorage.getItem(STORAGE_KEY_DATE_RANGE);
 
-    // Se não existir, tentar migrar das chaves antigas (insights ou rankings)
+    // Se não existir, tentar migrar das chaves antigas (insights ou manager)
     if (!saved) {
       const insightsKey = "hookify-insights-date-range";
-      const rankingsKey = "hookify-rankings-date-range";
+      const managerKey = "hookify-manager-date-range";
       const insightsSaved = localStorage.getItem(insightsKey);
-      const rankingsSaved = localStorage.getItem(rankingsKey);
+      const managerSaved = localStorage.getItem(managerKey);
 
-      // Priorizar insights, depois rankings
+      // Priorizar insights, depois manager
       if (insightsSaved) {
         saved = insightsSaved;
         localStorage.setItem(STORAGE_KEY_DATE_RANGE, insightsSaved);
         localStorage.removeItem(insightsKey);
-      } else if (rankingsSaved) {
-        saved = rankingsSaved;
-        localStorage.setItem(STORAGE_KEY_DATE_RANGE, rankingsSaved);
-        localStorage.removeItem(rankingsKey);
+      } else if (managerSaved) {
+        saved = managerSaved;
+        localStorage.setItem(STORAGE_KEY_DATE_RANGE, managerSaved);
+        localStorage.removeItem(managerKey);
       }
     }
 
@@ -142,10 +142,10 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
   }
 };
 
-export default function RankingsPage() {
+export default function ManagerPage() {
   const { packs, isClient: packsClient } = useClientPacks();
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
-  // Ranking agora é sempre agrupado por nome (ad_name) sobre a mesma base
+  // Manager agora é sempre agrupado por nome (ad_name) sobre a mesma base
   // de Ad Performance consumida também pela página de Insights.
   const [actionType, setActionType] = useState<string>(() => {
     if (typeof window === "undefined") return "";
@@ -181,7 +181,7 @@ export default function RankingsPage() {
   const [showTrends, setShowTrends] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     try {
-      const saved = localStorage.getItem("hookify-rankings-show-trends");
+      const saved = localStorage.getItem("hookify-manager-show-trends");
       return saved !== "false"; // padrão é true (tendências)
     } catch (e) {
       console.error("Erro ao carregar showTrends do localStorage:", e);
@@ -211,19 +211,19 @@ export default function RankingsPage() {
       // Se não existir, tentar migrar das chaves antigas
       if (!saved) {
         const insightsKey = "hookify-insights-use-pack-dates";
-        const rankingsKey = "hookify-rankings-use-pack-dates";
+        const managerKey = "hookify-manager-use-pack-dates";
         const insightsSaved = localStorage.getItem(insightsKey);
-        const rankingsSaved = localStorage.getItem(rankingsKey);
+        const managerSaved = localStorage.getItem(managerKey);
 
-        // Priorizar insights, depois rankings
+        // Priorizar insights, depois manager
         if (insightsSaved) {
           saved = insightsSaved;
           localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, insightsSaved);
           localStorage.removeItem(insightsKey);
-        } else if (rankingsSaved) {
-          saved = rankingsSaved;
-          localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, rankingsSaved);
-          localStorage.removeItem(rankingsKey);
+        } else if (managerSaved) {
+          saved = managerSaved;
+          localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, managerSaved);
+          localStorage.removeItem(managerKey);
         }
       }
 
@@ -238,7 +238,7 @@ export default function RankingsPage() {
   const endDate = useMemo(() => dateRange.end, [dateRange.end]);
 
   // Usar hook semântico para buscar performance agregada de anúncios
-  const rankingsRequest: RankingsRequest = useMemo(
+  const managerRequest: RankingsRequest = useMemo(
     () => ({
       date_start: dateRange.start || "",
       date_stop: dateRange.end || "",
@@ -250,11 +250,11 @@ export default function RankingsPage() {
     [dateRange.start, dateRange.end]
   );
 
-  const { data: rankingsData, isLoading: loading, error: rankingsError } = useAdPerformance(rankingsRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
+  const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
 
   // Extrair dados do response
-  const serverData = rankingsData?.data || null;
-  const availableConversionTypes = rankingsData?.available_conversion_types || [];
+  const serverData = managerData?.data || null;
+  const availableConversionTypes = managerData?.available_conversion_types || [];
 
   const uniqueConversionTypes = useMemo(() => {
     return availableConversionTypes;
@@ -373,17 +373,17 @@ export default function RankingsPage() {
 
   // Atualizar serverAverages quando dados mudarem
   useEffect(() => {
-    if (rankingsData && (rankingsData as any).averages) {
-      setServerAverages((rankingsData as any).averages);
+    if (managerData && (managerData as any).averages) {
+      setServerAverages((managerData as any).averages);
     }
-  }, [rankingsData]);
+  }, [managerData]);
 
   // Tratar erros
   useEffect(() => {
-    if (rankingsError) {
-      console.error("Erro ao buscar rankings:", rankingsError);
+    if (managerError) {
+      console.error("Erro ao buscar manager:", managerError);
     }
-  }, [rankingsError]);
+  }, [managerError]);
 
   // Carregar e sincronizar preferências de packs quando packs estiverem disponíveis
   useEffect(() => {
@@ -441,46 +441,46 @@ export default function RankingsPage() {
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
 
-  // Função para verificar se um ranking pertence a algum pack selecionado
-  const isRankingInSelectedPacks = useMemo(() => {
-    return (ranking: any): boolean => {
+  // Função para verificar se um manager pertence a algum pack selecionado
+  const isManagerInSelectedPacks = useMemo(() => {
+    return (manager: any): boolean => {
       // Se nenhum pack está selecionado, não mostrar nada
       if (selectedPackIds.size === 0) return false;
 
       if (selectedPacks.length === 0) return false;
 
-      // Verificar se o ranking corresponde a algum ad dos packs selecionados
+      // Verificar se o manager corresponde a algum ad dos packs selecionados
       for (const pack of selectedPacks) {
         const packAds = packsAdsMap.get(pack.id) || [];
         if (packAds.length === 0) continue;
 
-        // Verificar se o ranking corresponde a algum ad do pack
+        // Verificar se o manager corresponde a algum ad do pack
         const matches = packAds.some((ad: any) => {
-          const rankingAdId = ranking.ad_id;
-          const rankingAdName = ranking.ad_name;
-          const rankingAccountId = ranking.account_id;
+          const managerAdId = manager.ad_id;
+          const managerAdName = manager.ad_name;
+          const managerAccountId = manager.account_id;
 
           const adId = ad.ad_id;
           const adName = ad.ad_name;
           const adAccountId = ad.account_id;
 
           // Se account_id estiver disponível, verificar primeiro
-          if (rankingAccountId && adAccountId) {
-            if (String(rankingAccountId).trim() !== String(adAccountId).trim()) {
+          if (managerAccountId && adAccountId) {
+            if (String(managerAccountId).trim() !== String(adAccountId).trim()) {
               return false; // Diferentes accounts, não corresponde
             }
           }
 
           // Comparar por ID primeiro (mais preciso)
-          if (rankingAdId && adId) {
-            if (String(rankingAdId).trim() === String(adId).trim()) {
+          if (managerAdId && adId) {
+            if (String(managerAdId).trim() === String(adId).trim()) {
               return true;
             }
           }
 
           // Comparar por nome (fallback)
-          if (rankingAdName && adName) {
-            if (String(rankingAdName).trim() === String(adName).trim()) {
+          if (managerAdName && adName) {
+            if (String(managerAdName).trim() === String(adName).trim()) {
               return true;
             }
           }
@@ -518,25 +518,25 @@ export default function RankingsPage() {
   const handleShowTrendsChange = (checked: boolean) => {
     setShowTrends(checked);
     try {
-      localStorage.setItem("hookify-rankings-show-trends", checked.toString());
+      localStorage.setItem("hookify-manager-show-trends", checked.toString());
     } catch (e) {
       console.error("Erro ao salvar showTrends no localStorage:", e);
     }
   };
 
   // Conjunto bruto do backend filtrado por packs selecionados
-  const filteredRankings = useMemo(() => {
+  const filteredManager = useMemo(() => {
     if (!serverData) return [];
-    return serverData.filter((row: any) => isRankingInSelectedPacks(row));
-  }, [serverData, isRankingInSelectedPacks]);
+    return serverData.filter((row: any) => isManagerInSelectedPacks(row));
+  }, [serverData, isManagerInSelectedPacks]);
 
   // Adaptar dados do servidor para a tabela existente (forma "ads" agregada)
   // Calcula results, cpr e page_conv localmente baseado no action_type selecionado
   // E filtra por packs selecionados
   const adsForTable = useMemo(() => {
-    if (!filteredRankings || filteredRankings.length === 0) return [] as any[];
+    if (!filteredManager || filteredManager.length === 0) return [] as any[];
 
-    let mappedData = filteredRankings.map((row: any) => {
+    let mappedData = filteredManager.map((row: any) => {
       // Calcular results baseado no action_type selecionado a partir de row.conversions
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
@@ -635,22 +635,22 @@ export default function RankingsPage() {
 
     // Retornar todos os anúncios filtrados por packs (sem filtro de validação)
     return mappedData;
-  }, [filteredRankings, actionType]);
+  }, [filteredManager, actionType]);
 
   // Conjunto de anúncios que passam pelos critérios de validação globais
   // Usado apenas para cálculo de médias (baseline de anúncios "maduros")
-  const [validatedRankingsForAverages, validatedAveragesForAverages] = useMemo(() => {
-    if (!filteredRankings || filteredRankings.length === 0) {
+  const [validatedManagerForAverages, validatedAveragesForAverages] = useMemo(() => {
+    if (!filteredManager || filteredManager.length === 0) {
       return [[], undefined] as [any[], any];
     }
 
     // Enquanto critérios ainda não carregaram ou não existem, considerar todos como validados
     if (!validationCriteria || validationCriteria.length === 0) {
-      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredRankings as any, actionType, uniqueConversionTypes);
-      return [filteredRankings, averagesFromAll] as [any[], any];
+      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredManager as any, actionType, uniqueConversionTypes);
+      return [filteredManager, averagesFromAll] as [any[], any];
     }
 
-    const validated = filteredRankings.filter((ad: any) => {
+    const validated = filteredManager.filter((ad: any) => {
       const impressions = Number(ad.impressions || 0);
       const spend = Number(ad.spend || 0);
       // CPM: priorizar valor do backend, senão calcular
@@ -686,7 +686,7 @@ export default function RankingsPage() {
 
     const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType, uniqueConversionTypes);
     return [validated, averagesFromValidated] as [any[], any];
-  }, [filteredRankings, validationCriteria, actionType, uniqueConversionTypes]);
+  }, [filteredManager, validationCriteria, actionType, uniqueConversionTypes]);
 
   if (!isClient) {
     return (
@@ -847,7 +847,7 @@ export default function RankingsPage() {
         </>
       }
     >
-      <RankingsTable
+      <ManagerTable
         ads={adsForTable}
         groupByAdName
         actionType={actionType}
@@ -884,3 +884,4 @@ export default function RankingsPage() {
     </PageContainer>
   );
 }
+

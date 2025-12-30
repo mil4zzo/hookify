@@ -29,11 +29,11 @@ export const pageConfigs: PageConfig[] = [
     showInMenu: true,
   },
   {
-    path: "/rankings",
-    title: "Rankings",
-    label: "Rankings",
+    path: "/manager",
+    title: "Manager",
+    label: "Manager",
     icon: IconTrophyFilled,
-    description: "Visualize rankings de performance dos seus anúncios",
+    description: "Gerencie e visualize performance dos seus anúncios",
     showInMenu: true,
   },
   {

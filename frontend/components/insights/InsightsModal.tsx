@@ -71,7 +71,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
   // Calcular número de conversões a partir de CPR e Spend
   const conversions = row.cpr_actual > 0 && Number.isFinite(row.cpr_actual) ? row.spend / row.cpr_actual : 0;
 
-  // Usar a mesma lógica canônica de MQL/CPMQL usada em RankingsTable / OpportunityRow
+  // Usar a mesma lógica canônica de MQL/CPMQL usada em ManagerTable / OpportunityRow
   const { mqlLeadscoreMin } = useMqlLeadscore();
   const { mqlCount: canonicalMqlCount, cpmql: canonicalCpmql } = useMemo(() => {
     const spend = Number(row.spend || 0);

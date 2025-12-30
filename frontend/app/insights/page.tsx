@@ -30,10 +30,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { HookifyWidget } from "@/components/common/HookifyWidget";
 
-// Insights e Rankings compartilham a mesma base de Ad Performance retornada
+// Insights e Manager compartilham a mesma base de Ad Performance retornada
 // pelo endpoint `/analytics/ad-performance` (histórico `/analytics/rankings`).
 // Aqui usamos esse snapshot para derivar oportunidades, Gems e Kanban.
-// Chaves compartilhadas entre Insights e Rankings
+// Chaves compartilhadas entre Insights e Manager
 const STORAGE_KEY_PACKS = "hookify-selected-packs";
 const STORAGE_KEY_ACTION_TYPE = "hookify-action-type";
 const STORAGE_KEY_DATE_RANGE = "hookify-date-range";
@@ -90,26 +90,26 @@ const loadPackPreferences = (): PackPreferences => {
     // Primeiro tentar carregar da chave compartilhada
     let saved = localStorage.getItem(STORAGE_KEY_PACKS);
     
-    // Se não existir, tentar migrar das chaves antigas (insights ou rankings)
+    // Se não existir, tentar migrar das chaves antigas (insights ou manager)
     if (!saved) {
       const insightsKey = "hookify-insights-selected-packs";
-      const rankingsKey = "hookify-rankings-selected-packs";
+      const managerKey = "hookify-manager-selected-packs";
       const insightsSaved = localStorage.getItem(insightsKey);
-      const rankingsSaved = localStorage.getItem(rankingsKey);
-      
-      // Priorizar insights, depois rankings
+      const managerSaved = localStorage.getItem(managerKey);
+
+      // Priorizar insights, depois manager
       if (insightsSaved) {
         saved = insightsSaved;
         // Migrar para chave compartilhada
         localStorage.setItem(STORAGE_KEY_PACKS, insightsSaved);
         // Opcional: remover chave antiga após migração
         localStorage.removeItem(insightsKey);
-      } else if (rankingsSaved) {
-        saved = rankingsSaved;
+      } else if (managerSaved) {
+        saved = managerSaved;
         // Migrar para chave compartilhada
-        localStorage.setItem(STORAGE_KEY_PACKS, rankingsSaved);
+        localStorage.setItem(STORAGE_KEY_PACKS, managerSaved);
         // Opcional: remover chave antiga após migração
-        localStorage.removeItem(rankingsKey);
+        localStorage.removeItem(managerKey);
       }
     }
     
@@ -152,22 +152,22 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
     // Primeiro tentar carregar da chave compartilhada
     let saved = localStorage.getItem(STORAGE_KEY_DATE_RANGE);
     
-    // Se não existir, tentar migrar das chaves antigas (insights ou rankings)
+    // Se não existir, tentar migrar das chaves antigas (insights ou manager)
     if (!saved) {
       const insightsKey = "hookify-insights-date-range";
-      const rankingsKey = "hookify-rankings-date-range";
+      const managerKey = "hookify-manager-date-range";
       const insightsSaved = localStorage.getItem(insightsKey);
-      const rankingsSaved = localStorage.getItem(rankingsKey);
-      
-      // Priorizar insights, depois rankings
+      const managerSaved = localStorage.getItem(managerKey);
+
+      // Priorizar insights, depois manager
       if (insightsSaved) {
         saved = insightsSaved;
         localStorage.setItem(STORAGE_KEY_DATE_RANGE, insightsSaved);
         localStorage.removeItem(insightsKey);
-      } else if (rankingsSaved) {
-        saved = rankingsSaved;
-        localStorage.setItem(STORAGE_KEY_DATE_RANGE, rankingsSaved);
-        localStorage.removeItem(rankingsKey);
+      } else if (managerSaved) {
+        saved = managerSaved;
+        localStorage.setItem(STORAGE_KEY_DATE_RANGE, managerSaved);
+        localStorage.removeItem(managerKey);
       }
     }
     
@@ -293,19 +293,19 @@ export default function InsightsPage() {
       // Se não existir, tentar migrar das chaves antigas
       if (!saved) {
         const insightsKey = "hookify-insights-use-pack-dates";
-        const rankingsKey = "hookify-rankings-use-pack-dates";
+        const managerKey = "hookify-manager-use-pack-dates";
         const insightsSaved = localStorage.getItem(insightsKey);
-        const rankingsSaved = localStorage.getItem(rankingsKey);
-        
-        // Priorizar insights, depois rankings
+        const managerSaved = localStorage.getItem(managerKey);
+
+        // Priorizar insights, depois manager
         if (insightsSaved) {
           saved = insightsSaved;
           localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, insightsSaved);
           localStorage.removeItem(insightsKey);
-        } else if (rankingsSaved) {
-          saved = rankingsSaved;
-          localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, rankingsSaved);
-          localStorage.removeItem(rankingsKey);
+        } else if (managerSaved) {
+          saved = managerSaved;
+          localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, managerSaved);
+          localStorage.removeItem(managerKey);
         }
       }
       
@@ -562,8 +562,8 @@ export default function InsightsPage() {
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
 
-  const isRankingInSelectedPacks = useMemo(() => {
-    return (ranking: any): boolean => {
+  const isAdInSelectedPacks = useMemo(() => {
+    return (ad: any): boolean => {
       if (selectedPackIds.size === 0) return false;
 
       if (selectedPacks.length === 0) return false;
@@ -572,29 +572,29 @@ export default function InsightsPage() {
         const packAds = packsAdsMap.get(pack.id) || [];
         if (packAds.length === 0) continue;
 
-        const matches = packAds.some((ad: any) => {
-          const rankingAdId = ranking.ad_id;
-          const rankingAdName = ranking.ad_name;
-          const rankingAccountId = ranking.account_id;
-
+        const matches = packAds.some((packAd: any) => {
           const adId = ad.ad_id;
           const adName = ad.ad_name;
           const adAccountId = ad.account_id;
 
-          if (rankingAccountId && adAccountId) {
-            if (String(rankingAccountId).trim() !== String(adAccountId).trim()) {
+          const packAdId = packAd.ad_id;
+          const packAdName = packAd.ad_name;
+          const packAdAccountId = packAd.account_id;
+
+          if (adAccountId && packAdAccountId) {
+            if (String(adAccountId).trim() !== String(packAdAccountId).trim()) {
               return false;
             }
           }
 
-          if (rankingAdId && adId) {
-            if (String(rankingAdId).trim() === String(adId).trim()) {
+          if (adId && packAdId) {
+            if (String(adId).trim() === String(packAdId).trim()) {
               return true;
             }
           }
 
-          if (rankingAdName && adName) {
-            if (String(rankingAdName).trim() === String(adName).trim()) {
+          if (adName && packAdName) {
+            if (String(adName).trim() === String(packAdName).trim()) {
               return true;
             }
           }
@@ -656,9 +656,9 @@ export default function InsightsPage() {
     }
   };
 
-  // Função para identificar qual pack pertence um ranking
-  const getRankingPackId = useMemo(() => {
-    return (ranking: any): string | null => {
+  // Função para identificar qual pack pertence um anúncio
+  const getAdPackId = useMemo(() => {
+    return (ad: any): string | null => {
       if (selectedPackIds.size === 0) return null;
       if (selectedPacks.length === 0) return null;
 
@@ -666,29 +666,29 @@ export default function InsightsPage() {
         const packAds = packsAdsMap.get(pack.id) || [];
         if (packAds.length === 0) continue;
 
-        const matches = packAds.some((ad: any) => {
-          const rankingAdId = ranking.ad_id;
-          const rankingAdName = ranking.ad_name;
-          const rankingAccountId = ranking.account_id;
-
+        const matches = packAds.some((packAd: any) => {
           const adId = ad.ad_id;
           const adName = ad.ad_name;
           const adAccountId = ad.account_id;
 
-          if (rankingAccountId && adAccountId) {
-            if (String(rankingAccountId).trim() !== String(adAccountId).trim()) {
+          const packAdId = packAd.ad_id;
+          const packAdName = packAd.ad_name;
+          const packAdAccountId = packAd.account_id;
+
+          if (adAccountId && packAdAccountId) {
+            if (String(adAccountId).trim() !== String(packAdAccountId).trim()) {
               return false;
             }
           }
 
-          if (rankingAdId && adId) {
-            if (String(rankingAdId).trim() === String(adId).trim()) {
+          if (adId && packAdId) {
+            if (String(adId).trim() === String(packAdId).trim()) {
               return true;
             }
           }
 
-          if (rankingAdName && adName) {
-            if (String(rankingAdName).trim() === String(adName).trim()) {
+          if (adName && packAdName) {
+            if (String(adName).trim() === String(packAdName).trim()) {
               return true;
             }
           }
@@ -704,27 +704,27 @@ export default function InsightsPage() {
   }, [selectedPackIds, selectedPacks, packsAdsMap]);
 
   // Conjunto bruto do backend filtrado por packs para o widget de oportunidades
-  const filteredRankings = useMemo(() => {
+  const filteredAds = useMemo(() => {
     if (!serverData) return [];
-    return serverData.filter((row: any) => isRankingInSelectedPacks(row));
-  }, [serverData, isRankingInSelectedPacks]);
+    return serverData.filter((row: any) => isAdInSelectedPacks(row));
+  }, [serverData, isAdInSelectedPacks]);
 
   // Critérios de validação globais configurados pelo usuário
   const { criteria: validationCriteria, isLoading: isLoadingCriteria } = useValidationCriteria();
 
   // Conjunto de anúncios que passam pelos critérios de validação globais (independente do widget)
-  const [validatedRankings, validatedAverages] = useMemo(() => {
-    if (!filteredRankings || filteredRankings.length === 0) {
+  const [validatedAds, validatedAverages] = useMemo(() => {
+    if (!filteredAds || filteredAds.length === 0) {
       return [[], undefined] as [any[], any];
     }
 
     // Enquanto critérios ainda não carregaram, considerar todos como validados
     if (!validationCriteria || validationCriteria.length === 0) {
-      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredRankings as any, actionType, uniqueConversionTypes);
-      return [filteredRankings, averagesFromAll] as [any[], any];
+      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredAds as any, actionType, uniqueConversionTypes);
+      return [filteredAds, averagesFromAll] as [any[], any];
     }
 
-    const validated = filteredRankings.filter((ad: any) => {
+    const validated = filteredAds.filter((ad: any) => {
       const impressions = Number(ad.impressions || 0);
       const spend = Number(ad.spend || 0);
       // CPM: priorizar valor do backend, senão calcular
@@ -759,47 +759,47 @@ export default function InsightsPage() {
 
     const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType, uniqueConversionTypes);
     return [validated, averagesFromValidated] as [any[], any];
-  }, [filteredRankings, validationCriteria, actionType, uniqueConversionTypes]);
+  }, [filteredAds, validationCriteria, actionType, uniqueConversionTypes]);
 
   // Top 5 de cada métrica reaproveitando a mesma lógica de Gems, usando apenas anúncios já validados
   const topHookFromGems: GemsTopItem[] = useMemo(() => {
-    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!validatedAds || validatedAds.length === 0) return [];
     if (!actionType) return [];
-    return computeTopMetric(validatedRankings as RankingsItem[], "hook", actionType, 5);
-  }, [validatedRankings, actionType]);
+    return computeTopMetric(validatedAds as RankingsItem[], "hook", actionType, 5);
+  }, [validatedAds, actionType]);
 
   const topWebsiteCtrFromGems: GemsTopItem[] = useMemo(() => {
-    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!validatedAds || validatedAds.length === 0) return [];
     if (!actionType) return [];
-    return computeTopMetric(validatedRankings as RankingsItem[], "website_ctr", actionType, 5);
-  }, [validatedRankings, actionType]);
+    return computeTopMetric(validatedAds as RankingsItem[], "website_ctr", actionType, 5);
+  }, [validatedAds, actionType]);
 
   const topCtrFromGems: GemsTopItem[] = useMemo(() => {
-    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!validatedAds || validatedAds.length === 0) return [];
     if (!actionType) return [];
-    return computeTopMetric(validatedRankings as RankingsItem[], "ctr", actionType, 5);
-  }, [validatedRankings, actionType]);
+    return computeTopMetric(validatedAds as RankingsItem[], "ctr", actionType, 5);
+  }, [validatedAds, actionType]);
 
   const topPageConvFromGems: GemsTopItem[] = useMemo(() => {
-    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!validatedAds || validatedAds.length === 0) return [];
     if (!actionType) return [];
-    return computeTopMetric(validatedRankings as RankingsItem[], "page_conv", actionType, 5);
-  }, [validatedRankings, actionType]);
+    return computeTopMetric(validatedAds as RankingsItem[], "page_conv", actionType, 5);
+  }, [validatedAds, actionType]);
 
   const topHoldRateFromGems: GemsTopItem[] = useMemo(() => {
-    if (!validatedRankings || validatedRankings.length === 0) return [];
+    if (!validatedAds || validatedAds.length === 0) return [];
     if (!actionType) return [];
-    return computeTopMetric(validatedRankings as RankingsItem[], "hold_rate", actionType, 5);
-  }, [validatedRankings, actionType]);
+    return computeTopMetric(validatedAds as RankingsItem[], "hold_rate", actionType, 5);
+  }, [validatedAds, actionType]);
 
   // Função para encontrar o anúncio original baseado no OpportunityRow
   const findAdFromOpportunityRow = useMemo(() => {
     return (row: OpportunityRow): RankingsItem | null => {
-      if (!filteredRankings || filteredRankings.length === 0) return null;
+      if (!filteredAds || filteredAds.length === 0) return null;
 
       // Tentar encontrar por ad_id primeiro
       if (row.ad_id) {
-        const foundById = filteredRankings.find((ad: any) => {
+        const foundById = filteredAds.find((ad: any) => {
           const adId = String(ad.ad_id || "").trim();
           const rowAdId = String(row.ad_id || "").trim();
           return adId && rowAdId && adId === rowAdId;
@@ -809,7 +809,7 @@ export default function InsightsPage() {
 
       // Tentar encontrar por ad_name
       if (row.ad_name) {
-        const foundByName = filteredRankings.find((ad: any) => {
+        const foundByName = filteredAds.find((ad: any) => {
           const adName = String(ad.ad_name || "").trim();
           const rowAdName = String(row.ad_name || "").trim();
           return adName && rowAdName && adName === rowAdName;
@@ -819,7 +819,7 @@ export default function InsightsPage() {
 
       return null;
     };
-  }, [filteredRankings]);
+  }, [filteredAds]);
 
   // Handler para quando um card de oportunidade é clicado
   const handleOpportunityCardClick = (row: OpportunityRow, openVideo: boolean = false) => {
@@ -834,10 +834,10 @@ export default function InsightsPage() {
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
   const opportunityRows = useMemo(() => {
-    if (!validatedRankings || validatedRankings.length === 0 || !validatedAverages) return [];
+    if (!validatedAds || validatedAds.length === 0 || !validatedAverages) return [];
     if (isLoadingCriteria) return [];
 
-    const eligibleAds = validatedRankings;
+    const eligibleAds = validatedAds;
     const spendTotal = eligibleAds.reduce((s: number, a: any) => s + Number(a.spend || 0), 0);
     return computeOpportunityScores({
       ads: eligibleAds,
@@ -847,37 +847,37 @@ export default function InsightsPage() {
       mqlLeadscoreMin,
       limit: 10,
     });
-  }, [validatedRankings, validatedAverages, actionType, isLoadingCriteria, mqlLeadscoreMin]);
+  }, [validatedAds, validatedAverages, actionType, isLoadingCriteria, mqlLeadscoreMin]);
 
   // Calcular rankings globais de métricas (para medalhas TOP 3)
   // IMPORTANTE: Os rankings são calculados apenas com anúncios que passam pelos critérios de validação
   // Se não houver critérios definidos (array vazio ou undefined), todos os anúncios são considerados
   const globalMetricRanks = useMemo(() => {
-    if (!filteredRankings || filteredRankings.length === 0) {
+    if (!filteredAds || filteredAds.length === 0) {
       return createEmptyMetricRanks();
     }
     // Passar validationCriteria apenas se houver critérios definidos (array não vazio)
     // Array vazio ou undefined significa "sem critérios" (todos os anúncios são válidos)
     const criteriaToUse = validationCriteria && validationCriteria.length > 0 ? validationCriteria : undefined;
-    return calculateGlobalMetricRanks(filteredRankings, {
+    return calculateGlobalMetricRanks(filteredAds, {
       validationCriteria: criteriaToUse,
       actionType,
       filterValidOnly: true,
       mqlLeadscoreMin,
     });
-  }, [filteredRankings, validationCriteria, actionType, mqlLeadscoreMin]);
+  }, [filteredAds, validationCriteria, actionType, mqlLeadscoreMin]);
 
   // Agrupar oportunidades por pack quando groupByPacks estiver ativo
   const opportunityRowsByPack = useMemo(() => {
-    if (!groupByPacks || !validatedRankings || validatedRankings.length === 0 || !validatedAverages) {
+    if (!groupByPacks || !validatedAds || validatedAds.length === 0 || !validatedAverages) {
       return null;
     }
     if (isLoadingCriteria) return null;
 
     // Agrupar ads por pack
     const adsByPack = new Map<string, any[]>();
-    validatedRankings.forEach((ad: any) => {
-      const packId = getRankingPackId(ad);
+    validatedAds.forEach((ad: any) => {
+      const packId = getAdPackId(ad);
       if (packId) {
         const packAds = adsByPack.get(packId) || [];
         packAds.push(ad);
@@ -905,7 +905,7 @@ export default function InsightsPage() {
     });
 
     return rowsByPack;
-  }, [groupByPacks, filteredRankings, averages, actionType, validationCriteria, isLoadingCriteria, getRankingPackId, packActionTypes]);
+  }, [groupByPacks, filteredAds, averages, actionType, validationCriteria, isLoadingCriteria, getAdPackId, packActionTypes]);
 
   // Configuração dinâmica do header baseada na tab ativa
   const headerConfig = useMemo(() => {
@@ -1166,7 +1166,7 @@ export default function InsightsPage() {
             contentSpacing="space-y-6"
           >
             {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
-              <InsightsKanbanWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />
+              <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />
             ) : (
               <div className="py-12">
                 <EmptyState message="Configure critérios de validação nas configurações para ver insights." />
@@ -1188,7 +1188,7 @@ export default function InsightsPage() {
             contentSpacing="space-y-6"
           >
             {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
-              <GemsWidget ads={filteredRankings} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} activeColumns={activeGemsColumns} />
+              <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} activeColumns={activeGemsColumns} />
             ) : (
               <div className="py-12">
                 <EmptyState message="Configure critérios de validação nas configurações para ver gems." />

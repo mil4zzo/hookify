@@ -86,6 +86,7 @@ export function ValidationCriteriaForm({
               min={0}
               value={value}
               onChange={(e) => setValue(Number(e.target.value || defaultImpressions))}
+              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
             />
           </div>
         </div>

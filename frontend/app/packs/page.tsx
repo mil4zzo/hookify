@@ -989,7 +989,7 @@ export default function PacksPage() {
       // Invalidar cache de ads do pack removido
       await invalidatePackAds(packToRemove.id);
 
-      // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+      // Invalidar dados agregados (ad performance) para atualizar Manager/Insights
       invalidateAdPerformance();
 
       showSuccess(`Pack "${packToRemove.name}" removido com sucesso!`);
@@ -1002,7 +1002,7 @@ export default function PacksPage() {
       // Invalidar cache mesmo se falhar no servidor
       await invalidatePackAds(packToRemove.id).catch(() => {});
 
-      // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+      // Invalidar dados agregados (ad performance) para atualizar Manager/Insights
       invalidateAdPerformance();
 
       showError({ message: `Pack removido localmente, mas houve erro ao deletar do servidor: ${error}` });
@@ -1462,7 +1462,7 @@ export default function PacksPage() {
                 }
               }
 
-              // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
+              // Invalidar dados agregados (ad performance) para atualizar Manager/Insights
               invalidateAdPerformance();
             } catch (error) {
               console.error("Erro ao recarregar pack após refresh:", error);

@@ -7,9 +7,9 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 import { AdInfoCard } from "@/components/ads/AdInfoCard";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { VideoDialog } from "@/components/ads/VideoDialog";
-import { createColumnHelper, getCoreRowModel, getSortedRowModel, useReactTable, flexRender } from "@tanstack/react-table";
+import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, flexRender, ColumnFiltersState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconArrowsSort, IconPlayerPlay, IconEye, IconAlertTriangle } from "@tabler/icons-react";
+import { IconArrowsSort, IconPlayerPlay, IconEye, IconAlertTriangle, IconX, IconArrowNarrowUp, IconArrowNarrowDown, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
 import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
@@ -22,6 +22,7 @@ import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ColumnFilter, FilterValue } from "@/components/common/ColumnFilter";
 
 type Ad = RankingsItem;
 
@@ -313,6 +314,7 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
   const [videoOpen, setVideoOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<{ videoId: string; actorId: string; title: string } | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   // Os dados já vêm agregados do servidor quando pais; não re-agregar aqui
   const data = useMemo(() => {
@@ -327,6 +329,36 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
   const formatPct = (v: number) => (v != null && !isNaN(v) ? `${Number(v).toFixed(2)}%` : "—");
   const formatNum = (v: number) => (v ? v.toLocaleString("pt-BR") : "—");
   // formatUsd agora usa formatCurrency diretamente dentro dos cells para reatividade
+
+  // Função helper para aplicar filtros numéricos
+  const applyNumericFilter = (rowValue: number | null | undefined, filterValue: FilterValue | undefined): boolean => {
+    if (!filterValue || filterValue.value === null || filterValue.value === undefined || isNaN(filterValue.value)) {
+      return true; // Sem filtro, mostrar tudo
+    }
+
+    if (rowValue === null || rowValue === undefined || isNaN(rowValue) || !isFinite(rowValue)) {
+      return false; // Valor inválido, não mostrar
+    }
+
+    const { operator, value: filterNum } = filterValue;
+
+    switch (operator) {
+      case ">":
+        return rowValue > filterNum!;
+      case "<":
+        return rowValue < filterNum!;
+      case ">=":
+        return rowValue >= filterNum!;
+      case "<=":
+        return rowValue <= filterNum!;
+      case "=":
+        return Math.abs(rowValue - filterNum!) < 0.0001; // Tolerância para comparação de floats
+      case "!=":
+        return Math.abs(rowValue - filterNum!) >= 0.0001;
+      default:
+        return true;
+    }
+  };
 
   type ManagerAverages = {
     count: number;
@@ -592,6 +624,9 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
     const s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
     // Obter axis (datas) da mesma fonte da série
     const dates = original.series?.axis || (endDate ? byKey.get(rowKey)?.axis : null);
+    // Normalizar s para sempre ser um array (padronizar undefined → array de nulls)
+    // Isso garante que sempre renderizamos o sparkline, mesmo quando não há dados
+    const normalizedSeries = s || (dates ? Array(dates.length).fill(null) : Array(5).fill(null));
 
     // Determinar se a métrica é "inversa" (menor é melhor: CPR, CPM e CPMQL)
     const isInverseMetric = metric === "cpr" || metric === "cpm" || metric === "cpmql";
@@ -674,25 +709,23 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
 
       return (
         <div className="flex flex-col items-center gap-3">
-          {s ? (
-            <SparklineBars
-              series={s}
-              size="small"
-              valueFormatter={(n: number) => {
-                if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
-                  return formatCurrency(n || 0);
-                }
-                // percent-based metrics
-                return `${(n * 100).toFixed(2)}%`;
-              }}
-              inverseColors={isInverseMetric}
-              packAverage={packAverageForMetric}
-              colorMode={useTrendMode ? "series" : undefined}
-              dataAvailability={dataAvailability}
-              zeroValueLabel={zeroValueLabel}
-              dates={dates}
-            />
-          ) : null}
+          <SparklineBars
+            series={normalizedSeries}
+            size="small"
+            valueFormatter={(n: number) => {
+              if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
+                return formatCurrency(n || 0);
+              }
+              // percent-based metrics
+              return `${(n * 100).toFixed(2)}%`;
+            }}
+            inverseColors={isInverseMetric}
+            packAverage={packAverageForMetric}
+            colorMode={useTrendMode ? "series" : undefined}
+            dataAvailability={dataAvailability}
+            zeroValueLabel={zeroValueLabel}
+            dates={dates}
+          />
           <span className="text-base font-medium leading-none">{value}</span>
         </div>
       );
@@ -739,7 +772,7 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         // connect_rate vem em decimal (0-1), média também vem em decimal
         break;
       case "page_conv":
-        // Se o ad já tem page_conv calculado (vem do ranking), usar esse valor
+        // Se o ad já tem page_conv calculado (vem do manager), usar esse valor
         if ("page_conv" in original && typeof (original as any).page_conv === "number" && !Number.isNaN((original as any).page_conv) && isFinite((original as any).page_conv)) {
           currentValue = (original as any).page_conv;
         } else if (actionType) {
@@ -953,14 +986,38 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
       }),
       // Hook (retention at 3s)
       columnHelper.accessor("hook", {
-        header: () => (
-          <div className="flex flex-col items-center gap-0.5">
-            <span>Hook</span>
-            {formatAverage("hook") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("hook")}</span>}
-          </div>
-        ),
+        header: ({ column }) => {
+          const filterValue = column.getFilterValue() as FilterValue | undefined;
+          return (
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="flex items-center gap-1">
+                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
+                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
+                <span>Hook</span>
+                <ColumnFilter
+                  value={filterValue}
+                  onChange={(value) => column.setFilterValue(value)}
+                  placeholder="Ex: 25"
+                />
+              </div>
+              {formatAverage("hook") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("hook")}</span>}
+            </div>
+          );
+        },
         size: 140,
         minSize: 100,
+        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+          const original = row.original as RankingsItem;
+          const hookValue = Number(original?.hook ?? 0);
+          // Hook vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
+          // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
+          const filterNum = filterValue?.value;
+          if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
+            const normalizedFilter = filterNum / 100;
+            return applyNumericFilter(hookValue, { ...filterValue!, value: normalizedFilter });
+          }
+          return true;
+        },
         cell: (info) => {
           // Pegar hook diretamente do row.original em caso do accessor não funcionar
           const original = info.row.original as RankingsItem;
@@ -979,19 +1036,39 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         },
         {
           id: "cpr",
-          header: () => (
-            <div className="flex flex-col items-center gap-0.5">
-              <span>CPR</span>
-              {formatAverage("cpr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpr")}</span>}
-            </div>
-          ),
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return (
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="flex items-center gap-1">
+                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
+                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
+                  <span>CPR</span>
+                  <ColumnFilter
+                    value={filterValue}
+                    onChange={(value) => column.setFilterValue(value)}
+                    placeholder="Ex: 12"
+                  />
+                </div>
+                {formatAverage("cpr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpr")}</span>}
+              </div>
+            );
+          },
           size: 140,
           minSize: 100,
+          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+            const ad = row.original as RankingsItem;
+            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            const cpr = results > 0 ? Number(ad.spend || 0) / results : null;
+            return applyNumericFilter(cpr, filterValue);
+          },
           sortingFn: "auto",
           cell: (info) => {
             const ad = info.row.original;
-            const cpr = Number(info.getValue() || 0);
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpr)}</span>} metric="cpr" />;
+            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            const cpr = results > 0 ? Number(info.getValue() || 0) : 0;
+            const value = cpr > 0 && Number.isFinite(cpr) ? formatCurrency(cpr) : "—";
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpr" />;
           },
         }
       ),
@@ -1013,8 +1090,9 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
           },
           {
             id: "cpmql",
-            header: () => {
+            header: ({ column }) => {
               const { openSettings } = useSettingsModalStore();
+              const filterValue = column.getFilterValue() as FilterValue | undefined;
               return (
                 <div className="flex flex-col items-center gap-0.5">
                   <div className="flex items-center gap-1.5">
@@ -1050,7 +1128,14 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
                         </Tooltip>
                       </TooltipProvider>
                     )}
+                    {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
+                    {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
                     <span>CPMQL</span>
+                    <ColumnFilter
+                      value={filterValue}
+                      onChange={(value) => column.setFilterValue(value)}
+                      placeholder="Ex: 12"
+                    />
                   </div>
                   {formatAverage("cpmql") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpmql")}</span>}
                 </div>
@@ -1058,6 +1143,16 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
             },
             size: 140,
             minSize: 100,
+            filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+              const ad = row.original as RankingsItem;
+              const spend = Number((ad as any).spend || 0);
+              const { cpmql } = computeMqlMetricsFromLeadscore({
+                spend,
+                leadscoreRaw: (ad as any).leadscore_values,
+                mqlLeadscoreMin,
+              });
+              return applyNumericFilter(Number.isFinite(cpmql) ? cpmql : null, filterValue);
+            },
             sortingFn: "auto",
             cell: (info) => {
               const ad = info.row.original as RankingsItem;
@@ -1079,27 +1174,68 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
     cols.push(
       // Spend
       columnHelper.accessor("spend", {
-        header: () => (
-          <div className="flex flex-col items-center gap-0.5">
-            <span>Spend</span>
-            {formatAverage("spend") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("spend")}</span>}
-          </div>
-        ),
+        header: ({ column }) => {
+          const filterValue = column.getFilterValue() as FilterValue | undefined;
+          return (
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="flex items-center gap-1">
+                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
+                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
+                <span>Spend</span>
+                <ColumnFilter
+                  value={filterValue}
+                  onChange={(value) => column.setFilterValue(value)}
+                  placeholder="Ex: 100"
+                />
+              </div>
+              {formatAverage("spend") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("spend")}</span>}
+            </div>
+          );
+        },
         size: 140,
         minSize: 100,
+        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+          const ad = row.original as RankingsItem;
+          const spend = Number((ad as any).spend || 0);
+          return applyNumericFilter(spend, filterValue);
+        },
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="spend" />,
       }) as any,
       // CTR
       columnHelper.accessor("ctr", {
-        header: () => (
-          <div className="flex flex-col items-center gap-0.5">
-            <span>CTR</span>
-            {formatAverage("ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("ctr")}</span>}
-          </div>
-        ),
+        header: ({ column }) => {
+          const filterValue = column.getFilterValue() as FilterValue | undefined;
+          return (
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="flex items-center gap-1">
+                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
+                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
+                <span>CTR</span>
+                <ColumnFilter
+                  value={filterValue}
+                  onChange={(value) => column.setFilterValue(value)}
+                  placeholder="Ex: 2.5"
+                />
+              </div>
+              {formatAverage("ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("ctr")}</span>}
+            </div>
+          );
+        },
         size: 140,
         minSize: 100,
+        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+          const original = row.original as RankingsItem;
+          const ctrValue = Number((original as any).ctr ?? 0);
+          // CTR vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
+          // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
+          const filterNum = filterValue?.value;
+          if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
+            const normalizedFilter = filterNum / 100;
+            return applyNumericFilter(ctrValue, { ...filterValue!, value: normalizedFilter });
+          }
+          return true;
+        },
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="ctr" />,
       }) as any,
@@ -1112,14 +1248,39 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         },
         {
           id: "website_ctr",
-          header: () => (
-            <div className="flex flex-col items-center gap-0.5">
-              <span>Link CTR</span>
-              {formatAverage("website_ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("website_ctr")}</span>}
-            </div>
-          ),
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return (
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="flex items-center gap-1">
+                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
+                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
+                  <span>Link CTR</span>
+                  <ColumnFilter
+                    value={filterValue}
+                    onChange={(value) => column.setFilterValue(value)}
+                    placeholder="Ex: 1.5"
+                  />
+                </div>
+                {formatAverage("website_ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("website_ctr")}</span>}
+              </div>
+            );
+          },
           size: 140,
           minSize: 100,
+          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+            const ad = row.original as RankingsItem;
+            const websiteCtr = typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr) ? (ad as any).website_ctr : (ad as any).impressions > 0 ? Number((ad as any).inline_link_clicks || 0) / Number((ad as any).impressions || 0) : 0;
+            const websiteCtrValue = Number.isFinite(websiteCtr) ? websiteCtr : null;
+            // Website CTR vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
+            // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
+            const filterNum = filterValue?.value;
+            if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
+              const normalizedFilter = filterNum / 100;
+              return applyNumericFilter(websiteCtrValue, { ...filterValue!, value: normalizedFilter });
+            }
+            return true;
+          },
           sortingFn: "auto",
           cell: (info) => {
             const ad = info.row.original;
@@ -1137,14 +1298,31 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         },
         {
           id: "cpm",
-          header: () => (
-            <div className="flex flex-col items-center gap-0.5">
-              <span>CPM</span>
-              {formatAverage("cpm") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpm")}</span>}
-            </div>
-          ),
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return (
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="flex items-center gap-1">
+                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
+                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
+                  <span>CPM</span>
+                  <ColumnFilter
+                    value={filterValue}
+                    onChange={(value) => column.setFilterValue(value)}
+                    placeholder="Ex: 15"
+                  />
+                </div>
+                {formatAverage("cpm") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpm")}</span>}
+              </div>
+            );
+          },
           size: 140,
           minSize: 100,
+          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+            const ad = row.original as RankingsItem;
+            const cpm = typeof ad.cpm === "number" ? ad.cpm : null;
+            return applyNumericFilter(cpm, filterValue);
+          },
           sortingFn: "auto",
           cell: (info) => {
             const ad = info.row.original;
@@ -1155,14 +1333,38 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
       ),
       // Connect Rate
       columnHelper.accessor("connect_rate", {
-        header: () => (
-          <div className="flex flex-col items-center gap-0.5">
-            <span>Connect Rate</span>
-            {formatAverage("connect_rate") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("connect_rate")}</span>}
-          </div>
-        ),
+        header: ({ column }) => {
+          const filterValue = column.getFilterValue() as FilterValue | undefined;
+          return (
+            <div className="flex flex-col items-center gap-0.5">
+              <div className="flex items-center gap-1">
+                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
+                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
+                <span>Connect</span>
+                <ColumnFilter
+                  value={filterValue}
+                  onChange={(value) => column.setFilterValue(value)}
+                  placeholder="Ex: 30"
+                />
+              </div>
+              {formatAverage("connect_rate") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("connect_rate")}</span>}
+            </div>
+          );
+        },
         size: 160,
         minSize: 120,
+        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+          const original = row.original as RankingsItem;
+          const connectRateValue = Number((original as any).connect_rate ?? 0);
+          // Connect Rate vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
+          // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
+          const filterNum = filterValue?.value;
+          if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
+            const normalizedFilter = filterNum / 100;
+            return applyNumericFilter(connectRateValue, { ...filterValue!, value: normalizedFilter });
+          }
+          return true;
+        },
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="connect_rate" />,
       }) as any,
@@ -1179,14 +1381,45 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         },
         {
           id: "page_conv",
-          header: () => (
-            <div className="flex flex-col items-center gap-0.5">
-              <span>Page</span>
-              {formatAverage("page_conv") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("page_conv")}</span>}
-            </div>
-          ),
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return (
+              <div className="flex flex-col items-center gap-0.5">
+                <div className="flex items-center gap-1">
+                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
+                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
+                  <span>Page</span>
+                  <ColumnFilter
+                    value={filterValue}
+                    onChange={(value) => column.setFilterValue(value)}
+                    placeholder="Ex: 5"
+                  />
+                </div>
+                {formatAverage("page_conv") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("page_conv")}</span>}
+              </div>
+            );
+          },
           size: 140,
           minSize: 100,
+          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+            const ad = row.original as RankingsItem;
+            let pageConv: number | null = null;
+            if ("page_conv" in ad && typeof (ad as any).page_conv === "number" && !Number.isNaN((ad as any).page_conv) && isFinite((ad as any).page_conv)) {
+              pageConv = (ad as any).page_conv;
+            } else if (actionType) {
+              const results = ad.conversions?.[actionType] || 0;
+              const lpv = Number((ad as any).lpv || 0);
+              pageConv = lpv > 0 ? Number(results) / lpv : null;
+            }
+            // Page Conv vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
+            // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
+            const filterNum = filterValue?.value;
+            if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
+              const normalizedFilter = filterNum / 100;
+              return applyNumericFilter(pageConv, { ...filterValue!, value: normalizedFilter });
+            }
+            return true;
+          },
           sortingFn: "auto",
           cell: (info) => {
             const ad = info.row.original;
@@ -1198,15 +1431,21 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
     );
 
     return cols;
-  }, [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct, showTrends, averages, formatAverage, hasSheetIntegration, mqlLeadscoreMin, getRowKey]);
+  }, [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct, showTrends, averages, formatAverage, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter]);
 
   const table = useReactTable({
     data,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
     enableSorting: true,
+    enableColumnFilters: true,
     columnResizeMode: "onChange",
+    state: {
+      columnFilters,
+    },
+    onColumnFiltersChange: setColumnFilters,
     initialState: {
       sorting: [{ id: "spend", desc: true }],
     },
@@ -1217,7 +1456,7 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
   });
 
   return (
-    <div className="w-full">
+    <div className="w-full relative">
       <div className="overflow-x-auto">
         <table className="w-full text-sm border-separate border-spacing-y-4">
           <thead>
@@ -1232,7 +1471,6 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
                       {header.isPlaceholder ? null : (
                         <div className={`flex items-center ${justify} gap-1 ${header.column.getCanSort() ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`} onClick={header.column.getToggleSortingHandler()}>
                           {flexRender(header.column.columnDef.header, header.getContext())}
-                          <IconArrowsSort className="w-3 h-3" />
                         </div>
                       )}
                       {header.column.getCanResize() && <div onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()} className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none touch-none" />}
@@ -1306,6 +1544,33 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         actorId={selectedVideo?.actorId}
         title={selectedVideo?.title}
       />
+
+      {/* Barra flutuante com contagem de anúncios */}
+      <div className="sticky bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none mt-4">
+        <div className="w-full bg-card border border-border shadow-lg pointer-events-auto rounded-lg">
+          <div className="px-4 py-3">
+            <div className="flex items-center justify-end gap-3">
+              <div className="flex items-center text-sm text-muted-foreground">
+                <span>
+                  Exibindo {table.getFilteredRowModel().rows.length} de {table.getPreFilteredRowModel().rows.length} anúncios
+                </span>
+              </div>
+              {columnFilters.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setColumnFilters([])}
+                  className="h-8 text-xs"
+                >
+                  <IconX className="w-4 h-4 mr-1.5" />
+                  Resetar filtros
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
+

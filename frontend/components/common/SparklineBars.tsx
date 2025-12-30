@@ -198,7 +198,7 @@ function getColorClassByPackAverage(value: number, packAverage: number, inverse:
 export type SparklineSize = "small" | "medium" | "large";
 
 const sizePresets: Record<SparklineSize, string> = {
-  small: "w-16 h-6", // Tabela (RankingsTable)
+    small: "w-16 h-6", // Tabela (ManagerTable)
   medium: "w-24 h-6", // Cards overview (AdDetailsDialog)
   large: "w-full h-16", // Aba Series (AdDetailsDialog)
 };
