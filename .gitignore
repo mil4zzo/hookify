@@ -401,6 +401,12 @@ site/
 # MISC
 # ===========================================
 
+# Windows reserved names (cannot be added to git)
+nul
+CON
+PRN
+AUX
+
 # Large files that shouldn't be in git
 *.zip
 *.tar.gz

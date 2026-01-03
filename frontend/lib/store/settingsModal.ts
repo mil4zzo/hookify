@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-type SettingsTab = "general" | "accounts" | "validation" | "integrations" | "leadscore"
+export type SettingsTab = "general" | "accounts" | "validation" | "leadscore"
 
 interface SettingsModalState {
   isOpen: boolean
@@ -31,6 +31,16 @@ export const useSettingsModalStore = create<SettingsModalStore>((set) => ({
     set({ activeTab: tab })
   },
 }))
+
+
+
+
+
+
+
+
+
+
 
 
 

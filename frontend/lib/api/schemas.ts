@@ -153,6 +153,18 @@ export const AuthUrlResponseSchema = z.object({
   auth_url: z.string(),
 })
 
+// ========== Meta Status Update (pause/resume) ==========
+export const UpdateEntityStatusRequestSchema = z.object({
+  status: z.enum(["PAUSED", "ACTIVE"]),
+})
+
+export const UpdateEntityStatusResponseSchema = z.object({
+  success: z.boolean(),
+  entity_id: z.string(),
+  entity_type: z.enum(["ad", "adset", "campaign"]),
+  status: z.enum(["PAUSED", "ACTIVE"]),
+})
+
 // Type exports
 export type FacebookUser = z.infer<typeof FacebookUserSchema>
 export type FacebookAdAccount = z.infer<typeof FacebookAdAccountSchema>
@@ -169,6 +181,8 @@ export type GetAdsResponse = z.infer<typeof GetAdsResponseSchema>
 export type GetVideoSourceResponse = z.infer<typeof GetVideoSourceResponseSchema>
 export type AuthTokenResponse = z.infer<typeof AuthTokenResponseSchema>
 export type AuthUrlResponse = z.infer<typeof AuthUrlResponseSchema>
+export type UpdateEntityStatusRequest = z.infer<typeof UpdateEntityStatusRequestSchema>
+export type UpdateEntityStatusResponse = z.infer<typeof UpdateEntityStatusResponseSchema>
 
 // ========== Google Sheets Integration Schemas ==========
 
@@ -241,6 +255,7 @@ export const SheetIntegrationSchema = z.object({
   cpr_max_column: z.string().nullable().optional(),
   last_synced_at: z.string().nullable().optional(),
   last_sync_status: z.string().nullable().optional(),
+  last_successful_sync_at: z.string().nullable().optional(),
 }).passthrough()
 
 export const SaveSheetIntegrationResponseSchema = z.object({
@@ -307,7 +322,7 @@ export const RankingsFiltersSchema = z.object({
 export const RankingsRequestSchema = z.object({
   date_start: z.string(),
   date_stop: z.string(),
-  group_by: z.enum(['ad_id', 'ad_name']).default('ad_id'),
+  group_by: z.enum(['ad_id', 'ad_name', 'adset_id', 'campaign_id']).default('ad_id'),
   action_type: z.string().optional(),
   order_by: z.string().optional(),
   limit: z.number().optional(),
@@ -336,6 +351,10 @@ const RankingsSeriesSchema = z.object({
 export const RankingsItemSchema = z.object({
   unique_id: z.string().nullable().optional(),
   account_id: z.string().nullable().optional(),
+  campaign_id: z.string().nullable().optional(),
+  campaign_name: z.string().nullable().optional(),
+  adset_id: z.string().nullable().optional(),
+  adset_name: z.string().nullable().optional(),
   ad_id: z.string().nullable().optional(),
   ad_name: z.string().nullable().optional(),
   effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
@@ -388,6 +407,23 @@ export const RankingsResponseSchema = z.object({
       ),
     })
     .optional(),
+})
+
+// ===== Global Search (Sidebar) =====
+export const GlobalSearchResultTypeSchema = z.enum(["ad_id", "ad_name", "adset_name", "campaign_name"])
+
+export const GlobalSearchResultSchema = z.object({
+  type: GlobalSearchResultTypeSchema,
+  value: z.string(),
+  label: z.string(),
+  ad_id: z.string().nullable().optional(),
+  ad_name: z.string().nullable().optional(),
+  adset_name: z.string().nullable().optional(),
+  campaign_name: z.string().nullable().optional(),
+})
+
+export const GlobalSearchResponseSchema = z.object({
+  results: z.array(GlobalSearchResultSchema),
 })
 
 // Children (detalhe por ad_id)
@@ -444,6 +480,9 @@ export type AdCreativeResponse = z.infer<typeof AdCreativeResponseSchema>
 export type RankingsFilters = z.infer<typeof RankingsFiltersSchema>
 export type RankingsRequest = z.infer<typeof RankingsRequestSchema>
 export type RankingsResponse = z.infer<typeof RankingsResponseSchema>
+export type GlobalSearchResultType = z.infer<typeof GlobalSearchResultTypeSchema>
+export type GlobalSearchResult = z.infer<typeof GlobalSearchResultSchema>
+export type GlobalSearchResponse = z.infer<typeof GlobalSearchResponseSchema>
 
 // Aliases semânticos para futuras evoluções, mantendo compatibilidade com o nome antigo "Rankings"
 export type AdPerformanceRequest = RankingsRequest;

@@ -12,6 +12,7 @@ import {
   RankingsResponse,
   RankingsChildrenItem,
   AdCreativeResponse,
+  GlobalSearchResponse,
   ListSpreadsheetsResponse,
   ListWorksheetsResponse,
   ListGoogleConnectionsResponse,
@@ -20,6 +21,7 @@ import {
   SaveSheetIntegrationResponse,
   SheetSyncResponse,
   SheetSyncJobProgress,
+  UpdateEntityStatusResponse,
 } from './schemas'
 import { env } from '@/lib/config/env'
 
@@ -94,6 +96,15 @@ export const api = {
     
     cancelJobsBatch: (jobIds: string[], reason?: string): Promise<{ cancelled_count: number; total_requested: number; message: string }> =>
       apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout' }),
+
+    updateAdStatus: (adId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
+      apiClient.post(`/facebook/ads/${encodeURIComponent(adId)}/status`, { status }),
+
+    updateAdsetStatus: (adsetId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
+      apiClient.post(`/facebook/adsets/${encodeURIComponent(adsetId)}/status`, { status }),
+
+    updateCampaignStatus: (campaignId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
+      apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/status`, { status }),
   },
 
   // Analytics (Supabase)
@@ -126,6 +137,23 @@ export const api = {
       params: { date_start: string; date_stop: string }
     ): Promise<{ data: any[] }> =>
       apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/history`, { params }),
+    getAdsetDetails: (
+      adsetId: string,
+      params: { date_start: string; date_stop: string }
+    ): Promise<any> =>
+      apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}`, { params }),
+    getAdsetChildren: (
+      adsetId: string,
+      params: { date_start: string; date_stop: string; order_by?: string }
+    ): Promise<{ data: any[] }> =>
+      apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children`, { params }),
+    searchGlobal: (query: string, limit: number = 20): Promise<GlobalSearchResponse> =>
+      apiClient.get('/analytics/search', { params: { query, limit } }),
+    getCampaignChildren: (
+      campaignId: string,
+      params: { date_start: string; date_stop: string; order_by?: string }
+    ): Promise<{ data: any[] }> =>
+      apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children`, { params }),
     listPacks: (includeAds?: boolean): Promise<{ success: boolean; packs: any[] }> =>
       apiClient.get('/analytics/packs', { params: { include_ads: includeAds || false } }),
     getPack: (packId: string, includeAds: boolean = true): Promise<{ success: boolean; pack: any }> =>

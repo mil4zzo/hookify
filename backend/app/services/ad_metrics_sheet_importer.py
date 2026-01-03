@@ -4,7 +4,7 @@ import logging
 import re
 from collections import defaultdict
 from datetime import datetime
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from app.core.supabase_client import get_supabase_for_user
 from app.services.google_sheets_service import fetch_all_rows, GoogleSheetsError
@@ -16,8 +16,17 @@ from app.services.google_errors import (
 logger = logging.getLogger(__name__)
 
 
-class AdMetricsImportError(Exception):
+class AdMetricsImportCancelled(Exception):
+    """Exceção lançada quando a importação é cancelada pelo usuário."""
     pass
+
+
+class AdMetricsImportError(Exception):
+    """Erro de importação de métricas de anúncios."""
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message)
+        self.message = message
+        self.code = code
 
 
 def _parse_date(value: str, date_format: str | None = None) -> str | None:
@@ -148,6 +157,7 @@ def run_ad_metrics_sheet_import(
     user_jwt: str,
     user_id: str,
     integration_id: str,
+    check_cancelled: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     # Inicializar variáveis para garantir que existam no resumo final mesmo em caso de erro
     processed = 0
@@ -232,12 +242,18 @@ def run_ad_metrics_sheet_import(
         error_code = getattr(e, 'code', None)
         if error_code == GOOGLE_TOKEN_EXPIRED:
             raise AdMetricsImportError(
-                f"Token do Google expirado ou revogado. Por favor, reconecte sua conta Google. ({error_message})"
+                f"Token do Google expirado ou revogado. Por favor, reconecte sua conta Google. ({error_message})",
+                code=GOOGLE_TOKEN_EXPIRED
             )
-        raise AdMetricsImportError(error_message)
+        raise AdMetricsImportError(error_message, code=error_code)
     except Exception as e:
         logger.exception("[AD_METRICS_IMPORT] Erro inesperado ao ler planilha")
         raise AdMetricsImportError("Erro ao ler planilha do Google.") from e
+
+    # ✅ VERIFICAR CANCELAMENTO após ler planilha
+    if check_cancelled and check_cancelled():
+        logger.info("[AD_METRICS_IMPORT] ⛔ Importação cancelada pelo usuário após ler planilha")
+        raise AdMetricsImportCancelled("Importação cancelada pelo usuário")
 
     if not headers:
         raise AdMetricsImportError("Planilha sem header (linha 1 vazia).")
@@ -291,6 +307,10 @@ def run_ad_metrics_sheet_import(
         # Log de progresso a cada 1000 linhas
         if processed % 1000 == 0:
             logger.info(f"[AD_METRICS_IMPORT] Processadas {processed}/{len(rows)} linhas...")
+            # ✅ VERIFICAR CANCELAMENTO a cada 1000 linhas
+            if check_cancelled and check_cancelled():
+                logger.info(f"[AD_METRICS_IMPORT] ⛔ Importação cancelada pelo usuário após processar {processed} linhas")
+                raise AdMetricsImportCancelled("Importação cancelada pelo usuário")
 
         # Parse dos valores
         ad_id_raw = safe_get(row, ad_id_idx)
@@ -423,6 +443,11 @@ def run_ad_metrics_sheet_import(
         batch_ids = metric_ids[i:i + batch_size]
         batch_num = (i // batch_size) + 1
 
+        # ✅ VERIFICAR CANCELAMENTO a cada batch de verificação
+        if check_cancelled and check_cancelled():
+            logger.info(f"[AD_METRICS_IMPORT] ⛔ Importação cancelada pelo usuário durante verificação (batch {batch_num}/{total_batches})")
+            raise AdMetricsImportCancelled("Importação cancelada pelo usuário")
+
         try:
             # Query super eficiente: lookup direto na PK
             # Sempre filtrar por user_id para segurança (RLS + validação explícita)
@@ -527,6 +552,11 @@ def run_ad_metrics_sheet_import(
     logger.info(f"[AD_METRICS_IMPORT] ===== INICIANDO ATUALIZAÇÕES =====")
     logger.info(f"[AD_METRICS_IMPORT] {len(updates_to_apply)} registros serão atualizados")
 
+    # ✅ VERIFICAR CANCELAMENTO antes de iniciar updates
+    if check_cancelled and check_cancelled():
+        logger.info("[AD_METRICS_IMPORT] ⛔ Importação cancelada pelo usuário antes de iniciar atualizações")
+        raise AdMetricsImportCancelled("Importação cancelada pelo usuário")
+
     # 6. Batch update agrupado por valores similares
     # Agrupar por (leadscore_values, cpr_max) para reduzir número de updates
     # Nota: Arrays são comparados por conteúdo, então agrupamos por tupla dos valores
@@ -603,6 +633,12 @@ def run_ad_metrics_sheet_import(
 
         for (leadscore_key, cpr_max), ids_batch in updates_by_values.items():
             update_batch_num += 1
+
+            # ✅ VERIFICAR CANCELAMENTO a cada grupo de updates (fallback)
+            if check_cancelled and check_cancelled():
+                logger.info(f"[AD_METRICS_IMPORT] ⛔ Importação cancelada pelo usuário durante fallback (grupo {update_batch_num}/{len(updates_by_values)})")
+                raise AdMetricsImportCancelled("Importação cancelada pelo usuário")
+
             update_data: Dict[str, Any] = {}
             # Converter tupla de volta para lista (PostgreSQL espera array como lista)
             if leadscore_key is not None:
@@ -614,12 +650,12 @@ def run_ad_metrics_sheet_import(
             # Agrupar em chunks menores para evitar timeout e URLs muito longas
             chunk_size = 200  # Reduzido de 500 para 200 devido ao tamanho dos IDs compostos
             total_chunks_for_batch = (len(ids_batch) + chunk_size - 1) // chunk_size
-            
+
             # Log resumido do array (primeiros 3 valores)
             leadscore_preview = list(leadscore_key)[:3] if leadscore_key else None
             if update_batch_num <= 3 or update_batch_num == len(updates_by_values):
                 logger.info(f"[AD_METRICS_IMPORT] [FALLBACK] Grupo {update_batch_num}/{len(updates_by_values)}: {len(ids_batch)} IDs, {total_chunks_for_batch} chunk(s) (leadscore_values={leadscore_preview}..., cpr_max={cpr_max})")
-            
+
             for i in range(0, len(ids_batch), chunk_size):
                 chunk_ids = ids_batch[i:i + chunk_size]
                 chunk_num = (i // chunk_size) + 1
@@ -676,6 +712,7 @@ def run_ad_metrics_sheet_import(
         sb.table("ad_sheet_integrations").update(
             {
                 "last_synced_at": now_iso,
+                "last_successful_sync_at": now_iso,
                 "last_sync_status": "success",
                 "updated_at": now_iso,
             }

@@ -15,10 +15,16 @@ export const GOOGLE_AUTH_ERROR = "GOOGLE_AUTH_ERROR";
 
 /**
  * Verifica se um erro é relacionado a token expirado/inválido do Google.
+ * Também inclui GOOGLE_CONNECTION_NOT_FOUND porque se a integração existe mas a conexão não,
+ * significa que o token foi revogado e o usuário precisa reconectar.
  */
 export function isGoogleTokenError(error: AppError | Error | unknown): boolean {
   const appError = error as AppError;
-  return appError?.code === GOOGLE_TOKEN_EXPIRED || appError?.code === GOOGLE_TOKEN_INVALID;
+  return (
+    appError?.code === GOOGLE_TOKEN_EXPIRED ||
+    appError?.code === GOOGLE_TOKEN_INVALID ||
+    appError?.code === GOOGLE_CONNECTION_NOT_FOUND
+  );
 }
 
 /**

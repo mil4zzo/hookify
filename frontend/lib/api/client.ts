@@ -47,9 +47,6 @@ class ApiClient {
             
             if (isSessionValid && accessToken) {
               config.headers.Authorization = `Bearer ${accessToken}`
-              if (env.NODE_ENV !== 'production') {
-                console.debug(`[API Client] Token adicionado ao header para: ${config.url}`)
-              }
             } else {
               // Remove header se não houver token válido
               if (config.headers && 'Authorization' in config.headers) {

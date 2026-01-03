@@ -66,13 +66,15 @@ export function useServerHealth(
   const previousStatusRef = useRef<ServerStatus>('checking')
   const hasCheckedOnceRef = useRef(false) // Rastrear se já fez pelo menos uma verificação
   const shouldCheckRef = useRef(true) // Controlar se deve verificar (false quando online)
+  const offlineAttemptsRef = useRef(0) // Contador de tentativas quando offline
+  const previousIsFetchingRef = useRef(false) // Rastrear estado anterior de isFetching
   const queryClient = useQueryClient()
   const { isAuthenticated, isClient } = useClientAuth()
   const { packs, addPack, updatePack } = useClientPacks()
   const { invalidateAllPacksAds, invalidateAdPerformance } = useInvalidatePackAds()
 
   // Query para verificar saúde do servidor
-  // Desabilitar polling automático (provisório) - verifica apenas uma vez no mount
+  // Polling automático ativo quando servidor está offline
   const {
     data,
     error,
@@ -117,7 +119,27 @@ export function useServerHealth(
       }
     },
     enabled: enabled && shouldCheckRef.current, // Só verifica se shouldCheckRef permitir
-    // refetchInterval: checkInterval, // DESABILITADO PROVISORIAMENTE - não fazer polling automático
+    // Polling automático: só verifica quando servidor está offline
+    // Intervalo adaptativo: 5s nas primeiras 10 tentativas, 30s depois
+    refetchInterval: (query) => {
+      // Se a query está desabilitada, não fazer polling
+      if (!enabled || !shouldCheckRef.current) {
+        return false
+      }
+      // Se o servidor está offline (tem erro), continuar verificando
+      if (query.state.error) {
+        // Primeiras 10 tentativas: 5 segundos, depois: 30 segundos
+        const fastInterval = 5000 // 5 segundos
+        const slowInterval = checkInterval // 30 segundos (padrão)
+        return offlineAttemptsRef.current < 10 ? fastInterval : slowInterval
+      }
+      // Se o servidor está online (tem data), parar polling
+      if (query.state.data) {
+        return false
+      }
+      // Se ainda está verificando, usar intervalo rápido
+      return 5000
+    },
     retry: false, // Não retry automático - queremos detectar offline rapidamente
     staleTime: Infinity, // Considerar sempre fresh quando online (não verificar novamente)
     gcTime: 0, // Não manter em cache
@@ -236,8 +258,13 @@ export function useServerHealth(
   useEffect(() => {
     if (isFetching) {
       setServerStatus('checking')
+      previousIsFetchingRef.current = true
       return
     }
+
+    // Detectar quando uma nova tentativa foi concluída (isFetching mudou de true para false)
+    const justFinishedFetching = previousIsFetchingRef.current && !isFetching
+    previousIsFetchingRef.current = isFetching
 
     if (error) {
       // Detectar erros de conexão (tanto do axios quanto do fetch)
@@ -262,11 +289,18 @@ export function useServerHealth(
         // Outros erros (ex: 500) - considerar offline também para health check
         setServerStatus('offline')
       }
+      // Quando offline, permitir polling automático
+      shouldCheckRef.current = true
+      // Incrementar contador apenas quando uma nova tentativa foi concluída com erro
+      if (justFinishedFetching) {
+        offlineAttemptsRef.current += 1
+      }
     } else if (data) {
       setServerStatus('online')
       setLastOnlineAt(new Date())
       hasCheckedOnceRef.current = true // Marcar que já verificou pelo menos uma vez
-      shouldCheckRef.current = false // Se online, não verificar novamente até trocar de página
+      shouldCheckRef.current = false // Se online, parar polling automático
+      offlineAttemptsRef.current = 0 // Resetar contador quando voltar online
     }
   }, [data, error, isFetching])
 
@@ -275,11 +309,7 @@ export function useServerHealth(
     if (error && !hasCheckedOnceRef.current) {
       hasCheckedOnceRef.current = true
     }
-    // Se offline, permitir verificações manuais (não desabilitar shouldCheckRef)
-    if (error && serverStatus === 'offline') {
-      shouldCheckRef.current = true // Permitir verificação manual quando offline
-    }
-  }, [error, serverStatus])
+  }, [error])
 
   // Detectar quando o servidor volta de offline para online e recarregar dados
   useEffect(() => {
@@ -290,6 +320,7 @@ export function useServerHealth(
     if (previousStatus === 'offline' && currentStatus === 'online') {
       refreshAllData()
       shouldCheckRef.current = false // Parar verificações quando voltar online
+      offlineAttemptsRef.current = 0 // Resetar contador de tentativas
     }
 
     // Atualizar referência

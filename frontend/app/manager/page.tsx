@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
@@ -18,7 +19,7 @@ import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validated
 import { PageContainer } from "@/components/common/PageContainer";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
-import { IconCompass } from "@tabler/icons-react";
+import { PageIcon } from "@/lib/utils/pageIcon";
 
 // Chaves compartilhadas entre Insights e Manager
 const STORAGE_KEY_PACKS = "hookify-selected-packs";
@@ -142,9 +143,54 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
   }
 };
 
-export default function ManagerPage() {
+function ManagerPageContent() {
+  type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [activeManagerTab, setActiveManagerTab] = useState<ManagerTab>("por-anuncio");
   const { packs, isClient: packsClient } = useClientPacks();
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
+  
+  // Ler filtros iniciais dos query params (vindos da busca global)
+  const initialFilters = useMemo(() => {
+    const filter = searchParams.get("filter");
+    const value = searchParams.get("value");
+    const tab = searchParams.get("tab");
+    
+    if (filter && value && tab) {
+      // Validar que o tab corresponde ao tipo de filtro
+      const validTabMap: Record<string, ManagerTab> = {
+        ad_id: "individual",
+        ad_name: "por-anuncio",
+        adset_name: "por-conjunto",
+        campaign_name: "por-campanha",
+      };
+      
+      const expectedTab = validTabMap[filter];
+      if (expectedTab && expectedTab === tab) {
+        // Navegar para a aba correta
+        if (activeManagerTab !== expectedTab) {
+          setActiveManagerTab(expectedTab);
+        }
+        
+        // Retornar filtro inicial
+        return [{ id: filter, value }];
+      }
+    }
+    
+    return undefined;
+  }, [searchParams, activeManagerTab]);
+  
+  // Limpar query params após aplicar filtros (opcional - manter comentado por enquanto para debug)
+  // useEffect(() => {
+  //   if (initialFilters && initialFilters.length > 0) {
+  //     const params = new URLSearchParams(searchParams.toString());
+  //     params.delete("filter");
+  //     params.delete("value");
+  //     params.delete("tab");
+  //     router.replace(`/manager?${params.toString()}`);
+  //   }
+  // }, [initialFilters, searchParams, router]);
   // Manager agora é sempre agrupado por nome (ad_name) sobre a mesma base
   // de Ad Performance consumida também pela página de Insights.
   const [actionType, setActionType] = useState<string>(() => {
@@ -252,8 +298,56 @@ export default function ManagerPage() {
 
   const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
 
+  // Request individual (por ad_id) - buscar sob demanda ao abrir a aba Individual
+  const managerRequestIndividual: RankingsRequest = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "ad_id",
+      limit: 1000,
+      filters: {},
+    }),
+    [dateRange.start, dateRange.end]
+  );
+
+  const shouldFetchIndividual = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
+  const { data: managerDataIndividual, isLoading: loadingIndividual } = useAdPerformance(managerRequestIndividual, shouldFetchIndividual);
+
+  // Request por conjunto (por adset_id) - buscar sob demanda ao abrir a aba Por conjunto
+  const managerRequestAdset: RankingsRequest = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "adset_id",
+      limit: 1000,
+      filters: {},
+    }),
+    [dateRange.start, dateRange.end]
+  );
+
+  const shouldFetchAdset = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
+  const { data: managerDataAdset, isLoading: loadingAdset } = useAdPerformance(managerRequestAdset, shouldFetchAdset);
+
+  // Request por campanha (por campaign_id) - buscar sob demanda ao abrir a aba Por campanha
+  const managerRequestCampaign: RankingsRequest = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "campaign_id",
+      limit: 1000,
+      filters: {},
+    }),
+    [dateRange.start, dateRange.end]
+  );
+
+  const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
+  const { data: managerDataCampaign, isLoading: loadingCampaign } = useAdPerformance(managerRequestCampaign, shouldFetchCampaign);
+
   // Extrair dados do response
   const serverData = managerData?.data || null;
+  const serverDataIndividual = managerDataIndividual?.data || null;
+  const serverDataAdset = managerDataAdset?.data || null;
+  const serverDataCampaign = managerDataCampaign?.data || null;
   const availableConversionTypes = managerData?.available_conversion_types || [];
 
   const uniqueConversionTypes = useMemo(() => {
@@ -525,15 +619,71 @@ export default function ManagerPage() {
   };
 
   // Conjunto bruto do backend filtrado por packs selecionados
+  // Sempre filtrar pois é usado para a aba "Por anúncio" e para cálculos de médias
   const filteredManager = useMemo(() => {
     if (!serverData) return [];
     return serverData.filter((row: any) => isManagerInSelectedPacks(row));
   }, [serverData, isManagerInSelectedPacks]);
 
+  const filteredManagerIndividual = useMemo(() => {
+    // Filtrar apenas quando a aba "Individual" estiver ativa
+    if (activeManagerTab !== "individual") return [];
+    if (!serverDataIndividual) return [];
+    return serverDataIndividual.filter((row: any) => isManagerInSelectedPacks(row));
+  }, [serverDataIndividual, isManagerInSelectedPacks, activeManagerTab]);
+
+  const isAdsetInSelectedPacks = useMemo(() => {
+    const adsetIds = new Set<string>();
+    for (const pack of selectedPacks) {
+      const packAds = packsAdsMap.get(pack.id) || [];
+      for (const ad of packAds) {
+        const id = String((ad as any)?.adset_id || "").trim();
+        if (id) adsetIds.add(id);
+      }
+    }
+    return (adsetId: string): boolean => {
+      const id = String(adsetId || "").trim();
+      if (!id) return false;
+      return adsetIds.has(id);
+    };
+  }, [selectedPacks, packsAdsMap]);
+
+  const filteredManagerAdset = useMemo(() => {
+    // Filtrar apenas quando a aba "Por conjunto" estiver ativa
+    if (activeManagerTab !== "por-conjunto") return [];
+    if (!serverDataAdset) return [];
+    return serverDataAdset.filter((row: any) => isAdsetInSelectedPacks(row.adset_id));
+  }, [serverDataAdset, isAdsetInSelectedPacks, activeManagerTab]);
+
+  const isCampaignInSelectedPacks = useMemo(() => {
+    const campaignIds = new Set<string>();
+    for (const pack of selectedPacks) {
+      const packAds = packsAdsMap.get(pack.id) || [];
+      for (const ad of packAds) {
+        const id = String((ad as any)?.campaign_id || "").trim();
+        if (id) campaignIds.add(id);
+      }
+    }
+    return (campaignId: string): boolean => {
+      const id = String(campaignId || "").trim();
+      if (!id) return false;
+      return campaignIds.has(id);
+    };
+  }, [selectedPacks, packsAdsMap]);
+
+  const filteredManagerCampaign = useMemo(() => {
+    // Filtrar apenas quando a aba "Por campanha" estiver ativa
+    if (activeManagerTab !== "por-campanha") return [];
+    if (!serverDataCampaign) return [];
+    return serverDataCampaign.filter((row: any) => isCampaignInSelectedPacks(row.campaign_id));
+  }, [serverDataCampaign, isCampaignInSelectedPacks, activeManagerTab]);
+
   // Adaptar dados do servidor para a tabela existente (forma "ads" agregada)
   // Calcula results, cpr e page_conv localmente baseado no action_type selecionado
   // E filtra por packs selecionados
   const adsForTable = useMemo(() => {
+    // Processar apenas quando a aba "Por anúncio" estiver ativa
+    if (activeManagerTab !== "por-anuncio") return [] as any[];
     if (!filteredManager || filteredManager.length === 0) return [] as any[];
 
     let mappedData = filteredManager.map((row: any) => {
@@ -635,11 +785,191 @@ export default function ManagerPage() {
 
     // Retornar todos os anúncios filtrados por packs (sem filtro de validação)
     return mappedData;
-  }, [filteredManager, actionType]);
+  }, [filteredManager, actionType, activeManagerTab]);
+
+  const adsForIndividualTable = useMemo(() => {
+    // Processar apenas quando a aba "Individual" estiver ativa
+    if (activeManagerTab !== "individual") return [] as any[];
+    if (!filteredManagerIndividual || filteredManagerIndividual.length === 0) return [] as any[];
+
+    const mappedData = filteredManagerIndividual.map((row: any) => {
+      const conversionsObj = row.conversions || {};
+      const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
+
+      const lpv = Number(row.lpv || 0);
+      const spend = Number(row.spend || 0);
+      const page_conv = lpv > 0 ? results / lpv : 0;
+      const cpr = results > 0 ? spend / results : 0;
+      const cpm = Number(row.cpm || 0);
+      const overall_conversion = Number(row.overall_conversion || 0);
+
+      const actions = row.actions || null;
+      const series = row.series || null;
+
+      return {
+        account_id: row.account_id,
+        ad_id: row.ad_id,
+        ad_name: row.ad_name,
+        adset_id: row.adset_id || null,
+        adset_name: row.adset_name || null,
+        unique_id: row.unique_id,
+        effective_status: row.effective_status || null,
+        clicks: Number(row.clicks || 0),
+        impressions: Number(row.impressions || 0),
+        inline_link_clicks: Number(row.inline_link_clicks || 0),
+        spend,
+        video_total_plays: Number(row.plays || 0),
+        hook: Number(row.hook || 0),
+        ctr: Number(row.ctr || 0),
+        connect_rate: Number(row.connect_rate || 0),
+        page_conv,
+        cpr,
+        cpm,
+        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        overall_conversion,
+        ad_count: Number(row.ad_count || 1),
+        thumbnail: row.thumbnail || null,
+        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
+        conversions: conversionsObj,
+        actions,
+        series,
+        video_play_curve_actions: row.video_play_curve_actions || null,
+        creative: {},
+      };
+    });
+
+    return mappedData;
+  }, [filteredManagerIndividual, actionType, activeManagerTab]);
+
+  const adsForAdsetTable = useMemo(() => {
+    // Processar apenas quando a aba "Por conjunto" estiver ativa
+    if (activeManagerTab !== "por-conjunto") return [] as any[];
+    if (!filteredManagerAdset || filteredManagerAdset.length === 0) return [] as any[];
+
+    const mappedData = filteredManagerAdset.map((row: any) => {
+      const conversionsObj = row.conversions || {};
+      const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
+
+      const lpv = Number(row.lpv || 0);
+      const spend = Number(row.spend || 0);
+      const page_conv = lpv > 0 ? results / lpv : 0;
+      const cpr = results > 0 ? spend / results : 0;
+      const cpm = Number(row.cpm || 0);
+      const overall_conversion = Number(row.overall_conversion || 0);
+
+      const actions = row.actions || null;
+      const series = row.series || null;
+
+      // Para compatibilidade, manter ad_name preenchido (usado em busca), mas o UI usará adset_name na aba Por conjunto
+      const adsetId = row.adset_id;
+      const adsetName = row.adset_name;
+
+      return {
+        account_id: row.account_id,
+        campaign_id: row.campaign_id,
+        campaign_name: row.campaign_name,
+        adset_id: adsetId,
+        adset_name: adsetName,
+        ad_id: row.ad_id,
+        ad_name: row.ad_name || adsetName || adsetId,
+        unique_id: row.unique_id,
+        effective_status: row.effective_status || null,
+        clicks: Number(row.clicks || 0),
+        impressions: Number(row.impressions || 0),
+        inline_link_clicks: Number(row.inline_link_clicks || 0),
+        spend,
+        video_total_plays: Number(row.plays || 0),
+        hook: Number(row.hook || 0),
+        ctr: Number(row.ctr || 0),
+        connect_rate: Number(row.connect_rate || 0),
+        page_conv,
+        cpr,
+        cpm,
+        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        overall_conversion,
+        ad_count: Number(row.ad_count || 1),
+        thumbnail: row.thumbnail || null,
+        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
+        conversions: conversionsObj,
+        actions,
+        series,
+        video_play_curve_actions: row.video_play_curve_actions || null,
+        creative: {},
+      };
+    });
+
+    return mappedData;
+  }, [filteredManagerAdset, actionType, activeManagerTab]);
+
+  const adsForCampaignTable = useMemo(() => {
+    // Processar apenas quando a aba "Por campanha" estiver ativa
+    if (activeManagerTab !== "por-campanha") return [] as any[];
+    if (!filteredManagerCampaign || filteredManagerCampaign.length === 0) return [] as any[];
+
+    const mappedData = filteredManagerCampaign.map((row: any) => {
+      const conversionsObj = row.conversions || {};
+      const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
+
+      const lpv = Number(row.lpv || 0);
+      const spend = Number(row.spend || 0);
+      const page_conv = lpv > 0 ? results / lpv : 0;
+      const cpr = results > 0 ? spend / results : 0;
+      const cpm = Number(row.cpm || 0);
+      const overall_conversion = Number(row.overall_conversion || 0);
+
+      const actions = row.actions || null;
+      const series = row.series || null;
+
+      const campaignId = row.campaign_id;
+      const campaignName = row.campaign_name;
+
+      return {
+        account_id: row.account_id,
+        campaign_id: campaignId,
+        campaign_name: campaignName,
+        adset_id: row.adset_id || null,
+        adset_name: row.adset_name || null,
+        ad_id: row.ad_id,
+        // Para compat, manter ad_name como label principal (o backend já devolve campaign_name/campaign_id aqui)
+        ad_name: row.ad_name || campaignName || campaignId,
+        unique_id: row.unique_id,
+        effective_status: row.effective_status || null,
+        clicks: Number(row.clicks || 0),
+        impressions: Number(row.impressions || 0),
+        inline_link_clicks: Number(row.inline_link_clicks || 0),
+        spend,
+        video_total_plays: Number(row.plays || 0),
+        hook: Number(row.hook || 0),
+        ctr: Number(row.ctr || 0),
+        connect_rate: Number(row.connect_rate || 0),
+        page_conv,
+        cpr,
+        cpm,
+        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        overall_conversion,
+        // No agrupamento por campanha, o backend preenche ad_count como quantidade de adsets distintos
+        ad_count: Number(row.ad_count || 1),
+        thumbnail: row.thumbnail || null,
+        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
+        conversions: conversionsObj,
+        actions,
+        series,
+        video_play_curve_actions: row.video_play_curve_actions || null,
+        creative: {},
+      };
+    });
+
+    return mappedData;
+  }, [filteredManagerCampaign, actionType, activeManagerTab]);
 
   // Conjunto de anúncios que passam pelos critérios de validação globais
   // Usado apenas para cálculo de médias (baseline de anúncios "maduros")
+  // Calcular apenas quando a aba "Por anúncio" estiver ativa (onde as médias são usadas)
   const [validatedManagerForAverages, validatedAveragesForAverages] = useMemo(() => {
+    // Processar apenas quando a aba "Por anúncio" estiver ativa
+    if (activeManagerTab !== "por-anuncio") {
+      return [[], undefined] as [any[], any];
+    }
     if (!filteredManager || filteredManager.length === 0) {
       return [[], undefined] as [any[], any];
     }
@@ -686,7 +1016,7 @@ export default function ManagerPage() {
 
     const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType, uniqueConversionTypes);
     return [validated, averagesFromValidated] as [any[], any];
-  }, [filteredManager, validationCriteria, actionType, uniqueConversionTypes]);
+  }, [filteredManager, validationCriteria, actionType, uniqueConversionTypes, activeManagerTab]);
 
   if (!isClient) {
     return (
@@ -716,9 +1046,8 @@ export default function ManagerPage() {
   if (loading) {
     return (
       <PageContainer
-        title="Explore"
+        title="Otimize"
         description="Dados de performance dos seus anúncios"
-        icon={<IconCompass className="h-8 w-8 text-yellow-500" />}
         actions={
           <>
             <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
@@ -820,9 +1149,8 @@ export default function ManagerPage() {
   if (!serverData || serverData.length === 0) {
     return (
       <PageContainer
-        title="Explore"
+        title="Otimize"
         description="Dados de performance dos seus anúncios"
-        icon={<IconCompass className="h-8 w-8 text-yellow-500" />}
         actions={
           <>
             <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
@@ -837,9 +1165,8 @@ export default function ManagerPage() {
 
   return (
     <PageContainer
-      title="Explore"
+      title="Otimize"
       description="Dados de performance dos seus anúncios"
-      icon={<IconCompass className="h-8 w-8 text-yellow-500" />}
       actions={
         <>
           <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
@@ -850,6 +1177,14 @@ export default function ManagerPage() {
       <ManagerTable
         ads={adsForTable}
         groupByAdName
+        activeTab={activeManagerTab}
+        onTabChange={setActiveManagerTab}
+        adsIndividual={adsForIndividualTable}
+        isLoadingIndividual={loadingIndividual}
+        adsAdset={adsForAdsetTable}
+        isLoadingAdset={loadingAdset}
+        adsCampaign={adsForCampaignTable}
+        isLoadingCampaign={loadingCampaign}
         actionType={actionType}
         endDate={endDate}
         dateStart={dateRange.start}
@@ -858,6 +1193,7 @@ export default function ManagerPage() {
         showTrends={showTrends}
         hasSheetIntegration={selectedPacks.some((p) => !!p.sheet_integration)}
         isLoading={loading}
+        initialFilters={initialFilters}
         averagesOverride={(() => {
           // Preferir sempre médias baseadas em anúncios validados; se não houver, usar médias brutas do backend como fallback
           const base = validatedAveragesForAverages || serverAverages || null;
@@ -885,3 +1221,10 @@ export default function ManagerPage() {
   );
 }
 
+export default function ManagerPage() {
+  return (
+    <Suspense fallback={<LoadingState label="Carregando..." />}>
+      <ManagerPageContent />
+    </Suspense>
+  );
+}

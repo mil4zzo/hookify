@@ -8,17 +8,25 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 
 export type FilterOperator = ">" | "<" | ">=" | "<=" | "=" | "!=";
+export type TextFilterOperator = "contains" | "not_contains" | "starts_with" | "ends_with" | "equals" | "not_equals";
 
 export interface FilterValue {
   operator: FilterOperator;
   value: number | null;
 }
 
+export interface TextFilterValue {
+  operator: TextFilterOperator;
+  value: string | null;
+}
+
 interface ColumnFilterProps {
   value: FilterValue | undefined;
-  onChange: (value: FilterValue | undefined) => void;
+  onChange?: (value: FilterValue | undefined) => void;
   placeholder?: string;
   className?: string;
+  /** Se true, o filtro é somente leitura - só mostra o ícone quando há filtro ativo, sem permitir interação */
+  readonly?: boolean;
 }
 
 const OPERATORS: { value: FilterOperator; label: string }[] = [
@@ -30,7 +38,7 @@ const OPERATORS: { value: FilterOperator; label: string }[] = [
   { value: "!=", label: "Diferente de" },
 ];
 
-export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", className }: ColumnFilterProps) {
+export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", className, readonly = false }: ColumnFilterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSelectOpen, setIsSelectOpen] = useState(false);
   const [tempOperator, setTempOperator] = useState<FilterOperator>(">");
@@ -91,6 +99,26 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
 
   const hasFilter = value && value.value !== null && value.value !== undefined && !isNaN(value.value);
 
+  // Se for readonly, só mostrar o ícone quando há filtro ativo
+  if (readonly) {
+    if (!hasFilter) {
+      return null;
+    }
+    return (
+      <div className={cn("inline-flex items-center", className)}>
+        <div
+          className={cn(
+            "flex items-center justify-center w-6 h-6 rounded",
+            hasFilter && "text-primary"
+          )}
+          title="Filtro ativo"
+        >
+          <IconFilter className={cn("w-3.5 h-3.5", hasFilter && "fill-current")} />
+        </div>
+      </div>
+    );
+  }
+
   const handleOperatorChange = (operator: FilterOperator) => {
     setTempOperator(operator);
   };
@@ -101,6 +129,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
 
   const handleApply = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!onChange) return;
     const numValue = tempValue === "" ? null : parseFloat(tempValue);
     if (tempValue === "" || (!isNaN(numValue!) && isFinite(numValue!))) {
       onChange({
@@ -116,6 +145,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
 
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!onChange) return;
     onChange(undefined);
     setTempValue("");
     setIsOpen(false);

@@ -196,19 +196,37 @@ def get_google_account_tokens(
     Returns:
         (access_token, refresh_token, expires_at_timestamp) — qualquer um pode ser None.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     sb = get_supabase_for_user(user_jwt)
     query = (
         sb.table("google_accounts")
-        .select("access_token,refresh_token,expires_at")
+        .select("access_token,refresh_token,expires_at,id")
         .eq("user_id", user_id)
     )
-    
+
     # Se connection_id foi fornecido, filtrar por ele; senão, pegar a primeira (comportamento legado)
     if connection_id:
         query = query.eq("id", connection_id)
-    
+
     res = query.limit(1).execute()
-    
+
+    # FALLBACK: Se connection_id específico não foi encontrado, tentar buscar qualquer conexão ativa do usuário
+    if not res.data and connection_id:
+        logger.warning(f"[GOOGLE_ACCOUNTS] Conexão específica {connection_id} não encontrada. Buscando fallback para user {user_id}...")
+        fallback_query = (
+            sb.table("google_accounts")
+            .select("access_token,refresh_token,expires_at,id")
+            .eq("user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(1)
+        )
+        res = fallback_query.execute()
+
+        if res.data:
+            logger.info(f"[GOOGLE_ACCOUNTS] Fallback encontrado: conexão {res.data[0].get('id')} para user {user_id}")
+
     if not res.data:
         return None, None, None
 

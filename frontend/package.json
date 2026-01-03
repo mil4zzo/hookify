@@ -26,6 +26,7 @@
     "@tabler/icons-react": "^3.35.0",
     "@tanstack/react-query": "^5.51.23",
     "@tanstack/react-table": "^8.21.3",
+    "@tanstack/react-virtual": "^3.13.14",
     "@visx/annotation": "^3.12.0",
     "@visx/visx": "^3.12.0",
     "axios": "^1.7.7",

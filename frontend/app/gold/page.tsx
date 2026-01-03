@@ -16,7 +16,6 @@ import { GoldKanbanWidget } from "@/components/gold/GoldKanbanWidget";
 import { GoldTable } from "@/components/gold/GoldTable";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { DateRangeValue } from "@/components/common/DateRangeFilter";
-import { IconTrophy } from "@tabler/icons-react";
 
 // Chaves compartilhadas entre Insights e Rankings
 const STORAGE_KEY_PACKS = "hookify-selected-packs";
@@ -430,7 +429,7 @@ export default function GoldPage() {
 
   if (!isClient || !isAuthorized) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" icon={<IconTrophy className="w-6 h-6 text-yellow-500" />}>
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance">
         <LoadingState />
       </PageContainer>
     );
@@ -438,7 +437,7 @@ export default function GoldPage() {
 
   if (loading || isLoadingCriteria) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" icon={<IconTrophy className="w-6 h-6 text-yellow-500" />} actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
         <LoadingState />
       </PageContainer>
     );
@@ -446,14 +445,14 @@ export default function GoldPage() {
 
   if (!validatedRankings || validatedRankings.length === 0) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" icon={<IconTrophy className="w-6 h-6 text-yellow-500" />} actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
         <EmptyState message="Nenhum anúncio encontrado para os filtros selecionados." />
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" icon={<IconTrophy className="w-6 h-6 text-yellow-500" />} actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+    <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
       {actionType && validatedAverages && (
         <>
           <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria || []} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />

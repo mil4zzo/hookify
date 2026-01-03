@@ -50,7 +50,7 @@ interface TabsListProps {
 
 export function TabsList({ children, className }: TabsListProps) {
   return (
-    <div className={cn("flex bg-muted rounded-md p-1 w-fit gap-2 mb-6", className)} role="tablist">
+    <div className={cn("flex bg-muted rounded-md p-1 w-fit gap-2 h-10 items-center", className)} role="tablist">
       {children}
     </div>
   );
@@ -62,31 +62,21 @@ interface TabsTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement>
   className?: string;
 }
 
-export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(
-  ({ value, children, className, onClick, ...props }, ref) => {
-    const { activeTab, setActiveTab } = useTabsContext();
-    const isActive = activeTab === value;
+export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(({ value, children, className, onClick, ...props }, ref) => {
+  const { activeTab, setActiveTab } = useTabsContext();
+  const isActive = activeTab === value;
 
-    const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
-      setActiveTab(value);
-      onClick?.(e);
-    };
+  const handleClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    setActiveTab(value);
+    onClick?.(e);
+  };
 
-    return (
-      <button
-        ref={ref}
-        type="button"
-        role="tab"
-        aria-selected={isActive}
-        onClick={handleClick}
-        className={cn("px-3 py-1 text-sm font-medium transition-colors rounded-md bg-muted", isActive ? "text-white bg-background" : "text-muted-foreground hover:text-foreground hover:bg-card", className)}
-        {...props}
-      >
-        {children}
-      </button>
-    );
-  }
-);
+  return (
+    <button ref={ref} type="button" role="tab" aria-selected={isActive} onClick={handleClick} className={cn("px-3 h-8 text-sm font-medium transition-colors rounded-md bg-muted flex items-center justify-center", isActive ? "text-white bg-background" : "text-muted-foreground hover:text-foreground hover:bg-card", className)} {...props}>
+      {children}
+    </button>
+  );
+});
 TabsTrigger.displayName = "TabsTrigger";
 
 interface TabsContentProps {

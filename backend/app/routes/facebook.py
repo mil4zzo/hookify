@@ -18,7 +18,7 @@ from app.services.facebook_connections_repo import (
     update_connection_status
 )
 from app.core.auth import get_current_user
-from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest
+from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest
 from app.core.config import (
     FACEBOOK_CLIENT_ID,
     FACEBOOK_CLIENT_SECRET,
@@ -37,6 +37,7 @@ from app.services.job_tracker import (
     STATUS_PERSISTING,
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_CANCELLED,
 )
 from app.services.meta_job_client import get_meta_job_client
 from app.services.job_processor import process_job_async
@@ -240,6 +241,190 @@ def sync_ad_accounts(api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any
         logger.exception("Error in /adaccounts/sync endpoint")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+def _assert_entity_belongs_to_user(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str) -> None:
+    """
+    Valida que a entidade está associada ao usuário.
+
+    Estratégia (simples e segura):
+    - Como não temos tabela de adsets/campaigns, validamos via tabela `ads`.
+    - Para ad_id: existe linha com ad_id + user_id.
+    - Para adset/campaign: existe pelo menos 1 anúncio do usuário com aquele adset_id/campaign_id.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    sb = get_supabase_for_user(user_jwt)
+    if entity_type == "ad":
+        res = sb.table("ads").select("ad_id").eq("user_id", user_id).eq("ad_id", entity_id).limit(1).execute()
+    elif entity_type == "adset":
+        res = sb.table("ads").select("ad_id").eq("user_id", user_id).eq("adset_id", entity_id).limit(1).execute()
+    elif entity_type == "campaign":
+        res = sb.table("ads").select("ad_id").eq("user_id", user_id).eq("campaign_id", entity_id).limit(1).execute()
+    else:
+        raise HTTPException(status_code=400, detail={"error": "invalid_entity_type", "message": "entity_type inválido"})
+
+    if not (res.data or []):
+        raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": f"{entity_type} não encontrado para este usuário"})
+
+
+def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str, new_status: str) -> None:
+    """
+    Atualiza o cache local (Supabase `ads.effective_status`) para refletir o status recém aplicado no Meta.
+
+    Observações:
+    - Para PAUSED em campaign/adset, marcamos os anúncios relacionados como CAMPAIGN_PAUSED/ADSET_PAUSED.
+    - Para ACTIVE em campaign/adset, só revertimos linhas que estavam CAMPAIGN_PAUSED/ADSET_PAUSED (evita sobrescrever pausas individuais).
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    sb = get_supabase_for_user(user_jwt)
+
+    try:
+        if entity_type == "ad":
+            if new_status == "PAUSED":
+                sb.table("ads").update({"effective_status": "PAUSED"}).eq("user_id", user_id).eq("ad_id", entity_id).execute()
+            else:
+                # Só voltar pra ACTIVE se estava PAUSED (evita sobrescrever outros estados)
+                sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("ad_id", entity_id).eq("effective_status", "PAUSED").execute()
+            return
+
+        if entity_type == "adset":
+            if new_status == "PAUSED":
+                sb.table("ads").update({"effective_status": "ADSET_PAUSED"}).eq("user_id", user_id).eq("adset_id", entity_id).execute()
+            else:
+                sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("adset_id", entity_id).eq("effective_status", "ADSET_PAUSED").execute()
+            return
+
+        if entity_type == "campaign":
+            if new_status == "PAUSED":
+                sb.table("ads").update({"effective_status": "CAMPAIGN_PAUSED"}).eq("user_id", user_id).eq("campaign_id", entity_id).execute()
+            else:
+                sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("campaign_id", entity_id).eq("effective_status", "CAMPAIGN_PAUSED").execute()
+            return
+    except Exception:
+        # Nunca falhar a operação por erro ao atualizar cache local; logar e seguir
+        logger.exception("[UPDATE_STATUS] Falha ao atualizar effective_status local (cache) no Supabase")
+
+
+@router.post("/ads/{ad_id}/status")
+def update_ad_status(
+    ad_id: str,
+    request: UpdateStatusRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Atualiza status de um anúncio (PAUSED/ACTIVE).
+
+    Backend chama Meta Graph API:
+      POST https://graph.facebook.com/v22.0/{ad_id}
+      Body {"status": "PAUSED" | "ACTIVE"}
+    """
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="ad", entity_id=ad_id)
+
+    result = api.update_ad_status(ad_id, request.status)
+    if result.get("status") == "auth_error":
+        mark_connection_as_expired(user_jwt, user_id)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+    if result.get("status") != "success":
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "message": result.get("message") or "Falha ao atualizar status no Meta",
+                "details": result.get("error"),
+            },
+        )
+
+    _update_local_effective_status(user_jwt=user_jwt, user_id=user_id, entity_type="ad", entity_id=ad_id, new_status=request.status)
+    return {"success": True, "entity_id": ad_id, "entity_type": "ad", "status": request.status}
+
+
+@router.post("/adsets/{adset_id}/status")
+def update_adset_status(
+    adset_id: str,
+    request: UpdateStatusRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Atualiza status de um conjunto de anúncios (PAUSED/ACTIVE)."""
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
+
+    result = api.update_adset_status(adset_id, request.status)
+    if result.get("status") == "auth_error":
+        mark_connection_as_expired(user_jwt, user_id)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+    if result.get("status") != "success":
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "message": result.get("message") or "Falha ao atualizar status no Meta",
+                "details": result.get("error"),
+            },
+        )
+
+    _update_local_effective_status(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id, new_status=request.status)
+    return {"success": True, "entity_id": adset_id, "entity_type": "adset", "status": request.status}
+
+
+@router.post("/campaigns/{campaign_id}/status")
+def update_campaign_status(
+    campaign_id: str,
+    request: UpdateStatusRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Atualiza status de uma campanha (PAUSED/ACTIVE)."""
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
+
+    result = api.update_campaign_status(campaign_id, request.status)
+    if result.get("status") == "auth_error":
+        mark_connection_as_expired(user_jwt, user_id)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+    if result.get("status") != "success":
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "message": result.get("message") or "Falha ao atualizar status no Meta",
+                "details": result.get("error"),
+            },
+        )
+
+    _update_local_effective_status(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id, new_status=request.status)
+    return {"success": True, "entity_id": campaign_id, "entity_type": "campaign", "status": request.status}
+
 @router.post("/ads-progress")
 def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any] = Depends(get_current_user), x_supabase_user_id: str | None = Header(default=None, alias="X-Supabase-User-Id")):
     """Start ads job and return job_id for progress tracking."""
@@ -361,11 +546,23 @@ def get_job_progress(
         if current_status == STATUS_FAILED:
             logger.debug(f"[JOB_PROGRESS] Job {job_id} já falhou, retornando progresso salvo")
             return tracker.get_public_progress(job_id)
-        
+
+        # ✅ CRÍTICO: Verificar se job foi cancelado - NÃO continuar processamento!
+        if current_status == STATUS_CANCELLED:
+            logger.info(f"[JOB_PROGRESS] Job {job_id} foi cancelado, retornando status cancelado")
+            return tracker.get_public_progress(job_id)
+
         # Se job está em processing/persisting, retornar progresso atual (background está trabalhando)
         if current_status in (STATUS_PROCESSING, STATUS_PERSISTING):
             # Verificar se precisa retomar (self-healing para jobs "stale")
             if job and _is_job_stale(job):
+                # ✅ CRÍTICO: Verificar novamente se job foi cancelado antes de reiniciar
+                # (pode ter sido cancelado entre o início do request e aqui)
+                fresh_job = tracker.get_job(job_id)
+                if fresh_job and fresh_job.get("status") == STATUS_CANCELLED:
+                    logger.info(f"[JOB_PROGRESS] Job {job_id} foi cancelado, não reiniciando self-healing")
+                    return tracker.get_public_progress(job_id)
+
                 logger.warning(f"[JOB_PROGRESS] Job {job_id} parece stale, tentando retomar...")
                 # Buscar token do Facebook para reprocessar
                 fb_token = get_facebook_token_for_user(user_jwt, user_id)
@@ -773,9 +970,10 @@ def refresh_pack(
                     integration_id=sheet_integration_id,
                 )
                 
-                # Adicionar sync_job_id no payload desde o início (em details para o frontend acessar)
+                # Adicionar sync_job_id e integration_id no payload desde o início (em details para o frontend acessar)
                 payload_data["details"] = {
                     "sync_job_id": sync_job_id,
+                    "integration_id": sheet_integration_id,
                     "has_sheet_sync": True
                 }
                 
@@ -825,7 +1023,9 @@ def refresh_pack(
             "date_range": {
                 "since": since_str,
                 "until": until_str
-            }
+            },
+            # Incluir sync_job_id para que o frontend possa cancelar imediatamente se necessário
+            "sync_job_id": sync_job_id,
         }
         
     except HTTPException:

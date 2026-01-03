@@ -4,8 +4,11 @@ InsightsCollector: Coleta insights paginados da Meta API.
 Responsável apenas por paginação de /insights, sem enriquecimento ou formatação.
 """
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import requests
+
+if TYPE_CHECKING:
+    from app.services.job_tracker import JobTracker
 
 logger = logging.getLogger(__name__)
 
@@ -22,17 +25,23 @@ class InsightsCollector:
         self,
         access_token: str,
         base_url: str = "https://graph.facebook.com/v22.0/",
-        on_progress: Optional[Callable[[int, int], None]] = None
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        job_tracker: Optional["JobTracker"] = None,
+        job_id: Optional[str] = None
     ):
         """
         Args:
             access_token: Token de acesso da Meta API
             base_url: URL base da Graph API
             on_progress: Callback opcional para progresso (page_count, total_collected)
+            job_tracker: Tracker opcional para verificar cancelamento
+            job_id: ID do job opcional para verificar cancelamento
         """
         self.access_token = access_token
         self.base_url = base_url
         self.on_progress = on_progress
+        self.job_tracker = job_tracker
+        self.job_id = job_id
     
     def collect(self, report_run_id: str) -> Dict[str, Any]:
         """
@@ -66,10 +75,25 @@ class InsightsCollector:
             
             # Paginação
             while "paging" in insights_data and "next" in insights_data.get("paging", {}):
+                # Verificar cancelamento antes de continuar paginação
+                if self.job_tracker and self.job_id:
+                    from app.services.job_tracker import STATUS_CANCELLED
+                    job = self.job_tracker.get_job(self.job_id)
+                    if job and job.get("status") == STATUS_CANCELLED:
+                        logger.info(f"[InsightsCollector] ⛔ Job {self.job_id} cancelado, interrompendo paginação na página {page_count}")
+                        return {
+                            "success": False,
+                            "data": data,  # Retornar dados coletados até agora
+                            "page_count": page_count,
+                            "total_collected": total_collected,
+                            "error": "Job cancelado pelo usuário",
+                            "cancelled": True
+                        }
+
                 if page_count >= MAX_PAGES:
                     logger.warning(f"[InsightsCollector] Limite de páginas atingido ({MAX_PAGES})")
                     break
-                
+
                 page_count += 1
                 next_url = insights_data["paging"]["next"]
                 
@@ -126,10 +150,27 @@ class InsightsCollector:
 
 def get_insights_collector(
     access_token: str,
-    on_progress: Optional[Callable[[int, int], None]] = None
+    on_progress: Optional[Callable[[int, int], None]] = None,
+    job_tracker: Optional["JobTracker"] = None,
+    job_id: Optional[str] = None
 ) -> InsightsCollector:
     """Factory function para criar InsightsCollector."""
-    return InsightsCollector(access_token, on_progress=on_progress)
+    return InsightsCollector(
+        access_token,
+        on_progress=on_progress,
+        job_tracker=job_tracker,
+        job_id=job_id
+    )
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -11,6 +11,7 @@ import {
   FacebookAdAccount,
   FacebookVideoSource,
   RankingsChildrenItem,
+  RankingsItem,
   RankingsRequest,
   RankingsResponse,
 } from './schemas'
@@ -30,6 +31,7 @@ export const queryKeys = {
   adCreative: (adId: string) => ['analytics', 'rankings', 'ad-creative', adId] as const,
   adHistory: (adId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-history', adId, dateStart, dateStop] as const,
   adNameHistory: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop] as const,
+  campaignChildren: (campaignId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
   rankings: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters] as const,
   // Alias semântico para consultas de performance agregada de anúncios
@@ -131,6 +133,30 @@ export const useAdVariations = (
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
     retry: 2,
   });
+}
+
+/**
+ * Hook para buscar filhos de uma campanha (agrupados por adset_id) para expansão inline.
+ */
+export const useCampaignChildren = (
+  campaignId: string,
+  dateStart: string,
+  dateStop: string,
+  enabled: boolean = false
+) => {
+  return useQuery({
+    queryKey: queryKeys.campaignChildren(campaignId, dateStart, dateStop),
+    queryFn: async () => {
+      const response = await api.analytics.getCampaignChildren(campaignId, {
+        date_start: dateStart,
+        date_stop: dateStop,
+      })
+      return (response.data || []) as RankingsItem[]
+    },
+    enabled: enabled && !!campaignId && !!dateStart && !!dateStop,
+    staleTime: 5 * 60 * 1000,
+    retry: 2,
+  })
 }
 
 /**
@@ -274,7 +300,7 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
     queryFn: () => api.analytics.getAdPerformance(params),
     enabled: enabled && !!params.date_start && !!params.date_stop,
     staleTime: 2 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
+    gcTime: 5 * 60 * 1000, // Reduzido de 10min para 5min para reduzir acúmulo de cache
     retry: 2,
   })
 }

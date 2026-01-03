@@ -65,10 +65,18 @@ def fetch_headers(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
+        error_msg = "Nenhuma conta Google ativa encontrada."
+        if connection_id:
+            error_msg += f" A conexão configurada pode ter sido revogada. Reconecte sua conta Google para continuar."
+            logger.error(f"[GOOGLE_SHEETS] Token não encontrado | user: {user_id} | connection_id: {connection_id}")
+        else:
+            error_msg += " Por favor, conecte uma conta Google."
+            logger.error(f"[GOOGLE_SHEETS] Nenhuma conexão Google | user: {user_id}")
+
         raise GoogleSheetsError(
-            "Conta Google não conectada para este usuário.",
+            error_msg,
             code=GOOGLE_CONNECTION_NOT_FOUND,
-            details={"connection_id": connection_id, "operation": "fetch_headers"}
+            details={"connection_id": connection_id, "operation": "fetch_headers", "user_id": user_id}
         )
 
     value_range = _build_sheet_range(worksheet_title, "1:1")
@@ -152,10 +160,18 @@ def fetch_all_rows(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
+        error_msg = "Nenhuma conta Google ativa encontrada."
+        if connection_id:
+            error_msg += f" A conexão configurada pode ter sido revogada. Reconecte sua conta Google para continuar."
+            logger.error(f"[GOOGLE_SHEETS] Token não encontrado | user: {user_id} | connection_id: {connection_id}")
+        else:
+            error_msg += " Por favor, conecte uma conta Google."
+            logger.error(f"[GOOGLE_SHEETS] Nenhuma conexão Google | user: {user_id}")
+
         raise GoogleSheetsError(
-            "Conta Google não conectada para este usuário.",
+            error_msg,
             code=GOOGLE_CONNECTION_NOT_FOUND,
-            details={"connection_id": connection_id, "operation": "fetch_headers"}
+            details={"connection_id": connection_id, "operation": "fetch_headers", "user_id": user_id}
         )
 
     value_range = _build_sheet_range(worksheet_title)
@@ -251,10 +267,18 @@ def list_spreadsheets(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
+        error_msg = "Nenhuma conta Google ativa encontrada."
+        if connection_id:
+            error_msg += f" A conexão configurada pode ter sido revogada. Reconecte sua conta Google para continuar."
+            logger.error(f"[GOOGLE_SHEETS] Token não encontrado | user: {user_id} | connection_id: {connection_id}")
+        else:
+            error_msg += " Por favor, conecte uma conta Google."
+            logger.error(f"[GOOGLE_SHEETS] Nenhuma conexão Google | user: {user_id}")
+
         raise GoogleSheetsError(
-            "Conta Google não conectada para este usuário.",
+            error_msg,
             code=GOOGLE_CONNECTION_NOT_FOUND,
-            details={"connection_id": connection_id, "operation": "fetch_headers"}
+            details={"connection_id": connection_id, "operation": "fetch_headers", "user_id": user_id}
         )
 
     # Construir query para buscar apenas arquivos do tipo spreadsheet
@@ -362,10 +386,18 @@ def list_worksheets(
     """
     access_token = get_google_access_token_for_user(user_jwt, user_id, connection_id)
     if not access_token:
+        error_msg = "Nenhuma conta Google ativa encontrada."
+        if connection_id:
+            error_msg += f" A conexão configurada pode ter sido revogada. Reconecte sua conta Google para continuar."
+            logger.error(f"[GOOGLE_SHEETS] Token não encontrado | user: {user_id} | connection_id: {connection_id}")
+        else:
+            error_msg += " Por favor, conecte uma conta Google."
+            logger.error(f"[GOOGLE_SHEETS] Nenhuma conexão Google | user: {user_id}")
+
         raise GoogleSheetsError(
-            "Conta Google não conectada para este usuário.",
+            error_msg,
             code=GOOGLE_CONNECTION_NOT_FOUND,
-            details={"connection_id": connection_id, "operation": "fetch_headers"}
+            details={"connection_id": connection_id, "operation": "fetch_headers", "user_id": user_id}
         )
 
     url = f"{SHEETS_API_BASE}/{quote(spreadsheet_id)}"

@@ -79,9 +79,6 @@ export function buildDailySeries(
   const axis = buildAxis(endDate, windowDays);
   const indexByDay = new Map(axis.map((d, i) => [d, i] as const));
 
-  console.log("buildDailySeries > axis", axis);
-  console.log("buildDailySeries > indexByDay", indexByDay);
-
   type Acc = {
     impressions: number;
     clicks: number;
@@ -183,7 +180,6 @@ export function buildDailySeries(
     });
   }
 
-  console.log("buildDailySeries > byKey", { byKey, axis });
   return { byKey, axis };
 }
 

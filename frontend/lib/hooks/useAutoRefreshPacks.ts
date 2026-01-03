@@ -1,45 +1,22 @@
 "use client";
 
+/**
+ * Hook para verificar e executar auto-refresh de packs no startup.
+ *
+ * Utiliza o hook centralizado usePackRefresh para a lógica de atualização.
+ */
+
 import { useState, useEffect, useRef } from "react";
-import { useClientAuth, useClientPacks } from "./useClientSession";
+import { useClientAuth } from "./useClientSession";
 import { api } from "@/lib/api/endpoints";
-import { showProgressToast, updateProgressToast, finishProgressToast, showError } from "@/lib/utils/toast";
-import { getTodayLocal } from "@/lib/utils/dateFilters";
-import { useInvalidatePackAds } from "@/lib/api/hooks";
-import { AdsPack } from "@/lib/types";
-import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
-import { useActiveJobsStore } from "@/lib/store/activeJobs";
+import { showError } from "@/lib/utils/toast";
+import { usePackRefresh } from "./usePackRefresh";
 
 const STORAGE_KEY = "hookify_auto_refresh_checked";
 
-/**
- * Calcula diferença em dias entre duas datas (YYYY-MM-DD)
- */
-function calculateDaysBetween(startDate: string, endDate: string): number {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const diffTime = Math.abs(end.getTime() - start.getTime());
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays + 1; // +1 para incluir o dia final
-}
-
-/**
- * Estima dia atual baseado no progresso (0-100) e total de dias
- */
-function estimateCurrentDay(progress: number, totalDays: number): number {
-  if (progress <= 0) return 1;
-  if (progress >= 100) return totalDays;
-  // Interpolar: progress 50% = aproximadamente metade dos dias
-  const estimatedDay = Math.ceil((progress / 100) * totalDays);
-  return Math.max(1, Math.min(estimatedDay, totalDays));
-}
-
 export function useAutoRefreshPacks() {
   const { isAuthenticated, isClient } = useClientAuth();
-  const { updatePack } = useClientPacks();
-  const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
-  const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
-  const { addActiveJob, removeActiveJob } = useActiveJobsStore();
+  const { refreshPack } = usePackRefresh();
   const [showModal, setShowModal] = useState(false);
   const [packCount, setPackCount] = useState(0);
   const [autoRefreshPacks, setAutoRefreshPacks] = useState<any[]>([]);
@@ -65,7 +42,7 @@ export function useAutoRefreshPacks() {
       try {
         // last_refreshed_at está no formato YYYY-MM-DD (data lógica)
         const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-        
+
         // Se foi atualizado em um dia diferente de hoje, permite atualizar
         if (pack.last_refreshed_at !== today) {
           return true;
@@ -77,7 +54,7 @@ export function useAutoRefreshPacks() {
           const now = new Date();
           const diffInMs = now.getTime() - updatedAt.getTime();
           const diffInHours = diffInMs / (1000 * 60 * 60);
-          
+
           // Permite atualizar se passou mais de 1 hora desde updated_at
           return diffInHours > 1;
         }
@@ -95,16 +72,16 @@ export function useAutoRefreshPacks() {
       try {
         // Buscar todos os packs (sem ads para ser mais rápido)
         const response = await api.analytics.listPacks(false);
-        
+
         if (response.success && response.packs) {
           // Filtrar packs com auto_refresh = true E que podem ser atualizados (último refresh há mais de 1 hora)
-          const autoRefreshPacks = response.packs.filter(
+          const eligiblePacks = response.packs.filter(
             (pack: any) => pack.auto_refresh === true && canRefreshPack(pack)
           );
-          
-          if (autoRefreshPacks.length > 0) {
-            setPackCount(autoRefreshPacks.length);
-            setAutoRefreshPacks(autoRefreshPacks);
+
+          if (eligiblePacks.length > 0) {
+            setPackCount(eligiblePacks.length);
+            setAutoRefreshPacks(eligiblePacks);
             setShowModal(true);
           }
         }
@@ -138,253 +115,19 @@ export function useAutoRefreshPacks() {
         return;
       }
 
-      // Atualizar cada pack sequencialmente
+      // Atualizar cada pack sequencialmente usando o hook centralizado
       for (const pack of packsToUpdate) {
-        await refreshPackWithProgress(pack);
+        console.log(`[AUTO_REFRESH] Iniciando refresh do pack ${pack.id} (${pack.name})`);
+        await refreshPack({
+          packId: pack.id,
+          packName: pack.name,
+          refreshType: "since_last_refresh",
+          sheetIntegrationId: pack.sheet_integration?.id,
+        });
       }
     } catch (error) {
       console.error("Erro ao atualizar packs:", error);
       showError(error as any);
-    }
-  };
-
-  /**
-   * Faz polling do job de sincronização do Google Sheets em paralelo
-   */
-  const pollSheetSyncJob = async (
-    syncJobId: string,
-    toastId: string,
-    packName: string
-  ): Promise<{ success: boolean; error?: string }> => {
-    let completed = false;
-    let attempts = 0;
-    const maxAttempts = 300; // 10 minutos máximo (300 * 2s = 600s)
-
-    while (!completed && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
-
-      try {
-        const progress = await api.integrations.google.getSyncJobProgress(syncJobId);
-        const details = (progress as any)?.details || {};
-
-        // Atualizar mensagem baseada no estágio
-        let message = progress.message || "Sincronizando planilha...";
-        if (details.stage === "lendo_planilha") {
-          message = `Lendo planilha... ${details.rows_read || 0} linhas`;
-        } else if (details.stage === "processando_dados") {
-          message = `Processando dados... ${details.rows_processed || 0} linhas`;
-        } else if (details.stage === "persistindo") {
-          message = "Salvando dados de enriquecimento...";
-        }
-
-        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, message);
-
-        if (progress.status === "completed") {
-          const stats = (progress as any)?.stats || {};
-          const updatedRows = stats.rows_updated || stats.updated_rows || 0;
-          finishProgressToast(
-            toastId,
-            true,
-            `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
-          );
-          return { success: true };
-        } else if (progress.status === "failed") {
-          finishProgressToast(
-            toastId,
-            false,
-            `Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`
-          );
-          return { success: false, error: progress.message || "Erro desconhecido" };
-        }
-      } catch (error) {
-        console.error(`Erro ao verificar progresso do sync job ${syncJobId}:`, error);
-        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...");
-      }
-
-      attempts++;
-    }
-
-    if (!completed) {
-      finishProgressToast(toastId, false, `Timeout ao sincronizar planilha (demorou mais de 10 minutos)`);
-      return { success: false, error: "Timeout" };
-    }
-
-    return { success: false, error: "Job não completou" };
-  };
-
-  /**
-   * Atualiza um pack com feedback visual de progresso
-   */
-  const refreshPackWithProgress = async (pack: any) => {
-    const toastId = `refresh-pack-${pack.id}`;
-    
-    // Adicionar pack ao store de atualização para feedback visual no card
-    addUpdatingPack(pack.id);
-    
-    // Mostrar toast imediatamente para feedback visual instantâneo
-    showProgressToast(toastId, pack.name, 0, 1, "Inicializando...");
-    
-    let refreshResult: { job_id?: string; date_range?: { since: string; until: string } } | null = null; // Para poder limpar no finally
-    let sheetSyncJobId: string | null = null;
-    let sheetSyncToastId: string | null = null;
-    
-    try {
-      // Iniciar refresh (auto-refresh sempre usa "since_last_refresh")
-      refreshResult = await api.facebook.refreshPack(pack.id, getTodayLocal(), "since_last_refresh");
-      
-      if (!refreshResult.job_id) {
-        finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${pack.name}"`);
-        removeUpdatingPack(pack.id);
-        return;
-      }
-
-      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
-      if (!addActiveJob(refreshResult.job_id)) {
-        console.warn(`Polling já ativo para job ${refreshResult.job_id}. Ignorando nova tentativa...`);
-        finishProgressToast(toastId, false, `Este job já está sendo processado. Aguarde a conclusão.`);
-        removeUpdatingPack(pack.id);
-        return;
-      }
-
-      // Calcular total de dias
-      const dateRange = refreshResult.date_range;
-      if (!dateRange) {
-        finishProgressToast(toastId, false, `Erro: intervalo de datas não disponível para "${pack.name}"`);
-        removeUpdatingPack(pack.id);
-        return;
-      }
-      const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
-      
-      // Atualizar toast com informações reais
-      updateProgressToast(toastId, pack.name, 1, totalDays);
-
-      // Fazer polling do job (arquitetura "2 fases" - requests rápidos)
-      let completed = false;
-      let attempts = 0;
-      const maxAttempts = 300; // 10 minutos máximo (300 * 2s = 600s)
-
-      while (!completed && attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
-
-        try {
-          const progress = await api.facebook.getJobProgress(refreshResult.job_id);
-          const details = (progress as any)?.details || {};
-          
-          // Verificar se há sync_job_id e ainda não iniciamos o polling de Sheets
-          if (details.sync_job_id && !sheetSyncJobId) {
-            sheetSyncJobId = details.sync_job_id;
-            sheetSyncToastId = `sync-sheet-${pack.id}`;
-            
-            // Iniciar polling paralelo do job de Sheets
-            showProgressToast(sheetSyncToastId, `Planilha: ${pack.name}`, 0, 1, "Iniciando sincronização...");
-            
-            // Executar polling em paralelo (não bloquear)
-            if (sheetSyncJobId) {
-              pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, pack.name).catch((error) => {
-                console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
-              });
-            }
-          }
-          
-          // Estimar progresso baseado no estágio
-          let stageProgress = progress.progress || 0;
-          if (details.stage) {
-            if (details.stage === "paginação") stageProgress = 30;
-            else if (details.stage === "enriquecimento") stageProgress = 60;
-            else if (details.stage === "formatação") stageProgress = 85;
-            else if (details.stage === "persistência") stageProgress = 95;
-            else if (details.stage === "completo") stageProgress = 100;
-          }
-          
-          // Estimar dia atual baseado no progresso
-          const currentDay = estimateCurrentDay(stageProgress, totalDays);
-          
-          // Atualizar toast com progresso
-          updateProgressToast(
-            toastId,
-            pack.name,
-            currentDay,
-            totalDays,
-            progress.message || undefined
-          );
-
-          if (progress.status === "completed") {
-            const adsCount = (progress as any).result_count || 0;
-            finishProgressToast(
-              toastId,
-              true,
-              `"${pack.name}" atualizado com sucesso! ${adsCount > 0 ? `${adsCount} anúncios atualizados.` : ""}`
-            );
-            
-            // ✅ ATUALIZAR STORE E INVALIDAR CACHE
-            try {
-              // Buscar pack atualizado do backend
-              const response = await api.analytics.listPacks(false);
-              if (response.success && response.packs) {
-                const updatedPack = response.packs.find((p: any) => p.id === pack.id);
-                if (updatedPack) {
-                  // Atualizar pack no store Zustand (faz Topbar e Ads-loader reagirem)
-                  updatePack(pack.id, {
-                    stats: updatedPack.stats || {},
-                    updated_at: updatedPack.updated_at || new Date().toISOString(),
-                    auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
-                    date_stop: updatedPack.date_stop, // Atualizar date_stop para mostrar "HOJE" corretamente
-                  } as Partial<AdsPack>);
-                  
-                  // Invalidar cache de ads (faz usePacksAds refazer a query)
-                  await invalidatePackAds(pack.id);
-                }
-              }
-              
-              // Invalidar dados agregados (ad performance) para atualizar Rankings/Insights
-              invalidateAdPerformance();
-            } catch (error) {
-              console.error("Erro ao recarregar pack após refresh:", error);
-              // Não bloquear sucesso do refresh se falhar ao recarregar
-            }
-            
-            completed = true;
-            removeUpdatingPack(pack.id);
-          } else if (progress.status === "failed") {
-            finishProgressToast(
-              toastId,
-              false,
-              `Erro ao atualizar "${pack.name}": ${progress.message || "Erro desconhecido"}`
-            );
-            completed = true;
-            removeUpdatingPack(pack.id);
-          }
-          // Status "running", "processing", "persisting" continuam o polling
-        } catch (error) {
-          console.error(`Erro ao verificar progresso do pack ${pack.id}:`, error);
-          // Continuar tentando, mas atualizar toast com mensagem de erro
-          // Usar último dia conhecido ou totalDays como fallback
-          const lastKnownDay = attempts > 0 ? Math.min(attempts, totalDays) : 1;
-          updateProgressToast(
-            toastId,
-            pack.name,
-            lastKnownDay,
-            totalDays,
-            "Erro ao verificar progresso, tentando novamente..."
-          );
-        }
-
-        attempts++;
-      }
-
-      if (!completed) {
-        finishProgressToast(toastId, false, `Timeout ao atualizar "${pack.name}" (demorou mais de 10 minutos)`);
-        removeUpdatingPack(pack.id);
-      }
-    } catch (error) {
-      console.error(`Erro ao atualizar pack ${pack.id}:`, error);
-      finishProgressToast(toastId, false, `Erro ao atualizar "${pack.name}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
-      removeUpdatingPack(pack.id);
-    } finally {
-      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
-      if (refreshResult?.job_id) {
-        removeActiveJob(refreshResult.job_id);
-      }
     }
   };
 

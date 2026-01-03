@@ -14,6 +14,7 @@ export interface AdsPack {
   stats?: {  // Stats agregados do pack (calculados no backend)
     totalAds: number
     uniqueAds: number
+    uniqueAdNames: number
     uniqueCampaigns: number
     uniqueAdsets: number
     totalSpend: number

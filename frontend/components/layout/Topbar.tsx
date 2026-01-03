@@ -10,9 +10,9 @@ import { useAuthManager } from "@/lib/hooks/useAuthManager";
 import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
 import { FacebookConnectionCard } from "@/components/facebook/FacebookConnectionCard";
-import { showError, showSuccess, showProgressToast, updateProgressToast, finishProgressToast } from "@/lib/utils/toast";
+import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
-import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTableExport, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
+import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useSettings } from "@/lib/store/settings";
@@ -32,23 +32,21 @@ import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useLanguage } from "@/lib/hooks/useLanguage";
 import { useNiche } from "@/lib/hooks/useNiche";
-import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { api } from "@/lib/api/endpoints";
 import { clearAllPacks } from "@/lib/storage/indexedDB";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
 import { useQueryClient } from "@tanstack/react-query";
-import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
-import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
-import { useActiveJobsStore } from "@/lib/store/activeJobs";
+import { useGoogleReconnectHandler } from "@/lib/hooks/useGoogleReconnectHandler";
+import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isOpen: isSettingsOpen, activeTab: activeSettingsTab, openSettings, closeSettings, setActiveTab: setActiveSettingsTab } = useSettingsModalStore();
-  const [isSheetsDialogOpen, setIsSheetsDialogOpen] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
   const { mqlLeadscoreMin, isLoading: isLoadingMql, isSaving: isSavingMql, updateMqlLeadscoreMin, saveMqlLeadscoreMin } = useMqlLeadscore();
@@ -70,10 +68,10 @@ export default function Topbar() {
   const [isResettingPreferences, setIsResettingPreferences] = useState(false);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [isConfirmingUpdate, setIsConfirmingUpdate] = useState(false);
-  const [refreshingPackId, setRefreshingPackId] = useState<string | null>(null);
-  const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
-  const { addActiveJob, removeActiveJob } = useActiveJobsStore();
-  const { updatePack } = useClientPacks();
+  const { refreshPack, isRefreshing, refreshingPackIds } = usePackRefresh();
+
+  // Hook para retomar jobs pausados quando o Google for reconectado
+  useGoogleReconnectHandler();
 
   // Verificar conexões quando carregarem na aba de contas
   useEffect(() => {
@@ -412,22 +410,6 @@ export default function Topbar() {
     );
   };
 
-  // Funções auxiliares para calcular dias e estimar progresso
-  const calculateDaysBetween = (startDate: string, endDate: string): number => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays + 1; // +1 para incluir o dia final
-  };
-
-  const estimateCurrentDay = (progress: number, totalDays: number): number => {
-    if (progress <= 0) return 1;
-    if (progress >= 100) return totalDays;
-    const estimatedDay = Math.ceil((progress / 100) * totalDays);
-    return Math.max(1, Math.min(estimatedDay, totalDays));
-  };
-
   // Função para selecionar um pack para atualização
   const handleSelectPack = (packId: string) => {
     setSelectedPackId(packId);
@@ -436,78 +418,17 @@ export default function Topbar() {
 
   // Função para cancelar confirmação
   const handleCancelConfirmation = () => {
-    if (refreshingPackId) return; // Não permite cancelar durante o refresh
+    // Verifica se algum pack está atualizando
+    if (selectedPackId && isRefreshing(selectedPackId)) return;
     setIsConfirmingUpdate(false);
     setSelectedPackId(null);
   };
 
-  // Função para confirmar e executar atualização
   /**
-   * Faz polling do job de sincronização do Google Sheets em paralelo
+   * Confirma e executa a atualização usando o hook centralizado
    */
-  const pollSheetSyncJob = async (
-    syncJobId: string,
-    toastId: string,
-    packName: string
-  ): Promise<{ success: boolean; error?: string }> => {
-    let completed = false;
-    let attempts = 0;
-    const maxAttempts = 300; // 10 minutos máximo (300 * 2s = 600s)
-
-    while (!completed && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
-
-      try {
-        const progress = await api.integrations.google.getSyncJobProgress(syncJobId);
-        const details = (progress as any)?.details || {};
-
-        // Atualizar mensagem baseada no estágio
-        let message = progress.message || "Sincronizando planilha...";
-        if (details.stage === "lendo_planilha") {
-          message = `Lendo planilha... ${details.rows_read || 0} linhas`;
-        } else if (details.stage === "processando_dados") {
-          message = `Processando dados... ${details.rows_processed || 0} linhas`;
-        } else if (details.stage === "persistindo") {
-          message = "Salvando dados de enriquecimento...";
-        }
-
-        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, message);
-
-        if (progress.status === "completed") {
-          const stats = (progress as any)?.stats || {};
-          const updatedRows = stats.rows_updated || stats.updated_rows || 0;
-          finishProgressToast(
-            toastId,
-            true,
-            `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
-          );
-          return { success: true };
-        } else if (progress.status === "failed") {
-          finishProgressToast(
-            toastId,
-            false,
-            `Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`
-          );
-          return { success: false, error: progress.message || "Erro desconhecido" };
-        }
-      } catch (error) {
-        console.error(`Erro ao verificar progresso do sync job ${syncJobId}:`, error);
-        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...");
-      }
-
-      attempts++;
-    }
-
-    if (!completed) {
-      finishProgressToast(toastId, false, `Timeout ao sincronizar planilha (demorou mais de 10 minutos)`);
-      return { success: false, error: "Timeout" };
-    }
-
-    return { success: false, error: "Job não completou" };
-  };
-
   const handleConfirmUpdate = async () => {
-    if (!selectedPackId || refreshingPackId) return;
+    if (!selectedPackId) return;
 
     const pack = packs.find((p) => p.id === selectedPackId);
     if (!pack) {
@@ -515,138 +436,17 @@ export default function Topbar() {
       return;
     }
 
-    const packId = selectedPackId;
-    const packName = pack.name;
-    setRefreshingPackId(packId);
-    addUpdatingPack(packId);
-
     // Fechar modal imediatamente após confirmar
     setIsConfirmingUpdate(false);
     setSelectedPackId(null);
 
-    const toastId = `refresh-pack-${packId}`;
-    showProgressToast(toastId, packName, 0, 1, "Inicializando...");
-
-    let refreshResult: { job_id?: string; date_range?: { since: string; until: string } } | null = null; // Para poder limpar no finally
-    let sheetSyncJobId: string | null = null;
-    let sheetSyncToastId: string | null = null;
-    
-    try {
-      // Iniciar refresh com tipo padrão "since_last_refresh"
-      refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), "since_last_refresh");
-
-      if (!refreshResult.job_id) {
-        finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
-        setRefreshingPackId(null);
-        removeUpdatingPack(packId);
-        return;
-      }
-
-      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
-      if (!addActiveJob(refreshResult.job_id)) {
-        console.warn(`Polling já ativo para job ${refreshResult.job_id}. Ignorando nova tentativa...`);
-        finishProgressToast(toastId, false, `Este job já está sendo processado. Aguarde a conclusão.`);
-        setRefreshingPackId(null);
-        removeUpdatingPack(packId);
-        return;
-      }
-
-      // Calcular total de dias
-      const dateRange = refreshResult.date_range;
-      if (!dateRange) {
-        finishProgressToast(toastId, false, `Erro: intervalo de datas não disponível para "${packName}"`);
-        setRefreshingPackId(null);
-        removeUpdatingPack(packId);
-        return;
-      }
-      const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
-      updateProgressToast(toastId, packName, 1, totalDays);
-
-      // Fazer polling do job
-      let completed = false;
-      let attempts = 0;
-      const maxAttempts = 150; // 5 minutos máximo
-
-      while (!completed && attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
-
-        try {
-          const progress = await api.facebook.getJobProgress(refreshResult.job_id);
-          const details = (progress as any)?.details || {};
-          
-          // Verificar se há sync_job_id e ainda não iniciamos o polling de Sheets
-          if (details.sync_job_id && !sheetSyncJobId) {
-            sheetSyncJobId = details.sync_job_id;
-            sheetSyncToastId = `sync-sheet-${packId}`;
-            
-            // Iniciar polling paralelo do job de Sheets
-            showProgressToast(sheetSyncToastId, `Planilha: ${packName}`, 0, 1, "Iniciando sincronização...");
-            
-            // Executar polling em paralelo (não bloquear)
-            if (sheetSyncJobId) {
-              pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, packName).catch((error) => {
-                console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
-              });
-            }
-          }
-          
-          const currentDay = estimateCurrentDay(progress.progress || 0, totalDays);
-          updateProgressToast(toastId, packName, currentDay, totalDays, progress.message || undefined);
-
-          if (progress.status === "completed") {
-            const adsCount = Array.isArray(progress.data) ? progress.data.length : 0;
-            finishProgressToast(toastId, true, `"${packName}" atualizado com sucesso! ${adsCount > 0 ? `${adsCount} anúncios atualizados.` : ""}`);
-
-            // Recarregar pack do backend para atualizar dados
-            try {
-              const response = await api.analytics.listPacks(false);
-              if (response.success && response.packs) {
-                const updatedPack = response.packs.find((p: any) => p.id === packId);
-                if (updatedPack) {
-                  updatePack(packId, {
-                    stats: updatedPack.stats || {},
-                    updated_at: updatedPack.updated_at || new Date().toISOString(),
-                    auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
-                    date_stop: updatedPack.date_stop,
-                  } as Partial<any>);
-
-                  await invalidatePackAds(packId);
-                }
-              }
-
-              invalidateAdPerformance();
-            } catch (error) {
-              console.error("Erro ao recarregar pack após refresh:", error);
-            }
-
-            completed = true;
-          } else if (progress.status === "failed") {
-            finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
-            completed = true;
-          }
-        } catch (error) {
-          console.error(`Erro ao verificar progresso do pack ${packId}:`, error);
-          const lastKnownDay = attempts > 0 ? Math.min(attempts, totalDays) : 1;
-          updateProgressToast(toastId, packName, lastKnownDay, totalDays, "Erro ao verificar progresso, tentando novamente...");
-        }
-
-        attempts++;
-      }
-
-      if (!completed) {
-        finishProgressToast(toastId, false, `Timeout ao atualizar "${packName}" (demorou mais de 5 minutos)`);
-      }
-    } catch (error) {
-      console.error(`Erro ao atualizar pack ${packId}:`, error);
-      finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
-    } finally {
-      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
-      if (refreshResult?.job_id) {
-        removeActiveJob(refreshResult.job_id);
-      }
-      setRefreshingPackId(null);
-      removeUpdatingPack(packId);
-    }
+    // Usar hook centralizado para refresh
+    await refreshPack({
+      packId: pack.id,
+      packName: pack.name,
+      refreshType: "since_last_refresh",
+      sheetIntegrationId: (pack as any).sheet_integration?.id,
+    });
   };
 
   // Função auxiliar para formatar data de YYYY-MM-DD para DD/MM/YYYY
@@ -661,7 +461,7 @@ export default function Topbar() {
     if (!isAuthenticated || !hasFacebookConnection || packs.length === 0) return null;
 
     // Se está atualizando, mostra botão desabilitado
-    if (refreshingPackId !== null) {
+    if (refreshingPackIds.length > 0) {
       return (
         <Button variant="outline" size="sm" className="flex items-center gap-2" disabled>
           <IconLoader2 className="h-4 w-4 animate-spin" />
@@ -861,387 +661,310 @@ export default function Topbar() {
 
         {/* Settings Modal - Shared between mobile and desktop */}
         {isAuthenticated && (
-          <Modal
-            isOpen={isSettingsOpen}
-            onClose={() => {
-              closeSettings();
-              setIsSheetsDialogOpen(false);
-            }}
-            size="4xl"
-            padding="none"
-          >
+          <Modal isOpen={isSettingsOpen} onClose={closeSettings} size="4xl" padding="none">
             <div className="flex flex-col md:flex-row h-[calc(90vh-2rem)] md:h-[600px] min-h-[400px] max-h-[90vh]">
-              {/* Mobile: Header with Title and Tabs */}
+              {/* Mobile: Header with Title */}
               <div className="md:hidden border-b border-border bg-secondary">
                 <div className="p-4 border-b border-border">
                   <h2 className="text-lg font-semibold text-text">Configurações</h2>
                 </div>
-                <nav className="flex p-2 space-x-1 overflow-x-auto">
-                  <button onClick={() => setActiveSettingsTab("general")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconSettings className="h-5 w-5" />
-                    <span className="text-sm font-medium">Preferências</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("accounts")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconUsers className="h-5 w-5" />
-                    <span className="text-sm font-medium">Contas</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("validation")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "validation" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconCheck className="h-5 w-5" />
-                    <span className="text-sm font-medium">Critério de validação</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("integrations")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconTableExport className="h-5 w-5" />
-                    <span className="text-sm font-medium">Integrações</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`flex-shrink-0 flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconTarget className="h-5 w-5" />
-                    <span className="text-sm font-medium">Leadscore</span>
-                  </button>
-                </nav>
               </div>
 
-              {/* Desktop: Sidebar de Navegação */}
+              {/* Desktop: Header */}
               <div className="hidden md:flex w-64 border-r border-border bg-secondary flex-col shrink-0">
                 <div className="p-4 border-b border-border">
                   <h2 className="text-lg font-semibold text-text">Configurações</h2>
                 </div>
-                <nav className="flex-1 p-2 space-y-1">
-                  <button onClick={() => setActiveSettingsTab("general")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "general" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconSettings className="h-5 w-5" />
-                    <span className="text-sm font-medium">Preferências</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("accounts")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "accounts" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconUsers className="h-5 w-5" />
-                    <span className="text-sm font-medium">Contas</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("validation")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "validation" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconCheck className="h-5 w-5" />
-                    <span className="text-sm font-medium">Critério de validação</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("integrations")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "integrations" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconTableExport className="h-5 w-5" />
-                    <span className="text-sm font-medium">Integrações</span>
-                  </button>
-                  <button onClick={() => setActiveSettingsTab("leadscore")} className={`w-full flex items-center gap-3 px-3 py-2 rounded-md transition-colors ${activeSettingsTab === "leadscore" ? "bg-background text-text" : "text-text/70 hover:bg-accent-hover hover:text-text"}`}>
-                    <IconTarget className="h-5 w-5" />
-                    <span className="text-sm font-medium">Leadscore</span>
-                  </button>
-                </nav>
               </div>
 
-              {/* Conteúdo da Aba Ativa */}
-              <div className="flex-1 overflow-y-auto w-full max-w-3xl">
-                <div className="p-4 md:p-6">
-                  {activeSettingsTab === "general" && (
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="text-lg font-semibold text-text mb-6">Preferências</h3>
+              <TabbedContent
+                value={activeSettingsTab}
+                onValueChange={(value) => setActiveSettingsTab(value as typeof activeSettingsTab)}
+                variant="with-icons"
+                orientation="vertical"
+                tabs={[
+                  { value: "general", label: "Preferências", icon: IconSettings },
+                  { value: "accounts", label: "Contas", icon: IconUsers },
+                  { value: "validation", label: "Critério de validação", icon: IconCheck },
+                  { value: "leadscore", label: "Leadscore", icon: IconTarget },
+                ]}
+                tabsContainerClassName="flex flex-col md:flex-row h-full flex-1"
+                tabsListClassName="md:w-64 md:flex-col md:border-r md:border-border md:bg-secondary md:rounded-none md:space-y-1 md:p-2 md:h-full md:flex-shrink-0 md:mb-0"
+              >
+                <TabbedContentItem value="general" variant="with-icons" orientation="vertical">
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-text mb-6">Preferências</h3>
+                    </div>
+
+                    <div className="space-y-4">
+                      {/* Idioma */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-text">Idioma</label>
+                        <Select
+                          value={userLanguage}
+                          onValueChange={async (value) => {
+                            try {
+                              await saveLanguage(value);
+                              showSuccess("Idioma atualizado com sucesso");
+                            } catch (error) {
+                              console.error("Erro ao salvar idioma:", error);
+                              showError({ message: "Erro ao salvar idioma" });
+                            }
+                          }}
+                          disabled={isLoadingLanguage || isSavingLanguage}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Selecione um idioma" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pt-BR">Português</SelectItem>
+                            <SelectItem value="en-US" disabled>
+                              Inglês
+                            </SelectItem>
+                            <SelectItem value="es-ES" disabled>
+                              Espanhol
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
                       </div>
 
-                      <div className="space-y-4">
-                        {/* Idioma */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-text">Idioma</label>
-                          <Select
-                            value={userLanguage}
-                            onValueChange={async (value) => {
-                              try {
-                                await saveLanguage(value);
-                                showSuccess("Idioma atualizado com sucesso");
-                              } catch (error) {
-                                console.error("Erro ao salvar idioma:", error);
-                                showError({ message: "Erro ao salvar idioma" });
-                              }
-                            }}
-                            disabled={isLoadingLanguage || isSavingLanguage}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Selecione um idioma" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="pt-BR">Português</SelectItem>
-                              <SelectItem value="en-US" disabled>
-                                Inglês
-                              </SelectItem>
-                              <SelectItem value="es-ES" disabled>
-                                Espanhol
-                              </SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
-                        </div>
+                      {/* Moeda */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-text">Moeda</label>
+                        <Select
+                          value={userCurrency}
+                          onValueChange={async (value) => {
+                            try {
+                              await saveCurrency(value);
+                              showSuccess("Moeda atualizada com sucesso");
+                            } catch (error) {
+                              console.error("Erro ao salvar moeda:", error);
+                            }
+                          }}
+                          disabled={isLoadingCurrency || isSavingCurrency}
+                        >
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Selecione uma moeda" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="USD">USD - Dólar Americano ($)</SelectItem>
+                            <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
+                            <SelectItem value="GBP">GBP - Libra Esterlina (£)</SelectItem>
+                            <SelectItem value="BRL">BRL - Real Brasileiro (R$)</SelectItem>
+                            <SelectItem value="MXN">MXN - Peso Mexicano ($)</SelectItem>
+                            <SelectItem value="CAD">CAD - Dólar Canadense ($)</SelectItem>
+                            <SelectItem value="AUD">AUD - Dólar Australiano ($)</SelectItem>
+                            <SelectItem value="JPY">JPY - Iene Japonês (¥)</SelectItem>
+                            <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
+                      </div>
 
-                        {/* Moeda */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-text">Moeda</label>
-                          <Select
-                            value={userCurrency}
-                            onValueChange={async (value) => {
-                              try {
-                                await saveCurrency(value);
-                                showSuccess("Moeda atualizada com sucesso");
-                              } catch (error) {
-                                console.error("Erro ao salvar moeda:", error);
-                              }
-                            }}
-                            disabled={isLoadingCurrency || isSavingCurrency}
-                          >
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Selecione uma moeda" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="USD">USD - Dólar Americano ($)</SelectItem>
-                              <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
-                              <SelectItem value="GBP">GBP - Libra Esterlina (£)</SelectItem>
-                              <SelectItem value="BRL">BRL - Real Brasileiro (R$)</SelectItem>
-                              <SelectItem value="MXN">MXN - Peso Mexicano ($)</SelectItem>
-                              <SelectItem value="CAD">CAD - Dólar Canadense ($)</SelectItem>
-                              <SelectItem value="AUD">AUD - Dólar Australiano ($)</SelectItem>
-                              <SelectItem value="JPY">JPY - Iene Japonês (¥)</SelectItem>
-                              <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
-                        </div>
-
-                        {/* Nicho */}
-                        <div className="space-y-2">
-                          <label className="text-sm font-medium text-text">Nicho</label>
-                          <Input
-                            type="text"
-                            placeholder="Ex: E-commerce, SaaS, etc."
-                            value={userNiche}
-                            onChange={(e) => {
-                              // Atualizar estado local imediatamente para feedback visual
-                              updateNiche(e.target.value);
-                            }}
-                            onBlur={async (e) => {
-                              // Salvar quando o usuário sair do campo
-                              const newValue = e.target.value;
-                              try {
-                                await saveNiche(newValue);
-                                showSuccess("Nicho atualizado com sucesso");
-                              } catch (error) {
-                                console.error("Erro ao salvar nicho:", error);
-                                showError({ message: "Erro ao salvar nicho" });
-                              }
-                            }}
-                            disabled={isLoadingNiche || isSavingNiche}
-                            className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
-                          />
-                          <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
-                        </div>
+                      {/* Nicho */}
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-text">Nicho</label>
+                        <Input
+                          type="text"
+                          placeholder="Ex: E-commerce, SaaS, etc."
+                          value={userNiche}
+                          onChange={(e) => {
+                            // Atualizar estado local imediatamente para feedback visual
+                            updateNiche(e.target.value);
+                          }}
+                          onBlur={async (e) => {
+                            // Salvar quando o usuário sair do campo
+                            const newValue = e.target.value;
+                            try {
+                              await saveNiche(newValue);
+                              showSuccess("Nicho atualizado com sucesso");
+                            } catch (error) {
+                              console.error("Erro ao salvar nicho:", error);
+                              showError({ message: "Erro ao salvar nicho" });
+                            }
+                          }}
+                          disabled={isLoadingNiche || isSavingNiche}
+                          className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
+                        />
+                        <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
                       </div>
                     </div>
-                  )}
+                  </div>
+                </TabbedContentItem>
 
-                  {activeSettingsTab === "accounts" && (
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="text-lg font-semibold text-text mb-6">Contas</h3>
+                <TabbedContentItem value="accounts" variant="with-icons" orientation="vertical">
+                  <div className="space-y-6">
+                    <div>
+                      <h3 className="text-lg font-semibold text-text mb-6">Contas</h3>
+                    </div>
+
+                    {connections.isLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                       </div>
+                    ) : connections.data && connections.data.length > 0 ? (
+                      <div className="space-y-3">
+                        {connections.data.map((connection: any) => (
+                          <FacebookConnectionCard
+                            key={connection.id}
+                            connection={connection}
+                            onReconnect={handleConnectFacebook}
+                            onDelete={async (connectionId) => {
+                              try {
+                                clearConnectionCache(connectionId);
+                                await disconnect.mutateAsync(connectionId);
+                                showSuccess("Conta desconectada com sucesso!");
+                              } catch (error) {
+                                showError(error as any);
+                              }
+                            }}
+                            isDeleting={disconnect.isPending}
+                            showActions={true}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-12">
+                        <IconBrandFacebook className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                        <p className="text-muted-foreground mb-4">Nenhuma conta do Facebook conectada</p>
+                        <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2 mx-auto">
+                          {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
+                          {connect.isPending ? "Conectando..." : "Conectar Facebook"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </TabbedContentItem>
 
-                      {connections.isLoading ? (
+                <TabbedContentItem value="validation" variant="with-icons" orientation="vertical">
+                  <div className="space-y-6">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-text">Critério de validação</h3>
+                        {(isLoadingCriteria || isSavingCriteria) && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            {isLoadingCriteria && (
+                              <>
+                                <IconLoader2 className="h-4 w-4 animate-spin" />
+                                <span>Carregando...</span>
+                              </>
+                            )}
+                            {isSavingCriteria && !isLoadingCriteria && (
+                              <>
+                                <IconLoader2 className="h-4 w-4 animate-spin" />
+                                <span>Salvando...</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-4">Configure os critérios de validação para os anúncios. Use condições individuais ou grupos de condições com operadores lógicos AND/OR.</p>
+                    </div>
+                    <div className="space-y-4">
+                      {isLoadingCriteria ? (
                         <div className="flex items-center justify-center py-12">
                           <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
-                      ) : connections.data && connections.data.length > 0 ? (
-                        <div className="space-y-3">
-                          {connections.data.map((connection: any) => (
-                            <FacebookConnectionCard
-                              key={connection.id}
-                              connection={connection}
-                              onReconnect={handleConnectFacebook}
-                              onDelete={async (connectionId) => {
-                                try {
-                                  clearConnectionCache(connectionId);
-                                  await disconnect.mutateAsync(connectionId);
-                                  showSuccess("Conta desconectada com sucesso!");
-                                } catch (error) {
-                                  showError(error as any);
-                                }
-                              }}
-                              isDeleting={disconnect.isPending}
-                              showActions={true}
-                            />
-                          ))}
-                        </div>
                       ) : (
-                        <div className="text-center py-12">
-                          <IconBrandFacebook className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                          <p className="text-muted-foreground mb-4">Nenhuma conta do Facebook conectada</p>
-                          <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2 mx-auto">
-                            {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
-                            {connect.isPending ? "Conectando..." : "Conectar Facebook"}
-                          </Button>
-                        </div>
+                        <ValidationCriteriaBuilder
+                          value={validationCriteria}
+                          onChange={setValidationCriteria}
+                          onSave={async (criteria) => {
+                            await saveCriteria(criteria);
+                          }}
+                          isSaving={isSavingCriteria}
+                        />
                       )}
                     </div>
-                  )}
+                  </div>
+                </TabbedContentItem>
 
-                  {activeSettingsTab === "validation" && (
-                    <div className="space-y-6">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-text">Critério de validação</h3>
-                          {(isLoadingCriteria || isSavingCriteria) && (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              {isLoadingCriteria && (
-                                <>
-                                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                                  <span>Carregando...</span>
-                                </>
-                              )}
-                              {isSavingCriteria && !isLoadingCriteria && (
-                                <>
-                                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                                  <span>Salvando...</span>
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground mb-4">Configure os critérios de validação para os anúncios. Use condições individuais ou grupos de condições com operadores lógicos AND/OR.</p>
-                      </div>
-                      <div className="space-y-4">
-                        {isLoadingCriteria ? (
-                          <div className="flex items-center justify-center py-12">
-                            <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <TabbedContentItem value="leadscore" variant="with-icons" orientation="vertical">
+                  <div className="space-y-6">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
+                        {(isLoadingMql || isSavingMql) && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            {isLoadingMql && (
+                              <>
+                                <IconLoader2 className="h-4 w-4 animate-spin" />
+                                <span>Carregando...</span>
+                              </>
+                            )}
+                            {isSavingMql && !isLoadingMql && (
+                              <>
+                                <IconLoader2 className="h-4 w-4 animate-spin" />
+                                <span>Salvando...</span>
+                              </>
+                            )}
                           </div>
-                        ) : (
-                          <ValidationCriteriaBuilder
-                            value={validationCriteria}
-                            onChange={setValidationCriteria}
-                            onSave={async (criteria) => {
-                              await saveCriteria(criteria);
-                            }}
-                            isSaving={isSavingCriteria}
-                          />
                         )}
                       </div>
+                      <p className="text-sm text-muted-foreground mb-4">Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.</p>
                     </div>
-                  )}
 
-                  {activeSettingsTab === "leadscore" && (
-                    <div className="space-y-6">
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
-                          {(isLoadingMql || isSavingMql) && (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                              {isLoadingMql && (
-                                <>
-                                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                                  <span>Carregando...</span>
-                                </>
-                              )}
-                              {isSavingMql && !isLoadingMql && (
-                                <>
-                                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                                  <span>Salvando...</span>
-                                </>
-                              )}
-                            </div>
-                          )}
+                    <div className="space-y-4">
+                      {isLoadingMql ? (
+                        <div className="flex items-center justify-center py-12">
+                          <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
-                        <p className="text-sm text-muted-foreground mb-4">Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.</p>
-                      </div>
-
-                      <div className="space-y-4">
-                        {isLoadingMql ? (
-                          <div className="flex items-center justify-center py-12">
-                            <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                          </div>
-                        ) : (
-                          <>
-                            <div className="space-y-2">
-                              <label className="text-sm font-medium text-text">Leadscore mínimo para MQL</label>
-                              <Input
-                                type="number"
-                                min="0"
-                                step="0.1"
-                                value={mqlLeadscoreMin}
-                                onChange={(e) => {
-                                  const value = parseFloat(e.target.value);
-                                  if (!isNaN(value) && value >= 0) {
-                                    updateMqlLeadscoreMin(value);
-                                  }
-                                }}
-                                disabled={isLoadingMql || isSavingMql}
-                                className="w-full [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                placeholder="0"
-                              />
-                              <p className="text-xs text-muted-foreground">Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs</p>
-                            </div>
-
-                            <Button
-                              onClick={async () => {
-                                try {
-                                  await saveMqlLeadscoreMin(mqlLeadscoreMin);
-                                  showSuccess("Configuração de leadscore salva com sucesso!");
-                                } catch (err) {
-                                  showError(err as any);
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium text-text">Leadscore mínimo para MQL</label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.1"
+                              value={mqlLeadscoreMin}
+                              onChange={(e) => {
+                                const value = parseFloat(e.target.value);
+                                if (!isNaN(value) && value >= 0) {
+                                  updateMqlLeadscoreMin(value);
                                 }
                               }}
                               disabled={isLoadingMql || isSavingMql}
-                              className="w-full sm:w-auto"
-                            >
-                              {isSavingMql ? (
-                                <>
-                                  <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
-                                  Salvando...
-                                </>
-                              ) : (
-                                "Salvar configuração"
-                              )}
-                            </Button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {activeSettingsTab === "integrations" && (
-                    <div className="space-y-6">
-                      <div>
-                        <h3 className="text-lg font-semibold text-text mb-2">Integrações</h3>
-                        <p className="text-sm text-muted-foreground mb-4">Conecte planilhas do Google Sheets para enriquecer seus dados de anúncios com informações complementares como Leadscore e CPR max.</p>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="border border-border rounded-lg p-6 bg-secondary-30">
-                          <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-3">
-                              <IconTableExport className="h-6 w-6 text-brand" />
-                              <div>
-                                <h4 className="font-semibold text-text">Google Sheets</h4>
-                                <p className="text-sm text-muted-foreground">Importe dados complementares (Leadscore, CPR max) de planilhas do Google Sheets</p>
-                              </div>
-                            </div>
-                            <Button variant="default" onClick={() => setIsSheetsDialogOpen(true)} className="flex items-center gap-2">
-                              <IconTableExport className="h-4 w-4" />
-                              Integrar planilha
-                            </Button>
+                              className="w-full [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                              placeholder="0"
+                            />
+                            <p className="text-xs text-muted-foreground">Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs</p>
                           </div>
-                          <div className="mt-4 pt-4 border-t border-border">
-                            <p className="text-xs text-muted-foreground">
-                              <strong>Como funciona:</strong> Conecte uma planilha do Google Sheets com colunas de Ad ID, Data, Leadscore e/ou CPR max. Os dados serão importados e aplicados diretamente nas métricas dos seus anúncios no Supabase.
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+
+                          <Button
+                            onClick={async () => {
+                              try {
+                                await saveMqlLeadscoreMin(mqlLeadscoreMin);
+                                showSuccess("Configuração de leadscore salva com sucesso!");
+                              } catch (err) {
+                                showError(err as any);
+                              }
+                            }}
+                            disabled={isLoadingMql || isSavingMql}
+                            className="w-full sm:w-auto"
+                          >
+                            {isSavingMql ? (
+                              <>
+                                <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
+                                Salvando...
+                              </>
+                            ) : (
+                              "Salvar configuração"
+                            )}
+                          </Button>
+                        </>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </TabbedContentItem>
+              </TabbedContent>
             </div>
           </Modal>
         )}
 
         <AutoRefreshConfirmModal isOpen={showModal} packCount={packCount} autoRefreshPacks={autoRefreshPacks} onConfirm={handleConfirm} onCancel={handleCancel} />
-
-        {/* Modal de integração Google Sheets */}
-        <GoogleSheetIntegrationDialog isOpen={isSheetsDialogOpen} onClose={() => setIsSheetsDialogOpen(false)} />
 
         {/* Modal de confirmação de atualização */}
         {isConfirmingUpdate && selectedPackId && (
@@ -1258,7 +981,7 @@ export default function Topbar() {
             }
             confirmText="Confirmar atualização"
             onConfirm={handleConfirmUpdate}
-            isLoading={!!refreshingPackId}
+            isLoading={refreshingPackIds.length > 0}
             confirmIcon={<IconRefresh className="h-4 w-4" />}
           />
         )}

@@ -56,7 +56,7 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
     return all_rows
 
 
-GroupBy = Literal["ad_id", "ad_name"]
+GroupBy = Literal["ad_id", "ad_name", "adset_id", "campaign_id"]
 
 
 class RankingsFilters(BaseModel):
@@ -119,6 +119,34 @@ def _safe_div(a: float, b: float) -> float:
     return (a / b) if b else 0.0
 
 
+def _extract_lpv(row: Dict[str, Any]) -> int:
+    """Extrai LPV (landing_page_view) de forma consistente.
+
+    Preferência:
+    1) coluna explícita `lpv` (quando disponível no ad_metrics)
+    2) soma de actions[].value onde action_type == landing_page_view
+
+    Retorna 0 quando não houver dados.
+    """
+    try:
+        v = row.get("lpv")
+        if v is not None:
+            n = int(v or 0)
+            if n > 0:
+                return n
+    except Exception:
+        pass
+
+    lpv = 0
+    try:
+        for a in (row.get("actions") or []):
+            if str(a.get("action_type")) == "landing_page_view":
+                lpv += int(a.get("value") or 0)
+    except Exception:
+        return 0
+    return int(lpv or 0)
+
+
 def _get_user_mql_leadscore_min(sb, user_id: str) -> float:
     """Busca mql_leadscore_min do usuário. Fallback seguro para 0."""
     try:
@@ -159,6 +187,7 @@ def _build_rankings_series(axis: List[str], S: Dict[str, Any], include_cpmql: bo
     website_ctr_series: List[Optional[float]] = []
     conversions_series: List[Dict[str, int]] = []  # conversions por dia
     cpmql_series: List[Optional[float]] = []
+    mqls_series: List[Optional[int]] = []  # MQLs por dia
 
     for d in axis:
         plays = (S.get("plays") or {}).get(d, 0) or 0
@@ -192,6 +221,7 @@ def _build_rankings_series(axis: List[str], S: Dict[str, Any], include_cpmql: bo
             mql_count_day = ((S.get("mql_count") or {}).get(d, 0)) or 0
             cpmql_day = (spend_day / mql_count_day) if (mql_count_day and spend_day > 0) else None
             cpmql_series.append(cpmql_day)
+            mqls_series.append(mql_count_day if mql_count_day > 0 else None)
 
     series: Dict[str, Any] = {
         "axis": axis,
@@ -207,6 +237,7 @@ def _build_rankings_series(axis: List[str], S: Dict[str, Any], include_cpmql: bo
     }
     if include_cpmql:
         series["cpmql"] = cpmql_series
+        series["mqls"] = mqls_series
     return series
 
 def _hook_at_3_from_curve(curve: Any) -> float:
@@ -251,6 +282,186 @@ def _get_storage_thumb_if_any(ad_row: Dict[str, Any]) -> Optional[str]:
         return None
 
 
+GlobalSearchResultType = Literal["ad_id", "ad_name", "adset_name", "campaign_name"]
+
+
+class GlobalSearchResult(BaseModel):
+    type: GlobalSearchResultType
+    value: str
+    label: str
+    # Campos auxiliares para navegação/UX (opcionais)
+    ad_id: Optional[str] = None
+    ad_name: Optional[str] = None
+    adset_name: Optional[str] = None
+    campaign_name: Optional[str] = None
+
+
+class GlobalSearchResponse(BaseModel):
+    results: List[GlobalSearchResult]
+
+
+@router.get("/search", response_model=GlobalSearchResponse)
+def search_global(
+    query: str = Query(..., min_length=1),
+    limit: int = Query(20, ge=1, le=50),
+    user=Depends(get_current_user),
+):
+    """
+    Busca global para o Sidebar.
+
+    Fonte: tabela `ads` (um registro por ad_id), mais eficiente do que `ad_metrics`.
+    - ad_id: match exato
+    - ad_name / adset_name / campaign_name: contains (ilike)
+    """
+    sb = get_supabase_for_user(user["token"])
+
+    q = (query or "").strip()
+    if not q:
+        return {"results": []}
+
+    # Regras simples para evitar queries muito amplas:
+    # - contains: mínimo 2 caracteres
+    # - ad_id exato: permite se parecer ID (dígitos) e for razoável
+    q_is_digits = q.isdigit()
+    can_contains = len(q) >= 2
+    can_exact_id = q_is_digits and len(q) >= 3
+
+    per_type = max(1, min(10, limit // 2 or 1))  # equilíbrio simples
+
+    results: List[GlobalSearchResult] = []
+    seen: set[tuple[str, str]] = set()
+
+    def push(r: GlobalSearchResult) -> None:
+        key = (r.type, r.value)
+        if key in seen:
+            return
+        seen.add(key)
+        results.append(r)
+
+    # 1) ad_id (match exato)
+    if can_exact_id:
+        try:
+            res = (
+                sb.table("ads")
+                .select("ad_id,ad_name,adset_name,campaign_name")
+                .eq("user_id", user["user_id"])
+                .eq("ad_id", q)
+                .limit(1)
+                .execute()
+            )
+            if res and res.data:
+                row = res.data[0]
+                ad_id = str(row.get("ad_id") or "").strip()
+                ad_name = str(row.get("ad_name") or "").strip()
+                label = ad_name if ad_name else ad_id
+                push(
+                    GlobalSearchResult(
+                        type="ad_id",
+                        value=ad_id,
+                        label=label,
+                        ad_id=ad_id,
+                        ad_name=ad_name or None,
+                        adset_name=(str(row.get("adset_name") or "").strip() or None),
+                        campaign_name=(str(row.get("campaign_name") or "").strip() or None),
+                    )
+                )
+        except Exception as e:
+            logger.warning("[search_global] Falha ao buscar ad_id exato: %s", e)
+
+    # 2) ad_name contains
+    if can_contains and len(results) < limit:
+        try:
+            res = (
+                sb.table("ads")
+                .select("ad_id,ad_name")
+                .eq("user_id", user["user_id"])
+                .ilike("ad_name", f"%{q}%")
+                .order("updated_at", desc=True)
+                .limit(per_type)
+                .execute()
+            )
+            for row in (res.data or [])[:per_type]:
+                ad_name = str(row.get("ad_name") or "").strip()
+                if not ad_name:
+                    continue
+                ad_id = str(row.get("ad_id") or "").strip() or None
+                push(
+                    GlobalSearchResult(
+                        type="ad_name",
+                        value=ad_name,
+                        label=ad_name,
+                        ad_id=ad_id,
+                        ad_name=ad_name,
+                    )
+                )
+        except Exception as e:
+            logger.warning("[search_global] Falha ao buscar ad_name: %s", e)
+
+    # 3) adset_name contains
+    if can_contains and len(results) < limit:
+        try:
+            res = (
+                sb.table("ads")
+                .select("adset_name,ad_id,ad_name")
+                .eq("user_id", user["user_id"])
+                .ilike("adset_name", f"%{q}%")
+                .order("updated_at", desc=True)
+                .limit(per_type)
+                .execute()
+            )
+            for row in (res.data or [])[:per_type]:
+                adset_name = str(row.get("adset_name") or "").strip()
+                if not adset_name:
+                    continue
+                push(
+                    GlobalSearchResult(
+                        type="adset_name",
+                        value=adset_name,
+                        label=adset_name,
+                        ad_id=(str(row.get("ad_id") or "").strip() or None),
+                        ad_name=(str(row.get("ad_name") or "").strip() or None),
+                        adset_name=adset_name,
+                    )
+                )
+        except Exception as e:
+            logger.warning("[search_global] Falha ao buscar adset_name: %s", e)
+
+    # 4) campaign_name contains
+    if can_contains and len(results) < limit:
+        try:
+            res = (
+                sb.table("ads")
+                .select("campaign_name,ad_id,ad_name")
+                .eq("user_id", user["user_id"])
+                .ilike("campaign_name", f"%{q}%")
+                .order("updated_at", desc=True)
+                .limit(per_type)
+                .execute()
+            )
+            for row in (res.data or [])[:per_type]:
+                campaign_name = str(row.get("campaign_name") or "").strip()
+                if not campaign_name:
+                    continue
+                push(
+                    GlobalSearchResult(
+                        type="campaign_name",
+                        value=campaign_name,
+                        label=campaign_name,
+                        ad_id=(str(row.get("ad_id") or "").strip() or None),
+                        ad_name=(str(row.get("ad_name") or "").strip() or None),
+                        campaign_name=campaign_name,
+                    )
+                )
+        except Exception as e:
+            logger.warning("[search_global] Falha ao buscar campaign_name: %s", e)
+
+    # Cap final
+    if len(results) > limit:
+        results = results[:limit]
+
+    return {"results": results}
+
+
 @router.post("/rankings")
 @router.post("/ad-performance")
 def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
@@ -275,12 +486,25 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             q = q.in_("account_id", f.adaccount_ids)
         return q
     
-    data = _fetch_all_paginated(
-        sb,
-        "ad_metrics",
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,hold_rate,reach,frequency,leadscore_values",
-        metrics_filters
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,"
+        "clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,"
+        "conversions,actions,video_play_curve_actions,hold_rate,reach,frequency,leadscore_values,lpv"
     )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,"
+        "clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,"
+        "conversions,actions,video_play_curve_actions,hold_rate,reach,frequency,leadscore_values"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[rankings] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
     
     # LOG TEMPORÁRIO PARA DEBUG
     logger.info(f"[INSIGHTS DEBUG] Dados brutos do Supabase: data_count={len(data)}, date_start={full_start}, date_stop={full_stop}")
@@ -325,7 +549,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     # LOG TEMPORÁRIO PARA DEBUG
     logger.info(f"[INSIGHTS DEBUG] Após filtros: rows_count={len(rows)}, data_count={len(data)}")
 
-    # Agregar por chave (NO NOVO MODELO: sempre por ad_name para ranking pai)
+    # Agregar por chave (req.group_by)
     from collections import defaultdict
 
     agg: Dict[str, Dict[str, Any]] = {}
@@ -344,7 +568,20 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     for r in rows:
         ad_id = str(r.get("ad_id") or "")
         ad_name = str(r.get("ad_name") or "")
-        key = ad_name or ad_id  # ranking pai sempre por ad_name; fallback para ad_id se faltar
+        campaign_id = str(r.get("campaign_id") or "")
+        campaign_name = str(r.get("campaign_name") or "")
+        adset_id = str(r.get("adset_id") or "")
+        adset_name = str(r.get("adset_name") or "")
+
+        if req.group_by == "ad_name":
+            key = ad_name or ad_id  # fallback para ad_id se faltar
+        elif req.group_by == "campaign_id":
+            # Preferir ID (estável); fallback para nome e depois para estruturas abaixo.
+            key = campaign_id or campaign_name or adset_id or ad_id
+        elif req.group_by == "adset_id":
+            key = adset_id or adset_name or ad_id  # fallback
+        else:
+            key = ad_id
         # Preservar key original para usar em series_acc (não pode ser sobrescrita)
         series_key = key
 
@@ -382,23 +619,27 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         frequency = float(r.get("frequency") or 0)
         leadscore_values = r.get("leadscore_values") or []
 
-        # landing_page_views
-        lpv = 0
-        try:
-            for a in (r.get("actions") or []):
-                if str(a.get("action_type")) == "landing_page_view":
-                    lpv += int(a.get("value") or 0)
-        except Exception:
-            lpv = 0
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
 
         # Totais por chave (ao longo do full range)
         if key not in agg:
             agg[key] = {
                 "account_id": r.get("account_id"),
-                # Para ranking por nome, manter um ad_id representativo (pelo maior impressions)
+                "campaign_id": r.get("campaign_id") if req.group_by != "campaign_id" else (campaign_id or None),
+                "campaign_name": r.get("campaign_name") if req.group_by != "campaign_id" else (campaign_name or None),
+                # No agrupamento por campanha, não faz sentido fixar um adset/campaign secundário representativo
+                "adset_id": r.get("adset_id") if req.group_by != "campaign_id" else None,
+                "adset_name": r.get("adset_name") if req.group_by != "campaign_id" else None,
+                # Manter um ad_id representativo (pelo maior impressions) para thumbnail e compatibilidade
                 "rep_ad_id": ad_id,
                 "rep_impr": 0,
-                "ad_name": ad_name,
+                # Compat: o frontend historicamente usa ad_name como label principal
+                "ad_name": (
+                    (campaign_name or campaign_id)
+                    if req.group_by == "campaign_id"
+                    else ((adset_name or adset_id) if req.group_by == "adset_id" else ad_name)
+                ),
                 "impressions": 0,
                 "clicks": 0,
                 "inline_link_clicks": 0,
@@ -416,6 +657,8 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 "curve_weighted": {},  # {segundo_index: {"weighted_sum": float, "plays_sum": int}}
                 # Conjunto de ad_ids distintos para calcular ad_scale
                 "ad_ids": set(),
+                # Conjunto de adset_ids distintos (útil para agrupamento por campanha)
+                "adset_ids": set(),
                 # ad_count (antigo) deixa de ser usado para pais; manteremos preenchimento ao final
                 "ad_count": 0,
                 "thumbnail": None,
@@ -457,6 +700,13 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         if ad_id:
             try:
                 A["ad_ids"].add(ad_id)
+            except Exception:
+                pass
+
+        # Registrar adset_id distinto (para agrupamento por campanha)
+        if adset_id:
+            try:
+                A["adset_ids"].add(adset_id)
             except Exception:
                 pass
         # Atualizar ad_id representativo pelo maior impressions
@@ -660,10 +910,15 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         S = series_acc.get(key)
         series = _build_rankings_series(axis, S, include_cpmql=True) if S else None
 
-        # Calcular ad_scale (distinct ad_ids) e preencher ad_count com este valor
+        # Calcular ad_scale e preencher ad_count:
+        # - por campanha: quantidade de adsets distintos
+        # - demais: quantidade de ads distintos
         ad_scale = 0
         try:
-            ad_scale = len(A.get("ad_ids") or [])
+            if req.group_by == "campaign_id":
+                ad_scale = len(A.get("adset_ids") or [])
+            else:
+                ad_scale = len(A.get("ad_ids") or [])
         except Exception:
             ad_scale = 0
 
@@ -687,6 +942,10 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         items.append({
             "unique_id": None,
             "account_id": A.get("account_id"),
+            "campaign_id": A.get("campaign_id"),
+            "campaign_name": A.get("campaign_name"),
+            "adset_id": A.get("adset_id"),
+            "adset_name": A.get("adset_name"),
             # Devolver rep_ad_id para facilitar thumb e ações no frontend
             "ad_id": A.get("rep_ad_id"),
             "ad_name": A.get("ad_name"),
@@ -827,12 +1086,25 @@ def get_rankings_children(
     def metrics_filters(q):
         return q.eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
     
-    data = _fetch_all_paginated(
-        sb,
-        "ad_metrics",
-        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,hold_rate,leadscore_values",
-        metrics_filters
+    select_with_lpv = (
+        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,leadscore_values,lpv"
     )
+    select_without_lpv = (
+        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,leadscore_values"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[rankings_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
 
     from collections import defaultdict
 
@@ -866,14 +1138,8 @@ def get_rankings_children(
         hook = _hook_at_3_from_curve(curve)
         hold_rate = float(r.get("hold_rate") or 0)
 
-        # landing_page_views
-        lpv = 0
-        try:
-            for a in (r.get("actions") or []):
-                if str(a.get("action_type")) == "landing_page_view":
-                    lpv += int(a.get("value") or 0)
-        except Exception:
-            lpv = 0
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
 
         if key not in agg:
             agg[key] = {
@@ -1046,6 +1312,681 @@ def get_rankings_children(
     return { "data": items }
 
 
+@router.get("/rankings/campaign-id/{campaign_id}/children")
+def get_campaign_children(
+    campaign_id: str,
+    date_start: str,
+    date_stop: str,
+    order_by: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    """Retorna linhas-filhas agregadas por adset_id para um campaign_id no período.
+    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """
+    sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+
+    axis = _axis_5_days(date_stop)
+
+    def metrics_filters(q):
+        return (
+            q.eq("user_id", user["user_id"])
+            .eq("campaign_id", campaign_id)
+            .gte("date", date_start)
+            .lte("date", date_stop)
+        )
+
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
+        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
+        "video_play_curve_actions,hold_rate,leadscore_values,lpv"
+    )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
+        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
+        "video_play_curve_actions,hold_rate,leadscore_values"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[campaign_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
+
+    from collections import defaultdict
+
+    agg: Dict[str, Dict[str, Any]] = {}
+    series_acc: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "impressions": {d: 0 for d in axis},
+            "clicks": {d: 0 for d in axis},
+            "inline": {d: 0 for d in axis},
+            "spend": {d: 0.0 for d in axis},
+            "plays": {d: 0 for d in axis},
+            "lpv": {d: 0 for d in axis},
+            "hook_wsum": {d: 0.0 for d in axis},
+            "conversions": {d: {} for d in axis},
+            "mql_count": {d: 0 for d in axis},
+        }
+    )
+
+    for r in data:
+        ad_id = str(r.get("ad_id") or "")
+        adset_id = str(r.get("adset_id") or "")
+        adset_name = str(r.get("adset_name") or "")
+        if not adset_id:
+            continue
+        key = adset_id
+        series_key = key
+
+        date = str(r.get("date"))[:10]
+        clicks = int(r.get("clicks") or 0)
+        impressions = int(r.get("impressions") or 0)
+        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
+        spend = float(r.get("spend") or 0)
+        leadscore_values = r.get("leadscore_values") or []
+        plays = int(r.get("video_total_plays") or 0)
+        thruplays = int(r.get("video_total_thruplays") or 0)
+        video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        curve = r.get("video_play_curve_actions") or []
+        hook = _hook_at_3_from_curve(curve)
+        hold_rate = float(r.get("hold_rate") or 0)
+
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
+
+        if key not in agg:
+            agg[key] = {
+                "account_id": r.get("account_id"),
+                "campaign_id": r.get("campaign_id"),
+                "campaign_name": r.get("campaign_name"),
+                "adset_id": adset_id,
+                "adset_name": adset_name,
+                # Manter um ad_id representativo (pelo maior impressions) para thumbnail
+                "rep_ad_id": ad_id,
+                "rep_impr": 0,
+                # Compat: usar ad_name como label principal na tabela
+                "ad_name": adset_name or adset_id,
+                "impressions": 0,
+                "clicks": 0,
+                "inline_link_clicks": 0,
+                "spend": 0.0,
+                "lpv": 0,
+                "plays": 0,
+                "thruplays": 0,
+                "hook_wsum": 0.0,
+                "hold_rate_wsum": 0.0,
+                "video_watched_p50_wsum": 0.0,
+                "leadscore_values": [],
+                "conversions": {},
+                "ad_ids": set(),
+            }
+
+        A = agg[key]
+        A["impressions"] += impressions
+        A["clicks"] += clicks
+        A["inline_link_clicks"] += inline_link_clicks
+        A["spend"] += spend
+        A["lpv"] += lpv
+        A["plays"] += plays
+        A["thruplays"] += thruplays
+        A["hook_wsum"] += hook * plays
+        A["hold_rate_wsum"] += hold_rate * plays
+        A["video_watched_p50_wsum"] += video_watched_p50 * plays
+
+        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
+            try:
+                A["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
+            except Exception:
+                pass
+
+        if ad_id:
+            try:
+                A["ad_ids"].add(ad_id)
+            except Exception:
+                pass
+
+        # Atualizar ad_id representativo pelo maior impressions
+        try:
+            if impressions >= int(A.get("rep_impr") or 0):
+                A["rep_impr"] = impressions
+                if ad_id:
+                    A["rep_ad_id"] = ad_id
+        except Exception:
+            pass
+
+        # Agregar conversions e actions por action_type (com prefixos para diferenciar)
+        try:
+            for c in (r.get("conversions") or []):
+                action_type = str(c.get("action_type") or "")
+                value = int(c.get("value") or 0)
+                if action_type:
+                    conv_key = f"conversion:{action_type}"
+                    if conv_key not in A["conversions"]:
+                        A["conversions"][conv_key] = 0
+                    A["conversions"][conv_key] += value
+
+            for a in (r.get("actions") or []):
+                action_type = str(a.get("action_type") or "")
+                value = int(a.get("value") or 0)
+                if action_type:
+                    action_key = f"action:{action_type}"
+                    if action_key not in A["conversions"]:
+                        A["conversions"][action_key] = 0
+                    A["conversions"][action_key] += value
+        except Exception:
+            pass
+
+        # Série 5 dias
+        if date in axis:
+            S = series_acc[series_key]
+            S["impressions"][date] += impressions
+            S["clicks"][date] += clicks
+            S["inline"][date] += inline_link_clicks
+            S["spend"][date] += spend
+            S["lpv"][date] += lpv
+            S["plays"][date] += plays
+            S["hook_wsum"][date] += hook * plays
+            try:
+                S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+            except Exception:
+                pass
+
+            try:
+                # Processar conversions (prefixo conversion:)
+                for c in (r.get("conversions") or []):
+                    action_type = str(c.get("action_type") or "")
+                    value = int(c.get("value") or 0)
+                    if action_type:
+                        key_conv = f"conversion:{action_type}"
+                        if key_conv not in S["conversions"][date]:
+                            S["conversions"][date][key_conv] = 0
+                        S["conversions"][date][key_conv] += value
+                # Processar actions (prefixo action:)
+                for a in (r.get("actions") or []):
+                    action_type = str(a.get("action_type") or "")
+                    value = int(a.get("value") or 0)
+                    if action_type:
+                        key_act = f"action:{action_type}"
+                        if key_act not in S["conversions"][date]:
+                            S["conversions"][date][key_act] = 0
+                        S["conversions"][date][key_act] += value
+            except Exception:
+                pass
+
+    items: List[Dict[str, Any]] = []
+    for key, A in agg.items():
+        S = series_acc.get(key)
+        series = _build_rankings_series(axis, S, include_cpmql=True) if S else None
+
+        hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
+        hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
+        video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
+        ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
+        cpm = (_safe_div(A["spend"], A["impressions"]) * 1000) if A["impressions"] else 0
+        website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
+
+        # Para filhos por adset_id (campanha), não temos um mapeamento de thumbnails por adset.
+        # Mantemos None (o frontend pode usar fallback se necessário).
+        thumbnail = None
+
+        ad_count = 0
+        try:
+            ad_count = len(A.get("ad_ids") or [])
+        except Exception:
+            ad_count = 0
+
+        items.append(
+            {
+                "unique_id": None,
+                "account_id": A.get("account_id"),
+                "campaign_id": A.get("campaign_id"),
+                "campaign_name": A.get("campaign_name"),
+                "adset_id": A.get("adset_id"),
+                "adset_name": A.get("adset_name"),
+                "ad_id": A.get("rep_ad_id"),
+                "ad_name": A.get("ad_name"),
+                "effective_status": None,
+                "impressions": A["impressions"],
+                "clicks": A["clicks"],
+                "inline_link_clicks": A["inline_link_clicks"],
+                "spend": A["spend"],
+                "lpv": A["lpv"],
+                "plays": A["plays"],
+                "video_total_thruplays": A["thruplays"],
+                "hook": hook,
+                "hold_rate": hold_rate,
+                "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
+                "ctr": ctr,
+                "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
+                "cpm": cpm,
+                "website_ctr": website_ctr,
+                "conversions": A.get("conversions", {}),
+                "ad_count": ad_count,
+                "thumbnail": thumbnail,
+                "series": series,
+            }
+        )
+
+    order = (order_by or "").lower()
+    if order in {"hook", "hold_rate", "spend", "ctr", "connect_rate"}:
+        reverse = True
+        items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
+
+    return {"data": items}
+
+
+@router.get("/rankings/adset-id/{adset_id}/children")
+def get_adset_children(
+    adset_id: str,
+    date_start: str,
+    date_stop: str,
+    order_by: Optional[str] = None,
+    user=Depends(get_current_user),
+):
+    """Retorna linhas-filhas agregadas por ad_id para um adset_id no período.
+    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """
+    sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+
+    axis = _axis_5_days(date_stop)
+
+    def metrics_filters(q):
+        return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).gte("date", date_start).lte("date", date_stop)
+
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
+        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
+        "video_play_curve_actions,hold_rate,leadscore_values,lpv"
+    )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
+        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
+        "video_play_curve_actions,hold_rate,leadscore_values"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[adset_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
+
+    from collections import defaultdict
+
+    agg: Dict[str, Dict[str, Any]] = {}
+    series_acc: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {
+            "impressions": {d: 0 for d in axis},
+            "clicks": {d: 0 for d in axis},
+            "inline": {d: 0 for d in axis},
+            "spend": {d: 0.0 for d in axis},
+            "plays": {d: 0 for d in axis},
+            "lpv": {d: 0 for d in axis},
+            "hook_wsum": {d: 0.0 for d in axis},
+            "conversions": {d: {} for d in axis},
+            "mql_count": {d: 0 for d in axis},
+        }
+    )
+
+    for r in data:
+        ad_id = str(r.get("ad_id") or "")
+        if not ad_id:
+            continue
+        key = ad_id
+
+        date = str(r.get("date"))[:10]
+        clicks = int(r.get("clicks") or 0)
+        impressions = int(r.get("impressions") or 0)
+        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
+        spend = float(r.get("spend") or 0)
+        leadscore_values = r.get("leadscore_values") or []
+        plays = int(r.get("video_total_plays") or 0)
+        thruplays = int(r.get("video_total_thruplays") or 0)
+        video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        curve = r.get("video_play_curve_actions") or []
+        hook = _hook_at_3_from_curve(curve)
+        hold_rate = float(r.get("hold_rate") or 0)
+
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
+
+        if key not in agg:
+            agg[key] = {
+                "account_id": r.get("account_id"),
+                "campaign_id": r.get("campaign_id"),
+                "campaign_name": r.get("campaign_name"),
+                "adset_id": r.get("adset_id"),
+                "adset_name": r.get("adset_name"),
+                "ad_id": ad_id,
+                "ad_name": r.get("ad_name"),
+                "impressions": 0,
+                "clicks": 0,
+                "inline_link_clicks": 0,
+                "spend": 0.0,
+                "lpv": 0,
+                "plays": 0,
+                "thruplays": 0,
+                "hook_wsum": 0.0,
+                "hold_rate_wsum": 0.0,
+                "video_watched_p50_wsum": 0.0,
+                "conversions": {},
+                "leadscore_values": [],
+            }
+
+        A = agg[key]
+        A["impressions"] += impressions
+        A["clicks"] += clicks
+        A["inline_link_clicks"] += inline_link_clicks
+        A["spend"] += spend
+        A["lpv"] += lpv
+        A["plays"] += plays
+        A["thruplays"] += thruplays
+        A["hook_wsum"] += hook * plays
+        A["hold_rate_wsum"] += hold_rate * plays
+        A["video_watched_p50_wsum"] += video_watched_p50 * plays
+
+        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
+            try:
+                A["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
+            except Exception:
+                pass
+
+        # conversions agregado no período
+        conversions = r.get("conversions") or []
+        if isinstance(conversions, list):
+            for conv in conversions:
+                if isinstance(conv, dict):
+                    t = conv.get("action_type")
+                    v = conv.get("value")
+                    if t:
+                        try:
+                            A["conversions"][str(t)] = A["conversions"].get(str(t), 0) + int(v or 0)
+                        except Exception:
+                            pass
+
+        # series (últimos 5 dias)
+        if date in axis:
+            S = series_acc[key]
+            S["impressions"][date] += impressions
+            S["clicks"][date] += clicks
+            S["inline"][date] += inline_link_clicks
+            S["spend"][date] += spend
+            S["plays"][date] += plays
+            S["lpv"][date] += lpv
+            S["hook_wsum"][date] += hook * plays
+
+            # conversions por dia
+            conversions_day = S["conversions"][date]
+            conversions = r.get("conversions") or []
+            if isinstance(conversions, list):
+                for conv in conversions:
+                    if isinstance(conv, dict):
+                        t = conv.get("action_type")
+                        v = conv.get("value")
+                        if t:
+                            try:
+                                conversions_day[str(t)] = conversions_day.get(str(t), 0) + int(v or 0)
+                            except Exception:
+                                pass
+            S["conversions"][date] = conversions_day
+
+            # MQLs por dia
+            try:
+                S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+            except Exception:
+                pass
+
+    items: List[Dict[str, Any]] = []
+    for key, A in agg.items():
+        ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
+        hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
+        hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
+        video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
+        connect_rate = _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0
+        cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
+        website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
+
+        series = _build_rankings_series(axis, series_acc.get(key), include_cpmql=True)
+
+        items.append(
+            {
+                "unique_id": None,
+                "account_id": A.get("account_id"),
+                "campaign_id": A.get("campaign_id"),
+                "campaign_name": A.get("campaign_name"),
+                "adset_id": A.get("adset_id"),
+                "adset_name": A.get("adset_name"),
+                "ad_id": A.get("ad_id"),
+                "ad_name": A.get("ad_name"),
+                "impressions": A["impressions"],
+                "clicks": A["clicks"],
+                "inline_link_clicks": A["inline_link_clicks"],
+                "spend": A["spend"],
+                "lpv": A["lpv"],
+                "plays": A["plays"],
+                "video_total_thruplays": A["thruplays"],
+                "hook": hook,
+                "hold_rate": hold_rate,
+                "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
+                "ctr": ctr,
+                "connect_rate": connect_rate,
+                "cpm": cpm,
+                "website_ctr": website_ctr,
+                "leadscore_values": A.get("leadscore_values") or [],
+                "conversions": A.get("conversions", {}),
+                "ad_count": 1,
+                "thumbnail": None,
+                "series": series,
+            }
+        )
+
+    return {"data": items}
+
+
+@router.get("/rankings/adset-id/{adset_id}")
+def get_adset_details(
+    adset_id: str,
+    date_start: str,
+    date_stop: str,
+    user=Depends(get_current_user),
+):
+    """Retorna detalhes completos de um adset_id no período.
+    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """
+    sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+
+    axis = _axis_5_days(date_stop)
+
+    def metrics_filters(q):
+        return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).gte("date", date_start).lte("date", date_stop)
+
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
+        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
+        "video_play_curve_actions,leadscore_values,lpv"
+    )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
+        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
+        "video_play_curve_actions,leadscore_values"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[adset_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
+
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Adset ID {adset_id} não encontrado no período especificado")
+
+    from collections import defaultdict
+
+    agg: Dict[str, Any] = {
+        "account_id": None,
+        "campaign_id": None,
+        "campaign_name": None,
+        "adset_id": adset_id,
+        "adset_name": None,
+        "impressions": 0,
+        "clicks": 0,
+        "inline_link_clicks": 0,
+        "spend": 0.0,
+        "lpv": 0,
+        "plays": 0,
+        "thruplays": 0,
+        "hook_wsum": 0.0,
+        "video_watched_p50_wsum": 0.0,
+        "conversions": {},
+        "leadscore_values": [],
+        "ad_ids": set(),
+    }
+
+    series_acc: Dict[str, Any] = {
+        "impressions": {d: 0 for d in axis},
+        "clicks": {d: 0 for d in axis},
+        "inline": {d: 0 for d in axis},
+        "spend": {d: 0.0 for d in axis},
+        "plays": {d: 0 for d in axis},
+        "lpv": {d: 0 for d in axis},
+        "hook_wsum": {d: 0.0 for d in axis},
+        "conversions": {d: {} for d in axis},
+        "mql_count": {d: 0 for d in axis},
+    }
+
+    for r in data:
+        if not agg["account_id"]:
+            agg["account_id"] = r.get("account_id")
+        if not agg["campaign_id"]:
+            agg["campaign_id"] = r.get("campaign_id")
+        if not agg["campaign_name"]:
+            agg["campaign_name"] = r.get("campaign_name")
+        if not agg["adset_name"]:
+            agg["adset_name"] = r.get("adset_name")
+
+        ad_id = str(r.get("ad_id") or "")
+        if ad_id:
+            agg["ad_ids"].add(ad_id)
+
+        date = str(r.get("date"))[:10]
+        clicks = int(r.get("clicks") or 0)
+        impressions = int(r.get("impressions") or 0)
+        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
+        spend = float(r.get("spend") or 0)
+        plays = int(r.get("video_total_plays") or 0)
+        thruplays = int(r.get("video_total_thruplays") or 0)
+        curve = r.get("video_play_curve_actions") or []
+        hook = _hook_at_3_from_curve(curve)
+        video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        leadscore_values = r.get("leadscore_values") or []
+
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
+
+        agg["impressions"] += impressions
+        agg["clicks"] += clicks
+        agg["inline_link_clicks"] += inline_link_clicks
+        agg["spend"] += spend
+        agg["lpv"] += lpv
+        agg["plays"] += plays
+        agg["thruplays"] += thruplays
+        agg["hook_wsum"] += hook * plays
+        agg["video_watched_p50_wsum"] += video_watched_p50 * plays
+
+        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
+            try:
+                agg["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
+            except Exception:
+                pass
+
+        conversions = r.get("conversions") or []
+        if isinstance(conversions, list):
+            for conv in conversions:
+                if isinstance(conv, dict):
+                    t = conv.get("action_type")
+                    v = conv.get("value")
+                    if t:
+                        try:
+                            agg["conversions"][str(t)] = agg["conversions"].get(str(t), 0) + int(v or 0)
+                        except Exception:
+                            pass
+
+        if date in axis:
+            series_acc["impressions"][date] += impressions
+            series_acc["clicks"][date] += clicks
+            series_acc["inline"][date] += inline_link_clicks
+            series_acc["spend"][date] += spend
+            series_acc["plays"][date] += plays
+            series_acc["lpv"][date] += lpv
+            series_acc["hook_wsum"][date] += hook * plays
+
+            conversions_day = series_acc["conversions"][date]
+            conversions = r.get("conversions") or []
+            if isinstance(conversions, list):
+                for conv in conversions:
+                    if isinstance(conv, dict):
+                        t = conv.get("action_type")
+                        v = conv.get("value")
+                        if t:
+                            try:
+                                conversions_day[str(t)] = conversions_day.get(str(t), 0) + int(v or 0)
+                            except Exception:
+                                pass
+            series_acc["conversions"][date] = conversions_day
+
+            try:
+                series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+            except Exception:
+                pass
+
+    ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
+    hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
+    video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
+    connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
+    cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
+    website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
+
+    series = _build_rankings_series(axis, series_acc, include_cpmql=True)
+
+    return {
+        "account_id": agg["account_id"],
+        "campaign_id": agg["campaign_id"],
+        "campaign_name": agg["campaign_name"],
+        "adset_id": agg["adset_id"],
+        "adset_name": agg["adset_name"],
+        "ad_id": None,
+        "ad_name": agg["adset_name"] or agg["adset_id"],
+        "impressions": agg["impressions"],
+        "clicks": agg["clicks"],
+        "inline_link_clicks": agg["inline_link_clicks"],
+        "spend": agg["spend"],
+        "lpv": agg["lpv"],
+        "plays": agg["plays"],
+        "video_total_thruplays": agg["thruplays"],
+        "hook": hook,
+        "ctr": ctr,
+        "connect_rate": connect_rate,
+        "cpm": cpm,
+        "website_ctr": website_ctr,
+        "leadscore_values": agg.get("leadscore_values") or [],
+        "conversions": agg.get("conversions", {}),
+        "ad_count": len(agg.get("ad_ids") or []),
+        "thumbnail": None,
+        "series": series,
+    }
+
+
 @router.get("/rankings/ad-id/{ad_id}")
 def get_ad_details(
     ad_id: str,
@@ -1067,12 +2008,23 @@ def get_ad_details(
     def metrics_filters(q):
         return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
     
-    data = _fetch_all_paginated(
-        sb,
-        "ad_metrics",
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,leadscore_values",
-        metrics_filters
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,leadscore_values,lpv"
     )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,leadscore_values"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[ad_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
     
     if not data:
         raise HTTPException(status_code=404, detail=f"Ad ID {ad_id} não encontrado no período especificado")
@@ -1131,14 +2083,8 @@ def get_ad_details(
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
 
-        # landing_page_views
-        lpv = 0
-        try:
-            for a in (r.get("actions") or []):
-                if str(a.get("action_type")) == "landing_page_view":
-                    lpv += int(a.get("value") or 0)
-        except Exception:
-            lpv = 0
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
 
         # Agregar totais
         agg["impressions"] += impressions
@@ -1322,12 +2268,23 @@ def get_ad_history(
     def metrics_filters(q):
         return q.eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
     
-    data = _fetch_all_paginated(
-        sb,
-        "ad_metrics",
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions",
-        metrics_filters
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,lpv"
     )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[ad_history] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
     
     # Criar mapa de dados por data
     data_by_date: Dict[str, Dict[str, Any]] = {}
@@ -1356,14 +2313,8 @@ def get_ad_history(
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
         
-        # landing_page_views
-        lpv = 0
-        try:
-            for a in (r.get("actions") or []):
-                if str(a.get("action_type")) == "landing_page_view":
-                    lpv += int(a.get("value") or 0)
-        except Exception:
-            lpv = 0
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
         
         # Conversões e actions
         conversions = r.get("conversions") or {}
@@ -1457,12 +2408,23 @@ def get_ad_name_history(
     def metrics_filters(q):
         return q.eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
 
-    data = _fetch_all_paginated(
-        sb,
-        "ad_metrics",
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions",
-        metrics_filters
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,lpv"
     )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[ad_name_history] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
 
     # Agregar por data
     data_by_date: Dict[str, Dict[str, Any]] = {}
@@ -1491,14 +2453,8 @@ def get_ad_name_history(
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
 
-        # landing_page_views
-        lpv = 0
-        try:
-            for a in (r.get("actions") or []):
-                if str(a.get("action_type")) == "landing_page_view":
-                    lpv += int(a.get("value") or 0)
-        except Exception:
-            lpv = 0
+        # landing_page_views (preferir coluna lpv quando disponível)
+        lpv = _extract_lpv(r)
 
         # Conversões e actions
         conversions = r.get("conversions") or {}

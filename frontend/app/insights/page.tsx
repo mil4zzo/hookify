@@ -18,17 +18,16 @@ import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateA
 import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
-import { IconSparkles, IconDiamond, IconBulbFilled, IconStarFilled } from "@tabler/icons-react";
+import { IconSparkles, IconDiamond, IconSunFilled, IconStarFilled } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { PageContainer } from "@/components/common/PageContainer";
 import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { HookifyWidget } from "@/components/common/HookifyWidget";
+import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 
 // Insights e Manager compartilham a mesma base de Ad Performance retornada
 // pelo endpoint `/analytics/ad-performance` (histórico `/analytics/rankings`).
@@ -63,7 +62,7 @@ const TAB_HEADER_CONFIG = {
     description: "Melhorias para maximizar seus lucros, ordenada por maior impacto.",
   },
   insights: {
-    icon: IconBulbFilled,
+    icon: IconSunFilled,
     title: "Insights",
     description: "Melhorias acionáveis por métrica.",
   },
@@ -1001,13 +1000,10 @@ export default function InsightsPage() {
     </div>
   );
 
-  const HeaderIcon = headerConfig.icon;
-
   return (
     <PageContainer
       title={headerConfig.title}
       description={headerConfig.description}
-      icon={<HeaderIcon className="w-6 h-6 text-yellow-500" />}
       actions={
         <FiltersDropdown
           expanded={true}
@@ -1029,52 +1025,34 @@ export default function InsightsPage() {
       }
     >
       {/* Tabs */}
-      <TooltipProvider>
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <TabsTrigger value="opportunities">
-                  <div className="flex items-center gap-2">
-                    <IconStarFilled className="w-4 h-4" />
-                    <span>Oportunidades</span>
-                  </div>
-                </TabsTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{TAB_TITLES.opportunities}</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <TabsTrigger value="insights">
-                  <div className="flex items-center gap-2">
-                    <IconSparkles className="w-4 h-4" />
-                    <span>Insights</span>
-                  </div>
-                </TabsTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{TAB_TITLES.insights}</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <TabsTrigger value="gems">
-                  <div className="flex items-center gap-2">
-                    <IconDiamond className="w-4 h-4" />
-                    <span>Gems</span>
-                  </div>
-                </TabsTrigger>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>{TAB_TITLES.gems}</p>
-              </TooltipContent>
-            </Tooltip>
-          </TabsList>
-
+      <TabbedContent
+        value={activeTab}
+        onValueChange={handleTabChange}
+        variant="with-icons"
+        showTooltips={true}
+        tabs={[
+          {
+            value: "opportunities",
+            label: "Oportunidades",
+            icon: IconStarFilled,
+            tooltip: TAB_TITLES.opportunities,
+          },
+          {
+            value: "insights",
+            label: "Insights",
+            icon: IconSparkles,
+            tooltip: TAB_TITLES.insights,
+          },
+          {
+            value: "gems",
+            label: "Gems",
+            icon: IconDiamond,
+            tooltip: TAB_TITLES.gems,
+          },
+        ]}
+      >
         {/* Tab Oportunidades */}
-        <TabsContent value="opportunities" className="space-y-6">
+        <TabbedContentItem value="opportunities" variant="with-icons">
           <HookifyWidget
             title={TAB_TITLES.opportunities}
             titleClassName={TAB_TITLE_CLASS}
@@ -1152,10 +1130,10 @@ export default function InsightsPage() {
               </div>
             )}
           </HookifyWidget>
-        </TabsContent>
+        </TabbedContentItem>
 
         {/* Tab Insights */}
-        <TabsContent value="insights" className="space-y-6">
+        <TabbedContentItem value="insights" variant="with-icons">
           <HookifyWidget
             title={TAB_TITLES.insights}
             titleClassName={TAB_TITLE_CLASS}
@@ -1173,10 +1151,10 @@ export default function InsightsPage() {
               </div>
             )}
           </HookifyWidget>
-        </TabsContent>
+        </TabbedContentItem>
 
         {/* Tab Gems */}
-        <TabsContent value="gems" className="space-y-6">
+        <TabbedContentItem value="gems" variant="with-icons">
           <HookifyWidget
             title={TAB_TITLES.gems}
             titleClassName={TAB_TITLE_CLASS}
@@ -1195,9 +1173,8 @@ export default function InsightsPage() {
               </div>
             )}
           </HookifyWidget>
-        </TabsContent>
-        </Tabs>
-      </TooltipProvider>
+        </TabbedContentItem>
+      </TabbedContent>
 
       {/* Modal com detalhes do anúncio */}
       <Modal

@@ -64,6 +64,7 @@ create table if not exists public.ad_metrics (
   clicks integer,
   impressions integer,
   inline_link_clicks integer,
+  lpv integer not null default 0,
   reach integer,
   video_total_plays integer,
   video_total_thruplays integer,

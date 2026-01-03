@@ -27,7 +27,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ReactQueryProvider>
           <SidebarProvider>
             <AppLayout>{children}</AppLayout>
-            <Toaster position="bottom-right" richColors theme="dark" />
+            <Toaster
+              position="bottom-right"
+              richColors
+              theme="dark"
+              expand={true}
+              visibleToasts={5}
+              gap={8}
+            />
           </SidebarProvider>
         </ReactQueryProvider>
       </body>

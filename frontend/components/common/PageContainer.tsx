@@ -3,6 +3,7 @@
 import { ReactNode } from "react";
 import { PageSectionHeader } from "./PageSectionHeader";
 import { cn } from "@/lib/utils/cn";
+import { PAGE_SPACING_DEFAULT, PAGE_SPACING_OPTIONS } from "@/lib/constants/pageLayout";
 
 export interface PageContainerProps {
   // Props do header
@@ -17,21 +18,45 @@ export interface PageContainerProps {
   // Props do container
   children: ReactNode;
   className?: string;
-  spacing?: "sm" | "md" | "lg"; // sm=4, md=6, lg=8
+  /** Espaçamento vertical entre elementos (padrão: "md" = space-y-6) */
+  spacing?: keyof typeof PAGE_SPACING_OPTIONS;
+  /** Se true, o container ocupará toda a altura disponível com flex (use apenas quando necessário) */
+  fullHeight?: boolean;
 }
 
 /**
  * Container padronizado para páginas da aplicação.
- * Garante consistência no espaçamento e estrutura entre páginas.
+ * 
+ * **Padrões estabelecidos:**
+ * - Espaçamento padrão: `md` (space-y-6)
+ * - Ícones: `w-6 h-6 text-yellow-500` (use PageIcon helper)
+ * - Header: mb-4 (definido em PageSectionHeader)
+ * 
+ * **Quando usar `fullHeight`:**
+ * - Apenas quando o conteúdo precisa ocupar toda a altura disponível
+ * - Exemplo: tabelas que precisam de scroll interno
+ * - ⚠️ Evite usar se não for necessário, pois remove o espaçamento padrão
  * 
  * @example
+ * // Uso básico (recomendado)
  * <PageContainer
  *   title="Biblioteca"
  *   description="Gerencie seus Packs de anúncios"
- *   icon={<IconStack2Filled className="w-6 h-6 text-yellow-500" />}
+ *   icon={<PageIcon icon={IconStack2Filled} />}
  *   actions={<Button>Carregar Pack</Button>}
  * >
  *   <div>Conteúdo da página</div>
+ * </PageContainer>
+ * 
+ * @example
+ * // Com fullHeight (apenas quando necessário)
+ * <PageContainer
+ *   title="Explore"
+ *   description="Dados de performance"
+ *   icon={<PageIcon icon={IconCompass} />}
+ *   fullHeight={true}
+ * >
+ *   <ManagerTable ... />
  * </PageContainer>
  */
 export function PageContainer({
@@ -44,16 +69,16 @@ export function PageContainer({
   descriptionClassName,
   children,
   className,
-  spacing = "md", // padrão: space-y-6
+  spacing = PAGE_SPACING_DEFAULT,
+  fullHeight = false,
 }: PageContainerProps) {
-  const spacingClasses = {
-    sm: "space-y-4",
-    md: "space-y-6",
-    lg: "space-y-8",
-  };
 
   return (
-    <div className={cn(spacingClasses[spacing], className)}>
+    <div className={cn(
+      !fullHeight && PAGE_SPACING_OPTIONS[spacing], 
+      fullHeight && "h-full flex-1 flex flex-col min-h-0",
+      className
+    )}>
       <PageSectionHeader
         title={title}
         description={description}
@@ -63,7 +88,9 @@ export function PageContainer({
         titleClassName={titleClassName}
         descriptionClassName={descriptionClassName}
       />
-      {children}
+      <div className={fullHeight ? "flex-1 flex flex-col min-h-0" : ""}>
+        {children}
+      </div>
     </div>
   );
 }

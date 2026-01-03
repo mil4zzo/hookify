@@ -19,6 +19,7 @@ from app.services.job_tracker import (
     STATUS_PERSISTING,
     STATUS_COMPLETED,
     STATUS_FAILED,
+    STATUS_CANCELLED,
     STAGE_PAGINATION,
     STAGE_ENRICHMENT,
     STAGE_FORMATTING,
@@ -46,7 +47,24 @@ class JobProcessor:
         self.user_id = user_id
         self.access_token = access_token
         self.tracker = get_job_tracker(user_jwt, user_id)
-    
+
+    def _check_if_cancelled(self, job_id: str) -> bool:
+        """
+        Verifica se o job foi cancelado pelo usuário.
+
+        Returns:
+            True se o job foi cancelado, False caso contrário
+        """
+        try:
+            job = self.tracker.get_job(job_id)
+            if job and job.get("status") == STATUS_CANCELLED:
+                logger.info(f"[JobProcessor] ⛔ Job {job_id} foi cancelado pelo usuário, interrompendo processamento")
+                return True
+            return False
+        except Exception as e:
+            logger.warning(f"[JobProcessor] Erro ao verificar cancelamento do job {job_id}: {e}")
+            return False
+
     def process(self, job_id: str) -> Dict[str, Any]:
         """
         Processa um job completo.
@@ -90,7 +108,12 @@ class JobProcessor:
                     }
                 )
             
-            collector = get_insights_collector(self.access_token, on_progress=on_pagination_progress)
+            collector = get_insights_collector(
+                self.access_token,
+                on_progress=on_pagination_progress,
+                job_tracker=self.tracker,
+                job_id=job_id
+            )
             collect_result = collector.collect(job_id)
             
             if not collect_result.get("success"):
@@ -102,7 +125,11 @@ class JobProcessor:
             total_collected = collect_result.get("total_collected", 0)
             
             logger.info(f"[JobProcessor] Coleta concluída: {total_collected} registros em {page_count} páginas")
-            
+
+            # Verificar cancelamento após paginação
+            if self._check_if_cancelled(job_id):
+                return {"success": False, "error": "Job cancelado pelo usuário", "cancelled": True}
+
             if not raw_data:
                 # Job completou mas sem dados
                 self.tracker.mark_completed(job_id, pack_id="", result_count=0, details={
@@ -111,7 +138,7 @@ class JobProcessor:
                     "message": "Nenhum anúncio encontrado para os filtros selecionados"
                 })
                 return {"success": True, "data": [], "pack_id": None, "result_count": 0}
-            
+
             # ===== FASE 2: ENRIQUECIMENTO =====
             # Calcular unique_count antes do enriquecimento para incluir no progresso
             temp_enricher = AdsEnricher(self.access_token)
@@ -146,7 +173,12 @@ class JobProcessor:
                     }
                 )
             
-            enricher = get_ads_enricher(self.access_token, on_progress=on_enrichment_progress)
+            enricher = get_ads_enricher(
+                self.access_token,
+                on_progress=on_enrichment_progress,
+                job_tracker=self.tracker,
+                job_id=job_id
+            )
             enrich_result = enricher.enrich(act_id, raw_data)
             
             enriched_data = enrich_result.get("data", raw_data)
@@ -158,7 +190,11 @@ class JobProcessor:
             enriched_count = enrich_result.get("enriched_count", 0)
             
             logger.info(f"[JobProcessor] Enriquecimento concluído: {enriched_count} de {unique_count} anúncios únicos")
-            
+
+            # Verificar cancelamento após enriquecimento
+            if self._check_if_cancelled(job_id):
+                return {"success": False, "error": "Job cancelado pelo usuário", "cancelled": True}
+
             # ===== FASE 3: FORMATAÇÃO =====
             self.tracker.mark_processing(job_id, STAGE_FORMATTING, {
                 "page_count": page_count,
@@ -171,7 +207,11 @@ class JobProcessor:
             formatted_data = format_ads_for_api(enriched_data, act_id)
             
             logger.info(f"[JobProcessor] Formatação concluída: {len(formatted_data)} anúncios formatados")
-            
+
+            # Verificar cancelamento após formatação
+            if self._check_if_cancelled(job_id):
+                return {"success": False, "error": "Job cancelado pelo usuário", "cancelled": True}
+
             # ===== FASE 4: PERSISTÊNCIA =====
             # Não chamar mark_persisting aqui - os heartbeats específicos dentro de _persist_data
             # vão atualizar o status com mensagens detalhadas por etapa
@@ -237,14 +277,24 @@ class JobProcessor:
             # Marcar início da persistência imediatamente
             hb("Salvando tudo...", force=True)
 
+            # Verificar cancelamento antes de iniciar persistência
+            if self._check_if_cancelled(job_id):
+                logger.info(f"[JobProcessor] Job {job_id} cancelado antes de persistir dados")
+                return None
+
             pack_id = None
             
             if is_refresh and pack_id_from_payload:
                 # É refresh: atualizar pack existente
                 pack_id = pack_id_from_payload
                 logger.info(f"[JobProcessor] Atualizando pack após refresh: {pack_id}")
-                
+
                 if formatted_data:
+                    # Verificar cancelamento antes de salvar anúncios
+                    if self._check_if_cancelled(job_id):
+                        logger.info(f"[JobProcessor] Job {job_id} cancelado antes de salvar anúncios (refresh)")
+                        return None
+
                     hb("Salvando anúncios...", force=True)
                     supabase_repo.upsert_ads(
                         self.user_jwt,
@@ -317,6 +367,11 @@ class JobProcessor:
                 
                 # Persistir ads e métricas
                 if formatted_data:
+                    # Verificar cancelamento antes de salvar anúncios
+                    if self._check_if_cancelled(job_id):
+                        logger.info(f"[JobProcessor] Job {job_id} cancelado antes de salvar anúncios (novo pack)")
+                        return None
+
                     hb("Salvando anúncios...", force=True)
                     supabase_repo.upsert_ads(
                         self.user_jwt,
@@ -340,9 +395,14 @@ class JobProcessor:
             
             # Calcular e salvar stats
             if formatted_data and pack_id:
+                # Verificar cancelamento antes de calcular stats
+                if self._check_if_cancelled(job_id):
+                    logger.info(f"[JobProcessor] Job {job_id} cancelado antes de calcular stats")
+                    return None
+
                 # Aguardar um pouco para garantir consistência
                 time.sleep(0.5)
-                
+
                 hb("Calculando resumo...", force=True)
                 stats = supabase_repo.calculate_pack_stats(
                     self.user_jwt,

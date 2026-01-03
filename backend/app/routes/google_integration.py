@@ -192,6 +192,62 @@ def google_oauth_callback(
         user.get("user_id"),
     )
 
+    # Atualizar integrações que referenciam conexões antigas/revogadas
+    new_connection_id = rec.get("id")
+    new_google_user_id = rec.get("google_user_id")
+
+    if new_connection_id:
+        try:
+            from app.core.supabase_client import get_supabase_for_user
+            sb = get_supabase_for_user(user["token"])
+
+            # Buscar todas as integrações do usuário
+            integrations = sb.table("ad_sheet_integrations").select("id,connection_id").eq("owner_id", user["user_id"]).execute()
+
+            if integrations.data:
+                # Buscar todas as conexões ativas com seus google_user_ids
+                active_connections = sb.table("google_accounts").select("id,google_user_id").eq("user_id", user["user_id"]).execute()
+                active_connection_map = {conn["id"]: conn.get("google_user_id") for conn in (active_connections.data or [])}
+
+                # Atualizar integrações que referenciam conexões revogadas ou da mesma conta Google
+                updated_count = 0
+                for integration in integrations.data:
+                    old_connection_id = integration.get("connection_id")
+                    should_update = False
+                    update_reason = ""
+
+                    if not old_connection_id:
+                        # Integração sem connection_id
+                        should_update = True
+                        update_reason = "sem connection_id"
+                    elif old_connection_id not in active_connection_map:
+                        # Connection_id não existe mais (revogado/deletado)
+                        should_update = True
+                        update_reason = "conexão revogada"
+                    elif new_google_user_id and active_connection_map.get(old_connection_id) == new_google_user_id:
+                        # Mesma conta Google sendo reconectada - atualizar para usar a nova conexão
+                        should_update = True
+                        update_reason = "mesma conta reconectada"
+
+                    if should_update:
+                        sb.table("ad_sheet_integrations").update({
+                            "connection_id": new_connection_id,
+                            "updated_at": datetime.now(timezone.utc).isoformat()
+                        }).eq("id", integration["id"]).eq("owner_id", user["user_id"]).execute()
+
+                        updated_count += 1
+                        logger.info(
+                            f"[GOOGLE_OAUTH] Integração {integration['id']} atualizada ({update_reason}): {old_connection_id or 'null'} -> {new_connection_id}"
+                        )
+
+                if updated_count > 0:
+                    logger.info(f"[GOOGLE_OAUTH] {updated_count} integração(ões) atualizada(s) para nova conexão")
+                else:
+                    logger.info(f"[GOOGLE_OAUTH] Nenhuma integração precisou ser atualizada")
+        except Exception as e:
+            # Não falhar o OAuth se atualização de integrações falhar
+            logger.warning(f"[GOOGLE_OAUTH] Erro ao atualizar integrações: {e}", exc_info=True)
+
     return {
         "connection": {
             "id": rec.get("id"),
@@ -612,6 +668,7 @@ def sync_ad_sheet_integration(
             sb.table("ad_sheet_integrations").update(
                 {
                     "last_synced_at": now_iso,
+                    # last_successful_sync_at não é atualizado em caso de erro
                     "last_sync_status": f"ERROR: {e}",
                     "updated_at": now_iso,
                 }

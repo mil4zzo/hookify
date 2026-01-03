@@ -148,9 +148,14 @@ class JobTracker:
             job = self.get_job(job_id)
             if not job:
                 return False
-            
+
             current_status = job.get("status")
-            
+
+            # ✅ CRÍTICO: Se job foi cancelado, NÃO iniciar processamento
+            if current_status == STATUS_CANCELLED:
+                logger.info(f"[JobTracker] Job {job_id} foi cancelado, não iniciando processamento")
+                return False
+
             # Só pode transicionar de meta_completed para processing
             if current_status == STATUS_META_COMPLETED:
                 self.heartbeat(
@@ -242,14 +247,20 @@ class JobTracker:
             result_count=result_count
         )
     
-    def mark_failed(self, job_id: str, error_message: str) -> bool:
+    def mark_failed(self, job_id: str, error_message: str, error_code: str | None = None, details: Optional[Dict[str, Any]] = None) -> bool:
         """Marca job como failed."""
+        fail_details = {"stage": "erro", "error": error_message}
+        if error_code:
+            fail_details["error_code"] = error_code
+        # Mesclar com details adicionais se fornecidos
+        if details:
+            fail_details.update(details)
         return self.heartbeat(
             job_id,
             status=STATUS_FAILED,
             progress=0,
             message=f"Erro: {error_message}",
-            details={"stage": "erro", "error": error_message}
+            details=fail_details
         )
     
     def mark_cancelled(self, job_id: str, reason: str = "Cancelado pelo usuário") -> bool:

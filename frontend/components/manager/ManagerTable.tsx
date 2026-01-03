@@ -1,34 +1,62 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, Fragment, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/common/Modal";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { AdInfoCard } from "@/components/ads/AdInfoCard";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { VideoDialog } from "@/components/ads/VideoDialog";
-import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, flexRender, ColumnFiltersState } from "@tanstack/react-table";
+import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconArrowsSort, IconPlayerPlay, IconEye, IconAlertTriangle, IconX, IconArrowNarrowUp, IconArrowNarrowDown, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
-import { AdStatusIcon } from "@/components/common/AdStatusIcon";
+import { IconSearch, IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLayoutGrid, IconTable, IconArrowsHorizontal } from "@tabler/icons-react";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
 import { buildDailySeries } from "@/lib/utils/metricsTimeSeries";
 import { api } from "@/lib/api/endpoints";
-import { useAdVariations } from "@/lib/api/hooks";
-import { RankingsItem, RankingsChildrenItem } from "@/lib/api/schemas";
-import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { RankingsItem } from "@/lib/api/schemas";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
+import { useManagerAverages, type ManagerAverages } from "@/lib/hooks/useManagerAverages";
+import { useFilteredAverages } from "@/lib/hooks/useFilteredAverages";
+import { createManagerTableColumns } from "@/components/manager/managerTableColumns";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ColumnFilter, FilterValue } from "@/components/common/ColumnFilter";
+import { ColumnFilter, FilterValue, FilterOperator, TextFilterValue, TextFilterOperator } from "@/components/common/ColumnFilter";
+import { Separator } from "@/components/common/Separator";
+import { Input } from "@/components/ui/input";
+import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AdsetDetailsDialog } from "@/components/ads/AdsetDetailsDialog";
+import { MetricCell } from "@/components/manager/MetricCell";
+import { AdNameCell } from "@/components/manager/AdNameCell";
+import { FilterBar } from "@/components/manager/FilterBar";
+import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
+import { DEFAULT_MANAGER_COLUMNS } from "@/components/manager/managerColumns";
+import { TableContent } from "@/components/manager/TableContent";
+import { MinimalTableContent } from "@/components/manager/MinimalTableContent";
+import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStorage";
+import { logger } from "@/lib/utils/logger";
 
 type Ad = RankingsItem;
 
 interface ManagerTableProps {
   ads: Ad[];
   groupByAdName?: boolean;
+  activeTab?: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
+  onTabChange?: (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha") => void;
+  /** Dataset para a aba Individual (group_by=ad_id) */
+  adsIndividual?: Ad[];
+  /** Loading específico da aba Individual */
+  isLoadingIndividual?: boolean;
+  /** Dataset para a aba Por conjunto (group_by=adset_id) */
+  adsAdset?: Ad[];
+  /** Loading específico da aba Por conjunto */
+  isLoadingAdset?: boolean;
+  /** Dataset para a aba Por campanha (group_by=campaign_id) */
+  adsCampaign?: Ad[];
+  /** Loading específico da aba Por campanha */
+  isLoadingCampaign?: boolean;
   actionType?: string;
   endDate?: string;
   dateStart?: string;
@@ -49,289 +77,322 @@ interface ManagerTableProps {
   hasSheetIntegration?: boolean;
   /** Indica se os dados estão sendo carregados */
   isLoading?: boolean;
+  /** Filtros iniciais a serem aplicados (ex: vindos de query params da URL) */
+  initialFilters?: Array<{ id: string; value: any }>;
 }
 
 const columnHelper = createColumnHelper<Ad>();
 
-// Componente interno para renderizar linha expandida de variações
-function ExpandedChildrenRow({ row, adName, dateStart, dateStop, actionType, formatCurrency, formatPct }: { row: { getVisibleCells: () => any[] }; adName: string; dateStart: string; dateStop: string; actionType?: string; formatCurrency: (n: number) => string; formatPct: (v: number) => string }) {
-  const { data: childrenData, isLoading, isError } = useAdVariations(adName, dateStart, dateStop, true);
-  const [sortConfig, setSortConfig] = useState<{ column: string | null; direction: "asc" | "desc" }>({ column: null, direction: "asc" });
+const STORAGE_KEY_MANAGER_COLUMNS = "hookify-manager-columns";
+const STORAGE_KEY_VIEW_MODE = "hookify-manager-view-mode";
 
-  // Preparar dados com cálculos e ordenar
-  // IMPORTANTE: useMemo deve ser chamado antes de qualquer retorno condicional para seguir as regras dos Hooks
-  const sortedData = useMemo(() => {
-    // Se não há dados, retornar array vazio
-    if (!childrenData || childrenData.length === 0) {
-      return [];
+// Tipo para o modo de visualização
+type ViewMode = "detailed" | "minimal";
+
+// SortIcon foi movido para `managerTableMetricColumns.tsx` junto do factory de colunas.
+
+// ExpandedChildrenRow foi extraído para arquivo próprio em `frontend/components/manager/ExpandedChildrenRow.tsx`
+
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, initialFilters }: ManagerTableProps) {
+  type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
+  const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
+  const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
+  const currentTab = (activeTab ?? internalTab) as ManagerTab;
+
+  // Use debounced session storage to batch writes and reduce I/O
+  const debouncedStorage = useDebouncedSessionStorage(500);
+
+  const loadManagerColumns = useCallback((): Set<ManagerColumnType> => {
+    if (typeof window === "undefined") return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY_MANAGER_COLUMNS);
+      if (!saved) return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter((col) => (DEFAULT_MANAGER_COLUMNS as readonly string[]).includes(col));
+        if (valid.length === 0) return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
+        return new Set<ManagerColumnType>(valid as ManagerColumnType[]);
+      }
+      return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
+    } catch (e) {
+      logger.error("Erro ao carregar colunas do Manager do sessionStorage:", e);
+      return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
     }
-    const dataWithCalculations = childrenData.map((child: RankingsChildrenItem) => {
-      const lpv = Number(child.lpv || 0);
-      const spend = Number(child.spend || 0);
-      const impressions = Number(child.impressions || 0);
-      // O backend pode não retornar conversions agregadas, então calcular a partir das séries se disponível
-      let conversions = child.conversions || {};
-      // Se conversions está vazio mas temos séries, calcular total a partir das séries
-      if (Object.keys(conversions).length === 0 && child.series?.conversions) {
-        const seriesConversions = child.series.conversions;
-        conversions = {};
-        // Somar todas as conversões de todos os dias da série
-        for (const dayConversions of seriesConversions) {
-          if (dayConversions && typeof dayConversions === "object") {
-            for (const [actionType, value] of Object.entries(dayConversions)) {
-              if (!conversions[actionType]) {
-                conversions[actionType] = 0;
-              }
-              conversions[actionType] += Number(value || 0);
-            }
-          }
+  }, []);
+
+  const saveManagerColumns = useCallback(
+    (columns: Set<ManagerColumnType>) => {
+      if (typeof window === "undefined") return;
+      debouncedStorage.setItem(STORAGE_KEY_MANAGER_COLUMNS, JSON.stringify(Array.from(columns)));
+    },
+    [debouncedStorage]
+  );
+
+  const [activeColumns, setActiveColumns] = useState<Set<ManagerColumnType>>(() => loadManagerColumns());
+
+  // Estado para modo de visualização
+  const loadViewMode = useCallback((): ViewMode => {
+    if (typeof window === "undefined") return "detailed";
+    try {
+      const saved = sessionStorage.getItem(STORAGE_KEY_VIEW_MODE);
+      if (saved === "minimal" || saved === "detailed") {
+        return saved;
+      }
+      return "detailed";
+    } catch (e) {
+      logger.error("Erro ao carregar modo de visualização:", e);
+      return "detailed";
+    }
+  }, []);
+
+  const [viewMode, setViewMode] = useState<ViewMode>(() => loadViewMode());
+
+  const handleViewModeChange = useCallback(
+    (mode: ViewMode) => {
+      setViewMode(mode);
+      if (typeof window !== "undefined") {
+        debouncedStorage.setItem(STORAGE_KEY_VIEW_MODE, mode);
+      }
+    },
+    [debouncedStorage]
+  );
+
+  // Função para resetar o tamanho das colunas para os valores padrão
+  const handleResetColumnSizes = useCallback(() => {
+    setColumnSizing({});
+  }, []);
+
+  // Remover automaticamente cpmql e mqls quando hasSheetIntegration for false
+  useEffect(() => {
+    if (!hasSheetIntegration) {
+      setActiveColumns((prev) => {
+        const hasCpmql = prev.has("cpmql");
+        const hasMqls = prev.has("mqls");
+        if (!hasCpmql && !hasMqls) {
+          // Nada a fazer, já estão removidas
+          return prev;
         }
-      }
-      // Calcular results: usar actionType se disponível, senão 0 (mesma lógica da linha principal)
-      const results = actionType && typeof actionType === "string" && actionType.trim() ? Number(conversions[actionType] || 0) : 0;
-      // Calcular page_conv: mesmo cálculo da linha principal
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      // Calcular cpr: mesmo cálculo da linha principal
-      const cpr = results > 0 ? spend / results : 0;
-      // Usar cpm do backend se disponível, senão calcular
-      // cpm sempre vem do backend
-      const cpm = typeof child.cpm === "number" ? child.cpm : 0;
-      return {
-        ...child,
-        conversions,
-        results,
-        page_conv,
-        cpr,
-        cpm,
-        lpv,
-        spend,
-        impressions,
-      };
-    });
-
-    if (!sortConfig.column) {
-      return dataWithCalculations;
+        const next = new Set(prev);
+        if (hasCpmql) next.delete("cpmql");
+        if (hasMqls) next.delete("mqls");
+        saveManagerColumns(next);
+        return next;
+      });
     }
+  }, [hasSheetIntegration, saveManagerColumns]);
 
-    const sorted = [...dataWithCalculations].sort((a, b) => {
-      let aVal: any;
-      let bVal: any;
+  const isColumnEnabled = useCallback(
+    (columnId: ManagerColumnType) => {
+      if (columnId === "cpmql" || columnId === "mqls") return hasSheetIntegration;
+      return true;
+    },
+    [hasSheetIntegration]
+  );
 
-      switch (sortConfig.column) {
-        case "ad_id":
-          aVal = String(a.ad_id || "");
-          bVal = String(b.ad_id || "");
-          break;
-        case "hook":
-          aVal = Number(a.hook || 0);
-          bVal = Number(b.hook || 0);
-          break;
-        case "cpr":
-          aVal = a.cpr || 0;
-          bVal = b.cpr || 0;
-          break;
-        case "spend":
-          aVal = a.spend || 0;
-          bVal = b.spend || 0;
-          break;
-        case "ctr":
-          aVal = Number(a.ctr || 0);
-          bVal = Number(b.ctr || 0);
-          break;
-        case "cpm":
-          aVal = a.cpm || 0;
-          bVal = b.cpm || 0;
-          break;
-        case "connect_rate":
-          aVal = Number(a.connect_rate || 0);
-          bVal = Number(b.connect_rate || 0);
-          break;
-        case "page_conv":
-          aVal = a.page_conv || 0;
-          bVal = b.page_conv || 0;
-          break;
-        default:
-          return 0;
-      }
+  const isColumnVisible = useCallback((columnId: ManagerColumnType) => activeColumns.has(columnId) && isColumnEnabled(columnId), [activeColumns, isColumnEnabled]);
 
-      if (typeof aVal === "string") {
-        return sortConfig.direction === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      }
-      return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
-    });
-
-    return sorted;
-  }, [childrenData, sortConfig, actionType]);
-
-  const handleSort = (column: string) => {
-    setSortConfig((prev) => {
-      if (prev.column === column) {
-        // Se já está ordenando por esta coluna, inverter direção
-        return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
-      }
-      // Nova coluna: começar com desc (exceto para ad_id que começa com asc)
-      return { column, direction: column === "ad_id" ? "asc" : "desc" };
-    });
+  const handleToggleColumn = useCallback(
+    (columnId: ManagerColumnType) => {
+      setActiveColumns((prev) => {
+        const next = new Set(prev);
+        if (next.has(columnId)) {
+          if (next.size <= 1) {
+            // Garantir pelo menos 1 coluna selecionada (além de ad_name que é fixa)
+            return prev;
+          }
+          next.delete(columnId);
+        } else {
+          next.add(columnId);
+        }
+        saveManagerColumns(next);
+        return next;
+      });
+    },
+    [saveManagerColumns]
+  );
+  const handleTabChange = (value: string) => {
+    const next = value as ManagerTab;
+    if (activeTab === undefined) {
+      setInternalTab(next);
+    }
+    onTabChange?.(next);
   };
 
-  const childMetricsColumnClass = `px-4 py-3 text-center cursor-pointer select-none hover:text-brand`;
+  // Por aba:
+  // - individual: por ad_id (sem agrupamento por nome)
+  // - por-anuncio: agrupado por nome (comportamento atual)
+  // - por-conjunto: por adset_id (sem agrupamento por nome)
+  const groupByAdNameEffective = currentTab === "por-anuncio";
+  const adsEffective = currentTab === "individual" ? adsIndividual ?? ads : currentTab === "por-conjunto" ? adsAdset ?? ads : currentTab === "por-campanha" ? adsCampaign ?? ads : ads;
+  const isLoadingEffective = currentTab === "individual" ? isLoadingIndividual ?? isLoading : currentTab === "por-conjunto" ? isLoadingAdset ?? isLoading : currentTab === "por-campanha" ? isLoadingCampaign ?? isLoading : isLoading;
 
-  // Retornos condicionais após todos os hooks
-  if (isLoading) {
-    return (
-      <tr className="bg-border">
-        <td className="p-0" colSpan={row.getVisibleCells().length}>
-          <div className="p-2 pl-8">
-            <div className="text-sm text-muted-foreground">Carregando variações...</div>
-          </div>
-        </td>
-      </tr>
-    );
-  }
-
-  if (isError) {
-    return (
-      <tr className="bg-border">
-        <td className="p-0" colSpan={row.getVisibleCells().length}>
-          <div className="p-2 pl-8">
-            <div className="text-sm text-destructive">Erro ao carregar variações.</div>
-          </div>
-        </td>
-      </tr>
-    );
-  }
-
-  if (!childrenData || childrenData.length === 0) {
-    return (
-      <tr className="bg-border">
-        <td className="p-0" colSpan={row.getVisibleCells().length}>
-          <div className="p-2 pl-8">
-            <div className="text-sm text-muted-foreground">Sem variações no período.</div>
-          </div>
-        </td>
-      </tr>
-    );
-  }
-
-  return (
-    <tr className="bg-card">
-      <td className="p-0" colSpan={row.getVisibleCells().length}>
-        <div className="">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="bg-border">
-                  <th className={`p-4 text-left cursor-pointer select-none hover:text-brand ${sortConfig.column === "ad_id" ? "text-primary" : ""}`} onClick={() => handleSort("ad_id")}>
-                    <div className="flex items-center gap-1">
-                      Variações
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "hook" ? "text-primary" : ""}`} onClick={() => handleSort("hook")}>
-                    <div className="flex items-center justify-center gap-1">
-                      Hook
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "cpr" ? "text-primary" : ""}`} onClick={() => handleSort("cpr")}>
-                    <div className="flex items-center justify-center gap-1">
-                      CPR
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "spend" ? "text-primary" : ""}`} onClick={() => handleSort("spend")}>
-                    <div className="flex items-center justify-center gap-1">
-                      Spend
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "ctr" ? "text-primary" : ""}`} onClick={() => handleSort("ctr")}>
-                    <div className="flex items-center justify-center gap-1">
-                      CTR
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "cpm" ? "text-primary" : ""}`} onClick={() => handleSort("cpm")}>
-                    <div className="flex items-center justify-center gap-1">
-                      CPM
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "connect_rate" ? "text-primary" : ""}`} onClick={() => handleSort("connect_rate")}>
-                    <div className="flex items-center justify-center gap-1">
-                      Connect
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th className={`${childMetricsColumnClass} ${sortConfig.column === "page_conv" ? "text-primary" : ""}`} onClick={() => handleSort("page_conv")}>
-                    <div className="flex items-center justify-center gap-1">
-                      Page
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedData.map((child) => {
-                  return (
-                    <tr key={child.ad_id} className="hover:bg-muted border-b border-border">
-                      <td className="px-4 py-3 text-left">
-                        <div className="flex items-center gap-2">
-                          {(() => {
-                            const thumb = getAdThumbnail(child);
-                            return thumb ? <img src={thumb} alt="thumb" className="w-10 h-10 object-cover rounded" /> : <div className="w-10 h-10 bg-border rounded" />;
-                          })()}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 truncate">
-                              <AdStatusIcon status={(child as any).effective_status} />
-                              <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
-                            </div>
-                            <div className="truncate text-xs font-medium">{child.adset_name}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="p-2 text-center">{formatPct(Number(child.hook * 100))}</td>
-                      <td className="p-2 text-center">{child.results > 0 ? formatCurrency(child.cpr) : "—"}</td>
-                      <td className="p-2 text-center">{formatCurrency(child.spend)}</td>
-                      <td className="p-2 text-center">{formatPct(Number(child.ctr * 100))}</td>
-                      <td className="p-2 text-center">{formatCurrency(child.cpm)}</td>
-                      <td className="p-2 text-center">{formatPct(Number(child.connect_rate * 100))}</td>
-                      <td className="p-2 text-center">{child.lpv > 0 ? formatPct(Number(child.page_conv * 100)) : "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false }: ManagerTableProps) {
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
+  const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
   const [videoOpen, setVideoOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<{ videoId: string; actorId: string; title: string } | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const hydratingTabRef = useRef<ManagerTab | null>(null);
+  const expandedRef = useRef<Record<string, boolean>>({});
 
-  // Os dados já vêm agregados do servidor quando pais; não re-agregar aqui
-  const data = useMemo(() => {
-    if (!ads || !Array.isArray(ads)) {
+  // Manter referência estável/atualizada do estado de expansão.
+  // Isso permite que `columns` não dependa diretamente de `expanded`, evitando recriações em hot paths (ex.: resize onChange).
+  useEffect(() => {
+    expandedRef.current = expanded;
+  }, [expanded]);
+
+  const getFiltersStorageKey = (tab: ManagerTab) => `hookify-manager-filters:${tab}`;
+  const getGlobalFilterStorageKey = (tab: ManagerTab) => `hookify-manager-global-filter:${tab}`;
+
+  const loadColumnFilters = (tab: ManagerTab): ColumnFiltersState => {
+    if (typeof window === "undefined") return [];
+    try {
+      const saved = sessionStorage.getItem(getFiltersStorageKey(tab));
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      logger.error("Erro ao carregar filtros do sessionStorage:", e);
       return [];
     }
-    return ads;
-  }, [ads]);
+  };
+
+  const loadGlobalFilter = (tab: ManagerTab): string => {
+    if (typeof window === "undefined") return "";
+    try {
+      return sessionStorage.getItem(getGlobalFilterStorageKey(tab)) || "";
+    } catch (e) {
+      logger.error("Erro ao carregar globalFilter do sessionStorage:", e);
+      return "";
+    }
+  };
+
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => loadColumnFilters(initialTab));
+
+  const [sorting, setSorting] = useState<SortingState>([{ id: "spend", desc: true }]);
+
+  const [globalFilter, setGlobalFilter] = useState(() => loadGlobalFilter(initialTab));
+
+  // Estado para gerenciar o tamanho das colunas
+  const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
+
+  // Refs para evitar recriação das colunas durante mudanças de filtros (performance optimization)
+  const columnFiltersRef = useRef<ColumnFiltersState>([]);
+  const globalFilterRef = useRef<string>("");
+
+  // Se o usuário ocultar colunas, remover filters/sorting dessas colunas para evitar estado "invisível"
+  useEffect(() => {
+    const enabledColumns = new Set<ManagerColumnType>();
+    for (const col of activeColumns) {
+      if (isColumnEnabled(col)) enabledColumns.add(col);
+    }
+
+    // Column filters: manter apenas os que ainda existem/estão visíveis
+    setColumnFilters((prev) => prev.filter((f) => f.id === "ad_name" || enabledColumns.has(f.id as ManagerColumnType)));
+
+    // Sorting: manter apenas sorting de colunas visíveis; se ficar vazio, escolher fallback visível
+    setSorting((prev) => {
+      const filtered = prev.filter((s) => s.id === "ad_name" || enabledColumns.has(s.id as ManagerColumnType));
+      if (filtered.length > 0) return filtered;
+
+      const fallbackOrder: Array<{ id: ManagerColumnType; desc: boolean }> = [
+        { id: "spend", desc: true },
+        { id: "results", desc: true },
+        { id: "hook", desc: true },
+        { id: "ctr", desc: true },
+        { id: "website_ctr", desc: true },
+        { id: "connect_rate", desc: true },
+        { id: "page_conv", desc: true },
+        { id: "cpm", desc: true },
+        { id: "cpr", desc: false },
+        { id: "cpmql", desc: false },
+        { id: "mqls", desc: true },
+      ];
+      const next = fallbackOrder.find((c) => enabledColumns.has(c.id));
+      return next ? [{ id: next.id, desc: next.desc }] : [{ id: "spend", desc: true }];
+    });
+  }, [activeColumns, isColumnEnabled]);
+
+  // Salvar filtros no sessionStorage sempre que mudarem (debounced para reduzir I/O)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (hydratingTabRef.current === currentTab) return;
+    debouncedStorage.setItem(getFiltersStorageKey(currentTab), JSON.stringify(columnFilters));
+  }, [columnFilters, currentTab, debouncedStorage]);
+
+  // Salvar globalFilter no sessionStorage sempre que mudar (debounced para reduzir I/O)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (hydratingTabRef.current === currentTab) return;
+    debouncedStorage.setItem(getGlobalFilterStorageKey(currentTab), globalFilter);
+  }, [globalFilter, currentTab, debouncedStorage]);
+
+  // Rehidratar filtros e busca ao trocar de aba (persistência por aba)
+  useEffect(() => {
+    hydratingTabRef.current = currentTab;
+    setColumnFilters(loadColumnFilters(currentTab));
+    setGlobalFilter(loadGlobalFilter(currentTab));
+    // Resetar expansão ao trocar de tab para evitar estados inconsistentes
+    setExpanded({});
+  }, [currentTab]);
+
+  // Liberar persistência após hidratar o tab atual
+  useEffect(() => {
+    if (hydratingTabRef.current === currentTab) {
+      hydratingTabRef.current = null;
+    }
+  }, [columnFilters, globalFilter, currentTab]);
+
+  // Aplicar filtros iniciais (ex: vindos de query params da URL)
+  const initialFiltersAppliedRef = useRef(false);
+  useEffect(() => {
+    if (initialFilters && initialFilters.length > 0 && !initialFiltersAppliedRef.current) {
+      // Converter filtros iniciais para o formato esperado pelo TanStack Table
+      const formattedFilters: ColumnFiltersState = initialFilters.map((filter) => {
+        // Assumir que filtros de texto usam "contains" por padrão
+        const textFilterValue: TextFilterValue = {
+          operator: "contains",
+          value: filter.value,
+        };
+        return {
+          id: filter.id,
+          value: textFilterValue,
+        };
+      });
+
+      setColumnFilters(formattedFilters);
+      initialFiltersAppliedRef.current = true;
+    } else if (!initialFilters || initialFilters.length === 0) {
+      // Resetar flag quando não há mais filtros iniciais
+      initialFiltersAppliedRef.current = false;
+    }
+  }, [initialFilters]);
+
+  // Os dados já vêm agregados do servidor quando pais; não re-agregar aqui
+  // Aplicar filtro de busca pelo nome do anúncio
+  const data = useMemo(() => {
+    if (!adsEffective || !Array.isArray(adsEffective)) {
+      return [];
+    }
+    if (!globalFilter || globalFilter.trim() === "") {
+      return adsEffective;
+    }
+    const searchValue = globalFilter.toLowerCase().trim();
+    return adsEffective.filter((ad) => {
+      const adName = String((ad as RankingsItem)?.ad_name || "").toLowerCase();
+      return adName.includes(searchValue);
+    });
+  }, [adsEffective, globalFilter]);
   const formatCurrency = useFormatCurrency();
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
-  const formatPct = (v: number) => (v != null && !isNaN(v) ? `${Number(v).toFixed(2)}%` : "—");
-  const formatNum = (v: number) => (v ? v.toLocaleString("pt-BR") : "—");
+  // Stable formatters using useCallback to prevent column recreation
+  const formatPct = useCallback((v: number) => (v != null && !isNaN(v) ? `${Number(v).toFixed(2)}%` : "—"), []);
+  const formatNum = useCallback((v: number) => (v ? v.toLocaleString("pt-BR") : "—"), []);
   // formatUsd agora usa formatCurrency diretamente dentro dos cells para reatividade
 
   // Função helper para aplicar filtros numéricos
-  const applyNumericFilter = (rowValue: number | null | undefined, filterValue: FilterValue | undefined): boolean => {
+  const applyNumericFilter = useCallback((rowValue: number | null | undefined, filterValue: FilterValue | undefined): boolean => {
+    // Importante: esta função precisa ser estável para não invalidar `columns` durante resize (onChange).
     if (!filterValue || filterValue.value === null || filterValue.value === undefined || isNaN(filterValue.value)) {
       return true; // Sem filtro, mostrar tudo
     }
@@ -358,187 +419,14 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
       default:
         return true;
     }
-  };
+  }, []);
 
-  type ManagerAverages = {
-    count: number;
-    spend: number;
-    impressions: number;
-    clicks: number;
-    inline_link_clicks: number;
-    lpv: number;
-    plays: number;
-    results: number;
-    hook: number | null;
-    scroll_stop: number | null;
-    ctr: number | null;
-    website_ctr: number | null;
-    connect_rate: number | null;
-    cpm: number | null;
-    cpr: number | null;
-    page_conv: number | null;
-    cpmql: number | null;
-  };
-
-  const computedAverages: ManagerAverages = useMemo(() => {
-    const n = ads.length;
-    if (n === 0) {
-      return {
-        count: 0,
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        inline_link_clicks: 0,
-        lpv: 0,
-        plays: 0,
-        results: 0,
-        hook: null,
-        scroll_stop: null,
-        ctr: null,
-        website_ctr: null,
-        connect_rate: null,
-        cpm: null,
-        cpr: null,
-        page_conv: null,
-        cpmql: null,
-      };
-    }
-
-    let sumSpend = 0;
-    let sumImpr = 0;
-    let sumClicks = 0;
-    let sumInlineLinkClicks = 0;
-    let sumLPV = 0;
-    let sumPlays = 0;
-    let sumResults = 0;
-
-    let hookWeighted = 0;
-    let hookWeight = 0;
-
-    let scrollStopWeighted = 0;
-    let scrollStopWeight = 0;
-
-    for (const ad of ads) {
-      const spend = Number((ad as any).spend || 0);
-      const impressions = Number((ad as any).impressions || 0);
-      const clicks = Number((ad as any).clicks || 0);
-      const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
-      const lpv = Number((ad as any).lpv || 0);
-      // Nem todos os objetos têm plays; usar fallback em video_total_plays se disponível
-      const plays = Number((ad as any).plays ?? (ad as any).video_total_plays ?? 0);
-      const hook = Number((ad as any).hook ?? 0);
-      const convs = (ad as any).conversions || {};
-      const res = actionType ? Number(convs[actionType] || 0) : 0;
-
-      sumSpend += spend;
-      sumImpr += impressions;
-      sumClicks += clicks;
-      sumInlineLinkClicks += inlineLinkClicks;
-      sumLPV += lpv;
-      sumPlays += plays;
-      sumResults += res;
-
-      const w = plays > 0 ? plays : 1;
-      if (!Number.isNaN(hook)) {
-        hookWeighted += hook * w;
-        hookWeight += w;
-      }
-
-      // Calcular scroll_stop (índice 1 da curva de retenção) ponderado por plays
-      // A curva vem em porcentagem (0-100), então normalizamos para decimal (0-1) antes de ponderar
-      const curve = (ad as any).video_play_curve_actions;
-      if (Array.isArray(curve) && curve.length > 1) {
-        const scrollStopRaw = Number(curve[1] || 0);
-        if (!Number.isNaN(scrollStopRaw) && isFinite(scrollStopRaw) && scrollStopRaw >= 0) {
-          // Normalizar: se valor > 1, assume que está em porcentagem e divide por 100
-          const scrollStopVal = scrollStopRaw > 1 ? scrollStopRaw / 100 : scrollStopRaw;
-          if (scrollStopVal >= 0 && scrollStopVal <= 1) {
-            scrollStopWeighted += scrollStopVal * w;
-            scrollStopWeight += w;
-          }
-        }
-      }
-    }
-
-    // Métricas que dependem de actionType (calculadas localmente)
-    const hookAvg = hookWeight > 0 ? hookWeighted / hookWeight : null;
-    const scrollStopAvg = scrollStopWeight > 0 ? scrollStopWeighted / scrollStopWeight : null;
-    const cpr = sumResults > 0 ? sumSpend / sumResults : null;
-    const pageConv = sumLPV > 0 ? sumResults / sumLPV : null;
-
-    // Métricas que não dependem de actionType - usar valores do backend quando disponíveis
-    // Se todos os ads têm a métrica do backend, usar média ponderada; senão, calcular
-    const adsWithCtr = ads.filter((ad) => typeof (ad as any).ctr === "number" && !Number.isNaN((ad as any).ctr));
-    const ctr = adsWithCtr.length === ads.length && sumImpr > 0 ? ads.reduce((sum, ad) => sum + ((ad as any).ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr : sumImpr > 0 ? sumClicks / sumImpr : null;
-
-    const adsWithWebsiteCtr = ads.filter((ad) => typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr));
-    const websiteCtr = adsWithWebsiteCtr.length === ads.length && sumImpr > 0 ? ads.reduce((sum, ad) => sum + ((ad as any).website_ctr || 0) * Number((ad as any).impressions || 0), 0) / sumImpr : sumImpr > 0 ? sumInlineLinkClicks / sumImpr : null;
-
-    const adsWithCpm = ads.filter((ad) => typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm));
-    const cpm = adsWithCpm.length === ads.length && sumImpr > 0 ? ads.reduce((sum, ad) => sum + ((ad as any).cpm || 0) * Number((ad as any).impressions || 0), 0) / sumImpr : sumImpr > 0 ? (sumSpend * 1000) / sumImpr : null;
-
-    const adsWithConnectRate = ads.filter((ad) => typeof (ad as any).connect_rate === "number" && !Number.isNaN((ad as any).connect_rate));
-    const connectAvg =
-      adsWithConnectRate.length === ads.length && sumInlineLinkClicks > 0
-        ? ads.reduce((sum, ad) => {
-            const connectRate = (ad as any).connect_rate || 0;
-            const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
-            return sum + connectRate * inlineLinkClicks;
-          }, 0) / sumInlineLinkClicks
-        : sumInlineLinkClicks > 0
-        ? sumLPV / sumInlineLinkClicks
-        : null;
-
-    // Calcular média de CPMQL (só quando há integração de planilha)
-    // IMPORTANTE: CPMQL é uma razão (Spend / MQL), então a média correta é:
-    // CPMQL médio = (Spend total) / (MQL total)
-    // NÃO é a média aritmética dos CPMQLs individuais
-    let cpmqlAvg: number | null = null;
-    if (hasSheetIntegration) {
-      let totalSpend = 0;
-      let totalMql = 0;
-      
-      for (const ad of ads) {
-        const spend = Number((ad as any).spend || 0);
-        const { mqlCount } = computeMqlMetricsFromLeadscore({
-          spend,
-          leadscoreRaw: (ad as any).leadscore_values,
-          mqlLeadscoreMin,
-        });
-        
-        if (spend > 0 && mqlCount > 0) {
-          totalSpend += spend;
-          totalMql += mqlCount;
-        }
-      }
-      
-      if (totalMql > 0 && totalSpend > 0) {
-        cpmqlAvg = totalSpend / totalMql;
-      }
-    }
-
-    return {
-      count: n,
-      // Métricas de soma: dividir por n para calcular média aritmética
-      spend: n > 0 ? sumSpend / n : 0,
-      impressions: n > 0 ? sumImpr / n : 0,
-      clicks: n > 0 ? sumClicks / n : 0,
-      inline_link_clicks: n > 0 ? sumInlineLinkClicks / n : 0,
-      lpv: n > 0 ? sumLPV / n : 0,
-      plays: n > 0 ? sumPlays / n : 0,
-      results: n > 0 ? sumResults / n : 0,
-      // Métricas já calculadas como médias/razões: não dividir
-      hook: hookAvg,
-      scroll_stop: scrollStopAvg,
-      ctr,
-      website_ctr: websiteCtr,
-      connect_rate: connectAvg,
-      cpm,
-      cpr,
-      page_conv: pageConv,
-      cpmql: cpmqlAvg,
-    };
-  }, [ads, actionType, hasSheetIntegration, mqlLeadscoreMin]);
+  const computedAverages = useManagerAverages({
+    ads: adsEffective,
+    actionType,
+    hasSheetIntegration,
+    mqlLeadscoreMin,
+  });
 
   const averages = useMemo(() => {
     if (averagesOverride) {
@@ -546,10 +434,10 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
       if (actionType) {
         // Se o actionType está selecionado mas não há média do servidor, pode ser um problema
         if (averagesOverride.cpr === null && computedAverages.cpr !== null) {
-          console.warn(`[ManagerTable] CPR média não retornada pelo servidor para actionType "${actionType}", usando cálculo local.`, { actionType, availableConversionTypes });
+          logger.warn(`[ManagerTable] CPR média não retornada pelo servidor para actionType "${actionType}", usando cálculo local.`, { actionType, availableConversionTypes });
         }
         if (averagesOverride.page_conv === null && computedAverages.page_conv !== null) {
-          console.warn(`[ManagerTable] Page Conv média não retornada pelo servidor para actionType "${actionType}", usando cálculo local.`, { actionType, availableConversionTypes });
+          logger.warn(`[ManagerTable] Page Conv média não retornada pelo servidor para actionType "${actionType}", usando cálculo local.`, { actionType, availableConversionTypes });
         }
       }
 
@@ -572,33 +460,60 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         // Mas logar quando isso acontecer para identificar problemas
         cpr: averagesOverride.cpr ?? computedAverages.cpr,
         page_conv: averagesOverride.page_conv ?? computedAverages.page_conv,
-        // CPMQL é calculado localmente e não vem do servidor
+        // CPMQL e MQLs são calculados localmente e não vêm do servidor
         cpmql: computedAverages.cpmql,
+        mqls: computedAverages.mqls,
       } as ManagerAverages;
     }
     return computedAverages;
   }, [computedAverages, averagesOverride, actionType, availableConversionTypes]);
+
+  // Refs para armazenar as médias filtradas e função de formatação (para evitar dependência circular)
+  const filteredAveragesRef = useRef<any>(null);
+  const formatFilteredAverageRef = useRef<(metricId: string) => string>(() => "");
 
   const getRowKey = useCallback(
     (row: { original?: RankingsItem } | RankingsItem) => {
       const original = "original" in row ? row.original : row;
       if (!original) return "";
       const item = original as RankingsItem;
-      return groupByAdName ? String(item.ad_name || item.ad_id) : String(item.unique_id || `${item.account_id}:${item.ad_id}`);
+      if (groupByAdNameEffective) {
+        return String(item.ad_name || item.ad_id);
+      }
+      if (currentTab === "por-campanha") {
+        return String((item as any).campaign_id || item.unique_id || `${item.account_id}:${item.ad_id}`);
+      }
+      if (currentTab === "por-conjunto") {
+        return String((item as any).adset_id || item.unique_id || `${item.account_id}:${item.ad_id}`);
+      }
+      return String(item.unique_id || `${item.account_id}:${item.ad_id}`);
     },
-    [groupByAdName]
+    [groupByAdNameEffective, currentTab]
   );
+
+  // Funções estáveis para evitar recriação a cada render
+  const handleSelectAd = useCallback((ad: RankingsItem) => {
+    setSelectedAd(ad);
+  }, []);
+
+  const handleSelectAdset = useCallback((adset: React.SetStateAction<{ adsetId: string; adsetName?: string | null } | null>) => {
+    setSelectedAdset(adset);
+  }, []);
+
+  const handleResetFilters = useCallback(() => {
+    setColumnFilters([]);
+  }, [setColumnFilters]);
 
   // Pre-aggregate 5-day daily series ending at provided endDate (fallback se não vier do servidor)
   const { byKey } = useMemo(() => {
     if (!endDate) return { byKey: new Map<string, any>() };
     // Verificar se os dados já vêm com séries do servidor
-    const hasServerSeries = ads.length > 0 && ads[0]?.series;
+    const hasServerSeries = adsEffective.length > 0 && (adsEffective as any)[0]?.series;
 
     if (hasServerSeries) {
       // Construir mapa a partir das séries do servidor
       const map = new Map<string, any>();
-      ads.forEach((ad: RankingsItem) => {
+      (adsEffective as any as RankingsItem[]).forEach((ad: RankingsItem) => {
         const key = getRowKey({ original: ad });
         if (ad.series) {
           map.set(key, { series: ad.series, axis: ad.series.axis });
@@ -607,292 +522,14 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
       return { byKey: map };
     }
     // Fallback: calcular séries client-side
-    return buildDailySeries(ads as any, {
-      groupBy: groupByAdName ? "ad_name" : "ad_id",
+    return buildDailySeries(adsEffective as any, {
+      groupBy: groupByAdNameEffective ? "ad_name" : "ad_id",
       actionType,
       endDate,
       dateField: "date",
       windowDays: 5,
     });
-  }, [ads, groupByAdName, actionType, endDate, getRowKey]);
-
-  const MetricCell = ({ row, value, metric }: { row: RankingsItem | { original?: RankingsItem }; value: React.ReactNode; metric: "hook" | "cpr" | "spend" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" }) => {
-    // row já é o objeto agregado (info.row.original), então precisamos ajustar
-    const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
-    const serverSeries = original.series ? (original.series as any)[metric] : undefined;
-    const rowKey = getRowKey(row);
-    const s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
-    // Obter axis (datas) da mesma fonte da série
-    const dates = original.series?.axis || (endDate ? byKey.get(rowKey)?.axis : null);
-    // Normalizar s para sempre ser um array (padronizar undefined → array de nulls)
-    // Isso garante que sempre renderizamos o sparkline, mesmo quando não há dados
-    const normalizedSeries = s || (dates ? Array(dates.length).fill(null) : Array(5).fill(null));
-
-    // Determinar se a métrica é "inversa" (menor é melhor: CPR, CPM e CPMQL)
-    const isInverseMetric = metric === "cpr" || metric === "cpm" || metric === "cpmql";
-
-    // Se showTrends estiver ativo, mostrar sparklines
-    if (showTrends) {
-      // Obter média do pack para esta métrica
-      const avgValue = metric === "cpmql" ? (averages as any).cpmql : averages[metric];
-
-      // Para spend, usar modo de tendência (byTrend) em vez de comparação com média
-      const useTrendMode = metric === "spend";
-      const packAverageForMetric = useTrendMode ? null : avgValue != null && Number.isFinite(avgValue) ? avgValue : null;
-
-      // Obter série apropriada para determinar disponibilidade de dados baseada na métrica
-      const seriesData = original.series ? (original.series as any) : undefined;
-      let dataAvailability: boolean[] = [];
-      let zeroValueLabel: string | undefined;
-      
-      if (seriesData) {
-        switch (metric) {
-          case "hook":
-            // Hook precisa de plays, mas podemos usar impressions como proxy (se há impressões, pode haver plays)
-            const impressionsForHook = seriesData.impressions || [];
-            dataAvailability = impressionsForHook.map((imp: number | null) => imp != null && imp > 0);
-            zeroValueLabel = "Sem hook";
-            break;
-          case "ctr":
-            // CTR precisa de impressions
-            const impressionsForCtr = seriesData.impressions || [];
-            dataAvailability = impressionsForCtr.map((imp: number | null) => imp != null && imp > 0);
-            zeroValueLabel = "Sem cliques";
-            break;
-          case "website_ctr":
-            // Website CTR precisa de impressions
-            const impressionsForWebsiteCtr = seriesData.impressions || [];
-            dataAvailability = impressionsForWebsiteCtr.map((imp: number | null) => imp != null && imp > 0);
-            zeroValueLabel = "Sem cliques";
-            break;
-          case "connect_rate":
-            // Connect rate precisa de inline_link_clicks, mas podemos usar impressions como proxy
-            const impressionsForConnect = seriesData.impressions || [];
-            dataAvailability = impressionsForConnect.map((imp: number | null) => imp != null && imp > 0);
-            zeroValueLabel = "Sem conexões";
-            break;
-          case "page_conv":
-            // Page conv precisa de lpv
-            const lpvSeries = seriesData.lpv || [];
-            dataAvailability = lpvSeries.map((lpv: number | null) => lpv != null && lpv > 0);
-            zeroValueLabel = "Sem leads";
-            break;
-          case "cpr":
-            // CPR precisa de spend (para saber se houve investimento)
-            const spendForCpr = seriesData.spend || [];
-            dataAvailability = spendForCpr.map((spend: number | null) => spend != null && spend > 0);
-            zeroValueLabel = "Sem leads";
-            break;
-          case "cpmql":
-            // CPMQL precisa de spend (para saber se houve investimento)
-            const spendForCpmql = seriesData.spend || [];
-            dataAvailability = spendForCpmql.map((spend: number | null) => spend != null && spend > 0);
-            zeroValueLabel = "Sem MQLs";
-            break;
-          case "cpm":
-            // CPM precisa de impressions
-            const impressionsForCpm = seriesData.impressions || [];
-            dataAvailability = impressionsForCpm.map((imp: number | null) => imp != null && imp > 0);
-            // CPM não precisa de label especial, 0 é um valor válido
-            break;
-          case "spend":
-            // Spend sempre tem dados se existe (não precisa de label especial)
-            const spendSeries = seriesData.spend || [];
-            dataAvailability = spendSeries.map((spend: number | null) => spend != null && spend > 0);
-            break;
-          default:
-            // Para outras métricas, usar spend como fallback
-            const fallbackSpend = seriesData.spend || [];
-            dataAvailability = fallbackSpend.map((spend: number | null) => spend != null && spend > 0);
-        }
-      }
-
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <SparklineBars
-            series={normalizedSeries}
-            size="small"
-            valueFormatter={(n: number) => {
-              if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
-                return formatCurrency(n || 0);
-              }
-              // percent-based metrics
-              return `${(n * 100).toFixed(2)}%`;
-            }}
-            inverseColors={isInverseMetric}
-            packAverage={packAverageForMetric}
-            colorMode={useTrendMode ? "series" : undefined}
-            dataAvailability={dataAvailability}
-            zeroValueLabel={zeroValueLabel}
-            dates={dates}
-          />
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
-    }
-
-    // Modo Performance: mostrar diferença percentual em relação à média
-    // Para CPMQL, acessar explicitamente para evitar problemas de tipagem
-    const avgValue = metric === "cpmql" ? (averages as any).cpmql : averages[metric];
-    if (avgValue === null || avgValue === undefined) {
-      // Se não há média disponível, mostrar apenas o valor
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
-    }
-
-    // Extrair valor numérico diretamente do original (mais confiável)
-    let currentValue: number | null = null;
-    switch (metric) {
-      case "hook":
-        currentValue = (original as any).hook != null ? Number((original as any).hook) : null;
-        // hook vem em decimal (0-1), média também vem em decimal
-        break;
-      case "cpr":
-        if (actionType) {
-          const results = (original as any).conversions?.[actionType] || 0;
-          currentValue = results > 0 ? Number((original as any).spend || 0) / results : null;
-        }
-        break;
-      case "spend":
-        currentValue = Number((original as any).spend || 0);
-        break;
-      case "ctr":
-        currentValue = (original as any).ctr != null ? Number((original as any).ctr) : null;
-        // ctr vem em decimal (0-1), média também vem em decimal
-        break;
-      case "website_ctr":
-        currentValue = (original as any).website_ctr != null ? Number((original as any).website_ctr) : null;
-        // website_ctr vem em decimal (0-1), média também vem em decimal
-        break;
-      case "connect_rate":
-        currentValue = (original as any).connect_rate != null ? Number((original as any).connect_rate) : null;
-        // connect_rate vem em decimal (0-1), média também vem em decimal
-        break;
-      case "page_conv":
-        // Se o ad já tem page_conv calculado (vem do manager), usar esse valor
-        if ("page_conv" in original && typeof (original as any).page_conv === "number" && !Number.isNaN((original as any).page_conv) && isFinite((original as any).page_conv)) {
-          currentValue = (original as any).page_conv;
-        } else if (actionType) {
-          // Caso contrário, calcular baseado no actionType
-          const results = (original as any).conversions?.[actionType] || 0;
-          const lpv = Number((original as any).lpv || 0);
-          currentValue = lpv > 0 ? results / lpv : null;
-        }
-        break;
-      case "cpm":
-        currentValue = typeof (original as any).cpm === "number" ? (original as any).cpm : null;
-        break;
-      case "cpmql":
-        // CPMQL só é calculado quando há integração de planilha
-        if (hasSheetIntegration) {
-          const { cpmql: computedCpmql } = computeMqlMetricsFromLeadscore({
-            spend: Number((original as any).spend || 0),
-            leadscoreRaw: (original as any).leadscore_values,
-            mqlLeadscoreMin,
-          });
-          // Aceitar qualquer valor finito, mesmo que seja 0 (pode ser válido)
-          currentValue = Number.isFinite(computedCpmql) ? computedCpmql : null;
-        } else {
-          currentValue = null;
-        }
-        break;
-    }
-
-    if (currentValue === null || isNaN(currentValue) || !isFinite(currentValue)) {
-      // Se não conseguimos extrair o valor, mostrar apenas o valor original
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
-    }
-
-    // Verificar se a média é válida
-    // Para page_conv, avgValue pode ser 0 (nenhuma conversão), o que é válido
-    if (isNaN(avgValue) || !isFinite(avgValue)) {
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
-    }
-
-    // Se a média for 0 e o valor atual também for 0, não há diferença para mostrar
-    if (avgValue === 0 && currentValue === 0) {
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <span className="text-xs font-medium text-muted-foreground">0%</span>
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
-    }
-
-    // Se a média for 0 mas o valor atual não for 0
-    if (avgValue === 0 && currentValue !== 0) {
-      if (isInverseMetric) {
-        // Para métricas inversas: valor > 0 quando média é 0 = pior (acima da média) = vermelho com "+"
-        return (
-          <div className="flex flex-col items-center gap-3">
-            <span className="text-xs font-medium text-red-600 dark:text-red-400">+∞</span>
-            <span className="text-base font-medium leading-none">{value}</span>
-          </div>
-        );
-      } else {
-        // Para métricas normais: valor > 0 quando média é 0 = melhor (acima da média) = verde com "+"
-        return (
-          <div className="flex flex-col items-center gap-3">
-            <span className="text-xs font-medium text-green-600 dark:text-green-400">+∞</span>
-            <span className="text-base font-medium leading-none">{value}</span>
-          </div>
-        );
-      }
-    }
-
-    // Calcular diferença percentual
-    // Para métricas inversas (CPR, CPM), a lógica é invertida: menor que a média é melhor
-    let diffPercent: number;
-    if (isInverseMetric) {
-      // Para métricas inversas: se currentValue < avgValue, isso é melhor (positivo)
-      // diffPercent = ((avgValue - currentValue) / avgValue) * 100
-      diffPercent = ((avgValue - currentValue) / avgValue) * 100;
-    } else {
-      // Para métricas normais: se currentValue > avgValue, isso é melhor (positivo)
-      // diffPercent = ((currentValue - avgValue) / avgValue) * 100
-      diffPercent = ((currentValue - avgValue) / avgValue) * 100;
-    }
-
-    // Determinar cor baseado na diferença
-    // Para métricas normais: positivo (acima da média) = verde, negativo (abaixo) = vermelho
-    // Para métricas inversas: positivo (menor que média) = verde, negativo (maior que média) = vermelho
-    const isPositive = diffPercent > 0;
-    const colorClass = isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400";
-
-    // Para métricas inversas, inverter o sinal exibido: quando está melhor (positivo), mostrar "-" porque está abaixo da média numericamente
-    // Para métricas normais, manter o sinal original
-    let sign: string;
-    if (isInverseMetric) {
-      // Métricas inversas: diffPercent positivo = melhor = abaixo da média numericamente = mostrar "-"
-      // diffPercent negativo = pior = acima da média numericamente = mostrar "+"
-      sign = isPositive ? "-" : "+";
-    } else {
-      // Métricas normais: diffPercent positivo = melhor = acima da média = mostrar "+"
-      // diffPercent negativo = pior = abaixo da média = mostrar "-"
-      sign = isPositive ? "+" : "-";
-    }
-
-    return (
-      <div className="flex flex-col items-center gap-3">
-        <span className={`text-xs font-medium ${colorClass}`}>
-          {sign}
-          {Math.abs(diffPercent).toFixed(1)}%
-        </span>
-        <span className="text-base font-medium leading-none">{value}</span>
-      </div>
-    );
-  };
+  }, [adsEffective, groupByAdNameEffective, actionType, endDate, getRowKey]);
 
   // Função helper para formatar a média de uma métrica
   const formatAverage = useMemo(
@@ -908,6 +545,8 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
           cpm: "cpm",
           connect_rate: "connect_rate",
           page_conv: "page_conv",
+          results: "results",
+          mqls: "mqls",
         };
 
         const metricKey = metricMap[metricId];
@@ -922,6 +561,9 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
           // Métricas em porcentagem (decimal 0-1)
           return formatPct(Number(avgValue) * 100);
+        } else if (metricId === "results" || metricId === "mqls") {
+          // Métricas absolutas (número inteiro)
+          return Math.round(Number(avgValue)).toString();
         } else {
           // Métricas monetárias (cpr, cpmql, spend, cpm)
           return formatCurrency(Number(avgValue));
@@ -930,508 +572,48 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
     [averages, formatPct, formatCurrency]
   );
 
+  const { openSettings } = useSettingsModalStore();
 
   const columns = useMemo<ColumnDef<Ad, any>[]>(() => {
-    const cols: ColumnDef<Ad, any>[] = [
-      // AD name
-      columnHelper.accessor("ad_name", {
-        header: "AD",
-        size: 140,
-        minSize: 140,
-        sortingFn: "auto",
-        cell: (info) => {
-          const original = info.row.original as RankingsItem;
-          const thumbnail = getAdThumbnail(original);
-          const name = String(info.getValue() || "—");
-          const id = original?.ad_id;
-          const adCount = original?.ad_count || 1;
-          const key = getRowKey(info.row);
-          const isExpanded = !!expanded[key];
-          const effectiveStatus = (original as any)?.effective_status;
+    return createManagerTableColumns({
+      columnHelper: columnHelper as any,
+      activeColumns,
+      groupByAdNameEffective,
+      byKey,
+      expandedRef,
+      setExpanded,
+      currentTab,
+      getRowKey,
+      endDate,
+      showTrends,
+      averages,
+      formatAverage,
+      filteredAveragesRef,
+      formatFilteredAverageRef,
+      formatCurrency,
+      formatPct,
+      viewMode,
+      hasSheetIntegration,
+      mqlLeadscoreMin,
+      actionType,
+      applyNumericFilter,
+      openSettings: openSettings as any,
+      columnFiltersRef,
+      globalFilterRef,
+    });
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, averages, formatAverage, formatCurrency, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings]);
 
-          let secondLine = "";
-          if (groupByAdName) {
-            secondLine = adCount === 1 ? "1 anúncio" : `+ ${adCount} anúncios`;
-          } else {
-            secondLine = adCount === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${adCount} dias)`;
-          }
-
-          const handleToggleExpand = (e?: React.MouseEvent) => {
-            e?.stopPropagation();
-            const next = !isExpanded;
-            setExpanded((prev) => ({ ...prev, [key]: next }));
-          };
-
-          return (
-            <div className="flex items-center gap-3">
-              {thumbnail ? <img src={thumbnail} alt="thumb" className="w-14 h-14 object-cover rounded" /> : <div className="w-14 h-14 bg-border rounded" />}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 truncate">
-                  <AdStatusIcon status={effectiveStatus} />
-                  <span className="truncate">{name}</span>
-                </div>
-                {groupByAdName ? (
-                  <div className="mt-1">
-                    <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
-                      {isExpanded ? "- Recolher" : secondLine}
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="text-xs text-muted-foreground truncate">{secondLine}</div>
-                )}
-              </div>
-            </div>
-          );
-        },
-      }),
-      // Hook (retention at 3s)
-      columnHelper.accessor("hook", {
-        header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return (
-            <div className="flex flex-col items-center gap-0.5">
-              <div className="flex items-center gap-1">
-                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
-                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
-                <span>Hook</span>
-                <ColumnFilter
-                  value={filterValue}
-                  onChange={(value) => column.setFilterValue(value)}
-                  placeholder="Ex: 25"
-                />
-              </div>
-              {formatAverage("hook") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("hook")}</span>}
-            </div>
-          );
-        },
-        size: 140,
-        minSize: 100,
-        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-          const original = row.original as RankingsItem;
-          const hookValue = Number(original?.hook ?? 0);
-          // Hook vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
-          // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
-          const filterNum = filterValue?.value;
-          if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
-            const normalizedFilter = filterNum / 100;
-            return applyNumericFilter(hookValue, { ...filterValue!, value: normalizedFilter });
-          }
-          return true;
-        },
-        cell: (info) => {
-          // Pegar hook diretamente do row.original em caso do accessor não funcionar
-          const original = info.row.original as RankingsItem;
-          const hookValue = info.getValue() ?? original?.hook ?? 0;
-          const hookAsPct = Number(hookValue) * 100;
-          return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(hookAsPct)}</span>} metric="hook" />;
-        },
-        sortingFn: "auto",
-      }),
-      // CPR
-      columnHelper.accessor(
-        (row) => {
-          const ad = row as RankingsItem;
-          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-          return results > 0 ? Number(ad.spend || 0) / Number(results) : 0;
-        },
-        {
-          id: "cpr",
-          header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return (
-              <div className="flex flex-col items-center gap-0.5">
-                <div className="flex items-center gap-1">
-                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
-                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
-                  <span>CPR</span>
-                  <ColumnFilter
-                    value={filterValue}
-                    onChange={(value) => column.setFilterValue(value)}
-                    placeholder="Ex: 12"
-                  />
-                </div>
-                {formatAverage("cpr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpr")}</span>}
-              </div>
-            );
-          },
-          size: 140,
-          minSize: 100,
-          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-            const ad = row.original as RankingsItem;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-            const cpr = results > 0 ? Number(ad.spend || 0) / results : null;
-            return applyNumericFilter(cpr, filterValue);
-          },
-          sortingFn: "auto",
-          cell: (info) => {
-            const ad = info.row.original;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-            const cpr = results > 0 ? Number(info.getValue() || 0) : 0;
-            const value = cpr > 0 && Number.isFinite(cpr) ? formatCurrency(cpr) : "—";
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpr" />;
-          },
-        }
-      ),
-    ];
-
-    // CPMQL só deve aparecer quando houver integração de planilha em pelo menos um pack
-    if (hasSheetIntegration) {
-      cols.push(
-        columnHelper.accessor(
-          (row) => {
-            const ad = row as RankingsItem;
-            const spend = Number((ad as any).spend || 0);
-            const { cpmql } = computeMqlMetricsFromLeadscore({
-              spend,
-              leadscoreRaw: (ad as any).leadscore_values,
-              mqlLeadscoreMin,
-            });
-            return Number.isFinite(cpmql) ? cpmql : 0;
-          },
-          {
-            id: "cpmql",
-            header: ({ column }) => {
-              const { openSettings } = useSettingsModalStore();
-              const filterValue = column.getFilterValue() as FilterValue | undefined;
-              return (
-                <div className="flex flex-col items-center gap-0.5">
-                  <div className="flex items-center gap-1.5">
-                    {mqlLeadscoreMin === 0 && (
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openSettings("leadscore");
-                              }}
-                              className="text-warning hover:text-warning/80 transition-colors"
-                            >
-                              <IconAlertTriangle className="h-4 w-4" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p>
-                              Configure seu leadscore mínimo{" "}
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openSettings("leadscore");
-                                }}
-                                className="underline font-medium hover:text-primary"
-                              >
-                                clicando aqui
-                              </button>
-                              .
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    )}
-                    {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
-                    {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
-                    <span>CPMQL</span>
-                    <ColumnFilter
-                      value={filterValue}
-                      onChange={(value) => column.setFilterValue(value)}
-                      placeholder="Ex: 12"
-                    />
-                  </div>
-                  {formatAverage("cpmql") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpmql")}</span>}
-                </div>
-              );
-            },
-            size: 140,
-            minSize: 100,
-            filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-              const ad = row.original as RankingsItem;
-              const spend = Number((ad as any).spend || 0);
-              const { cpmql } = computeMqlMetricsFromLeadscore({
-                spend,
-                leadscoreRaw: (ad as any).leadscore_values,
-                mqlLeadscoreMin,
-              });
-              return applyNumericFilter(Number.isFinite(cpmql) ? cpmql : null, filterValue);
-            },
-            sortingFn: "auto",
-            cell: (info) => {
-              const ad = info.row.original as RankingsItem;
-              // Recalcular CPMQL diretamente no cell para garantir que use o mqlLeadscoreMin atualizado
-              const spend = Number((ad as any).spend || 0);
-              const { cpmql } = computeMqlMetricsFromLeadscore({
-                spend,
-                leadscoreRaw: (ad as any).leadscore_values,
-                mqlLeadscoreMin,
-              });
-              const value = cpmql > 0 && Number.isFinite(cpmql) ? formatCurrency(cpmql) : "—";
-              return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpmql" />;
-            },
-          }
-        )
-      );
-    }
-
-    cols.push(
-      // Spend
-      columnHelper.accessor("spend", {
-        header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return (
-            <div className="flex flex-col items-center gap-0.5">
-              <div className="flex items-center gap-1">
-                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
-                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
-                <span>Spend</span>
-                <ColumnFilter
-                  value={filterValue}
-                  onChange={(value) => column.setFilterValue(value)}
-                  placeholder="Ex: 100"
-                />
-              </div>
-              {formatAverage("spend") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("spend")}</span>}
-            </div>
-          );
-        },
-        size: 140,
-        minSize: 100,
-        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-          const ad = row.original as RankingsItem;
-          const spend = Number((ad as any).spend || 0);
-          return applyNumericFilter(spend, filterValue);
-        },
-        sortingFn: "auto",
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="spend" />,
-      }) as any,
-      // CTR
-      columnHelper.accessor("ctr", {
-        header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return (
-            <div className="flex flex-col items-center gap-0.5">
-              <div className="flex items-center gap-1">
-                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
-                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
-                <span>CTR</span>
-                <ColumnFilter
-                  value={filterValue}
-                  onChange={(value) => column.setFilterValue(value)}
-                  placeholder="Ex: 2.5"
-                />
-              </div>
-              {formatAverage("ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("ctr")}</span>}
-            </div>
-          );
-        },
-        size: 140,
-        minSize: 100,
-        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-          const original = row.original as RankingsItem;
-          const ctrValue = Number((original as any).ctr ?? 0);
-          // CTR vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
-          // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
-          const filterNum = filterValue?.value;
-          if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
-            const normalizedFilter = filterNum / 100;
-            return applyNumericFilter(ctrValue, { ...filterValue!, value: normalizedFilter });
-          }
-          return true;
-        },
-        sortingFn: "auto",
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="ctr" />,
-      }) as any,
-      // Link CTR (Website CTR)
-      columnHelper.accessor(
-        (row) => {
-          const ad = row as RankingsItem;
-          const websiteCtr = typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr) ? (ad as any).website_ctr : (ad as any).impressions > 0 ? Number((ad as any).inline_link_clicks || 0) / Number((ad as any).impressions || 0) : 0;
-          return Number.isFinite(websiteCtr) ? websiteCtr : 0;
-        },
-        {
-          id: "website_ctr",
-          header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return (
-              <div className="flex flex-col items-center gap-0.5">
-                <div className="flex items-center gap-1">
-                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
-                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
-                  <span>Link CTR</span>
-                  <ColumnFilter
-                    value={filterValue}
-                    onChange={(value) => column.setFilterValue(value)}
-                    placeholder="Ex: 1.5"
-                  />
-                </div>
-                {formatAverage("website_ctr") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("website_ctr")}</span>}
-              </div>
-            );
-          },
-          size: 140,
-          minSize: 100,
-          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-            const ad = row.original as RankingsItem;
-            const websiteCtr = typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr) ? (ad as any).website_ctr : (ad as any).impressions > 0 ? Number((ad as any).inline_link_clicks || 0) / Number((ad as any).impressions || 0) : 0;
-            const websiteCtrValue = Number.isFinite(websiteCtr) ? websiteCtr : null;
-            // Website CTR vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
-            // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
-            const filterNum = filterValue?.value;
-            if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
-              const normalizedFilter = filterNum / 100;
-              return applyNumericFilter(websiteCtrValue, { ...filterValue!, value: normalizedFilter });
-            }
-            return true;
-          },
-          sortingFn: "auto",
-          cell: (info) => {
-            const ad = info.row.original;
-            const websiteCtr = Number(info.getValue() || 0);
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(websiteCtr * 100)}</span>} metric="website_ctr" />;
-          },
-        }
-      ),
-      // CPM
-      columnHelper.accessor(
-        (row) => {
-          const ad = row as RankingsItem;
-          const cpm = typeof ad.cpm === "number" ? ad.cpm : 0;
-          return Number.isFinite(cpm) ? cpm : 0;
-        },
-        {
-          id: "cpm",
-          header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return (
-              <div className="flex flex-col items-center gap-0.5">
-                <div className="flex items-center gap-1">
-                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
-                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
-                  <span>CPM</span>
-                  <ColumnFilter
-                    value={filterValue}
-                    onChange={(value) => column.setFilterValue(value)}
-                    placeholder="Ex: 15"
-                  />
-                </div>
-                {formatAverage("cpm") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("cpm")}</span>}
-              </div>
-            );
-          },
-          size: 140,
-          minSize: 100,
-          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-            const ad = row.original as RankingsItem;
-            const cpm = typeof ad.cpm === "number" ? ad.cpm : null;
-            return applyNumericFilter(cpm, filterValue);
-          },
-          sortingFn: "auto",
-          cell: (info) => {
-            const ad = info.row.original;
-            const cpm = Number(info.getValue() || 0);
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpm)}</span>} metric="cpm" />;
-          },
-        }
-      ),
-      // Connect Rate
-      columnHelper.accessor("connect_rate", {
-        header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return (
-            <div className="flex flex-col items-center gap-0.5">
-              <div className="flex items-center gap-1">
-                {column.getIsSorted() === "asc" && <IconArrowNarrowUp className="w-4 h-4" />}
-                {column.getIsSorted() === "desc" && <IconArrowNarrowDown className="w-4 h-4" />}
-                <span>Connect</span>
-                <ColumnFilter
-                  value={filterValue}
-                  onChange={(value) => column.setFilterValue(value)}
-                  placeholder="Ex: 30"
-                />
-              </div>
-              {formatAverage("connect_rate") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("connect_rate")}</span>}
-            </div>
-          );
-        },
-        size: 160,
-        minSize: 120,
-        filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-          const original = row.original as RankingsItem;
-          const connectRateValue = Number((original as any).connect_rate ?? 0);
-          // Connect Rate vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
-          // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
-          const filterNum = filterValue?.value;
-          if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
-            const normalizedFilter = filterNum / 100;
-            return applyNumericFilter(connectRateValue, { ...filterValue!, value: normalizedFilter });
-          }
-          return true;
-        },
-        sortingFn: "auto",
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(info.getValue() * 100))}</span>} metric="connect_rate" />,
-      }) as any,
-      // Page Conversion
-      columnHelper.accessor(
-        (row) => {
-          const ad = row as RankingsItem;
-          if ("page_conv" in ad && typeof (ad as any).page_conv === "number" && !Number.isNaN((ad as any).page_conv) && isFinite((ad as any).page_conv)) {
-            return (ad as any).page_conv;
-          }
-          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-          const lpv = Number((ad as any).lpv || 0);
-          return lpv > 0 ? Number(results) / lpv : 0;
-        },
-        {
-          id: "page_conv",
-          header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return (
-              <div className="flex flex-col items-center gap-0.5">
-                <div className="flex items-center gap-1">
-                  {column.getIsSorted() === "asc" && <IconChevronUp className="w-3 h-3" />}
-                  {column.getIsSorted() === "desc" && <IconChevronDown className="w-3 h-3" />}
-                  <span>Page</span>
-                  <ColumnFilter
-                    value={filterValue}
-                    onChange={(value) => column.setFilterValue(value)}
-                    placeholder="Ex: 5"
-                  />
-                </div>
-                {formatAverage("page_conv") && <span className="text-xs text-muted-foreground font-normal">{formatAverage("page_conv")}</span>}
-              </div>
-            );
-          },
-          size: 140,
-          minSize: 100,
-          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-            const ad = row.original as RankingsItem;
-            let pageConv: number | null = null;
-            if ("page_conv" in ad && typeof (ad as any).page_conv === "number" && !Number.isNaN((ad as any).page_conv) && isFinite((ad as any).page_conv)) {
-              pageConv = (ad as any).page_conv;
-            } else if (actionType) {
-              const results = ad.conversions?.[actionType] || 0;
-              const lpv = Number((ad as any).lpv || 0);
-              pageConv = lpv > 0 ? Number(results) / lpv : null;
-            }
-            // Page Conv vem em decimal (0-1), mas o usuário sempre digita em porcentagem (0-100)
-            // Sempre dividir por 100: 30 → 30% = 0.3, 1 → 1% = 0.01, 0.1 → 0.1% = 0.001
-            const filterNum = filterValue?.value;
-            if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
-              const normalizedFilter = filterNum / 100;
-              return applyNumericFilter(pageConv, { ...filterValue!, value: normalizedFilter });
-            }
-            return true;
-          },
-          sortingFn: "auto",
-          cell: (info) => {
-            const ad = info.row.original;
-            const pageConv = Number(info.getValue() || 0);
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(pageConv * 100)}</span>} metric="page_conv" />;
-          },
-        }
-      )
-    );
-
-    return cols;
-  }, [groupByAdName, byKey, expanded, dateStart, dateStop, formatCurrency, actionType, formatPct, showTrends, averages, formatAverage, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter]);
+  // Handler que garante que sempre haja pelo menos uma ordenação
+  const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
+    setSorting((old) => {
+      const newSorting = typeof updater === "function" ? updater(old) : updater;
+      // Se o array de sorting ficar vazio, restaurar para o padrão (spend desc)
+      if (!newSorting || newSorting.length === 0) {
+        return [{ id: "spend", desc: true }];
+      }
+      return newSorting;
+    });
+  }, []);
 
   const table = useReactTable({
     data,
@@ -1441,96 +623,234 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
     getFilteredRowModel: getFilteredRowModel(),
     enableSorting: true,
     enableColumnFilters: true,
-    columnResizeMode: "onChange",
+    columnResizeMode: "onEnd", // Atualiza apenas ao soltar o mouse (melhor performance)
     state: {
       columnFilters,
+      sorting,
+      columnSizing,
     },
     onColumnFiltersChange: setColumnFilters,
+    onSortingChange: handleSortingChange,
+    onColumnSizingChange: setColumnSizing,
     initialState: {
       sorting: [{ id: "spend", desc: true }],
     },
     defaultColumn: {
-      size: 120,
+      size: 100,
       minSize: 80,
     },
   });
 
-  return (
-    <div className="w-full relative">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border-separate border-spacing-y-4">
-          <thead>
-            {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="sticky top-0 z-10 text-text/80">
-                {hg.headers.map((header) => {
-                  const headerAlign = header.column.id === "ad_name" ? "text-left" : "text-center";
-                  const justify = header.column.id === "ad_name" ? "justify-start" : "justify-center";
-                  const fixedWidth = "";
-                  return (
-                    <th key={header.id} className={`text-base font-normal py-4 ${headerAlign} ${fixedWidth} relative`} style={{ width: header.getSize() }}>
-                      {header.isPlaceholder ? null : (
-                        <div className={`flex items-center ${justify} gap-1 ${header.column.getCanSort() ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`} onClick={header.column.getToggleSortingHandler()}>
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                        </div>
-                      )}
-                      {header.column.getCanResize() && <div onMouseDown={header.getResizeHandler()} onTouchStart={header.getResizeHandler()} className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none touch-none" />}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {table.getRowModel().rows.length === 0 ? (
-              isLoading ? null : (
-                <tr>
-                  <td colSpan={table.getAllColumns().length} className="p-8 text-center text-muted-foreground">
-                    Nenhum dado disponível para exibir.
-                  </td>
-                </tr>
-              )
-            ) : (
-              table.getRowModel().rows.map((row, index) => {
-                const key = getRowKey(row);
-                const isExpanded = !!expanded[key];
-                const original = row.original as RankingsItem;
-                const adName = String(original?.ad_name || "");
+  // Calcular médias dos dados filtrados (visíveis na tabela após aplicar filtros)
+  const filteredAverages = useFilteredAverages({
+    table: table as any,
+    dataLength: data.length,
+    columnFilters,
+    globalFilter,
+    actionType,
+    hasSheetIntegration,
+    mqlLeadscoreMin,
+  });
 
-                return (
-                  <Fragment key={row.id}>
-                    <tr
-                      key={`${row.id}-parent`}
-                      className="bg-background hover:bg-input-30 cursor-pointer"
-                      onClick={() => {
-                        const original = row.original as RankingsItem;
-                        setSelectedAd(original);
-                      }}
-                    >
-                      {row.getVisibleCells().map((cell) => {
-                        const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
-                        const fixedWidth = "";
-                        const cellIndex = row.getVisibleCells().indexOf(cell);
-                        const isFirst = cellIndex === 0;
-                        const isLast = cellIndex === row.getVisibleCells().length - 1;
-                        return (
-                          <td key={cell.id} className={`p-4 ${cellAlign} ${fixedWidth} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`} style={{ width: cell.column.getSize() }}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {groupByAdName && isExpanded && adName ? <ExpandedChildrenRow row={row} adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} /> : null}
-                  </Fragment>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+  // Função helper para formatar a média filtrada de uma métrica
+  const formatFilteredAverage = useMemo(
+    () =>
+      (metricId: string): string => {
+        if (!filteredAverages) return "";
+
+        const metricMap: Record<string, string> = {
+          hook: "hook",
+          cpr: "cpr",
+          cpmql: "cpmql",
+          spend: "spend",
+          ctr: "ctr",
+          website_ctr: "website_ctr",
+          cpm: "cpm",
+          connect_rate: "connect_rate",
+          page_conv: "page_conv",
+          results: "results",
+          mqls: "mqls",
+        };
+
+        const metricKey = metricMap[metricId];
+        if (!metricKey) return "";
+
+        const avgValue = (filteredAverages as any)[metricKey];
+        if (avgValue === null || avgValue === undefined || !Number.isFinite(avgValue)) {
+          return "";
+        }
+
+        // Formatar baseado no tipo de métrica
+        if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
+          // Métricas em porcentagem (decimal 0-1)
+          return formatPct(Number(avgValue) * 100);
+        } else if (metricId === "results" || metricId === "mqls") {
+          // Métricas absolutas (número inteiro)
+          return Math.round(Number(avgValue)).toString();
+        } else {
+          // Métricas monetárias (cpr, cpmql, spend, cpm)
+          return formatCurrency(Number(avgValue));
+        }
+      },
+    [filteredAverages, formatPct, formatCurrency]
+  );
+
+  // Atualizar refs para evitar dependência circular com columns
+  useEffect(() => {
+    filteredAveragesRef.current = filteredAverages;
+    formatFilteredAverageRef.current = formatFilteredAverage;
+  }, [filteredAverages, formatFilteredAverage]);
+
+  // Atualizar refs de filtros para evitar recriação das colunas
+  useEffect(() => {
+    columnFiltersRef.current = columnFilters;
+    globalFilterRef.current = globalFilter;
+  }, [columnFilters, globalFilter]);
+
+  // Sincronizar filtros carregados do sessionStorage com as colunas da tabela
+  useEffect(() => {
+    columnFilters.forEach((filter) => {
+      const column = table.getColumn(filter.id);
+      if (column && filter.value) {
+        const filterValue = filter.value as FilterValue;
+        // Só atualizar se o valor da coluna for diferente do filtro
+        const currentValue = column.getFilterValue() as FilterValue | undefined;
+        if (!currentValue || currentValue.operator !== filterValue.operator || currentValue.value !== filterValue.value) {
+          column.setFilterValue(filterValue);
+        }
+      }
+    });
+  }, [columnFilters, table]);
+
+  // Mapeamento de colunas disponíveis para filtro
+  const filterableColumns = useMemo(() => {
+    // Coluna de nome (texto) baseada na aba atual
+    const nameColumn = currentTab === "por-conjunto" ? { id: "ad_name", label: "Conjunto", isText: true } : currentTab === "por-campanha" ? { id: "ad_name", label: "Campanha", isText: true } : { id: "ad_name", label: "Nome", isText: true };
+
+    const isEnabled = (id: ManagerColumnType) => {
+      if (id === "cpmql" || id === "mqls") return hasSheetIntegration;
+      return true;
+    };
+    const shouldShow = (id: ManagerColumnType) => activeColumns.has(id) && isEnabled(id);
+
+    const cols: Array<{ id: string; label: string; isPercentage?: boolean; isText?: boolean }> = [nameColumn];
+
+    if (shouldShow("hook")) cols.push({ id: "hook", label: "Hook", isPercentage: true });
+    if (shouldShow("cpr")) cols.push({ id: "cpr", label: "CPR", isPercentage: false });
+    if (shouldShow("cpmql")) cols.push({ id: "cpmql", label: "CPMQL", isPercentage: false });
+    if (shouldShow("spend")) cols.push({ id: "spend", label: "Spend", isPercentage: false });
+    if (shouldShow("ctr")) cols.push({ id: "ctr", label: "CTR", isPercentage: true });
+    if (shouldShow("website_ctr")) cols.push({ id: "website_ctr", label: "Link CTR", isPercentage: true });
+    if (shouldShow("cpm")) cols.push({ id: "cpm", label: "CPM", isPercentage: false });
+    if (shouldShow("connect_rate")) cols.push({ id: "connect_rate", label: "Connect", isPercentage: true });
+    if (shouldShow("page_conv")) cols.push({ id: "page_conv", label: "Page", isPercentage: true });
+    if (shouldShow("results")) cols.push({ id: "results", label: "Results", isPercentage: false });
+    if (shouldShow("mqls")) cols.push({ id: "mqls", label: "MQLs", isPercentage: false });
+
+    return cols;
+  }, [hasSheetIntegration, currentTab, activeColumns]);
+
+  const tabs: TabItem[] = [
+    { value: "individual", label: "Individual", icon: IconDeviceTablet },
+    { value: "por-anuncio", label: "Por anúncio", icon: IconPlayCardA },
+    { value: "por-conjunto", label: "Por conjunto", icon: IconBorderAll },
+    { value: "por-campanha", label: "Por campanha", icon: IconFolder },
+  ];
+
+  const controls = (
+    <>
+      <div className="relative flex-1 min-w-0 max-w-sm">
+        <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+        <Input type="search" placeholder={currentTab === "por-conjunto" ? "Buscar por nome do conjunto..." : currentTab === "por-campanha" ? "Buscar por nome da campanha..." : "Buscar por nome do anúncio..."} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} className="pl-9 h-10" />
       </div>
+      <div className="flex items-center gap-2">
+        {/* Toggle de visualização */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={() => handleViewModeChange(viewMode === "detailed" ? "minimal" : "detailed")} className="h-10 px-3" aria-label={viewMode === "detailed" ? "Alternar para visualização minimal" : "Alternar para visualização detalhada"}>
+                {viewMode === "detailed" ? <IconLayoutGrid className="h-4 w-4" /> : <IconTable className="h-4 w-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">{viewMode === "detailed" ? "Visualização minimal" : "Visualização detalhada"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+        <div className="flex-shrink-0 w-[190px]">
+          <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
+        </div>
+        {/* Botão para resetar tamanho das colunas */}
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="sm" onClick={handleResetColumnSizes} className="h-10 px-3" aria-label="Resetar tamanho das colunas" disabled={Object.keys(columnSizing).length === 0}>
+                <IconArrowsHorizontal className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className="text-xs">Resetar tamanho das colunas</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      </div>
+    </>
+  );
+
+  const tableContentProps = useMemo(
+    () => ({
+      table,
+      isLoadingEffective,
+      getRowKey,
+      expanded,
+      setExpanded,
+      groupByAdNameEffective,
+      currentTab,
+      setSelectedAd: handleSelectAd,
+      setSelectedAdset: handleSelectAdset,
+      dateStart,
+      dateStop,
+      actionType,
+      formatCurrency,
+      formatPct,
+      columnFilters,
+      setColumnFilters,
+    }),
+    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters]
+  );
+
+  return (
+    <div className="w-full h-full flex-1 flex flex-col min-h-0">
+      <TabbedContent value={currentTab} onValueChange={handleTabChange} variant="with-controls" tabs={tabs} controls={controls} separatorAfterTabs={true}>
+        <TabbedContentItem value="individual" variant="with-controls">
+          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+        </TabbedContentItem>
+
+        <TabbedContentItem value="por-anuncio" variant="with-controls">
+          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+        </TabbedContentItem>
+
+        <TabbedContentItem value="por-conjunto" variant="with-controls">
+          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+        </TabbedContentItem>
+
+        <TabbedContentItem value="por-campanha" variant="with-controls">
+          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+        </TabbedContentItem>
+      </TabbedContent>
 
       {/* Details Dialog */}
       <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="4xl" padding="md">
-        {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} averages={averages} />}
+        {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdNameEffective} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} averages={averages} />}
+      </Modal>
+
+      {/* Adset Details Dialog */}
+      <Modal isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} size="4xl" padding="md">
+        {selectedAdset && <AdsetDetailsDialog adsetId={selectedAdset.adsetId} adsetName={selectedAdset.adsetName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} />}
       </Modal>
 
       {/* Video Dialog - Único para toda a tabela */}
@@ -1544,33 +864,6 @@ export function ManagerTable({ ads, groupByAdName = true, actionType = "", endDa
         actorId={selectedVideo?.actorId}
         title={selectedVideo?.title}
       />
-
-      {/* Barra flutuante com contagem de anúncios */}
-      <div className="sticky bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none mt-4">
-        <div className="w-full bg-card border border-border shadow-lg pointer-events-auto rounded-lg">
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-end gap-3">
-              <div className="flex items-center text-sm text-muted-foreground">
-                <span>
-                  Exibindo {table.getFilteredRowModel().rows.length} de {table.getPreFilteredRowModel().rows.length} anúncios
-                </span>
-              </div>
-              {columnFilters.length > 0 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setColumnFilters([])}
-                  className="h-8 text-xs"
-                >
-                  <IconX className="w-4 h-4 mr-1.5" />
-                  Resetar filtros
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
-

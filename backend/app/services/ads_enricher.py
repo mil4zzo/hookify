@@ -7,9 +7,12 @@ Responsável por:
 - Mesclar detalhes nos dados brutos
 """
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import requests
 import urllib.parse
+
+if TYPE_CHECKING:
+    from app.services.job_tracker import JobTracker
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +30,9 @@ class AdsEnricher:
         access_token: str,
         base_url: str = "https://graph.facebook.com/v22.0/",
         limit: int = 5000,
-        on_progress: Optional[Callable[[int, int, int], None]] = None
+        on_progress: Optional[Callable[[int, int, int], None]] = None,
+        job_tracker: Optional["JobTracker"] = None,
+        job_id: Optional[str] = None
     ):
         """
         Args:
@@ -35,11 +40,15 @@ class AdsEnricher:
             base_url: URL base da Graph API
             limit: Limite de registros por requisição
             on_progress: Callback opcional para progresso (batch_num, total_batches, ads_enriched)
+            job_tracker: Tracker opcional para verificar cancelamento
+            job_id: ID do job opcional para verificar cancelamento
         """
         self.access_token = access_token
         self.base_url = base_url
         self.limit = limit
         self.on_progress = on_progress
+        self.job_tracker = job_tracker
+        self.job_id = job_id
     
     def deduplicate_by_name(self, raw_data: List[Dict[str, Any]]) -> Dict[str, str]:
         """
@@ -82,9 +91,17 @@ class AdsEnricher:
         logger.info(f"[AdsEnricher] Iniciando busca de detalhes para {len(ad_ids)} anúncios em {total_batches} lote(s)")
         
         for i in range(0, len(ad_ids), BATCH_SIZE):
+            # Verificar cancelamento antes de processar batch
+            if self.job_tracker and self.job_id:
+                from app.services.job_tracker import STATUS_CANCELLED
+                job = self.job_tracker.get_job(self.job_id)
+                if job and job.get("status") == STATUS_CANCELLED:
+                    logger.info(f"[AdsEnricher] ⛔ Job {self.job_id} cancelado, interrompendo enriquecimento no lote {(i // BATCH_SIZE) + 1}")
+                    return all_results if all_results else None
+
             batch_ids = ad_ids[i:i + BATCH_SIZE]
             batch_num = (i // BATCH_SIZE) + 1
-            
+
             logger.info(f"[AdsEnricher] Processando lote {batch_num}/{total_batches} ({len(batch_ids)} anúncios)")
             
             url = f"{self.base_url}{act_id}/ads?access_token={self.access_token}"
@@ -330,9 +347,16 @@ class AdsEnricher:
 
 def get_ads_enricher(
     access_token: str,
-    on_progress: Optional[Callable[[int, int, int], None]] = None
+    on_progress: Optional[Callable[[int, int, int], None]] = None,
+    job_tracker: Optional["JobTracker"] = None,
+    job_id: Optional[str] = None
 ) -> AdsEnricher:
     """Factory function para criar AdsEnricher."""
-    return AdsEnricher(access_token, on_progress=on_progress)
+    return AdsEnricher(
+        access_token,
+        on_progress=on_progress,
+        job_tracker=job_tracker,
+        job_id=job_id
+    )
 
 

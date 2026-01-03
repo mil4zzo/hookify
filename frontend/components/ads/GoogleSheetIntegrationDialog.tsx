@@ -298,6 +298,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       }
 
       showSuccess("Google Sheets conectado! Agora você pode configurar a planilha para enriquecer os anúncios.");
+
+      // Disparar evento de reconexão para retomar jobs pausados
+      window.dispatchEvent(new CustomEvent("google-connected", {
+        detail: { connectionId: connectionData?.connection?.id }
+      }));
+
       await loadConnections();
       if (connectionData?.connection?.id) {
         setSelectedConnectionId(connectionData.connection.id);

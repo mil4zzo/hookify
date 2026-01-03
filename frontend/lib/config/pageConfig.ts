@@ -2,8 +2,8 @@ import {
   IconCardsFilled, 
   IconFlask, 
   IconStack2, 
-  IconTrophyFilled,
-  IconBulbFilled,
+  IconSitemapFilled,
+  IconSunFilled,
   IconPalette,
   IconDiamond
 } from "@tabler/icons-react";
@@ -32,7 +32,7 @@ export const pageConfigs: PageConfig[] = [
     path: "/manager",
     title: "Manager",
     label: "Manager",
-    icon: IconTrophyFilled,
+    icon: IconSitemapFilled,
     description: "Gerencie e visualize performance dos seus anúncios",
     showInMenu: true,
   },
@@ -40,7 +40,7 @@ export const pageConfigs: PageConfig[] = [
     path: "/insights",
     title: "Insights",
     label: "Insights",
-    icon: IconBulbFilled,
+    icon: IconSunFilled,
     description: "Análises e insights sobre seus anúncios",
     showInMenu: true,
   },

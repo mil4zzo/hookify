@@ -528,6 +528,9 @@ def upsert_ad_metrics(
             "video_play_curve_actions": curve,
             "hold_rate": hold_rate,
             "connect_rate": connect_rate,
+            # Denominador explícito para métricas de funil (ex: page_conv = results / lpv)
+            # Evita parsing de JSONB (actions) em endpoints de rankings.
+            "lpv": lpv,
             "profile_ctr": float(ad.get("profile_ctr") or 0),
             "raw_data": ad,
             "updated_at": _now_iso(),
@@ -616,8 +619,28 @@ def upsert_ad_metrics(
                 time.sleep(0.1)
         except Exception as e:
             logger.error(f"[UPSERT_AD_METRICS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
-            # Re-lançar para que o caller possa tratar o erro
-            raise
+            msg = str(e or "")
+            # Compatibilidade: se o DB ainda não tem a coluna `lpv`, reprocessar removendo o campo
+            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+                logger.warning(
+                    f"[UPSERT_AD_METRICS] Coluna `lpv` parece ausente no DB; "
+                    f"reprocessando lote {batch_num}/{total_batches} sem lpv"
+                )
+                cleaned = []
+                for r in batch:
+                    rr = dict(r)
+                    rr.pop("lpv", None)
+                    cleaned.append(rr)
+                sb.table("ad_metrics").upsert(cleaned, on_conflict="id,user_id").execute()
+                logger.info(f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} reprocessado sem lpv ({len(cleaned)} registros)")
+                if on_batch_progress:
+                    try:
+                        on_batch_progress(batch_num, total_batches)
+                    except Exception:
+                        pass
+            else:
+                # Re-lançar para que caller possa tratar o erro
+                raise
     
     logger.info(f"[UPSERT_AD_METRICS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
@@ -713,6 +736,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
         Dict com stats: {
             "totalAds": int,
             "uniqueAds": int,
+            "uniqueAdNames": int,
             "uniqueCampaigns": int,
             "uniqueAdsets": int,
             "totalSpend": float,
@@ -765,7 +789,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
             metrics = _fetch_all_paginated(
                 sb,
                 "ad_metrics",
-                "ad_id, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency, hold_rate, connect_rate, website_ctr, profile_ctr, video_watched_p50, actions, conversions",
+                "ad_id, ad_name, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency, hold_rate, connect_rate, website_ctr, profile_ctr, video_watched_p50, actions, conversions",
                 metrics_filters
             )
         except Exception as filter_error:
@@ -783,6 +807,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
             return {
                 "totalAds": 0,
                 "uniqueAds": 0,
+                "uniqueAdNames": 0,
                 "uniqueCampaigns": 0,
                 "uniqueAdsets": 0,
                 "totalSpend": 0.0,
@@ -807,6 +832,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
         
         # Agregar métricas
         unique_ad_ids = set()
+        unique_ad_names = set()
         unique_campaign_ids = set()
         unique_adset_ids = set()
         
@@ -831,11 +857,14 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
         
         for metric in metrics:
             ad_id = metric.get("ad_id")
+            ad_name = metric.get("ad_name")
             campaign_id = metric.get("campaign_id")
             adset_id = metric.get("adset_id")
             
             if ad_id:
                 unique_ad_ids.add(str(ad_id))
+            if ad_name:
+                unique_ad_names.add(str(ad_name))
             if campaign_id:
                 unique_campaign_ids.add(str(campaign_id))
             if adset_id:
@@ -925,6 +954,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
         stats = {
             "totalAds": len(metrics),
             "uniqueAds": len(unique_ad_ids),
+            "uniqueAdNames": len(unique_ad_names),
             "uniqueCampaigns": len(unique_campaign_ids),
             "uniqueAdsets": len(unique_adset_ids),
             "totalSpend": round(total_spend, 2),
@@ -1480,7 +1510,7 @@ def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
                 integrations = _fetch_all_paginated(
                     sb,
                     "ad_sheet_integrations",
-                    "id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status",
+                    "id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status, last_successful_sync_at",
                     lambda q: q.in_("id", integration_ids)
                 )
                 # Criar mapa id -> integration
@@ -1543,7 +1573,7 @@ def get_pack(user_jwt: str, pack_id: str, user_id: Optional[str]) -> Optional[Di
             try:
                 int_res = (
                     sb.table("ad_sheet_integrations")
-                    .select("id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status")
+                    .select("id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status, last_successful_sync_at")
                     .eq("id", sheet_integration_id)
                     .limit(1)
                     .execute()
@@ -1609,8 +1639,14 @@ def update_pack_refresh_status(
     update_data = {
         "last_refreshed_at": last_refreshed_at,
         "refresh_status": refresh_status,
-        "updated_at": _now_iso(),
+        # ✅ CORREÇÃO: Só atualizar updated_at quando o refresh for bem-sucedido
+        # Isso garante que a data mostrada no frontend seja apenas de atualizações concluídas
+        # Não atualiza para "running", "failed" ou "cancelled"
     }
+    
+    # Só atualizar updated_at quando o refresh completar com sucesso
+    if refresh_status == "success":
+        update_data["updated_at"] = _now_iso()
     
     # Atualizar date_stop se fornecido (útil para manter o pack sincronizado com a data de atualização)
     if date_stop:

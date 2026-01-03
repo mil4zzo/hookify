@@ -238,6 +238,14 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* Força scrollbar a permanecer visível mesmo quando Radix UI Select bloqueia scroll */
+html body[data-scroll-locked][data-scroll-locked] {
+  overflow: auto !important;
+}
+html body[data-scroll-locked] {
+  margin-right: 0 !important;
+}
+
 /* focus styles */
 *:focus-visible {
   outline: 2px solid oklch(0.55 0.15 264);

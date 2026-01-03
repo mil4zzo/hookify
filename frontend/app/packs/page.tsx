@@ -20,9 +20,9 @@ import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
-import { showSuccess, showError, showWarning, showProgressToast, updateProgressToast, finishProgressToast } from "@/lib/utils/toast";
+import { showSuccess, showError, showWarning, showProgressToast, finishProgressToast } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport, IconStack2Filled } from "@tabler/icons-react";
+import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport } from "@tabler/icons-react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, createColumnHelper, flexRender, ColumnDef } from "@tanstack/react-table";
 
 import { FilterRule } from "@/lib/api/schemas";
@@ -37,6 +37,7 @@ import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { filterVideoAds } from "@/lib/utils/filterVideoAds";
 import { useActiveJobsStore } from "@/lib/store/activeJobs";
+import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
 
@@ -312,10 +313,10 @@ export default function PacksPage() {
   const [packToRename, setPackToRename] = useState<{ id: string; name: string } | null>(null);
   const [newPackName, setNewPackName] = useState<string>("");
   const [isRenaming, setIsRenaming] = useState(false);
-  const [refreshingPackId, setRefreshingPackId] = useState<string | null>(null);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
-  const { addUpdatingPack, removeUpdatingPack, isPackUpdating } = useUpdatingPacksStore();
+  const { isPackUpdating } = useUpdatingPacksStore();
   const { addActiveJob, removeActiveJob } = useActiveJobsStore();
+  const { refreshPack, isRefreshing } = usePackRefresh();
   const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>("");
@@ -779,6 +780,7 @@ export default function PacksPage() {
               stats: {
                 totalAds: backendStats.totalAds || formattedAds.length,
                 uniqueAds: backendStats.uniqueAds || localStats.uniqueAds,
+                uniqueAdNames: backendStats.uniqueAdNames || localStats.uniqueAds, // Fallback para uniqueAds se não houver uniqueAdNames
                 uniqueCampaigns: backendStats.uniqueCampaigns || localStats.uniqueCampaigns,
                 uniqueAdsets: backendStats.uniqueAdsets || localStats.uniqueAdsets,
                 totalSpend: backendStats.totalSpend || localStats.totalSpend,
@@ -1204,22 +1206,6 @@ export default function PacksPage() {
     return field ? field.label : fieldValue;
   };
 
-  // Funções auxiliares para refresh de pack
-  const calculateDaysBetween = (startDate: string, endDate: string): number => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays + 1; // +1 para incluir o dia final
-  };
-
-  const estimateCurrentDay = (progress: number, totalDays: number): number => {
-    if (progress <= 0) return 1;
-    if (progress >= 100) return totalDays;
-    const estimatedDay = Math.ceil((progress / 100) * totalDays);
-    return Math.max(1, Math.min(estimatedDay, totalDays));
-  };
-
   const handleRefreshPack = (packId: string) => {
     const pack = packs.find((p) => p.id === packId);
     if (!pack) return;
@@ -1282,221 +1268,33 @@ export default function PacksPage() {
   };
 
   const cancelRefreshPack = () => {
-    if (refreshingPackId) return; // Não permite cancelar durante o refresh
+    // Verifica se algum pack está atualizando
+    const currentPackId = packToRefresh?.id;
+    if (currentPackId && isRefreshing(currentPackId)) return; // Não permite cancelar durante o refresh
     setPackToRefresh(null);
     setRefreshType("since_last_refresh"); // Resetar para padrão
   };
 
   /**
-   * Faz polling do job de sincronização do Google Sheets em paralelo
+   * Confirma e executa o refresh do pack usando o hook centralizado
    */
-  const pollSheetSyncJob = async (
-    syncJobId: string,
-    toastId: string,
-    packName: string
-  ): Promise<{ success: boolean; error?: string }> => {
-    let completed = false;
-    let attempts = 0;
-    const maxAttempts = 300; // 10 minutos máximo (300 * 2s = 600s)
-
-    while (!completed && attempts < maxAttempts) {
-      await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
-
-      try {
-        const progress = await api.integrations.google.getSyncJobProgress(syncJobId);
-        const details = (progress as any)?.details || {};
-
-        // Atualizar mensagem baseada no estágio
-        let message = progress.message || "Sincronizando planilha...";
-        if (details.stage === "lendo_planilha") {
-          message = `Lendo planilha... ${details.rows_read || 0} linhas`;
-        } else if (details.stage === "processando_dados") {
-          message = `Processando dados... ${details.rows_processed || 0} linhas`;
-        } else if (details.stage === "persistindo") {
-          message = "Salvando dados de enriquecimento...";
-        }
-
-        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, message);
-
-        if (progress.status === "completed") {
-          const stats = (progress as any)?.stats || {};
-          const updatedRows = stats.rows_updated || stats.updated_rows || 0;
-          finishProgressToast(
-            toastId,
-            true,
-            `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
-          );
-          return { success: true };
-        } else if (progress.status === "failed") {
-          finishProgressToast(
-            toastId,
-            false,
-            `Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`
-          );
-          return { success: false, error: progress.message || "Erro desconhecido" };
-        }
-      } catch (error) {
-        console.error(`Erro ao verificar progresso do sync job ${syncJobId}:`, error);
-        updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...");
-      }
-
-      attempts++;
-    }
-
-    if (!completed) {
-      finishProgressToast(toastId, false, `Timeout ao sincronizar planilha (demorou mais de 10 minutos)`);
-      return { success: false, error: "Timeout" };
-    }
-
-    return { success: false, error: "Job não completou" };
-  };
-
   const confirmRefreshPack = async () => {
-    if (!packToRefresh || refreshingPackId) return;
+    if (!packToRefresh) return;
 
     const packId = packToRefresh.id;
     const packName = packToRefresh.name;
-    setRefreshingPackId(packId);
-    addUpdatingPack(packId);
+    const pack = packs.find((p) => p.id === packId);
 
     // Fechar modal imediatamente após confirmar
     setPackToRefresh(null);
 
-    const toastId = `refresh-pack-${packId}`;
-
-    // Mostrar toast imediatamente para feedback visual instantâneo
-    showProgressToast(toastId, packName, 0, 1, "Inicializando...");
-
-    let refreshResult: { job_id?: string; date_range?: { since: string; until: string } } | null = null; // Para poder limpar no finally
-    let sheetSyncJobId: string | null = null;
-    let sheetSyncToastId: string | null = null;
-    
-    try {
-      // Iniciar refresh com o tipo escolhido
-      refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), refreshType);
-
-      if (!refreshResult.job_id) {
-        finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
-        setRefreshingPackId(null);
-        removeUpdatingPack(packId);
-        return;
-      }
-
-      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
-      if (!addActiveJob(refreshResult.job_id)) {
-        console.warn(`Polling já ativo para job ${refreshResult.job_id}. Ignorando nova tentativa...`);
-        finishProgressToast(toastId, false, `Este job já está sendo processado. Aguarde a conclusão.`);
-        setRefreshingPackId(null);
-        removeUpdatingPack(packId);
-        return;
-      }
-
-      // Calcular total de dias
-      const dateRange = refreshResult.date_range;
-      if (!dateRange) {
-        finishProgressToast(toastId, false, `Erro: intervalo de datas não disponível para "${packName}"`);
-        setRefreshingPackId(null);
-        removeUpdatingPack(packId);
-        return;
-      }
-      const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
-
-      // Atualizar toast com informações reais
-      updateProgressToast(toastId, packName, 1, totalDays);
-
-      // Fazer polling do job Meta e detectar sync_job_id
-      let completed = false;
-      let attempts = 0;
-      const maxAttempts = 150; // 5 minutos máximo
-
-      while (!completed && attempts < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 2000)); // Aguardar 2 segundos
-
-        try {
-          const progress = await api.facebook.getJobProgress(refreshResult.job_id);
-          const details = (progress as any)?.details || {};
-
-          // Verificar se há sync_job_id e ainda não iniciamos o polling de Sheets
-          if (details.sync_job_id && !sheetSyncJobId) {
-            sheetSyncJobId = details.sync_job_id;
-            sheetSyncToastId = `sync-sheet-${packId}`;
-            
-            // Iniciar polling paralelo do job de Sheets
-            showProgressToast(sheetSyncToastId, `Planilha: ${packName}`, 0, 1, "Iniciando sincronização...");
-            
-            // Executar polling em paralelo (não bloquear)
-            if (sheetSyncJobId) {
-              pollSheetSyncJob(sheetSyncJobId, sheetSyncToastId, packName).catch((error) => {
-                console.error(`Erro no polling do sync job ${sheetSyncJobId}:`, error);
-              });
-            }
-          }
-
-          // Estimar dia atual baseado no progresso
-          const currentDay = estimateCurrentDay(progress.progress || 0, totalDays);
-
-          // Atualizar toast com progresso
-          updateProgressToast(toastId, packName, currentDay, totalDays, progress.message || undefined);
-
-          if (progress.status === "completed") {
-            const adsCount = Array.isArray(progress.data) ? progress.data.length : 0;
-            finishProgressToast(toastId, true, `"${packName}" atualizado com sucesso! ${adsCount > 0 ? `${adsCount} anúncios atualizados.` : ""}`);
-
-            // Recarregar pack do backend para atualizar dados (sem precisar incluir ads - stats já tem tudo)
-            try {
-              const response = await api.analytics.listPacks(false); // Não precisa incluir ads - stats já tem tudo
-              if (response.success && response.packs) {
-                const updatedPack = response.packs.find((p: any) => p.id === packId);
-                if (updatedPack) {
-                  // Atualizar pack no store com stats (sem precisar dos ads)
-                  updatePack(packId, {
-                    stats: updatedPack.stats || {},
-                    updated_at: updatedPack.updated_at || new Date().toISOString(),
-                    auto_refresh: updatedPack.auto_refresh !== undefined ? updatedPack.auto_refresh : undefined,
-                    date_stop: updatedPack.date_stop, // Atualizar date_stop para mostrar "HOJE" corretamente
-                    // Não precisa atualizar ads - stats já contém tudo necessário para o card
-                  } as Partial<AdsPack>);
-
-                  // Invalidar cache de ads do pack (novos dados serão buscados sob demanda)
-                  await invalidatePackAds(packId);
-                }
-              }
-
-              // Invalidar dados agregados (ad performance) para atualizar Manager/Insights
-              invalidateAdPerformance();
-            } catch (error) {
-              console.error("Erro ao recarregar pack após refresh:", error);
-              // Não bloquear sucesso do refresh se falhar ao recarregar
-            }
-
-            completed = true;
-          } else if (progress.status === "failed") {
-            finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
-            completed = true;
-          }
-        } catch (error) {
-          console.error(`Erro ao verificar progresso do pack ${packId}:`, error);
-          const lastKnownDay = attempts > 0 ? Math.min(attempts, totalDays) : 1;
-          updateProgressToast(toastId, packName, lastKnownDay, totalDays, "Erro ao verificar progresso, tentando novamente...");
-        }
-
-        attempts++;
-      }
-
-      if (!completed) {
-        finishProgressToast(toastId, false, `Timeout ao atualizar "${packName}" (demorou mais de 5 minutos)`);
-      }
-    } catch (error) {
-      console.error(`Erro ao atualizar pack ${packId}:`, error);
-      finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`);
-    } finally {
-      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
-      if (refreshResult?.job_id) {
-        removeActiveJob(refreshResult.job_id);
-      }
-      setRefreshingPackId(null);
-      removeUpdatingPack(packId);
-    }
+    // Usar hook centralizado para refresh
+    await refreshPack({
+      packId,
+      packName,
+      refreshType,
+      sheetIntegrationId: pack?.sheet_integration?.id,
+    });
   };
 
   const handleSyncSheetIntegration = async (packId: string) => {
@@ -1605,7 +1403,6 @@ export default function PacksPage() {
       <PageContainer
         title="Biblioteca"
         description="Gerencie seus Packs de anúncios."
-        icon={<IconStack2Filled className="w-6 h-6 text-yellow-500" />}
         actions={
           <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
             <IconPlus className="w-4 h-4" />
@@ -1623,28 +1420,24 @@ export default function PacksPage() {
                 <div className="absolute inset-0 rounded-xl bg-card rotate-2 pointer-events-none" />
                 <div className="absolute inset-0 rounded-xl bg-secondary rotate-1 pointer-events-none" />
 
-                <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full">
-                  <div className="p-6 space-y-6 flex flex-col justify-between h-full">
-                    {/* Header: Nome do pack */}
-                    <div className="flex flex-col items-center gap-1">
-                      <div className="flex w-full items-start justify-between gap-3">
-                        <div className="flex flex-col items-center justify-center flex-1 min-w-0">
-                          <Skeleton className="h-6 w-32" />
+                <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full overflow-hidden">
+                  <div className="p-6 space-y-6 flex flex-col justify-between h-full relative z-10">
+                    <div className="flex flex-col items-center gap-2">
+                      {/* Header: Nome do pack */}
+                      <div className="flex items-start justify-center">
+                        <div className="flex flex-col items-center justify-center min-w-0">
+                          <Skeleton className="h-7 w-32" />
                         </div>
                       </div>
                     </div>
 
-                    {/* Date range e valor monetário */}
                     <div className="flex flex-col items-center gap-2">
                       <div className="flex flex-col items-center">
                         {/* Date range skeleton */}
-                        <Skeleton className="h-4 w-32 mb-1" />
-                        {/* Duração skeleton */}
-                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-4 w-32" />
                       </div>
                       {/* Valor monetário em destaque */}
                       <div className="flex items-center justify-center gap-2">
-                        <Skeleton className="h-4 w-8" />
                         <Skeleton className="h-9 w-32" />
                       </div>
                     </div>
@@ -1652,7 +1445,11 @@ export default function PacksPage() {
                     {/* Métricas: Lista vertical com separadores */}
                     <div className="flex flex-col">
                       <div className="flex items-center justify-between py-2 border-b border-border">
-                        <Skeleton className="h-4 w-20" />
+                        <Skeleton className="h-4 w-16" />
+                        <Skeleton className="h-4 w-8" />
+                      </div>
+                      <div className="flex items-center justify-between py-2 border-b border-border">
+                        <Skeleton className="h-4 w-16" />
                         <Skeleton className="h-4 w-8" />
                       </div>
                       <div className="flex items-center justify-between py-2 border-b border-border">
@@ -1660,7 +1457,7 @@ export default function PacksPage() {
                         <Skeleton className="h-4 w-8" />
                       </div>
                       <div className="flex items-center justify-between py-2">
-                        <Skeleton className="h-4 w-18" />
+                        <Skeleton className="h-4 w-16" />
                         <Skeleton className="h-4 w-8" />
                       </div>
                     </div>
@@ -1668,18 +1465,23 @@ export default function PacksPage() {
                     {/* Footer: Toggles e última atualização */}
                     <div className="flex flex-col gap-2">
                       {/* Toggle Atualização automática */}
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between w-full">
                         <Skeleton className="h-4 w-32" />
                         <Skeleton className="h-5 w-10 rounded-full" />
                       </div>
                       {/* Toggle Leadscore */}
-                      <div className="flex items-center justify-between">
-                        <Skeleton className="h-4 w-20" />
+                      <div className="flex items-center justify-between w-full">
+                        <Skeleton className="h-4 w-32" />
                         <Skeleton className="h-5 w-10 rounded-full" />
                       </div>
-                      {/* Última atualização */}
+                      {/* Última atualização Meta */}
                       <div className="flex items-center justify-between mt-3">
-                        <Skeleton className="h-3 w-28" />
+                        <Skeleton className="h-3 w-16" />
+                        <Skeleton className="h-3 w-24" />
+                      </div>
+                      {/* Última atualização Leadscore (opcional) */}
+                      <div className="flex items-center justify-between">
+                        <Skeleton className="h-3 w-16" />
                         <Skeleton className="h-3 w-24" />
                       </div>
                     </div>
@@ -2149,7 +1951,7 @@ export default function PacksPage() {
       </Modal>
 
       {/* Refresh Pack Confirmation Dialog */}
-      <Modal isOpen={!!packToRefresh} onClose={() => !refreshingPackId && cancelRefreshPack()} size="md" padding="md" closeOnOverlayClick={!refreshingPackId} closeOnEscape={!refreshingPackId} showCloseButton={!refreshingPackId}>
+      <Modal isOpen={!!packToRefresh} onClose={cancelRefreshPack} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="flex flex-col items-center gap-6 py-4">
           <h2 className="text-xl font-semibold text-text">Atualizar Pack?</h2>
 
@@ -2159,7 +1961,7 @@ export default function PacksPage() {
 
           {/* Opções de atualização */}
           <div className="w-full space-y-3">
-            <button type="button" onClick={() => setRefreshType("since_last_refresh")} disabled={!!refreshingPackId} className={`w-full p-4 rounded-lg border-2 text-left transition-all ${refreshType === "since_last_refresh" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"} ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+            <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"}`}>
               <div className="flex items-start gap-3">
                 <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "since_last_refresh" ? "border-green-500" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-green-500" />}</div>
                 <div className="flex-1">
@@ -2169,7 +1971,7 @@ export default function PacksPage() {
               </div>
             </button>
 
-            <button type="button" onClick={() => setRefreshType("full_period")} disabled={!!refreshingPackId} className={`w-full p-4 rounded-lg border-2 text-left transition-all ${refreshType === "full_period" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"} ${refreshingPackId ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
+            <button type="button" onClick={() => setRefreshType("full_period")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "full_period" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"}`}>
               <div className="flex items-start gap-3">
                 <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "full_period" ? "border-green-500" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-green-500" />}</div>
                 <div className="flex-1">
@@ -2181,23 +1983,14 @@ export default function PacksPage() {
           </div>
 
           <div className="flex gap-4 w-full">
-            <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={!!refreshingPackId}>
+            <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500">
               <IconCircleX className="h-5 w-5" />
               Cancelar
             </Button>
 
-            <Button onClick={confirmRefreshPack} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white" disabled={!!refreshingPackId}>
-              {refreshingPackId ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Atualizando...
-                </>
-              ) : (
-                <>
-                  <IconCircleCheck className="h-5 w-5" />
-                  Confirmar
-                </>
-              )}
+            <Button onClick={confirmRefreshPack} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white">
+              <IconCircleCheck className="h-5 w-5" />
+              Confirmar
             </Button>
           </div>
         </div>

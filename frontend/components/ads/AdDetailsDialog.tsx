@@ -13,6 +13,7 @@ import { RankingsItem, RankingsChildrenItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
+import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 
 interface AdDetailsDialogProps {
   ad: RankingsItem;
@@ -340,31 +341,21 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-border text-sm">
-        <button className={`px-3 py-2 ${activeTab === "overview" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`} onClick={() => setActiveTab("overview")}>
-          Visão geral
-        </button>
-        <button className={`px-3 py-2 ${activeTab === "history" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`} onClick={() => setActiveTab("history")}>
-          Histórico
-        </button>
-        <button className={`px-3 py-2 ${activeTab === "conversions" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`} onClick={() => setActiveTab("conversions")}>
-          Conversões
-        </button>
-        <button className={`px-3 py-2 ${activeTab === "series" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`} onClick={() => setActiveTab("series")}>
-          Séries
-        </button>
-        {groupByAdName ? (
-          <button className={`px-3 py-2 ${activeTab === "variations" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`} onClick={() => setActiveTab("variations")}>
-            Variações
-          </button>
-        ) : null}
-        <button className={`px-3 py-2 ${activeTab === "video" ? "text-primary border-b-2 border-primary" : "text-muted-foreground"}`} onClick={() => setActiveTab("video")}>
-          Vídeo
-        </button>
-      </div>
-
-      {/* Content */}
-      {activeTab === "overview" && (
+      <TabbedContent
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as typeof activeTab)}
+        variant="simple"
+        tabs={[
+          { value: "overview", label: "Visão geral" },
+          { value: "history", label: "Histórico" },
+          { value: "conversions", label: "Conversões" },
+          { value: "series", label: "Séries" },
+          ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : []),
+          { value: "video", label: "Vídeo" },
+        ]}
+        tabsListClassName="mb-4"
+      >
+        <TabbedContentItem value="overview" variant="simple">
         <div className="space-y-4">
           {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={ad?.hook != null ? Number(ad.hook) : null} onPointClick={handleRetentionPointClick} /> : null}
 
@@ -381,9 +372,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             <MetricCard label="Clicks" value={Number(ad?.clicks || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
           </div>
         </div>
-      )}
+        </TabbedContentItem>
 
-      {activeTab === "conversions" && (
+        <TabbedContentItem value="conversions" variant="simple">
         <div className="space-y-2">
           {allConversionTypes.length === 0 ? (
             <div className="text-sm text-muted-foreground">Sem dados de conversão.</div>
@@ -414,9 +405,10 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             </table>
           )}
         </div>
-      )}
+        </TabbedContentItem>
 
-      {activeTab === "variations" && groupByAdName && (
+        {groupByAdName && (
+          <TabbedContentItem value="variations" variant="simple">
         <div className="space-y-2">
           {loadingChildren ? (
             <div className="text-sm text-muted-foreground">Carregando variações...</div>
@@ -491,9 +483,10 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             </div>
           )}
         </div>
-      )}
+          </TabbedContentItem>
+        )}
 
-      {activeTab === "series" && (
+        <TabbedContentItem value="series" variant="simple">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <MetricCard label="Hook" value={series?.hook ? <ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" /> : "Sem série"} series={series?.hook} metric="hook" size="large" formatPct={formatPct} />
           <MetricCard label="Spend" value={series?.spend ? formatCurrency(Number(ad?.spend || 0)) : "Sem série"} series={series?.spend} metric="spend" size="large" formatCurrency={formatCurrency} />
@@ -502,9 +495,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           <MetricCard label="CPR" value={(series as any)?.cpr && hasCpr ? <ValueWithDelta display={formatCurrency(cpr)} valueRaw={cpr} avgRaw={averages?.cpr ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpr} metric="cpr" size="large" formatCurrency={formatCurrency} />
           <MetricCard label="CPM" value={(series as any)?.cpm ? <ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpm} metric="cpm" size="large" formatCurrency={formatCurrency} />
         </div>
-      )}
+        </TabbedContentItem>
 
-      {activeTab === "video" && (
+        <TabbedContentItem value="video" variant="simple">
         <div className="space-y-4">
           {loadingCreative ? (
             <div className="text-sm text-muted-foreground p-6 text-center">Carregando informações do vídeo...</div>
@@ -542,9 +535,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             </div>
           )}
         </div>
-      )}
+        </TabbedContentItem>
 
-      {activeTab === "history" && (
+        <TabbedContentItem value="history" variant="simple">
         <div className="flex flex-col h-full min-h-0">
           <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <div className="text-lg font-semibold">Evolução Histórica</div>
@@ -578,7 +571,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             </div>
           )}
         </div>
-      )}
+        </TabbedContentItem>
+      </TabbedContent>
     </div>
   );
 }

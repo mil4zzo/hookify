@@ -44,6 +44,8 @@ def get_google_access_token_for_user(
     Raises:
         GoogleSheetsError: Se o refresh_token estiver inválido/expirado
     """
+    logger.debug(f"[GOOGLE_TOKEN] Buscando token - user: {user_id}, connection_id: {connection_id}, force_refresh: {force_refresh}")
+
     access_token, refresh_token, expires_ts = get_google_account_tokens(
         user_jwt=user_jwt,
         user_id=user_id,
@@ -51,6 +53,7 @@ def get_google_access_token_for_user(
     )
 
     if not access_token:
+        logger.warning(f"[GOOGLE_TOKEN] Token não encontrado - user: {user_id}, connection_id: {connection_id}")
         return None
 
     now = time.time()

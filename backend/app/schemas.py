@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Literal
 
 class Filter(BaseModel):
     field: str
@@ -24,6 +24,15 @@ class RefreshPackRequest(BaseModel):
     until_date: str
     # Tipo de atualização: 'since_last_refresh' (desde última atualização) ou 'full_period' (todo o período)
     refresh_type: str = "since_last_refresh"
+
+class UpdateStatusRequest(BaseModel):
+    """
+    Request padrão para atualizar status de entidades do Meta (ad, adset, campaign).
+
+    - PAUSED: pausa a entidade
+    - ACTIVE: ativa a entidade
+    """
+    status: Literal["PAUSED", "ACTIVE"]
 
 class VideoSourceRequest(BaseModel):
     video_id: Union[str, int]

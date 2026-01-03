@@ -6,13 +6,15 @@ import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle } from "@tabler/icons-react";
+import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle } from "@tabler/icons-react";
+import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { api } from "@/lib/api/endpoints";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
+import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
 
 const FILTER_FIELDS = [
   { label: "Campaign Name", value: "campaign.name" },
@@ -310,9 +312,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                 <div className="flex flex-col items-center">
                   {/* Date range */}
                   <div className="flex items-center text-sm gap-1.5">
-                    <span>
-                      {dateRangeDisplay}
-                    </span>
+                    <span>{dateRangeDisplay}</span>
                     {pack.auto_refresh && !isToday(pack.date_stop) && (
                       <TooltipProvider>
                         <Tooltip>
@@ -370,8 +370,12 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                   <span className="text-sm text-foreground">Conjuntos</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueAdsets || 0}</span>
                 </div>
-                <div className="flex items-center justify-between py-2">
+                <div className="flex items-center justify-between py-2 border-b border-border">
                   <span className="text-sm text-foreground">Anúncios</span>
+                  <span className="text-sm font-medium text-foreground">{stats?.uniqueAdNames || 0}</span>
+                </div>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-sm text-foreground">Variações</span>
                   <span className="text-sm font-medium text-foreground">{stats?.uniqueAds || 0}</span>
                 </div>
               </div>
@@ -422,9 +426,35 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                   />
                 </div>
                 <div className="flex items-center justify-between mt-3 text-xs text-foreground">
-                  <span>Última atualização:</span>
-                  <span>{formatDateTime(pack.updated_at)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <MetaIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                    <span>Meta:</span>
+                  </div>
+                  <span>{formatRelativeTime(pack.updated_at)}</span>
                 </div>
+                {(pack.sheet_integration?.last_successful_sync_at || pack.sheet_integration?.last_synced_at) && (
+                  <div className="flex items-center justify-between text-xs text-foreground">
+                    <div className="flex items-center gap-1.5">
+                      <GoogleSheetsIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Leadscore:</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {pack.sheet_integration.last_sync_status === "failed" && (
+                        <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <IconAlertCircle className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 cursor-help" />
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida.</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                      <span>{formatRelativeTime(pack.sheet_integration.last_successful_sync_at || pack.sheet_integration.last_synced_at || "")}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </StandardCard>

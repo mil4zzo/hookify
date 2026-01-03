@@ -546,6 +546,64 @@ class GraphAPI:
             logger.exception("start_ads_job error: %s", err)
             return {"status": "error", "message": str(err)}
 
+    def _update_entity_status(self, entity_id: str, status: str) -> Dict[str, Any]:
+        """
+        Atualiza o campo `status` de uma entidade no Meta via Graph API.
+
+        Endpoint:
+          POST https://graph.facebook.com/v22.0/{entity_id}?access_token=...
+
+        Body:
+          {"status": "PAUSED" | "ACTIVE"}
+        """
+        if not entity_id:
+            return {"status": "error", "message": "entity_id é obrigatório"}
+        if status not in ("PAUSED", "ACTIVE"):
+            return {"status": "error", "message": "status deve ser PAUSED ou ACTIVE"}
+
+        url = f"{self.base_url}{entity_id}"
+        params = {"access_token": self.access_token}
+        payload = {"status": status}
+
+        try:
+            resp = requests.post(url, params=params, json=payload, timeout=30)
+            resp.raise_for_status()
+            data = resp.json() if resp.content else {}
+
+            # Normalmente, a API retorna {"success": true}
+            if isinstance(data, dict) and data.get("success") is True:
+                return {"status": "success", "data": data}
+
+            # Se o response for incomum, ainda assim considerar sucesso HTTP como sucesso
+            return {"status": "success", "data": data}
+
+        except requests.exceptions.HTTPError as http_err:
+            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+            error_code = error_obj.get("code")
+            error_message = error_obj.get("message") or str(http_err)
+
+            if error_code == 190:
+                return {"status": "auth_error", "message": error_message, "error": error_obj}
+
+            return {"status": "http_error", "message": error_message, "error": error_obj}
+
+        except Exception as err:
+            logger.exception("_update_entity_status error: %s", err)
+            return {"status": "error", "message": str(err)}
+
+    def update_ad_status(self, ad_id: str, status: str) -> Dict[str, Any]:
+        """Atualiza status de um anúncio (PAUSED/ACTIVE) via Meta Graph API."""
+        return self._update_entity_status(ad_id, status)
+
+    def update_adset_status(self, adset_id: str, status: str) -> Dict[str, Any]:
+        """Atualiza status de um conjunto de anúncios (PAUSED/ACTIVE) via Meta Graph API."""
+        return self._update_entity_status(adset_id, status)
+
+    def update_campaign_status(self, campaign_id: str, status: str) -> Dict[str, Any]:
+        """Atualiza status de uma campanha (PAUSED/ACTIVE) via Meta Graph API."""
+        return self._update_entity_status(campaign_id, status)
+
     def get_job_progress(self, report_run_id: str) -> Dict[str, Any]:
         """Get progress of async job."""
         try:
