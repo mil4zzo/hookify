@@ -1,6 +1,7 @@
 import React from "react";
 import type { Table, ColumnFiltersState } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
+import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 
 export type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
 
@@ -25,5 +26,8 @@ export interface SharedTableContentProps {
   formatPct: (v: number) => string;
   columnFilters: ColumnFiltersState;
   setColumnFilters: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
+  activeColumns: Set<ManagerColumnType>;
+  hasSheetIntegration?: boolean;
+  mqlLeadscoreMin?: number;
 }
 

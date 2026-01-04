@@ -25,6 +25,19 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
     return false;
   }
 
+  // 2.1 Comparação de activeColumns, hasSheetIntegration e mqlLeadscoreMin
+  const activeColumnsEqual =
+    prev.activeColumns.size === next.activeColumns.size &&
+    Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
+
+  if (
+    !activeColumnsEqual ||
+    prev.hasSheetIntegration !== next.hasSheetIntegration ||
+    prev.mqlLeadscoreMin !== next.mqlLeadscoreMin
+  ) {
+    return false;
+  }
+
   // 3. Comparação de table (TanStack Table - verifica se dados/filtros mudaram)
   // OTIMIZAÇÃO: Comparar dados originais diretamente em vez de processar todas as rows
   // Isso evita processar 873 linhas durante resize (columnSizing não afeta os dados)
@@ -88,7 +101,7 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
   return true;
 }
 
-export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters }: MinimalTableContentProps) {
+export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin }: MinimalTableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -323,7 +336,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                         );
                       })}
                     </tr>
-                    {groupByAdNameEffective && isExpanded && adName ? <ExpandedChildrenRow row={row as any} adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} /> : null}
+                    {groupByAdNameEffective && isExpanded && adName ? <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} /> : null}
                     {currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow row={row as any} campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} /> : null}
                   </Fragment>
                 );

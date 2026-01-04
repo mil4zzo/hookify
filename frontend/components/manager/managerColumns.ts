@@ -32,4 +32,22 @@ export const DEFAULT_MANAGER_COLUMNS: readonly ManagerColumnType[] = [
   "page_conv",
 ] as const;
 
+/**
+ * Ordem das colunas como aparecem na tabela principal (buildMetricColumns)
+ * Esta ordem deve ser usada para renderizar as colunas nas linhas expandidas
+ */
+export const MANAGER_COLUMN_RENDER_ORDER: readonly ManagerColumnType[] = [
+  "spend",
+  "cpmql",
+  "mqls",
+  "cpr",
+  "results",
+  "cpm",
+  "hook",
+  "ctr",
+  "website_ctr",
+  "connect_rate",
+  "page_conv",
+] as const;
+
 

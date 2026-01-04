@@ -1,25 +1,35 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { IconArrowsSort } from "@tabler/icons-react";
+import { IconArrowsSort, IconSearch } from "@tabler/icons-react";
 import { useAdVariations } from "@/lib/api/hooks";
 import { RankingsChildrenItem } from "@/lib/api/schemas";
-import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { StatusCell } from "@/components/manager/StatusCell";
+import { Input } from "@/components/ui/input";
+import { MANAGER_COLUMN_OPTIONS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
+import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 
 interface ExpandedChildrenRowProps {
-  row: { getVisibleCells: () => any[] };
   adName: string;
   dateStart: string;
   dateStop: string;
   actionType?: string;
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;
+  activeColumns: Set<ManagerColumnType>;
+  hasSheetIntegration?: boolean;
+  mqlLeadscoreMin?: number;
 }
 
 // Função de comparação customizada para React.memo
 function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: ExpandedChildrenRowProps): boolean {
+  // Verificar se os sets de colunas ativas são iguais
+  const activeColumnsEqual =
+    prev.activeColumns.size === next.activeColumns.size &&
+    Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
+
   return (
     prev.adName === next.adName &&
     prev.dateStart === next.dateStart &&
@@ -27,26 +37,31 @@ function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: 
     prev.actionType === next.actionType &&
     prev.formatCurrency === next.formatCurrency &&
     prev.formatPct === next.formatPct &&
-    prev.row === next.row
+    activeColumnsEqual &&
+    prev.hasSheetIntegration === next.hasSheetIntegration &&
+    prev.mqlLeadscoreMin === next.mqlLeadscoreMin
   );
 }
 
 export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
-  row,
   adName,
   dateStart,
   dateStop,
   actionType,
   formatCurrency,
   formatPct,
+  activeColumns,
+  hasSheetIntegration = false,
+  mqlLeadscoreMin = 0,
 }: ExpandedChildrenRowProps) {
   const { data: childrenData, isLoading, isError } = useAdVariations(adName, dateStart, dateStop, true);
   const [sortConfig, setSortConfig] = useState<{ column: string | null; direction: "asc" | "desc" }>({
     column: null,
     direction: "asc",
   });
+  const [searchTerm, setSearchTerm] = useState<string>("");
 
-  // Preparar dados com cálculos e ordenar
+  // Preparar dados com cálculos, filtrar e ordenar
   // IMPORTANTE: useMemo deve ser chamado antes de qualquer retorno condicional para seguir as regras dos Hooks
   const sortedData = useMemo(() => {
     // Se não há dados, retornar array vazio
@@ -84,6 +99,16 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
       // Usar cpm do backend se disponível, senão calcular
       // cpm sempre vem do backend
       const cpm = typeof child.cpm === "number" ? child.cpm : 0;
+      // Calcular MQLs (leads com leadscore >= mqlLeadscoreMin)
+      const childAny = child as any;
+      const mqls = hasSheetIntegration && childAny.leads && Array.isArray(childAny.leads)
+        ? childAny.leads.filter((lead: any) => Number(lead.leadscore || 0) >= mqlLeadscoreMin).length
+        : 0;
+      // Calcular CPMQL (custo por MQL)
+      const cpmql = mqls > 0 ? spend / mqls : 0;
+      // Calcular website_ctr (inline_link_clicks / impressions)
+      const inline_link_clicks = Number(child.inline_link_clicks || 0);
+      const website_ctr = impressions > 0 ? inline_link_clicks / impressions : 0;
       return {
         ...child,
         conversions,
@@ -94,14 +119,29 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
         lpv,
         spend,
         impressions,
+        mqls,
+        cpmql,
+        website_ctr,
+        ad_count: 1, // Cada child é um anúncio individual
       };
     });
 
+    // Filtrar por termo de busca
+    const filteredData = searchTerm.trim()
+      ? dataWithCalculations.filter((child) => {
+          const search = searchTerm.toLowerCase();
+          const campaignName = String(child.campaign_name || "").toLowerCase();
+          const adsetName = String(child.adset_name || "").toLowerCase();
+          const adId = String(child.ad_id || "").toLowerCase();
+          return campaignName.includes(search) || adsetName.includes(search) || adId.includes(search);
+        })
+      : dataWithCalculations;
+
     if (!sortConfig.column) {
-      return dataWithCalculations;
+      return filteredData;
     }
 
-    const sorted = [...dataWithCalculations].sort((a, b) => {
+    const sorted = [...filteredData].sort((a, b) => {
       let aVal: any;
       let bVal: any;
 
@@ -118,6 +158,10 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
           aVal = a.cpr || 0;
           bVal = b.cpr || 0;
           break;
+        case "cpmql":
+          aVal = a.cpmql || 0;
+          bVal = b.cpmql || 0;
+          break;
         case "spend":
           aVal = a.spend || 0;
           bVal = b.spend || 0;
@@ -125,6 +169,10 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
         case "ctr":
           aVal = Number(a.ctr || 0);
           bVal = Number(b.ctr || 0);
+          break;
+        case "website_ctr":
+          aVal = Number(a.website_ctr || 0);
+          bVal = Number(b.website_ctr || 0);
           break;
         case "cpm":
           aVal = a.cpm || 0;
@@ -138,6 +186,14 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
           aVal = a.page_conv || 0;
           bVal = b.page_conv || 0;
           break;
+        case "results":
+          aVal = a.results || 0;
+          bVal = b.results || 0;
+          break;
+        case "mqls":
+          aVal = a.mqls || 0;
+          bVal = b.mqls || 0;
+          break;
         default:
           return 0;
       }
@@ -149,7 +205,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
     });
 
     return sorted;
-  }, [childrenData, sortConfig, actionType]);
+  }, [childrenData, sortConfig, actionType, searchTerm, hasSheetIntegration, mqlLeadscoreMin]);
 
   const handleSort = (column: string) => {
     setSortConfig((prev) => {
@@ -162,13 +218,66 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
     });
   };
 
+  // Gerar lista de colunas visíveis na ordem correta (mesma ordem da tabela principal)
+  const visibleColumns = useMemo(() => {
+    // Usar MANAGER_COLUMN_RENDER_ORDER para manter a ordem da tabela principal
+    return MANAGER_COLUMN_RENDER_ORDER
+      .filter(colId => {
+        // Filtrar colunas que dependem de sheet integration
+        if ((colId === "cpmql" || colId === "mqls") && !hasSheetIntegration) {
+          return false;
+        }
+        return activeColumns.has(colId);
+      })
+      .map(colId => {
+        // Encontrar o objeto completo da coluna em MANAGER_COLUMN_OPTIONS
+        const col = MANAGER_COLUMN_OPTIONS.find(c => c.id === colId);
+        return col!; // Safe porque sabemos que existe
+      });
+  }, [activeColumns, hasSheetIntegration]);
+
+  // Calcular colspan:
+  // Na aba "por-anuncio", a tabela pai tem: 1 (Ad Name) + visibleColumns.length
+  // O colspan deve cobrir todas as colunas da tabela pai
+  const colspan = visibleColumns.length + 1;
+
+  // Função helper para renderizar o valor de uma célula
+  const renderCellValue = (child: any, columnId: ManagerColumnType) => {
+    switch (columnId) {
+      case "hook":
+        return formatPct(Number(child.hook * 100));
+      case "cpr":
+        return child.results > 0 ? formatCurrency(child.cpr) : "—";
+      case "cpmql":
+        return child.mqls > 0 ? formatCurrency(child.cpmql) : "—";
+      case "spend":
+        return formatCurrency(child.spend);
+      case "ctr":
+        return formatPct(Number(child.ctr * 100));
+      case "website_ctr":
+        return formatPct(Number(child.website_ctr * 100));
+      case "cpm":
+        return formatCurrency(child.cpm);
+      case "connect_rate":
+        return formatPct(Number(child.connect_rate * 100));
+      case "page_conv":
+        return child.lpv > 0 ? formatPct(Number(child.page_conv * 100)) : "—";
+      case "results":
+        return child.results > 0 ? child.results.toLocaleString("pt-BR") : "—";
+      case "mqls":
+        return child.mqls > 0 ? child.mqls.toLocaleString("pt-BR") : "—";
+      default:
+        return "—";
+    }
+  };
+
   const childMetricsColumnClass = `px-4 py-3 text-center cursor-pointer select-none hover:text-brand`;
 
   // Retornos condicionais após todos os hooks
   if (isLoading) {
     return (
       <tr className="bg-border">
-        <td className="p-0" colSpan={row.getVisibleCells().length}>
+        <td className="p-0" colSpan={colspan}>
           <div className="p-2 pl-8">
             <div className="text-sm text-muted-foreground">Carregando variações...</div>
           </div>
@@ -180,7 +289,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   if (isError) {
     return (
       <tr className="bg-border">
-        <td className="p-0" colSpan={row.getVisibleCells().length}>
+        <td className="p-0" colSpan={colspan}>
           <div className="p-2 pl-8">
             <div className="text-sm text-destructive">Erro ao carregar variações.</div>
           </div>
@@ -192,7 +301,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   if (!childrenData || childrenData.length === 0) {
     return (
       <tr className="bg-border">
-        <td className="p-0" colSpan={row.getVisibleCells().length}>
+        <td className="p-0" colSpan={colspan}>
           <div className="p-2 pl-8">
             <div className="text-sm text-muted-foreground">Sem variações no período.</div>
           </div>
@@ -203,12 +312,44 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
 
   return (
     <tr className="bg-card">
-      <td className="p-0" colSpan={row.getVisibleCells().length}>
+      <td className="p-0" colSpan={colspan}>
         <div className="">
-          <div className="overflow-x-auto">
+          {/* Campo de busca para filtrar variações */}
+          <div className="px-4 py-3 bg-muted/50">
+            <div className="flex items-center gap-3">
+              <div className="relative flex-1 max-w-sm">
+                <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+                <Input
+                  type="search"
+                  placeholder="Buscar variações por campanha, conjunto ou ID..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-9 h-9 text-xs"
+                />
+              </div>
+              {searchTerm.trim() && (
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {sortedData.length} de {childrenData?.length || 0} variações
+                </span>
+              )}
+            </div>
+          </div>
+          {searchTerm.trim() && sortedData.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-sm text-muted-foreground">Nenhuma variação encontrada para "{searchTerm}"</p>
+              <button
+                onClick={() => setSearchTerm("")}
+                className="mt-2 text-xs text-primary hover:underline"
+              >
+                Limpar busca
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-border">
+                  <th className="p-4 text-center w-20">Status</th>
                   <th
                     className={`p-4 text-left cursor-pointer select-none hover:text-brand ${
                       sortConfig.column === "ad_id" ? "text-primary" : ""
@@ -220,100 +361,54 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
                       <IconArrowsSort className="w-3 h-3" />
                     </div>
                   </th>
-                  <th
-                    className={`${childMetricsColumnClass} ${sortConfig.column === "hook" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("hook")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      Hook
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th
-                    className={`${childMetricsColumnClass} ${sortConfig.column === "cpr" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("cpr")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      CPR
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th
-                    className={`${childMetricsColumnClass} ${sortConfig.column === "spend" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("spend")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      Spend
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th
-                    className={`${childMetricsColumnClass} ${sortConfig.column === "ctr" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("ctr")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      CTR
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th
-                    className={`${childMetricsColumnClass} ${sortConfig.column === "cpm" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("cpm")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      CPM
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th
-                    className={`${childMetricsColumnClass} ${sortConfig.column === "connect_rate" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("connect_rate")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      Connect
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th
-                    className={`${childMetricsColumnClass} ${sortConfig.column === "page_conv" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("page_conv")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      Page
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
+                  {visibleColumns.map((col) => (
+                    <th
+                      key={col.id}
+                      className={`${childMetricsColumnClass} ${sortConfig.column === col.id ? "text-primary" : ""}`}
+                      onClick={() => handleSort(col.id)}
+                    >
+                      <div className="flex items-center justify-center gap-1">
+                        {col.name}
+                        <IconArrowsSort className="w-3 h-3" />
+                      </div>
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
                 {sortedData.map((child) => {
                   return (
                     <tr key={child.ad_id} className="hover:bg-muted border-b border-border">
+                      <td className="px-4 py-3 text-center">
+                        <StatusCell
+                          original={child}
+                          currentTab="individual"
+                          showConfirm={true}
+                        />
+                      </td>
                       <td className="px-4 py-3 text-left">
                         <div className="flex items-center gap-2">
                           <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
                           <div className="flex-1 min-w-0">
+                            <div className="truncate text-xs font-medium">{child.adset_name}</div>
                             <div className="flex items-center gap-2 truncate">
-                              <AdStatusIcon status={(child as any).effective_status} />
                               <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
                             </div>
-                            <div className="truncate text-xs font-medium">{child.adset_name}</div>
                           </div>
                         </div>
                       </td>
-                      <td className="p-2 text-center">{formatPct(Number(child.hook * 100))}</td>
-                      <td className="p-2 text-center">{child.results > 0 ? formatCurrency(child.cpr) : "—"}</td>
-                      <td className="p-2 text-center">{formatCurrency(child.spend)}</td>
-                      <td className="p-2 text-center">{formatPct(Number(child.ctr * 100))}</td>
-                      <td className="p-2 text-center">{formatCurrency(child.cpm)}</td>
-                      <td className="p-2 text-center">{formatPct(Number(child.connect_rate * 100))}</td>
-                      <td className="p-2 text-center">{child.lpv > 0 ? formatPct(Number(child.page_conv * 100)) : "—"}</td>
+                      {visibleColumns.map((col) => (
+                        <td key={col.id} className="p-2 text-center">
+                          {renderCellValue(child, col.id)}
+                        </td>
+                      ))}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+          )}
         </div>
       </td>
     </tr>

@@ -52,21 +52,23 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
 
   const cols: ColumnDef<RankingsItem, unknown>[] = [];
 
-  // Status column (primeira coluna - sempre visível)
-  cols.push(
-    columnHelper.display({
-      id: "status",
-      header: "Status",
-      size: 80,
-      minSize: 80,
-      enableResizing: false,
-      enableSorting: false,
-      cell: (info) => {
-        const original = info.row.original as RankingsItem;
-        return <StatusCell original={original} currentTab={currentTab} showConfirm={true} />;
-      },
-    })
-  );
+  // Status column (primeira coluna - visível exceto na aba "por-anuncio")
+  if (currentTab !== "por-anuncio") {
+    cols.push(
+      columnHelper.display({
+        id: "status",
+        header: "Status",
+        size: 80,
+        minSize: 80,
+        enableResizing: false,
+        enableSorting: false,
+        cell: (info) => {
+          const original = info.row.original as RankingsItem;
+          return <StatusCell original={original} currentTab={currentTab} showConfirm={true} />;
+        },
+      })
+    );
+  }
 
   // AD name (sempre visível)
   cols.push(

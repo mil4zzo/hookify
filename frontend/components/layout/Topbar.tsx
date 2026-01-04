@@ -670,27 +670,50 @@ export default function Topbar() {
                 </div>
               </div>
 
-              {/* Desktop: Header */}
+              {/* Desktop: Sidebar with Title and Tabs */}
               <div className="hidden md:flex w-64 border-r border-border bg-secondary flex-col shrink-0">
                 <div className="p-4 border-b border-border">
                   <h2 className="text-lg font-semibold text-text">Configurações</h2>
                 </div>
+                <div className="flex-1 overflow-y-auto">
+                  <TabbedContent
+                    value={activeSettingsTab}
+                    onValueChange={(value) => setActiveSettingsTab(value as typeof activeSettingsTab)}
+                    variant="with-icons"
+                    orientation="vertical"
+                    tabs={[
+                      { value: "general", label: "Preferências", icon: IconSettings },
+                      { value: "accounts", label: "Contas", icon: IconUsers },
+                      { value: "validation", label: "Critério de validação", icon: IconCheck },
+                      { value: "leadscore", label: "Leadscore", icon: IconTarget },
+                    ]}
+                    tabsContainerClassName="flex flex-col h-full"
+                    tabsListClassName="flex-col border-r-0 border-t-0 border-border bg-secondary rounded-none space-y-1 p-2 flex-shrink-0"
+                  >
+                    <TabbedContentItem value="general" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
+                    <TabbedContentItem value="accounts" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
+                    <TabbedContentItem value="validation" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
+                    <TabbedContentItem value="leadscore" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
+                  </TabbedContent>
+                </div>
               </div>
 
-              <TabbedContent
-                value={activeSettingsTab}
-                onValueChange={(value) => setActiveSettingsTab(value as typeof activeSettingsTab)}
-                variant="with-icons"
-                orientation="vertical"
-                tabs={[
-                  { value: "general", label: "Preferências", icon: IconSettings },
-                  { value: "accounts", label: "Contas", icon: IconUsers },
-                  { value: "validation", label: "Critério de validação", icon: IconCheck },
-                  { value: "leadscore", label: "Leadscore", icon: IconTarget },
-                ]}
-                tabsContainerClassName="flex flex-col md:flex-row h-full flex-1"
-                tabsListClassName="md:w-64 md:flex-col md:border-r md:border-border md:bg-secondary md:rounded-none md:space-y-1 md:p-2 md:h-full md:flex-shrink-0 md:mb-0"
-              >
+              {/* Content Area - Desktop */}
+              <div className="hidden md:flex flex-1 overflow-y-auto">
+                <TabbedContent
+                  value={activeSettingsTab}
+                  onValueChange={(value) => setActiveSettingsTab(value as typeof activeSettingsTab)}
+                  variant="with-icons"
+                  orientation="vertical"
+                  tabs={[
+                    { value: "general", label: "Preferências", icon: IconSettings },
+                    { value: "accounts", label: "Contas", icon: IconUsers },
+                    { value: "validation", label: "Critério de validação", icon: IconCheck },
+                    { value: "leadscore", label: "Leadscore", icon: IconTarget },
+                  ]}
+                  tabsContainerClassName="flex flex-col h-full flex-1"
+                  tabsListClassName="hidden"
+                >
                 <TabbedContentItem value="general" variant="with-icons" orientation="vertical">
                   <div className="space-y-6">
                     <div>
@@ -960,6 +983,292 @@ export default function Topbar() {
                   </div>
                 </TabbedContentItem>
               </TabbedContent>
+              </div>
+
+              {/* Mobile: Tabs */}
+              <div className="md:hidden flex-1 overflow-y-auto">
+                <TabbedContent
+                  value={activeSettingsTab}
+                  onValueChange={(value) => setActiveSettingsTab(value as typeof activeSettingsTab)}
+                  variant="with-icons"
+                  orientation="horizontal"
+                  tabs={[
+                    { value: "general", label: "Preferências", icon: IconSettings },
+                    { value: "accounts", label: "Contas", icon: IconUsers },
+                    { value: "validation", label: "Critério de validação", icon: IconCheck },
+                    { value: "leadscore", label: "Leadscore", icon: IconTarget },
+                  ]}
+                  tabsContainerClassName="flex flex-col h-full flex-1"
+                >
+                  <TabbedContentItem value="general" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-semibold text-text mb-6">Preferências</h3>
+                      </div>
+
+                      <div className="space-y-4">
+                        {/* Idioma */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text">Idioma</label>
+                          <Select
+                            value={userLanguage}
+                            onValueChange={async (value) => {
+                              try {
+                                await saveLanguage(value);
+                                showSuccess("Idioma atualizado com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar idioma:", error);
+                                showError({ message: "Erro ao salvar idioma" });
+                              }
+                            }}
+                            disabled={isLoadingLanguage || isSavingLanguage}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Selecione um idioma" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pt-BR">Português</SelectItem>
+                              <SelectItem value="en-US" disabled>
+                                Inglês
+                              </SelectItem>
+                              <SelectItem value="es-ES" disabled>
+                                Espanhol
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
+                        </div>
+
+                        {/* Moeda */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text">Moeda</label>
+                          <Select
+                            value={userCurrency}
+                            onValueChange={async (value) => {
+                              try {
+                                await saveCurrency(value);
+                                showSuccess("Moeda atualizada com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar moeda:", error);
+                              }
+                            }}
+                            disabled={isLoadingCurrency || isSavingCurrency}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Selecione uma moeda" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="USD">USD - Dólar Americano ($)</SelectItem>
+                              <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
+                              <SelectItem value="GBP">GBP - Libra Esterlina (£)</SelectItem>
+                              <SelectItem value="BRL">BRL - Real Brasileiro (R$)</SelectItem>
+                              <SelectItem value="MXN">MXN - Peso Mexicano ($)</SelectItem>
+                              <SelectItem value="CAD">CAD - Dólar Canadense ($)</SelectItem>
+                              <SelectItem value="AUD">AUD - Dólar Australiano ($)</SelectItem>
+                              <SelectItem value="JPY">JPY - Iene Japonês (¥)</SelectItem>
+                              <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
+                        </div>
+
+                        {/* Nicho */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text">Nicho</label>
+                          <Input
+                            type="text"
+                            placeholder="Ex: E-commerce, SaaS, etc."
+                            value={userNiche}
+                            onChange={(e) => {
+                              // Atualizar estado local imediatamente para feedback visual
+                              updateNiche(e.target.value);
+                            }}
+                            onBlur={async (e) => {
+                              // Salvar quando o usuário sair do campo
+                              const newValue = e.target.value;
+                              try {
+                                await saveNiche(newValue);
+                                showSuccess("Nicho atualizado com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar nicho:", error);
+                                showError({ message: "Erro ao salvar nicho" });
+                              }
+                            }}
+                            disabled={isLoadingNiche || isSavingNiche}
+                            className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
+                          />
+                          <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </TabbedContentItem>
+
+                  <TabbedContentItem value="accounts" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-semibold text-text mb-6">Contas</h3>
+                      </div>
+
+                      {connections.isLoading ? (
+                        <div className="flex items-center justify-center py-12">
+                          <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                        </div>
+                      ) : connections.data && connections.data.length > 0 ? (
+                        <div className="space-y-3">
+                          {connections.data.map((connection: any) => (
+                            <FacebookConnectionCard
+                              key={connection.id}
+                              connection={connection}
+                              onReconnect={handleConnectFacebook}
+                              onDelete={async (connectionId) => {
+                                try {
+                                  clearConnectionCache(connectionId);
+                                  await disconnect.mutateAsync(connectionId);
+                                  showSuccess("Conta desconectada com sucesso!");
+                                } catch (error) {
+                                  showError(error as any);
+                                }
+                              }}
+                              isDeleting={disconnect.isPending}
+                              showActions={true}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-center py-12">
+                          <IconBrandFacebook className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                          <p className="text-muted-foreground mb-4">Nenhuma conta do Facebook conectada</p>
+                          <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2 mx-auto">
+                            {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
+                            {connect.isPending ? "Conectando..." : "Conectar Facebook"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </TabbedContentItem>
+
+                  <TabbedContentItem value="validation" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-text">Critério de validação</h3>
+                          {(isLoadingCriteria || isSavingCriteria) && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {isLoadingCriteria && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Carregando...</span>
+                                </>
+                              )}
+                              {isSavingCriteria && !isLoadingCriteria && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Salvando...</span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-4">Configure os critérios de validação para os anúncios. Use condições individuais ou grupos de condições com operadores lógicos AND/OR.</p>
+                      </div>
+                      <div className="space-y-4">
+                        {isLoadingCriteria ? (
+                          <div className="flex items-center justify-center py-12">
+                            <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : (
+                          <ValidationCriteriaBuilder
+                            value={validationCriteria}
+                            onChange={setValidationCriteria}
+                            onSave={async (criteria) => {
+                              await saveCriteria(criteria);
+                            }}
+                            isSaving={isSavingCriteria}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </TabbedContentItem>
+
+                  <TabbedContentItem value="leadscore" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
+                          {(isLoadingMql || isSavingMql) && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {isLoadingMql && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Carregando...</span>
+                                </>
+                              )}
+                              {isSavingMql && !isLoadingMql && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Salvando...</span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-4">Configure o valor mínimo de leadscore MQL (Marketing Qualified Lead) para filtrar leads qualificados.</p>
+                      </div>
+                      <div className="space-y-4">
+                        {isLoadingMql ? (
+                          <div className="flex items-center justify-center py-12">
+                            <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : (
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-text">Leadscore MQL Mínimo</label>
+                              <Input
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={mqlLeadscoreMin?.toString() || ""}
+                                onChange={(e) => {
+                                  const value = e.target.value === "" ? undefined : parseInt(e.target.value, 10);
+                                  if (value !== undefined && !isNaN(value) && value >= 0) {
+                                    updateMqlLeadscoreMin(value);
+                                  }
+                                }}
+                                placeholder="Ex: 70"
+                                disabled={isSavingMql}
+                              />
+                              <p className="text-xs text-muted-foreground">Digite um valor entre 0 e 100 para o leadscore mínimo de MQL.</p>
+                            </div>
+                            {mqlLeadscoreMin !== undefined && (
+                              <Button
+                                onClick={async () => {
+                                  try {
+                                    await saveMqlLeadscoreMin(mqlLeadscoreMin);
+                                    showSuccess("Configuração de leadscore salva com sucesso!");
+                                  } catch (err) {
+                                    showError(err as any);
+                                  }
+                                }}
+                                disabled={isLoadingMql || isSavingMql}
+                                className="w-full sm:w-auto"
+                              >
+                                {isSavingMql ? (
+                                  <>
+                                    <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
+                                    Salvando...
+                                  </>
+                                ) : (
+                                  "Salvar configuração"
+                                )}
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </TabbedContentItem>
+                </TabbedContent>
+              </div>
             </div>
           </Modal>
         )}
