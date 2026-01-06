@@ -695,17 +695,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [filteredAverages, formatPct, formatCurrency]
   );
 
-  // Atualizar refs para evitar dependência circular com columns
-  useEffect(() => {
-    filteredAveragesRef.current = filteredAverages;
-    formatFilteredAverageRef.current = formatFilteredAverage;
-  }, [filteredAverages, formatFilteredAverage]);
-
-  // Atualizar refs de filtros para evitar recriação das colunas
-  useEffect(() => {
-    columnFiltersRef.current = columnFilters;
-    globalFilterRef.current = globalFilter;
-  }, [columnFilters, globalFilter]);
+  // Atualizar refs sincronamente (antes do render) para que os headers leiam valores atualizados
+  // Não usar useEffect aqui pois ele roda APÓS render, causando valores desatualizados nos headers
+  filteredAveragesRef.current = filteredAverages;
+  formatFilteredAverageRef.current = formatFilteredAverage;
+  columnFiltersRef.current = columnFilters;
+  globalFilterRef.current = globalFilter;
 
   // Sincronizar filtros carregados do sessionStorage com as colunas da tabela
   useEffect(() => {

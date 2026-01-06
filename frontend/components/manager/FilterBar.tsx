@@ -123,11 +123,24 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     const column = table.getColumn(columnId);
     if (column && filterableColumn) {
       // Definir um valor inicial baseado no tipo de coluna
-      if (filterableColumn.isText) {
-        column.setFilterValue({ operator: "contains", value: null } as TextFilterValue);
-      } else {
-        column.setFilterValue({ operator: ">", value: null } as FilterValue);
-      }
+      const filterValue = filterableColumn.isText
+        ? ({ operator: "contains", value: null } as TextFilterValue)
+        : ({ operator: ">", value: null } as FilterValue);
+
+      // Atualizar o estado dos filtros para garantir sincronização imediata
+      setColumnFilters((prev) => {
+        const existingIndex = prev.findIndex((f) => f.id === columnId);
+        const newFilter = { id: columnId, value: filterValue };
+        if (existingIndex >= 0) {
+          const updated = [...prev];
+          updated[existingIndex] = newFilter;
+          return updated;
+        }
+        return [...prev, newFilter];
+      });
+
+      // Também atualizar na coluna da tabela
+      column.setFilterValue(filterValue);
     }
     // Resetar o valor do Select após adicionar o filtro e forçar re-mount
     setSelectValue("");
@@ -406,8 +419,11 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
               if (inputValue.trim() !== "") {
                 const parsed = parseFloat(inputValue.replace(",", "."));
                 if (!isNaN(parsed) && isFinite(parsed)) {
-                  // Limitar entre 0.00 e 100.00
-                  const clampedValue = Math.max(0, Math.min(100, parsed));
+                  // Para porcentagens: limitar entre 0.00 e 100.00
+                  // Para outras métricas: apenas garantir que seja >= 0 (sem limite superior)
+                  const clampedValue = column.isPercentage
+                    ? Math.max(0, Math.min(100, parsed))
+                    : Math.max(0, parsed);
                   // Arredondar para 2 casas decimais
                   const roundedValue = Math.round(clampedValue * 100) / 100;
                   // Se for porcentagem, normalizar para decimal (usuário digita 25, armazenamos 0.25)
@@ -496,14 +512,14 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                 inputValue = integerPart + "," + limitedDecimalPart;
               }
 
-              // Validar e limitar o valor entre 0.00 e 100.00
+              // Validar valor: sempre >= 0, e para porcentagens também <= 100
               if (inputValue.trim() !== "") {
                 const parsed = parseFloat(inputValue.replace(",", "."));
                 if (!isNaN(parsed) && isFinite(parsed)) {
-                  // Limitar entre 0.00 e 100.00
                   if (parsed < 0) {
                     inputValue = "0";
-                  } else if (parsed > 100) {
+                  } else if (column.isPercentage && parsed > 100) {
+                    // Apenas porcentagens têm limite superior de 100
                     inputValue = "100";
                   }
                 }
