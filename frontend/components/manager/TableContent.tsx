@@ -73,8 +73,8 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
     return false;
   }
   
-  // Comparar sorting
-  if (JSON.stringify(prevState.sorting) !== JSON.stringify(nextState.sorting)) {
+  // Comparar sorting usando a prop direta (mais confiável que table.getState())
+  if (JSON.stringify(prev.sorting) !== JSON.stringify(next.sorting)) {
     return false;
   }
   
@@ -120,7 +120,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin }: TableContentProps) {
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -133,8 +133,8 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     table.options.data,
     // Filtros - se mudarem, rows filtradas mudam
     JSON.stringify(table.getState().columnFilters),
-    // Sorting - se mudar, ordem das rows muda
-    JSON.stringify(table.getState().sorting),
+    // Sorting - usar a prop direta para garantir atualização imediata
+    JSON.stringify(sorting),
     // NÃO incluir columnSizing - não afeta quais rows são mostradas
   ]);
 

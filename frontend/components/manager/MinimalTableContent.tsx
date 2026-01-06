@@ -58,8 +58,8 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
     return false;
   }
 
-  // Comparar sorting
-  if (JSON.stringify(prevState.sorting) !== JSON.stringify(nextState.sorting)) {
+  // Comparar sorting usando a prop direta (mais confiável que table.getState())
+  if (JSON.stringify(prev.sorting) !== JSON.stringify(next.sorting)) {
     return false;
   }
 
@@ -101,7 +101,7 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
   return true;
 }
 
-export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin }: MinimalTableContentProps) {
+export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting }: MinimalTableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -114,8 +114,8 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
     table.options.data,
     // Filtros - se mudarem, rows filtradas mudam
     JSON.stringify(table.getState().columnFilters),
-    // Sorting - se mudar, ordem das rows muda
-    JSON.stringify(table.getState().sorting),
+    // Sorting - usar a prop direta para garantir atualização imediata
+    JSON.stringify(sorting),
     // NÃO incluir columnSizing - não afeta quais rows são mostradas
   ]);
 

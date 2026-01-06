@@ -29,5 +29,7 @@ export interface SharedTableContentProps {
   activeColumns: Set<ManagerColumnType>;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number;
+  // Adicionado para comparação confiável no React.memo
+  sorting: { id: string; desc: boolean }[];
 }
 
