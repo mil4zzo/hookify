@@ -819,8 +819,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       hasSheetIntegration,
       mqlLeadscoreMin,
       sorting,
+      dataLength: data.length,
     }),
-    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting]
+    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data.length]
   );
 
   return (

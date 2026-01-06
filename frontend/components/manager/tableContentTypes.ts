@@ -31,5 +31,7 @@ export interface SharedTableContentProps {
   mqlLeadscoreMin?: number;
   // Adicionado para comparação confiável no React.memo
   sorting: { id: string; desc: boolean }[];
+  // Adicionado para detectar quando dados chegam do servidor (evita cache incorreto)
+  dataLength: number;
 }
 

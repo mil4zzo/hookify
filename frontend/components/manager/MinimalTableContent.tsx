@@ -49,6 +49,11 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
     return false;
   }
 
+  // Comparar dataLength para detectar quando dados chegam do servidor
+  if (prev.dataLength !== next.dataLength) {
+    return false;
+  }
+
   // Comparar filtros e sorting (que afetam quais rows são mostradas)
   const prevState = prev.table.getState();
   const nextState = next.table.getState();

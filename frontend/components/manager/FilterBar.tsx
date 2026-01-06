@@ -62,7 +62,9 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
   const [localInputValues, setLocalInputValues] = useState<Record<string, string>>({});
   const [savedValues, setSavedValues] = useState<Record<string, number | string | null>>({});
   // Estado para controlar o valor do Select de adicionar filtro
-  const [selectValue, setSelectValue] = useState<string | undefined>(undefined);
+  const [selectValue, setSelectValue] = useState<string>("");
+  // Key para forçar re-mount do Select após cada seleção (limpa estado interno do Radix)
+  const [selectKey, setSelectKey] = useState(0);
   // Refs para os inputs de cada filtro (para poder focar automaticamente)
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   // Rastrear quais filtros já receberam foco para não focar novamente
@@ -111,6 +113,8 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
       delete updated[columnId];
       return updated;
     });
+    // Forçar re-mount do Select para limpar estado interno do Radix
+    setSelectKey((prev) => prev + 1);
   };
 
   const handleAddFilter = (columnId: string) => {
@@ -125,8 +129,9 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
         column.setFilterValue({ operator: ">", value: null } as FilterValue);
       }
     }
-    // Resetar o valor do Select após adicionar o filtro
-    setSelectValue(undefined);
+    // Resetar o valor do Select após adicionar o filtro e forçar re-mount
+    setSelectValue("");
+    setSelectKey((prev) => prev + 1);
   };
 
   // Colunas disponíveis são aquelas que não têm um filtro FilterValue definido
@@ -614,7 +619,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
         </div>
 
         {availableColumns.length > 0 && (
-          <Select value={selectValue} onValueChange={handleAddFilter}>
+          <Select key={selectKey} value={selectValue || undefined} onValueChange={handleAddFilter}>
             <SelectTrigger className="h-8 w-auto border-border bg-input-30 px-3">
               <div className="flex items-center gap-1.5">
                 <IconPlus className="w-3.5 h-3.5 text-muted-foreground" />
