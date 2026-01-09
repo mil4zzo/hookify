@@ -392,7 +392,6 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
                         <StatusCell
                           original={child}
                           currentTab="individual"
-                          showConfirm={true}
                         />
                       </td>
                       <td className="px-4 py-3 text-left">

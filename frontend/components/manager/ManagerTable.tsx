@@ -580,6 +580,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       activeColumns,
       groupByAdNameEffective,
       byKey,
+      expanded,
       expandedRef,
       setExpanded,
       currentTab,
@@ -601,7 +602,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, averages, formatAverage, formatCurrency, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings]);
+  }, [activeColumns, groupByAdNameEffective, byKey, expanded, endDate, showTrends, averages, formatAverage, formatCurrency, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {

@@ -34,15 +34,19 @@ function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
   if (prev.getRowKey !== next.getRowKey) return false;
   if (prev.setExpanded !== next.setExpanded) return false;
 
-  // CRITICAL: Only re-render if THIS row's expanded state changed
+  // CRITICAL: Check if THIS row's expanded state changed
   const prevKey = prev.getRowKey({ original: prev.original });
   const nextKey = next.getRowKey({ original: next.original });
 
   // If the row key changed, re-render
   if (prevKey !== nextKey) return false;
 
-  // Only re-render if THIS specific row's expanded state changed
-  if (prev.expanded[prevKey] !== next.expanded[nextKey]) return false;
+  // Get the expanded state for this specific row
+  const prevExpanded = prev.expanded[prevKey];
+  const nextExpanded = next.expanded[nextKey];
+
+  // If expanded state changed for THIS row, re-render
+  if (prevExpanded !== nextExpanded) return false;
 
   // Don't care about other rows' expanded states
   return true;

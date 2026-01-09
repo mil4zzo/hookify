@@ -20,6 +20,7 @@ export type CreateManagerTableColumnsParams = {
   activeColumns: Set<ManagerColumnType>;
   groupByAdNameEffective: boolean;
   byKey: DailySeriesByKey;
+  expanded: Record<string, boolean>;
   expandedRef: React.MutableRefObject<Record<string, boolean>>;
   setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 
@@ -48,7 +49,7 @@ export type CreateManagerTableColumnsParams = {
 };
 
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, unknown>[] {
-  const { columnHelper, currentTab, getRowKey, expandedRef, setExpanded, groupByAdNameEffective } = params;
+  const { columnHelper, currentTab, getRowKey, expanded, expandedRef, setExpanded, groupByAdNameEffective } = params;
 
   const cols: ColumnDef<RankingsItem, unknown>[] = [];
 
@@ -64,7 +65,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         enableSorting: false,
         cell: (info) => {
           const original = info.row.original as RankingsItem;
-          return <StatusCell original={original} currentTab={currentTab} showConfirm={true} />;
+          return <StatusCell original={original} currentTab={currentTab} />;
         },
       })
     );
@@ -107,7 +108,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       cell: (info) => {
         const original = info.row.original as RankingsItem;
         const name = String(info.getValue() || "—");
-        return <AdNameCell original={original} value={name} getRowKey={getRowKey} expanded={expandedRef.current} setExpanded={setExpanded} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} />;
+        return <AdNameCell original={original} value={name} getRowKey={getRowKey} expanded={expanded} setExpanded={setExpanded} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} />;
       },
     })
   );
