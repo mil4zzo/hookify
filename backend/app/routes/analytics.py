@@ -175,8 +175,11 @@ def _count_mql(leadscore_values: Any, mql_leadscore_min: float) -> int:
     return cnt
 
 
-def _build_rankings_series(axis: List[str], S: Dict[str, Any], include_cpmql: bool = True) -> Dict[str, Any]:
+def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include_cpmql: bool = True) -> Dict[str, Any]:
     """Constrói payload `series` no formato consumido pelo frontend (sparklines)."""
+    # Se S for None, usar dict vazio para evitar AttributeError
+    if S is None:
+        S = {}
     hook_series: List[Optional[float]] = []
     spend_series: List[Optional[float]] = []
     ctr_series: List[Optional[float]] = []
@@ -1743,6 +1746,38 @@ def get_adset_children(
             except Exception:
                 pass
 
+    # Buscar thumbnails e effective_status dos filhos (mesma lógica de get_rankings_children)
+    ad_ids_in_results = list(agg.keys())
+    thumbnails_map: Dict[str, Optional[str]] = {}
+    effective_status_map: Dict[str, Optional[str]] = {}
+    if ad_ids_in_results:
+        try:
+            # Processar ad_ids em lotes para evitar URLs muito longas
+            batch_size = 500
+            all_ads_rows = []
+
+            for i in range(0, len(ad_ids_in_results), batch_size):
+                batch_ad_ids = ad_ids_in_results[i:i + batch_size]
+
+                def ads_filters(q):
+                    return q.in_("ad_id", batch_ad_ids)
+
+                batch_ads_rows = _fetch_all_paginated(
+                    sb,
+                    "ads",
+                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id,effective_status",
+                    ads_filters
+                )
+
+                all_ads_rows.extend(batch_ads_rows)
+
+            for ad_row in all_ads_rows:
+                aid = str(ad_row.get("ad_id") or "")
+                thumbnails_map[aid] = _get_storage_thumb_if_any(ad_row) or _get_thumbnail_with_fallback(ad_row)
+                effective_status_map[aid] = ad_row.get("effective_status")
+        except Exception as e:
+            logger.warning(f"Erro ao buscar thumbnails (adset_children): {e}")
+
     items: List[Dict[str, Any]] = []
     for key, A in agg.items():
         ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
@@ -1765,6 +1800,7 @@ def get_adset_children(
                 "adset_name": A.get("adset_name"),
                 "ad_id": A.get("ad_id"),
                 "ad_name": A.get("ad_name"),
+                "effective_status": effective_status_map.get(key),
                 "impressions": A["impressions"],
                 "clicks": A["clicks"],
                 "inline_link_clicks": A["inline_link_clicks"],
@@ -1782,7 +1818,7 @@ def get_adset_children(
                 "leadscore_values": A.get("leadscore_values") or [],
                 "conversions": A.get("conversions", {}),
                 "ad_count": 1,
-                "thumbnail": None,
+                "thumbnail": thumbnails_map.get(key),
                 "series": series,
             }
         )

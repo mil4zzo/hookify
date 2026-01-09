@@ -96,7 +96,7 @@ export const AdNameCell = React.memo(
           <div className="flex items-center gap-2 truncate">
             <span className="truncate flex-1">{name}</span>
           </div>
-          {groupByAdNameEffective || currentTab === "por-campanha" ? (
+          {groupByAdNameEffective || currentTab === "por-campanha" || currentTab === "por-conjunto" ? (
             <div className="mt-1">
               <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
                 {isExpanded ? "- Recolher" : secondLine}

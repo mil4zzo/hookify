@@ -57,7 +57,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
     cols.push(
       columnHelper.display({
         id: "status",
-        header: "Status",
+        header: "",
         size: 80,
         minSize: 80,
         enableResizing: false,

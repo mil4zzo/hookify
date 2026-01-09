@@ -179,24 +179,15 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
         return;
       }
       const original = row.original as RankingsItem;
-      if (currentTab === "por-campanha") {
+      // Abas com expansão inline (por-campanha e por-conjunto)
+      if (currentTab === "por-campanha" || currentTab === "por-conjunto") {
         const rowKey = getRowKey(row);
         setExpanded((prev) => ({ ...prev, [rowKey]: !prev[rowKey] }));
         return;
       }
-      if (currentTab === "por-conjunto") {
-        const adsetId = String((original as any)?.adset_id || "").trim();
-        if (adsetId) {
-          setSelectedAdset({
-            adsetId,
-            adsetName: (original as any)?.adset_name ?? null,
-          });
-        }
-        return;
-      }
       setSelectedAd(original);
     },
-    [isResizing, currentTab, getRowKey, setExpanded, setSelectedAdset, setSelectedAd]
+    [isResizing, currentTab, getRowKey, setExpanded, setSelectedAd]
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -342,6 +333,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                       })}
                     </tr>
                     {groupByAdNameEffective && isExpanded && adName ? <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} /> : null}
+                    {currentTab === "por-conjunto" && isExpanded && String((original as any)?.adset_id || "").trim() ? <ExpandedChildrenRow adsetId={String((original as any)?.adset_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} /> : null}
                     {currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow row={row as any} campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} /> : null}
                   </Fragment>
                 );

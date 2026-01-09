@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { IconChevronDown, IconFilter } from "@tabler/icons-react";
@@ -105,6 +105,24 @@ export function FiltersDropdown({
 }: FiltersDropdownProps) {
   const [open, setOpen] = useState(false);
 
+  // Wrapper para onTogglePack que garante single-select
+  // Se o pack já está selecionado, desmarca. Caso contrário, desmarca todos e marca apenas o selecionado.
+  const handleSingleSelectPack = useCallback((packId: string) => {
+    if (selectedPackIds.has(packId)) {
+      // Se já está selecionado, desmarca (permite desmarcar o único pack selecionado)
+      onTogglePack(packId);
+    } else {
+      // Para single-select: desmarca todos os outros packs primeiro
+      // Usa Array.from para criar uma cópia e evitar problemas de iteração durante modificação
+      const otherPackIds = Array.from(selectedPackIds).filter((id) => id !== packId);
+      otherPackIds.forEach((id) => {
+        onTogglePack(id);
+      });
+      // Marca o novo pack
+      onTogglePack(packId);
+    }
+  }, [selectedPackIds, onTogglePack]);
+
   // Contar quantos filtros estão ativos
   const getActiveFiltersCount = () => {
     let count = 0;
@@ -145,12 +163,13 @@ export function FiltersDropdown({
         <PackFilter
           packs={packs}
           selectedPackIds={selectedPackIds}
-          onTogglePack={onTogglePack}
+          onTogglePack={handleSingleSelectPack}
           isLoading={packs.length === 0}
           packsClient={packsClient}
           groupByPacks={groupByPacks}
           onGroupByPacksChange={onGroupByPacksChange}
           showGroupByPacksSwitch={packs.length > 0 && selectedPackIds.size > 0 && !!onGroupByPacksChange}
+          singleSelect={true}
         />
       )}
     </>
@@ -164,13 +183,14 @@ export function FiltersDropdown({
           <PackFilter
             packs={packs}
             selectedPackIds={selectedPackIds}
-            onTogglePack={onTogglePack}
+            onTogglePack={handleSingleSelectPack}
             showLabel={false}
             isLoading={packs.length === 0}
             packsClient={packsClient}
             groupByPacks={groupByPacks}
             onGroupByPacksChange={onGroupByPacksChange}
             showGroupByPacksSwitch={packs.length > 0 && selectedPackIds.size > 0 && !!onGroupByPacksChange}
+            singleSelect={true}
           />
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { IconArrowsSort, IconSearch } from "@tabler/icons-react";
-import { useAdVariations } from "@/lib/api/hooks";
+import { useAdVariations, useAdsetChildren } from "@/lib/api/hooks";
 import { RankingsChildrenItem } from "@/lib/api/schemas";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
@@ -12,7 +12,8 @@ import { MANAGER_COLUMN_OPTIONS, MANAGER_COLUMN_RENDER_ORDER } from "@/component
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 
 interface ExpandedChildrenRowProps {
-  adName: string;
+  adName?: string;
+  adsetId?: string;
   dateStart: string;
   dateStop: string;
   actionType?: string;
@@ -32,6 +33,7 @@ function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: 
 
   return (
     prev.adName === next.adName &&
+    prev.adsetId === next.adsetId &&
     prev.dateStart === next.dateStart &&
     prev.dateStop === next.dateStop &&
     prev.actionType === next.actionType &&
@@ -45,6 +47,7 @@ function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: 
 
 export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   adName,
+  adsetId,
   dateStart,
   dateStop,
   actionType,
@@ -54,7 +57,12 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   hasSheetIntegration = false,
   mqlLeadscoreMin = 0,
 }: ExpandedChildrenRowProps) {
-  const { data: childrenData, isLoading, isError } = useAdVariations(adName, dateStart, dateStop, true);
+  // Usar hook apropriado baseado em qual prop foi fornecida
+  const adVariationsQuery = useAdVariations(adName || "", dateStart, dateStop, !!adName);
+  const adsetChildrenQuery = useAdsetChildren(adsetId || "", dateStart, dateStop, !!adsetId);
+
+  // Selecionar dados do hook correto
+  const { data: childrenData, isLoading, isError } = adsetId ? adsetChildrenQuery : adVariationsQuery;
   const [sortConfig, setSortConfig] = useState<{ column: string | null; direction: "asc" | "desc" }>({
     column: null,
     direction: "asc",
@@ -237,9 +245,10 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   }, [activeColumns, hasSheetIntegration]);
 
   // Calcular colspan:
-  // Na aba "por-anuncio", a tabela pai tem: 1 (Ad Name) + visibleColumns.length
-  // O colspan deve cobrir todas as colunas da tabela pai
-  const colspan = visibleColumns.length + 1;
+  // A tabela pai tem: Status (opcional) + Ad Name + métricas visíveis
+  // - Na aba "por-anuncio" (adName): não tem coluna Status -> 1 + visibleColumns.length
+  // - Na aba "por-conjunto" (adsetId): tem coluna Status -> 2 + visibleColumns.length
+  const colspan = visibleColumns.length + (adsetId ? 2 : 1);
 
   // Função helper para renderizar o valor de uma célula
   const renderCellValue = (child: any, columnId: ManagerColumnType) => {
@@ -349,7 +358,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-border">
-                  <th className="p-4 text-center w-20">Status</th>
+                  <th className="p-4 text-center w-20"></th>
                   <th
                     className={`p-4 text-left cursor-pointer select-none hover:text-brand ${
                       sortConfig.column === "ad_id" ? "text-primary" : ""
@@ -390,10 +399,21 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
                         <div className="flex items-center gap-2">
                           <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
                           <div className="flex-1 min-w-0">
-                            <div className="truncate text-xs font-medium">{child.adset_name}</div>
-                            <div className="flex items-center gap-2 truncate">
-                              <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
-                            </div>
+                            {adsetId ? (
+                              <>
+                                <div className="truncate text-xs font-medium">{child.ad_name || "Sem nome"}</div>
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
+                                </div>
+                              </>
+                            ) : (
+                              <>
+                                <div className="truncate text-xs font-medium">{child.adset_name}</div>
+                                <div className="flex items-center gap-2 truncate">
+                                  <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
+                                </div>
+                              </>
+                            )}
                           </div>
                         </div>
                       </td>
