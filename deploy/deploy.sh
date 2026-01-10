@@ -121,17 +121,27 @@ if [ -f "$PROJECT_DIR/frontend/.env.local" ]; then
     export NEXT_PUBLIC_USE_REMOTE_API=$(get_env_value "$PROJECT_DIR/frontend/.env.local" "NEXT_PUBLIC_USE_REMOTE_API")
 fi
 
-echo "🐳 Parando containers existentes..."
+echo "🐳 Parando e removendo containers existentes..."
 cd $DEPLOY_DIR
-docker compose down || echo "⚠️  Nenhum container rodando"
+docker compose down -v || echo "⚠️  Nenhum container rodando"
+
+# Remover imagens antigas para forçar rebuild
+echo "🗑️  Removendo imagens antigas do projeto..."
+docker rmi hookify-frontend hookify-backend 2>/dev/null || echo "⚠️  Imagens não encontradas (normal no primeiro deploy)"
 
 # Fazer build com ou sem cache dependendo da flag
 if [ "$USE_CACHE" == "true" ]; then
     echo "🔨 Fazendo build das imagens (com cache - reutilizando layers)..."
-    docker compose build
+    docker compose build --pull
 else
     echo "🔨 Fazendo build das imagens (sem cache - rebuild completo)..."
-    docker compose build --no-cache
+    docker compose build --no-cache --pull
+fi
+
+# Verificar se o build foi bem-sucedido
+if [ $? -ne 0 ]; then
+    echo "❌ Erro no build das imagens!"
+    exit 1
 fi
 
 echo "🧹 Removendo imagens antigas/orfãs do projeto..."
@@ -139,8 +149,9 @@ echo "🧹 Removendo imagens antigas/orfãs do projeto..."
 # Isso remove automaticamente imagens que foram substituídas por novas builds
 docker image prune -f || true
 
-echo "🚀 Iniciando containers..."
-docker compose up -d
+echo "🚀 Criando e iniciando containers..."
+# Usar --force-recreate para garantir que containers sejam recriados
+docker compose up -d --force-recreate
 
 # Limpar variáveis sensíveis após o uso (por segurança)
 unset FACEBOOK_CLIENT_SECRET
@@ -148,7 +159,35 @@ unset SUPABASE_SERVICE_ROLE_KEY
 unset ENCRYPTION_KEY
 
 echo "⏳ Aguardando containers iniciarem..."
-sleep 5
+sleep 10
+
+# Verificar se containers estão rodando
+echo "🔍 Verificando status dos containers..."
+MAX_RETRIES=30
+RETRY_COUNT=0
+BACKEND_STATUS="not_running"
+FRONTEND_STATUS="not_running"
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    BACKEND_STATUS=$(docker compose ps backend --format json 2>/dev/null | grep -o '"State":"[^"]*"' | cut -d'"' -f4 || echo "not_running")
+    FRONTEND_STATUS=$(docker compose ps frontend --format json 2>/dev/null | grep -o '"State":"[^"]*"' | cut -d'"' -f4 || echo "not_running")
+    
+    if [ "$BACKEND_STATUS" == "running" ] && [ "$FRONTEND_STATUS" == "running" ]; then
+        echo "✅ Ambos os containers estão rodando!"
+        break
+    fi
+    
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+    echo "⏳ Aguardando containers... ($RETRY_COUNT/$MAX_RETRIES)"
+    sleep 2
+done
+
+if [ "$BACKEND_STATUS" != "running" ] || [ "$FRONTEND_STATUS" != "running" ]; then
+    echo "❌ ERRO: Containers não iniciaram corretamente!"
+    echo "📝 Verificando logs..."
+    docker compose logs --tail=50
+    exit 1
+fi
 
 echo "✅ Deploy concluído!"
 echo ""
@@ -166,8 +205,29 @@ docker compose logs --tail=20 frontend
 echo ""
 echo "🔍 Verificando saúde dos serviços..."
 echo "Backend health:"
-curl -s http://localhost:8000/health || echo "❌ Backend não está respondendo"
+BACKEND_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || echo "000")
+if [ "$BACKEND_HEALTH" == "200" ]; then
+    echo "✅ Backend está respondendo corretamente"
+else
+    echo "❌ Backend não está respondendo (HTTP $BACKEND_HEALTH)"
+fi
+
+echo ""
+echo "Frontend health:"
+FRONTEND_HEALTH=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 || echo "000")
+if [ "$FRONTEND_HEALTH" == "200" ] || [ "$FRONTEND_HEALTH" == "404" ]; then
+    echo "✅ Frontend está respondendo (HTTP $FRONTEND_HEALTH)"
+else
+    echo "❌ Frontend não está respondendo (HTTP $FRONTEND_HEALTH)"
+    echo "📝 Verificando logs do frontend..."
+    docker compose logs --tail=30 frontend
+fi
 
 echo ""
 echo "✅ Deploy finalizado! Acesse: https://hookifyads.com"
+echo ""
+echo "💡 Se ainda estiver vendo 404, verifique:"
+echo "   1. Logs do Traefik: docker logs traefik-container"
+echo "   2. Logs do frontend: docker compose logs -f frontend"
+echo "   3. Status do Traefik: docker ps | grep traefik"
 

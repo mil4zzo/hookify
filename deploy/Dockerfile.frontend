@@ -44,8 +44,10 @@ COPY next-env.d.ts ./
 RUN npm run build
 
 # Limpar node_modules de desenvolvimento após o build e reinstalar apenas produção
+# IMPORTANTE: Manter TypeScript para next.config.ts funcionar em runtime
 RUN rm -rf node_modules && \
     npm ci --only=production --prefer-offline --no-audit && \
+    npm install --save-exact --save-dev typescript && \
     npm cache clean --force
 
 # Imagem de produção
