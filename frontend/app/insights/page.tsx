@@ -517,10 +517,22 @@ export default function InsightsPage() {
     let hasChanges = false;
     const newPrefs: PackPreferences = {};
 
+    // Detectar se há novos packs
+    const newPackIds = Array.from(allPackIds).filter((packId) => !(packId in currentPrefs));
+    const hasNewPacks = newPackIds.length > 0;
+
     allPackIds.forEach((packId) => {
       if (packId in currentPrefs) {
-        newPrefs[packId] = currentPrefs[packId];
+        // Pack já existe
+        if (hasNewPacks) {
+          // Se há novos packs, desabilitar os antigos (novo pack vai ser ativo)
+          newPrefs[packId] = false;
+        } else {
+          // Sem novos packs, manter preferência existente
+          newPrefs[packId] = currentPrefs[packId];
+        }
       } else {
+        // Pack novo: habilitar e desabilitar todos os outros (single-select)
         newPrefs[packId] = true;
         hasChanges = true;
       }
@@ -564,10 +576,24 @@ export default function InsightsPage() {
 
   const handleTogglePack = (packId: string) => {
     const currentPrefs = loadPackPreferences();
-    const newPrefs: PackPreferences = {
-      ...currentPrefs,
-      [packId]: !(currentPrefs[packId] ?? true),
-    };
+    const isCurrentlySelected = currentPrefs[packId] ?? true;
+
+    // Single-select: apenas um pack pode estar ativo por vez
+    const newPrefs: PackPreferences = {};
+
+    // Se clicar no pack já selecionado, desmarcar
+    if (isCurrentlySelected) {
+      // Desabilitar todos os packs
+      Object.keys(currentPrefs).forEach((id) => {
+        newPrefs[id] = false;
+      });
+    } else {
+      // Desabilitar todos e habilitar apenas o clicado
+      Object.keys(currentPrefs).forEach((id) => {
+        newPrefs[id] = false;
+      });
+      newPrefs[packId] = true;
+    }
 
     savePackPreferences(newPrefs);
 

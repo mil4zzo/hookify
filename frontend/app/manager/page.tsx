@@ -494,13 +494,23 @@ function ManagerPageContent() {
     let hasChanges = false;
     const newPrefs: PackPreferences = {};
 
-    // 1. Adicionar novos packs (habilitados por padrão) e manter preferências existentes
+    // Detectar se há novos packs
+    const newPackIds = Array.from(allPackIds).filter((packId) => !(packId in currentPrefs));
+    const hasNewPacks = newPackIds.length > 0;
+
+    // 1. Adicionar novos packs e manter/atualizar preferências existentes
     allPackIds.forEach((packId) => {
       if (packId in currentPrefs) {
-        // Pack já existe, manter preferência (habilitado ou desabilitado)
-        newPrefs[packId] = currentPrefs[packId];
+        // Pack já existe
+        if (hasNewPacks) {
+          // Se há novos packs, desabilitar os antigos (novo pack vai ser ativo)
+          newPrefs[packId] = false;
+        } else {
+          // Sem novos packs, manter preferência existente
+          newPrefs[packId] = currentPrefs[packId];
+        }
       } else {
-        // Pack novo, habilitar por padrão
+        // Pack novo: habilitar e desabilitar todos os outros (single-select)
         newPrefs[packId] = true;
         hasChanges = true;
       }
@@ -539,13 +549,27 @@ function ManagerPageContent() {
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
 
-  // Handler para toggle de pack
+  // Handler para toggle de pack (single-select)
   const handleTogglePack = (packId: string) => {
     const currentPrefs = loadPackPreferences();
-    const newPrefs: PackPreferences = {
-      ...currentPrefs,
-      [packId]: !(currentPrefs[packId] ?? true), // Se não existe, assume true (padrão)
-    };
+    const isCurrentlySelected = currentPrefs[packId] ?? true;
+
+    // Single-select: apenas um pack pode estar ativo por vez
+    const newPrefs: PackPreferences = {};
+
+    // Se clicar no pack já selecionado, desmarcar
+    if (isCurrentlySelected) {
+      // Desabilitar todos os packs
+      Object.keys(currentPrefs).forEach((id) => {
+        newPrefs[id] = false;
+      });
+    } else {
+      // Desabilitar todos e habilitar apenas o clicado
+      Object.keys(currentPrefs).forEach((id) => {
+        newPrefs[id] = false;
+      });
+      newPrefs[packId] = true;
+    }
 
     savePackPreferences(newPrefs);
 
@@ -932,127 +956,8 @@ function ManagerPageContent() {
     );
   }
 
-  // Renderizar skeleton durante carregamento, mas mantendo filtros visíveis
-  if (loading) {
-    return (
-      <PageContainer
-        title="Otimize"
-        description="Dados de performance dos seus anúncios"
-        actions={
-          <>
-            <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
-            <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} />
-          </>
-        }
-      >
-        {/* Skeleton da tabela */}
-        <div className="w-full">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-separate border-spacing-y-4">
-              <thead>
-                <tr className="sticky top-0 z-10 text-text/80">
-                  <th className="text-base font-normal py-4 text-left" style={{ width: 300 }}>
-                    <div className="flex items-center justify-start gap-1">
-                      <Skeleton className="h-4 w-24" />
-                    </div>
-                  </th>
-                  <th className="text-base font-normal py-4 text-center" style={{ width: 140 }}>
-                    <div className="flex items-center justify-center gap-1">
-                      <Skeleton className="h-4 w-12" />
-                    </div>
-                  </th>
-                  <th className="text-base font-normal py-4 text-center" style={{ width: 140 }}>
-                    <div className="flex items-center justify-center gap-1">
-                      <Skeleton className="h-4 w-12" />
-                    </div>
-                  </th>
-                  <th className="text-base font-normal py-4 text-center" style={{ width: 140 }}>
-                    <div className="flex items-center justify-center gap-1">
-                      <Skeleton className="h-4 w-12" />
-                    </div>
-                  </th>
-                  <th className="text-base font-normal py-4 text-center" style={{ width: 140 }}>
-                    <div className="flex items-center justify-center gap-1">
-                      <Skeleton className="h-4 w-12" />
-                    </div>
-                  </th>
-                  <th className="text-base font-normal py-4 text-center" style={{ width: 140 }}>
-                    <div className="flex items-center justify-center gap-1">
-                      <Skeleton className="h-4 w-12" />
-                    </div>
-                  </th>
-                  <th className="text-base font-normal py-4 text-center" style={{ width: 160 }}>
-                    <div className="flex items-center justify-center gap-1">
-                      <Skeleton className="h-4 w-20" />
-                    </div>
-                  </th>
-                  <th className="text-base font-normal py-4 text-center" style={{ width: 140 }}>
-                    <div className="flex items-center justify-center gap-1">
-                      <Skeleton className="h-4 w-12" />
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <tr key={i} className="bg-background">
-                    <td className="p-4 text-left border-y border-l border-border rounded-l-md">
-                      <div className="flex items-center gap-2">
-                        <Skeleton className="w-14 h-14 rounded" />
-                        <div className="min-w-0 flex-1 space-y-2">
-                          <Skeleton className="h-4 w-48" />
-                          <Skeleton className="h-3 w-32" />
-                        </div>
-                      </div>
-                    </td>
-                    <td className="p-4 text-center border-y border-border">
-                      <Skeleton className="h-4 w-16 mx-auto" />
-                    </td>
-                    <td className="p-4 text-center border-y border-border">
-                      <Skeleton className="h-4 w-16 mx-auto" />
-                    </td>
-                    <td className="p-4 text-center border-y border-border">
-                      <Skeleton className="h-4 w-16 mx-auto" />
-                    </td>
-                    <td className="p-4 text-center border-y border-border">
-                      <Skeleton className="h-4 w-16 mx-auto" />
-                    </td>
-                    <td className="p-4 text-center border-y border-border">
-                      <Skeleton className="h-4 w-16 mx-auto" />
-                    </td>
-                    <td className="p-4 text-center border-y border-border">
-                      <Skeleton className="h-4 w-20 mx-auto" />
-                    </td>
-                    <td className="p-4 text-center border-y border-r border-border rounded-r-md">
-                      <Skeleton className="h-4 w-16 mx-auto" />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </PageContainer>
-    );
-  }
-
-  if (!serverData || serverData.length === 0) {
-    return (
-      <PageContainer
-        title="Otimize"
-        description="Dados de performance dos seus anúncios"
-        actions={
-          <>
-            <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
-            <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} />
-          </>
-        }
-      >
-        <EmptyState message="Sem dados no período selecionado." />
-      </PageContainer>
-    );
-  }
-
+  // Sempre renderizar o ManagerTable com os controles visíveis
+  // O ManagerTable lida internamente com loading states via isLoading prop
   return (
     <PageContainer
       title="Otimize"
