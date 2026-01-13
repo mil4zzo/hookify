@@ -292,8 +292,9 @@ function ManagerPageContent() {
       // Não enviar action_type - vamos calcular localmente baseado no selecionado
       limit: 1000,
       filters: {},
+      pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end]
+    [dateRange.start, dateRange.end, selectedPackIds]
   );
 
   const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
@@ -306,8 +307,9 @@ function ManagerPageContent() {
       group_by: "ad_id",
       limit: 1000,
       filters: {},
+      pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end]
+    [dateRange.start, dateRange.end, selectedPackIds]
   );
 
   const shouldFetchIndividual = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
@@ -321,8 +323,9 @@ function ManagerPageContent() {
       group_by: "adset_id",
       limit: 1000,
       filters: {},
+      pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end]
+    [dateRange.start, dateRange.end, selectedPackIds]
   );
 
   const shouldFetchAdset = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
@@ -336,8 +339,9 @@ function ManagerPageContent() {
       group_by: "campaign_id",
       limit: 1000,
       filters: {},
+      pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end]
+    [dateRange.start, dateRange.end, selectedPackIds]
   );
 
   const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
@@ -535,60 +539,6 @@ function ManagerPageContent() {
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
 
-  // Função para verificar se um manager pertence a algum pack selecionado
-  const isManagerInSelectedPacks = useMemo(() => {
-    return (manager: any): boolean => {
-      // Se nenhum pack está selecionado, não mostrar nada
-      if (selectedPackIds.size === 0) return false;
-
-      if (selectedPacks.length === 0) return false;
-
-      // Verificar se o manager corresponde a algum ad dos packs selecionados
-      for (const pack of selectedPacks) {
-        const packAds = packsAdsMap.get(pack.id) || [];
-        if (packAds.length === 0) continue;
-
-        // Verificar se o manager corresponde a algum ad do pack
-        const matches = packAds.some((ad: any) => {
-          const managerAdId = manager.ad_id;
-          const managerAdName = manager.ad_name;
-          const managerAccountId = manager.account_id;
-
-          const adId = ad.ad_id;
-          const adName = ad.ad_name;
-          const adAccountId = ad.account_id;
-
-          // Se account_id estiver disponível, verificar primeiro
-          if (managerAccountId && adAccountId) {
-            if (String(managerAccountId).trim() !== String(adAccountId).trim()) {
-              return false; // Diferentes accounts, não corresponde
-            }
-          }
-
-          // Comparar por ID primeiro (mais preciso)
-          if (managerAdId && adId) {
-            if (String(managerAdId).trim() === String(adId).trim()) {
-              return true;
-            }
-          }
-
-          // Comparar por nome (fallback)
-          if (managerAdName && adName) {
-            if (String(managerAdName).trim() === String(adName).trim()) {
-              return true;
-            }
-          }
-
-          return false;
-        });
-
-        if (matches) return true;
-      }
-
-      return false;
-    };
-  }, [selectedPackIds, selectedPacks, packsAdsMap]);
-
   // Handler para toggle de pack
   const handleTogglePack = (packId: string) => {
     const currentPrefs = loadPackPreferences();
@@ -618,75 +568,15 @@ function ManagerPageContent() {
     }
   };
 
-  // Conjunto bruto do backend filtrado por packs selecionados
-  // Sempre filtrar pois é usado para a aba "Por anúncio" e para cálculos de médias
-  const filteredManager = useMemo(() => {
-    if (!serverData) return [];
-    return serverData.filter((row: any) => isManagerInSelectedPacks(row));
-  }, [serverData, isManagerInSelectedPacks]);
-
-  const filteredManagerIndividual = useMemo(() => {
-    // Filtrar apenas quando a aba "Individual" estiver ativa
-    if (activeManagerTab !== "individual") return [];
-    if (!serverDataIndividual) return [];
-    return serverDataIndividual.filter((row: any) => isManagerInSelectedPacks(row));
-  }, [serverDataIndividual, isManagerInSelectedPacks, activeManagerTab]);
-
-  const isAdsetInSelectedPacks = useMemo(() => {
-    const adsetIds = new Set<string>();
-    for (const pack of selectedPacks) {
-      const packAds = packsAdsMap.get(pack.id) || [];
-      for (const ad of packAds) {
-        const id = String((ad as any)?.adset_id || "").trim();
-        if (id) adsetIds.add(id);
-      }
-    }
-    return (adsetId: string): boolean => {
-      const id = String(adsetId || "").trim();
-      if (!id) return false;
-      return adsetIds.has(id);
-    };
-  }, [selectedPacks, packsAdsMap]);
-
-  const filteredManagerAdset = useMemo(() => {
-    // Filtrar apenas quando a aba "Por conjunto" estiver ativa
-    if (activeManagerTab !== "por-conjunto") return [];
-    if (!serverDataAdset) return [];
-    return serverDataAdset.filter((row: any) => isAdsetInSelectedPacks(row.adset_id));
-  }, [serverDataAdset, isAdsetInSelectedPacks, activeManagerTab]);
-
-  const isCampaignInSelectedPacks = useMemo(() => {
-    const campaignIds = new Set<string>();
-    for (const pack of selectedPacks) {
-      const packAds = packsAdsMap.get(pack.id) || [];
-      for (const ad of packAds) {
-        const id = String((ad as any)?.campaign_id || "").trim();
-        if (id) campaignIds.add(id);
-      }
-    }
-    return (campaignId: string): boolean => {
-      const id = String(campaignId || "").trim();
-      if (!id) return false;
-      return campaignIds.has(id);
-    };
-  }, [selectedPacks, packsAdsMap]);
-
-  const filteredManagerCampaign = useMemo(() => {
-    // Filtrar apenas quando a aba "Por campanha" estiver ativa
-    if (activeManagerTab !== "por-campanha") return [];
-    if (!serverDataCampaign) return [];
-    return serverDataCampaign.filter((row: any) => isCampaignInSelectedPacks(row.campaign_id));
-  }, [serverDataCampaign, isCampaignInSelectedPacks, activeManagerTab]);
-
   // Adaptar dados do servidor para a tabela existente (forma "ads" agregada)
   // Calcula results, cpr e page_conv localmente baseado no action_type selecionado
-  // E filtra por packs selecionados
+  // Backend já filtrou por pack_ids
   const adsForTable = useMemo(() => {
     // Processar apenas quando a aba "Por anúncio" estiver ativa
     if (activeManagerTab !== "por-anuncio") return [] as any[];
-    if (!filteredManager || filteredManager.length === 0) return [] as any[];
+    if (!serverData || serverData.length === 0) return [] as any[];
 
-    let mappedData = filteredManager.map((row: any) => {
+    let mappedData = serverData.map((row: any) => {
       // Calcular results baseado no action_type selecionado a partir de row.conversions
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
@@ -783,16 +673,16 @@ function ManagerPageContent() {
       };
     });
 
-    // Retornar todos os anúncios filtrados por packs (sem filtro de validação)
+    // Retornar todos os anúncios (backend já filtrou por pack_ids)
     return mappedData;
-  }, [filteredManager, actionType, activeManagerTab]);
+  }, [serverData, actionType, activeManagerTab]);
 
   const adsForIndividualTable = useMemo(() => {
     // Processar apenas quando a aba "Individual" estiver ativa
     if (activeManagerTab !== "individual") return [] as any[];
-    if (!filteredManagerIndividual || filteredManagerIndividual.length === 0) return [] as any[];
+    if (!serverDataIndividual || serverDataIndividual.length === 0) return [] as any[];
 
-    const mappedData = filteredManagerIndividual.map((row: any) => {
+    const mappedData = serverDataIndividual.map((row: any) => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
 
@@ -839,14 +729,14 @@ function ManagerPageContent() {
     });
 
     return mappedData;
-  }, [filteredManagerIndividual, actionType, activeManagerTab]);
+  }, [serverDataIndividual, actionType, activeManagerTab]);
 
   const adsForAdsetTable = useMemo(() => {
     // Processar apenas quando a aba "Por conjunto" estiver ativa
     if (activeManagerTab !== "por-conjunto") return [] as any[];
-    if (!filteredManagerAdset || filteredManagerAdset.length === 0) return [] as any[];
+    if (!serverDataAdset || serverDataAdset.length === 0) return [] as any[];
 
-    const mappedData = filteredManagerAdset.map((row: any) => {
+    const mappedData = serverDataAdset.map((row: any) => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
 
@@ -899,14 +789,14 @@ function ManagerPageContent() {
     });
 
     return mappedData;
-  }, [filteredManagerAdset, actionType, activeManagerTab]);
+  }, [serverDataAdset, actionType, activeManagerTab]);
 
   const adsForCampaignTable = useMemo(() => {
     // Processar apenas quando a aba "Por campanha" estiver ativa
     if (activeManagerTab !== "por-campanha") return [] as any[];
-    if (!filteredManagerCampaign || filteredManagerCampaign.length === 0) return [] as any[];
+    if (!serverDataCampaign || serverDataCampaign.length === 0) return [] as any[];
 
-    const mappedData = filteredManagerCampaign.map((row: any) => {
+    const mappedData = serverDataCampaign.map((row: any) => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
 
@@ -960,7 +850,7 @@ function ManagerPageContent() {
     });
 
     return mappedData;
-  }, [filteredManagerCampaign, actionType, activeManagerTab]);
+  }, [serverDataCampaign, actionType, activeManagerTab]);
 
   // Conjunto de anúncios que passam pelos critérios de validação globais
   // Usado apenas para cálculo de médias (baseline de anúncios "maduros")
@@ -970,17 +860,17 @@ function ManagerPageContent() {
     if (activeManagerTab !== "por-anuncio") {
       return [[], undefined] as [any[], any];
     }
-    if (!filteredManager || filteredManager.length === 0) {
+    if (!serverData || serverData.length === 0) {
       return [[], undefined] as [any[], any];
     }
 
     // Enquanto critérios ainda não carregaram ou não existem, considerar todos como validados
     if (!validationCriteria || validationCriteria.length === 0) {
-      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredManager as any, actionType, uniqueConversionTypes);
-      return [filteredManager, averagesFromAll] as [any[], any];
+      const averagesFromAll = computeValidatedAveragesFromAdPerformance(serverData as any, actionType, uniqueConversionTypes);
+      return [serverData, averagesFromAll] as [any[], any];
     }
 
-    const validated = filteredManager.filter((ad: any) => {
+    const validated = serverData.filter((ad: any) => {
       const impressions = Number(ad.impressions || 0);
       const spend = Number(ad.spend || 0);
       // CPM: priorizar valor do backend, senão calcular
@@ -1016,7 +906,7 @@ function ManagerPageContent() {
 
     const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType, uniqueConversionTypes);
     return [validated, averagesFromValidated] as [any[], any];
-  }, [filteredManager, validationCriteria, actionType, uniqueConversionTypes, activeManagerTab]);
+  }, [serverData, validationCriteria, actionType, uniqueConversionTypes, activeManagerTab]);
 
   if (!isClient) {
     return (

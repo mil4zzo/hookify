@@ -472,6 +472,7 @@ export default function InsightsPage() {
       group_by: "ad_name",
       limit: 1000,
       filters: {},
+      pack_ids: Array.from(selectedPackIds),
     };
 
     setLoading(true);
@@ -505,7 +506,7 @@ export default function InsightsPage() {
         setAvailableConversionTypes([]);
       })
       .finally(() => setLoading(false));
-  }, [isAuthorized, dateRange.start, dateRange.end]);
+  }, [isAuthorized, dateRange.start, dateRange.end, selectedPackIds]);
 
   useEffect(() => {
     if (!packsClient || packs.length === 0) return;
@@ -560,53 +561,6 @@ export default function InsightsPage() {
   // Buscar ads dos packs selecionados usando cache
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
-
-  const isAdInSelectedPacks = useMemo(() => {
-    return (ad: any): boolean => {
-      if (selectedPackIds.size === 0) return false;
-
-      if (selectedPacks.length === 0) return false;
-
-      for (const pack of selectedPacks) {
-        const packAds = packsAdsMap.get(pack.id) || [];
-        if (packAds.length === 0) continue;
-
-        const matches = packAds.some((packAd: any) => {
-          const adId = ad.ad_id;
-          const adName = ad.ad_name;
-          const adAccountId = ad.account_id;
-
-          const packAdId = packAd.ad_id;
-          const packAdName = packAd.ad_name;
-          const packAdAccountId = packAd.account_id;
-
-          if (adAccountId && packAdAccountId) {
-            if (String(adAccountId).trim() !== String(packAdAccountId).trim()) {
-              return false;
-            }
-          }
-
-          if (adId && packAdId) {
-            if (String(adId).trim() === String(packAdId).trim()) {
-              return true;
-            }
-          }
-
-          if (adName && packAdName) {
-            if (String(adName).trim() === String(packAdName).trim()) {
-              return true;
-            }
-          }
-
-          return false;
-        });
-
-        if (matches) return true;
-      }
-
-      return false;
-    };
-  }, [selectedPackIds, selectedPacks, packsAdsMap]);
 
   const handleTogglePack = (packId: string) => {
     const currentPrefs = loadPackPreferences();
@@ -702,28 +656,23 @@ export default function InsightsPage() {
     };
   }, [selectedPackIds, selectedPacks, packsAdsMap]);
 
-  // Conjunto bruto do backend filtrado por packs para o widget de oportunidades
-  const filteredAds = useMemo(() => {
-    if (!serverData) return [];
-    return serverData.filter((row: any) => isAdInSelectedPacks(row));
-  }, [serverData, isAdInSelectedPacks]);
-
   // Critérios de validação globais configurados pelo usuário
   const { criteria: validationCriteria, isLoading: isLoadingCriteria } = useValidationCriteria();
 
   // Conjunto de anúncios que passam pelos critérios de validação globais (independente do widget)
+  // Backend já filtrou por pack_ids
   const [validatedAds, validatedAverages] = useMemo(() => {
-    if (!filteredAds || filteredAds.length === 0) {
+    if (!serverData || serverData.length === 0) {
       return [[], undefined] as [any[], any];
     }
 
     // Enquanto critérios ainda não carregaram, considerar todos como validados
     if (!validationCriteria || validationCriteria.length === 0) {
-      const averagesFromAll = computeValidatedAveragesFromAdPerformance(filteredAds as any, actionType, uniqueConversionTypes);
-      return [filteredAds, averagesFromAll] as [any[], any];
+      const averagesFromAll = computeValidatedAveragesFromAdPerformance(serverData as any, actionType, uniqueConversionTypes);
+      return [serverData, averagesFromAll] as [any[], any];
     }
 
-    const validated = filteredAds.filter((ad: any) => {
+    const validated = serverData.filter((ad: any) => {
       const impressions = Number(ad.impressions || 0);
       const spend = Number(ad.spend || 0);
       // CPM: priorizar valor do backend, senão calcular
@@ -758,7 +707,7 @@ export default function InsightsPage() {
 
     const averagesFromValidated = computeValidatedAveragesFromAdPerformance(validated as any, actionType, uniqueConversionTypes);
     return [validated, averagesFromValidated] as [any[], any];
-  }, [filteredAds, validationCriteria, actionType, uniqueConversionTypes]);
+  }, [serverData, validationCriteria, actionType, uniqueConversionTypes]);
 
   // Top 5 de cada métrica reaproveitando a mesma lógica de Gems, usando apenas anúncios já validados
   const topHookFromGems: GemsTopItem[] = useMemo(() => {
@@ -794,11 +743,11 @@ export default function InsightsPage() {
   // Função para encontrar o anúncio original baseado no OpportunityRow
   const findAdFromOpportunityRow = useMemo(() => {
     return (row: OpportunityRow): RankingsItem | null => {
-      if (!filteredAds || filteredAds.length === 0) return null;
+      if (!serverData || serverData.length === 0) return null;
 
       // Tentar encontrar por ad_id primeiro
       if (row.ad_id) {
-        const foundById = filteredAds.find((ad: any) => {
+        const foundById = serverData.find((ad: any) => {
           const adId = String(ad.ad_id || "").trim();
           const rowAdId = String(row.ad_id || "").trim();
           return adId && rowAdId && adId === rowAdId;
@@ -808,7 +757,7 @@ export default function InsightsPage() {
 
       // Tentar encontrar por ad_name
       if (row.ad_name) {
-        const foundByName = filteredAds.find((ad: any) => {
+        const foundByName = serverData.find((ad: any) => {
           const adName = String(ad.ad_name || "").trim();
           const rowAdName = String(row.ad_name || "").trim();
           return adName && rowAdName && adName === rowAdName;
@@ -818,7 +767,7 @@ export default function InsightsPage() {
 
       return null;
     };
-  }, [filteredAds]);
+  }, [serverData]);
 
   // Handler para quando um card de oportunidade é clicado
   const handleOpportunityCardClick = (row: OpportunityRow, openVideo: boolean = false) => {
@@ -852,19 +801,19 @@ export default function InsightsPage() {
   // IMPORTANTE: Os rankings são calculados apenas com anúncios que passam pelos critérios de validação
   // Se não houver critérios definidos (array vazio ou undefined), todos os anúncios são considerados
   const globalMetricRanks = useMemo(() => {
-    if (!filteredAds || filteredAds.length === 0) {
+    if (!serverData || serverData.length === 0) {
       return createEmptyMetricRanks();
     }
     // Passar validationCriteria apenas se houver critérios definidos (array não vazio)
     // Array vazio ou undefined significa "sem critérios" (todos os anúncios são válidos)
     const criteriaToUse = validationCriteria && validationCriteria.length > 0 ? validationCriteria : undefined;
-    return calculateGlobalMetricRanks(filteredAds, {
+    return calculateGlobalMetricRanks(serverData, {
       validationCriteria: criteriaToUse,
       actionType,
       filterValidOnly: true,
       mqlLeadscoreMin,
     });
-  }, [filteredAds, validationCriteria, actionType, mqlLeadscoreMin]);
+  }, [serverData, validationCriteria, actionType, mqlLeadscoreMin]);
 
   // Agrupar oportunidades por pack quando groupByPacks estiver ativo
   const opportunityRowsByPack = useMemo(() => {
@@ -904,7 +853,7 @@ export default function InsightsPage() {
     });
 
     return rowsByPack;
-  }, [groupByPacks, filteredAds, averages, actionType, validationCriteria, isLoadingCriteria, getAdPackId, packActionTypes]);
+  }, [groupByPacks, serverData, averages, actionType, validationCriteria, isLoadingCriteria, getAdPackId, packActionTypes]);
 
   // Configuração dinâmica do header baseada na tab ativa
   const headerConfig = useMemo(() => {

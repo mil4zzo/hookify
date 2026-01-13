@@ -74,6 +74,7 @@ class RankingsRequest(BaseModel):
     order_by: Optional[str] = Field(default=None, description="hook|hold_rate|cpr|spend|ctr|connect_rate|page_conv")
     limit: int = 500
     filters: Optional[RankingsFilters] = None
+    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas. Se vazio/None, não retorna dados.")
 
 
 class DashboardRequest(BaseModel):
@@ -471,6 +472,13 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
+    # NOVO: Se pack_ids estiver vazio ou None, retornar resposta vazia
+    if not req.pack_ids or len(req.pack_ids) == 0:
+        return {
+            "data": [],
+            "available_conversion_types": [],
+        }
+
     # Window para sparklines (5 dias terminando em date_stop)
     axis = _axis_5_days(req.date_stop)
     window_start = axis[0]
@@ -482,9 +490,18 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     # RLS garante que apenas dados do usuário são retornados
     # Usar paginação para contornar limite de 1000 linhas do Supabase
     f = req.filters or RankingsFilters()
-    
+
     def metrics_filters(q):
         q = q.gte("date", full_start).lte("date", full_stop)
+
+        # NOVO: Filtrar por pack_ids usando operador cs (contains)
+        # Usar OR lógico para incluir métricas que pertencem a QUALQUER pack selecionado
+        if req.pack_ids and len(req.pack_ids) > 0:
+            # PostgREST cs operator: verifica se pack_ids array contém QUALQUER dos UUIDs
+            # Sintaxe: .or_("pack_ids.cs.{uuid1},pack_ids.cs.{uuid2},...")
+            pack_filters = ",".join([f"pack_ids.cs.{{{pack_id}}}" for pack_id in req.pack_ids])
+            q = q.or_(pack_filters)
+
         if f.adaccount_ids:
             q = q.in_("account_id", f.adaccount_ids)
         return q
@@ -576,13 +593,27 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         adset_id = str(r.get("adset_id") or "")
         adset_name = str(r.get("adset_name") or "")
 
+        # REMOVER FALLBACK: Usar apenas o identificador correto para cada group_by
         if req.group_by == "ad_name":
-            key = ad_name or ad_id  # fallback para ad_id se faltar
+            key = ad_name or ad_id  # Fallback OK aqui (ad_name pode ser vazio em casos raros)
         elif req.group_by == "campaign_id":
-            # Preferir ID (estável); fallback para nome e depois para estruturas abaixo.
-            key = campaign_id or campaign_name or adset_id or ad_id
+            # NOVO: Validação rigorosa
+            if not campaign_id:
+                logger.error(f"[rankings] campaign_id ausente em ad_metrics: ad_id={ad_id}, date={r.get('date')}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Dados inconsistentes: campaign_id ausente em ad_metrics (ad_id={ad_id}, date={r.get('date')})"
+                )
+            key = campaign_id
         elif req.group_by == "adset_id":
-            key = adset_id or adset_name or ad_id  # fallback
+            # NOVO: Validação rigorosa
+            if not adset_id:
+                logger.error(f"[rankings] adset_id ausente em ad_metrics: ad_id={ad_id}, date={r.get('date')}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Dados inconsistentes: adset_id ausente em ad_metrics (ad_id={ad_id}, date={r.get('date')})"
+                )
+            key = adset_id
         else:
             key = ad_id
         # Preservar key original para usar em series_acc (não pode ser sobrescrita)

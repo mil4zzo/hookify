@@ -34,9 +34,9 @@ export const queryKeys = {
   campaignChildren: (campaignId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop] as const,
   adsetChildren: (adsetId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
-  rankings: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters] as const,
+  rankings: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters, params.pack_ids] as const,
   // Alias semântico para consultas de performance agregada de anúncios
-  adPerformance: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters] as const,
+  adPerformance: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters, params.pack_ids] as const,
 }
 
 // Hooks para queries
