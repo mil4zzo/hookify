@@ -6,7 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
 import { useOnboardingStatus } from "@/lib/hooks/useOnboardingStatus";
-import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { IconBook2, IconChevronLeft, IconChevronRight, IconFileText, IconShieldLock, IconTrash } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { env } from "@/lib/config/env";
 import { Button } from "@/components/ui/button";
@@ -141,6 +141,68 @@ export default function Sidebar() {
           </nav>
         </>
       )}
+
+      {/* Footer Links */}
+      <div className="mt-auto border-t border-border">
+        <div className={cn("px-3 py-4 space-y-1 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
+          <Link
+            href="/docs"
+            className={cn(
+              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
+              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
+              pathname === "/docs" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
+            )}
+            title={isCollapsed ? "Docs" : undefined}
+          >
+            <IconBook2 className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/docs" ? "text-primary" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
+              Docs
+            </span>
+          </Link>
+          <Link
+            href="/termos-de-uso"
+            className={cn(
+              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
+              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
+              pathname === "/termos-de-uso" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
+            )}
+            title={isCollapsed ? "Termos de Uso" : undefined}
+          >
+            <IconFileText className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/termos-de-uso" ? "text-primary" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
+              Termos de Uso
+            </span>
+          </Link>
+          <Link
+            href="/politica-de-privacidade"
+            className={cn(
+              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
+              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
+              pathname === "/politica-de-privacidade" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
+            )}
+            title={isCollapsed ? "Política de Privacidade" : undefined}
+          >
+            <IconShieldLock className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/politica-de-privacidade" ? "text-primary" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
+              Política de Privacidade
+            </span>
+          </Link>
+          <Link
+            href="/exclusao-de-dados"
+            className={cn(
+              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
+              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
+              pathname === "/exclusao-de-dados" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
+            )}
+            title={isCollapsed ? "Exclusão de Dados" : undefined}
+          >
+            <IconTrash className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/exclusao-de-dados" ? "text-primary" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
+              Exclusão de Dados
+            </span>
+          </Link>
+        </div>
+      </div>
     </aside>
   );
 }

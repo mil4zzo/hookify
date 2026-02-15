@@ -1,11 +1,12 @@
-import { 
-  IconCardsFilled, 
-  IconFlask, 
-  IconStack2, 
+import {
+  IconCardsFilled,
+  IconFlask,
+  IconStack2,
   IconSitemapFilled,
   IconSunFilled,
   IconPalette,
-  IconDiamond
+  IconDiamond,
+  IconBook2
 } from "@tabler/icons-react";
 import { ComponentType } from "react";
 
@@ -53,6 +54,14 @@ export const pageConfigs: PageConfig[] = [
     showInMenu: true,
   },
   {
+    path: "/docs",
+    title: "Documentação",
+    label: "Docs",
+    icon: IconBook2,
+    description: "Guia de uso da plataforma",
+    showInMenu: false,
+  },
+  {
     path: "/cores",
     title: "Cores",
     label: "Cores",
@@ -97,4 +106,5 @@ export const pageTitles: Record<string, { title: string; icon?: ComponentType<{ 
     acc[config.path] = { title: config.title, icon: config.icon };
     return acc;
   }, {} as Record<string, { title: string; icon?: ComponentType<{ className?: string }> }>);
+
 

@@ -15,10 +15,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isAuthRoute = pathname?.startsWith("/login") || 
                       pathname?.startsWith("/signup") || 
                       pathname?.startsWith("/callback");
+  const isPublicRoute = pathname?.startsWith("/politica-de-privacidade") ||
+                       pathname?.startsWith("/termos-de-uso") ||
+                       pathname?.startsWith("/exclusao-de-dados") ||
+                       pathname?.startsWith("/docs");
   const isOnboardingRoute = pathname?.startsWith("/onboarding");
   
   // Se for rota de autenticação, renderiza apenas o conteúdo
-  if (isAuthRoute) {
+  if (isAuthRoute || isPublicRoute) {
     return <>{children}</>;
   }
   
@@ -47,4 +51,3 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     </PacksLoader>
   );
 }
-
