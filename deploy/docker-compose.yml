@@ -8,8 +8,8 @@ services:
     environment:
       - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
       - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
-      - FACEBOOK_AUTH_BASE_URL=${FACEBOOK_AUTH_BASE_URL:-https://www.facebook.com/v22.0/dialog/oauth}
-      - FACEBOOK_TOKEN_URL=${FACEBOOK_TOKEN_URL:-https://graph.facebook.com/v22.0/oauth/access_token}
+      - FACEBOOK_AUTH_BASE_URL=${FACEBOOK_AUTH_BASE_URL:-https://www.facebook.com/v24.0/dialog/oauth}
+      - FACEBOOK_TOKEN_URL=${FACEBOOK_TOKEN_URL:-https://graph.facebook.com/v24.0/oauth/access_token}
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_KEY=${SUPABASE_KEY}
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}

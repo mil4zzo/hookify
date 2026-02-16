@@ -11,6 +11,8 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import requests
 import urllib.parse
 
+from app.core.config import META_GRAPH_BASE_URL
+
 if TYPE_CHECKING:
     from app.services.job_tracker import JobTracker
 
@@ -28,7 +30,7 @@ class AdsEnricher:
     def __init__(
         self,
         access_token: str,
-        base_url: str = "https://graph.facebook.com/v22.0/",
+        base_url: str = META_GRAPH_BASE_URL,
         limit: int = 5000,
         on_progress: Optional[Callable[[int, int, int], None]] = None,
         job_tracker: Optional["JobTracker"] = None,

@@ -11,6 +11,8 @@ import urllib.parse
 from typing import Any, Dict, List, Optional, Union
 import requests
 
+from app.core.config import META_GRAPH_BASE_URL
+
 logger = logging.getLogger(__name__)
 
 # Constantes
@@ -23,7 +25,7 @@ class MetaJobClient:
     def __init__(
         self,
         access_token: str,
-        base_url: str = "https://graph.facebook.com/v22.0/"
+        base_url: str = META_GRAPH_BASE_URL
     ):
         self.access_token = access_token
         self.base_url = base_url

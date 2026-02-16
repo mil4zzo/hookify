@@ -4,7 +4,7 @@
  */
 
 export const META_BASE_URL_TEMPLATE = "https://graph.facebook.com/{VERSION}/";
-export const META_CURRENT_VERSION = "v22.0";
+export const META_CURRENT_VERSION = "v24.0";
 
 export type MetaPermissionDoc = {
   scope: string;

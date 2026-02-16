@@ -8,10 +8,15 @@ env_path = backend_dir / ".env"
 load_dotenv(env_path)
 
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8501").split(",")
+
+# Meta Graph API – versão centralizada
+META_API_VERSION = os.getenv("META_API_VERSION", "v24.0")
+META_GRAPH_BASE_URL = f"https://graph.facebook.com/{META_API_VERSION}/"
+
 FACEBOOK_CLIENT_ID = os.getenv("FACEBOOK_CLIENT_ID")
 FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET")
-FACEBOOK_AUTH_BASE_URL = os.getenv("FACEBOOK_AUTH_BASE_URL", "https://www.facebook.com/v22.0/dialog/oauth")
-FACEBOOK_TOKEN_URL = os.getenv("FACEBOOK_TOKEN_URL", "https://graph.facebook.com/v22.0/oauth/access_token")
+FACEBOOK_AUTH_BASE_URL = os.getenv("FACEBOOK_AUTH_BASE_URL", f"https://www.facebook.com/{META_API_VERSION}/dialog/oauth")
+FACEBOOK_TOKEN_URL = os.getenv("FACEBOOK_TOKEN_URL", f"https://graph.facebook.com/{META_API_VERSION}/oauth/access_token")
 
 # Facebook OAuth scopes
 # Nota: para obter o vídeo (Video.source) de anúncios de forma consistente, geralmente é necessário

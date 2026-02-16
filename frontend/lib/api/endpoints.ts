@@ -166,6 +166,14 @@ export const api = {
       apiClient.patch(`/analytics/packs/${packId}/name`, { name }),
   },
 
+  // User account management
+  user: {
+    deleteData: (): Promise<{ success: boolean; type: string; summary: Record<string, any> }> =>
+      apiClient.delete('/user/data'),
+    deleteAccount: (): Promise<{ success: boolean; type: string; summary: Record<string, any> }> =>
+      apiClient.delete('/user/account'),
+  },
+
   // Google Sheets integration (ads enrichment)
   integrations: {
     google: {

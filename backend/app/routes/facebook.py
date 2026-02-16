@@ -317,7 +317,7 @@ def update_ad_status(
     Atualiza status de um anúncio (PAUSED/ACTIVE).
 
     Backend chama Meta Graph API:
-      POST https://graph.facebook.com/v22.0/{ad_id}
+      POST https://graph.facebook.com/v24.0/{ad_id}
       Body {"status": "PAUSED" | "ACTIVE"}
     """
     user_jwt = user["token"]

@@ -4,6 +4,7 @@ import urllib.parse
 import logging
 from typing import Any, Dict, List, Optional, Union
 import requests
+from app.core.config import META_GRAPH_BASE_URL
 from app.services.dataformatter import split_date_range, format_ads_for_api
 from app.services.facebook_page_token_service import get_page_access_token_for_page_id
 
@@ -28,7 +29,7 @@ def test_facebook_connection(access_token: str) -> Dict[str, Any]:
     """
     try:
         # Fazer chamada simples para /me com campos mínimos (mais rápido)
-        url = f"https://graph.facebook.com/v22.0/me?access_token={access_token}"
+        url = f"{META_GRAPH_BASE_URL}me?access_token={access_token}"
         payload = {'fields': 'id,name'}
         
         response = requests.get(url, params=payload, timeout=10)
@@ -55,7 +56,7 @@ def test_facebook_connection(access_token: str) -> Dict[str, Any]:
 
 class GraphAPI:
     def __init__(self, access_token: str, user_id: Optional[str] = None):
-        self.base_url = "https://graph.facebook.com/v22.0/"
+        self.base_url = META_GRAPH_BASE_URL
         self.access_token = access_token
         self.user_token = f"?access_token={access_token}"
         self.user_id = user_id
@@ -551,7 +552,7 @@ class GraphAPI:
         Atualiza o campo `status` de uma entidade no Meta via Graph API.
 
         Endpoint:
-          POST https://graph.facebook.com/v22.0/{entity_id}?access_token=...
+          POST https://graph.facebook.com/v24.0/{entity_id}?access_token=...
 
         Body:
           {"status": "PAUSED" | "ACTIVE"}

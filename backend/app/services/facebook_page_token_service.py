@@ -8,6 +8,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
+from app.core.config import META_GRAPH_BASE_URL
+
 logger = logging.getLogger(__name__)
 
 # Cache em memória por usuário para Page Access Tokens obtidos via /me/adaccounts?fields=...promote_pages{access_token}
@@ -41,7 +43,7 @@ def get_page_access_token_for_page_id(
     user_id: str,
     user_access_token: str,
     page_id: str,
-    graph_base_url: str = "https://graph.facebook.com/v22.0/",
+    graph_base_url: str = META_GRAPH_BASE_URL,
     force_refresh: bool = False,
 ) -> Optional[str]:
     """

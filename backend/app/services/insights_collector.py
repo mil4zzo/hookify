@@ -7,6 +7,8 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import requests
 
+from app.core.config import META_GRAPH_BASE_URL
+
 if TYPE_CHECKING:
     from app.services.job_tracker import JobTracker
 
@@ -24,7 +26,7 @@ class InsightsCollector:
     def __init__(
         self,
         access_token: str,
-        base_url: str = "https://graph.facebook.com/v22.0/",
+        base_url: str = META_GRAPH_BASE_URL,
         on_progress: Optional[Callable[[int, int], None]] = None,
         job_tracker: Optional["JobTracker"] = None,
         job_id: Optional[str] = None

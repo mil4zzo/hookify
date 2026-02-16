@@ -66,6 +66,11 @@ export default function Topbar() {
   const pathname = usePathname();
   const [isClearingPacks, setIsClearingPacks] = useState(false);
   const [isResettingPreferences, setIsResettingPreferences] = useState(false);
+  const [isDeletingData, setIsDeletingData] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [showDeleteDataConfirm, setShowDeleteDataConfirm] = useState(false);
+  const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false);
+  const [deleteAccountInput, setDeleteAccountInput] = useState("");
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [isConfirmingUpdate, setIsConfirmingUpdate] = useState(false);
   const { refreshPack, isRefreshing, refreshingPackIds } = usePackRefresh();
@@ -143,6 +148,47 @@ export default function Topbar() {
       await connect.mutateAsync();
     } catch (error) {
       showError(error as any);
+    }
+  };
+
+  // Função para excluir dados do usuário (manter conta)
+  const handleDeleteUserData = async () => {
+    setIsDeletingData(true);
+    try {
+      await api.user.deleteData();
+      await clearAllPacks();
+      queryClient.clear();
+      showSuccess("Seus dados foram excluídos com sucesso. Sua conta foi mantida.");
+      setShowDeleteDataConfirm(false);
+      closeSettings();
+      router.push("/packs");
+      router.refresh();
+    } catch (error) {
+      showError(error as any);
+    } finally {
+      setIsDeletingData(false);
+    }
+  };
+
+  // Função para excluir conta completa (irreversível)
+  const handleDeleteAccount = async () => {
+    if (deleteAccountInput !== "EXCLUIR") {
+      showWarning("Digite exatamente \"EXCLUIR\" para confirmar.");
+      return;
+    }
+    setIsDeletingAccount(true);
+    try {
+      await api.user.deleteAccount();
+      await clearAllPacks();
+      queryClient.clear();
+      setShowDeleteAccountConfirm(false);
+      setDeleteAccountInput("");
+      closeSettings();
+      router.push("/login");
+    } catch (error) {
+      showError(error as any);
+    } finally {
+      setIsDeletingAccount(false);
     }
   };
 
@@ -858,6 +904,33 @@ export default function Topbar() {
                         </Button>
                       </div>
                     )}
+
+                    {/* Zona de perigo */}
+                    <div className="mt-8 pt-6 border-t border-destructive/20 space-y-4">
+                      <h4 className="text-sm font-semibold text-destructive">Zona de perigo</h4>
+
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-text">Excluir meus dados</p>
+                          <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
+                        </div>
+                        <Button variant="outline" size="sm" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
+                          <IconTrash className="h-4 w-4 mr-1" />
+                          Excluir dados
+                        </Button>
+                      </div>
+
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-text">Excluir minha conta</p>
+                          <p className="text-xs text-muted-foreground">Remove permanentemente sua conta e todos os dados associados. Esta ação é irreversível.</p>
+                        </div>
+                        <Button variant="destructive" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteAccountConfirm(true)}>
+                          <IconTrash className="h-4 w-4 mr-1" />
+                          Excluir conta
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </TabbedContentItem>
 
@@ -1144,6 +1217,33 @@ export default function Topbar() {
                           </Button>
                         </div>
                       )}
+
+                      {/* Zona de perigo */}
+                      <div className="mt-8 pt-6 border-t border-destructive/20 space-y-4">
+                        <h4 className="text-sm font-semibold text-destructive">Zona de perigo</h4>
+
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-text">Excluir meus dados</p>
+                            <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
+                          </div>
+                          <Button variant="outline" size="sm" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
+                            <IconTrash className="h-4 w-4 mr-1" />
+                            Excluir dados
+                          </Button>
+                        </div>
+
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-text">Excluir minha conta</p>
+                            <p className="text-xs text-muted-foreground">Remove permanentemente sua conta e todos os dados associados. Esta ação é irreversível.</p>
+                          </div>
+                          <Button variant="destructive" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteAccountConfirm(true)}>
+                            <IconTrash className="h-4 w-4 mr-1" />
+                            Excluir conta
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </TabbedContentItem>
 
@@ -1294,6 +1394,56 @@ export default function Topbar() {
             confirmIcon={<IconRefresh className="h-4 w-4" />}
           />
         )}
+
+        {/* Modal de confirmação: Excluir dados */}
+        <ConfirmDialog
+          isOpen={showDeleteDataConfirm}
+          onClose={() => setShowDeleteDataConfirm(false)}
+          title="Excluir meus dados"
+          message={
+            <>
+              Tem certeza que deseja excluir <strong>todos os seus dados</strong>? Isso inclui packs, métricas, anúncios, conexões e configurações.
+              <br /><br />
+              <span className="text-xs">Sua conta Hookify será mantida e você poderá usá-la novamente no futuro.</span>
+            </>
+          }
+          confirmText="Sim, excluir meus dados"
+          variant="destructive"
+          onConfirm={handleDeleteUserData}
+          isLoading={isDeletingData}
+          loadingText="Excluindo dados..."
+          confirmIcon={<IconTrash className="h-4 w-4" />}
+        />
+
+        {/* Modal de confirmação: Excluir conta */}
+        <ConfirmDialog
+          isOpen={showDeleteAccountConfirm}
+          onClose={() => { setShowDeleteAccountConfirm(false); setDeleteAccountInput(""); }}
+          title="Excluir minha conta"
+          message={
+            <>
+              Esta ação é <strong>irreversível</strong>. Sua conta e todos os dados associados serão permanentemente removidos.
+              <br /><br />
+              <span className="text-xs">Para confirmar, digite <strong>EXCLUIR</strong> abaixo:</span>
+            </>
+          }
+          confirmText="Excluir minha conta permanentemente"
+          variant="destructive"
+          onConfirm={handleDeleteAccount}
+          isLoading={isDeletingAccount}
+          loadingText="Excluindo conta..."
+          confirmIcon={<IconTrash className="h-4 w-4" />}
+        >
+          <Input
+            value={deleteAccountInput}
+            onChange={(e) => setDeleteAccountInput(e.target.value)}
+            placeholder='Digite "EXCLUIR" para confirmar'
+            className="mt-2"
+          />
+          {deleteAccountInput !== "EXCLUIR" && deleteAccountInput.length > 0 && (
+            <p className="text-xs text-destructive mt-1">Digite exatamente &quot;EXCLUIR&quot; para confirmar</p>
+          )}
+        </ConfirmDialog>
       </header>
     </>
   );

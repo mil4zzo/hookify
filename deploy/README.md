@@ -19,8 +19,8 @@ Crie o arquivo `backend/.env` com as seguintes variáveis:
 ```bash
 FACEBOOK_CLIENT_ID=seu_client_id
 FACEBOOK_CLIENT_SECRET=seu_client_secret
-FACEBOOK_AUTH_BASE_URL=https://www.facebook.com/v22.0/dialog/oauth
-FACEBOOK_TOKEN_URL=https://graph.facebook.com/v22.0/oauth/access_token
+FACEBOOK_AUTH_BASE_URL=https://www.facebook.com/v24.0/dialog/oauth
+FACEBOOK_TOKEN_URL=https://graph.facebook.com/v24.0/oauth/access_token
 SUPABASE_URL=https://seu-projeto.supabase.co
 SUPABASE_KEY=sua_anon_key
 SUPABASE_ANON_KEY=sua_anon_key
