@@ -1,40 +1,81 @@
 #!/bin/bash
+set -euo pipefail
 
-echo "🧹 Iniciando limpeza de recursos Docker não utilizados..."
+MODE_SAFE=true
+MODE_AGGRESSIVE=false
+MODE_DANGEROUS_VOLUMES=false
+
+usage() {
+  cat <<EOF
+Usage: ./cleanup.sh [--safe] [--aggressive] [--dangerous-volumes]
+
+  --safe               Default. Não remove volumes.
+  --aggressive         Ainda safe: remove imagens não usadas (sem volumes).
+  --dangerous-volumes  Remove volumes não usados (RISCO). Requer confirmar "SIM".
+EOF
+}
+
+for arg in "${@:-}"; do
+  case "$arg" in
+    --safe) MODE_SAFE=true ;;
+    --aggressive) MODE_AGGRESSIVE=true ;;
+    --dangerous-volumes) MODE_DANGEROUS_VOLUMES=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "❌ Arg desconhecido: $arg"; usage; exit 1 ;;
+  esac
+done
+
+echo "🧹 Cleanup Docker iniciado..."
 echo ""
 
-# Mostrar uso atual
-echo "📊 Uso de espaço ANTES da limpeza:"
-docker system df
+echo "📊 ANTES:"
+docker system df || true
+echo ""
+echo "💾 Disco (antes):"
+df -h / || true
 echo ""
 
-# Limpar containers parados
-echo "🗑️  Removendo containers parados..."
-docker container prune -f
+echo "🗑️  Containers parados..."
+docker container prune -f || true
 
-# Limpar imagens não utilizadas
-echo "🗑️  Removendo imagens não utilizadas..."
-docker image prune -a -f
+echo "🗑️  Networks não usadas..."
+docker network prune -f || true
 
-# Limpar volumes não utilizados
-echo "🗑️  Removendo volumes não utilizados..."
-docker volume prune -f
+echo "🗑️  Imagens dangling..."
+docker image prune -f || true
 
-# Limpar build cache
-echo "🗑️  Removendo build cache..."
-docker builder prune -a -f
+echo "🧱 Build cache (BuildKit) - reduzindo para não explodir /var..."
+# tenta keep-storage (melhor), senão usa "until"
+if docker builder prune -af --keep-storage 5GB >/dev/null 2>&1; then
+  echo "✅ Build cache reduzido (mantendo ~5GB)."
+else
+  docker builder prune -af --filter "until=168h" >/dev/null 2>&1 || true
+  echo "✅ Build cache reduzido (mais velho que 7 dias)."
+fi
 
-# Limpar networks não utilizadas
-echo "🗑️  Removendo networks não utilizadas..."
-docker network prune -f
+if [ "$MODE_AGGRESSIVE" = true ]; then
+  echo ""
+  echo "⚠️  Aggressive SAFE: removendo imagens não usadas (sem volumes)..."
+  docker image prune -af || true
+fi
+
+if [ "$MODE_DANGEROUS_VOLUMES" = true ]; then
+  echo ""
+  echo "⚠️  PERIGO: volume prune pode apagar dados se algum volume estiver desconectado no momento."
+  read -p "Digite 'SIM' para continuar: " CONFIRM
+  if [ "$CONFIRM" != "SIM" ]; then
+    echo "Cancelado."
+    exit 0
+  fi
+  echo "🗑️  Volumes não usados..."
+  docker volume prune -f || true
+fi
 
 echo ""
-echo "✅ Limpeza concluída!"
+echo "✅ Cleanup concluído."
 echo ""
-echo "📊 Uso de espaço APÓS a limpeza:"
-docker system df
-
+echo "📊 DEPOIS:"
+docker system df || true
 echo ""
-echo "💾 Espaço em disco disponível:"
-df -h / | tail -1 | awk '{print "   Total: " $2 " | Usado: " $3 " | Disponível: " $4 " (" $5 " usado)"}'
-
+echo "💾 Disco (depois):"
+df -h / || true
