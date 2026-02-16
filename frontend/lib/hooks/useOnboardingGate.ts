@@ -10,7 +10,8 @@ export type OnboardingGateTarget = "app" | "onboarding";
 export type OnboardingStatus =
   | "checking"
   | "requires_onboarding"
-  | "completed";
+  | "completed"
+  | "error";
 
 export function useOnboardingGate(target: OnboardingGateTarget) {
   const { status: authStatus, isClient, isAuthenticated } = useRequireAuth("/login");
@@ -28,19 +29,21 @@ export function useOnboardingGate(target: OnboardingGateTarget) {
     if (!isClient) return;
     if (authStatus !== "authorized") return;
     if (isLoadingOnboarding) return;
+    if (error) return;
 
     if (target === "app" && !hasCompleted) {
       router.replace("/onboarding");
     }
-
-    // Removido: redirect automático quando onboarding já foi completado
-    // Usuários podem acessar /onboarding mesmo após completar
-  }, [isClient, authStatus, isLoadingOnboarding, hasCompleted, target, router]);
+  }, [isClient, authStatus, isLoadingOnboarding, hasCompleted, error, target, router]);
 
   let onboardingStatus: OnboardingStatus = "checking";
 
   if (authStatus === "authorized" && !isLoadingOnboarding) {
-    onboardingStatus = hasCompleted ? "completed" : "requires_onboarding";
+    if (error) {
+      onboardingStatus = "error";
+    } else {
+      onboardingStatus = hasCompleted ? "completed" : "requires_onboarding";
+    }
   }
 
   return {

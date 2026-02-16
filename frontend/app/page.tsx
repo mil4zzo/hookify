@@ -8,7 +8,7 @@ import { LoadingState } from "@/components/common/States";
 
 export default function HomePage() {
   const { isAuthenticated, isClient, isLoading } = useClientAuth();
-  const { data, isLoading: isLoadingOnboarding } = useOnboardingStatus(isAuthenticated);
+  const { data, isLoading: isLoadingOnboarding, error } = useOnboardingStatus(isAuthenticated);
   const router = useRouter();
 
   useEffect(() => {
@@ -23,12 +23,18 @@ export default function HomePage() {
     // Autenticado: decidir entre onboarding e app principal
     if (isLoadingOnboarding) return;
 
+    // Se houve erro na verificação (servidor offline), ir para /packs como fallback
+    if (error) {
+      router.replace("/packs");
+      return;
+    }
+
     if (data?.has_completed_onboarding) {
       router.replace("/packs");
     } else {
       router.replace("/onboarding");
     }
-  }, [isClient, isAuthenticated, isLoading, isLoadingOnboarding, data?.has_completed_onboarding, router]);
+  }, [isClient, isAuthenticated, isLoading, isLoadingOnboarding, data?.has_completed_onboarding, error, router]);
 
   // Mostrar loading enquanto verifica autenticação/onboarding
   return (

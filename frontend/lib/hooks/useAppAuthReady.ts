@@ -15,7 +15,8 @@ export function useAppAuthReady() {
   const gate = useOnboardingGate("app");
 
   const isAuthorized = gate.isClient && gate.authStatus === "authorized";
-  const isAppReady = isAuthorized && gate.onboardingStatus === "completed";
+  // Considerar "error" como ready para não travar a UI quando o servidor estiver offline
+  const isAppReady = isAuthorized && (gate.onboardingStatus === "completed" || gate.onboardingStatus === "error");
 
   return {
     ...gate,
