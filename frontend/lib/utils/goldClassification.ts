@@ -127,7 +127,11 @@ export function splitAdsIntoGoldBuckets(
   
   for (const ad of ads) {
     const adMetrics = computeAdDerivedMetrics(ad, actionType);
-    const bucket = classifyGoldBucket({ adMetrics, averages, actionType });
+    const bucket = classifyGoldBucket({
+      adMetrics,
+      averages: averages,
+      actionType: actionType,
+    });
     buckets[bucket].push(ad);
   }
   
