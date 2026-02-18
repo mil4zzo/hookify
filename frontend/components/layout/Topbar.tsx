@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
@@ -16,6 +16,7 @@ import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, I
 import { Modal } from "@/components/common/Modal";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useSettings } from "@/lib/store/settings";
+import { useSessionStore } from "@/lib/store/session";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -140,6 +141,14 @@ export default function Topbar() {
 
   // Só considera que tem conexão quando não está carregando E há conexões ativas
   const hasFacebookConnection = hasActiveConnection;
+
+  // Foto de perfil do Facebook (conexão primária ou primeira ativa)
+  const facebookAvatarUrl = useMemo(() => {
+    if (!activeConnections || activeConnections.length === 0) return null;
+    const primary = activeConnections.find((c: any) => c.is_primary);
+    const conn = primary || activeConnections[0];
+    return conn?.facebook_picture_url || null;
+  }, [activeConnections]);
   // Só mostra botão de conectar quando carregamento terminou E não há conexões ativas
   const shouldShowConnectButton = !connections.isLoading && !hasActiveConnection;
 
@@ -157,12 +166,13 @@ export default function Topbar() {
     try {
       await api.user.deleteData();
       await clearAllPacks();
+      // Limpar packs do Zustand store para atualizar Topbar imediatamente
+      useSessionStore.setState({ packs: [], adAccounts: [] });
       queryClient.clear();
       showSuccess("Seus dados foram excluídos com sucesso. Sua conta foi mantida.");
       setShowDeleteDataConfirm(false);
       closeSettings();
       router.push("/packs");
-      router.refresh();
     } catch (error) {
       showError(error as any);
     } finally {
@@ -180,11 +190,13 @@ export default function Topbar() {
     try {
       await api.user.deleteAccount();
       await clearAllPacks();
+      // Resetar todo o estado da sessão (packs, user, token, etc.)
+      useSessionStore.getState().logout();
       queryClient.clear();
       setShowDeleteAccountConfirm(false);
       setDeleteAccountInput("");
       closeSettings();
-      router.push("/login");
+      router.push("/login?logout=true");
     } catch (error) {
       showError(error as any);
     } finally {
@@ -371,7 +383,9 @@ export default function Topbar() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="relative flex items-center justify-center w-10 h-10 rounded-full overflow-hidden hover:ring-2 hover:ring-border transition-all focus:outline-none focus:ring-2 focus:ring-info" aria-label="Perfil do usuário">
-            {user.user_metadata?.avatar_url ? (
+            {facebookAvatarUrl ? (
+              <img src={facebookAvatarUrl} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : user.user_metadata?.avatar_url ? (
               <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
             ) : initials ? (
               <div className="w-full h-full bg-brand flex items-center justify-center">
@@ -388,7 +402,9 @@ export default function Topbar() {
           {/* User Info */}
           <div className="p-4">
             <div className="flex items-center gap-3">
-              {user.user_metadata?.avatar_url ? (
+              {facebookAvatarUrl ? (
+                <img src={facebookAvatarUrl} alt="Profile" className="w-12 h-12 rounded-full object-cover" referrerPolicy="no-referrer" />
+              ) : user.user_metadata?.avatar_url ? (
                 <img src={user.user_metadata.avatar_url} alt="Profile" className="w-12 h-12 rounded-full" />
               ) : initials ? (
                 <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center">

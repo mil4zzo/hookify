@@ -234,6 +234,7 @@ export default function GoldPage() {
     const start = dateRange.start;
     const end = dateRange.end;
     if (!start || !end) return;
+    if (selectedPackIds.size === 0) return;
 
     const req: AdPerformanceRequest = {
       date_start: start,
@@ -241,6 +242,7 @@ export default function GoldPage() {
       group_by: "ad_name",
       limit: 1000,
       filters: {},
+      pack_ids: Array.from(selectedPackIds),
     };
 
     setLoading(true);
@@ -257,7 +259,7 @@ export default function GoldPage() {
         setAvailableConversionTypes([]);
       })
       .finally(() => setLoading(false));
-  }, [isAuthorized, dateRange.start, dateRange.end]);
+  }, [isAuthorized, dateRange.start, dateRange.end, selectedPackIds]);
 
   useEffect(() => {
     if (!packsClient || packs.length === 0) return;

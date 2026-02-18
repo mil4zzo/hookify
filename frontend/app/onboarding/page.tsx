@@ -216,11 +216,6 @@ function FacebookStep(props: { onContinue: () => void; onBack: () => void }) {
             {connect.isPending ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconBrandFacebook className="w-4 h-4" />}
             {hasActiveConnection ? "Adicionar outra conta" : connect.isPending ? "Conectando..." : "Conectar Facebook"}
           </Button>
-          {!hasActiveConnection && (
-            <Button variant="outline" onClick={props.onContinue}>
-              Pular por enquanto
-            </Button>
-          )}
         </div>
 
         <div className="flex justify-between">
