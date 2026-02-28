@@ -28,12 +28,15 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
 
   const isMinimal = viewMode === "minimal";
 
+  const sumMetrics = new Set(["spend", "results", "mqls"]);
+
   const renderMetricHeader = (metricId: string, label: string, column: Column<RankingsItem, unknown>, filterValue: FilterValue | undefined) => {
     const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
     const hasFilters = hasActiveFilters && !!filteredAveragesRef.current;
     const filteredAvg = formatFilteredAverageRef.current(metricId);
     const textSize = isMinimal ? "text-[10px]" : "text-xs";
     const iconSize = isMinimal ? "w-2.5 h-2.5" : "w-3 h-3";
+    const isSum = sumMetrics.has(metricId);
 
     return (
       <div className={`flex flex-col items-center ${isMinimal ? "gap-0.5" : "gap-0.5"}`}>
@@ -49,7 +52,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                 <span className={`${textSize} text-muted-foreground font-normal cursor-help`}>{formatAverage(metricId)}</span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <p className="text-xs">Média dos anúncios validáveis do pack</p>
+                <p className="text-xs">{isSum ? "Soma total do pack" : "Média dos anúncios validáveis do pack"}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -64,7 +67,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                 </span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                <p className="text-xs">Média dos anúncios filtrados</p>
+                <p className="text-xs">{isSum ? "Soma total dos filtrados" : "Média dos anúncios filtrados"}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -91,6 +94,108 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="spend" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />,
       }) as any
+    );
+  }
+
+  // Results
+  if (shouldShow("results")) {
+    cols.push(
+      columnHelper.accessor(
+        (row) => {
+          const ad = row as RankingsItem;
+          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+          return Number(results);
+        },
+        {
+          id: "results",
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return renderMetricHeader("results", "Results", column, filterValue);
+          },
+          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+            const ad = row.original as RankingsItem;
+            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            return applyNumericFilter(Number(results), filterValue);
+          },
+          sortingFn: "auto",
+          cell: (info) => {
+            const results = Number(info.getValue() || 0);
+            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(results)}</span>} metric="results" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+          },
+        }
+      ) as any
+    );
+  }
+
+  // MQLs
+  if (hasSheetIntegration && shouldShow("mqls")) {
+    cols.push(
+      columnHelper.accessor(
+        (row) => {
+          const ad = row as RankingsItem;
+          const { mqlCount } = computeMqlMetricsFromLeadscore({
+            spend: Number(ad.spend || 0),
+            leadscoreRaw: ad.leadscore_values,
+            mqlLeadscoreMin,
+          });
+          return mqlCount;
+        },
+        {
+          id: "mqls",
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return renderMetricHeader("mqls", "MQLs", column, filterValue);
+          },
+          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+            const ad = row.original as RankingsItem;
+            const { mqlCount } = computeMqlMetricsFromLeadscore({
+              spend: Number(ad.spend || 0),
+              leadscoreRaw: ad.leadscore_values,
+              mqlLeadscoreMin,
+            });
+            return applyNumericFilter(mqlCount, filterValue);
+          },
+          sortingFn: "auto",
+          cell: (info) => {
+            const mqls = Number(info.getValue() || 0);
+            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(mqls)}</span>} metric="mqls" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+          },
+        }
+      ) as any
+    );
+  }
+
+  // CPR
+  if (shouldShow("cpr")) {
+    cols.push(
+      columnHelper.accessor(
+        (row) => {
+          const ad = row as RankingsItem;
+          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+          return results > 0 ? Number(ad.spend || 0) / Number(results) : 0;
+        },
+        {
+          id: "cpr",
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return renderMetricHeader("cpr", "CPR", column, filterValue);
+          },
+          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
+            const ad = row.original as RankingsItem;
+            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            const cpr = results > 0 ? Number(ad.spend || 0) / results : null;
+            return applyNumericFilter(cpr, filterValue);
+          },
+          sortingFn: "auto",
+          cell: (info) => {
+            const ad = info.row.original as RankingsItem;
+            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            const cpr = results > 0 ? Number(info.getValue() || 0) : 0;
+            const value = cpr > 0 && Number.isFinite(cpr) ? formatCurrency(cpr) : "—";
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+          },
+        }
+      ) as any
     );
   }
 
@@ -204,108 +309,6 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
             });
             const value = cpmql > 0 && Number.isFinite(cpmql) ? formatCurrency(cpmql) : "—";
             return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpmql" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
-          },
-        }
-      ) as any
-    );
-  }
-
-  // MQLs
-  if (hasSheetIntegration && shouldShow("mqls")) {
-    cols.push(
-      columnHelper.accessor(
-        (row) => {
-          const ad = row as RankingsItem;
-          const { mqlCount } = computeMqlMetricsFromLeadscore({
-            spend: Number(ad.spend || 0),
-            leadscoreRaw: ad.leadscore_values,
-            mqlLeadscoreMin,
-          });
-          return mqlCount;
-        },
-        {
-          id: "mqls",
-          header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("mqls", "MQLs", column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-            const ad = row.original as RankingsItem;
-            const { mqlCount } = computeMqlMetricsFromLeadscore({
-              spend: Number(ad.spend || 0),
-              leadscoreRaw: ad.leadscore_values,
-              mqlLeadscoreMin,
-            });
-            return applyNumericFilter(mqlCount, filterValue);
-          },
-          sortingFn: "auto",
-          cell: (info) => {
-            const mqls = Number(info.getValue() || 0);
-            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(mqls)}</span>} metric="mqls" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
-          },
-        }
-      ) as any
-    );
-  }
-
-  // CPR
-  if (shouldShow("cpr")) {
-    cols.push(
-      columnHelper.accessor(
-        (row) => {
-          const ad = row as RankingsItem;
-          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-          return results > 0 ? Number(ad.spend || 0) / Number(results) : 0;
-        },
-        {
-          id: "cpr",
-          header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("cpr", "CPR", column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-            const ad = row.original as RankingsItem;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-            const cpr = results > 0 ? Number(ad.spend || 0) / results : null;
-            return applyNumericFilter(cpr, filterValue);
-          },
-          sortingFn: "auto",
-          cell: (info) => {
-            const ad = info.row.original as RankingsItem;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-            const cpr = results > 0 ? Number(info.getValue() || 0) : 0;
-            const value = cpr > 0 && Number.isFinite(cpr) ? formatCurrency(cpr) : "—";
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
-          },
-        }
-      ) as any
-    );
-  }
-
-  // Results
-  if (shouldShow("results")) {
-    cols.push(
-      columnHelper.accessor(
-        (row) => {
-          const ad = row as RankingsItem;
-          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-          return Number(results);
-        },
-        {
-          id: "results",
-          header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("results", "Results", column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | undefined) => {
-            const ad = row.original as RankingsItem;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
-            return applyNumericFilter(Number(results), filterValue);
-          },
-          sortingFn: "auto",
-          cell: (info) => {
-            const results = Number(info.getValue() || 0);
-            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(results)}</span>} metric="results" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
           },
         }
       ) as any

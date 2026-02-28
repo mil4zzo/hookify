@@ -21,10 +21,10 @@ export const MANAGER_COLUMN_OPTIONS: readonly ManagerColumnOption[] = [
 
 export const DEFAULT_MANAGER_COLUMNS: readonly ManagerColumnType[] = [
   "spend",
-  "cpmql",
+  "results",
   "mqls",
   "cpr",
-  "results",
+  "cpmql",
   "cpm",
   "hook",
   "website_ctr",
@@ -38,10 +38,10 @@ export const DEFAULT_MANAGER_COLUMNS: readonly ManagerColumnType[] = [
  */
 export const MANAGER_COLUMN_RENDER_ORDER: readonly ManagerColumnType[] = [
   "spend",
-  "cpmql",
+  "results",
   "mqls",
   "cpr",
-  "results",
+  "cpmql",
   "cpm",
   "hook",
   "ctr",

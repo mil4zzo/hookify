@@ -120,6 +120,9 @@ export function useFilteredAverages({
       page_conv: pageConv,
       cpmql: cpmqlAvg,
       mqls: n > 0 ? totalMql / n : 0,
+      sumSpend: sumSpend,
+      sumResults: sumResults,
+      sumMqls: totalMql,
     };
   }, [table, dataLength, columnFilters, globalFilter, actionType, hasSheetIntegration, mqlLeadscoreMin]);
 }

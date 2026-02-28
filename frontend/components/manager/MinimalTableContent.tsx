@@ -288,7 +288,9 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                       <td key={column.id} className={`py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0`}>
                         {isFirstColumn ? (
                           <div className="flex items-center gap-2">
-                            <Skeleton className="w-8 h-8 rounded flex-shrink-0" />
+                            {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && (
+                              <Skeleton className="w-8 h-8 rounded flex-shrink-0" />
+                            )}
                             <Skeleton className="h-3 w-24" />
                           </div>
                         ) : (

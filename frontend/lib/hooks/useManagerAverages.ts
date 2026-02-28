@@ -23,6 +23,10 @@ export type ManagerAverages = {
   page_conv: number | null;
   cpmql: number | null;
   mqls: number;
+  // Somas absolutas (exibidas no header para spend, results, mqls)
+  sumSpend: number;
+  sumResults: number;
+  sumMqls: number;
 };
 
 interface UseManagerAveragesOptions {
@@ -66,6 +70,9 @@ export function useManagerAverages({
         page_conv: null,
         cpmql: null,
         mqls: 0,
+        sumSpend: 0,
+        sumResults: 0,
+        sumMqls: 0,
       };
     }
 
@@ -168,6 +175,9 @@ export function useManagerAverages({
       page_conv: pageConv,
       cpmql: cpmqlAvg,
       mqls: n > 0 ? totalMql / n : 0,
+      sumSpend: sumSpend,
+      sumResults: sumResults,
+      sumMqls: totalMql,
     };
   }, [ads, actionType, hasSheetIntegration, mqlLeadscoreMin]);
 }

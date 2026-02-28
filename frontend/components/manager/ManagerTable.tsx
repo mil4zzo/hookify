@@ -463,6 +463,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         // CPMQL e MQLs são calculados localmente e não vêm do servidor
         cpmql: computedAverages.cpmql,
         mqls: computedAverages.mqls,
+        sumSpend: computedAverages.sumSpend,
+        sumResults: computedAverages.sumResults,
+        sumMqls: computedAverages.sumMqls,
       } as ManagerAverages;
     }
     return computedAverages;
@@ -552,6 +555,20 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         const metricKey = metricMap[metricId];
         if (!metricKey) return "";
 
+        // Spend, Results e MQLs exibem soma total em vez de média
+        if (metricId === "spend") {
+          const v = averages.sumSpend;
+          return Number.isFinite(v) ? formatCurrency(v) : "";
+        }
+        if (metricId === "results") {
+          const v = averages.sumResults;
+          return Number.isFinite(v) ? Math.round(v).toString() : "";
+        }
+        if (metricId === "mqls") {
+          const v = averages.sumMqls;
+          return Number.isFinite(v) ? Math.round(v).toString() : "";
+        }
+
         const avgValue = averages[metricKey];
         if (avgValue === null || avgValue === undefined || !Number.isFinite(avgValue)) {
           return "";
@@ -559,13 +576,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
         // Formatar baseado no tipo de métrica
         if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
-          // Métricas em porcentagem (decimal 0-1)
           return formatPct(Number(avgValue) * 100);
-        } else if (metricId === "results" || metricId === "mqls") {
-          // Métricas absolutas (número inteiro)
-          return Math.round(Number(avgValue)).toString();
         } else {
-          // Métricas monetárias (cpr, cpmql, spend, cpm)
+          // Métricas monetárias (cpr, cpmql, cpm)
           return formatCurrency(Number(avgValue));
         }
       },
@@ -680,6 +693,20 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         const metricKey = metricMap[metricId];
         if (!metricKey) return "";
 
+        // Spend, Results e MQLs exibem soma total em vez de média
+        if (metricId === "spend") {
+          const v = (filteredAverages as any)?.sumSpend;
+          return Number.isFinite(v) ? formatCurrency(v) : "";
+        }
+        if (metricId === "results") {
+          const v = (filteredAverages as any)?.sumResults;
+          return Number.isFinite(v) ? Math.round(v).toString() : "";
+        }
+        if (metricId === "mqls") {
+          const v = (filteredAverages as any)?.sumMqls;
+          return Number.isFinite(v) ? Math.round(v).toString() : "";
+        }
+
         const avgValue = (filteredAverages as any)[metricKey];
         if (avgValue === null || avgValue === undefined || !Number.isFinite(avgValue)) {
           return "";
@@ -687,13 +714,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
         // Formatar baseado no tipo de métrica
         if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
-          // Métricas em porcentagem (decimal 0-1)
           return formatPct(Number(avgValue) * 100);
-        } else if (metricId === "results" || metricId === "mqls") {
-          // Métricas absolutas (número inteiro)
-          return Math.round(Number(avgValue)).toString();
         } else {
-          // Métricas monetárias (cpr, cpmql, spend, cpm)
+          // Métricas monetárias (cpr, cpmql, cpm)
           return formatCurrency(Number(avgValue));
         }
       },

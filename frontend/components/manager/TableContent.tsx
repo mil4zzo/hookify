@@ -292,7 +292,9 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                       <td key={column.id} className={`p-4 ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`}>
                         {isFirstColumn ? (
                           <div className="flex items-center gap-3">
-                            <Skeleton className="w-14 h-14 rounded flex-shrink-0" />
+                            {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && (
+                              <Skeleton className="w-14 h-14 rounded flex-shrink-0" />
+                            )}
                             <div className="flex-1 min-w-0 space-y-2">
                               <Skeleton className="h-4 w-3/4" />
                               <Skeleton className="h-3 w-1/2" />
