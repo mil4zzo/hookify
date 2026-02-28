@@ -273,15 +273,23 @@ def upsert_ads(
     logger.info(f"[UPSERT_ADS] Processando {total_rows} registros de ads")
 
     # Cache de thumbnails (best-effort) no Supabase Storage (bucket público)
-    # Referência: salvar somente o item[0] de adcreatives_videos_thumbs.
+    # Prioridade: adcreatives_videos_thumbs[0] (vídeo); fallback: thumbnail_url (imagem).
     try:
         ad_id_to_thumb_url: Dict[str, str] = {}
         for r in rows:
+            ad_id = str(r.get("ad_id") or "")
+            if not ad_id:
+                continue
+            thumb_url: Optional[str] = None
             thumbs = r.get("adcreatives_videos_thumbs")
             if isinstance(thumbs, list) and thumbs:
                 first = str(thumbs[0] or "").strip()
                 if first:
-                    ad_id_to_thumb_url[str(r.get("ad_id") or "")] = first
+                    thumb_url = first
+            if not thumb_url:
+                thumb_url = str(r.get("thumbnail_url") or "").strip() or None
+            if thumb_url:
+                ad_id_to_thumb_url[ad_id] = thumb_url
 
         if ad_id_to_thumb_url:
             # Evitar recache (se já existe thumb_storage_path no banco)

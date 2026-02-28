@@ -3,51 +3,38 @@ import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
 export type ManagerColumnOption = {
   id: ManagerColumnType;
   name: string;
+  /** Se true, a coluna é visível por padrão (sem preferência salva do usuário) */
+  defaultVisible?: boolean;
 };
 
-export const MANAGER_COLUMN_OPTIONS: readonly ManagerColumnOption[] = [
-  { id: "hook", name: "Hook" },
-  { id: "cpr", name: "CPR" },
-  { id: "cpmql", name: "CPMQL" },
-  { id: "spend", name: "Spend" },
-  { id: "ctr", name: "CTR" },
-  { id: "website_ctr", name: "Link CTR" },
-  { id: "cpm", name: "CPM" },
-  { id: "connect_rate", name: "Connect" },
-  { id: "page_conv", name: "Page" },
-  { id: "results", name: "Results" },
-  { id: "mqls", name: "MQLs" },
-] as const;
-
-export const DEFAULT_MANAGER_COLUMNS: readonly ManagerColumnType[] = [
-  "spend",
-  "results",
-  "mqls",
-  "cpr",
-  "cpmql",
-  "cpm",
-  "hook",
-  "website_ctr",
-  "connect_rate",
-  "page_conv",
-] as const;
-
 /**
- * Ordem das colunas como aparecem na tabela principal (buildMetricColumns)
- * Esta ordem deve ser usada para renderizar as colunas nas linhas expandidas
+ * Fonte única de verdade para as colunas do Manager.
+ * A ordem deste array define:
+ * - A ordem de renderização na tabela
+ * - A ordem no seletor de visibilidade de colunas
+ * - A ordem nas linhas expandidas (children)
  */
-export const MANAGER_COLUMN_RENDER_ORDER: readonly ManagerColumnType[] = [
-  "spend",
-  "results",
-  "mqls",
-  "cpr",
-  "cpmql",
-  "cpm",
-  "hook",
-  "ctr",
-  "website_ctr",
-  "connect_rate",
-  "page_conv",
+export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
+  { id: "spend", name: "Spend", defaultVisible: true },
+  { id: "results", name: "Results", defaultVisible: true },
+  { id: "mqls", name: "MQLs", defaultVisible: true },
+  { id: "cpr", name: "CPR", defaultVisible: true },
+  { id: "cpmql", name: "CPMQL", defaultVisible: true },
+  { id: "cpm", name: "CPM", defaultVisible: true },
+  { id: "hook", name: "Hook", defaultVisible: true },
+  { id: "ctr", name: "CTR" },
+  { id: "website_ctr", name: "Link CTR", defaultVisible: true },
+  { id: "connect_rate", name: "Connect", defaultVisible: true },
+  { id: "page_conv", name: "Page", defaultVisible: true },
 ] as const;
 
+// Derivadas — sempre coerentes com MANAGER_COLUMNS
 
+/** Todas as opções de colunas (id + nome), na ordem de renderização */
+export const MANAGER_COLUMN_OPTIONS: readonly ManagerColumnOption[] = MANAGER_COLUMNS;
+
+/** Colunas visíveis por padrão */
+export const DEFAULT_MANAGER_COLUMNS: readonly ManagerColumnType[] = MANAGER_COLUMNS.filter((c) => c.defaultVisible).map((c) => c.id);
+
+/** Ordem de renderização (todos os ids) */
+export const MANAGER_COLUMN_RENDER_ORDER: readonly ManagerColumnType[] = MANAGER_COLUMNS.map((c) => c.id);

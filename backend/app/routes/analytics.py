@@ -244,6 +244,33 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         series["mqls"] = mqls_series
     return series
 
+def _merge_row_conversions_actions(r: Dict[str, Any], target: Dict[str, Any]) -> None:
+    """Agrega conversions e actions de uma linha de ad_metrics em `target` usando chaves prefixadas.
+
+    Chaves no target:
+      - "conversion:{action_type}" para itens de r["conversions"]
+      - "action:{action_type}"     para itens de r["actions"]
+
+    Usado pelos três endpoints de children (ad-name, adset-id, campaign-id) para garantir
+    um contrato uniforme de conversions consumido pelo frontend.
+    """
+    try:
+        for c in (r.get("conversions") or []):
+            action_type = str(c.get("action_type") or "")
+            value = int(c.get("value") or 0)
+            if action_type:
+                key = f"conversion:{action_type}"
+                target[key] = target.get(key, 0) + value
+        for a in (r.get("actions") or []):
+            action_type = str(a.get("action_type") or "")
+            value = int(a.get("value") or 0)
+            if action_type:
+                key = f"action:{action_type}"
+                target[key] = target.get(key, 0) + value
+    except Exception:
+        pass
+
+
 def _hook_at_3_from_curve(curve: Any) -> float:
     try:
         if not isinstance(curve, list) or not curve:
@@ -1193,6 +1220,7 @@ def get_rankings_children(
                 "hold_rate_wsum": 0.0,  # Soma ponderada de hold_rate
                 "video_watched_p50_wsum": 0.0,  # Soma ponderada de video_watched_p50
                 "conversions": {},
+                "leadscore_values": [],
             }
         A = agg[key]
         A["impressions"] += impressions
@@ -1206,29 +1234,14 @@ def get_rankings_children(
         A["hold_rate_wsum"] += hold_rate * plays  # Agregar hold_rate ponderado por plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
 
-        # Agregar conversions e actions no total (não apenas nas séries)
-        try:
-            # Processar conversions
-            for c in (r.get("conversions") or []):
-                action_type = str(c.get("action_type") or "")
-                value = int(c.get("value") or 0)
-                if action_type:
-                    key_conv = f"conversion:{action_type}"
-                    if key_conv not in A["conversions"]:
-                        A["conversions"][key_conv] = 0
-                    A["conversions"][key_conv] += value
-            
-            # Processar actions
-            for a in (r.get("actions") or []):
-                action_type = str(a.get("action_type") or "")
-                value = int(a.get("value") or 0)
-                if action_type:
-                    key_act = f"action:{action_type}"
-                    if key_act not in A["conversions"]:
-                        A["conversions"][key_act] = 0
-                    A["conversions"][key_act] += value
-        except Exception:
-            pass
+        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
+            try:
+                A["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
+            except Exception:
+                pass
+
+        # Agregar conversions e actions no total
+        _merge_row_conversions_actions(r, A["conversions"])
 
         # Séries 5 dias
         if date in axis:
@@ -1244,28 +1257,7 @@ def get_rankings_children(
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
                 pass
-            try:
-                # Processar conversions
-                for c in (r.get("conversions") or []):
-                    action_type = str(c.get("action_type") or "")
-                    value = int(c.get("value") or 0)
-                    if action_type:
-                        key_conv = f"conversion:{action_type}"
-                        if key_conv not in S["conversions"][date]:
-                            S["conversions"][date][key_conv] = 0
-                        S["conversions"][date][key_conv] += value
-                
-                # Processar actions
-                for a in (r.get("actions") or []):
-                    action_type = str(a.get("action_type") or "")
-                    value = int(a.get("value") or 0)
-                    if action_type:
-                        key_act = f"action:{action_type}"
-                        if key_act not in S["conversions"][date]:
-                            S["conversions"][date][key_act] = 0
-                        S["conversions"][date][key_act] += value
-            except Exception:
-                pass
+            _merge_row_conversions_actions(r, S["conversions"][date])
 
     # Buscar thumbnails e effective_status dos filhos
     ad_ids_in_results = list(agg.keys())
@@ -1334,6 +1326,7 @@ def get_rankings_children(
             "cpm": cpm,
             "website_ctr": website_ctr,
             "conversions": A.get("conversions", {}),
+            "leadscore_values": A.get("leadscore_values") or [],
             "thumbnail": thumbnails_map.get(key),
             "series": series,
         })
@@ -1493,26 +1486,7 @@ def get_campaign_children(
             pass
 
         # Agregar conversions e actions por action_type (com prefixos para diferenciar)
-        try:
-            for c in (r.get("conversions") or []):
-                action_type = str(c.get("action_type") or "")
-                value = int(c.get("value") or 0)
-                if action_type:
-                    conv_key = f"conversion:{action_type}"
-                    if conv_key not in A["conversions"]:
-                        A["conversions"][conv_key] = 0
-                    A["conversions"][conv_key] += value
-
-            for a in (r.get("actions") or []):
-                action_type = str(a.get("action_type") or "")
-                value = int(a.get("value") or 0)
-                if action_type:
-                    action_key = f"action:{action_type}"
-                    if action_key not in A["conversions"]:
-                        A["conversions"][action_key] = 0
-                    A["conversions"][action_key] += value
-        except Exception:
-            pass
+        _merge_row_conversions_actions(r, A["conversions"])
 
         # Série 5 dias
         if date in axis:
@@ -1528,28 +1502,7 @@ def get_campaign_children(
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
                 pass
-
-            try:
-                # Processar conversions (prefixo conversion:)
-                for c in (r.get("conversions") or []):
-                    action_type = str(c.get("action_type") or "")
-                    value = int(c.get("value") or 0)
-                    if action_type:
-                        key_conv = f"conversion:{action_type}"
-                        if key_conv not in S["conversions"][date]:
-                            S["conversions"][date][key_conv] = 0
-                        S["conversions"][date][key_conv] += value
-                # Processar actions (prefixo action:)
-                for a in (r.get("actions") or []):
-                    action_type = str(a.get("action_type") or "")
-                    value = int(a.get("value") or 0)
-                    if action_type:
-                        key_act = f"action:{action_type}"
-                        if key_act not in S["conversions"][date]:
-                            S["conversions"][date][key_act] = 0
-                        S["conversions"][date][key_act] += value
-            except Exception:
-                pass
+            _merge_row_conversions_actions(r, S["conversions"][date])
 
     items: List[Dict[str, Any]] = []
     for key, A in agg.items():
@@ -1598,6 +1551,7 @@ def get_campaign_children(
                 "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
                 "cpm": cpm,
                 "website_ctr": website_ctr,
+                "leadscore_values": A.get("leadscore_values") or [],
                 "conversions": A.get("conversions", {}),
                 "ad_count": ad_count,
                 "thumbnail": thumbnail,
@@ -1732,18 +1686,8 @@ def get_adset_children(
             except Exception:
                 pass
 
-        # conversions agregado no período
-        conversions = r.get("conversions") or []
-        if isinstance(conversions, list):
-            for conv in conversions:
-                if isinstance(conv, dict):
-                    t = conv.get("action_type")
-                    v = conv.get("value")
-                    if t:
-                        try:
-                            A["conversions"][str(t)] = A["conversions"].get(str(t), 0) + int(v or 0)
-                        except Exception:
-                            pass
+        # conversions e actions agregado no período
+        _merge_row_conversions_actions(r, A["conversions"])
 
         # series (últimos 5 dias)
         if date in axis:
@@ -1755,21 +1699,7 @@ def get_adset_children(
             S["plays"][date] += plays
             S["lpv"][date] += lpv
             S["hook_wsum"][date] += hook * plays
-
-            # conversions por dia
-            conversions_day = S["conversions"][date]
-            conversions = r.get("conversions") or []
-            if isinstance(conversions, list):
-                for conv in conversions:
-                    if isinstance(conv, dict):
-                        t = conv.get("action_type")
-                        v = conv.get("value")
-                        if t:
-                            try:
-                                conversions_day[str(t)] = conversions_day.get(str(t), 0) + int(v or 0)
-                            except Exception:
-                                pass
-            S["conversions"][date] = conversions_day
+            _merge_row_conversions_actions(r, S["conversions"][date])
 
             # MQLs por dia
             try:
@@ -2799,7 +2729,7 @@ def cache_pack_thumbnails(pack_id: str, user=Depends(get_current_user)):
             ads_rows = _fetch_all_paginated(
                 sb,
                 "ads",
-                "ad_id,thumb_storage_path,adcreatives_videos_thumbs",
+                "ad_id,thumb_storage_path,adcreatives_videos_thumbs,thumbnail_url",
                 ads_filters,
             )
         except Exception as e:
@@ -2814,13 +2744,16 @@ def cache_pack_thumbnails(pack_id: str, user=Depends(get_current_user)):
             if existing_path:
                 skipped += 1
                 continue
+            thumb_url: Optional[str] = None
             thumbs = r.get("adcreatives_videos_thumbs")
             if isinstance(thumbs, list) and thumbs:
                 first = str(thumbs[0] or "").strip()
                 if first:
-                    ad_id_to_thumb_url[ad_id] = first
-                else:
-                    skipped += 1
+                    thumb_url = first
+            if not thumb_url:
+                thumb_url = str(r.get("thumbnail_url") or "").strip() or None
+            if thumb_url:
+                ad_id_to_thumb_url[ad_id] = thumb_url
             else:
                 skipped += 1
 

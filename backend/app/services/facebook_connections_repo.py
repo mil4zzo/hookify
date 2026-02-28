@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 from app.core.supabase_client import get_supabase_for_user
 from app.services.token_encryption import encrypt_token, decrypt_token
+from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,9 @@ def list_connections(user_jwt: str) -> List[Dict[str, Any]]:
         "facebook_name",
         "facebook_email",
         "facebook_picture_url",
+        "picture_storage_path",
+        "picture_cached_at",
+        "picture_source_url",
         "expires_at",
         "scopes",
         "is_primary",
@@ -65,12 +69,20 @@ def list_connections(user_jwt: str) -> List[Dict[str, Any]]:
         "created_at",
         "updated_at",
     ]
-    
+
     # Usar paginação para contornar limite de 1000 linhas (baixo risco, mas melhor prevenir)
     def filters(q):
         return q.order("created_at", desc=True)
-    
-    return _fetch_all_paginated(sb, "facebook_connections", ",".join(cols), filters)
+
+    rows = _fetch_all_paginated(sb, "facebook_connections", ",".join(cols), filters)
+    # Preferir URL do Storage quando houver cache (evita URL do Meta que expira)
+    for row in rows:
+        path = (row.get("picture_storage_path") or "").strip()
+        if path:
+            url = build_public_storage_url(DEFAULT_BUCKET, path)
+            if url:
+                row["facebook_picture_url"] = url
+    return rows
 
 
 def upsert_connection(
@@ -85,6 +97,9 @@ def upsert_connection(
     scopes: Optional[List[str]] = None,
     is_primary: Optional[bool] = None,
     status: str = "active",
+    picture_storage_path: Optional[str] = None,
+    picture_cached_at: Optional[str] = None,
+    picture_source_url: Optional[str] = None,
 ) -> Dict[str, Any]:
     sb = get_supabase_for_user(user_jwt)
     payload: Dict[str, Any] = {
@@ -105,6 +120,12 @@ def upsert_connection(
         payload["scopes"] = scopes
     if is_primary is not None:
         payload["is_primary"] = is_primary
+    if picture_storage_path is not None:
+        payload["picture_storage_path"] = picture_storage_path
+    if picture_cached_at is not None:
+        payload["picture_cached_at"] = picture_cached_at
+    if picture_source_url is not None:
+        payload["picture_source_url"] = picture_source_url
 
     # Upsert sem select (execute diretamente)
     sb.table("facebook_connections").upsert(payload, on_conflict="user_id,facebook_user_id").execute()

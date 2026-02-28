@@ -181,6 +181,22 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
   }, [hasSheetIntegration, saveManagerColumns]);
 
+  // Re-adicionar cpmql e mqls a activeColumns quando hasSheetIntegration passar a true (ex.: após packs carregarem)
+  useEffect(() => {
+    if (hasSheetIntegration) {
+      setActiveColumns((prev) => {
+        const needsCpmql = !prev.has("cpmql");
+        const needsMqls = !prev.has("mqls");
+        if (!needsCpmql && !needsMqls) return prev;
+        const next = new Set(prev);
+        if (needsCpmql) next.add("cpmql");
+        if (needsMqls) next.add("mqls");
+        saveManagerColumns(next);
+        return next;
+      });
+    }
+  }, [hasSheetIntegration, saveManagerColumns]);
+
   const isColumnEnabled = useCallback(
     (columnId: ManagerColumnType) => {
       if (columnId === "cpmql" || columnId === "mqls") return hasSheetIntegration;

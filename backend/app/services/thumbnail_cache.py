@@ -24,6 +24,7 @@ DEFAULT_MAX_BYTES = 4_000_000  # 4MB: mais que suficiente para thumbnail
 DEFAULT_MAX_WORKERS = 8
 DEFAULT_WEBP_QUALITY = 82  # Qualidade WebP (0-100): 82 é bom balanço qualidade/tamanho
 DEFAULT_MAX_WIDTH = 640  # Largura máxima em pixels (mantém aspect ratio)
+PROFILE_PIC_MAX_WIDTH = 256  # Largura máxima para avatar de perfil (Facebook)
 
 
 @dataclass(frozen=True)
@@ -305,5 +306,57 @@ def cache_first_thumbs_for_ads(
                 continue
 
     return results
+
+
+def cache_profile_picture(
+    *,
+    user_id: str,
+    facebook_user_id: str,
+    picture_url: str,
+    bucket: str = DEFAULT_BUCKET,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    max_bytes: int = DEFAULT_MAX_BYTES,
+) -> Optional[CachedThumb]:
+    """Baixa e cacheia a foto de perfil do Facebook no Supabase Storage (bucket público).
+
+    Path: profile-pics/{user_id}/{facebook_user_id}.webp.
+    Retorna metadados para persistir no DB (facebook_connections.picture_storage_path/cached_at/source_url).
+    """
+    user_id = str(user_id or "").strip()
+    facebook_user_id = str(facebook_user_id or "").strip()
+    picture_url = str(picture_url or "").strip()
+
+    if not user_id or not facebook_user_id or not picture_url:
+        return None
+    if not _is_http_url(picture_url):
+        return None
+
+    try:
+        content, _ = _download_image_bytes(
+            picture_url, timeout_seconds=timeout_seconds, max_bytes=max_bytes
+        )
+        webp_content = _convert_to_webp(
+            content, max_width=PROFILE_PIC_MAX_WIDTH, quality=DEFAULT_WEBP_QUALITY
+        )
+        storage_path = f"profile-pics/{user_id}/{facebook_user_id}.webp"
+        webp_content_type = "image/webp"
+
+        _upload_to_supabase_storage(
+            bucket, storage_path, webp_content, webp_content_type, timeout_seconds=timeout_seconds
+        )
+
+        public_url = build_public_storage_url(bucket, storage_path) or ""
+        cached_at = _now_iso()
+        return CachedThumb(
+            storage_path=storage_path,
+            public_url=public_url,
+            cached_at=cached_at,
+            source_url=picture_url,
+        )
+    except Exception as e:
+        logger.info(
+            f"[THUMB_CACHE] Falha ao cachear profile picture user_id={user_id[:8]}... fb={facebook_user_id[:8]}...: {e}"
+        )
+        return None
 
 

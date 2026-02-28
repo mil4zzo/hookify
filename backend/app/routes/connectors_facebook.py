@@ -26,6 +26,7 @@ from app.services.facebook_connections_repo import (
     update_connection_status,
 )
 from app.services.graph_api import GraphAPI, test_facebook_connection
+from app.services.thumbnail_cache import cache_profile_picture, build_public_storage_url, DEFAULT_BUCKET
 from app.services import supabase_repo
 from app.services.facebook_token_service import invalidate_token_cache
 
@@ -122,18 +123,37 @@ def connect_callback(
         picture_data = picture_obj.get("data", {})
         if isinstance(picture_data, dict):
             picture_url = picture_data.get("url")
-    
+
+    user_id = user["user_id"]
+    facebook_user_id = str(fb.get("id"))
+    picture_storage_path = None
+    picture_cached_at = None
+    picture_source_url = None
+    if picture_url and str(picture_url).strip():
+        cached = cache_profile_picture(
+            user_id=user_id,
+            facebook_user_id=facebook_user_id,
+            picture_url=picture_url,
+        )
+        if cached:
+            picture_storage_path = cached.storage_path
+            picture_cached_at = cached.cached_at
+            picture_source_url = cached.source_url
+
     # Persist connection with expires_at and status="active" (new connection or reconnection)
     rec = upsert_connection(
         user_jwt=user["token"],
-        user_id=user["user_id"],
-        facebook_user_id=str(fb.get("id")),
+        user_id=user_id,
+        facebook_user_id=facebook_user_id,
         access_token=access_token,
         facebook_name=fb.get("name"),
         facebook_email=fb.get("email"),
         facebook_picture_url=picture_url,
         expires_at=expires_at_str,
         status="active",  # Sempre "active" ao conectar/reconectar
+        picture_storage_path=picture_storage_path,
+        picture_cached_at=picture_cached_at,
+        picture_source_url=picture_source_url,
     )
     
     # Invalidate cache to force refresh with new token
@@ -156,6 +176,12 @@ def connect_callback(
     except Exception as e:
         # Log mas não falha o fluxo de conexão se a sincronização de ad accounts falhar
         logger.exception(f"Error synchronizing ad accounts after Facebook connection (non-fatal): {e}")
+
+    # Enriquecer rec com URL do Storage quando houver cache (consistente com list_connections)
+    if rec.get("picture_storage_path"):
+        url = build_public_storage_url(DEFAULT_BUCKET, rec["picture_storage_path"])
+        if url:
+            rec["facebook_picture_url"] = url
 
     return {"connection": rec}
 

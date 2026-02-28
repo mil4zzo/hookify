@@ -10,6 +10,7 @@ import { StatusCell } from "@/components/manager/StatusCell";
 import { Input } from "@/components/ui/input";
 import { MANAGER_COLUMN_OPTIONS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
+import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 
 interface ExpandedChildrenRowProps {
   adName?: string;
@@ -99,7 +100,20 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
         }
       }
       // Calcular results: usar actionType se disponível, senão 0 (mesma lógica da linha principal)
-      const results = actionType && typeof actionType === "string" && actionType.trim() ? Number(conversions[actionType] || 0) : 0;
+      // Tratar tanto chaves com prefixo ("conversion:xxx") quanto sem prefixo ("xxx")
+      let results = 0;
+      if (actionType && typeof actionType === "string" && actionType.trim()) {
+        results = Number(conversions[actionType] || 0);
+        // Se não encontrou e actionType tem prefixo, tentar sem prefixo
+        if (results === 0 && (actionType.startsWith("conversion:") || actionType.startsWith("action:"))) {
+          const unprefixed = actionType.replace(/^(conversion|action):/, '');
+          results = Number(conversions[unprefixed] || 0);
+        }
+        // Se não encontrou e actionType não tem prefixo, tentar com prefixo
+        if (results === 0 && !actionType.startsWith("conversion:") && !actionType.startsWith("action:")) {
+          results = Number(conversions[`conversion:${actionType}`] || conversions[`action:${actionType}`] || 0);
+        }
+      }
       // Calcular page_conv: mesmo cálculo da linha principal
       const page_conv = lpv > 0 ? results / lpv : 0;
       // Calcular cpr: mesmo cálculo da linha principal
@@ -107,11 +121,15 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
       // Usar cpm do backend se disponível, senão calcular
       // cpm sempre vem do backend
       const cpm = typeof child.cpm === "number" ? child.cpm : 0;
-      // Calcular MQLs (leads com leadscore >= mqlLeadscoreMin)
-      const childAny = child as any;
-      const mqls = hasSheetIntegration && childAny.leads && Array.isArray(childAny.leads)
-        ? childAny.leads.filter((lead: any) => Number(lead.leadscore || 0) >= mqlLeadscoreMin).length
-        : 0;
+      // Calcular MQLs usando computeMqlMetricsFromLeadscore (mesma lógica da tabela principal)
+      const { mqlCount } = hasSheetIntegration
+        ? computeMqlMetricsFromLeadscore({
+            spend,
+            leadscoreRaw: (child as any).leadscore_values,
+            mqlLeadscoreMin,
+          })
+        : { mqlCount: 0 };
+      const mqls = mqlCount;
       // Calcular CPMQL (custo por MQL)
       const cpmql = mqls > 0 ? spend / mqls : 0;
       // Calcular website_ctr (inline_link_clicks / impressions)

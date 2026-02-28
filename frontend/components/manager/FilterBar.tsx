@@ -22,6 +22,8 @@ interface FilterableColumn {
 const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "ACTIVE", label: "Ativo" },
   { value: "PAUSED", label: "Pausado" },
+  { value: "ADSET_PAUSED", label: "Pausado (Conjunto)" },
+  { value: "CAMPAIGN_PAUSED", label: "Pausado (Campanha)" },
 ];
 
 interface FilterBarProps {

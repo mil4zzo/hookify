@@ -150,13 +150,13 @@ function ManagerPageContent() {
   const [activeManagerTab, setActiveManagerTab] = useState<ManagerTab>("por-anuncio");
   const { packs, isClient: packsClient } = useClientPacks();
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
-  
+
   // Ler filtros iniciais dos query params (vindos da busca global)
   const initialFilters = useMemo(() => {
     const filter = searchParams.get("filter");
     const value = searchParams.get("value");
     const tab = searchParams.get("tab");
-    
+
     if (filter && value && tab) {
       // Validar que o tab corresponde ao tipo de filtro
       const validTabMap: Record<string, ManagerTab> = {
@@ -165,22 +165,22 @@ function ManagerPageContent() {
         adset_name: "por-conjunto",
         campaign_name: "por-campanha",
       };
-      
+
       const expectedTab = validTabMap[filter];
       if (expectedTab && expectedTab === tab) {
         // Navegar para a aba correta
         if (activeManagerTab !== expectedTab) {
           setActiveManagerTab(expectedTab);
         }
-        
+
         // Retornar filtro inicial
         return [{ id: filter, value }];
       }
     }
-    
+
     return undefined;
   }, [searchParams, activeManagerTab]);
-  
+
   // Limpar query params após aplicar filtros (opcional - manter comentado por enquanto para debug)
   // useEffect(() => {
   //   if (initialFilters && initialFilters.length > 0) {
@@ -243,7 +243,7 @@ function ManagerPageContent() {
     return new Set(
       Object.entries(prefs)
         .filter(([_, enabled]) => enabled)
-        .map(([id]) => id)
+        .map(([id]) => id),
     );
   });
 
@@ -294,7 +294,7 @@ function ManagerPageContent() {
       filters: {},
       pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end, selectedPackIds]
+    [dateRange.start, dateRange.end, selectedPackIds],
   );
 
   const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
@@ -309,7 +309,7 @@ function ManagerPageContent() {
       filters: {},
       pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end, selectedPackIds]
+    [dateRange.start, dateRange.end, selectedPackIds],
   );
 
   const shouldFetchIndividual = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
@@ -325,7 +325,7 @@ function ManagerPageContent() {
       filters: {},
       pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end, selectedPackIds]
+    [dateRange.start, dateRange.end, selectedPackIds],
   );
 
   const shouldFetchAdset = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
@@ -341,7 +341,7 @@ function ManagerPageContent() {
       filters: {},
       pack_ids: Array.from(selectedPackIds),
     }),
-    [dateRange.start, dateRange.end, selectedPackIds]
+    [dateRange.start, dateRange.end, selectedPackIds],
   );
 
   const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
@@ -533,7 +533,7 @@ function ManagerPageContent() {
     const enabledPackIds = new Set(
       Object.entries(hasChanges ? newPrefs : currentPrefs)
         .filter(([_, enabled]) => enabled)
-        .map(([id]) => id)
+        .map(([id]) => id),
     );
 
     setSelectedPackIds((prevSelected) => {
@@ -577,7 +577,7 @@ function ManagerPageContent() {
     const enabledPackIds = new Set(
       Object.entries(newPrefs)
         .filter(([_, enabled]) => enabled)
-        .map(([id]) => id)
+        .map(([id]) => id),
     );
     setSelectedPackIds(enabledPackIds);
   };
@@ -679,7 +679,9 @@ function ManagerPageContent() {
         clicks: Number(row.clicks || 0),
         impressions: Number(row.impressions || 0),
         inline_link_clicks: Number(row.inline_link_clicks || 0),
+        lpv,
         spend,
+        plays: Number(row.plays || 0),
         video_total_plays: Number(row.plays || 0),
         hook: Number(row.hook || 0),
         ctr: Number(row.ctr || 0),
@@ -737,7 +739,9 @@ function ManagerPageContent() {
         clicks: Number(row.clicks || 0),
         impressions: Number(row.impressions || 0),
         inline_link_clicks: Number(row.inline_link_clicks || 0),
+        lpv,
         spend,
+        plays: Number(row.plays || 0),
         video_total_plays: Number(row.plays || 0),
         hook: Number(row.hook || 0),
         ctr: Number(row.ctr || 0),
@@ -797,7 +801,9 @@ function ManagerPageContent() {
         clicks: Number(row.clicks || 0),
         impressions: Number(row.impressions || 0),
         inline_link_clicks: Number(row.inline_link_clicks || 0),
+        lpv,
         spend,
+        plays: Number(row.plays || 0),
         video_total_plays: Number(row.plays || 0),
         hook: Number(row.hook || 0),
         ctr: Number(row.ctr || 0),
@@ -857,7 +863,9 @@ function ManagerPageContent() {
         clicks: Number(row.clicks || 0),
         impressions: Number(row.impressions || 0),
         inline_link_clicks: Number(row.inline_link_clicks || 0),
+        lpv,
         spend,
+        plays: Number(row.plays || 0),
         video_total_plays: Number(row.plays || 0),
         hook: Number(row.hook || 0),
         ctr: Number(row.ctr || 0),
@@ -992,7 +1000,11 @@ function ManagerPageContent() {
         dateStop={dateRange.end}
         availableConversionTypes={uniqueConversionTypes}
         showTrends={showTrends}
-        hasSheetIntegration={selectedPacks.some((p) => !!p.sheet_integration)}
+        hasSheetIntegration={
+          selectedPacks.length > 0
+            ? selectedPacks.some((p) => !!p.sheet_integration)
+            : selectedPackIds.size > 0
+        }
         isLoading={loading}
         initialFilters={initialFilters}
         averagesOverride={(() => {
