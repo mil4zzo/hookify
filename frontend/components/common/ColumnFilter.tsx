@@ -20,6 +20,10 @@ export interface TextFilterValue {
   value: string | null;
 }
 
+export interface StatusFilterValue {
+  selectedStatuses: string[];
+}
+
 interface ColumnFilterProps {
   value: FilterValue | undefined;
   onChange?: (value: FilterValue | undefined) => void;

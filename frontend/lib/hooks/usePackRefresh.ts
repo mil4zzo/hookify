@@ -12,7 +12,7 @@
  * - Invalidação de cache após conclusão
  */
 
-import { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { api } from "@/lib/api/endpoints";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
@@ -40,6 +40,8 @@ import {
 } from "@/lib/utils/googleAuthError";
 import { AppError } from "@/lib/utils/errors";
 import { AdsPack } from "@/lib/types";
+import { MetaIcon } from "@/components/icons/MetaIcon";
+import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
 // ============================================================================
 // TYPES
@@ -168,6 +170,10 @@ function progressToDays(progressPercent: number, totalDays: number): number {
 // MAIN HOOK
 // ============================================================================
 
+// Ícones para identificar a origem do toast
+const metaToastIcon = React.createElement(MetaIcon, { className: "h-5 w-5 flex-shrink-0" });
+const sheetsToastIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
+
 export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshReturn {
   // === HOOKS ===
   const { updatePack } = useClientPacks();
@@ -285,7 +291,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             currentDay = 2;
           }
 
-          updateProgressToast(toastId, `Planilha: ${packName}`, currentDay, 2, displayMessage);
+          updateProgressToast(toastId, `Planilha: ${packName}`, currentDay, 2, displayMessage, undefined, sheetsToastIcon);
 
           if (progress.status === "completed") {
             console.log(`[PACK_REFRESH] ✅ Sync job ${syncJobId} completado`);
@@ -323,7 +329,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             }
           }
 
-          updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...");
+          updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...", undefined, sheetsToastIcon);
         }
 
         attempts++;
@@ -356,7 +362,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
     activeRefresh.cancelled = true;
 
     // Mostrar "Cancelando..." imediatamente
-    showCancellingToast(activeRefresh.toastId, activeRefresh.packName);
+    showCancellingToast(activeRefresh.toastId, activeRefresh.packName, metaToastIcon);
 
     // Cancelar job do Meta via API se já foi criado
     if (activeRefresh.metaJobId) {
@@ -448,8 +454,15 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         1,
         estimatedTotalDays,
         "Preparando atualização...",
-        handleCancel
+        handleCancel,
+        metaToastIcon
       );
+
+      // Mostrar toast do Sheets imediatamente se sabemos que há integração
+      if (sheetIntegrationId) {
+        activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
+        showProgressToast(activeRefresh.sheetSyncToastId, `Planilha: ${packName}`, 1, 2, "Preparando importação...", undefined, sheetsToastIcon);
+      }
 
       let refreshResult: { job_id?: string; date_range?: { since: string; until: string }; sync_job_id?: string } | null = null;
 
@@ -461,7 +474,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         const syncJobIdFromResponse = refreshResult?.sync_job_id;
         if (syncJobIdFromResponse) {
           activeRefresh.sheetSyncJobId = syncJobIdFromResponse;
-          activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
+          if (!activeRefresh.sheetSyncToastId) {
+            activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
+          }
           console.log(`[PACK_REFRESH] sync_job_id capturado do response inicial: ${syncJobIdFromResponse}`);
         }
 
@@ -500,7 +515,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         // Iniciar polling do Sheets imediatamente se temos sync_job_id
         if (activeRefresh.sheetSyncJobId && activeRefresh.sheetSyncToastId) {
           console.log(`[PACK_REFRESH] Iniciando polling do Sheets imediatamente`);
-          showProgressToast(activeRefresh.sheetSyncToastId, `Planilha: ${packName}`, 1, 2, "Importando planilha...");
+          updateProgressToast(activeRefresh.sheetSyncToastId, `Planilha: ${packName}`, 1, 2, "Importando planilha...", undefined, sheetsToastIcon);
           pollSheetSyncJob(
             activeRefresh.sheetSyncJobId,
             activeRefresh.sheetSyncToastId,
@@ -511,6 +526,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           ).catch((error) => {
             console.error(`Erro no polling do sync job:`, error);
           });
+        } else if (!activeRefresh.sheetSyncJobId && activeRefresh.sheetSyncToastId) {
+          // Toast do Sheets foi criado antecipadamente mas API não retornou sync_job_id
+          dismissToast(activeRefresh.sheetSyncToastId);
+          activeRefresh.sheetSyncToastId = null;
         }
 
         // Calcular total de dias
@@ -520,7 +539,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           return;
         }
         const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
-        updateProgressToast(toastId, packName, 1, totalDays, undefined, handleCancel);
+        updateProgressToast(toastId, packName, 1, totalDays, undefined, handleCancel, metaToastIcon);
 
         // Fazer polling do job Meta
         let completed = false;
@@ -541,14 +560,16 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             // Verificar se há sync_job_id e ainda não iniciamos o polling de Sheets
             if (details.sync_job_id && !activeRefresh.sheetSyncJobId) {
               activeRefresh.sheetSyncJobId = details.sync_job_id;
-              activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
+              if (!activeRefresh.sheetSyncToastId) {
+                activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
+              }
               console.log(`[PACK_REFRESH] sync_job_id capturado do polling: ${details.sync_job_id}`);
 
               // Buscar integrationId
               const integrationIdToUse = sheetIntegrationId || details.integration_id || "";
 
-              // Iniciar polling paralelo do job de Sheets
-              showProgressToast(activeRefresh.sheetSyncToastId!, `Planilha: ${packName}`, 1, 2, "Importando planilha...");
+              // Atualizar (ou criar) toast do Sheets e iniciar polling
+              updateProgressToast(activeRefresh.sheetSyncToastId!, `Planilha: ${packName}`, 1, 2, "Importando planilha...", undefined, sheetsToastIcon);
               pollSheetSyncJob(
                 activeRefresh.sheetSyncJobId!,
                 activeRefresh.sheetSyncToastId!,
@@ -576,7 +597,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               displayMessage = getStatusMessage(progress.status, details?.stage, details);
             }
 
-            updateProgressToast(toastId, packName, currentDay, totalDays, displayMessage, handleCancel);
+            updateProgressToast(toastId, packName, currentDay, totalDays, displayMessage, handleCancel, metaToastIcon);
 
             if (progress.status === "completed") {
               const adsCount = Array.isArray(progress.data) ? progress.data.length : 0;
@@ -632,7 +653,8 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               lastKnownDay,
               totalDays,
               "Erro ao verificar progresso, tentando novamente...",
-              handleCancel
+              handleCancel,
+              metaToastIcon
             );
           }
 

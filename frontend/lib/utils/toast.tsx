@@ -2,7 +2,7 @@ import { toast } from "sonner";
 import { AppError } from "./errors";
 import { parseError } from "./errors";
 import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
-import React from "react";
+import React, { type ReactNode } from "react";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 
@@ -86,13 +86,13 @@ export function getStatusMessage(status: string, stage?: string, details?: any):
 /**
  * Mostra toast de progresso para atualização de pack
  */
-export function showProgressToast(toastId: string, packName: string, currentDay: number, totalDays: number, message?: string, onCancel?: () => void) {
+export function showProgressToast(toastId: string, packName: string, currentDay: number, totalDays: number, message?: string, onCancel?: () => void, icon?: ReactNode) {
   const progress = totalDays > 0 ? Math.min(100, Math.max(0, (currentDay / totalDays) * 100)) : 0;
 
   toast.loading(
     <div className="flex flex-col gap-2 w-full">
       <div className="flex items-center gap-3">
-        <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />
+        {icon || <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />}
         <span className="text-sm">
           Atualizando <strong>{packName}</strong> em {totalDays} dia{totalDays > 1 ? "s" : ""} (dia {currentDay}/{totalDays}){message ? ` - ${message}` : "..."}
         </span>
@@ -113,13 +113,13 @@ export function showProgressToast(toastId: string, packName: string, currentDay:
 /**
  * Atualiza toast de progresso existente
  */
-export function updateProgressToast(toastId: string, packName: string, currentDay: number, totalDays: number, message?: string, onCancel?: () => void) {
+export function updateProgressToast(toastId: string, packName: string, currentDay: number, totalDays: number, message?: string, onCancel?: () => void, icon?: ReactNode) {
   const progress = totalDays > 0 ? Math.min(100, Math.max(0, (currentDay / totalDays) * 100)) : 0;
 
   toast.loading(
     <div className="flex flex-col gap-2 w-full">
       <div className="flex items-center gap-3">
-        <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />
+        {icon || <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />}
         <span className="text-sm">
           Atualizando <strong>{packName}</strong> em {totalDays} dia{totalDays > 1 ? "s" : ""} (dia {currentDay}/{totalDays}){message ? ` - ${message}` : "..."}
         </span>
@@ -141,11 +141,11 @@ export function updateProgressToast(toastId: string, packName: string, currentDa
  * Mostra toast de "Cancelando..." - usado quando usuário clica no botão cancelar
  * Não tem botão de cancelar (evita cliques múltiplos)
  */
-export function showCancellingToast(toastId: string, packName: string) {
+export function showCancellingToast(toastId: string, packName: string, icon?: ReactNode) {
   toast.loading(
     <div className="flex flex-col gap-2 w-full">
       <div className="flex items-center gap-3">
-        <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />
+        {icon || <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />}
         <span className="text-sm">
           Cancelando atualização de <strong>{packName}</strong>...
         </span>

@@ -269,6 +269,7 @@ export const SheetSyncStatsSchema = z.object({
   skipped_invalid: z.number(),
   utilized_sheet_rows: z.number().optional(),
   skipped_sheet_rows: z.number().optional(),
+  matched_unique_pairs: z.number().optional(),
 })
 
 export const SheetSyncJobProgressSchema = z.object({

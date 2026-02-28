@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import React, { useEffect, useCallback } from "react";
 import { usePausedSheetJobsStore } from "@/lib/store/pausedSheetJobs";
 import { api } from "@/lib/api/endpoints";
 import {
@@ -7,6 +7,9 @@ import {
   finishProgressToast,
   dismissToast,
 } from "@/lib/utils/toast";
+import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
+
+const sheetsIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
 
 /**
  * Faz polling simples do job de sync do Google Sheets.
@@ -46,7 +49,7 @@ async function pollResumedSyncJob(
         message = "Salvando dados de enriquecimento...";
       }
 
-      updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, message);
+      updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, message, undefined, sheetsIcon);
 
       if (progress.status === "completed") {
         const stats = (progress as any)?.stats || {};
@@ -60,7 +63,7 @@ async function pollResumedSyncJob(
       }
     } catch (error) {
       console.error(`[pollResumedSyncJob] Erro ao verificar progresso:`, error);
-      updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...");
+      updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...", undefined, sheetsIcon);
     }
 
     attempts++;
@@ -98,7 +101,7 @@ export function useGoogleReconnectHandler() {
 
         // Criar novo toast de progresso
         const newToastId = `sync-sheet-${pausedJob.packId}-${Date.now()}`;
-        showProgressToast(newToastId, `Planilha: ${pausedJob.packName}`, 0, 1, "Retomando sincronização...");
+        showProgressToast(newToastId, `Planilha: ${pausedJob.packName}`, 0, 1, "Retomando sincronização...", undefined, sheetsIcon);
 
         if (!pausedJob.integrationId) {
           console.error(`[useGoogleReconnectHandler] Job pausado sem integrationId: ${pausedJob.packId}`);

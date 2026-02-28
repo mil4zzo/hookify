@@ -125,7 +125,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       if (typeof window === "undefined") return;
       debouncedStorage.setItem(STORAGE_KEY_MANAGER_COLUMNS, JSON.stringify(Array.from(columns)));
     },
-    [debouncedStorage]
+    [debouncedStorage],
   );
 
   const [activeColumns, setActiveColumns] = useState<Set<ManagerColumnType>>(() => loadManagerColumns());
@@ -154,7 +154,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         debouncedStorage.setItem(STORAGE_KEY_VIEW_MODE, mode);
       }
     },
-    [debouncedStorage]
+    [debouncedStorage],
   );
 
   // Função para resetar o tamanho das colunas para os valores padrão
@@ -186,7 +186,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       if (columnId === "cpmql" || columnId === "mqls") return hasSheetIntegration;
       return true;
     },
-    [hasSheetIntegration]
+    [hasSheetIntegration],
   );
 
   const isColumnVisible = useCallback((columnId: ManagerColumnType) => activeColumns.has(columnId) && isColumnEnabled(columnId), [activeColumns, isColumnEnabled]);
@@ -208,7 +208,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         return next;
       });
     },
-    [saveManagerColumns]
+    [saveManagerColumns],
   );
   const handleTabChange = (value: string) => {
     const next = value as ManagerTab;
@@ -223,8 +223,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // - por-anuncio: agrupado por nome (comportamento atual)
   // - por-conjunto: por adset_id (sem agrupamento por nome)
   const groupByAdNameEffective = currentTab === "por-anuncio";
-  const adsEffective = currentTab === "individual" ? adsIndividual ?? ads : currentTab === "por-conjunto" ? adsAdset ?? ads : currentTab === "por-campanha" ? adsCampaign ?? ads : ads;
-  const isLoadingEffective = currentTab === "individual" ? isLoadingIndividual ?? isLoading : currentTab === "por-conjunto" ? isLoadingAdset ?? isLoading : currentTab === "por-campanha" ? isLoadingCampaign ?? isLoading : isLoading;
+  const adsEffective = currentTab === "individual" ? (adsIndividual ?? ads) : currentTab === "por-conjunto" ? (adsAdset ?? ads) : currentTab === "por-campanha" ? (adsCampaign ?? ads) : ads;
+  const isLoadingEffective = currentTab === "individual" ? (isLoadingIndividual ?? isLoading) : currentTab === "por-conjunto" ? (isLoadingAdset ?? isLoading) : currentTab === "por-campanha" ? (isLoadingCampaign ?? isLoading) : isLoading;
 
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
@@ -488,7 +488,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       }
       return String(item.unique_id || `${item.account_id}:${item.ad_id}`);
     },
-    [groupByAdNameEffective, currentTab]
+    [groupByAdNameEffective, currentTab],
   );
 
   // Funções estáveis para evitar recriação a cada render
@@ -569,7 +569,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           return formatCurrency(Number(avgValue));
         }
       },
-    [averages, formatPct, formatCurrency]
+    [averages, formatPct, formatCurrency],
   );
 
   const { openSettings } = useSettingsModalStore();
@@ -629,6 +629,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFilters,
       sorting,
       columnSizing,
+      columnVisibility: {
+        adset_name_filter: false,
+        campaign_name_filter: false,
+      },
     },
     onColumnFiltersChange: setColumnFilters,
     onSortingChange: handleSortingChange,
@@ -693,7 +697,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           return formatCurrency(Number(avgValue));
         }
       },
-    [filteredAverages, formatPct, formatCurrency]
+    [filteredAverages, formatPct, formatCurrency],
   );
 
   // Atualizar refs sincronamente (antes do render) para que os headers leiam valores atualizados
@@ -721,7 +725,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
     // Coluna de nome (texto) baseada na aba atual
-    const nameColumn = currentTab === "por-conjunto" ? { id: "ad_name", label: "Conjunto", isText: true } : currentTab === "por-campanha" ? { id: "ad_name", label: "Campanha", isText: true } : { id: "ad_name", label: "Nome", isText: true };
+    const nameColumn = currentTab === "por-conjunto" ? { id: "ad_name", label: "Conjunto", isText: true } : currentTab === "por-campanha" ? { id: "ad_name", label: "Campanha", isText: true } : { id: "ad_name", label: "Anúncio", isText: true };
 
     const isEnabled = (id: ManagerColumnType) => {
       if (id === "cpmql" || id === "mqls") return hasSheetIntegration;
@@ -729,7 +733,23 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     };
     const shouldShow = (id: ManagerColumnType) => activeColumns.has(id) && isEnabled(id);
 
-    const cols: Array<{ id: string; label: string; isPercentage?: boolean; isText?: boolean }> = [nameColumn];
+    const cols: Array<{ id: string; label: string; isPercentage?: boolean; isText?: boolean; isStatus?: boolean }> = [];
+
+    // Filtro de status disponível em todas as abas exceto "por-anuncio"
+    if (currentTab !== "por-anuncio") {
+      cols.push({ id: "status", label: "Status", isStatus: true });
+    }
+
+    cols.push(nameColumn);
+
+    // Filtros de nome cruzados (adset_name e campaign_name) por aba
+    if (currentTab === "individual" || currentTab === "por-anuncio") {
+      cols.push({ id: "adset_name_filter", label: "Conjunto", isText: true });
+      cols.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
+    } else if (currentTab === "por-conjunto") {
+      cols.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
+    }
+    // por-campanha: adset_name é null nessa aba, não adicionar filtro de conjunto
 
     if (shouldShow("hook")) cols.push({ id: "hook", label: "Hook", isPercentage: true });
     if (shouldShow("cpr")) cols.push({ id: "cpr", label: "CPR", isPercentage: false });
@@ -816,8 +836,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       mqlLeadscoreMin,
       sorting,
       dataLength: data.length,
+      showTrends,
     }),
-    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data.length]
+    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data.length, showTrends],
   );
 
   return (

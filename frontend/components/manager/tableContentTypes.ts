@@ -33,5 +33,7 @@ export interface SharedTableContentProps {
   sorting: { id: string; desc: boolean }[];
   // Adicionado para detectar quando dados chegam do servidor (evita cache incorreto)
   dataLength: number;
+  /** Toggle Médias vs Tendências: quando muda, a tabela deve re-renderizar para mostrar sparklines ou médias */
+  showTrends?: boolean;
 }
 

@@ -16,7 +16,7 @@ export type MinimalTableContentProps = SharedTableContentProps;
 // Função de comparação customizada otimizada para React.memo (mesma lógica do TableContent)
 function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: MinimalTableContentProps): boolean {
   // 1. Comparações primitivas (rápidas)
-  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType) {
+  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends) {
     return false;
   }
 
@@ -26,15 +26,9 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
   }
 
   // 2.1 Comparação de activeColumns, hasSheetIntegration e mqlLeadscoreMin
-  const activeColumnsEqual =
-    prev.activeColumns.size === next.activeColumns.size &&
-    Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
+  const activeColumnsEqual = prev.activeColumns.size === next.activeColumns.size && Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
 
-  if (
-    !activeColumnsEqual ||
-    prev.hasSheetIntegration !== next.hasSheetIntegration ||
-    prev.mqlLeadscoreMin !== next.mqlLeadscoreMin
-  ) {
+  if (!activeColumnsEqual || prev.hasSheetIntegration !== next.hasSheetIntegration || prev.mqlLeadscoreMin !== next.mqlLeadscoreMin) {
     return false;
   }
 
@@ -187,7 +181,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
       }
       setSelectedAd(original);
     },
-    [isResizing, currentTab, getRowKey, setExpanded, setSelectedAd]
+    [isResizing, currentTab, getRowKey, setExpanded, setSelectedAd],
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -227,7 +221,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
       <div ref={tableContainerRef} className="flex-1 overflow-x-auto overflow-y-auto">
         <table className="w-full text-xs border-collapse" style={{ tableLayout: "fixed" }}>
           <colgroup>
-            {table.getAllColumns().map((column) => (
+            {table.getVisibleLeafColumns().map((column) => (
               <col key={column.id} style={{ width: column.getSize() }} />
             ))}
           </colgroup>
@@ -287,7 +281,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
               // Loading skeletons
               virtualRows.map((virtualRow) => (
                 <tr key={`skeleton-${virtualRow.index}`} className="border-b border-border">
-                  {table.getAllColumns().map((column) => {
+                  {table.getVisibleLeafColumns().map((column) => {
                     const isFirstColumn = column.id === "ad_name";
                     const cellAlign = isFirstColumn ? "text-left" : "text-center";
                     return (
@@ -307,7 +301,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
               ))
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={table.getAllColumns().length} className="p-4 text-center text-muted-foreground text-xs">
+                <td colSpan={table.getVisibleLeafColumns().length} className="p-4 text-center text-muted-foreground text-xs">
                   Nenhum resultado com esses filtros.
                 </td>
               </tr>

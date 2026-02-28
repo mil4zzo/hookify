@@ -16,40 +16,19 @@ export type TableContentProps = SharedTableContentProps;
 // Função de comparação customizada otimizada para React.memo
 function areTableContentPropsEqual(prev: TableContentProps, next: TableContentProps): boolean {
   // 1. Comparações primitivas (rápidas)
-  if (
-    prev.isLoadingEffective !== next.isLoadingEffective ||
-    prev.groupByAdNameEffective !== next.groupByAdNameEffective ||
-    prev.currentTab !== next.currentTab ||
-    prev.dateStart !== next.dateStart ||
-    prev.dateStop !== next.dateStop ||
-    prev.actionType !== next.actionType
-  ) {
+  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends) {
     return false;
   }
 
   // 2. Comparação de funções (devem ser estáveis via useCallback)
-  if (
-    prev.getRowKey !== next.getRowKey ||
-    prev.setExpanded !== next.setExpanded ||
-    prev.setSelectedAd !== next.setSelectedAd ||
-    prev.setSelectedAdset !== next.setSelectedAdset ||
-    prev.formatCurrency !== next.formatCurrency ||
-    prev.formatPct !== next.formatPct ||
-    prev.setColumnFilters !== next.setColumnFilters
-  ) {
+  if (prev.getRowKey !== next.getRowKey || prev.setExpanded !== next.setExpanded || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setColumnFilters !== next.setColumnFilters) {
     return false;
   }
 
   // 2.1 Comparação de activeColumns, hasSheetIntegration e mqlLeadscoreMin
-  const activeColumnsEqual =
-    prev.activeColumns.size === next.activeColumns.size &&
-    Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
+  const activeColumnsEqual = prev.activeColumns.size === next.activeColumns.size && Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
 
-  if (
-    !activeColumnsEqual ||
-    prev.hasSheetIntegration !== next.hasSheetIntegration ||
-    prev.mqlLeadscoreMin !== next.mqlLeadscoreMin
-  ) {
+  if (!activeColumnsEqual || prev.hasSheetIntegration !== next.hasSheetIntegration || prev.mqlLeadscoreMin !== next.mqlLeadscoreMin) {
     return false;
   }
 
@@ -58,7 +37,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   // Isso evita processar 873 linhas durante resize (columnSizing não afeta os dados)
   const prevData = prev.table.options.data;
   const nextData = next.table.options.data;
-  
+
   // Se os dados originais mudaram, as rows mudaram
   if (prevData !== nextData) {
     return false;
@@ -68,21 +47,21 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   if (prev.dataLength !== next.dataLength) {
     return false;
   }
-  
+
   // Comparar filtros e sorting (que afetam quais rows são mostradas)
   const prevState = prev.table.getState();
   const nextState = next.table.getState();
-  
+
   // Comparar filtros
   if (JSON.stringify(prevState.columnFilters) !== JSON.stringify(nextState.columnFilters)) {
     return false;
   }
-  
+
   // Comparar sorting usando a prop direta (mais confiável que table.getState())
   if (JSON.stringify(prev.sorting) !== JSON.stringify(next.sorting)) {
     return false;
   }
-  
+
   // IMPORTANTE: Não comparar columnSizing aqui porque:
   // 1. columnSizing não afeta quais rows são mostradas, só o tamanho das colunas
   // 2. Durante resize, columnSizing muda frequentemente mas os dados não mudam
@@ -98,10 +77,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   for (let i = 0; i < prev.columnFilters.length; i++) {
     const prevFilter = prev.columnFilters[i];
     const nextFilter = next.columnFilters[i];
-    if (
-      prevFilter.id !== nextFilter.id ||
-      JSON.stringify(prevFilter.value) !== JSON.stringify(nextFilter.value)
-    ) {
+    if (prevFilter.id !== nextFilter.id || JSON.stringify(prevFilter.value) !== JSON.stringify(nextFilter.value)) {
       return false;
     }
   }
@@ -127,7 +103,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
 
 export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
-  
+
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
   // rows só deve ser recalculado quando dados, filtros ou sorting mudarem
   // NÃO recalcular quando apenas columnSizing mudar (durante resize)
@@ -206,7 +182,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
       }
       setSelectedAd(original);
     },
-    [isResizing, currentTab, getRowKey, setExpanded, setSelectedAd]
+    [isResizing, currentTab, getRowKey, setExpanded, setSelectedAd],
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -242,16 +218,11 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
         />
       )}
       {/* Linha vertical que acompanha o mouse durante resize */}
-      {isResizing && resizePosition !== null && (
-        <div
-          className="fixed top-0 bottom-0 w-[2px] bg-primary z-[60] pointer-events-none"
-          style={{ left: `${resizePosition}px` }}
-        />
-      )}
+      {isResizing && resizePosition !== null && <div className="fixed top-0 bottom-0 w-[2px] bg-primary z-[60] pointer-events-none" style={{ left: `${resizePosition}px` }} />}
       <div ref={tableContainerRef} className="flex-1 overflow-x-auto overflow-y-auto">
         <table className="w-full text-sm border-separate border-spacing-y-4" style={{ tableLayout: "fixed" }}>
           <colgroup>
-            {table.getAllColumns().map((column) => (
+            {table.getVisibleLeafColumns().map((column) => (
               <col key={column.id} style={{ width: column.getSize() }} />
             ))}
           </colgroup>
@@ -312,11 +283,11 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
               // Loading skeletons
               virtualRows.map((virtualRow) => (
                 <tr key={`skeleton-${virtualRow.index}`} className="bg-background">
-                  {table.getAllColumns().map((column, colIndex) => {
+                  {table.getVisibleLeafColumns().map((column, colIndex) => {
                     const isFirstColumn = column.id === "ad_name";
                     const cellAlign = isFirstColumn ? "text-left" : "text-center";
                     const isFirst = colIndex === 0;
-                    const isLast = colIndex === table.getAllColumns().length - 1;
+                    const isLast = colIndex === table.getVisibleLeafColumns().length - 1;
                     return (
                       <td key={column.id} className={`p-4 ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`}>
                         {isFirstColumn ? (
@@ -337,7 +308,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
               ))
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={table.getAllColumns().length} className="p-8 text-center text-muted-foreground">
+                <td colSpan={table.getVisibleLeafColumns().length} className="p-8 text-center text-muted-foreground">
                   Nenhum resultado com esses filtros.
                 </td>
               </tr>
@@ -352,12 +323,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
 
                 return (
                   <Fragment key={row.id}>
-                    <tr
-                      data-index={virtualRow.index}
-                      ref={rowVirtualizer.measureElement}
-                      className={`bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-input-30 cursor-pointer"}`}
-                      onClick={(e) => handleRowClick(e, row)}
-                    >
+                    <tr data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-input-30 cursor-pointer"}`} onClick={(e) => handleRowClick(e, row)}>
                       {row.getVisibleCells().map((cell, cellIndex) => {
                         const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
                         const isFirst = cellIndex === 0;

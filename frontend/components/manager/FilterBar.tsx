@@ -5,9 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { IconX, IconPlus, IconFilter, IconCheck } from "@tabler/icons-react";
+import { IconX, IconPlus, IconFilter, IconCheck, IconChevronDown } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
-import type { FilterValue, FilterOperator, TextFilterValue, TextFilterOperator } from "@/components/common/ColumnFilter";
+import type { FilterValue, FilterOperator, TextFilterValue, TextFilterOperator, StatusFilterValue } from "@/components/common/ColumnFilter";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Separator } from "@/components/common/Separator";
 
 interface FilterableColumn {
@@ -15,7 +16,13 @@ interface FilterableColumn {
   label: string;
   isPercentage?: boolean;
   isText?: boolean;
+  isStatus?: boolean;
 }
+
+const STATUS_OPTIONS: { value: string; label: string }[] = [
+  { value: "ACTIVE", label: "Ativo" },
+  { value: "PAUSED", label: "Pausado" },
+];
 
 interface FilterBarProps {
   columnFilters: ColumnFiltersState;
@@ -70,11 +77,12 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
   // Rastrear quais filtros já receberam foco para não focar novamente
   const focusedFilters = useRef<Set<string>>(new Set());
 
-  // Filtros ativos são aqueles que têm um valor FilterValue ou TextFilterValue definido
+  // Filtros ativos são aqueles que têm um valor FilterValue, TextFilterValue ou StatusFilterValue definido
   const activeFilters = columnFilters.filter((f) => {
     if (!f.value) return false;
-    const filterValue = f.value as FilterValue | TextFilterValue;
-    return filterValue && typeof filterValue === "object" && "operator" in filterValue;
+    const filterValue = f.value as FilterValue | TextFilterValue | StatusFilterValue;
+    if (!filterValue || typeof filterValue !== "object") return false;
+    return "operator" in filterValue || "selectedStatuses" in filterValue;
   });
 
   // Sincronizar valores salvos quando os filtros mudarem externamente
@@ -123,9 +131,11 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     const column = table.getColumn(columnId);
     if (column && filterableColumn) {
       // Definir um valor inicial baseado no tipo de coluna
-      const filterValue = filterableColumn.isText
-        ? ({ operator: "contains", value: null } as TextFilterValue)
-        : ({ operator: ">", value: null } as FilterValue);
+      const filterValue = filterableColumn.isStatus
+        ? ({ selectedStatuses: STATUS_OPTIONS.map((o) => o.value) } as StatusFilterValue)
+        : filterableColumn.isText
+          ? ({ operator: "contains", value: null } as TextFilterValue)
+          : ({ operator: ">", value: null } as FilterValue);
 
       // Atualizar o estado dos filtros para garantir sincronização imediata
       setColumnFilters((prev) => {
@@ -147,15 +157,16 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     setSelectKey((prev) => prev + 1);
   };
 
-  // Colunas disponíveis são aquelas que não têm um filtro FilterValue definido
+  // Colunas disponíveis são aquelas que não têm um filtro ativo definido
   // Memoizar para evitar recálculo desnecessário a cada render
   const availableColumns = useMemo(() => {
     return filterableColumns.filter((col) => {
       const hasFilter = columnFilters.some((f) => {
         if (f.id !== col.id) return false;
         if (!f.value) return false;
-        const filterValue = f.value as FilterValue | TextFilterValue;
-        return filterValue && typeof filterValue === "object" && "operator" in filterValue;
+        const filterValue = f.value as FilterValue | TextFilterValue | StatusFilterValue;
+        if (!filterValue || typeof filterValue !== "object") return false;
+        return "operator" in filterValue || "selectedStatuses" in filterValue;
       });
       return !hasFilter;
     });
@@ -197,6 +208,79 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
           {activeFilters.map((filter) => {
             const column = filterableColumns.find((c) => c.id === filter.id);
             if (!column) return null;
+
+            // RENDERIZAÇÃO DE FILTRO DE STATUS (multi-select)
+            if (column.isStatus) {
+              const statusFilterValue = filter.value as StatusFilterValue;
+              if (!statusFilterValue) return null;
+
+              const handleToggleStatus = (statusValue: string) => {
+                const currentSelected = statusFilterValue.selectedStatuses || [];
+                const newSelected = currentSelected.includes(statusValue)
+                  ? currentSelected.filter((s) => s !== statusValue)
+                  : [...currentSelected, statusValue];
+
+                const newFilterValue: StatusFilterValue = { selectedStatuses: newSelected };
+
+                setColumnFilters((prev) => {
+                  const existingIndex = prev.findIndex((f) => f.id === filter.id);
+                  const newFilter = { id: filter.id, value: newFilterValue };
+                  if (existingIndex >= 0) {
+                    const updated = [...prev];
+                    updated[existingIndex] = newFilter;
+                    return updated;
+                  }
+                  return [...prev, newFilter];
+                });
+
+                const tableColumn = table.getColumn(filter.id);
+                if (tableColumn) {
+                  tableColumn.setFilterValue(newFilterValue);
+                }
+              };
+
+              const selectedCount = statusFilterValue.selectedStatuses?.length ?? 0;
+              const allSelected = selectedCount === STATUS_OPTIONS.length;
+              const selectedLabels = STATUS_OPTIONS.filter((o) => statusFilterValue.selectedStatuses?.includes(o.value)).map((o) => o.label);
+
+              return (
+                <Badge key={filter.id} variant="outline" className="inline-flex items-center gap-1.5 px-2 py-1 h-8 text-xs font-medium bg-card border-border hover:bg-muted">
+                  <IconFilter className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button className="flex items-center gap-1 text-foreground hover:text-foreground/80 transition-colors">
+                        <span className="whitespace-nowrap">
+                          {allSelected ? "Status: Todos" : selectedCount === 0 ? "Status: Nenhum" : `Status: ${selectedLabels.join(", ")}`}
+                        </span>
+                        <IconChevronDown className="w-3 h-3 text-muted-foreground" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="start" className="w-auto min-w-[160px] p-2">
+                      <div className="flex flex-col gap-1">
+                        {STATUS_OPTIONS.map((option) => {
+                          const isChecked = statusFilterValue.selectedStatuses?.includes(option.value) ?? false;
+                          return (
+                            <button
+                              key={option.value}
+                              onClick={() => handleToggleStatus(option.value)}
+                              className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md hover:bg-muted transition-colors text-left"
+                            >
+                              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${isChecked ? "bg-primary border-primary" : "border-border"}`}>
+                                {isChecked && <IconCheck className="w-3 h-3 text-primary-foreground" />}
+                              </div>
+                              <span>{option.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                  <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0" aria-label="Remover filtro Status">
+                    <IconX className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                  </button>
+                </Badge>
+              );
+            }
 
             // Detectar se é filtro de texto ou numérico
             const isTextFilter = column.isText;

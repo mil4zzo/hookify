@@ -14,15 +14,13 @@ interface SummaryStepProps {
 
 export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: SummaryStepProps) {
   const total = stats.processed_rows;
-  const validas = total - stats.skipped_invalid;
+  const invalidas = stats.skipped_invalid;
+  const validas = total - invalidas;
   const utilizadas = stats.utilized_sheet_rows ?? stats.updated_rows;
   const ignoradas = stats.skipped_sheet_rows ?? stats.skipped_no_match;
-  const invalidas = stats.skipped_invalid;
+  const unicas = stats.matched_unique_pairs ?? stats.updated_rows;
 
-  const pctValidas = total > 0 ? ((validas / total) * 100).toFixed(1) : "0.0";
-  const pctUtilizadas = total > 0 ? ((utilizadas / total) * 100).toFixed(1) : "0.0";
-  const pctIgnoradas = total > 0 ? ((ignoradas / total) * 100).toFixed(1) : "0.0";
-  const pctInvalidas = total > 0 ? ((invalidas / total) * 100).toFixed(1) : "0.0";
+  const pct = (v: number) => total > 0 ? ((v / total) * 100).toFixed(1) : "0.0";
 
   return (
     <div className="border border-green-500/30 bg-green-500/10 rounded-lg p-6">
@@ -34,12 +32,13 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
         {/* Total de linhas processadas */}
         <div className="text-center">
           <div className="text-sm text-muted-foreground mb-1">Linhas processadas</div>
-          <div className="text-2xl font-bold">{stats.processed_rows.toLocaleString()}</div>
+          <div className="text-2xl font-bold">{total.toLocaleString()}</div>
         </div>
 
         {/* Grupos de métricas */}
         <div className="flex flex-col">
           <TooltipProvider>
+            {/* Válidas */}
             <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-foreground">Válidas</span>
@@ -48,49 +47,70 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas com ad_id não nulo, data válida e leadscore não nulo</p>
+                    <p>Linhas com ad_id não nulo, data válida e leadscore ou cpr_max não nulo</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-foreground">{validas.toLocaleString()}</span>
-                <span className="text-xs text-muted-foreground">({pctValidas}%)</span>
+                <span className="text-xs text-muted-foreground">({pct(validas)}%)</span>
               </div>
             </div>
+            {/* Utilizadas */}
             <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm text-foreground">Utilizadas</span>
+                <span className="text-sm text-foreground pl-3">Utilizadas</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas válidas com match por ad_id no ad_metrics</p>
+                    <p>Linhas válidas cujo par (ad_id, data) tem match no ad_metrics</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-green-500">{utilizadas.toLocaleString()}</span>
-                <span className="text-xs text-muted-foreground">({pctUtilizadas}%)</span>
+                <span className="text-xs text-muted-foreground">({pct(utilizadas)}%)</span>
               </div>
             </div>
+            {/* Únicas */}
             <div className="flex items-center justify-between py-2 border-b border-border">
               <div className="flex items-center gap-1.5">
-                <span className="text-sm text-foreground">Ignoradas</span>
+                <span className="text-sm text-foreground pl-6">Únicas</span>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas válidas com ad_id sem match no ad_metrics</p>
+                    <p>Pares únicos (ad_id, data) atualizados no ad_metrics. Linhas com mesmo ad_id e data são agregadas em um único registro</p>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-medium text-green-500/70">{unicas.toLocaleString()}</span>
+                <span className="text-xs text-muted-foreground">({pct(unicas)}%)</span>
+              </div>
+            </div>
+            {/* Ignoradas */}
+            <div className="flex items-center justify-between py-2 border-b border-border">
+              <div className="flex items-center gap-1.5">
+                <span className="text-sm text-foreground pl-3">Ignoradas</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Linhas válidas cujo par (ad_id, data) não tem match no ad_metrics</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-yellow-500">{ignoradas.toLocaleString()}</span>
-                <span className="text-xs text-muted-foreground">({pctIgnoradas}%)</span>
+                <span className="text-xs text-muted-foreground">({pct(ignoradas)}%)</span>
               </div>
             </div>
+            {/* Inválidas */}
             <div className="flex items-center justify-between py-2">
               <div className="flex items-center gap-1.5">
                 <span className="text-sm text-foreground">Inválidas</span>
@@ -99,13 +119,13 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas com ad_id nulo, data inválida ou leadscore nulo</p>
+                    <p>Linhas com ad_id nulo, data inválida ou sem leadscore e cpr_max</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-red-500">{invalidas.toLocaleString()}</span>
-                <span className="text-xs text-muted-foreground">({pctInvalidas}%)</span>
+                <span className="text-xs text-muted-foreground">({pct(invalidas)}%)</span>
               </div>
             </div>
           </TooltipProvider>

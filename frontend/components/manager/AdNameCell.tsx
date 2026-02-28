@@ -52,66 +52,56 @@ function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
   return true;
 }
 
-export const AdNameCell = React.memo(
-  function AdNameCell({
-    original,
-    value,
-    getRowKey,
-    expanded,
-    setExpanded,
-    groupByAdNameEffective,
-    currentTab,
-  }: AdNameCellProps) {
-    const thumbnail = getAdThumbnail(original);
-    const name = String(value || "—");
-    const id = original?.ad_id;
-    const adCount = original?.ad_count || 1;
-    const key = getRowKey({ original });
-    const isExpanded = !!expanded[key];
+export const AdNameCell = React.memo(function AdNameCell({ original, value, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab }: AdNameCellProps) {
+  const showThumbnail = currentTab !== "por-conjunto" && currentTab !== "por-campanha";
+  const thumbnail = getAdThumbnail(original);
+  const name = String(value || "—");
+  const id = original?.ad_id;
+  const adCount = original?.ad_count || 1;
+  const key = getRowKey({ original });
+  const isExpanded = !!expanded[key];
 
-    let secondLine = "";
-    if (groupByAdNameEffective) {
-      secondLine = adCount === 1 ? "1 anúncio" : `+ ${adCount} anúncios`;
+  let secondLine = "";
+  if (groupByAdNameEffective) {
+    secondLine = adCount === 1 ? "1 anúncio" : `+ ${adCount} anúncios`;
+  } else {
+    if (currentTab === "por-conjunto") {
+      secondLine = adCount === 1 ? "1 anúncio" : `${adCount} anúncios`;
+    } else if (currentTab === "por-campanha") {
+      secondLine = adCount === 1 ? "1 conjunto" : `${adCount} conjuntos`;
+    } else if (currentTab === "individual") {
+      // Na aba individual, mostrar o nome do conjunto ao invés do ID do anúncio
+      const adsetName = (original as any)?.adset_name;
+      secondLine = adsetName ? String(adsetName) : `ID: ${id || "-"}`;
     } else {
-      if (currentTab === "por-conjunto") {
-        secondLine = adCount === 1 ? "1 anúncio" : `${adCount} anúncios`;
-      } else if (currentTab === "por-campanha") {
-        secondLine = adCount === 1 ? "1 conjunto" : `${adCount} conjuntos`;
-      } else if (currentTab === "individual") {
-        // Na aba individual, mostrar o nome do conjunto ao invés do ID do anúncio
-        const adsetName = (original as any)?.adset_name;
-        secondLine = adsetName ? String(adsetName) : `ID: ${id || "-"}`;
-      } else {
-        const countLabel = "dias";
-        secondLine = adCount === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${adCount} ${countLabel})`;
-      }
+      const countLabel = "dias";
+      secondLine = adCount === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${adCount} ${countLabel})`;
     }
+  }
 
-    const handleToggleExpand = (e?: React.MouseEvent) => {
-      e?.stopPropagation();
-      const next = !isExpanded;
-      setExpanded((prev) => ({ ...prev, [key]: next }));
-    };
+  const handleToggleExpand = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const next = !isExpanded;
+    setExpanded((prev) => ({ ...prev, [key]: next }));
+  };
 
-    return (
-      <div className="flex items-center gap-3 w-full">
-        <ThumbnailImage src={thumbnail} alt="thumb" size="md" />
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="flex items-center gap-2 truncate">
-            <span className="truncate flex-1">{name}</span>
-          </div>
-          {groupByAdNameEffective || currentTab === "por-campanha" || currentTab === "por-conjunto" ? (
-            <div className="mt-1">
-              <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
-                {isExpanded ? "- Recolher" : secondLine}
-              </Button>
-            </div>
-          ) : (
-            <div className="text-xs text-muted-foreground truncate">{secondLine}</div>
-          )}
+  return (
+    <div className="flex items-center gap-3 w-full">
+      {showThumbnail && <ThumbnailImage src={thumbnail} alt="thumb" size="md" />}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="flex items-center gap-2 truncate">
+          <span className="truncate flex-1">{name}</span>
         </div>
+        {groupByAdNameEffective || currentTab === "por-campanha" || currentTab === "por-conjunto" ? (
+          <div className="mt-1">
+            <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
+              {isExpanded ? "- Recolher" : secondLine}
+            </Button>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground truncate">{secondLine}</div>
+        )}
       </div>
-    );
-  },
-  arePropsEqual
-);
+    </div>
+  );
+}, arePropsEqual);

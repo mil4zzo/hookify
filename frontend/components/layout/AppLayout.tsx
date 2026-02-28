@@ -18,7 +18,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isPublicRoute = pathname?.startsWith("/politica-de-privacidade") ||
                        pathname?.startsWith("/termos-de-uso") ||
                        pathname?.startsWith("/exclusao-de-dados") ||
-                       pathname?.startsWith("/docs");
+                       pathname?.startsWith("/docs") ||
+                       pathname?.startsWith("/pv");
   const isOnboardingRoute = pathname?.startsWith("/onboarding");
   
   // Se for rota de autenticação, renderiza apenas o conteúdo

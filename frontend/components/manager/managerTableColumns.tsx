@@ -4,7 +4,7 @@ import React from "react";
 import type { ColumnDef, ColumnHelper } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import type { FilterValue, TextFilterValue } from "@/components/common/ColumnFilter";
+import type { FilterValue, TextFilterValue, StatusFilterValue } from "@/components/common/ColumnFilter";
 import type { DailySeriesByKey } from "@/lib/utils/metricsTimeSeries";
 import type { ManagerAverages } from "@/lib/hooks/useManagerAverages";
 import type { SettingsTab } from "@/lib/store/settingsModal";
@@ -48,21 +48,55 @@ export type CreateManagerTableColumnsParams = {
   globalFilterRef: React.MutableRefObject<string>;
 };
 
-export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, unknown>[] {
+function textFilterFn(row: any, _columnId: string, filterValue: TextFilterValue | undefined, fieldName: keyof RankingsItem): boolean {
+  if (!filterValue || filterValue.value === null || filterValue.value === undefined) {
+    return true;
+  }
+  const fieldValue = String((row.original as RankingsItem)?.[fieldName] || "").toLowerCase();
+  const searchValue = String(filterValue.value).toLowerCase();
+
+  switch (filterValue.operator) {
+    case "contains":
+      return fieldValue.includes(searchValue);
+    case "not_contains":
+      return !fieldValue.includes(searchValue);
+    case "starts_with":
+      return fieldValue.startsWith(searchValue);
+    case "ends_with":
+      return fieldValue.endsWith(searchValue);
+    case "equals":
+      return fieldValue === searchValue;
+    case "not_equals":
+      return fieldValue !== searchValue;
+    default:
+      return true;
+  }
+}
+
+export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
   const { columnHelper, currentTab, getRowKey, expanded, expandedRef, setExpanded, groupByAdNameEffective } = params;
 
-  const cols: ColumnDef<RankingsItem, unknown>[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cols: ColumnDef<RankingsItem, any>[] = [];
 
   // Status column (primeira coluna - visível exceto na aba "por-anuncio")
   if (currentTab !== "por-anuncio") {
     cols.push(
-      columnHelper.display({
+      columnHelper.accessor("effective_status", {
         id: "status",
         header: "",
         size: 80,
         minSize: 80,
         enableResizing: false,
         enableSorting: false,
+        filterFn: (row, _columnId, filterValue: StatusFilterValue | undefined) => {
+          if (!filterValue || !filterValue.selectedStatuses || filterValue.selectedStatuses.length === 0) {
+            return true;
+          }
+          const status = row.original.effective_status;
+          if (!status) return false;
+          return filterValue.selectedStatuses.includes(status);
+        },
         cell: (info) => {
           const original = info.row.original as RankingsItem;
           return <StatusCell original={original} currentTab={currentTab} />;
@@ -79,37 +113,41 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       minSize: 160,
       enableResizing: true,
       sortingFn: "auto",
-      filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => {
-        if (!filterValue || filterValue.value === null || filterValue.value === undefined) {
-          return true;
-        }
-
-        const original = row.original as RankingsItem;
-        const adName = String(original?.ad_name || "").toLowerCase();
-        const searchValue = String(filterValue.value).toLowerCase();
-
-        switch (filterValue.operator) {
-          case "contains":
-            return adName.includes(searchValue);
-          case "not_contains":
-            return !adName.includes(searchValue);
-          case "starts_with":
-            return adName.startsWith(searchValue);
-          case "ends_with":
-            return adName.endsWith(searchValue);
-          case "equals":
-            return adName === searchValue;
-          case "not_equals":
-            return adName !== searchValue;
-          default:
-            return true;
-        }
-      },
+      filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "ad_name"),
       cell: (info) => {
         const original = info.row.original as RankingsItem;
         const name = String(info.getValue() || "—");
         return <AdNameCell original={original} value={name} getRowKey={getRowKey} expanded={expanded} setExpanded={setExpanded} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} />;
       },
+    })
+  );
+
+  // Colunas ocultas para filtros de nome cruzados (adset_name e campaign_name)
+  cols.push(
+    columnHelper.accessor("adset_name", {
+      id: "adset_name_filter",
+      header: () => null,
+      enableSorting: false,
+      enableResizing: false,
+      size: 0,
+      minSize: 0,
+      maxSize: 0,
+      filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "adset_name"),
+      cell: () => null,
+    })
+  );
+
+  cols.push(
+    columnHelper.accessor("campaign_name", {
+      id: "campaign_name_filter",
+      header: () => null,
+      enableSorting: false,
+      enableResizing: false,
+      size: 0,
+      minSize: 0,
+      maxSize: 0,
+      filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "campaign_name"),
+      cell: () => null,
     })
   );
 
