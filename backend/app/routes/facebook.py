@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Body, BackgroundTasks
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Dict, Any
 from datetime import datetime, timezone, timedelta, date
 import logging
 import requests
 import json
 import asyncio
+import threading
+import uuid
 from app.services.graph_api import GraphAPI
 from app.services import supabase_repo
 from app.services.facebook_token_service import (
@@ -18,6 +20,7 @@ from app.services.facebook_connections_repo import (
     update_connection_status
 )
 from app.core.auth import get_current_user
+from pydantic import BaseModel
 from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest
 from app.core.config import (
     FACEBOOK_CLIENT_ID,
@@ -1083,3 +1086,211 @@ def cancel_jobs_batch(
     except Exception as e:
         logger.exception(f"[CANCEL_JOBS_BATCH] Erro ao cancelar jobs: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class TranscriptionRetryRequest(BaseModel):
+    ad_name: str
+
+
+@router.post("/transcription/retry", status_code=202)
+def retry_transcription(
+    request: TranscriptionRetryRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+    api: GraphAPI = Depends(get_graph_api),
+):
+    """Retry assíncrono de transcrição para um ad_name com status=failed."""
+    user_id = user["user_id"]
+    user_jwt = user["token"]
+    ad_name = request.ad_name.strip()
+
+    if not ad_name:
+        raise HTTPException(status_code=400, detail="ad_name é obrigatório")
+
+    existing = supabase_repo.get_transcription(user_jwt, user_id, ad_name)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Transcrição não encontrada para ad_name={ad_name!r}")
+    if existing.get("status") != "failed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Transcrição não está com status=failed (atual: {existing.get('status')})"
+        )
+
+    sb = supabase_repo.get_supabase_for_user(user_jwt)
+    try:
+        ads_res = (
+            sb.table("ads")
+            .select("creative")
+            .eq("user_id", user_id)
+            .eq("ad_name", ad_name)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        logger.error(f"[TRANSCRIPTION_RETRY] Erro ao buscar ad: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao buscar dados do anúncio")
+
+    if not ads_res.data or len(ads_res.data) == 0:
+        raise HTTPException(status_code=404, detail=f"Nenhum anúncio encontrado com ad_name={ad_name!r}")
+
+    creative = ads_res.data[0].get("creative") or {}
+    video_id = str(creative.get("video_id") or "").strip()
+    actor_id = str(creative.get("actor_id") or "").strip()
+
+    if not video_id or not actor_id:
+        raise HTTPException(status_code=400, detail="Anúncio não possui video_id/actor_id no creative")
+
+    access_token = api.access_token
+
+    def _run_retry():
+        try:
+            from app.services.transcription_worker import retry_single_transcription
+            retry_single_transcription(user_jwt, user_id, access_token, ad_name, video_id, actor_id)
+        except Exception as e:
+            logger.warning(f"[TRANSCRIPTION_RETRY] Falha no retry de {ad_name!r}: {e}")
+
+    threading.Thread(target=_run_retry, daemon=True).start()
+
+    return JSONResponse(
+        status_code=202,
+        content={"message": "Retry iniciado", "ad_name": ad_name},
+    )
+
+
+@router.post("/packs/{pack_id}/transcribe", status_code=202)
+def start_pack_transcription(
+    pack_id: str,
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Inicia apenas o processo de transcrição dos vídeos dos anúncios do pack (sem refresh de dados).
+    Útil para testes ou para rodar transcrição após um refresh que não a disparou.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+    from app.services.transcription_worker import count_pending_transcriptions, run_transcription_batch
+
+    try:
+        sb = get_supabase_for_user(user["token"])
+        pack_res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user["user_id"]).limit(1).execute()
+        if not pack_res.data or len(pack_res.data) == 0:
+            raise HTTPException(status_code=404, detail="Pack não encontrado")
+
+        pack = pack_res.data[0]
+        pack_name = pack.get("name") or pack_id
+
+        ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
+        if not ads:
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "message": "Nenhum anúncio encontrado no pack",
+                    "pack_id": pack_id,
+                    "pack_name": pack_name,
+                    "transcription_job_id": None,
+                },
+            )
+
+        # Garantir que cada ad tenha "creative" como dict (Supabase pode retornar já como dict)
+        formatted_ads = []
+        for ad in ads:
+            a = dict(ad)
+            if not isinstance(a.get("creative"), dict):
+                a["creative"] = {}
+            formatted_ads.append(a)
+
+        pending = count_pending_transcriptions(
+            user_jwt=user["token"],
+            user_id=user["user_id"],
+            formatted_ads=formatted_ads,
+        )
+        if pending <= 0:
+            return JSONResponse(
+                status_code=202,
+                content={
+                    "message": "Nenhuma transcrição pendente",
+                    "pack_id": pack_id,
+                    "pack_name": pack_name,
+                    "transcription_job_id": None,
+                },
+            )
+
+        transcription_job_id = str(uuid.uuid4())
+        tracker = get_job_tracker(user["token"], user["user_id"])
+        tracker.create_job(
+            job_id=transcription_job_id,
+            payload={
+                "type": "transcription",
+                "pack_id": pack_id,
+                "total": pending,
+            },
+            status=STATUS_PROCESSING,
+            message="Transcrevendo vídeos...",
+        )
+        tracker.heartbeat(
+            transcription_job_id,
+            status=STATUS_PROCESSING,
+            progress=0,
+            message=f"Transcrevendo 0 de {pending}",
+            details={
+                "stage": "transcription",
+                "type": "transcription",
+                "done": 0,
+                "total": pending,
+                "pack_id": pack_id,
+            },
+        )
+
+        def _run():
+            try:
+                run_transcription_batch(
+                    user["token"],
+                    user["user_id"],
+                    api.access_token,
+                    formatted_ads,
+                    transcription_job_id=transcription_job_id,
+                )
+            except Exception as e:
+                logger.warning(f"[TRANSCRIBE_PACK] Transcription batch failed: {e}")
+
+        threading.Thread(target=_run, daemon=True).start()
+        logger.info(f"[TRANSCRIBE_PACK] Pack {pack_id}: job {transcription_job_id} iniciado ({pending} pendentes)")
+
+        return JSONResponse(
+            status_code=202,
+            content={
+                "message": "Transcrição iniciada",
+                "pack_id": pack_id,
+                "pack_name": pack_name,
+                "transcription_job_id": transcription_job_id,
+            },
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[TRANSCRIBE_PACK] Erro ao iniciar transcrição do pack {pack_id}: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao iniciar transcrição")
+
+
+@router.get("/transcription-progress/{job_id}")
+def get_transcription_progress(
+    job_id: str,
+    user=Depends(get_current_user),
+):
+    """Retorna progresso de um job de transcrição."""
+    try:
+        tracker = get_job_tracker(user["token"], user["user_id"])
+        progress = tracker.get_public_progress(job_id)
+
+        if not progress or progress.get("status") == "error":
+            raise HTTPException(status_code=404, detail="Job não encontrado.")
+
+        job = tracker.get_job(job_id)
+        payload = (job or {}).get("payload") or {}
+        if payload.get("type") != "transcription":
+            raise HTTPException(status_code=404, detail="Job de transcrição não encontrado.")
+
+        return progress
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[TRANSCRIPTION_PROGRESS] Erro ao obter progresso de job {job_id}")
+        raise HTTPException(status_code=500, detail=f"Erro ao obter progresso: {str(e)}")

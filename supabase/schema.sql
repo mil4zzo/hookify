@@ -173,6 +173,20 @@ create table if not exists public.jobs (
   updated_at timestamptz default now()
 );
 
+create table if not exists public.ad_transcriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null,
+  ad_name text not null,
+  status text not null default 'pending'
+    check (status in ('pending', 'processing', 'completed', 'failed')),
+  full_text text,
+  timestamped_text jsonb,
+  metadata jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (user_id, ad_name)
+);
+
 -- ============ INDEXES ============
 
 create index if not exists packs_user_idx on public.packs(user_id);
@@ -204,6 +218,8 @@ create index if not exists ad_accounts_user_idx on public.ad_accounts(user_id);
 
 create index if not exists jobs_user_idx on public.jobs(user_id);
 
+create index if not exists ad_transcriptions_user_status_idx on public.ad_transcriptions(user_id, status);
+
 -- ============ RLS ============
 
 alter table public.packs enable row level security;
@@ -213,6 +229,7 @@ alter table public.profiles enable row level security;
 alter table public.ad_accounts enable row level security;
 alter table public.user_preferences enable row level security;
 alter table public.jobs enable row level security;
+alter table public.ad_transcriptions enable row level security;
 
 -- Policies (simplificadas; ajuste conforme necessidade)
 do $$
@@ -285,4 +302,12 @@ begin
   end if;
 end $$;
 
-
+do $$
+begin
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_transcriptions' and policyname = 'ad_transcriptions_select_own') then
+    create policy ad_transcriptions_select_own on public.ad_transcriptions for select using (user_id = auth.uid());
+  end if;
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_transcriptions' and policyname = 'ad_transcriptions_modify_own') then
+    create policy ad_transcriptions_modify_own on public.ad_transcriptions for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+  end if;
+end $$;

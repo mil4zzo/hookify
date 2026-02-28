@@ -6,7 +6,7 @@ import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle } from "@tabler/icons-react";
+import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -36,6 +36,8 @@ export interface PackCardProps {
   onSetSheetIntegration: (pack: AdsPack) => void;
   onEditSheetIntegration?: (pack: AdsPack) => void;
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
+  /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
+  onTranscribeAds?: (packId: string, packName: string) => void;
   // Estados de loading
   isUpdating: boolean;
   isTogglingAutoRefresh: string | null;
@@ -53,7 +55,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
+export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
   const stats = pack.stats;
   const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
@@ -464,6 +466,12 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
             <IconRotateClockwise className="w-4 h-4 mr-2" />
             Atualizar pack
           </DropdownMenuItem>
+          {onTranscribeAds && (
+            <DropdownMenuItem onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
+              <IconMicrophone className="w-4 h-4 mr-2" />
+              Transcrever anúncios
+            </DropdownMenuItem>
+          )}
           {pack.sheet_integration ? (
             <>
               <DropdownMenuItem disabled className="opacity-100">

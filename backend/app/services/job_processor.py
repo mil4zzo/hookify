@@ -10,6 +10,8 @@ Responsável por:
 Executa fora do request de polling para não bloquear.
 """
 import logging
+import threading
+import uuid
 from typing import Any, Dict, Optional
 import time
 from app.services.job_tracker import (
@@ -26,6 +28,7 @@ from app.services.job_tracker import (
     STAGE_PERSISTENCE,
     STAGE_COMPLETE,
 )
+from app.core.config import ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH
 from app.services.insights_collector import get_insights_collector
 from app.services.ads_enricher import get_ads_enricher, AdsEnricher
 from app.services.dataformatter import format_ads_for_api
@@ -220,17 +223,38 @@ class JobProcessor:
             if not pack_id:
                 self.tracker.mark_failed(job_id, "Erro ao persistir dados")
                 return {"success": False, "error": "Erro ao persistir dados"}
-            
+
+            transcription_job_id = None
+            if ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH:
+                transcription_job_id = self._create_transcription_job_if_needed(
+                    pack_id=pack_id,
+                    formatted_data=formatted_data,
+                    meta_job_id=job_id,
+                )
+
             # ===== CONCLUSÃO =====
-            self.tracker.mark_completed(job_id, pack_id, result_count=len(formatted_data), details={
+            completion_details = {
                 "page_count": page_count,
                 "total_collected": total_collected,
                 "ads_after_dedup": unique_count,
                 "ads_enriched": enriched_count,
                 "ads_formatted": len(formatted_data)
-            })
+            }
+            if transcription_job_id:
+                completion_details["transcription_job_id"] = transcription_job_id
+
+            self.tracker.mark_completed(
+                job_id,
+                pack_id,
+                result_count=len(formatted_data),
+                details=completion_details,
+            )
             
             logger.info(f"[JobProcessor] Job {job_id} concluído com sucesso. Pack: {pack_id}, Ads: {len(formatted_data)}")
+            
+            # ===== TRANSCRIÇÃO (fire-and-forget, best-effort) — só se habilitada =====
+            if ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH:
+                self._fire_transcription_batch(formatted_data, transcription_job_id)
             
             return {
                 "success": True,
@@ -437,6 +461,90 @@ class JobProcessor:
         except Exception as e:
             logger.exception(f"[JobProcessor] Erro ao persistir dados: {e}")
             return None
+
+    def _create_transcription_job_if_needed(
+        self,
+        pack_id: str,
+        formatted_data: list,
+        meta_job_id: str,
+    ) -> Optional[str]:
+        """
+        Cria job de transcrição quando há ad_names pendentes para transcrever.
+
+        Retorna o transcription_job_id (UUID) ou None quando não houver trabalho.
+        """
+        try:
+            from app.services.transcription_worker import count_pending_transcriptions
+
+            pending_count = count_pending_transcriptions(
+                user_jwt=self.user_jwt,
+                user_id=self.user_id,
+                formatted_ads=formatted_data,
+            )
+            if pending_count <= 0:
+                logger.info("[JobProcessor] Sem transcrições pendentes; não criando transcription job")
+                return None
+
+            transcription_job_id = str(uuid.uuid4())
+            tracker = get_job_tracker(self.user_jwt, self.user_id)
+            tracker.create_job(
+                job_id=transcription_job_id,
+                payload={
+                    "type": "transcription",
+                    "pack_id": pack_id,
+                    "meta_job_id": meta_job_id,
+                    "total": pending_count,
+                },
+                status=STATUS_PROCESSING,
+                message="Transcrevendo vídeos...",
+            )
+            tracker.heartbeat(
+                transcription_job_id,
+                status=STATUS_PROCESSING,
+                progress=0,
+                message=f"Transcrevendo 0 de {pending_count}",
+                details={
+                    "stage": "transcription",
+                    "type": "transcription",
+                    "done": 0,
+                    "total": pending_count,
+                    "pack_id": pack_id,
+                    "meta_job_id": meta_job_id,
+                },
+            )
+            logger.info(
+                f"[JobProcessor] Transcription job criado: {transcription_job_id} (pending={pending_count})"
+            )
+            return transcription_job_id
+        except Exception as e:
+            logger.warning(f"[JobProcessor] Não foi possível criar transcription job: {e}")
+            return None
+
+    def _fire_transcription_batch(
+        self,
+        formatted_data: list,
+        transcription_job_id: Optional[str],
+    ) -> None:
+        """Dispara transcrição de vídeos em thread separada (fire-and-forget)."""
+        user_jwt = self.user_jwt
+        user_id = self.user_id
+        access_token = self.access_token
+
+        def _run():
+            try:
+                from app.services.transcription_worker import run_transcription_batch
+                run_transcription_batch(
+                    user_jwt,
+                    user_id,
+                    access_token,
+                    formatted_data,
+                    transcription_job_id=transcription_job_id,
+                )
+            except Exception as e:
+                logger.warning(f"[JobProcessor] Transcription batch failed (best-effort): {e}")
+
+        threading.Thread(target=_run, daemon=True).start()
+        logger.info("[JobProcessor] Transcription batch disparado em background")
 
 
 def process_job_async(

@@ -2896,4 +2896,36 @@ def update_pack_name(
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar nome: {str(e)}")
 
 
+@router.get("/transcription")
+def get_transcription(
+    ad_name: str = Query(None, description="Nome do anúncio (alternativa a transcription_id)"),
+    transcription_id: str = Query(None, description="ID da transcrição (lookup O(1) quando o ad já tem transcription_id)"),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Retorna a transcrição por transcription_id ou ad_name. Exatamente um deve ser fornecido."""
+    tid = (transcription_id or "").strip()
+    aname = (ad_name or "").strip()
+    if tid and aname:
+        raise HTTPException(status_code=400, detail="Forneça apenas transcription_id ou ad_name, não ambos")
+    if not tid and not aname:
+        raise HTTPException(status_code=400, detail="Forneça transcription_id ou ad_name")
+
+    if tid:
+        result = supabase_repo.get_transcription_by_id(user["token"], user["user_id"], tid)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Transcrição não encontrada para id={tid!r}")
+    else:
+        result = supabase_repo.get_transcription(user["token"], user["user_id"], aname)
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Transcrição não encontrada para ad_name={aname!r}")
+
+    return {
+        "id": result.get("id"),
+        "ad_name": result.get("ad_name"),
+        "status": result.get("status"),
+        "full_text": result.get("full_text"),
+        "timestamped_text": result.get("timestamped_text"),
+        "metadata": result.get("metadata"),
+        "updated_at": result.get("updated_at"),
+    }
 

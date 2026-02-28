@@ -10,6 +10,7 @@ import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { FilterValue, FilterOperator, TextFilterValue, TextFilterOperator, StatusFilterValue } from "@/components/common/ColumnFilter";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Separator } from "@/components/common/Separator";
+import { getColumnId } from "@/lib/utils/columnFilters";
 
 interface FilterableColumn {
   id: string;
@@ -105,74 +106,36 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     });
   }, [columnFilters]);
 
-  const handleRemoveFilter = (columnId: string) => {
-    setColumnFilters((prev) => prev.filter((f) => f.id !== columnId));
-    // Também limpar o filtro da coluna na tabela
-    const column = table.getColumn(columnId);
-    if (column) {
-      column.setFilterValue(undefined);
-    }
-    // Limpar estados locais relacionados ao filtro removido
+  const handleRemoveFilter = (filterInstanceId: string) => {
+    setColumnFilters((prev) => prev.filter((f) => f.id !== filterInstanceId));
+    // A sincronização com a tabela é feita pelo ManagerTable via useEffect
     setSavedValues((prev) => {
       const updated = { ...prev };
-      delete updated[columnId];
+      delete updated[filterInstanceId];
       return updated;
     });
     setLocalInputValues((prev) => {
       const updated = { ...prev };
-      delete updated[columnId];
+      delete updated[filterInstanceId];
       return updated;
     });
-    // Forçar re-mount do Select para limpar estado interno do Radix
     setSelectKey((prev) => prev + 1);
   };
 
   const handleAddFilter = (columnId: string) => {
-    // Encontrar a coluna na lista de filtráveis para saber o tipo
     const filterableColumn = filterableColumns.find((c) => c.id === columnId);
-    const column = table.getColumn(columnId);
-    if (column && filterableColumn) {
-      // Definir um valor inicial baseado no tipo de coluna
-      const filterValue = filterableColumn.isStatus
-        ? ({ selectedStatuses: STATUS_OPTIONS.map((o) => o.value) } as StatusFilterValue)
-        : filterableColumn.isText
-          ? ({ operator: "contains", value: null } as TextFilterValue)
-          : ({ operator: ">", value: null } as FilterValue);
+    if (!filterableColumn) return;
 
-      // Atualizar o estado dos filtros para garantir sincronização imediata
-      setColumnFilters((prev) => {
-        const existingIndex = prev.findIndex((f) => f.id === columnId);
-        const newFilter = { id: columnId, value: filterValue };
-        if (existingIndex >= 0) {
-          const updated = [...prev];
-          updated[existingIndex] = newFilter;
-          return updated;
-        }
-        return [...prev, newFilter];
-      });
+    const filterValue = filterableColumn.isStatus ? ({ selectedStatuses: STATUS_OPTIONS.map((o) => o.value) } as StatusFilterValue) : filterableColumn.isText ? ({ operator: "contains", value: null } as TextFilterValue) : ({ operator: ">", value: null } as FilterValue);
 
-      // Também atualizar na coluna da tabela
-      column.setFilterValue(filterValue);
-    }
-    // Resetar o valor do Select após adicionar o filtro e forçar re-mount
+    const uniqueId = `${columnId}__${Date.now()}`;
+    setColumnFilters((prev) => [...prev, { id: uniqueId, value: filterValue }]);
     setSelectValue("");
     setSelectKey((prev) => prev + 1);
   };
 
-  // Colunas disponíveis são aquelas que não têm um filtro ativo definido
-  // Memoizar para evitar recálculo desnecessário a cada render
-  const availableColumns = useMemo(() => {
-    return filterableColumns.filter((col) => {
-      const hasFilter = columnFilters.some((f) => {
-        if (f.id !== col.id) return false;
-        if (!f.value) return false;
-        const filterValue = f.value as FilterValue | TextFilterValue | StatusFilterValue;
-        if (!filterValue || typeof filterValue !== "object") return false;
-        return "operator" in filterValue || "selectedStatuses" in filterValue;
-      });
-      return !hasFilter;
-    });
-  }, [filterableColumns, columnFilters]);
+  // Todas as colunas filtráveis sempre disponíveis (permite múltiplos filtros por coluna)
+  const availableColumns = useMemo(() => filterableColumns, [filterableColumns]);
 
   // Focar no input quando um novo filtro é criado (value === null)
   useEffect(() => {
@@ -208,7 +171,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm text-muted-foreground whitespace-nowrap">{activeFilters.length > 0 ? "Filtrando por" : "Nenhum filtro aplicado"}</span>
           {activeFilters.map((filter) => {
-            const column = filterableColumns.find((c) => c.id === filter.id);
+            const column = filterableColumns.find((c) => c.id === getColumnId(filter.id));
             if (!column) return null;
 
             // RENDERIZAÇÃO DE FILTRO DE STATUS (multi-select)
@@ -218,9 +181,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
 
               const handleToggleStatus = (statusValue: string) => {
                 const currentSelected = statusFilterValue.selectedStatuses || [];
-                const newSelected = currentSelected.includes(statusValue)
-                  ? currentSelected.filter((s) => s !== statusValue)
-                  : [...currentSelected, statusValue];
+                const newSelected = currentSelected.includes(statusValue) ? currentSelected.filter((s) => s !== statusValue) : [...currentSelected, statusValue];
 
                 const newFilterValue: StatusFilterValue = { selectedStatuses: newSelected };
 
@@ -234,11 +195,6 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                   }
                   return [...prev, newFilter];
                 });
-
-                const tableColumn = table.getColumn(filter.id);
-                if (tableColumn) {
-                  tableColumn.setFilterValue(newFilterValue);
-                }
               };
 
               const selectedCount = statusFilterValue.selectedStatuses?.length ?? 0;
@@ -251,9 +207,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                   <Popover>
                     <PopoverTrigger asChild>
                       <button className="flex items-center gap-1 text-foreground hover:text-foreground/80 transition-colors">
-                        <span className="whitespace-nowrap">
-                          {allSelected ? "Status: Todos" : selectedCount === 0 ? "Status: Nenhum" : `Status: ${selectedLabels.join(", ")}`}
-                        </span>
+                        <span className="whitespace-nowrap">{allSelected ? "Status: Todos" : selectedCount === 0 ? "Status: Nenhum" : `Status: ${selectedLabels.join(", ")}`}</span>
                         <IconChevronDown className="w-3 h-3 text-muted-foreground" />
                       </button>
                     </PopoverTrigger>
@@ -262,14 +216,8 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                         {STATUS_OPTIONS.map((option) => {
                           const isChecked = statusFilterValue.selectedStatuses?.includes(option.value) ?? false;
                           return (
-                            <button
-                              key={option.value}
-                              onClick={() => handleToggleStatus(option.value)}
-                              className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md hover:bg-muted transition-colors text-left"
-                            >
-                              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${isChecked ? "bg-primary border-primary" : "border-border"}`}>
-                                {isChecked && <IconCheck className="w-3 h-3 text-primary-foreground" />}
-                              </div>
+                            <button key={option.value} onClick={() => handleToggleStatus(option.value)} className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md hover:bg-muted transition-colors text-left">
+                              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${isChecked ? "bg-primary border-primary" : "border-border"}`}>{isChecked && <IconCheck className="w-3 h-3 text-primary-foreground" />}</div>
                               <span>{option.label}</span>
                             </button>
                           );
@@ -313,11 +261,6 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                     return [...prev, newFilter];
                   }
                 });
-
-                const tableColumn = table.getColumn(filter.id);
-                if (tableColumn) {
-                  tableColumn.setFilterValue(newFilterValue);
-                }
               };
 
               const savedValue = savedValues[filter.id] !== undefined ? savedValues[filter.id] : textFilterValue.value;
@@ -344,14 +287,6 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                     return [...prev, newFilter];
                   }
                 });
-
-                const tableColumn = table.getColumn(filter.id);
-                if (tableColumn) {
-                  tableColumn.setFilterValue({
-                    operator: textFilterValue.operator,
-                    value: textValue,
-                  });
-                }
 
                 setSavedValues((prev) => ({
                   ...prev,
@@ -470,7 +405,6 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                 value: numericFilterValue.value,
               };
 
-              // Atualizar o estado dos filtros diretamente
               setColumnFilters((prev) => {
                 const existingIndex = prev.findIndex((f) => f.id === filter.id);
                 const newFilter = {
@@ -486,12 +420,6 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                   return [...prev, newFilter];
                 }
               });
-
-              // Também atualizar na coluna da tabela
-              const tableColumn = table.getColumn(filter.id);
-              if (tableColumn) {
-                tableColumn.setFilterValue(newFilterValue);
-              }
             };
 
             // Valor salvo atual (para comparação)
@@ -507,9 +435,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                 if (!isNaN(parsed) && isFinite(parsed)) {
                   // Para porcentagens: limitar entre 0.00 e 100.00
                   // Para outras métricas: apenas garantir que seja >= 0 (sem limite superior)
-                  const clampedValue = column.isPercentage
-                    ? Math.max(0, Math.min(100, parsed))
-                    : Math.max(0, parsed);
+                  const clampedValue = column.isPercentage ? Math.max(0, Math.min(100, parsed)) : Math.max(0, parsed);
                   // Arredondar para 2 casas decimais
                   const roundedValue = Math.round(clampedValue * 100) / 100;
                   // Se for porcentagem, normalizar para decimal (usuário digita 25, armazenamos 0.25)
@@ -517,7 +443,6 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                 }
               }
 
-              // Atualizar o estado dos filtros diretamente para garantir sincronização
               setColumnFilters((prev) => {
                 const existingIndex = prev.findIndex((f) => f.id === filter.id);
                 const newFilter = {
@@ -529,26 +454,14 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                 };
 
                 if (existingIndex >= 0) {
-                  // Atualizar filtro existente
                   const updated = [...prev];
                   updated[existingIndex] = newFilter;
                   return updated;
                 } else {
-                  // Adicionar novo filtro
                   return [...prev, newFilter];
                 }
               });
 
-              // Também atualizar na coluna da tabela para manter sincronização
-              const tableColumn = table.getColumn(filter.id);
-              if (tableColumn) {
-                tableColumn.setFilterValue({
-                  operator: numericFilterValue.operator,
-                  value: numericValue,
-                });
-              }
-
-              // Atualizar valor salvo
               setSavedValues((prev) => ({
                 ...prev,
                 [filter.id]: numericValue,

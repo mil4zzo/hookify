@@ -62,6 +62,11 @@ SUPABASE_JWKS_URL = os.getenv("SUPABASE_JWKS_URL") or (
     f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json" if SUPABASE_URL else None
 )
 
+# AssemblyAI (speech-to-text para transcrição de vídeos de anúncios)
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
+# Transcrição automática após refresh do pack. Se False, transcrição só roda ao clicar em "Transcrever anúncios" em /packs
+ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH = os.getenv("ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH", "false").lower() in ("true", "1", "yes")
+
 # Chave de criptografia para tokens de conectores (se usar app-level encryption)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
  

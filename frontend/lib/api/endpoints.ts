@@ -87,12 +87,19 @@ export const api = {
     
     getJobProgress: (jobId: string): Promise<{ status: string; progress: number; message: string; data?: any; pack_id?: string; result_count?: number; details?: any }> =>
       apiClient.getWithTimeout(`/facebook/ads-progress/${jobId}`, 60000), // 60 segundos (requests agora são rápidos com arquitetura "2 fases")
+
+    getTranscriptionProgress: (jobId: string): Promise<{ status: string; progress: number; message: string; details?: any }> =>
+      apiClient.getWithTimeout(`/facebook/transcription-progress/${jobId}`, 60000),
     
     getVideoSource: (params: GetVideoSourceRequest): Promise<GetVideoSourceResponse> =>
       apiClient.get('/facebook/video-source', { params }),
     
     refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh"): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string } }> =>
       apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType }),
+
+    /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Retorna transcription_job_id para polling. */
+    startPackTranscription: (packId: string): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null }> =>
+      apiClient.post(`/facebook/packs/${packId}/transcribe`),
     
     cancelJobsBatch: (jobIds: string[], reason?: string): Promise<{ cancelled_count: number; total_requested: number; message: string }> =>
       apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout' }),

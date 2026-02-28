@@ -9,7 +9,7 @@ import type { DailySeriesByKey } from "@/lib/utils/metricsTimeSeries";
 import type { ManagerAverages } from "@/lib/hooks/useManagerAverages";
 import type { SettingsTab } from "@/lib/store/settingsModal";
 import type { ColumnFiltersState } from "@tanstack/react-table";
-import { buildMetricColumns } from "@/components/manager/managerTableMetricColumns";
+import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
 import { AdNameCell } from "@/components/manager/AdNameCell";
 import { StatusCell } from "@/components/manager/StatusCell";
 
@@ -48,7 +48,7 @@ export type CreateManagerTableColumnsParams = {
   globalFilterRef: React.MutableRefObject<string>;
 };
 
-function textFilterFn(row: any, _columnId: string, filterValue: TextFilterValue | undefined, fieldName: keyof RankingsItem): boolean {
+function textFilterFnSingle(row: any, filterValue: TextFilterValue | undefined, fieldName: keyof RankingsItem): boolean {
   if (!filterValue || filterValue.value === null || filterValue.value === undefined) {
     return true;
   }
@@ -73,6 +73,29 @@ function textFilterFn(row: any, _columnId: string, filterValue: TextFilterValue 
   }
 }
 
+function textFilterFn(row: any, _columnId: string, filterValue: TextFilterValue | TextFilterValue[] | undefined, fieldName: keyof RankingsItem): boolean {
+  if (!filterValue) return true;
+  if (Array.isArray(filterValue)) {
+    return filterValue.every((fv) => textFilterFnSingle(row, fv, fieldName));
+  }
+  return textFilterFnSingle(row, filterValue, fieldName);
+}
+
+/** Considera ativo apenas ACTIVE; demais (PAUSED, ADSET_PAUSED, etc.) são inativos. */
+function isActiveStatus(status?: string | null): boolean {
+  if (!status) return false;
+  return String(status).toUpperCase() === "ACTIVE";
+}
+
+/** Ordenação por status: ativos primeiro (asc) ou inativos primeiro (desc). */
+function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: RankingsItem }, rowB: { getValue: (id: string) => unknown; original: RankingsItem }): number {
+  const activeA = isActiveStatus(rowA.original?.effective_status);
+  const activeB = isActiveStatus(rowB.original?.effective_status);
+  if (activeA === activeB) return 0;
+  // Valor menor = vir primeiro quando asc → ativos primeiro
+  return activeA && !activeB ? -1 : 1;
+}
+
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
   const { columnHelper, currentTab, getRowKey, expanded, expandedRef, setExpanded, groupByAdNameEffective } = params;
 
@@ -84,31 +107,48 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
     cols.push(
       columnHelper.accessor("effective_status", {
         id: "status",
-        header: "",
+        header: ({ column }) => (
+          <div className="flex items-center gap-1">
+            <SortIcon column={column} invertDirection />
+            <span>Status</span>
+          </div>
+        ),
         size: 80,
         minSize: 80,
         enableResizing: false,
-        enableSorting: false,
-        filterFn: (row, _columnId, filterValue: StatusFilterValue | undefined) => {
-          if (!filterValue || !filterValue.selectedStatuses || filterValue.selectedStatuses.length === 0) {
-            return true;
-          }
-          const status = row.original.effective_status;
-          if (!status) return false;
-          return filterValue.selectedStatuses.includes(status);
+        enableSorting: true,
+        sortDescFirst: false, // primeiro clique = ativos primeiro, exibimos como seta baixo (invertDirection)
+        sortingFn: statusSortingFn,
+        filterFn: (row, _columnId, filterValue: StatusFilterValue | StatusFilterValue[] | undefined) => {
+          const checkOne = (fv: StatusFilterValue | undefined) => {
+            if (!fv || !fv.selectedStatuses || fv.selectedStatuses.length === 0) return true;
+            const status = row.original.effective_status;
+            if (!status) return false;
+            return fv.selectedStatuses.includes(status);
+          };
+          if (!filterValue) return true;
+          if (Array.isArray(filterValue)) return filterValue.every(checkOne);
+          return checkOne(filterValue);
         },
         cell: (info) => {
           const original = info.row.original as RankingsItem;
           return <StatusCell original={original} currentTab={currentTab} />;
         },
-      })
+      }),
     );
   }
 
   // AD name (sempre visível)
+  const nameColumnLabel = currentTab === "por-conjunto" ? "Conjunto" : currentTab === "por-campanha" ? "Campanha" : "Anúncio";
   cols.push(
     columnHelper.accessor("ad_name", {
-      header: currentTab === "por-conjunto" ? "Conjunto" : currentTab === "por-campanha" ? "Campanha" : "Anúncio",
+      sortDescFirst: false, // primeiro clique = A-Z, exibimos como seta baixo (invertDirection)
+      header: ({ column }) => (
+        <div className="flex items-center gap-1">
+          <SortIcon column={column} invertDirection />
+          <span>{nameColumnLabel}</span>
+        </div>
+      ),
       size: 300,
       minSize: 160,
       enableResizing: true,
@@ -119,7 +159,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         const name = String(info.getValue() || "—");
         return <AdNameCell original={original} value={name} getRowKey={getRowKey} expanded={expanded} setExpanded={setExpanded} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} />;
       },
-    })
+    }),
   );
 
   // Colunas ocultas para filtros de nome cruzados (adset_name e campaign_name)
@@ -134,7 +174,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       maxSize: 0,
       filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "adset_name"),
       cell: () => null,
-    })
+    }),
   );
 
   cols.push(
@@ -148,7 +188,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       maxSize: 0,
       filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "campaign_name"),
       cell: () => null,
-    })
+    }),
   );
 
   cols.push(...buildMetricColumns(params));

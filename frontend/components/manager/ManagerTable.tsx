@@ -37,6 +37,7 @@ import { TableContent } from "@/components/manager/TableContent";
 import { MinimalTableContent } from "@/components/manager/MinimalTableContent";
 import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStorage";
 import { logger } from "@/lib/utils/logger";
+import { getColumnId } from "@/lib/utils/columnFilters";
 
 type Ad = RankingsItem;
 
@@ -303,11 +304,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
 
     // Column filters: manter apenas os que ainda existem/estão visíveis
-    setColumnFilters((prev) => prev.filter((f) => f.id === "ad_name" || enabledColumns.has(f.id as ManagerColumnType)));
+    setColumnFilters((prev) => prev.filter((f) => getColumnId(f.id) === "ad_name" || enabledColumns.has(getColumnId(f.id) as ManagerColumnType)));
 
     // Sorting: manter apenas sorting de colunas visíveis; se ficar vazio, escolher fallback visível
+    // status é coluna fixa (não está em activeColumns) nas abas individual / por-conjunto / por-campanha
     setSorting((prev) => {
-      const filtered = prev.filter((s) => s.id === "ad_name" || enabledColumns.has(s.id as ManagerColumnType));
+      const filtered = prev.filter((s) => s.id === "ad_name" || s.id === "status" || enabledColumns.has(s.id as ManagerColumnType));
       if (filtered.length > 0) return filtered;
 
       const fallbackOrder: Array<{ id: ManagerColumnType; desc: boolean }> = [
@@ -645,6 +647,22 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     });
   }, []);
 
+  // Estado de filtros no formato da tabela (um por coluna); a tabela espera ids de coluna, não ids de instância
+  const tableColumnFilters = useMemo(() => {
+    const byColumn = new Map<string, unknown[]>();
+    for (const filter of columnFilters) {
+      if (!filter.value) continue;
+      const colId = getColumnId(filter.id);
+      const arr = byColumn.get(colId) ?? [];
+      arr.push(filter.value);
+      byColumn.set(colId, arr);
+    }
+    return Array.from(byColumn.entries()).map(([id, values]) => ({
+      id,
+      value: values.length === 1 ? values[0] : values,
+    }));
+  }, [columnFilters]);
+
   const table = useReactTable({
     data,
     columns,
@@ -655,7 +673,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     enableColumnFilters: true,
     columnResizeMode: "onEnd", // Atualiza apenas ao soltar o mouse (melhor performance)
     state: {
-      columnFilters,
+      columnFilters: tableColumnFilters,
       sorting,
       columnSizing,
       columnVisibility: {
@@ -663,7 +681,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         campaign_name_filter: false,
       },
     },
-    onColumnFiltersChange: setColumnFilters,
+    onColumnFiltersChange: () => {}, // Fonte de verdade é FilterBar; não sobrescrever estado com formato agregado
     onSortingChange: handleSortingChange,
     onColumnSizingChange: setColumnSizing,
     initialState: {
@@ -672,6 +690,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     defaultColumn: {
       size: 100,
       minSize: 80,
+      sortDescFirst: true, // primeiro clique nas colunas de métrica = seta para baixo (desc)
     },
   });
 
@@ -746,19 +765,30 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   columnFiltersRef.current = columnFilters;
   globalFilterRef.current = globalFilter;
 
-  // Sincronizar filtros carregados do sessionStorage com as colunas da tabela
+  // Sincronizar filtros com as colunas da tabela (agregação por columnId para múltiplos filtros)
   useEffect(() => {
-    columnFilters.forEach((filter) => {
-      const column = table.getColumn(filter.id);
-      if (column && filter.value) {
-        const filterValue = filter.value as FilterValue;
-        // Só atualizar se o valor da coluna for diferente do filtro
-        const currentValue = column.getFilterValue() as FilterValue | undefined;
-        if (!currentValue || currentValue.operator !== filterValue.operator || currentValue.value !== filterValue.value) {
-          column.setFilterValue(filterValue);
-        }
+    const byColumn = new Map<string, unknown[]>();
+    for (const filter of columnFilters) {
+      if (!filter.value) continue;
+      const colId = getColumnId(filter.id);
+      const arr = byColumn.get(colId) ?? [];
+      arr.push(filter.value);
+      byColumn.set(colId, arr);
+    }
+    const currentFilterColumnIds = new Set(table.getState().columnFilters.map((f) => getColumnId(f.id)));
+    const columnIdsToUpdate = new Set([...byColumn.keys(), ...currentFilterColumnIds]);
+    for (const columnId of columnIdsToUpdate) {
+      const column = table.getColumn(columnId);
+      if (!column) continue;
+      const values = byColumn.get(columnId);
+      if (!values || values.length === 0) {
+        column.setFilterValue(undefined);
+      } else if (values.length === 1) {
+        column.setFilterValue(values[0]);
+      } else {
+        column.setFilterValue(values);
       }
-    });
+    }
   }, [columnFilters, table]);
 
   // Mapeamento de colunas disponíveis para filtro
@@ -790,17 +820,18 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
     // por-campanha: adset_name é null nessa aba, não adicionar filtro de conjunto
 
-    if (shouldShow("hook")) cols.push({ id: "hook", label: "Hook", isPercentage: true });
-    if (shouldShow("cpr")) cols.push({ id: "cpr", label: "CPR", isPercentage: false });
-    if (shouldShow("cpmql")) cols.push({ id: "cpmql", label: "CPMQL", isPercentage: false });
+    // Ordem dos filtros de métricas segue a mesma ordem das colunas da tabela
     if (shouldShow("spend")) cols.push({ id: "spend", label: "Spend", isPercentage: false });
-    if (shouldShow("ctr")) cols.push({ id: "ctr", label: "CTR", isPercentage: true });
-    if (shouldShow("website_ctr")) cols.push({ id: "website_ctr", label: "Link CTR", isPercentage: true });
-    if (shouldShow("cpm")) cols.push({ id: "cpm", label: "CPM", isPercentage: false });
-    if (shouldShow("connect_rate")) cols.push({ id: "connect_rate", label: "Connect", isPercentage: true });
-    if (shouldShow("page_conv")) cols.push({ id: "page_conv", label: "Page", isPercentage: true });
     if (shouldShow("results")) cols.push({ id: "results", label: "Results", isPercentage: false });
     if (shouldShow("mqls")) cols.push({ id: "mqls", label: "MQLs", isPercentage: false });
+    if (shouldShow("cpr")) cols.push({ id: "cpr", label: "CPR", isPercentage: false });
+    if (shouldShow("cpmql")) cols.push({ id: "cpmql", label: "CPMQL", isPercentage: false });
+    if (shouldShow("cpm")) cols.push({ id: "cpm", label: "CPM", isPercentage: false });
+    if (shouldShow("hook")) cols.push({ id: "hook", label: "Hook", isPercentage: true });
+    if (shouldShow("ctr")) cols.push({ id: "ctr", label: "CTR", isPercentage: true });
+    if (shouldShow("website_ctr")) cols.push({ id: "website_ctr", label: "Link CTR", isPercentage: true });
+    if (shouldShow("connect_rate")) cols.push({ id: "connect_rate", label: "Connect", isPercentage: true });
+    if (shouldShow("page_conv")) cols.push({ id: "page_conv", label: "Page", isPercentage: true });
 
     return cols;
   }, [hasSheetIntegration, currentTab, activeColumns]);

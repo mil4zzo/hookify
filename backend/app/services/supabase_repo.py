@@ -430,6 +430,13 @@ def upsert_ads(
     
     logger.info(f"[UPSERT_ADS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
+    # Sync transcription_id em ads e ad_ids em ad_transcriptions (best-effort)
+    try:
+        ad_id_name_pairs = [(str(r.get("ad_id") or ""), str(r.get("ad_name") or "")) for r in rows]
+        _sync_ads_transcription_links(user_jwt, user_id, ad_id_name_pairs)
+    except Exception as e:
+        logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
+
 
 def upsert_ad_metrics(
     user_jwt: str,
@@ -1897,4 +1904,231 @@ def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]
         return []
     
     return ads
+
+
+# ============ TRANSCRIPTION ============
+
+
+def get_existing_transcriptions(
+    user_jwt: str,
+    user_id: str,
+    ad_names: List[str],
+) -> Dict[str, str]:
+    """Retorna mapa {ad_name: status} para ad_names que já possuem transcrição."""
+    if not user_id or not ad_names:
+        return {}
+
+    sb = get_supabase_for_user(user_jwt)
+    result: Dict[str, str] = {}
+    batch_size = 400
+
+    for i in range(0, len(ad_names), batch_size):
+        batch = ad_names[i : i + batch_size]
+        try:
+            rows = (
+                sb.table("ad_transcriptions")
+                .select("ad_name,status")
+                .eq("user_id", user_id)
+                .in_("ad_name", batch)
+                .execute()
+            ).data or []
+            for row in rows:
+                name = str(row.get("ad_name") or "").strip()
+                status = str(row.get("status") or "").strip()
+                if name:
+                    result[name] = status
+        except Exception as e:
+            logger.warning(f"[TRANSCRIPTION] Erro ao consultar transcriptions existentes: {e}")
+
+    return result
+
+
+def _sync_ads_transcription_links(
+    user_jwt: str,
+    user_id: str,
+    ad_id_name_pairs: List[Tuple[str, str]],
+) -> None:
+    """Atualiza ads.transcription_id e ad_transcriptions.ad_ids quando ads são upsertados."""
+    if not user_id or not ad_id_name_pairs:
+        return
+    sb = get_supabase_for_user(user_jwt)
+    ad_name_to_ad_ids: Dict[str, List[str]] = {}
+    for ad_id, ad_name in ad_id_name_pairs:
+        aid = str(ad_id).strip()
+        aname = str(ad_name).strip()
+        if not aid or not aname:
+            continue
+        ad_name_to_ad_ids.setdefault(aname, []).append(aid)
+    if not ad_name_to_ad_ids:
+        return
+    try:
+        for ad_name, batch_ad_ids in ad_name_to_ad_ids.items():
+            tr = (
+                sb.table("ad_transcriptions")
+                .select("id, ad_ids")
+                .eq("user_id", user_id)
+                .eq("ad_name", ad_name)
+                .limit(1)
+                .execute()
+            )
+            if not tr.data or len(tr.data) == 0:
+                continue
+            rec = tr.data[0]
+            transcription_id = rec.get("id")
+            if not transcription_id:
+                continue
+            existing = rec.get("ad_ids") or []
+            merged = list(set(existing + batch_ad_ids))
+            sb.table("ad_transcriptions").update(
+                {"ad_ids": merged, "updated_at": _now_iso()}
+            ).eq("id", transcription_id).eq("user_id", user_id).execute()
+            for i in range(0, len(batch_ad_ids), 200):
+                batch = batch_ad_ids[i : i + 200]
+                sb.table("ads").update(
+                    {"transcription_id": str(transcription_id), "updated_at": _now_iso()}
+                ).eq("user_id", user_id).in_("ad_id", batch).execute()
+        logger.debug(f"[UPSERT_ADS] Sync transcription links para {len(ad_name_to_ad_ids)} ad_names")
+    except Exception as e:
+        logger.warning(f"[UPSERT_ADS] Erro em _sync_ads_transcription_links: {e}")
+        raise
+
+
+def _sync_transcription_links_after_upsert(
+    user_jwt: str,
+    user_id: str,
+    ad_name: str,
+) -> None:
+    """Atualiza ads.transcription_id e ad_transcriptions.ad_ids após upsert de transcrição."""
+    if not user_id or not ad_name:
+        return
+    sb = get_supabase_for_user(user_jwt)
+    try:
+        tr = (
+            sb.table("ad_transcriptions")
+            .select("id")
+            .eq("user_id", user_id)
+            .eq("ad_name", ad_name)
+            .limit(1)
+            .execute()
+        )
+        if not tr.data or len(tr.data) == 0:
+            return
+        transcription_id = tr.data[0].get("id")
+        if not transcription_id:
+            return
+        ads_rows = (
+            sb.table("ads")
+            .select("ad_id")
+            .eq("user_id", user_id)
+            .eq("ad_name", ad_name)
+            .execute()
+        )
+        ad_ids = [str(r.get("ad_id", "")).strip() for r in (ads_rows.data or []) if r.get("ad_id")]
+        if not ad_ids:
+            sb.table("ad_transcriptions").update(
+                {"ad_ids": ad_ids, "updated_at": _now_iso()}
+            ).eq("id", transcription_id).eq("user_id", user_id).execute()
+            return
+        sb.table("ad_transcriptions").update(
+            {"ad_ids": ad_ids, "updated_at": _now_iso()}
+        ).eq("id", transcription_id).eq("user_id", user_id).execute()
+        batch_size = 200
+        for i in range(0, len(ad_ids), batch_size):
+            batch = ad_ids[i : i + batch_size]
+            sb.table("ads").update(
+                {"transcription_id": str(transcription_id), "updated_at": _now_iso()}
+            ).eq("user_id", user_id).in_("ad_id", batch).execute()
+        logger.debug(f"[TRANSCRIPTION] Sync links: ad_name={ad_name!r} ad_ids={len(ad_ids)}")
+    except Exception as e:
+        logger.warning(f"[TRANSCRIPTION] Erro ao sync transcription links: {e}")
+
+
+def upsert_transcription(
+    user_jwt: str,
+    user_id: str,
+    ad_name: str,
+    status: str,
+    full_text: Optional[str] = None,
+    timestamped_text: Optional[Any] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Insere ou atualiza transcrição na tabela ad_transcriptions."""
+    if not user_id or not ad_name:
+        return
+
+    sb = get_supabase_for_user(user_jwt)
+    row: Dict[str, Any] = {
+        "user_id": user_id,
+        "ad_name": ad_name,
+        "status": status,
+        "full_text": full_text,
+        "timestamped_text": timestamped_text,
+        "metadata": metadata,
+        "updated_at": _now_iso(),
+    }
+    try:
+        sb.table("ad_transcriptions").upsert(
+            row, on_conflict="user_id,ad_name"
+        ).execute()
+        logger.info(f"[TRANSCRIPTION] Upsert ok: ad_name={ad_name!r} status={status}")
+        try:
+            _sync_transcription_links_after_upsert(user_jwt, user_id, ad_name)
+        except Exception as sync_err:
+            logger.warning(f"[TRANSCRIPTION] Sync links falhou (best-effort): {sync_err}")
+    except Exception as e:
+        logger.error(f"[TRANSCRIPTION] Erro ao upsert transcription ad_name={ad_name!r}: {e}")
+        raise
+
+
+def get_transcription_by_id(
+    user_jwt: str,
+    user_id: str,
+    transcription_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Busca transcrição por user_id + transcription_id. Retorna None se não existir."""
+    if not user_id or not transcription_id:
+        return None
+    sb = get_supabase_for_user(user_jwt)
+    try:
+        res = (
+            sb.table("ad_transcriptions")
+            .select("*")
+            .eq("id", transcription_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            return res.data[0]
+        return None
+    except Exception as e:
+        logger.warning(f"[TRANSCRIPTION] Erro ao buscar transcription por id: {e}")
+        return None
+
+
+def get_transcription(
+    user_jwt: str,
+    user_id: str,
+    ad_name: str,
+) -> Optional[Dict[str, Any]]:
+    """Busca transcrição por user_id + ad_name. Retorna None se não existir."""
+    if not user_id or not ad_name:
+        return None
+
+    sb = get_supabase_for_user(user_jwt)
+    try:
+        res = (
+            sb.table("ad_transcriptions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("ad_name", ad_name)
+            .limit(1)
+            .execute()
+        )
+        if res.data and len(res.data) > 0:
+            return res.data[0]
+        return None
+    except Exception as e:
+        logger.warning(f"[TRANSCRIPTION] Erro ao buscar transcription: {e}")
+        return None
 

@@ -316,7 +316,7 @@ export default function PacksPage() {
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
   const { isPackUpdating } = useUpdatingPacksStore();
   const { addActiveJob, removeActiveJob } = useActiveJobsStore();
-  const { refreshPack, isRefreshing } = usePackRefresh();
+  const { refreshPack, isRefreshing, startTranscriptionOnly } = usePackRefresh();
   const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [debugInfo, setDebugInfo] = useState<string>("");
@@ -1505,7 +1505,7 @@ export default function PacksPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {packs.map((pack) => (
-              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
+              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
             ))}
           </div>
         )}

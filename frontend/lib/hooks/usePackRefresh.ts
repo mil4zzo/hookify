@@ -77,6 +77,8 @@ export interface UsePackRefreshReturn {
   refreshPack: (params: StartRefreshParams) => Promise<void>;
   /** Cancel an in-progress refresh */
   cancelRefresh: (packId: string) => Promise<void>;
+  /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
+  startTranscriptionOnly: (packId: string, packName: string) => Promise<void>;
   /** Check if a specific pack is currently refreshing */
   isRefreshing: (packId: string) => boolean;
   /** Get all currently refreshing pack IDs */
@@ -343,6 +345,127 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       return { success: false, error: "Job não completou" };
     },
     [pauseJob, clearJob, connectGoogle]
+  );
+
+  /**
+   * Faz polling do job de transcrição em paralelo.
+   */
+  const pollTranscriptionJob = useCallback(
+    async (
+      transcriptionJobId: string,
+      toastId: string,
+      packName: string,
+      getCancelled: () => boolean
+    ): Promise<{ success: boolean; error?: string }> => {
+      let completed = false;
+      let attempts = 0;
+      const maxAttempts = 300; // 10 minutos
+
+      while (!completed && attempts < maxAttempts && !getCancelled()) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+
+        if (getCancelled()) {
+          return { success: false, error: "Cancelado pelo usuário" };
+        }
+
+        try {
+          const progress = await api.facebook.getTranscriptionProgress(transcriptionJobId);
+          const details = (progress as any)?.details || {};
+          const total = Math.max(1, Number(details.total || 1));
+          const doneRaw = Number(details.done || 0);
+          const done = progress.status === "completed" ? total : Math.max(0, Math.min(doneRaw, total));
+          const currentStep = Math.max(1, Math.min(done > 0 ? done : 1, total));
+          const message =
+            progress.message ||
+            getStatusMessage(progress.status, details?.stage, details) ||
+            "Transcrevendo vídeos...";
+
+          updateProgressToast(
+            toastId,
+            `Transcrição: ${packName}`,
+            currentStep,
+            total,
+            message,
+            undefined,
+            metaToastIcon
+          );
+
+          if (progress.status === "completed") {
+            finishProgressToast(
+              toastId,
+              true,
+              `Transcrição de "${packName}" concluída (${Number(details.success_count || done)} sucesso(s)).`
+            );
+            return { success: true };
+          }
+
+          if (progress.status === "failed" || progress.status === "cancelled") {
+            finishProgressToast(
+              toastId,
+              false,
+              progress.message || `Transcrição de "${packName}" falhou`
+            );
+            return { success: false, error: progress.message || "Falha na transcrição" };
+          }
+        } catch (error) {
+          updateProgressToast(
+            toastId,
+            `Transcrição: ${packName}`,
+            1,
+            1,
+            "Erro ao verificar progresso da transcrição, tentando novamente...",
+            undefined,
+            metaToastIcon
+          );
+        }
+
+        attempts++;
+      }
+
+      if (!completed) {
+        finishProgressToast(
+          toastId,
+          false,
+          `Timeout ao transcrever vídeos de "${packName}" (demorou mais de 10 minutos)`
+        );
+      }
+
+      return { success: false, error: "Timeout" };
+    },
+    []
+  );
+
+  /**
+   * Inicia apenas o processo de transcrição dos anúncios do pack (sem refresh).
+   * Útil para testes ou para rodar transcrição após um refresh que não a disparou.
+   */
+  const startTranscriptionOnly = useCallback(
+    async (packId: string, packName: string): Promise<void> => {
+      try {
+        const res = await api.facebook.startPackTranscription(packId);
+        if (res.transcription_job_id) {
+          const toastId = `transcription-only-${packId}`;
+          showProgressToast(
+            toastId,
+            `Transcrição: ${packName}`,
+            1,
+            1,
+            "Transcrevendo vídeos...",
+            undefined,
+            metaToastIcon
+          );
+          pollTranscriptionJob(res.transcription_job_id, toastId, packName, () => false).catch((err) => {
+            console.error("Erro no polling da transcrição:", err);
+          });
+        } else {
+          showWarning(res.message || "Nenhuma transcrição pendente");
+        }
+      } catch (error) {
+        console.error("Erro ao iniciar transcrição:", error);
+        showWarning(error instanceof Error ? error.message : "Erro ao iniciar transcrição");
+      }
+    },
+    [pollTranscriptionJob]
   );
 
   // ============================================================================
@@ -629,6 +752,28 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                 console.error("Erro ao recarregar pack após refresh:", error);
               }
 
+              const transcriptionJobId = details?.transcription_job_id;
+              if (transcriptionJobId) {
+                const transcriptionToastId = `transcription-${packId}`;
+                showProgressToast(
+                  transcriptionToastId,
+                  `Transcrição: ${packName}`,
+                  1,
+                  1,
+                  "Transcrevendo vídeos em segundo plano...",
+                  undefined,
+                  metaToastIcon
+                );
+                pollTranscriptionJob(
+                  transcriptionJobId,
+                  transcriptionToastId,
+                  packName,
+                  () => activeRefresh.cancelled
+                ).catch((error) => {
+                  console.error("Erro no polling da transcrição:", error);
+                });
+              }
+
               completed = true;
 
               // Callback de sucesso
@@ -703,6 +848,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       invalidatePackAds,
       invalidateAdPerformance,
       pollSheetSyncJob,
+      pollTranscriptionJob,
       cancelRefresh,
       options,
     ]
@@ -722,6 +868,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   return {
     refreshPack,
     cancelRefresh,
+    startTranscriptionOnly,
     isRefreshing,
     refreshingPackIds,
   };
