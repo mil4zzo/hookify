@@ -360,6 +360,7 @@ export const RankingsItemSchema = z.object({
   ad_id: z.string().nullable().optional(),
   ad_name: z.string().nullable().optional(),
   effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
+  active_count: z.number().nullable().optional(), // Quantidade de anúncios ativos no grupo (por anúncio / por conjunto)
   impressions: z.number(),
   clicks: z.number(),
   inline_link_clicks: z.number(),

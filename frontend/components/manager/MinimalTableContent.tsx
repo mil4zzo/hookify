@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useRef, useState, useEffect, useCallback, useMemo } from "react";
+import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { IconX } from "@tabler/icons-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
+import { ExpandedRowCell } from "@/components/manager/ExpandedRowCell";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { SharedTableContentProps } from "@/components/manager/tableContentTypes";
 
@@ -96,11 +97,19 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
     }
   }
 
+  // 6. Filtros das tabelas expandidas
+  if (JSON.stringify(prev.expandedTableColumnFilters ?? []) !== JSON.stringify(next.expandedTableColumnFilters ?? [])) {
+    return false;
+  }
+  if (prev.setExpandedTableColumnFilters !== next.setExpandedTableColumnFilters) {
+    return false;
+  }
+
   // Todas as props relevantes são iguais - não re-renderizar
   return true;
 }
 
-export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting }: MinimalTableContentProps) {
+export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters }: MinimalTableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -316,22 +325,52 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                 const original = row.original as RankingsItem;
                 const adName = String(original?.ad_name || "");
 
+                const expandedContent =
+                  (groupByAdNameEffective && isExpanded && adName ? (
+                    <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent />
+                  ) : null) ??
+                  (currentTab === "por-conjunto" && isExpanded && String((original as any)?.adset_id || "").trim() ? (
+                    <ExpandedChildrenRow adsetId={String((original as any)?.adset_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent />
+                  ) : null) ??
+                  (currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? (
+                    <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent />
+                  ) : null);
+
+                if (isExpanded && expandedContent) {
+                  return (
+                    <ExpandedRowCell
+                      key={row.id}
+                      ref={rowVirtualizer.measureElement}
+                      row={row}
+                      table={table}
+                      expandedContent={expandedContent}
+                      tdClassName="p-0 align-top border border-primary rounded-md bg-input-30"
+                      onRowClick={handleRowClick}
+                      trClassName={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} bg-muted/30`}
+                      dataIndex={virtualRow.index}
+                      summaryCellClassName="py-1.5 px-2"
+                    />
+                  );
+                }
+
                 return (
-                  <Fragment key={row.id}>
-                    <tr data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"}`} onClick={(e) => handleRowClick(e, row)}>
-                      {row.getVisibleCells().map((cell) => {
-                        const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
-                        return (
-                          <td key={cell.id} className={`py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0`}>
-                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {groupByAdNameEffective && isExpanded && adName ? <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} /> : null}
-                    {currentTab === "por-conjunto" && isExpanded && String((original as any)?.adset_id || "").trim() ? <ExpandedChildrenRow adsetId={String((original as any)?.adset_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} /> : null}
-                    {currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} /> : null}
-                  </Fragment>
+                  <tr
+                    key={row.id}
+                    data-index={virtualRow.index}
+                    ref={rowVirtualizer.measureElement}
+                    className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} ${isExpanded ? "bg-muted/30" : ""}`}
+                    onClick={(e) => handleRowClick(e, row)}
+                  >
+                    {row.getVisibleCells().map((cell, cellIndex) => {
+                      const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
+                      const isFirst = cellIndex === 0;
+                      return (
+                        <td key={cell.id} className={`py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0 ${isExpanded && isFirst ? "!border-l-2 !border-l-primary" : ""}`}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      );
+                    })}
+                  </tr>
                 );
               })
             )}

@@ -292,6 +292,18 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Estado para gerenciar o tamanho das colunas
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
 
+  // Filtros das tabelas expandidas (compartilhados por aba, independentes entre abas)
+  const [expandedTableFilters, setExpandedTableFilters] = useState<Record<string, ColumnFiltersState>>({});
+  const setExpandedTableColumnFilters = useCallback(
+    (updater: React.SetStateAction<ColumnFiltersState>) => {
+      setExpandedTableFilters((prev) => ({
+        ...prev,
+        [currentTab]: typeof updater === "function" ? updater(prev[currentTab] ?? []) : updater,
+      }));
+    },
+    [currentTab],
+  );
+
   // Refs para evitar recriação das colunas durante mudanças de filtros (performance optimization)
   const columnFiltersRef = useRef<ColumnFiltersState>([]);
   const globalFilterRef = useRef<string>("");
@@ -843,12 +855,15 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     { value: "por-campanha", label: "Por campanha", icon: IconFolder },
   ];
 
+  const searchBar = (
+    <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
+      <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+      <Input type="search" placeholder={currentTab === "por-conjunto" ? "Buscar por nome do conjunto..." : currentTab === "por-campanha" ? "Buscar por nome da campanha..." : "Buscar por nome do anúncio..."} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} className="pl-9 h-10 w-full" />
+    </div>
+  );
+
   const controls = (
     <>
-      <div className="relative flex-1 min-w-0 max-w-sm">
-        <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <Input type="search" placeholder={currentTab === "por-conjunto" ? "Buscar por nome do conjunto..." : currentTab === "por-campanha" ? "Buscar por nome da campanha..." : "Buscar por nome do anúncio..."} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} className="pl-9 h-10" />
-      </div>
       <div className="flex items-center gap-2">
         {/* Toggle de visualização */}
         <TooltipProvider>
@@ -907,30 +922,52 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       sorting,
       dataLength: data.length,
       showTrends,
+      expandedTableColumnFilters: expandedTableFilters[currentTab] ?? [],
+      setExpandedTableColumnFilters,
     }),
-    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data.length, showTrends],
+    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data.length, showTrends, expandedTableFilters, setExpandedTableColumnFilters],
   );
 
   return (
     <div className="w-full h-full flex-1 flex flex-col min-h-0">
       <TabbedContent value={currentTab} onValueChange={handleTabChange} variant="with-controls" tabs={tabs} controls={controls} separatorAfterTabs={true}>
         <TabbedContentItem value="individual" variant="with-controls">
-          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+            {searchBar}
+            <div className="flex-1 min-w-0">
+              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+            </div>
+          </div>
           {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
 
         <TabbedContentItem value="por-anuncio" variant="with-controls">
-          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+            {searchBar}
+            <div className="flex-1 min-w-0">
+              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+            </div>
+          </div>
           {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
 
         <TabbedContentItem value="por-conjunto" variant="with-controls">
-          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+            {searchBar}
+            <div className="flex-1 min-w-0">
+              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+            </div>
+          </div>
           {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
 
         <TabbedContentItem value="por-campanha" variant="with-controls">
-          <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+            {searchBar}
+            <div className="flex-1 min-w-0">
+              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+            </div>
+          </div>
           {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
       </TabbedContent>

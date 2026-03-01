@@ -1908,13 +1908,28 @@ def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]
 
 # ============ TRANSCRIPTION ============
 
+# Frase que indica falha permanente (vídeo sem áudio/fala) — não retentar
+_NO_SPOKEN_AUDIO_PHRASE = "no spoken audio"
+
+
+def _is_no_audio_failure(metadata: Any) -> bool:
+    """True se metadata indica erro de vídeo sem áudio/fala (falha permanente)."""
+    if not metadata or not isinstance(metadata, dict):
+        return False
+    msg = str(metadata.get("error_message") or "").strip().lower()
+    return _NO_SPOKEN_AUDIO_PHRASE in msg
+
 
 def get_existing_transcriptions(
     user_jwt: str,
     user_id: str,
     ad_names: List[str],
 ) -> Dict[str, str]:
-    """Retorna mapa {ad_name: status} para ad_names que já possuem transcrição."""
+    """Retorna mapa {ad_name: status} para ad_names que devem ser ignorados ao transcrever.
+
+    Inclui: completed, processing, pending e failed com erro de 'no spoken audio'
+    (vídeo sem áudio/fala — falha permanente). Outros failed são excluídos para permitir retry.
+    """
     if not user_id or not ad_names:
         return {}
 
@@ -1927,15 +1942,19 @@ def get_existing_transcriptions(
         try:
             rows = (
                 sb.table("ad_transcriptions")
-                .select("ad_name,status")
+                .select("ad_name,status,metadata")
                 .eq("user_id", user_id)
                 .in_("ad_name", batch)
                 .execute()
             ).data or []
             for row in rows:
                 name = str(row.get("ad_name") or "").strip()
+                if not name:
+                    continue
                 status = str(row.get("status") or "").strip()
-                if name:
+                if status in ("completed", "processing", "pending"):
+                    result[name] = status
+                elif status == "failed" and _is_no_audio_failure(row.get("metadata")):
                     result[name] = status
         except Exception as e:
             logger.warning(f"[TRANSCRIPTION] Erro ao consultar transcriptions existentes: {e}")

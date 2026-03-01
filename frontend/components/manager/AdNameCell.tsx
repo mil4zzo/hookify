@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
+import { IconChevronDown } from "@tabler/icons-react";
 
 interface AdNameCellProps {
   original: RankingsItem;
@@ -57,26 +58,32 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
   const thumbnail = getAdThumbnail(original);
   const name = String(value || "—");
   const id = original?.ad_id;
-  const adCount = original?.ad_count || 1;
+  const adCount = original?.ad_count ?? 0;
+  const activeCount = original?.active_count ?? adCount;
   const key = getRowKey({ original });
   const isExpanded = !!expanded[key];
+  const hasActive = (original?.effective_status || "").toUpperCase() === "ACTIVE";
+  const dotActive = adCount > 0 && hasActive;
 
   let secondLine = "";
-  if (groupByAdNameEffective) {
-    secondLine = adCount === 1 ? "1 anúncio" : `+ ${adCount} anúncios`;
-  } else {
-    if (currentTab === "por-conjunto") {
-      secondLine = adCount === 1 ? "1 anúncio" : `${adCount} anúncios`;
-    } else if (currentTab === "por-campanha") {
-      secondLine = adCount === 1 ? "1 conjunto" : `${adCount} conjuntos`;
-    } else if (currentTab === "individual") {
-      // Na aba individual, mostrar o nome do conjunto ao invés do ID do anúncio
-      const adsetName = (original as any)?.adset_name;
-      secondLine = adsetName ? String(adsetName) : `ID: ${id || "-"}`;
+  if (groupByAdNameEffective || currentTab === "por-conjunto" || currentTab === "por-campanha") {
+    const isPorCampanha = currentTab === "por-campanha";
+    if (isPorCampanha) {
+      const total = adCount;
+      secondLine = total === 1 ? "1 conjunto" : `${total} conjuntos`;
     } else {
-      const countLabel = "dias";
-      secondLine = adCount === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${adCount} ${countLabel})`;
+      const total = adCount;
+      const x = typeof activeCount === "number" ? activeCount : total;
+      const countLabel = total === 1 ? "anúncio" : "anúncios";
+      secondLine = `${x} / ${total} ${countLabel}`;
     }
+  } else if (currentTab === "individual") {
+    const adsetName = (original as any)?.adset_name;
+    secondLine = adsetName ? String(adsetName) : `ID: ${id || "-"}`;
+  } else {
+    const countLabel = "dias";
+    const count = Math.max(adCount, 1);
+    secondLine = count === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${count} ${countLabel})`;
   }
 
   const handleToggleExpand = (e?: React.MouseEvent) => {
@@ -94,8 +101,21 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
         </div>
         {groupByAdNameEffective || currentTab === "por-campanha" || currentTab === "por-conjunto" ? (
           <div className="mt-1">
-            <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
-              {isExpanded ? "- Recolher" : secondLine}
+            <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs gap-1.5 ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
+              {isExpanded ? (
+                "- Recolher"
+              ) : currentTab === "por-campanha" ? (
+                <>
+                  {secondLine}
+                  <IconChevronDown className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+                </>
+              ) : (
+                <>
+                  <span className={`shrink-0 rounded-full w-1.5 h-1.5 ${dotActive ? "bg-green-500" : "bg-muted-foreground/60"}`} aria-hidden />
+                  {secondLine}
+                  <IconChevronDown className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+                </>
+              )}
             </Button>
           </div>
         ) : (

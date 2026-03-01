@@ -7,10 +7,13 @@ import { RankingsChildrenItem } from "@/lib/api/schemas";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { StatusCell } from "@/components/manager/StatusCell";
+import type { ColumnFiltersState } from "@tanstack/react-table";
 import { Input } from "@/components/ui/input";
+import { FilterBar } from "@/components/manager/FilterBar";
 import { MANAGER_COLUMN_OPTIONS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { applyRowFilters } from "@/lib/utils/applyRowFilters";
 
 interface ExpandedChildrenRowProps {
   adName?: string;
@@ -23,6 +26,10 @@ interface ExpandedChildrenRowProps {
   activeColumns: Set<ManagerColumnType>;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number;
+  columnFilters?: ColumnFiltersState;
+  setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
+  /** Quando true, retorna apenas o conteúdo interno (sem tr/td) para uso dentro de uma célula pai */
+  asContent?: boolean;
 }
 
 // Função de comparação customizada para React.memo
@@ -32,7 +39,12 @@ function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: 
     prev.activeColumns.size === next.activeColumns.size &&
     Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
 
+  const columnFiltersEqual =
+    (prev.columnFilters?.length ?? 0) === (next.columnFilters?.length ?? 0) &&
+    JSON.stringify(prev.columnFilters ?? []) === JSON.stringify(next.columnFilters ?? []);
+
   return (
+    prev.asContent === next.asContent &&
     prev.adName === next.adName &&
     prev.adsetId === next.adsetId &&
     prev.dateStart === next.dateStart &&
@@ -42,7 +54,9 @@ function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: 
     prev.formatPct === next.formatPct &&
     activeColumnsEqual &&
     prev.hasSheetIntegration === next.hasSheetIntegration &&
-    prev.mqlLeadscoreMin === next.mqlLeadscoreMin
+    prev.mqlLeadscoreMin === next.mqlLeadscoreMin &&
+    columnFiltersEqual &&
+    prev.setColumnFilters === next.setColumnFilters
   );
 }
 
@@ -57,6 +71,9 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   activeColumns,
   hasSheetIntegration = false,
   mqlLeadscoreMin = 0,
+  columnFilters = [],
+  setColumnFilters,
+  asContent = false,
 }: ExpandedChildrenRowProps) {
   // Usar hook apropriado baseado em qual prop foi fornecida
   const adVariationsQuery = useAdVariations(adName || "", dateStart, dateStop, !!adName);
@@ -65,8 +82,8 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   // Selecionar dados do hook correto
   const { data: childrenData, isLoading, isError } = adsetId ? adsetChildrenQuery : adVariationsQuery;
   const [sortConfig, setSortConfig] = useState<{ column: string | null; direction: "asc" | "desc" }>({
-    column: null,
-    direction: "asc",
+    column: "spend",
+    direction: "desc",
   });
   const [searchTerm, setSearchTerm] = useState<string>("");
 
@@ -152,26 +169,40 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
       };
     });
 
-    // Filtrar por termo de busca
-    const filteredData = searchTerm.trim()
+    // Filtrar por termo de busca: nome do anúncio ou ID do anúncio (por anúncio e por conjunto)
+    let filteredData = searchTerm.trim()
       ? dataWithCalculations.filter((child) => {
           const search = searchTerm.toLowerCase();
-          const campaignName = String(child.campaign_name || "").toLowerCase();
-          const adsetName = String(child.adset_name || "").toLowerCase();
+          const adName = String(child.ad_name || "").toLowerCase();
           const adId = String(child.ad_id || "").toLowerCase();
-          return campaignName.includes(search) || adsetName.includes(search) || adId.includes(search);
+          return adName.includes(search) || adId.includes(search);
         })
       : dataWithCalculations;
+
+    // Filtrar por columnFilters (Status, nome, métricas)
+    if (columnFilters.length > 0) {
+      filteredData = filteredData.filter((row) => applyRowFilters(row as Record<string, unknown>, columnFilters));
+    }
 
     if (!sortConfig.column) {
       return filteredData;
     }
+
+    const isActiveStatus = (status?: string | null) =>
+      status != null && String(status).toUpperCase() === "ACTIVE";
 
     const sorted = [...filteredData].sort((a, b) => {
       let aVal: any;
       let bVal: any;
 
       switch (sortConfig.column) {
+        case "status": {
+          const activeA = isActiveStatus((a as any).effective_status);
+          const activeB = isActiveStatus((b as any).effective_status);
+          if (activeA === activeB) return 0;
+          const cmp = activeA && !activeB ? -1 : 1;
+          return sortConfig.direction === "asc" ? cmp : -cmp;
+        }
         case "ad_id":
           aVal = String(a.ad_id || "");
           bVal = String(b.ad_id || "");
@@ -231,16 +262,15 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
     });
 
     return sorted;
-  }, [childrenData, sortConfig, actionType, searchTerm, hasSheetIntegration, mqlLeadscoreMin]);
+  }, [childrenData, sortConfig, actionType, searchTerm, hasSheetIntegration, mqlLeadscoreMin, columnFilters]);
 
   const handleSort = (column: string) => {
     setSortConfig((prev) => {
       if (prev.column === column) {
-        // Se já está ordenando por esta coluna, inverter direção
         return { column, direction: prev.direction === "asc" ? "desc" : "asc" };
       }
-      // Nova coluna: começar com desc (exceto para ad_id que começa com asc)
-      return { column, direction: column === "ad_id" ? "asc" : "desc" };
+      // Status e ad_id: primeiro clique = asc (ativos primeiro / ordem natural)
+      return { column, direction: column === "ad_id" || column === "status" ? "asc" : "desc" };
     });
   };
 
@@ -261,6 +291,24 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
         return col!; // Safe porque sabemos que existe
       });
   }, [activeColumns, hasSheetIntegration]);
+
+  // Colunas filtráveis (Status, nome, Campanha/Conjunto, métricas visíveis)
+  const filterableColumns = useMemo(() => {
+    const cols: Array<{ id: string; label: string; isPercentage?: boolean; isText?: boolean; isStatus?: boolean }> = [];
+    cols.push({ id: "status", label: "Status", isStatus: true });
+    if (adsetId) {
+      cols.push({ id: "ad_name", label: "Anúncio", isText: true });
+      cols.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
+    } else {
+      cols.push({ id: "adset_name_filter", label: "Conjunto", isText: true });
+      cols.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
+    }
+    for (const col of visibleColumns) {
+      const isPct = ["hook", "ctr", "website_ctr", "connect_rate", "page_conv"].includes(col.id);
+      cols.push({ id: col.id, label: col.name, isPercentage: isPct });
+    }
+    return cols;
+  }, [adsetId, visibleColumns]);
 
   // Calcular colspan:
   // A tabela pai tem: Status (opcional) + Ad Name + métricas visíveis
@@ -300,83 +348,123 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
 
   const childMetricsColumnClass = `px-4 py-3 text-center cursor-pointer select-none hover:text-brand`;
 
+  const loadingContent = (
+    <div className="p-2 pl-8">
+      <div className="text-sm text-muted-foreground">Carregando variações...</div>
+    </div>
+  );
+
+  const errorContent = (
+    <div className="p-2 pl-8">
+      <div className="text-sm text-destructive">Erro ao carregar variações.</div>
+    </div>
+  );
+
+  const emptyContent = (
+    <div className="p-2 pl-8">
+      <div className="text-sm text-muted-foreground">Sem variações no período.</div>
+    </div>
+  );
+
   // Retornos condicionais após todos os hooks
   if (isLoading) {
-    return (
+    return asContent ? loadingContent : (
       <tr className="bg-border">
-        <td className="p-0" colSpan={colspan}>
-          <div className="p-2 pl-8">
-            <div className="text-sm text-muted-foreground">Carregando variações...</div>
-          </div>
-        </td>
+        <td className="p-0" colSpan={colspan}>{loadingContent}</td>
       </tr>
     );
   }
 
   if (isError) {
-    return (
+    return asContent ? errorContent : (
       <tr className="bg-border">
-        <td className="p-0" colSpan={colspan}>
-          <div className="p-2 pl-8">
-            <div className="text-sm text-destructive">Erro ao carregar variações.</div>
-          </div>
-        </td>
+        <td className="p-0" colSpan={colspan}>{errorContent}</td>
       </tr>
     );
   }
 
   if (!childrenData || childrenData.length === 0) {
-    return (
+    return asContent ? emptyContent : (
       <tr className="bg-border">
-        <td className="p-0" colSpan={colspan}>
-          <div className="p-2 pl-8">
-            <div className="text-sm text-muted-foreground">Sem variações no período.</div>
-          </div>
-        </td>
+        <td className="p-0" colSpan={colspan}>{emptyContent}</td>
       </tr>
     );
   }
 
-  return (
-    <tr className="bg-card">
-      <td className="p-0" colSpan={colspan}>
-        <div className="">
-          {/* Campo de busca para filtrar variações */}
-          <div className="px-4 py-3 bg-muted/50">
-            <div className="flex items-center gap-3">
-              <div className="relative flex-1 max-w-sm">
+  const innerContent = (
+    <div className="">
+          {/* Busca e filtros - flex horizontal: search à esquerda, filterbar à direita */}
+          <div className="px-4 py-3 bg-muted/50" role="region" aria-label="Busca e filtros da tabela expandida">
+            <div className="flex items-center gap-3 flex-nowrap">
+              <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
                 <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
                 <Input
                   type="search"
-                  placeholder="Buscar variações por campanha, conjunto ou ID..."
+                  placeholder="Buscar por nome ou ID..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 h-9 text-xs"
+                  className="pl-9 h-9 text-xs w-full"
                 />
               </div>
-              {searchTerm.trim() && (
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
+              {(searchTerm.trim() || columnFilters.length > 0) && (
+                <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
                   {sortedData.length} de {childrenData?.length || 0} variações
                 </span>
               )}
+              {setColumnFilters && (
+                <div className="flex-1 min-w-0">
+                  <FilterBar
+                    columnFilters={columnFilters}
+                    setColumnFilters={setColumnFilters}
+                    filterableColumns={filterableColumns}
+                    />
+                </div>
+              )}
             </div>
           </div>
-          {searchTerm.trim() && sortedData.length === 0 ? (
+          {sortedData.length === 0 && (searchTerm.trim() || columnFilters.length > 0) ? (
             <div className="p-8 text-center">
-              <p className="text-sm text-muted-foreground">Nenhuma variação encontrada para "{searchTerm}"</p>
-              <button
-                onClick={() => setSearchTerm("")}
-                className="mt-2 text-xs text-primary hover:underline"
-              >
-                Limpar busca
-              </button>
+              <p className="text-sm text-muted-foreground">
+                {searchTerm.trim()
+                  ? columnFilters.length > 0
+                    ? `Nenhuma variação encontrada para "${searchTerm}" com os filtros aplicados.`
+                    : `Nenhuma variação encontrada para "${searchTerm}"`
+                  : "Nenhuma variação corresponde aos filtros aplicados."}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                {searchTerm.trim() && (
+                  <button
+                    onClick={() => setSearchTerm("")}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Limpar busca
+                  </button>
+                )}
+                {searchTerm.trim() && columnFilters.length > 0 && <span className="text-muted-foreground">·</span>}
+                {columnFilters.length > 0 && setColumnFilters && (
+                  <button
+                    onClick={() => setColumnFilters([])}
+                    className="text-xs text-primary hover:underline"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-border">
-                  <th className="p-4 text-center w-20"></th>
+                  <th
+                    className={`p-4 text-center w-20 cursor-pointer select-none hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`}
+                    onClick={() => handleSort("status")}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      Status
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
                   <th
                     className={`p-4 text-left cursor-pointer select-none hover:text-brand ${
                       sortConfig.column === "ad_id" ? "text-primary" : ""
@@ -384,7 +472,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
                     onClick={() => handleSort("ad_id")}
                   >
                     <div className="flex items-center gap-1">
-                      Variações
+                      {adsetId ? "Anúncios" : "Variações"}
                       <IconArrowsSort className="w-3 h-3" />
                     </div>
                   </th>
@@ -447,6 +535,12 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
           </div>
           )}
         </div>
+  );
+
+  return asContent ? innerContent : (
+    <tr className="bg-card">
+      <td className="p-0" colSpan={colspan}>
+        {innerContent}
       </td>
     </tr>
   );

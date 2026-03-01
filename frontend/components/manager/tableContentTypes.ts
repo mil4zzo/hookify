@@ -35,5 +35,8 @@ export interface SharedTableContentProps {
   dataLength: number;
   /** Toggle Médias vs Tendências: quando muda, a tabela deve re-renderizar para mostrar sparklines ou médias */
   showTrends?: boolean;
+  /** Filtros das tabelas expandidas (compartilhados por aba) */
+  expandedTableColumnFilters?: ColumnFiltersState;
+  setExpandedTableColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
 }
 

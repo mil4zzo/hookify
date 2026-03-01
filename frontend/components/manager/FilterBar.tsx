@@ -9,7 +9,6 @@ import { IconX, IconPlus, IconFilter, IconCheck, IconChevronDown } from "@tabler
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { FilterValue, FilterOperator, TextFilterValue, TextFilterOperator, StatusFilterValue } from "@/components/common/ColumnFilter";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
-import { Separator } from "@/components/common/Separator";
 import { getColumnId } from "@/lib/utils/columnFilters";
 
 interface FilterableColumn {
@@ -31,7 +30,7 @@ interface FilterBarProps {
   columnFilters: ColumnFiltersState;
   setColumnFilters: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   filterableColumns: FilterableColumn[];
-  table: any; // TanStack Table instance
+  table?: any; // TanStack Table instance (opcional para uso em tabelas expandidas)
 }
 
 const filterOperators: { value: FilterOperator; label: string }[] = [
@@ -58,7 +57,7 @@ function arePropsEqual(prev: FilterBarProps, next: FilterBarProps): boolean {
   // FilterableColumns comparison (should be stable from parent's useMemo)
   if (prev.filterableColumns !== next.filterableColumns) return false;
 
-  // Table reference should be stable
+  // Table reference (opcional para tabelas expandidas)
   if (prev.table !== next.table) return false;
 
   // setColumnFilters should be stable (from useState)
@@ -169,7 +168,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     <>
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm text-muted-foreground whitespace-nowrap">{activeFilters.length > 0 ? "Filtrando por" : "Nenhum filtro aplicado"}</span>
+          {activeFilters.length > 0 && <span className="text-sm text-muted-foreground whitespace-nowrap">Filtrando por</span>}
           {activeFilters.map((filter) => {
             const column = filterableColumns.find((c) => c.id === getColumnId(filter.id));
             if (!column) return null;
@@ -651,7 +650,6 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
           </Select>
         )}
       </div>
-      <Separator vertical="md" />
     </>
   );
 }, arePropsEqual);

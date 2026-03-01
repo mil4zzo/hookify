@@ -929,16 +929,15 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         ad_ids_in_group = A.get("ad_ids") or set()
         has_active = False
         
-        # Verificar todos os ad_ids do grupo
+        # Verificar todos os ad_ids do grupo e contar ativos (para active_count)
+        active_count = 0
         for ad_id_in_group in ad_ids_in_group:
             ad_id_group_str = str(ad_id_in_group)
             status = effective_status_map.get(ad_id_group_str)
             if status and str(status).upper() == "ACTIVE":
                 has_active = True
                 effective_status = "ACTIVE"
-                break  # Encontrou um ACTIVE, pode parar
-        
-        # Se não encontrou ACTIVE, usar o status do rep_ad_id (ou primeiro disponível)
+                active_count += 1
         if not has_active:
             effective_status = effective_status_map.get(ad_id_str) if ad_id_str else None
             # Se ainda não tiver, tentar pegar o primeiro status disponível do grupo
@@ -1011,6 +1010,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             "ad_id": A.get("rep_ad_id"),
             "ad_name": A.get("ad_name"),
             "effective_status": effective_status,
+            "active_count": active_count if req.group_by != "campaign_id" else None,
             "impressions": A["impressions"],
             "clicks": A["clicks"],
             "inline_link_clicks": A["inline_link_clicks"],
