@@ -494,23 +494,13 @@ function ManagerPageContent() {
     let hasChanges = false;
     const newPrefs: PackPreferences = {};
 
-    // Detectar se há novos packs
-    const newPackIds = Array.from(allPackIds).filter((packId) => !(packId in currentPrefs));
-    const hasNewPacks = newPackIds.length > 0;
-
-    // 1. Adicionar novos packs e manter/atualizar preferências existentes
+    // 1. Adicionar novos packs e manter preferências existentes (multi-select)
     allPackIds.forEach((packId) => {
       if (packId in currentPrefs) {
-        // Pack já existe
-        if (hasNewPacks) {
-          // Se há novos packs, desabilitar os antigos (novo pack vai ser ativo)
-          newPrefs[packId] = false;
-        } else {
-          // Sem novos packs, manter preferência existente
-          newPrefs[packId] = currentPrefs[packId];
-        }
+        // Pack já existe: manter preferência existente
+        newPrefs[packId] = currentPrefs[packId];
       } else {
-        // Pack novo: habilitar e desabilitar todos os outros (single-select)
+        // Pack novo: habilitar por padrão, sem desabilitar os outros
         newPrefs[packId] = true;
         hasChanges = true;
       }
@@ -530,11 +520,20 @@ function ManagerPageContent() {
     }
 
     // Atualizar estado com packs habilitados
-    const enabledPackIds = new Set(
+    let enabledPackIds = new Set(
       Object.entries(hasChanges ? newPrefs : currentPrefs)
         .filter(([_, enabled]) => enabled)
         .map(([id]) => id),
     );
+
+    // Garantir sempre pelo menos 1 pack quando há packs disponíveis
+    if (enabledPackIds.size === 0 && allPackIds.size > 0) {
+      const firstPackId = packs[0].id;
+      const finalPrefs = hasChanges ? { ...newPrefs } : { ...currentPrefs };
+      finalPrefs[firstPackId] = true;
+      savePackPreferences(finalPrefs);
+      enabledPackIds = new Set([firstPackId]);
+    }
 
     setSelectedPackIds((prevSelected) => {
       // Se o estado anterior está vazio ou diferente, atualizar
@@ -549,31 +548,22 @@ function ManagerPageContent() {
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
 
-  // Handler para toggle de pack (single-select)
+  // Handler para toggle de pack (multi-select, sempre pelo menos 1 pack)
   const handleTogglePack = (packId: string) => {
     const currentPrefs = loadPackPreferences();
     const isCurrentlySelected = currentPrefs[packId] ?? true;
+    const enabledCount = Object.values(currentPrefs).filter((v) => v).length;
 
-    // Single-select: apenas um pack pode estar ativo por vez
-    const newPrefs: PackPreferences = {};
-
-    // Se clicar no pack já selecionado, desmarcar
-    if (isCurrentlySelected) {
-      // Desabilitar todos os packs
-      Object.keys(currentPrefs).forEach((id) => {
-        newPrefs[id] = false;
-      });
-    } else {
-      // Desabilitar todos e habilitar apenas o clicado
-      Object.keys(currentPrefs).forEach((id) => {
-        newPrefs[id] = false;
-      });
-      newPrefs[packId] = true;
+    // Garantir sempre pelo menos 1 pack: se clicar no único selecionado, não desmarcar
+    if (isCurrentlySelected && enabledCount <= 1) {
+      return;
     }
+
+    const newPrefs: PackPreferences = { ...currentPrefs };
+    newPrefs[packId] = !isCurrentlySelected;
 
     savePackPreferences(newPrefs);
 
-    // Atualizar estado imediatamente com packs habilitados
     const enabledPackIds = new Set(
       Object.entries(newPrefs)
         .filter(([_, enabled]) => enabled)
@@ -981,7 +971,7 @@ function ManagerPageContent() {
       actions={
         <>
           <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
-          <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} />
+          <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} singlePackSelect={false} />
         </>
       }
     >
@@ -1002,11 +992,7 @@ function ManagerPageContent() {
         dateStop={dateRange.end}
         availableConversionTypes={uniqueConversionTypes}
         showTrends={showTrends}
-        hasSheetIntegration={
-          selectedPacks.length > 0
-            ? selectedPacks.some((p) => !!p.sheet_integration)
-            : selectedPackIds.size > 0
-        }
+        hasSheetIntegration={selectedPacks.length > 0 ? selectedPacks.some((p) => !!p.sheet_integration) : selectedPackIds.size > 0}
         isLoading={loading}
         initialFilters={initialFilters}
         averagesOverride={(() => {

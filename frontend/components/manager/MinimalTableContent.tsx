@@ -3,8 +3,7 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Button } from "@/components/ui/button";
-import { IconX } from "@tabler/icons-react";
+import { TableSummaryBar } from "@/components/manager/TableSummaryBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
@@ -227,7 +226,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
       )}
       {/* Linha vertical que acompanha o mouse durante resize */}
       {isResizing && resizePosition !== null && <div className="fixed top-0 bottom-0 w-[2px] bg-primary z-[60] pointer-events-none" style={{ left: `${resizePosition}px` }} />}
-      <div ref={tableContainerRef} className="flex-1 overflow-x-auto overflow-y-auto">
+      <div ref={tableContainerRef} className="flex-1 overflow-x-auto overflow-y-auto border-x border-border rounded-t-lg">
         <table className="w-full text-xs border-collapse" style={{ tableLayout: "fixed" }}>
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
@@ -241,7 +240,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                   const headerAlign = header.column.id === "ad_name" ? "text-left" : "text-center";
                   const justify = header.column.id === "ad_name" ? "justify-start" : "justify-center";
                   return (
-                    <th key={header.id} className={`text-xs font-medium py-1.5 px-2 ${headerAlign} relative border-r border-border last:border-r-0`} style={{ width: header.getSize() }}>
+                    <th key={header.id} className={`text-xs font-medium py-1.5 px-2 ${headerAlign} relative border-r border-border last:border-r-0 first:rounded-tl-lg last:rounded-tr-lg`} style={{ width: header.getSize() }}>
                       {header.isPlaceholder ? null : (
                         <div
                           className={`flex items-center ${justify} gap-0.5 ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
@@ -297,9 +296,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                       <td key={column.id} className={`py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0`}>
                         {isFirstColumn ? (
                           <div className="flex items-center gap-2">
-                            {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && (
-                              <Skeleton className="w-8 h-8 rounded flex-shrink-0" />
-                            )}
+                            {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className="w-8 h-8 rounded flex-shrink-0" />}
                             <Skeleton className="h-3 w-24" />
                           </div>
                         ) : (
@@ -326,41 +323,16 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                 const adName = String(original?.ad_name || "");
 
                 const expandedContent =
-                  (groupByAdNameEffective && isExpanded && adName ? (
-                    <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent />
-                  ) : null) ??
-                  (currentTab === "por-conjunto" && isExpanded && String((original as any)?.adset_id || "").trim() ? (
-                    <ExpandedChildrenRow adsetId={String((original as any)?.adset_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent />
-                  ) : null) ??
-                  (currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? (
-                    <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent />
-                  ) : null);
+                  (groupByAdNameEffective && isExpanded && adName ? <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null) ??
+                  (currentTab === "por-conjunto" && isExpanded && String((original as any)?.adset_id || "").trim() ? <ExpandedChildrenRow adsetId={String((original as any)?.adset_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null) ??
+                  (currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null);
 
                 if (isExpanded && expandedContent) {
-                  return (
-                    <ExpandedRowCell
-                      key={row.id}
-                      ref={rowVirtualizer.measureElement}
-                      row={row}
-                      table={table}
-                      expandedContent={expandedContent}
-                      tdClassName="p-0 align-top border border-primary rounded-md bg-input-30"
-                      onRowClick={handleRowClick}
-                      trClassName={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} bg-muted/30`}
-                      dataIndex={virtualRow.index}
-                      summaryCellClassName="py-1.5 px-2"
-                    />
-                  );
+                  return <ExpandedRowCell key={row.id} ref={rowVirtualizer.measureElement} row={row} table={table} expandedContent={expandedContent} tdClassName="p-0 align-top border border-primary rounded-md bg-input-30" onRowClick={handleRowClick} trClassName={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} bg-muted/30`} dataIndex={virtualRow.index} summaryCellClassName="py-1.5 px-2" />;
                 }
 
                 return (
-                  <tr
-                    key={row.id}
-                    data-index={virtualRow.index}
-                    ref={rowVirtualizer.measureElement}
-                    className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} ${isExpanded ? "bg-muted/30" : ""}`}
-                    onClick={(e) => handleRowClick(e, row)}
-                  >
+                  <tr key={row.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} ${isExpanded ? "bg-muted/30" : ""}`} onClick={(e) => handleRowClick(e, row)}>
                     {row.getVisibleCells().map((cell, cellIndex) => {
                       const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
                       const isFirst = cellIndex === 0;
@@ -383,25 +355,13 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
         </table>
       </div>
 
-      <div className="sticky bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none mt-4">
-        <div className="w-full bg-card border border-border shadow-lg pointer-events-auto rounded-lg">
-          <div className="px-4 py-2">
-            <div className="flex items-center justify-end gap-3">
-              <div className="flex items-center text-xs text-muted-foreground">
-                <span>
-                  Exibindo {table.getFilteredRowModel().rows.length} de {table.getPreFilteredRowModel().rows.length} {currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios"}
-                </span>
-              </div>
-              {columnFilters.length > 0 && (
-                <Button variant="outline" size="sm" onClick={() => setColumnFilters([])} className="h-7 text-xs">
-                  <IconX className="w-3 h-3 mr-1" />
-                  Resetar filtros
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <TableSummaryBar
+        filteredCount={table.getFilteredRowModel().rows.length}
+        totalCount={table.getPreFilteredRowModel().rows.length}
+        itemLabel={currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios"}
+        hasActiveFilters={columnFilters.length > 0}
+        onResetFilters={() => setColumnFilters([])}
+      />
     </div>
   );
 }, areMinimalTableContentPropsEqual);

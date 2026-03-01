@@ -9,7 +9,7 @@ import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { VideoDialog } from "@/components/ads/VideoDialog";
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconSearch, IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLayoutGrid, IconTable, IconArrowsHorizontal } from "@tabler/icons-react";
+import { IconSearch, IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal } from "@tabler/icons-react";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
 import { buildDailySeries } from "@/lib/utils/metricsTimeSeries";
@@ -865,18 +865,30 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const controls = (
     <>
       <div className="flex items-center gap-2">
-        {/* Toggle de visualização */}
+        {/* Toggle de visualização: dois botões alternantes */}
         <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={() => handleViewModeChange(viewMode === "detailed" ? "minimal" : "detailed")} className="h-10 px-3" aria-label={viewMode === "detailed" ? "Alternar para visualização minimal" : "Alternar para visualização detalhada"}>
-                {viewMode === "detailed" ? <IconLayoutGrid className="h-4 w-4" /> : <IconTable className="h-4 w-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="text-xs">{viewMode === "detailed" ? "Visualização minimal" : "Visualização detalhada"}</p>
-            </TooltipContent>
-          </Tooltip>
+          <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant={viewMode === "detailed" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("detailed")} className="h-9 px-3 rounded-md" aria-label="Visualização detalhada" aria-pressed={viewMode === "detailed"}>
+                  <IconListDetails className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Visualização detalhada</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant={viewMode === "minimal" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("minimal")} className="h-9 px-3 rounded-md" aria-label="Visualização minimal" aria-pressed={viewMode === "minimal"}>
+                  <IconList className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Visualização minimal</p>
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </TooltipProvider>
         <div className="flex-shrink-0 w-[190px]">
           <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
@@ -932,43 +944,51 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     <div className="w-full h-full flex-1 flex flex-col min-h-0">
       <TabbedContent value={currentTab} onValueChange={handleTabChange} variant="with-controls" tabs={tabs} controls={controls} separatorAfterTabs={true}>
         <TabbedContentItem value="individual" variant="with-controls">
-          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
-            {searchBar}
-            <div className="flex-1 min-w-0">
-              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+              {searchBar}
+              <div className="flex-1 min-w-0">
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+              </div>
             </div>
+            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
-          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
 
         <TabbedContentItem value="por-anuncio" variant="with-controls">
-          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
-            {searchBar}
-            <div className="flex-1 min-w-0">
-              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+              {searchBar}
+              <div className="flex-1 min-w-0">
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+              </div>
             </div>
+            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
-          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
 
         <TabbedContentItem value="por-conjunto" variant="with-controls">
-          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
-            {searchBar}
-            <div className="flex-1 min-w-0">
-              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+              {searchBar}
+              <div className="flex-1 min-w-0">
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+              </div>
             </div>
+            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
-          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
 
         <TabbedContentItem value="por-campanha" variant="with-controls">
-          <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
-            {searchBar}
-            <div className="flex-1 min-w-0">
-              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+              {searchBar}
+              <div className="flex-1 min-w-0">
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+              </div>
             </div>
+            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
-          {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
         </TabbedContentItem>
       </TabbedContent>
 

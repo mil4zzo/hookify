@@ -3,8 +3,7 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Button } from "@/components/ui/button";
-import { IconX } from "@tabler/icons-react";
+import { TableSummaryBar } from "@/components/manager/TableSummaryBar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
@@ -242,7 +241,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                   const headerAlign = header.column.id === "ad_name" ? "text-left" : "text-center";
                   const justify = header.column.id === "ad_name" ? "justify-start" : "justify-center";
                   return (
-                    <th key={header.id} className={`text-base font-normal py-4 ${headerAlign} relative`}>
+                    <th key={header.id} className={`text-base font-normal py-4 px-4 ${headerAlign} relative`}>
                       {header.isPlaceholder ? null : (
                         <div
                           className={`flex items-center ${justify} gap-1 ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
@@ -364,25 +363,13 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
         </table>
       </div>
 
-      <div className="sticky bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none mt-4">
-        <div className="w-full bg-card border border-border shadow-lg pointer-events-auto rounded-lg">
-          <div className="px-4 py-3">
-            <div className="flex items-center justify-end gap-3">
-              <div className="flex items-center text-sm text-muted-foreground">
-                <span>
-                  Exibindo {table.getFilteredRowModel().rows.length} de {table.getPreFilteredRowModel().rows.length} {currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios"}
-                </span>
-              </div>
-              {columnFilters.length > 0 && (
-                <Button variant="outline" size="sm" onClick={() => setColumnFilters([])} className="h-8 text-xs">
-                  <IconX className="w-4 h-4 mr-1.5" />
-                  Resetar filtros
-                </Button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
+      <TableSummaryBar
+        filteredCount={table.getFilteredRowModel().rows.length}
+        totalCount={table.getPreFilteredRowModel().rows.length}
+        itemLabel={currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios"}
+        hasActiveFilters={columnFilters.length > 0}
+        onResetFilters={() => setColumnFilters([])}
+      />
     </div>
   );
 }, areTableContentPropsEqual);

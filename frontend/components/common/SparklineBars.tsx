@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 // Helpers para cores dinâmicas por tendência
 // Calcula a tendência usando regressão linear simples (mínimos quadrados)
@@ -225,8 +226,16 @@ type SparklineBarsProps = {
   dates?: Array<string>; // Array de datas correspondentes a cada ponto da série (formato YYYY-MM-DD)
 };
 
+function formatDateForTooltip(dateStr: string): string {
+  try {
+    const [year, month, day] = dateStr.split("-");
+    return `${day}/${month}/${year}`;
+  } catch {
+    return dateStr;
+  }
+}
+
 export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand-70", nullClass = "bg-muted-20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false, packAverage = null, dataAvailability, zeroValueLabel, zeroValueColorClass = "danger", dates }: SparklineBarsProps) {
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;
   const seriesColor = dynamicColor && colorMode === "series" ? colorByTrend(getSeriesTrendPct(series), inverseColors) : colorClass;
@@ -235,110 +244,75 @@ export const SparklineBars = React.memo(function SparklineBars({ series, classNa
   const finalClassName = className || sizePresets[size];
 
   return (
-    <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
-      {series.map((v, i) => {
-        const isNull = v == null || Number.isNaN(v as number);
-        const hasData = dataAvailability?.[i] ?? (v != null && !Number.isNaN(v as number));
-        const isZeroWithData = hasData && (isNull || v === 0);
+    <TooltipProvider delayDuration={200}>
+      <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
+        {series.map((v, i) => {
+          const isNull = v == null || Number.isNaN(v as number);
+          const hasData = dataAvailability?.[i] ?? (v != null && !Number.isNaN(v as number));
+          const isZeroWithData = hasData && (isNull || v === 0);
 
-        let heightPct = 0;
-        if (isNull && !hasData) {
-          // Sem dados base → altura mínima (muted)
-          heightPct = minBarHeightPct;
-        } else if (isZeroWithData) {
-          // Há dados mas valor é zero → altura mínima (danger)
-          heightPct = minBarHeightPct;
-        } else if (isNull) {
-          // Fallback: nulo sem informação de disponibilidade
-          heightPct = minBarHeightPct;
-        } else if (max <= 1e-9) {
-          // toda a série é 0 → barras válidas com altura mínima
-          heightPct = minBarHeightPct;
-        } else {
-          heightPct = (Number(v) / max) * 100; // normalização por máximo
-          heightPct = Math.max(validMinBarHeightPct, heightPct);
-        }
+          let heightPct = 0;
+          if (isNull && !hasData) {
+            heightPct = minBarHeightPct;
+          } else if (isZeroWithData) {
+            heightPct = minBarHeightPct;
+          } else if (isNull) {
+            heightPct = minBarHeightPct;
+          } else if (max <= 1e-9) {
+            heightPct = minBarHeightPct;
+          } else {
+            heightPct = (Number(v) / max) * 100;
+            heightPct = Math.max(validMinBarHeightPct, heightPct);
+          }
 
-        // Determinar cor da barra (sempre retorna classe Tailwind)
-        let barColor: string;
-        if (isNull && !hasData) {
-          // Sem dados base (não existe ad_metric) → usar nullClass (muted)
-          barColor = nullClass;
-        } else if (isZeroWithData) {
-          // Há dados base mas valor é zero/null → usar zeroValueColorClass (danger por padrão)
-          barColor = zeroValueColorClass;
-        } else if (packAverage != null && Number.isFinite(packAverage)) {
-          // Se packAverage fornecida, usar comparação com média do pack
-          barColor = getColorClassByPackAverage(Number(v), packAverage, inverseColors);
-        } else if (dynamicColor && colorMode === "per-bar") {
-          // Normalização pelo máximo da série
-          barColor = getColorClassByNormalized(max > 1e-9 ? Math.max(0, Math.min(1, Number(v) / max)) : 0, inverseColors);
-        } else {
-          barColor = seriesColor;
-        }
+          let barColor: string;
+          if (isNull && !hasData) {
+            barColor = nullClass;
+          } else if (isZeroWithData) {
+            barColor = zeroValueColorClass;
+          } else if (packAverage != null && Number.isFinite(packAverage)) {
+            barColor = getColorClassByPackAverage(Number(v), packAverage, inverseColors);
+          } else if (dynamicColor && colorMode === "per-bar") {
+            barColor = getColorClassByNormalized(max > 1e-9 ? Math.max(0, Math.min(1, Number(v) / max)) : 0, inverseColors);
+          } else {
+            barColor = seriesColor;
+          }
 
-        // Obter classes Tailwind para gradiente e borda
-        const gradientClass = getGradientClass(barColor);
-        const borderClass = getBorderClass(barColor);
-        // Obter classe de texto para o tooltip baseada na cor da barra
-        // Aplicar cor quando:
-        // 1. Há valor válido e packAverage (comparação com média)
-        // 2. Há valor válido e modo per-bar (normalização por máximo)
-        // 3. Há dados mas valor é zero/null (isZeroWithData) - usa zeroValueColorClass
-        const shouldColorText =
-          isZeroWithData || // Caso especial: "Sem leads", "Sem MQLs", etc.
-          (!isNull && hasData && ((packAverage != null && Number.isFinite(packAverage)) || (dynamicColor && colorMode === "per-bar")));
-        const textClass = shouldColorText ? getTextClass(barColor) : "text-white";
+          const gradientClass = getGradientClass(barColor);
+          const borderClass = getBorderClass(barColor);
+          const shouldColorText =
+            isZeroWithData ||
+            (!isNull && hasData && ((packAverage != null && Number.isFinite(packAverage)) || (dynamicColor && colorMode === "per-bar")));
+          const textClass = shouldColorText ? getTextClass(barColor) : "text-foreground";
 
-        return (
-          <div key={i} className="rounded-xs flex-1 relative cursor-pointer" style={{ height: `${heightPct}%` }} onMouseEnter={() => setHoveredIndex(i)} onMouseLeave={() => setHoveredIndex(null)}>
-            <div className={`w-full h-full rounded-xs ${gradientClass} ${borderClass} border-t-2`} />
-            {hoveredIndex === i && (
-              <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 px-2 py-1 bg-gray-800 text-xs rounded shadow-lg z-20">
-                {(() => {
-                  // Verificar se há dados base (spend/impressions) para este ponto
-                  const hasData = dataAvailability?.[i] ?? (v != null && !Number.isNaN(v as number));
+          const dateDisplay = dates && dates[i] ? formatDateForTooltip(dates[i]) : null;
+          let valueDisplay: string;
+          if (!hasData) {
+            valueDisplay = "Sem dados";
+          } else if (isNull || (v === 0 && hasData)) {
+            valueDisplay = zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
+          } else {
+            valueDisplay = valueFormatter ? valueFormatter(Number(v)) : `${Number(v).toFixed(2)}`;
+          }
 
-                  // Formatar data se disponível
-                  const formatDate = (dateStr: string): string => {
-                    try {
-                      const [year, month, day] = dateStr.split("-");
-                      return `${day}/${month}/${year}`;
-                    } catch {
-                      return dateStr;
-                    }
-                  };
-
-                  let dateDisplay: string | null = null;
-                  if (dates && dates[i]) {
-                    dateDisplay = formatDate(dates[i]);
-                  }
-
-                  let valueDisplay: string;
-                  if (!hasData) {
-                    // Não há dados base (não existe ad_metric para este dia)
-                    valueDisplay = "Sem dados";
-                  } else if (isNull || (v === 0 && hasData)) {
-                    // Há dados base mas o valor é null ou zero (ex: há spend mas não há MQLs)
-                    valueDisplay = zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
-                  } else {
-                    // Valor válido
-                    valueDisplay = valueFormatter ? valueFormatter(Number(v)) : `${Number(v).toFixed(2)}`;
-                  }
-
-                  return (
-                    <div className="flex flex-col items-center">
-                      {dateDisplay && <div className="text-[10px] text-gray-300 mb-0.5 whitespace-nowrap">{dateDisplay}</div>}
-                      <div className={`whitespace-nowrap ${textClass}`}>{valueDisplay}</div>
-                    </div>
-                  );
-                })()}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
+          return (
+            <Tooltip key={i}>
+              <TooltipTrigger asChild>
+                <div className="rounded-xs flex-1 relative cursor-pointer" style={{ height: `${heightPct}%` }}>
+                  <div className={`w-full h-full rounded-xs ${gradientClass} ${borderClass} border-t-2`} />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="text-xs">
+                <div className="flex flex-col items-center">
+                  {dateDisplay && <div className="text-[10px] text-muted-foreground mb-0.5 whitespace-nowrap">{dateDisplay}</div>}
+                  <div className={`whitespace-nowrap ${textClass}`}>{valueDisplay}</div>
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          );
+        })}
+      </div>
+    </TooltipProvider>
   );
 });
 

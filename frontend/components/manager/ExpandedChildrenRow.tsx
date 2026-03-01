@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { IconArrowsSort, IconSearch } from "@tabler/icons-react";
+import { IconArrowsSort, IconLoader2, IconSearch } from "@tabler/icons-react";
 import { useAdVariations, useAdsetChildren } from "@/lib/api/hooks";
 import { RankingsChildrenItem } from "@/lib/api/schemas";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
@@ -35,46 +35,14 @@ interface ExpandedChildrenRowProps {
 // Função de comparação customizada para React.memo
 function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: ExpandedChildrenRowProps): boolean {
   // Verificar se os sets de colunas ativas são iguais
-  const activeColumnsEqual =
-    prev.activeColumns.size === next.activeColumns.size &&
-    Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
+  const activeColumnsEqual = prev.activeColumns.size === next.activeColumns.size && Array.from(prev.activeColumns).every((col) => next.activeColumns.has(col));
 
-  const columnFiltersEqual =
-    (prev.columnFilters?.length ?? 0) === (next.columnFilters?.length ?? 0) &&
-    JSON.stringify(prev.columnFilters ?? []) === JSON.stringify(next.columnFilters ?? []);
+  const columnFiltersEqual = (prev.columnFilters?.length ?? 0) === (next.columnFilters?.length ?? 0) && JSON.stringify(prev.columnFilters ?? []) === JSON.stringify(next.columnFilters ?? []);
 
-  return (
-    prev.asContent === next.asContent &&
-    prev.adName === next.adName &&
-    prev.adsetId === next.adsetId &&
-    prev.dateStart === next.dateStart &&
-    prev.dateStop === next.dateStop &&
-    prev.actionType === next.actionType &&
-    prev.formatCurrency === next.formatCurrency &&
-    prev.formatPct === next.formatPct &&
-    activeColumnsEqual &&
-    prev.hasSheetIntegration === next.hasSheetIntegration &&
-    prev.mqlLeadscoreMin === next.mqlLeadscoreMin &&
-    columnFiltersEqual &&
-    prev.setColumnFilters === next.setColumnFilters
-  );
+  return prev.asContent === next.asContent && prev.adName === next.adName && prev.adsetId === next.adsetId && prev.dateStart === next.dateStart && prev.dateStop === next.dateStop && prev.actionType === next.actionType && prev.formatCurrency === next.formatCurrency && prev.formatPct === next.formatPct && activeColumnsEqual && prev.hasSheetIntegration === next.hasSheetIntegration && prev.mqlLeadscoreMin === next.mqlLeadscoreMin && columnFiltersEqual && prev.setColumnFilters === next.setColumnFilters;
 }
 
-export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
-  adName,
-  adsetId,
-  dateStart,
-  dateStop,
-  actionType,
-  formatCurrency,
-  formatPct,
-  activeColumns,
-  hasSheetIntegration = false,
-  mqlLeadscoreMin = 0,
-  columnFilters = [],
-  setColumnFilters,
-  asContent = false,
-}: ExpandedChildrenRowProps) {
+export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({ adName, adsetId, dateStart, dateStop, actionType, formatCurrency, formatPct, activeColumns, hasSheetIntegration = false, mqlLeadscoreMin = 0, columnFilters = [], setColumnFilters, asContent = false }: ExpandedChildrenRowProps) {
   // Usar hook apropriado baseado em qual prop foi fornecida
   const adVariationsQuery = useAdVariations(adName || "", dateStart, dateStop, !!adName);
   const adsetChildrenQuery = useAdsetChildren(adsetId || "", dateStart, dateStop, !!adsetId);
@@ -123,7 +91,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
         results = Number(conversions[actionType] || 0);
         // Se não encontrou e actionType tem prefixo, tentar sem prefixo
         if (results === 0 && (actionType.startsWith("conversion:") || actionType.startsWith("action:"))) {
-          const unprefixed = actionType.replace(/^(conversion|action):/, '');
+          const unprefixed = actionType.replace(/^(conversion|action):/, "");
           results = Number(conversions[unprefixed] || 0);
         }
         // Se não encontrou e actionType não tem prefixo, tentar com prefixo
@@ -188,8 +156,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
       return filteredData;
     }
 
-    const isActiveStatus = (status?: string | null) =>
-      status != null && String(status).toUpperCase() === "ACTIVE";
+    const isActiveStatus = (status?: string | null) => status != null && String(status).toUpperCase() === "ACTIVE";
 
     const sorted = [...filteredData].sort((a, b) => {
       let aVal: any;
@@ -277,19 +244,17 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   // Gerar lista de colunas visíveis na ordem correta (mesma ordem da tabela principal)
   const visibleColumns = useMemo(() => {
     // Usar MANAGER_COLUMN_RENDER_ORDER para manter a ordem da tabela principal
-    return MANAGER_COLUMN_RENDER_ORDER
-      .filter(colId => {
-        // Filtrar colunas que dependem de sheet integration
-        if ((colId === "cpmql" || colId === "mqls") && !hasSheetIntegration) {
-          return false;
-        }
-        return activeColumns.has(colId);
-      })
-      .map(colId => {
-        // Encontrar o objeto completo da coluna em MANAGER_COLUMN_OPTIONS
-        const col = MANAGER_COLUMN_OPTIONS.find(c => c.id === colId);
-        return col!; // Safe porque sabemos que existe
-      });
+    return MANAGER_COLUMN_RENDER_ORDER.filter((colId) => {
+      // Filtrar colunas que dependem de sheet integration
+      if ((colId === "cpmql" || colId === "mqls") && !hasSheetIntegration) {
+        return false;
+      }
+      return activeColumns.has(colId);
+    }).map((colId) => {
+      // Encontrar o objeto completo da coluna em MANAGER_COLUMN_OPTIONS
+      const col = MANAGER_COLUMN_OPTIONS.find((c) => c.id === colId);
+      return col!; // Safe porque sabemos que existe
+    });
   }, [activeColumns, hasSheetIntegration]);
 
   // Colunas filtráveis (Status, nome, Campanha/Conjunto, métricas visíveis)
@@ -350,7 +315,10 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
 
   const loadingContent = (
     <div className="p-2 pl-8">
-      <div className="text-sm text-muted-foreground">Carregando variações...</div>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <IconLoader2 className="h-4 w-4 shrink-0 animate-spin" />
+        <span>Carregando variações...</span>
+      </div>
     </div>
   );
 
@@ -368,176 +336,153 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
 
   // Retornos condicionais após todos os hooks
   if (isLoading) {
-    return asContent ? loadingContent : (
+    return asContent ? (
+      loadingContent
+    ) : (
       <tr className="bg-border">
-        <td className="p-0" colSpan={colspan}>{loadingContent}</td>
+        <td className="p-0" colSpan={colspan}>
+          {loadingContent}
+        </td>
       </tr>
     );
   }
 
   if (isError) {
-    return asContent ? errorContent : (
+    return asContent ? (
+      errorContent
+    ) : (
       <tr className="bg-border">
-        <td className="p-0" colSpan={colspan}>{errorContent}</td>
+        <td className="p-0" colSpan={colspan}>
+          {errorContent}
+        </td>
       </tr>
     );
   }
 
   if (!childrenData || childrenData.length === 0) {
-    return asContent ? emptyContent : (
+    return asContent ? (
+      emptyContent
+    ) : (
       <tr className="bg-border">
-        <td className="p-0" colSpan={colspan}>{emptyContent}</td>
+        <td className="p-0" colSpan={colspan}>
+          {emptyContent}
+        </td>
       </tr>
     );
   }
 
   const innerContent = (
     <div className="">
-          {/* Busca e filtros - flex horizontal: search à esquerda, filterbar à direita */}
-          <div className="px-4 py-3 bg-muted/50" role="region" aria-label="Busca e filtros da tabela expandida">
-            <div className="flex items-center gap-3 flex-nowrap">
-              <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
-                <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  type="search"
-                  placeholder="Buscar por nome ou ID..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-9 h-9 text-xs w-full"
-                />
-              </div>
-              {(searchTerm.trim() || columnFilters.length > 0) && (
-                <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
-                  {sortedData.length} de {childrenData?.length || 0} variações
-                </span>
-              )}
-              {setColumnFilters && (
-                <div className="flex-1 min-w-0">
-                  <FilterBar
-                    columnFilters={columnFilters}
-                    setColumnFilters={setColumnFilters}
-                    filterableColumns={filterableColumns}
-                    />
-                </div>
-              )}
-            </div>
+      {/* Busca e filtros - flex horizontal: search à esquerda, filterbar à direita */}
+      <div className="px-4 py-3 bg-muted/50" role="region" aria-label="Busca e filtros da tabela expandida">
+        <div className="flex items-center gap-3 flex-nowrap">
+          <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
+            <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input type="search" placeholder="Buscar por nome ou ID..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 h-9 text-xs w-full" />
           </div>
-          {sortedData.length === 0 && (searchTerm.trim() || columnFilters.length > 0) ? (
-            <div className="p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                {searchTerm.trim()
-                  ? columnFilters.length > 0
-                    ? `Nenhuma variação encontrada para "${searchTerm}" com os filtros aplicados.`
-                    : `Nenhuma variação encontrada para "${searchTerm}"`
-                  : "Nenhuma variação corresponde aos filtros aplicados."}
-              </p>
-              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                {searchTerm.trim() && (
-                  <button
-                    onClick={() => setSearchTerm("")}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    Limpar busca
-                  </button>
-                )}
-                {searchTerm.trim() && columnFilters.length > 0 && <span className="text-muted-foreground">·</span>}
-                {columnFilters.length > 0 && setColumnFilters && (
-                  <button
-                    onClick={() => setColumnFilters([])}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    Limpar filtros
-                  </button>
-                )}
-              </div>
+          {(searchTerm.trim() || columnFilters.length > 0) && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
+              {sortedData.length} de {childrenData?.length || 0} variações
+            </span>
+          )}
+          {setColumnFilters && (
+            <div className="flex-1 min-w-0">
+              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} />
             </div>
-          ) : (
-            <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead>
-                <tr className="bg-border">
-                  <th
-                    className={`p-4 text-center w-20 cursor-pointer select-none hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`}
-                    onClick={() => handleSort("status")}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      Status
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  <th
-                    className={`p-4 text-left cursor-pointer select-none hover:text-brand ${
-                      sortConfig.column === "ad_id" ? "text-primary" : ""
-                    }`}
-                    onClick={() => handleSort("ad_id")}
-                  >
-                    <div className="flex items-center gap-1">
-                      {adsetId ? "Anúncios" : "Variações"}
-                      <IconArrowsSort className="w-3 h-3" />
-                    </div>
-                  </th>
-                  {visibleColumns.map((col) => (
-                    <th
-                      key={col.id}
-                      className={`${childMetricsColumnClass} ${sortConfig.column === col.id ? "text-primary" : ""}`}
-                      onClick={() => handleSort(col.id)}
-                    >
-                      <div className="flex items-center justify-center gap-1">
-                        {col.name}
-                        <IconArrowsSort className="w-3 h-3" />
-                      </div>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedData.map((child) => {
-                  return (
-                    <tr key={child.ad_id} className="hover:bg-muted border-b border-border">
-                      <td className="px-4 py-3 text-center">
-                        <StatusCell
-                          original={child}
-                          currentTab="individual"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-left">
-                        <div className="flex items-center gap-2">
-                          <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
-                          <div className="flex-1 min-w-0">
-                            {adsetId ? (
-                              <>
-                                <div className="truncate text-xs font-medium">{child.ad_name || "Sem nome"}</div>
-                                <div className="flex items-center gap-2 truncate">
-                                  <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
-                                </div>
-                              </>
-                            ) : (
-                              <>
-                                <div className="truncate text-xs font-medium">{child.adset_name}</div>
-                                <div className="flex items-center gap-2 truncate">
-                                  <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </td>
-                      {visibleColumns.map((col) => (
-                        <td key={col.id} className="p-2 text-center">
-                          {renderCellValue(child, col.id)}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
           )}
         </div>
+      </div>
+      {sortedData.length === 0 && (searchTerm.trim() || columnFilters.length > 0) ? (
+        <div className="p-8 text-center">
+          <p className="text-sm text-muted-foreground">{searchTerm.trim() ? (columnFilters.length > 0 ? `Nenhuma variação encontrada para "${searchTerm}" com os filtros aplicados.` : `Nenhuma variação encontrada para "${searchTerm}"`) : "Nenhuma variação corresponde aos filtros aplicados."}</p>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+            {searchTerm.trim() && (
+              <button onClick={() => setSearchTerm("")} className="text-xs text-primary hover:underline">
+                Limpar busca
+              </button>
+            )}
+            {searchTerm.trim() && columnFilters.length > 0 && <span className="text-muted-foreground">·</span>}
+            {columnFilters.length > 0 && setColumnFilters && (
+              <button onClick={() => setColumnFilters([])} className="text-xs text-primary hover:underline">
+                Limpar filtros
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-border">
+                <th className={`p-4 text-center w-20 cursor-pointer select-none hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
+                  <div className="flex items-center justify-center gap-1">
+                    Status
+                    <IconArrowsSort className="w-3 h-3" />
+                  </div>
+                </th>
+                <th className={`p-4 text-left cursor-pointer select-none hover:text-brand ${sortConfig.column === "ad_id" ? "text-primary" : ""}`} onClick={() => handleSort("ad_id")}>
+                  <div className="flex items-center gap-1">
+                    {adsetId ? "Anúncios" : "Variações"}
+                    <IconArrowsSort className="w-3 h-3" />
+                  </div>
+                </th>
+                {visibleColumns.map((col) => (
+                  <th key={col.id} className={`${childMetricsColumnClass} ${sortConfig.column === col.id ? "text-primary" : ""}`} onClick={() => handleSort(col.id)}>
+                    <div className="flex items-center justify-center gap-1">
+                      {col.name}
+                      <IconArrowsSort className="w-3 h-3" />
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedData.map((child) => {
+                return (
+                  <tr key={child.ad_id} className="hover:bg-muted border-b border-border">
+                    <td className="px-4 py-3 text-center">
+                      <StatusCell original={child} currentTab="individual" />
+                    </td>
+                    <td className="px-4 py-3 text-left">
+                      <div className="flex items-center gap-2">
+                        <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
+                        <div className="flex-1 min-w-0">
+                          {adsetId ? (
+                            <>
+                              <div className="truncate text-xs font-medium">{child.ad_name || "Sem nome"}</div>
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="truncate text-xs font-medium">{child.adset_name}</div>
+                              <div className="flex items-center gap-2 truncate">
+                                <span className="text-xs text-muted-foreground truncate">{child.campaign_name}</span>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                    {visibleColumns.map((col) => (
+                      <td key={col.id} className="p-2 text-center">
+                        {renderCellValue(child, col.id)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 
-  return asContent ? innerContent : (
+  return asContent ? (
+    innerContent
+  ) : (
     <tr className="bg-card">
       <td className="p-0" colSpan={colspan}>
         {innerContent}

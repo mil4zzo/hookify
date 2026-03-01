@@ -53,10 +53,11 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     const displayFilterValue: FilterValue | undefined = Array.isArray(filterValue) ? (filterValue.length > 0 ? filterValue[0] : undefined) : (filterValue ?? undefined);
     const textSize = isMinimal ? "text-[10px]" : "text-xs";
     const iconSize = isMinimal ? "w-2.5 h-2.5" : "w-3 h-3";
+    const avgLeading = isMinimal ? "leading-none" : "";
     const isSum = sumMetrics.has(metricId);
 
     return (
-      <div className={`flex flex-col items-center ${isMinimal ? "gap-0.5" : "gap-0.5"}`}>
+      <div className={`flex flex-col items-center ${isMinimal ? "gap-1" : "gap-0.5"}`}>
         <div className={`flex items-center ${isMinimal ? "gap-0.5" : "gap-1"}`}>
           <SortIcon column={column} />
           <span className={isMinimal ? "text-xs" : ""}>{label}</span>
@@ -66,7 +67,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className={`${textSize} text-muted-foreground font-normal cursor-help`}>{formatAverage(metricId)}</span>
+                <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverage(metricId)}</span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p className="text-xs">{isSum ? "Soma total do pack" : "Média dos anúncios validáveis do pack"}</p>
@@ -78,7 +79,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className={`${textSize} text-info font-semibold flex items-center gap-0.5 cursor-help`}>
+                <span className={`${textSize} text-info font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
                   <IconFilter className={iconSize} />
                   {filteredAvg}
                 </span>
@@ -237,9 +238,12 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
             const displayFilterValue: FilterValue | undefined = Array.isArray(filterValue) ? (filterValue.length > 0 ? filterValue[0] : undefined) : (filterValue ?? undefined);
             const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
             const hasFilters = hasActiveFilters && !!filteredAveragesRef.current;
+            const textSize = isMinimal ? "text-[10px]" : "text-xs";
+            const iconSize = isMinimal ? "w-2.5 h-2.5" : "w-3 h-3";
+            const avgLeading = isMinimal ? "leading-none" : "";
             return (
-              <div className="flex flex-col items-center gap-0.5">
-                <div className="flex items-center gap-1.5">
+              <div className={`flex flex-col items-center ${isMinimal ? "gap-1" : "gap-0.5"}`}>
+                <div className={`flex items-center ${isMinimal ? "gap-0.5" : "gap-1.5"}`}>
                   {mqlLeadscoreMin === 0 && (
                     <TooltipProvider>
                       <Tooltip>
@@ -251,7 +255,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                             }}
                             className="text-warning hover:text-warning/80 transition-colors"
                           >
-                            <IconAlertTriangle className="h-4 w-4" />
+                            <IconAlertTriangle className={isMinimal ? "h-3 w-3" : "h-4 w-4"} />
                           </button>
                         </TooltipTrigger>
                         <TooltipContent>
@@ -273,14 +277,14 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                     </TooltipProvider>
                   )}
                   <SortIcon column={column} />
-                  <span>CPMQL</span>
+                  <span className={isMinimal ? "text-xs" : ""}>CPMQL</span>
                   <ColumnFilter value={displayFilterValue} readonly={true} />
                 </div>
                 {formatAverage("cpmql") && (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="text-xs text-muted-foreground font-normal cursor-help">{formatAverage("cpmql")}</span>
+                        <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverage("cpmql")}</span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
                         <p className="text-xs">Média dos anúncios validáveis do pack</p>
@@ -292,8 +296,8 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className="text-xs text-info font-semibold flex items-center gap-0.5 cursor-help">
-                          <IconFilter className="w-3 h-3" />
+                        <span className={`${textSize} text-info font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
+                          <IconFilter className={iconSize} />
                           {formatFilteredAverageRef.current("cpmql")}
                         </span>
                       </TooltipTrigger>

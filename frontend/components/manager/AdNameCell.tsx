@@ -15,6 +15,8 @@ interface AdNameCellProps {
   setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   groupByAdNameEffective: boolean;
   currentTab: string;
+  /** Quando true (visualização minimal), thumbnail usa tamanho menor (w-10 h-10) */
+  minimal?: boolean;
 }
 
 // Custom comparison function for React.memo
@@ -27,6 +29,9 @@ function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
 
   // Current tab comparison
   if (prev.currentTab !== next.currentTab) return false;
+
+  // Minimal (view mode) comparison
+  if (prev.minimal !== next.minimal) return false;
 
   // GroupBy comparison
   if (prev.groupByAdNameEffective !== next.groupByAdNameEffective) return false;
@@ -53,7 +58,7 @@ function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
   return true;
 }
 
-export const AdNameCell = React.memo(function AdNameCell({ original, value, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab }: AdNameCellProps) {
+export const AdNameCell = React.memo(function AdNameCell({ original, value, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, minimal = false }: AdNameCellProps) {
   const showThumbnail = currentTab !== "por-conjunto" && currentTab !== "por-campanha";
   const thumbnail = getAdThumbnail(original);
   const name = String(value || "—");
@@ -64,6 +69,7 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
   const isExpanded = !!expanded[key];
   const hasActive = (original?.effective_status || "").toUpperCase() === "ACTIVE";
   const dotActive = adCount > 0 && hasActive;
+  const thumbnailSize = minimal ? "sm" : "md";
 
   let secondLine = "";
   if (groupByAdNameEffective || currentTab === "por-conjunto" || currentTab === "por-campanha") {
@@ -94,7 +100,7 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
 
   return (
     <div className="flex items-center gap-3 w-full">
-      {showThumbnail && <ThumbnailImage src={thumbnail} alt="thumb" size="md" />}
+      {showThumbnail && <ThumbnailImage src={thumbnail} alt="thumb" size={thumbnailSize} />}
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex items-center gap-2 truncate">
           <span className="truncate flex-1">{name}</span>
