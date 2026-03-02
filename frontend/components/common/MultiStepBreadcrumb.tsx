@@ -78,11 +78,11 @@ export function MultiStepBreadcrumb({ steps, currentStepId, variant = "simple", 
               {/* Wrapper do step (clicável) */}
               <div className={cn("flex flex-col items-center gap-2 w-full transition-opacity", isClickable && "cursor-pointer hover:opacity-80", isDisabled && "cursor-not-allowed opacity-50")} onClick={() => isClickable && onStepClick?.(step.id)}>
                 {/* Círculo do step */}
-                <div className={cn("flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-200 flex-shrink-0 relative z-10", isCompleted ? "bg-green-500 border-green-500 text-white" : isActive ? "bg-primary border-primary text-white" : "bg-background border-border text-muted-foreground")}>{isCompleted ? <IconCheck className="w-5 h-5" /> : <span className="text-sm font-semibold">{index + 1}</span>}</div>
+                <div className={cn("flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-200 flex-shrink-0 relative z-10", isCompleted ? "bg-success border-success text-success-foreground" : isActive ? "bg-primary border-primary text-primary-foreground" : "bg-background border-border text-muted-foreground")}>{isCompleted ? <IconCheck className="w-5 h-5" /> : <span className="text-sm font-semibold">{index + 1}</span>}</div>
 
                 {/* Label */}
                 <div className="text-center min-w-0 w-full">
-                  <div className={cn("text-sm font-medium transition-colors", isCompleted ? "text-green-500" : isActive ? "text-primary" : "text-muted-foreground")}>{step.label}</div>
+                  <div className={cn("text-sm font-medium transition-colors", isCompleted ? "text-success" : isActive ? "text-primary" : "text-muted-foreground")}>{step.label}</div>
                   {step.description && (
                     <div className="text-xs text-muted-foreground mt-0.5 truncate" title={step.description}>
                       {step.description}
@@ -94,7 +94,7 @@ export function MultiStepBreadcrumb({ steps, currentStepId, variant = "simple", 
               {/* Linha conectora (exceto no último step) - conecta da borda direita deste círculo até a borda esquerda do próximo */}
               {index < steps.length - 1 && (
                 <div className="absolute top-5 h-0.5 pointer-events-none z-0" style={{ left: "calc(50% + 20px)", right: "calc(-50% + 20px)" }}>
-                  <div className={cn("h-full transition-all duration-200", connectorIsGreen ? "bg-green-500" : "bg-border")} />
+                  <div className={cn("h-full transition-all duration-200", connectorIsGreen ? "bg-success" : "bg-border")} />
                 </div>
               )}
             </div>

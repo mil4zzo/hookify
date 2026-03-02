@@ -59,8 +59,8 @@ frontend/
 - **Background**: `#111315` (bg)
 - **Surface**: `#1A1D21` (surface), `#23272B` (surface2)
 - **Text**: `#E5E7EB` (text), `#9CA3AF` (muted)
-- **Brand**: `#2E7D32` (brand), `#256D2A` (brand-600)
-- **Status**: `#EF4444` (danger), `#F59E0B` (warning), `#3B82F6` (info)
+- **Brand**: azul (primary).
+- **Status**: destructive (vermelho), warning (laranja), attention (amarelo), success (verde), primary (azul).
 
 ### Tipografia
 

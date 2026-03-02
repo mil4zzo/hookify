@@ -72,7 +72,7 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(({ va
   };
 
   return (
-    <button ref={ref} type="button" role="tab" aria-selected={isActive} onClick={handleClick} className={cn("px-3 h-8 text-sm font-medium transition-colors rounded-md bg-muted flex items-center justify-center", isActive ? "text-white bg-background" : "text-muted-foreground hover:text-foreground hover:bg-card", className)} {...props}>
+    <button ref={ref} type="button" role="tab" aria-selected={isActive} onClick={handleClick} className={cn("px-3 h-8 text-sm font-medium transition-colors rounded-md bg-muted flex items-center justify-center", isActive ? "text-foreground bg-background" : "text-muted-foreground hover:text-foreground hover:bg-card", className)} {...props}>
       {children}
     </button>
   );

@@ -85,7 +85,7 @@ export function FacebookConnectionCard({
             />
           ) : (
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">
-              <IconBrandFacebook className="w-4 h-4 text-white" />
+              <IconBrandFacebook className="w-4 h-4 text-primary-foreground" />
             </div>
           )}
 

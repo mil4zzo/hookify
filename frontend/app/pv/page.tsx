@@ -186,7 +186,7 @@ export default async function PvPage({
                   Importação assíncrona
                 </span>
                 <span className="inline-flex items-center gap-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-info" aria-hidden="true" />
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
                   Cache local para velocidade
                 </span>
                 <span className="inline-flex items-center gap-2">

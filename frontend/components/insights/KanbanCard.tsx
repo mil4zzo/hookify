@@ -16,23 +16,23 @@ interface KanbanCardProps {
     metricFormatted: string;
   };
   metricLabel: string;
-  variant?: "success" | "danger";
+  variant?: "success" | "destructive";
   rank: number;
 }
 
 export function KanbanCard({ ad, metricLabel, variant = "success", rank }: KanbanCardProps) {
   const variantStyles = {
     success: {
-      border: "border-green-500/30",
-      bg: "bg-green-500/5",
-      text: "text-green-600 dark:text-green-400",
-      accent: "border-green-500",
+      border: "border-success-30",
+      bg: "bg-success-10",
+      text: "text-success",
+      accent: "border-success",
     },
-    danger: {
-      border: "border-red-500/30",
-      bg: "bg-red-500/5",
-      text: "text-red-600 dark:text-red-400",
-      accent: "border-red-500",
+    destructive: {
+      border: "border-destructive-40",
+      bg: "bg-destructive-20",
+      text: "text-destructive",
+      accent: "border-destructive",
     },
   };
 
@@ -50,7 +50,7 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank }: Kanba
           {/* Thumbnail */}
           <div className="relative w-24 h-24 flex-shrink-0 rounded overflow-hidden bg-muted">
             {/* Rank badge - posicionado absolutamente no canto superior esquerdo */}
-            <div className={cn("absolute top-0 left-0 z-10 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs", variant === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white")}>{rank}</div>
+            <div className={cn("absolute top-0 left-0 z-10 w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs", variant === "success" ? "bg-success text-success-foreground" : "bg-destructive text-destructive-foreground")}>{rank}</div>
             {(() => {
               const thumbnail = getAdThumbnail(ad);
               return thumbnail ? (

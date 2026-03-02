@@ -30,19 +30,19 @@ interface MetricHistoryChartProps {
 
 type DataPoint = { x: number; y: number; originalY?: number; date: string; label: string; metricKey: string };
 
-// Métricas disponíveis e suas configurações
+// Métricas disponíveis e suas configurações (cores do design system: chart-1..5, success, warning, info, destructive)
 export const AVAILABLE_METRICS = [
-  { key: "spend", label: "Spend", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "#1447e6" },
-  { key: "impressions", label: "Impressions", format: (v: number) => v.toLocaleString("pt-BR"), color: "#8b5cf6" },
-  { key: "clicks", label: "Clicks", format: (v: number) => v.toLocaleString("pt-BR"), color: "#06b6d4" },
-  { key: "hook", label: "Hook", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "#10b981" },
-  { key: "ctr", label: "CTR", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "#f59e0b" },
-  { key: "connect_rate", label: "Connect Rate", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "#ef4444" },
-  { key: "cpm", label: "CPM", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "#ec4899" },
-  { key: "lpv", label: "Landing Page Views", format: (v: number) => v.toLocaleString("pt-BR"), color: "#6366f1" },
-  { key: "plays", label: "Plays", format: (v: number) => v.toLocaleString("pt-BR"), color: "#14b8a6" },
-  { key: "cpr", label: "CPR", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "#f97316" },
-  { key: "page_conv", label: "Page Conv", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "#84cc16" },
+  { key: "spend", label: "Spend", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "var(--chart-1)" },
+  { key: "impressions", label: "Impressions", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--chart-2)" },
+  { key: "clicks", label: "Clicks", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--chart-3)" },
+  { key: "hook", label: "Hook", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--success)" },
+  { key: "ctr", label: "CTR", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--warning)" },
+  { key: "connect_rate", label: "Connect Rate", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--destructive)" },
+  { key: "cpm", label: "CPM", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "var(--chart-4)" },
+  { key: "lpv", label: "Landing Page Views", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--chart-5)" },
+  { key: "plays", label: "Plays", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--info)" },
+  { key: "cpr", label: "CPR", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "var(--primary)" },
+  { key: "page_conv", label: "Page Conv", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--chart-4)" },
 ] as const;
 
 // Função helper para parsear data sem problemas de timezone
@@ -474,7 +474,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
                       tooltipPoints.map((point) => {
                         const config = selectedMetricsConfig.find((m) => m.key === point.metricKey);
                         if (!config) return null;
-                        return <circle key={point.metricKey} cx={xScale(point.x)} cy={yScale(point.y)} r={4} fill={config.color} stroke="#fff" strokeWidth={2} />;
+                        return <circle key={point.metricKey} cx={xScale(point.x)} cy={yScale(point.y)} r={4} fill={config.color} stroke="var(--background)" strokeWidth={2} />;
                       })}
 
                     {/* Axis */}

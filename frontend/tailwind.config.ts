@@ -159,19 +159,6 @@ export default {
           90: 'color-mix(in oklab, var(--info) 90%, transparent)',
         },
         'info-foreground': 'var(--info-foreground)',
-        danger: {
-          DEFAULT: 'var(--danger)',
-          10: 'color-mix(in oklab, var(--danger) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--danger) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--danger) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--danger) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--danger) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--danger) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--danger) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--danger) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--danger) 90%, transparent)',
-        },
-        'danger-foreground': 'var(--danger-foreground)',
         attention: {
           DEFAULT: 'var(--attention)',
           10: 'color-mix(in oklab, var(--attention) 10%, transparent)',
@@ -220,7 +207,8 @@ export default {
         // === SUPERFÍCIES ===
         surface: 'var(--surface)',
         'surface-2': 'var(--surface-2)',
-        surface3: '#33373C',
+        surface3: 'var(--surface-3)',
+        overlay: 'var(--overlay)',
         
         // === TEXTO ===
         text: 'rgb(var(--text-rgb) / <alpha-value>)',
@@ -246,13 +234,12 @@ export default {
           300: 'color-mix(in oklab, var(--primary) 80%, transparent)',
           400: 'color-mix(in oklab, var(--primary) 90%, transparent)',
           500: 'var(--primary)',
-          600: '#256D2A',
-          700: '#1F5A23',
         },
       },
       borderRadius: {
-        md: '8px',
-        lg: '10px',
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
       },
       boxShadow: {
         xs: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',

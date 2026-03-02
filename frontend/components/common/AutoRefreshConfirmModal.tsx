@@ -4,7 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Modal } from "./Modal";
 import { Button } from "@/components/ui/button";
 import { IconCircleCheck, IconCircleX, IconCheck } from "@tabler/icons-react";
-import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
+import { UpdatedAtText } from "@/components/common/UpdatedAtText";
 
 // Função auxiliar para formatar data de YYYY-MM-DD para DD/MM/YYYY
 const formatDate = (dateString: string) => {
@@ -58,12 +58,12 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
           <p className="text-center text-sm text-text-muted">Encontramos 1 pack configurado para atualização automática. Deseja atualizá-lo agora?</p>
 
           <div className="flex gap-4 w-full">
-            <Button onClick={onCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500">
+            <Button onClick={onCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive">
               <IconCircleX className="h-5 w-5" />
               Não
             </Button>
 
-            <Button onClick={() => onConfirm(autoRefreshPacks.map((p: any) => p.id))} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white">
+            <Button onClick={() => onConfirm(autoRefreshPacks.map((p: any) => p.id))} variant="success" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleCheck className="h-5 w-5" />
               Sim
             </Button>
@@ -87,7 +87,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
             const isSelected = selectedPackIds.has(pack.id);
             return (
               <button key={pack.id} type="button" onClick={() => handleTogglePack(pack.id)} className="w-full flex items-center gap-3 p-3 rounded-md hover:bg-accent transition-colors text-left">
-                <div className={`flex items-center justify-center w-5 h-5 rounded border-2 transition-colors ${isSelected ? "bg-brand border-brand" : "border-border bg-background"}`}>{isSelected && <IconCheck className="h-3.5 w-3.5 text-white" />}</div>
+                <div className={`flex items-center justify-center w-5 h-5 rounded border-2 transition-colors ${isSelected ? "bg-brand border-brand" : "border-border bg-background"}`}>{isSelected && <IconCheck className="h-3.5 w-3.5 text-primary-foreground" />}</div>
                 <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-text truncate">{pack.name}</p>
@@ -97,7 +97,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
                       </p>
                     )}
                   </div>
-                  {pack.updated_at && <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">{formatRelativeTime(pack.updated_at)}</span>}
+                  {pack.updated_at && <UpdatedAtText dateTime={pack.updated_at} className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0" />}
                 </div>
               </button>
             );
@@ -126,12 +126,12 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
         </div>
 
         <div className="flex gap-4 w-full">
-          <Button onClick={onCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500">
+          <Button onClick={onCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive">
             <IconCircleX className="h-5 w-5" />
             Cancelar
           </Button>
 
-          <Button onClick={handleConfirmClick} disabled={selectedPackIds.size === 0} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white disabled:opacity-50 disabled:cursor-not-allowed">
+          <Button onClick={handleConfirmClick} disabled={selectedPackIds.size === 0} variant="success" className="flex-1 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             <IconCircleCheck className="h-5 w-5" />
             Atualizar {selectedPackIds.size > 0 ? `${selectedPackIds.size} pack${selectedPackIds.size > 1 ? "s" : ""}` : "packs"}
           </Button>

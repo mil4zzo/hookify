@@ -23,8 +23,8 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
   const pct = (v: number) => total > 0 ? ((v / total) * 100).toFixed(1) : "0.0";
 
   return (
-    <div className="border border-green-500/30 bg-green-500/10 rounded-lg p-6">
-      <h3 className="font-semibold text-lg flex items-center gap-2 text-green-500 mb-4">
+    <div className="border border-success-30 bg-success-10 rounded-lg p-6">
+      <h3 className="font-semibold text-lg flex items-center gap-2 text-success mb-4">
         <IconCheck className="w-5 h-5" />
         Importação concluída com sucesso!
       </h3>

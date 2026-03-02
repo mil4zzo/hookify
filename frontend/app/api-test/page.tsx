@@ -208,7 +208,7 @@ export default function ApiTestPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
               <span className="font-medium">Status:</span>
-              <span className={`px-2 py-1 rounded text-sm ${isAuthenticated ? "bg-brand text-white" : "bg-border text-muted-foreground"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
+              <span className={`px-2 py-1 rounded text-sm ${isAuthenticated ? "bg-brand text-primary-foreground" : "bg-border text-muted-foreground"}`}>{isAuthenticated ? "Autenticado" : "Não autenticado"}</span>
             </div>
 
             {user && (

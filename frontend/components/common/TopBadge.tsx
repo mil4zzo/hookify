@@ -1,42 +1,20 @@
 "use client";
 
 import { cn } from "@/lib/utils/cn";
+import { getTopBadgeStyleConfig } from "@/lib/utils/topBadgeStyles";
+import type { TopBadgeVariant } from "@/lib/utils/topBadgeStyles";
 
 interface TopBadgeProps {
   /** Variante do badge: gold (🥇), silver (🥈) ou copper (🥉) */
-  variant: "gold" | "silver" | "copper";
+  variant: TopBadgeVariant;
   /** Texto do label do badge (ex: "CTR", "PAGE", "HOOK", "SPEND") */
   label: string;
   /** Classes CSS adicionais */
   className?: string;
 }
 
-const variantStyles = {
-  gold: {
-    emoji: "🥇",
-    gradient: "linear-gradient(135deg, #FFD700 0%, #FFED4E 50%, #FFA500 100%)",
-    shadow: "rgba(255, 215, 0, 0.4)",
-    textColor: "#1a1a1a",
-    textShadow: "0 1px 1px rgba(255, 255, 255, 0.3)",
-  },
-  silver: {
-    emoji: "🥈",
-    gradient: "linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 50%, #A8A8A8 100%)",
-    shadow: "rgba(192, 192, 192, 0.4)",
-    textColor: "#1a1a1a",
-    textShadow: "0 1px 1px rgba(255, 255, 255, 0.3)",
-  },
-  copper: {
-    emoji: "🥉",
-    gradient: "linear-gradient(135deg, #CD7F32 0%, #E39A5C 50%, #B87333 100%)",
-    shadow: "rgba(205, 127, 50, 0.4)",
-    textColor: "#1a1a1a",
-    textShadow: "0 1px 1px rgba(255, 255, 255, 0.3)",
-  },
-};
-
 export function TopBadge({ variant, label, className }: TopBadgeProps) {
-  const styles = variantStyles[variant];
+  const styles = getTopBadgeStyleConfig(variant)!;
 
   return (
     <span

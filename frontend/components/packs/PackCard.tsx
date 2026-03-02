@@ -14,7 +14,7 @@ import { api } from "@/lib/api/endpoints";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
-import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
+import { UpdatedAtText } from "@/components/common/UpdatedAtText";
 
 const FILTER_FIELDS = [
   { label: "Campaign Name", value: "campaign.name" },
@@ -396,7 +396,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                     e.stopPropagation();
                   }}
                 >
-                  <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} labelLeft="Manter atualizado:" variant="default" size="md" className="w-full justify-between" labelClassName="text-sm text-foreground" switchClassName="data-[state=checked]:bg-green-500" />
+                  <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} labelLeft="Manter atualizado:" variant="default" size="md" className="w-full justify-between" labelClassName="text-sm text-foreground" switchClassName="data-[state=checked]:bg-success" />
                 </div>
                 <div
                   className="relative z-20"
@@ -424,7 +424,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                     size="md"
                     className="w-full justify-between"
                     labelClassName="text-sm text-foreground"
-                    switchClassName="data-[state=checked]:bg-green-500"
+                    switchClassName="data-[state=checked]:bg-success"
                   />
                 </div>
                 <div className="flex items-center justify-between mt-3 text-xs text-foreground">
@@ -432,7 +432,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                     <MetaIcon className="w-3.5 h-3.5 flex-shrink-0" />
                     <span>Meta:</span>
                   </div>
-                  <span>{formatRelativeTime(pack.updated_at)}</span>
+                  <UpdatedAtText dateTime={pack.updated_at} />
                 </div>
                 {(pack.sheet_integration?.last_successful_sync_at || pack.sheet_integration?.last_synced_at) && (
                   <div className="flex items-center justify-between text-xs text-foreground">
@@ -453,7 +453,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                           </Tooltip>
                         </TooltipProvider>
                       )}
-                      <span>{formatRelativeTime(pack.sheet_integration.last_successful_sync_at || pack.sheet_integration.last_synced_at || "")}</span>
+                      <UpdatedAtText dateTime={pack.sheet_integration.last_successful_sync_at || pack.sheet_integration.last_synced_at || ""} />
                     </div>
                   </div>
                 )}

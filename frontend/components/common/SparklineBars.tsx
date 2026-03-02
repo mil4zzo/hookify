@@ -45,7 +45,7 @@ function getSeriesTrendPct(series: Array<number | null | undefined>): number {
 function colorByTrend(pct: number, inverse: boolean = false): string {
   if (inverse) {
     // Invertido: subir é ruim (vermelho), descer é bom (verde)
-    if (pct >= 0.2) return "danger"; // strong up = ruim
+    if (pct >= 0.2) return "destructive"; // strong up = ruim
     if (pct >= 0.05) return "warning"; // mild up = ruim
     if (pct <= -0.2) return "success"; // strong down = bom
     if (pct <= -0.05) return "success"; // mild down = bom
@@ -54,7 +54,7 @@ function colorByTrend(pct: number, inverse: boolean = false): string {
   // Normal: subir é bom (verde), descer é ruim (vermelho)
   if (pct >= 0.2) return "success"; // strong up = bom
   if (pct >= 0.05) return "success"; // mild up = bom
-  if (pct <= -0.2) return "danger"; // strong down = ruim
+  if (pct <= -0.2) return "destructive"; // strong down = ruim
   if (pct <= -0.05) return "warning"; // mild down = ruim
   return "accent"; // flat = neutro
 }
@@ -62,7 +62,7 @@ function colorByTrend(pct: number, inverse: boolean = false): string {
 // Mapeamento de classes de cor base para gradientes (sem redundâncias)
 // Usa variantes com hífen conforme definido no tailwind.config.ts
 const baseGradientMap: Record<string, string> = {
-  danger: "bg-gradient-to-b from-danger-50 to-danger-20",
+  destructive: "bg-gradient-to-b from-destructive-50 to-destructive-20",
   warning: "bg-gradient-to-b from-warning-50 to-warning-20",
   attention: "bg-gradient-to-b from-attention-50 to-attention-20",
   success: "bg-gradient-to-b from-success-50 to-success-20",
@@ -75,7 +75,7 @@ const baseGradientMap: Record<string, string> = {
 
 // Mapeamento de classes de cor base para bordas (sem redundâncias)
 const baseBorderMap: Record<string, string> = {
-  danger: "border-t-danger",
+  destructive: "border-t-destructive",
   warning: "border-t-warning",
   attention: "border-t-attention",
   success: "border-t-success",
@@ -89,7 +89,7 @@ const baseBorderMap: Record<string, string> = {
 // Mapeamento de classes de cor base para texto (para tooltips)
 // Usa variantes mais claras (70-80) para melhor contraste em fundos escuros (bg-gray-800)
 const baseTextMap: Record<string, string> = {
-  danger: "text-danger-70",
+  destructive: "text-destructive-70",
   warning: "text-warning-70",
   attention: "text-attention-70",
   success: "text-success-70",
@@ -135,22 +135,22 @@ function getBorderClass(colorClassOrKey: string): string {
 function getTextClass(colorClassOrKey: string): string {
   // Se já é uma chave do mapeamento (não começa com "bg-"), usar diretamente
   if (!colorClassOrKey.startsWith("bg-")) {
-    return baseTextMap[colorClassOrKey] || "text-white";
+    return baseTextMap[colorClassOrKey] || "text-primary-foreground";
   }
   // Caso contrário, extrair a chave (para compatibilidade com nullClass e seriesColor)
   const baseColor = extractBaseColor(colorClassOrKey);
-  return baseTextMap[baseColor] || "text-white";
+  return baseTextMap[baseColor] || "text-primary-foreground";
 }
 
 // Retorna chave do mapeamento baseada na normalização pelo máximo da série
-// Usa escala de 5 cores fixas: danger (vermelho) → warning (laranja) → attention (amarelo) → success (verde) → primary (azul)
+// Usa escala de 5 cores fixas: destructive (vermelho) → warning (laranja) → attention (amarelo) → success (verde) → primary (azul)
 function getColorClassByNormalized(norm01: number, inverse: boolean = false): string {
   const t = Math.max(0, Math.min(1, norm01));
 
   if (inverse) {
     // Invertido: valores maiores (próximos de 1) = vermelho, menores (próximos de 0) = azul
     const invertedT = 1 - t;
-    if (invertedT <= 0.2) return "danger";
+    if (invertedT <= 0.2) return "destructive";
     if (invertedT <= 0.4) return "warning";
     if (invertedT <= 0.6) return "attention";
     if (invertedT <= 0.8) return "success";
@@ -158,7 +158,7 @@ function getColorClassByNormalized(norm01: number, inverse: boolean = false): st
   }
 
   // Normal: valores maiores = azul, menores = vermelho
-  if (t <= 0.2) return "danger";
+  if (t <= 0.2) return "destructive";
   if (t <= 0.4) return "warning";
   if (t <= 0.6) return "attention";
   if (t <= 0.8) return "success";
@@ -166,7 +166,7 @@ function getColorClassByNormalized(norm01: number, inverse: boolean = false): st
 }
 
 // Retorna chave do mapeamento baseada na comparação com a média do pack
-// Usa escala de 5 cores: danger (vermelho) → warning (laranja) → attention (amarelo) → success (verde) → primary (azul)
+// Usa escala de 5 cores: destructive (vermelho) → warning (laranja) → attention (amarelo) → success (verde) → primary (azul)
 function getColorClassByPackAverage(value: number, packAverage: number, inverse: boolean = false): string {
   if (packAverage <= 0 || !Number.isFinite(packAverage)) {
     // Se a média não é válida, usar cor neutra
@@ -180,7 +180,7 @@ function getColorClassByPackAverage(value: number, packAverage: number, inverse:
   if (inverse) {
     // Invertido: valores acima da média = ruim (vermelho), abaixo = bom (azul)
     // Para métricas onde menor é melhor (CPR, CPM, CPMQL)
-    if (ratio >= 1.5) return "danger"; // muito acima = muito ruim
+    if (ratio >= 1.5) return "destructive"; // muito acima = muito ruim
     if (ratio >= 1.1) return "warning"; // acima = ruim
     if (ratio >= 0.9) return "attention"; // próximo = neutro
     if (ratio >= 0.6) return "success"; // abaixo = bom
@@ -189,7 +189,7 @@ function getColorClassByPackAverage(value: number, packAverage: number, inverse:
 
   // Normal: valores acima da média = bom (azul), abaixo = ruim (vermelho)
   // Para métricas onde maior é melhor (Hook, CTR, etc.)
-  if (ratio <= 0.6) return "danger"; // bem pior que a média
+  if (ratio <= 0.6) return "destructive"; // bem pior que a média
   if (ratio <= 0.85) return "warning"; // pior que a média
   if (ratio <= 1.1) return "attention"; // próximo da média
   if (ratio <= 1.5) return "success"; // acima da média
@@ -222,7 +222,7 @@ type SparklineBarsProps = {
   packAverage?: number | null; // Média do pack para comparação (quando fornecido, usa comparação com média em vez de normalização por máximo)
   dataAvailability?: Array<boolean>; // Indica se há dados base (spend/impressions) para cada ponto da série
   zeroValueLabel?: string; // Label customizado para valores zero quando há dados mas valor é zero/null (ex: "Sem MQLs", "Sem leads")
-  zeroValueColorClass?: string; // Classe de cor para valores zero quando há dados (padrão: "danger")
+  zeroValueColorClass?: string; // Classe de cor para valores zero quando há dados (padrão: "destructive")
   dates?: Array<string>; // Array de datas correspondentes a cada ponto da série (formato YYYY-MM-DD)
 };
 
@@ -235,7 +235,7 @@ function formatDateForTooltip(dateStr: string): string {
   }
 }
 
-export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand-70", nullClass = "bg-muted-20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false, packAverage = null, dataAvailability, zeroValueLabel, zeroValueColorClass = "danger", dates }: SparklineBarsProps) {
+export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand-70", nullClass = "bg-muted-20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false, packAverage = null, dataAvailability, zeroValueLabel, zeroValueColorClass = "destructive", dates }: SparklineBarsProps) {
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;
   const seriesColor = dynamicColor && colorMode === "series" ? colorByTrend(getSeriesTrendPct(series), inverseColors) : colorClass;

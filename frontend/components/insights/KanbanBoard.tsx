@@ -17,7 +17,7 @@ interface AdData {
 
 interface KanbanBoardProps {
   ads: AdData[];
-  variant: "success" | "danger";
+  variant: "success" | "destructive";
   actionType?: string;
 }
 

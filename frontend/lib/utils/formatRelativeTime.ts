@@ -1,98 +1,102 @@
+export interface FormatRelativeTimeResult {
+  text: string;
+  /** Preenchido quando a atualização foi há mais de 2 dias; usar em title/hover para mostrar data exata */
+  tooltip?: string;
+}
+
 /**
- * Formata o tempo relativo desde uma data até agora com diferentes níveis de detalhe.
- * 
- * @param dateTimeString - Data/hora no formato ISO string (ex: "2024-01-15T10:30:00Z")
- * @returns String formatada com tempo relativo ou absoluto
- * 
- * @example
- * formatRelativeTime("2024-01-15T10:30:00Z")
- * // Retorna: "Atualizado agora" (< 1 minuto)
- * // Retorna: "Atualizado há 15 mins" (< 1 hora)
- * // Retorna: "Atualizado há 2h e 30 mins" (>= 1 hora e < 48 horas)
- * // Retorna: "Atualizado às 14:30 - 15/01/2024" (>= 48 horas)
+ * Formata data/hora para exibição em tooltip: "Atualizado em DD/MM/YYYY às HH:mm"
  */
-export function formatRelativeTime(dateTimeString: string): string {
-  if (!dateTimeString) return "Nunca atualizado";
-  
+export function formatFullDateTimeTooltip(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `Atualizado em ${day}/${month}/${year} às ${hours}:${minutes}`;
+}
+
+function isYesterday(date: Date, now: Date): boolean {
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayStart = new Date(todayStart);
+  yesterdayStart.setDate(yesterdayStart.getDate() - 1);
+  const dateDayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  return dateDayStart.getTime() === yesterdayStart.getTime();
+}
+
+/**
+ * Formata o tempo relativo desde uma data até agora.
+ * Para atualizações há mais de 2 dias, retorna tooltip com a data exata (exibir no hover).
+ *
+ * @param dateTimeString - Data/hora no formato ISO string (ex: "2024-01-15T10:30:00Z")
+ * @returns Objeto com text (texto principal) e tooltip opcional (data exata para hover)
+ */
+export function formatRelativeTime(dateTimeString: string): FormatRelativeTimeResult {
+  if (!dateTimeString) {
+    return { text: "Nunca atualizado" };
+  }
+
   try {
     const date = new Date(dateTimeString);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
-    
-    // Se a data é no futuro (erro de timezone ou clock), mostrar formato absoluto
+
     if (diffMs < 0) {
-      return formatAbsoluteDateTime(date);
+      return {
+        text: formatFullDateTimeTooltip(date),
+      };
     }
 
     const diffMinutes = Math.floor(diffMs / (1000 * 60));
     const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
 
-    // Caso 1: < 1 minuto
     if (diffMinutes < 1) {
-      return "Atualizado agora";
+      return { text: "Atualizado agora" };
     }
-    // Caso 2: < 1 hora
-    else if (diffMinutes < 60) {
-      return `Atualizado há ${diffMinutes} min${diffMinutes > 1 ? "s" : ""}`;
+
+    if (diffMinutes < 60) {
+      const min = diffMinutes === 1 ? "min" : "mins";
+      return { text: `Atualizado há ${diffMinutes} ${min}` };
     }
-    // Caso 3: >= 1 hora e < 48 horas
-    else if (diffHours < 48) {
+
+    // Tudo baseado em dia de calendário: ontem → "ontem às HH:mm"; mesmo dia 1h+ → "há Xh"; 2+ dias → "há X dias/meses/anos"
+    const tooltip = formatFullDateTimeTooltip(date);
+    if (isYesterday(date, now)) {
+      const hours = String(date.getHours()).padStart(2, "0");
+      const minutes = String(date.getMinutes()).padStart(2, "0");
+      return { text: `Atualizado ontem às ${hours}:${minutes}`, tooltip };
+    }
+
+    // Mesmo dia (diffDays === 0) e já passou de 1h: "há Xh e Y min(s)"
+    if (diffDays === 0) {
       const remainingMinutes = diffMinutes % 60;
       if (remainingMinutes === 0) {
-        return `Atualizado há ${diffHours}h`;
-      } else {
-        return `Atualizado há ${diffHours}h e ${remainingMinutes} min${remainingMinutes > 1 ? "s" : ""}`;
+        return { text: `Atualizado há ${diffHours}h` };
       }
+      const min = remainingMinutes === 1 ? "min" : "mins";
+      return { text: `Atualizado há ${diffHours}h e ${remainingMinutes} ${min}` };
     }
-    // Caso 4: >= 48 horas - formato absoluto
-    else {
-      return formatAbsoluteDateTime(date);
+
+    // 2+ dias no calendário
+    if (diffDays === 2) {
+      return { text: "Atualizado há 2 dias", tooltip };
     }
-  } catch (error) {
-    return "Data inválida";
+
+    if (diffDays >= 3 && diffDays <= 29) {
+      return { text: `Atualizado há ${diffDays} dias`, tooltip };
+    }
+
+    if (diffDays >= 30 && diffDays < 365) {
+      const months = Math.floor(diffDays / 30);
+      const mes = months === 1 ? "mês" : "meses";
+      return { text: `Atualizado há ${months} ${mes}`, tooltip };
+    }
+
+    const years = Math.floor(diffDays / 365);
+    const ano = years === 1 ? "ano" : "anos";
+    return { text: `Atualizado há ${years} ${ano}`, tooltip };
+  } catch {
+    return { text: "Data inválida" };
   }
 }
-
-/**
- * Formata data/hora para formato absoluto "Atualizado às HH:mm - DD/MM/YYYY"
- */
-function formatAbsoluteDateTime(date: Date): string {
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const year = date.getFullYear();
-  const hours = String(date.getHours()).padStart(2, "0");
-  const minutes = String(date.getMinutes()).padStart(2, "0");
-  return `Atualizado às ${hours}:${minutes} - ${day}/${month}/${year}`;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

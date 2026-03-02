@@ -9,6 +9,7 @@ import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKa
 import { GemsColumnType } from "@/components/common/GemsColumnFilter";
 import { RankingsResponse } from "@/lib/api/schemas";
 import { GenericColumn, GenericColumnColorScheme } from "@/components/common/GenericColumn";
+import { gemsModalMetricColorSchemes } from "@/lib/utils/gemsColorSchemes";
 import { GenericCard } from "@/components/common/GenericCard";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
@@ -93,64 +94,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
   const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? averages.per_action_type[actionType].page_conv ?? null : null;
   const avgHoldRate = (averages as any)?.hold_rate ?? null;
 
-  // Esquemas de cores para cada métrica (mesmos do GemsColumn)
-  const metricColorSchemes: Record<"hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate", GenericColumnColorScheme> = {
-    hook: {
-      headerBg: "bg-blue-500/10 border-blue-500/30",
-      title: "",
-      card: {
-        border: "border-blue-500/30",
-        bg: "bg-blue-500/5",
-        text: "text-blue-600 dark:text-blue-400",
-        accent: "border-blue-500",
-        badge: "bg-blue-500 text-white",
-      },
-    },
-    website_ctr: {
-      headerBg: "bg-purple-500/10 border-purple-500/30",
-      title: "",
-      card: {
-        border: "border-purple-500/30",
-        bg: "bg-purple-500/5",
-        text: "text-purple-600 dark:text-purple-400",
-        accent: "border-purple-500",
-        badge: "bg-purple-500 text-white",
-      },
-    },
-    ctr: {
-      headerBg: "bg-green-500/10 border-green-500/30",
-      title: "",
-      card: {
-        border: "border-green-500/30",
-        bg: "bg-green-500/5",
-        text: "text-green-600 dark:text-green-400",
-        accent: "border-green-500",
-        badge: "bg-green-500 text-white",
-      },
-    },
-    page_conv: {
-      headerBg: "bg-orange-500/10 border-orange-500/30",
-      title: "",
-      card: {
-        border: "border-orange-500/30",
-        bg: "bg-orange-500/5",
-        text: "text-orange-600 dark:text-orange-400",
-        accent: "border-orange-500",
-        badge: "bg-orange-500 text-white",
-      },
-    },
-    hold_rate: {
-      headerBg: "bg-pink-500/10 border-pink-500/30",
-      title: "",
-      card: {
-        border: "border-pink-500/30",
-        bg: "bg-pink-500/5",
-        text: "text-pink-600 dark:text-pink-400",
-        accent: "border-pink-500",
-        badge: "bg-pink-500 text-white",
-      },
-    },
-  };
+  const metricColorSchemes = gemsModalMetricColorSchemes;
 
   // Total de métricas que podem aparecer no kanban
   const TOTAL_METRICS = 4;
@@ -210,7 +154,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
       <div className="relative flex items-start gap-10">
         {/* Botão fechar */}
         <Button variant="outline" size="icon" className="absolute -top-12 right-0 h-10 w-10 rounded-full shadow-lg bg-background/90 backdrop-blur-sm hover:bg-background" onClick={onClose} aria-label="Fechar">

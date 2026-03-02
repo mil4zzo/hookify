@@ -157,7 +157,7 @@ const formatCellValue = (value: any, key: string, formatCurrency: (value: number
   // Status - cores especiais
   if (key.includes("status")) {
     const status = String(value);
-    const colorClass = status === "ACTIVE" ? "bg-green-500/20 text-green-500" : status === "PAUSED" ? "bg-yellow-500/20 text-yellow-500" : "bg-red-500/20 text-red-500";
+    const colorClass = status === "ACTIVE" ? "bg-success-20 text-success" : status === "PAUSED" ? "bg-warning-20 text-warning" : "bg-destructive-20 text-destructive";
     return <span className={`px-2 py-1 rounded text-xs ${colorClass}`}>{status}</span>;
   }
 
@@ -180,7 +180,7 @@ const formatCellValue = (value: any, key: string, formatCurrency: (value: number
 
   // Arrays - mostra conteúdo expandido para debug
   if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-xs text-gray-500">[]</span>;
+    if (value.length === 0) return <span className="text-xs text-muted-foreground">[]</span>;
     if (value.length <= 3) {
       return <span className="text-xs">{JSON.stringify(value)}</span>;
     }
@@ -1597,7 +1597,7 @@ export default function PacksPage() {
                       } else {
                         // Desconhecido
                         StatusIcon = IconCircleDot;
-                        iconColor = "text-gray-500";
+                        iconColor = "text-muted-foreground";
                       }
 
                       const isActive = accountStatus === 1;
@@ -1961,9 +1961,9 @@ export default function PacksPage() {
 
           {/* Opções de atualização */}
           <div className="w-full space-y-3">
-            <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"}`}>
+            <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-success bg-success-10" : "border-border hover:border-success-50 bg-input-30"}`}>
               <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "since_last_refresh" ? "border-green-500" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-green-500" />}</div>
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "since_last_refresh" ? "border-success" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-success" />}</div>
                 <div className="flex-1">
                   <div className="font-semibold text-text">Desde a última atualização</div>
                   <div className="text-xs text-text-muted mt-1">Busca novos dados desde a última atualização até hoje</div>
@@ -1971,9 +1971,9 @@ export default function PacksPage() {
               </div>
             </button>
 
-            <button type="button" onClick={() => setRefreshType("full_period")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "full_period" ? "border-green-500 bg-green-500/10" : "border-border hover:border-green-500/50 bg-input-30"}`}>
+            <button type="button" onClick={() => setRefreshType("full_period")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "full_period" ? "border-success bg-success-10" : "border-border hover:border-success-50 bg-input-30"}`}>
               <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "full_period" ? "border-green-500" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-green-500" />}</div>
+                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "full_period" ? "border-success" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-success" />}</div>
                 <div className="flex-1">
                   <div className="font-semibold text-text">Todo o período</div>
                   <div className="text-xs text-text-muted mt-1">Atualiza todos os dados do pack desde a data inicial até a data final</div>
@@ -1983,12 +1983,12 @@ export default function PacksPage() {
           </div>
 
           <div className="flex gap-4 w-full">
-            <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500">
+            <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive">
               <IconCircleX className="h-5 w-5" />
               Cancelar
             </Button>
 
-            <Button onClick={confirmRefreshPack} className="flex-1 flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white">
+            <Button onClick={confirmRefreshPack} variant="success" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleCheck className="h-5 w-5" />
               Confirmar
             </Button>

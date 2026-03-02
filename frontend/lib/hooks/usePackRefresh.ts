@@ -29,8 +29,13 @@ import {
   showPausedJobToast,
   dismissToast,
   showWarning,
-  getStageMessage,
-  getStatusMessage,
+  getMetaStageInfo,
+  getMetaDynamicLine,
+  buildSheetsToastContent,
+  calculateSheetsProgressPercent,
+  buildTranscriptionToastContent,
+  calculateTranscriptionProgressPercent,
+  type ProgressToastContent,
 } from "@/lib/utils/toast";
 import {
   handleGoogleAuthError,
@@ -102,70 +107,75 @@ interface ActiveRefresh {
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Calcula diferença em dias entre duas datas (YYYY-MM-DD)
- */
-function calculateDaysBetween(startDate: string, endDate: string): number {
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const diffTime = Math.abs(end.getTime() - start.getTime());
-  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  return diffDays + 1; // +1 para incluir o dia final
-}
+const ESTIMATED_PAGES_COLLECTION = 10;
 
 /**
- * Calcula progresso granular baseado em stage e detalhes do backend
+ * Calcula progressPercent (0-100) baseado em etapas e sub-unidades.
+ * Sem fallback 50%: todo status/stage mapeado explicitamente.
  */
-function calculateProgress(status: string, details: any): number {
+function calculateMetaProgressPercent(status: string, details: any, apiProgress?: number): number {
   if (status === "completed") return 100;
   if (status === "failed" || status === "cancelled") return 0;
 
   const stage = details?.stage || "";
 
-  // meta_running: 0-10%
-  if (status === "meta_running") return 5;
-
-  // processing stages: 10-85%
-  if (status === "processing") {
-    if (stage === "paginação" || stage === "STAGE_PAGINATION") {
-      // 10-35%: usar page_count para progresso dentro do stage
-      const pageCount = details?.page_count || 0;
-      const estimatedPages = 10;
-      const pageProgress = Math.min(pageCount / estimatedPages, 1);
-      return 10 + pageProgress * 25;
+  // Etapa 1 (0-20%): meta_running
+  if (status === "meta_running" || status === "meta_completed") {
+    if (apiProgress != null && apiProgress >= 0 && apiProgress <= 100) {
+      return (apiProgress / 100) * 20; // mapear 0-100 -> 0-20
     }
-    if (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT") {
-      // 35-60%: usar enrichment_batches
-      const batchNum = details?.enrichment_batches || 0;
-      const totalBatches = details?.enrichment_total || 1;
-      const enrichProgress = totalBatches > 0 ? batchNum / totalBatches : 0;
-      return 35 + enrichProgress * 25;
-    }
-    if (stage === "formatação" || stage === "STAGE_FORMATTING") {
-      return 65; // 60-70%
-    }
+    return 0; // início da etapa
   }
 
-  // persisting: 70-95%
-  if (status === "persisting") {
+  // Etapa 2 (20-40%): paginação
+  if (status === "processing" && (stage === "paginação" || stage === "STAGE_PAGINATION")) {
+    const pageCount = details?.page_count ?? 0;
+    const pageProgress = Math.min(pageCount / ESTIMATED_PAGES_COLLECTION, 1);
+    return 20 + pageProgress * 20;
+  }
+
+  // Etapa 3 (40-60%): enriquecimento
+  if (status === "processing" && (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT")) {
+    const batchNum = details?.enrichment_batches ?? 0;
+    const totalBatches = details?.enrichment_total || 1;
+    const enrichProgress = totalBatches > 0 ? Math.min(batchNum / totalBatches, 1) : 0;
+    return 40 + enrichProgress * 20;
+  }
+
+  // Etapa 4 (60-80%): formatação
+  if (status === "processing" && (stage === "formatação" || stage === "STAGE_FORMATTING")) {
+    return 60;
+  }
+
+  // Etapa 5 (80-100%): persistência
+  if (status === "persisting" || (stage === "persistência" || stage === "STAGE_PERSISTENCE")) {
     const msg = details?.message || "";
-    if (msg.includes("Salvando anúncios")) return 75;
-    if (msg.includes("Salvando métricas")) return 82;
-    if (msg.includes("Calculando")) return 88;
-    if (msg.includes("Otimizando")) return 92;
-    if (msg.includes("Finalizando")) return 95;
-    return 70;
+    if (msg.includes("Salvando anúncios")) return 82;
+    if (msg.includes("Salvando métricas")) return 86;
+    if (msg.includes("Calculando")) return 90;
+    if (msg.includes("Otimizando")) return 94;
+    if (msg.includes("Finalizando")) return 98;
+    return 80;
   }
 
-  return 50; // Fallback
+  // processing sem stage reconhecido: assumir etapa 1 (início)
+  if (status === "processing") return 20;
+  return 0; // desconhecido: etapa 1 início
 }
 
-/**
- * Converte percentual em dias estimados
- */
-function progressToDays(progressPercent: number, totalDays: number): number {
-  const estimatedDay = Math.ceil((progressPercent / 100) * totalDays);
-  return Math.max(1, Math.min(estimatedDay, totalDays));
+/** Constrói conteúdo das 3 linhas do toast Meta a partir de status e details */
+function buildMetaToastContent(status: string, details: any, topLevelMessage?: string): ProgressToastContent {
+  const { stepIndex, title } = getMetaStageInfo(status, details);
+  const stage = details?.stage || "";
+  const detailsWithMessage = topLevelMessage
+    ? { ...details, message: topLevelMessage }
+    : details;
+  const dynamicLine = getMetaDynamicLine(status, stage, detailsWithMessage);
+  return {
+    stageLabel: `Etapa ${stepIndex} de 5`,
+    stageTitle: title,
+    dynamicLine,
+  };
 }
 
 // ============================================================================
@@ -175,6 +185,12 @@ function progressToDays(progressPercent: number, totalDays: number): number {
 // Ícones para identificar a origem do toast
 const metaToastIcon = React.createElement(MetaIcon, { className: "h-5 w-5 flex-shrink-0" });
 const sheetsToastIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
+
+/** Total de etapas no toast do Sheets (barra usa progressPercent quando informado). */
+const SHEETS_TOAST_TOTAL_STEPS = 3;
+
+/** Total de etapas no toast da transcrição (barra usa progressPercent quando informado). */
+const TRANSCRIPTION_TOAST_TOTAL_STEPS = 2;
 
 export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshReturn {
   // === HOOKS ===
@@ -281,19 +297,20 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             return { success: false, error: progress.message || "Erro desconhecido" };
           }
 
-          // Usar mensagens user-friendly
-          const stage = details?.stage || "";
-          const displayMessage = getStageMessage(stage, details);
+          const sheetsContent = buildSheetsToastContent(progress.status, details);
+          const progressPercent = calculateSheetsProgressPercent(progress.status, details);
 
-          // Calcular progresso (Google Sheets é geralmente rápido: 2 "dias")
-          let currentDay = 1;
-          if (progress.status === "processing") {
-            currentDay = stage === "lendo_planilha" ? 1 : 1;
-          } else if (progress.status === "persisting") {
-            currentDay = 2;
-          }
-
-          updateProgressToast(toastId, `Planilha: ${packName}`, currentDay, 2, displayMessage, undefined, sheetsToastIcon);
+          updateProgressToast(
+            toastId,
+            `Planilha: ${packName}`,
+            1,
+            SHEETS_TOAST_TOTAL_STEPS,
+            undefined,
+            undefined,
+            sheetsToastIcon,
+            sheetsContent,
+            progressPercent
+          );
 
           if (progress.status === "completed") {
             console.log(`[PACK_REFRESH] ✅ Sync job ${syncJobId} completado`);
@@ -331,7 +348,17 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             }
           }
 
-          updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...", undefined, sheetsToastIcon);
+          updateProgressToast(
+            toastId,
+            `Planilha: ${packName}`,
+            1,
+            SHEETS_TOAST_TOTAL_STEPS,
+            undefined,
+            undefined,
+            sheetsToastIcon,
+            buildSheetsToastContent("processing", {}, "Erro ao verificar progresso, tentando novamente..."),
+            0
+          );
         }
 
         attempts++;
@@ -371,23 +398,20 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         try {
           const progress = await api.facebook.getTranscriptionProgress(transcriptionJobId);
           const details = (progress as any)?.details || {};
-          const total = Math.max(1, Number(details.total || 1));
-          const doneRaw = Number(details.done || 0);
-          const done = progress.status === "completed" ? total : Math.max(0, Math.min(doneRaw, total));
-          const currentStep = Math.max(1, Math.min(done > 0 ? done : 1, total));
-          const message =
-            progress.message ||
-            getStatusMessage(progress.status, details?.stage, details) ||
-            "Transcrevendo vídeos...";
+
+          const transcriptionContent = buildTranscriptionToastContent(progress.status, details);
+          const progressPercent = calculateTranscriptionProgressPercent(progress.status, details);
 
           updateProgressToast(
             toastId,
             `Transcrição: ${packName}`,
-            currentStep,
-            total,
-            message,
+            1,
+            TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined,
-            metaToastIcon
+            undefined,
+            metaToastIcon,
+            transcriptionContent,
+            progressPercent
           );
 
           if (progress.status === "completed") {
@@ -412,10 +436,12 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             toastId,
             `Transcrição: ${packName}`,
             1,
-            1,
-            "Erro ao verificar progresso da transcrição, tentando novamente...",
+            TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined,
-            metaToastIcon
+            undefined,
+            metaToastIcon,
+            buildTranscriptionToastContent("processing", {}, "Erro ao verificar progresso da transcrição, tentando novamente..."),
+            0
           );
         }
 
@@ -441,28 +467,42 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
    */
   const startTranscriptionOnly = useCallback(
     async (packId: string, packName: string): Promise<void> => {
+      const toastId = `transcription-only-${packId}`;
+      // Toast imediato (antes de qualquer await)
+      showProgressToast(
+        toastId,
+        `Transcrição: ${packName}`,
+        1,
+        TRANSCRIPTION_TOAST_TOTAL_STEPS,
+        undefined,
+        undefined,
+        metaToastIcon,
+        buildTranscriptionToastContent("processing", {}),
+        0
+      );
       try {
         const res = await api.facebook.startPackTranscription(packId);
         if (res.transcription_job_id) {
-          const toastId = `transcription-only-${packId}`;
-          showProgressToast(
+          updateProgressToast(
             toastId,
             `Transcrição: ${packName}`,
             1,
-            1,
-            "Transcrevendo vídeos...",
+            TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined,
-            metaToastIcon
+            undefined,
+            metaToastIcon,
+            buildTranscriptionToastContent("processing", { done: 0, total: 1 }),
+            0
           );
           pollTranscriptionJob(res.transcription_job_id, toastId, packName, () => false).catch((err) => {
             console.error("Erro no polling da transcrição:", err);
           });
         } else {
-          showWarning(res.message || "Nenhuma transcrição pendente");
+          finishProgressToast(toastId, false, res.message || "Todos anúncios já estão transcritos.");
         }
       } catch (error) {
         console.error("Erro ao iniciar transcrição:", error);
-        showWarning(error instanceof Error ? error.message : "Erro ao iniciar transcrição");
+        finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao iniciar transcrição");
       }
     },
     [pollTranscriptionJob]
@@ -569,22 +609,33 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         await cancelRefresh(packId);
       };
 
-      // Mostrar toast imediatamente
-      const estimatedTotalDays = 1;
+      // Mostrar toast imediatamente (antes de qualquer await da API)
       showProgressToast(
         toastId,
         packName,
-        1,
-        estimatedTotalDays,
-        "Preparando atualização...",
+        1, // currentStep placeholder (bar usa progressPercent)
+        5, // totalSteps
+        undefined,
         handleCancel,
-        metaToastIcon
+        metaToastIcon,
+        buildMetaToastContent("meta_running", {}),
+        0 // progressPercent: Etapa 1 início
       );
 
       // Mostrar toast do Sheets imediatamente se sabemos que há integração
       if (sheetIntegrationId) {
         activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
-        showProgressToast(activeRefresh.sheetSyncToastId, `Planilha: ${packName}`, 1, 2, "Preparando importação...", undefined, sheetsToastIcon);
+        showProgressToast(
+          activeRefresh.sheetSyncToastId,
+          `Planilha: ${packName}`,
+          1,
+          SHEETS_TOAST_TOTAL_STEPS,
+          undefined,
+          undefined,
+          sheetsToastIcon,
+          buildSheetsToastContent("processing", { stage: "lendo_planilha" }),
+          0
+        );
       }
 
       let refreshResult: { job_id?: string; date_range?: { since: string; until: string }; sync_job_id?: string } | null = null;
@@ -638,7 +689,17 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         // Iniciar polling do Sheets imediatamente se temos sync_job_id
         if (activeRefresh.sheetSyncJobId && activeRefresh.sheetSyncToastId) {
           console.log(`[PACK_REFRESH] Iniciando polling do Sheets imediatamente`);
-          updateProgressToast(activeRefresh.sheetSyncToastId, `Planilha: ${packName}`, 1, 2, "Importando planilha...", undefined, sheetsToastIcon);
+          updateProgressToast(
+            activeRefresh.sheetSyncToastId,
+            `Planilha: ${packName}`,
+            1,
+            SHEETS_TOAST_TOTAL_STEPS,
+            undefined,
+            undefined,
+            sheetsToastIcon,
+            buildSheetsToastContent("processing", { stage: "lendo_planilha" }),
+            0
+          );
           pollSheetSyncJob(
             activeRefresh.sheetSyncJobId,
             activeRefresh.sheetSyncToastId,
@@ -661,8 +722,17 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           finishProgressToast(toastId, false, `Erro: intervalo de datas não disponível para "${packName}"`);
           return;
         }
-        const totalDays = calculateDaysBetween(dateRange.since, dateRange.until);
-        updateProgressToast(toastId, packName, 1, totalDays, undefined, handleCancel, metaToastIcon);
+        updateProgressToast(
+          toastId,
+          packName,
+          1,
+          5,
+          undefined,
+          handleCancel,
+          metaToastIcon,
+          buildMetaToastContent("meta_running", {}),
+          calculateMetaProgressPercent("meta_running", {})
+        );
 
         // Fazer polling do job Meta
         let completed = false;
@@ -692,7 +762,17 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               const integrationIdToUse = sheetIntegrationId || details.integration_id || "";
 
               // Atualizar (ou criar) toast do Sheets e iniciar polling
-              updateProgressToast(activeRefresh.sheetSyncToastId!, `Planilha: ${packName}`, 1, 2, "Importando planilha...", undefined, sheetsToastIcon);
+              updateProgressToast(
+                activeRefresh.sheetSyncToastId!,
+                `Planilha: ${packName}`,
+                1,
+                SHEETS_TOAST_TOTAL_STEPS,
+                undefined,
+                undefined,
+                sheetsToastIcon,
+                buildSheetsToastContent("processing", { stage: "lendo_planilha" }),
+                0
+              );
               pollSheetSyncJob(
                 activeRefresh.sheetSyncJobId!,
                 activeRefresh.sheetSyncToastId!,
@@ -705,22 +785,21 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               });
             }
 
-            // Calcular progresso granular
-            const progressPercent = calculateProgress(progress.status, details);
-            const currentDay = progressToDays(progressPercent, totalDays);
+            // Calcular progressPercent (0-100) por etapa e sub-unidades
+            const apiProgress = (progress as any)?.progress;
+            const progressPercent = calculateMetaProgressPercent(progress.status, details, apiProgress);
 
-            // Usar mensagens user-friendly
-            let displayMessage: string;
-            if (progress.status === "meta_running") {
-              displayMessage = "Preparando atualização...";
-            } else if (progress.status === "processing" || progress.status === "persisting") {
-              const stage = details?.stage || "";
-              displayMessage = getStageMessage(stage, details);
-            } else {
-              displayMessage = getStatusMessage(progress.status, details?.stage, details);
-            }
-
-            updateProgressToast(toastId, packName, currentDay, totalDays, displayMessage, handleCancel, metaToastIcon);
+            updateProgressToast(
+              toastId,
+              packName,
+              1,
+              5,
+              undefined,
+              handleCancel,
+              metaToastIcon,
+              buildMetaToastContent(progress.status, details, (progress as any)?.message),
+              progressPercent
+            );
 
             if (progress.status === "completed") {
               const adsCount = Array.isArray(progress.data) ? progress.data.length : 0;
@@ -759,10 +838,12 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                   transcriptionToastId,
                   `Transcrição: ${packName}`,
                   1,
-                  1,
-                  "Transcrevendo vídeos em segundo plano...",
+                  TRANSCRIPTION_TOAST_TOTAL_STEPS,
                   undefined,
-                  metaToastIcon
+                  undefined,
+                  metaToastIcon,
+                  buildTranscriptionToastContent("processing", {}),
+                  0
                 );
                 pollTranscriptionJob(
                   transcriptionJobId,
@@ -791,15 +872,20 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             }
           } catch (error) {
             console.error(`Erro ao verificar progresso do pack ${packId}:`, error);
-            const lastKnownDay = attempts > 0 ? Math.min(attempts, totalDays) : 1;
             updateProgressToast(
               toastId,
               packName,
-              lastKnownDay,
-              totalDays,
-              "Erro ao verificar progresso, tentando novamente...",
+              1,
+              5,
+              undefined,
               handleCancel,
-              metaToastIcon
+              metaToastIcon,
+              {
+                stageLabel: "Etapa 1 de 5",
+                stageTitle: "Verificando...",
+                dynamicLine: "Erro ao verificar progresso, tentando novamente...",
+              },
+              0 // progressPercent: início da etapa 1
             );
           }
 

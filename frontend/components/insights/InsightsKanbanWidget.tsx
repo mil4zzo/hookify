@@ -11,6 +11,7 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
 import { SortableColumn } from "@/components/common/SortableColumn";
 import { GenericColumnColorScheme } from "@/components/common/GenericColumn";
+import { gemsMetricColorSchemes } from "@/lib/utils/gemsColorSchemes";
 import { computeOpportunityScores, OpportunityRow } from "@/lib/utils/opportunity";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 
@@ -104,52 +105,12 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
   const formatCurrency = useFormatCurrency();
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
-  // Esquemas de cores baseados nos estilos de Gems
+  // Esquemas de cores: Page, CPM, Spend, Hook (mapeados para tokens do design system)
   const allColorSchemes: GenericColumnColorScheme[] = [
-    {
-      headerBg: "bg-orange-500/10 border-orange-500/30",
-      title: "",
-      card: {
-        border: "border-orange-500/30",
-        bg: "bg-orange-500/5",
-        text: "text-orange-600 dark:text-orange-400",
-        accent: "border-orange-500",
-        badge: "bg-orange-500 text-white",
-      },
-    },
-    {
-      headerBg: "bg-purple-500/10 border-purple-500/30",
-      title: "",
-      card: {
-        border: "border-purple-500/30",
-        bg: "bg-purple-500/5",
-        text: "text-purple-600 dark:text-purple-400",
-        accent: "border-purple-500",
-        badge: "bg-purple-500 text-white",
-      },
-    },
-    {
-      headerBg: "bg-green-500/10 border-green-500/30",
-      title: "",
-      card: {
-        border: "border-green-500/30",
-        bg: "bg-green-500/5",
-        text: "text-green-600 dark:text-green-400",
-        accent: "border-green-500",
-        badge: "bg-green-500 text-white",
-      },
-    },
-    {
-      headerBg: "bg-blue-500/10 border-blue-500/30",
-      title: "",
-      card: {
-        border: "border-blue-500/30",
-        bg: "bg-blue-500/5",
-        text: "text-blue-600 dark:text-blue-400",
-        accent: "border-blue-500",
-        badge: "bg-blue-500 text-white",
-      },
-    },
+    gemsMetricColorSchemes.page_conv,
+    gemsMetricColorSchemes.cpr,
+    gemsMetricColorSchemes.cpmql,
+    gemsMetricColorSchemes.hook,
   ];
 
   // 1. Filtrar apenas anúncios validados

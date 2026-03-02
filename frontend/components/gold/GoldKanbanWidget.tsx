@@ -7,6 +7,7 @@ import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateA
 import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
 import { SortableColumn } from "@/components/common/SortableColumn";
 import { GenericColumnColorScheme } from "@/components/common/GenericColumn";
+import { goldBucketColorSchemes } from "@/lib/utils/gemsColorSchemes";
 import { GenericCard } from "@/components/common/GenericCard";
 import { splitAdsIntoGoldBuckets, GoldBucket } from "@/lib/utils/goldClassification";
 import { useFormatCurrency } from "@/lib/utils/currency";
@@ -64,64 +65,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
 export function GoldKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [] }: GoldKanbanWidgetProps) {
   const formatCurrency = useFormatCurrency();
 
-  // Esquemas de cores para cada categoria
-  const colorSchemes: Record<GoldBucket, GenericColumnColorScheme> = {
-    golds: {
-      headerBg: "bg-yellow-500/10 border-yellow-500/30",
-      title: "",
-      card: {
-        border: "border-yellow-500/30",
-        bg: "bg-yellow-500/5",
-        text: "text-yellow-600 dark:text-yellow-400",
-        accent: "border-yellow-500",
-        badge: "bg-yellow-500 text-white",
-      },
-    },
-    oportunidades: {
-      headerBg: "bg-blue-500/10 border-blue-500/30",
-      title: "",
-      card: {
-        border: "border-blue-500/30",
-        bg: "bg-blue-500/5",
-        text: "text-blue-600 dark:text-blue-400",
-        accent: "border-blue-500",
-        badge: "bg-blue-500 text-white",
-      },
-    },
-    licoes: {
-      headerBg: "bg-purple-500/10 border-purple-500/30",
-      title: "",
-      card: {
-        border: "border-purple-500/30",
-        bg: "bg-purple-500/5",
-        text: "text-purple-600 dark:text-purple-400",
-        accent: "border-purple-500",
-        badge: "bg-purple-500 text-white",
-      },
-    },
-    descartes: {
-      headerBg: "bg-red-500/10 border-red-500/30",
-      title: "",
-      card: {
-        border: "border-red-500/30",
-        bg: "bg-red-500/5",
-        text: "text-red-600 dark:text-red-400",
-        accent: "border-red-500",
-        badge: "bg-red-500 text-white",
-      },
-    },
-    neutros: {
-      headerBg: "bg-gray-500/10 border-gray-500/30",
-      title: "",
-      card: {
-        border: "border-gray-500/30",
-        bg: "bg-gray-500/5",
-        text: "text-gray-600 dark:text-gray-400",
-        accent: "border-gray-500",
-        badge: "bg-gray-500 text-white",
-      },
-    },
-  };
+  const colorSchemes = goldBucketColorSchemes;
 
   // 1. Filtrar apenas anúncios validados
   const validatedAds = useMemo(() => {

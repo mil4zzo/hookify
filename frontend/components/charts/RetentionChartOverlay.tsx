@@ -330,7 +330,7 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
         }
       `}</style>
       <svg width={containerWidth} height={overlayHeight} className="absolute inset-0 pointer-events-auto" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onClick={handleClick} style={{ cursor: onTimeSeek ? "pointer" : "default" }}>
-        <LinearGradient id="overlayRetentionGradient" from="#1447e6" to="#1447e6" fromOpacity={0.6} toOpacity={0.2} />
+        <LinearGradient id="overlayRetentionGradient" from="var(--primary)" to="var(--primary)" fromOpacity={0.6} toOpacity={0.2} />
 
         <g transform={`translate(${axisYWidth + margin.left},${margin.top})`}>
           {/* Grid lines - linhas de suporte pontilhadas */}
@@ -341,20 +341,20 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
           <AreaClosed data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} yScale={yScale} curve={curveMonotoneX} fill="url(#overlayRetentionGradient)" stroke="none" />
 
           {/* Linha da curva */}
-          <LinePath data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} curve={curveMonotoneX} stroke="#1447e6" strokeWidth={1.5} fill="none" />
+          <LinePath data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} curve={curveMonotoneX} stroke="var(--primary)" strokeWidth={1.5} fill="none" />
 
           {/* Linha vertical do tempo atual (linear, de 1 em 1 segundo) */}
           {currentTimeX != null && currentTime >= 0 && duration > 0 && (
             <g>
-              <line x1={currentTimeX} x2={currentTimeX} y1={0} y2={h} stroke="#fbbf24" strokeWidth={2} strokeOpacity={0.9} />
-              <circle cx={currentTimeX} cy={yScale(getRetentionAtSecond(Math.min(currentTime, effectiveMaxTime), data))} r={3} fill="#fbbf24" stroke="#fff" strokeWidth={1} />
+              <line x1={currentTimeX} x2={currentTimeX} y1={0} y2={h} stroke="var(--warning)" strokeWidth={2} strokeOpacity={0.9} />
+              <circle cx={currentTimeX} cy={yScale(getRetentionAtSecond(Math.min(currentTime, effectiveMaxTime), data))} r={3} fill="var(--warning)" stroke="var(--background)" strokeWidth={1} />
             </g>
           )}
 
           {/* Linha vertical no hover (linear) */}
           {hoverTimeX != null && hoverTime !== currentTime && (
             <g>
-              <line x1={hoverTimeX} x2={hoverTimeX} y1={0} y2={h} stroke="#93c5fd" strokeWidth={1} strokeOpacity={0.5} strokeDasharray="2 2" />
+              <line x1={hoverTimeX} x2={hoverTimeX} y1={0} y2={h} stroke="var(--chart-1)" strokeWidth={1} strokeOpacity={0.5} strokeDasharray="2 2" />
             </g>
           )}
 

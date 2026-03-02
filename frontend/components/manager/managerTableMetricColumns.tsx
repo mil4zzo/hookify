@@ -79,7 +79,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className={`${textSize} text-info font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
+                <span className={`${textSize} text-primary font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
                   <IconFilter className={iconSize} />
                   {filteredAvg}
                 </span>
@@ -296,7 +296,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className={`${textSize} text-info font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
+                        <span className={`${textSize} text-primary font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
                           <IconFilter className={iconSize} />
                           {formatFilteredAverageRef.current("cpmql")}
                         </span>

@@ -14,6 +14,7 @@ import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useSettings } from "@/lib/store/settings";
 import { useSessionStore } from "@/lib/store/session";
@@ -39,7 +40,7 @@ import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
 import { useQueryClient } from "@tanstack/react-query";
-import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
+import { UpdatedAtText } from "@/components/common/UpdatedAtText";
 import { useGoogleReconnectHandler } from "@/lib/hooks/useGoogleReconnectHandler";
 import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
@@ -183,7 +184,7 @@ export default function Topbar() {
   // Função para excluir conta completa (irreversível)
   const handleDeleteAccount = async () => {
     if (deleteAccountInput !== "EXCLUIR") {
-      showWarning("Digite exatamente \"EXCLUIR\" para confirmar.");
+      showWarning('Digite exatamente "EXCLUIR" para confirmar.');
       return;
     }
     setIsDeletingAccount(true);
@@ -223,7 +224,7 @@ export default function Topbar() {
           console.error(`Erro ao deletar pack ${pack.id}:`, error);
           // Continuar mesmo se algum falhar
           return null;
-        })
+        }),
       );
       await Promise.all(deletePromises);
 
@@ -292,7 +293,7 @@ export default function Topbar() {
             } as any,
             {
               onConflict: "user_id",
-            }
+            },
           );
 
           if (upsertError) {
@@ -389,11 +390,11 @@ export default function Topbar() {
               <img src={user.user_metadata.avatar_url} alt="Profile" className="w-full h-full object-cover" />
             ) : initials ? (
               <div className="w-full h-full bg-brand flex items-center justify-center">
-                <span className="text-sm font-semibold text-white">{initials}</span>
+                <span className="text-sm font-semibold text-primary-foreground">{initials}</span>
               </div>
             ) : (
               <div className="w-full h-full bg-brand flex items-center justify-center">
-                <IconUserFilled className="h-5 w-5 text-white" />
+                <IconUserFilled className="h-5 w-5 text-primary-foreground" />
               </div>
             )}
           </button>
@@ -408,11 +409,11 @@ export default function Topbar() {
                 <img src={user.user_metadata.avatar_url} alt="Profile" className="w-12 h-12 rounded-full" />
               ) : initials ? (
                 <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center">
-                  <span className="text-base font-semibold text-white">{initials}</span>
+                  <span className="text-base font-semibold text-primary-foreground">{initials}</span>
                 </div>
               ) : (
                 <div className="w-12 h-12 bg-brand rounded-full flex items-center justify-center">
-                  <IconUserFilled className="h-6 w-6 text-white" />
+                  <IconUserFilled className="h-6 w-6 text-primary-foreground" />
                 </div>
               )}
               <div className="flex-1 min-w-0">
@@ -424,49 +425,22 @@ export default function Topbar() {
 
           <DropdownMenuSeparator />
 
-          {/* Notifications Button */}
-          <div className="p-2">
-            <Button variant="outline" className="w-full flex items-center gap-2 justify-start" onClick={() => {}}>
-              <IconBell className="h-4 w-4" />
-              Notificações
-            </Button>
-          </div>
-
-          {/* Theme Toggle Button */}
-          <div className="p-2">
-            <Button
-              variant="outline"
-              className="w-full flex items-center gap-2 justify-start"
-              onClick={() => {
-                toggleTheme();
-              }}
-            >
-              {theme === "dark" ? <IconSun className="h-4 w-4" /> : <IconMoon className="h-4 w-4" />}
-              {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
-            </Button>
-          </div>
-
-          {/* Settings Button */}
-          <div className="p-2">
-            <Button
-              variant="outline"
-              className="w-full flex items-center gap-2 justify-start"
-              onClick={() => {
-                openSettings();
-              }}
-            >
-              <IconSettings className="h-4 w-4" />
-              Configurações
-            </Button>
-          </div>
-
-          {/* Logout Button */}
-          <div className="p-2">
-            <Button variant="outline" className="w-full flex items-center gap-2 justify-start" onClick={handleLogoutClick}>
-              <IconLogout className="h-4 w-4" />
-              Sair
-            </Button>
-          </div>
+          <DropdownMenuItem onSelect={() => {}} className="flex items-center gap-2">
+            <IconBell className="h-4 w-4" />
+            Notificações
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => toggleTheme()} className="flex items-center gap-2">
+            {theme === "dark" ? <IconSun className="h-4 w-4" /> : <IconMoon className="h-4 w-4" />}
+            {theme === "dark" ? "Modo Claro" : "Modo Escuro"}
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openSettings()} className="flex items-center gap-2">
+            <IconSettings className="h-4 w-4" />
+            Configurações
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={handleLogoutClick} className="flex items-center gap-2">
+            <IconLogout className="h-4 w-4" />
+            Sair
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -563,7 +537,7 @@ export default function Topbar() {
                 <span className="text-xs text-muted-foreground">
                   {formatDate(pack.date_start)} → {formatDate(pack.date_stop)}
                 </span>
-                <span className="text-xs text-muted-foreground">{formatRelativeTime(pack.updated_at)}</span>
+                <UpdatedAtText dateTime={pack.updated_at} className="text-xs text-muted-foreground" />
               </div>
             </DropdownMenuItem>
           ))}
@@ -721,9 +695,9 @@ export default function Topbar() {
           </div>
         </div>
 
-        {/* Settings Modal - Shared between mobile and desktop */}
+        {/* Settings Modal - Shared between mobile and desktop (AppDialog = Radix, foco acessível) */}
         {isAuthenticated && (
-          <Modal isOpen={isSettingsOpen} onClose={closeSettings} size="4xl" padding="none">
+          <AppDialog isOpen={isSettingsOpen} onClose={closeSettings} size="4xl" padding="none" title="Configurações">
             <div className="flex flex-col md:flex-row h-[calc(90vh-2rem)] md:h-[600px] min-h-[400px] max-h-[90vh]">
               {/* Mobile: Header with Title */}
               <div className="md:hidden border-b border-border bg-secondary">
@@ -732,12 +706,12 @@ export default function Topbar() {
                 </div>
               </div>
 
-              {/* Desktop: Sidebar with Title and Tabs */}
-              <div className="hidden md:flex w-64 border-r border-border bg-secondary flex-col shrink-0">
+              {/* Desktop: Sidebar with Title and Tabs (largura por conteúdo, sem gap) */}
+              <div className="hidden md:flex w-fit min-w-0 border-r border-border bg-secondary flex-col shrink-0">
                 <div className="p-4 border-b border-border">
-                  <h2 className="text-lg font-semibold text-text">Configurações</h2>
+                  <h2 className="text-lg font-semibold text-text whitespace-nowrap">Configurações</h2>
                 </div>
-                <div className="flex-1 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto min-w-0">
                   <TabbedContent
                     value={activeSettingsTab}
                     onValueChange={(value) => setActiveSettingsTab(value as typeof activeSettingsTab)}
@@ -749,13 +723,21 @@ export default function Topbar() {
                       { value: "validation", label: "Critério de validação", icon: IconCheck },
                       { value: "leadscore", label: "Leadscore", icon: IconTarget },
                     ]}
-                    tabsContainerClassName="flex flex-col h-full"
-                    tabsListClassName="flex-col border-r-0 border-t-0 border-border bg-secondary rounded-none space-y-1 p-2 flex-shrink-0"
+                    tabsContainerClassName="h-full w-fit"
+                    tabsListClassName="flex-col w-auto border-r-0 border-t-0 border-border bg-secondary rounded-none gap-1 space-y-1 p-2 flex-shrink-0"
                   >
-                    <TabbedContentItem value="general" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
-                    <TabbedContentItem value="accounts" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
-                    <TabbedContentItem value="validation" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
-                    <TabbedContentItem value="leadscore" variant="with-icons" orientation="vertical" className="hidden">{null}</TabbedContentItem>
+                    <TabbedContentItem value="general" variant="with-icons" orientation="vertical" className="hidden">
+                      {null}
+                    </TabbedContentItem>
+                    <TabbedContentItem value="accounts" variant="with-icons" orientation="vertical" className="hidden">
+                      {null}
+                    </TabbedContentItem>
+                    <TabbedContentItem value="validation" variant="with-icons" orientation="vertical" className="hidden">
+                      {null}
+                    </TabbedContentItem>
+                    <TabbedContentItem value="leadscore" variant="with-icons" orientation="vertical" className="hidden">
+                      {null}
+                    </TabbedContentItem>
                   </TabbedContent>
                 </div>
               </div>
@@ -776,302 +758,302 @@ export default function Topbar() {
                   tabsContainerClassName="flex flex-col h-full flex-1"
                   tabsListClassName="hidden"
                 >
-                <TabbedContentItem value="general" variant="with-icons" orientation="vertical">
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-lg font-semibold text-text mb-6">Preferências</h3>
-                    </div>
-
-                    <div className="space-y-4">
-                      {/* Idioma */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-text">Idioma</label>
-                        <Select
-                          value={userLanguage}
-                          onValueChange={async (value) => {
-                            try {
-                              await saveLanguage(value);
-                              showSuccess("Idioma atualizado com sucesso");
-                            } catch (error) {
-                              console.error("Erro ao salvar idioma:", error);
-                              showError({ message: "Erro ao salvar idioma" });
-                            }
-                          }}
-                          disabled={isLoadingLanguage || isSavingLanguage}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecione um idioma" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="pt-BR">Português</SelectItem>
-                            <SelectItem value="en-US" disabled>
-                              Inglês
-                            </SelectItem>
-                            <SelectItem value="es-ES" disabled>
-                              Espanhol
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
+                  <TabbedContentItem value="general" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-semibold text-text mb-6">Preferências</h3>
                       </div>
 
-                      {/* Moeda */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-text">Moeda</label>
-                        <Select
-                          value={userCurrency}
-                          onValueChange={async (value) => {
-                            try {
-                              await saveCurrency(value);
-                              showSuccess("Moeda atualizada com sucesso");
-                            } catch (error) {
-                              console.error("Erro ao salvar moeda:", error);
-                            }
-                          }}
-                          disabled={isLoadingCurrency || isSavingCurrency}
-                        >
-                          <SelectTrigger className="w-full">
-                            <SelectValue placeholder="Selecione uma moeda" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="USD">USD - Dólar Americano ($)</SelectItem>
-                            <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
-                            <SelectItem value="GBP">GBP - Libra Esterlina (£)</SelectItem>
-                            <SelectItem value="BRL">BRL - Real Brasileiro (R$)</SelectItem>
-                            <SelectItem value="MXN">MXN - Peso Mexicano ($)</SelectItem>
-                            <SelectItem value="CAD">CAD - Dólar Canadense ($)</SelectItem>
-                            <SelectItem value="AUD">AUD - Dólar Australiano ($)</SelectItem>
-                            <SelectItem value="JPY">JPY - Iene Japonês (¥)</SelectItem>
-                            <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
-                      </div>
-
-                      {/* Nicho */}
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-text">Nicho</label>
-                        <Input
-                          type="text"
-                          placeholder="Ex: E-commerce, SaaS, etc."
-                          value={userNiche}
-                          onChange={(e) => {
-                            // Atualizar estado local imediatamente para feedback visual
-                            updateNiche(e.target.value);
-                          }}
-                          onBlur={async (e) => {
-                            // Salvar quando o usuário sair do campo
-                            const newValue = e.target.value;
-                            try {
-                              await saveNiche(newValue);
-                              showSuccess("Nicho atualizado com sucesso");
-                            } catch (error) {
-                              console.error("Erro ao salvar nicho:", error);
-                              showError({ message: "Erro ao salvar nicho" });
-                            }
-                          }}
-                          disabled={isLoadingNiche || isSavingNiche}
-                          className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
-                        />
-                        <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
-                      </div>
-                    </div>
-                  </div>
-                </TabbedContentItem>
-
-                <TabbedContentItem value="accounts" variant="with-icons" orientation="vertical">
-                  <div className="space-y-6">
-                    <div>
-                      <h3 className="text-lg font-semibold text-text mb-6">Contas</h3>
-                    </div>
-
-                    {connections.isLoading ? (
-                      <div className="flex items-center justify-center py-12">
-                        <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                      </div>
-                    ) : connections.data && connections.data.length > 0 ? (
-                      <div className="space-y-3">
-                        {connections.data.map((connection: any) => (
-                          <FacebookConnectionCard
-                            key={connection.id}
-                            connection={connection}
-                            onReconnect={handleConnectFacebook}
-                            onDelete={async (connectionId) => {
+                      <div className="space-y-4">
+                        {/* Idioma */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text">Idioma</label>
+                          <Select
+                            value={userLanguage}
+                            onValueChange={async (value) => {
                               try {
-                                clearConnectionCache(connectionId);
-                                await disconnect.mutateAsync(connectionId);
-                                showSuccess("Conta desconectada com sucesso!");
+                                await saveLanguage(value);
+                                showSuccess("Idioma atualizado com sucesso");
                               } catch (error) {
-                                showError(error as any);
+                                console.error("Erro ao salvar idioma:", error);
+                                showError({ message: "Erro ao salvar idioma" });
                               }
                             }}
-                            isDeleting={disconnect.isPending}
-                            showActions={true}
+                            disabled={isLoadingLanguage || isSavingLanguage}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Selecione um idioma" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="pt-BR">Português</SelectItem>
+                              <SelectItem value="en-US" disabled>
+                                Inglês
+                              </SelectItem>
+                              <SelectItem value="es-ES" disabled>
+                                Espanhol
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
+                        </div>
+
+                        {/* Moeda */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text">Moeda</label>
+                          <Select
+                            value={userCurrency}
+                            onValueChange={async (value) => {
+                              try {
+                                await saveCurrency(value);
+                                showSuccess("Moeda atualizada com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar moeda:", error);
+                              }
+                            }}
+                            disabled={isLoadingCurrency || isSavingCurrency}
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Selecione uma moeda" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="USD">USD - Dólar Americano ($)</SelectItem>
+                              <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
+                              <SelectItem value="GBP">GBP - Libra Esterlina (£)</SelectItem>
+                              <SelectItem value="BRL">BRL - Real Brasileiro (R$)</SelectItem>
+                              <SelectItem value="MXN">MXN - Peso Mexicano ($)</SelectItem>
+                              <SelectItem value="CAD">CAD - Dólar Canadense ($)</SelectItem>
+                              <SelectItem value="AUD">AUD - Dólar Australiano ($)</SelectItem>
+                              <SelectItem value="JPY">JPY - Iene Japonês (¥)</SelectItem>
+                              <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
+                        </div>
+
+                        {/* Nicho */}
+                        <div className="space-y-2">
+                          <label className="text-sm font-medium text-text">Nicho</label>
+                          <Input
+                            type="text"
+                            placeholder="Ex: E-commerce, SaaS, etc."
+                            value={userNiche}
+                            onChange={(e) => {
+                              // Atualizar estado local imediatamente para feedback visual
+                              updateNiche(e.target.value);
+                            }}
+                            onBlur={async (e) => {
+                              // Salvar quando o usuário sair do campo
+                              const newValue = e.target.value;
+                              try {
+                                await saveNiche(newValue);
+                                showSuccess("Nicho atualizado com sucesso");
+                              } catch (error) {
+                                console.error("Erro ao salvar nicho:", error);
+                                showError({ message: "Erro ao salvar nicho" });
+                              }
+                            }}
+                            disabled={isLoadingNiche || isSavingNiche}
+                            className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
                           />
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-center py-12">
-                        <IconBrandFacebook className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                        <p className="text-muted-foreground mb-4">Nenhuma conta do Facebook conectada</p>
-                        <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2 mx-auto">
-                          {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
-                          {connect.isPending ? "Conectando..." : "Conectar Facebook"}
-                        </Button>
-                      </div>
-                    )}
-
-                    {/* Zona de perigo */}
-                    <div className="mt-8 pt-6 border-t border-destructive/20 space-y-4">
-                      <h4 className="text-sm font-semibold text-destructive">Zona de perigo</h4>
-
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-text">Excluir meus dados</p>
-                          <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
+                          <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
                         </div>
-                        <Button variant="outline" size="sm" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
-                          <IconTrash className="h-4 w-4 mr-1" />
-                          Excluir dados
-                        </Button>
-                      </div>
-
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-text">Excluir minha conta</p>
-                          <p className="text-xs text-muted-foreground">Remove permanentemente sua conta e todos os dados associados. Esta ação é irreversível.</p>
-                        </div>
-                        <Button variant="destructive" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteAccountConfirm(true)}>
-                          <IconTrash className="h-4 w-4 mr-1" />
-                          Excluir conta
-                        </Button>
                       </div>
                     </div>
-                  </div>
-                </TabbedContentItem>
+                  </TabbedContentItem>
 
-                <TabbedContentItem value="validation" variant="with-icons" orientation="vertical">
-                  <div className="space-y-6">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-lg font-semibold text-text">Critério de validação</h3>
-                        {(isLoadingCriteria || isSavingCriteria) && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            {isLoadingCriteria && (
-                              <>
-                                <IconLoader2 className="h-4 w-4 animate-spin" />
-                                <span>Carregando...</span>
-                              </>
-                            )}
-                            {isSavingCriteria && !isLoadingCriteria && (
-                              <>
-                                <IconLoader2 className="h-4 w-4 animate-spin" />
-                                <span>Salvando...</span>
-                              </>
-                            )}
-                          </div>
-                        )}
+                  <TabbedContentItem value="accounts" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <h3 className="text-lg font-semibold text-text mb-6">Contas</h3>
                       </div>
-                      <p className="text-sm text-muted-foreground mb-4">Configure os critérios de validação para os anúncios. Use condições individuais ou grupos de condições com operadores lógicos AND/OR.</p>
-                    </div>
-                    <div className="space-y-4">
-                      {isLoadingCriteria ? (
+
+                      {connections.isLoading ? (
                         <div className="flex items-center justify-center py-12">
                           <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                         </div>
+                      ) : connections.data && connections.data.length > 0 ? (
+                        <div className="space-y-3">
+                          {connections.data.map((connection: any) => (
+                            <FacebookConnectionCard
+                              key={connection.id}
+                              connection={connection}
+                              onReconnect={handleConnectFacebook}
+                              onDelete={async (connectionId) => {
+                                try {
+                                  clearConnectionCache(connectionId);
+                                  await disconnect.mutateAsync(connectionId);
+                                  showSuccess("Conta desconectada com sucesso!");
+                                } catch (error) {
+                                  showError(error as any);
+                                }
+                              }}
+                              isDeleting={disconnect.isPending}
+                              showActions={true}
+                            />
+                          ))}
+                        </div>
                       ) : (
-                        <ValidationCriteriaBuilder
-                          value={validationCriteria}
-                          onChange={setValidationCriteria}
-                          onSave={async (criteria) => {
-                            await saveCriteria(criteria);
-                          }}
-                          isSaving={isSavingCriteria}
-                        />
+                        <div className="text-center py-12">
+                          <IconBrandFacebook className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                          <p className="text-muted-foreground mb-4">Nenhuma conta do Facebook conectada</p>
+                          <Button variant="default" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2 mx-auto">
+                            {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
+                            {connect.isPending ? "Conectando..." : "Conectar Facebook"}
+                          </Button>
+                        </div>
                       )}
-                    </div>
-                  </div>
-                </TabbedContentItem>
 
-                <TabbedContentItem value="leadscore" variant="with-icons" orientation="vertical">
-                  <div className="space-y-6">
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
-                        {(isLoadingMql || isSavingMql) && (
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            {isLoadingMql && (
-                              <>
-                                <IconLoader2 className="h-4 w-4 animate-spin" />
-                                <span>Carregando...</span>
-                              </>
-                            )}
-                            {isSavingMql && !isLoadingMql && (
-                              <>
-                                <IconLoader2 className="h-4 w-4 animate-spin" />
-                                <span>Salvando...</span>
-                              </>
-                            )}
+                      {/* Zona de perigo */}
+                      <div className="mt-8 pt-6 border-t border-destructive/20 space-y-4">
+                        <h4 className="text-sm font-semibold text-destructive">Zona de perigo</h4>
+
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-text">Excluir meus dados</p>
+                            <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
                           </div>
+                          <Button variant="outline" size="sm" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
+                            <IconTrash className="h-4 w-4 mr-1" />
+                            Excluir dados
+                          </Button>
+                        </div>
+
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-text">Excluir minha conta</p>
+                            <p className="text-xs text-muted-foreground">Remove permanentemente sua conta e todos os dados associados. Esta ação é irreversível.</p>
+                          </div>
+                          <Button variant="destructive" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteAccountConfirm(true)}>
+                            <IconTrash className="h-4 w-4 mr-1" />
+                            Excluir conta
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </TabbedContentItem>
+
+                  <TabbedContentItem value="validation" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-text">Critério de validação</h3>
+                          {(isLoadingCriteria || isSavingCriteria) && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {isLoadingCriteria && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Carregando...</span>
+                                </>
+                              )}
+                              {isSavingCriteria && !isLoadingCriteria && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Salvando...</span>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground mb-4">Configure os critérios de validação para os anúncios. Use condições individuais ou grupos de condições com operadores lógicos AND/OR.</p>
+                      </div>
+                      <div className="space-y-4">
+                        {isLoadingCriteria ? (
+                          <div className="flex items-center justify-center py-12">
+                            <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : (
+                          <ValidationCriteriaBuilder
+                            value={validationCriteria}
+                            onChange={setValidationCriteria}
+                            onSave={async (criteria) => {
+                              await saveCriteria(criteria);
+                            }}
+                            isSaving={isSavingCriteria}
+                          />
                         )}
                       </div>
-                      <p className="text-sm text-muted-foreground mb-4">Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.</p>
                     </div>
+                  </TabbedContentItem>
 
-                    <div className="space-y-4">
-                      {isLoadingMql ? (
-                        <div className="flex items-center justify-center py-12">
-                          <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                  <TabbedContentItem value="leadscore" variant="with-icons" orientation="vertical">
+                    <div className="space-y-6">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
+                          {(isLoadingMql || isSavingMql) && (
+                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                              {isLoadingMql && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Carregando...</span>
+                                </>
+                              )}
+                              {isSavingMql && !isLoadingMql && (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin" />
+                                  <span>Salvando...</span>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
-                      ) : (
-                        <>
-                          <div className="space-y-2">
-                            <label className="text-sm font-medium text-text">Leadscore mínimo para MQL</label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.1"
-                              value={mqlLeadscoreMin}
-                              onChange={(e) => {
-                                const value = parseFloat(e.target.value);
-                                if (!isNaN(value) && value >= 0) {
-                                  updateMqlLeadscoreMin(value);
+                        <p className="text-sm text-muted-foreground mb-4">Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        {isLoadingMql ? (
+                          <div className="flex items-center justify-center py-12">
+                            <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                          </div>
+                        ) : (
+                          <>
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium text-text">Leadscore mínimo para MQL</label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.1"
+                                value={mqlLeadscoreMin}
+                                onChange={(e) => {
+                                  const value = parseFloat(e.target.value);
+                                  if (!isNaN(value) && value >= 0) {
+                                    updateMqlLeadscoreMin(value);
+                                  }
+                                }}
+                                disabled={isLoadingMql || isSavingMql}
+                                className="w-full [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                placeholder="0"
+                              />
+                              <p className="text-xs text-muted-foreground">Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs</p>
+                            </div>
+
+                            <Button
+                              onClick={async () => {
+                                try {
+                                  await saveMqlLeadscoreMin(mqlLeadscoreMin);
+                                  showSuccess("Configuração de leadscore salva com sucesso!");
+                                } catch (err) {
+                                  showError(err as any);
                                 }
                               }}
                               disabled={isLoadingMql || isSavingMql}
-                              className="w-full [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                              placeholder="0"
-                            />
-                            <p className="text-xs text-muted-foreground">Leads com leadscore &gt;= {mqlLeadscoreMin.toFixed(1)} serão considerados MQLs</p>
-                          </div>
-
-                          <Button
-                            onClick={async () => {
-                              try {
-                                await saveMqlLeadscoreMin(mqlLeadscoreMin);
-                                showSuccess("Configuração de leadscore salva com sucesso!");
-                              } catch (err) {
-                                showError(err as any);
-                              }
-                            }}
-                            disabled={isLoadingMql || isSavingMql}
-                            className="w-full sm:w-auto"
-                          >
-                            {isSavingMql ? (
-                              <>
-                                <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
-                                Salvando...
-                              </>
-                            ) : (
-                              "Salvar configuração"
-                            )}
-                          </Button>
-                        </>
-                      )}
+                              className="w-full sm:w-auto"
+                            >
+                              {isSavingMql ? (
+                                <>
+                                  <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
+                                  Salvando...
+                                </>
+                              ) : (
+                                "Salvar configuração"
+                              )}
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                </TabbedContentItem>
-              </TabbedContent>
+                  </TabbedContentItem>
+                </TabbedContent>
               </div>
 
               {/* Mobile: Tabs */}
@@ -1386,7 +1368,7 @@ export default function Topbar() {
                 </TabbedContent>
               </div>
             </div>
-          </Modal>
+          </AppDialog>
         )}
 
         <AutoRefreshConfirmModal isOpen={showModal} packCount={packCount} autoRefreshPacks={autoRefreshPacks} onConfirm={handleConfirm} onCancel={handleCancel} />
@@ -1419,7 +1401,8 @@ export default function Topbar() {
           message={
             <>
               Tem certeza que deseja excluir <strong>todos os seus dados</strong>? Isso inclui packs, métricas, anúncios, conexões e configurações.
-              <br /><br />
+              <br />
+              <br />
               <span className="text-xs">Sua conta Hookify será mantida e você poderá usá-la novamente no futuro.</span>
             </>
           }
@@ -1434,13 +1417,19 @@ export default function Topbar() {
         {/* Modal de confirmação: Excluir conta */}
         <ConfirmDialog
           isOpen={showDeleteAccountConfirm}
-          onClose={() => { setShowDeleteAccountConfirm(false); setDeleteAccountInput(""); }}
+          onClose={() => {
+            setShowDeleteAccountConfirm(false);
+            setDeleteAccountInput("");
+          }}
           title="Excluir minha conta"
           message={
             <>
               Esta ação é <strong>irreversível</strong>. Sua conta e todos os dados associados serão permanentemente removidos.
-              <br /><br />
-              <span className="text-xs">Para confirmar, digite <strong>EXCLUIR</strong> abaixo:</span>
+              <br />
+              <br />
+              <span className="text-xs">
+                Para confirmar, digite <strong>EXCLUIR</strong> abaixo:
+              </span>
             </>
           }
           confirmText="Excluir minha conta permanentemente"
@@ -1450,15 +1439,8 @@ export default function Topbar() {
           loadingText="Excluindo conta..."
           confirmIcon={<IconTrash className="h-4 w-4" />}
         >
-          <Input
-            value={deleteAccountInput}
-            onChange={(e) => setDeleteAccountInput(e.target.value)}
-            placeholder='Digite "EXCLUIR" para confirmar'
-            className="mt-2"
-          />
-          {deleteAccountInput !== "EXCLUIR" && deleteAccountInput.length > 0 && (
-            <p className="text-xs text-destructive mt-1">Digite exatamente &quot;EXCLUIR&quot; para confirmar</p>
-          )}
+          <Input value={deleteAccountInput} onChange={(e) => setDeleteAccountInput(e.target.value)} placeholder='Digite "EXCLUIR" para confirmar' className="mt-2" />
+          {deleteAccountInput !== "EXCLUIR" && deleteAccountInput.length > 0 && <p className="text-xs text-destructive mt-1">Digite exatamente &quot;EXCLUIR&quot; para confirmar</p>}
         </ConfirmDialog>
       </header>
     </>

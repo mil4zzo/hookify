@@ -380,10 +380,10 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                         const currentInputValue = localInputValues[filter.id] ?? "";
                         applyFilterValue(currentInputValue);
                       }}
-                      className="ml-1 hover:bg-green-600 rounded-full p-0.5 transition-colors flex-shrink-0 bg-green-500"
+                      className="ml-1 hover:bg-success-90 rounded-full p-0.5 transition-colors flex-shrink-0 bg-success"
                       aria-label={`Aplicar filtro ${column.label}`}
                     >
-                      <IconCheck className="w-3 h-3 text-white" />
+                      <IconCheck className="w-3 h-3 text-success-foreground" />
                     </button>
                   ) : (
                     <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0" aria-label={`Remover filtro ${column.label}`}>
@@ -617,10 +617,10 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                       const currentInputValue = localInputValues[filter.id] ?? "";
                       applyFilterValue(currentInputValue);
                     }}
-                    className="ml-1 hover:bg-green-600 rounded-full p-0.5 transition-colors flex-shrink-0 bg-green-500"
+                    className="ml-1 hover:bg-success-90 rounded-full p-0.5 transition-colors flex-shrink-0 bg-success"
                     aria-label={`Aplicar filtro ${column.label}`}
                   >
-                    <IconCheck className="w-3 h-3 text-white" />
+                    <IconCheck className="w-3 h-3 text-success-foreground" />
                   </button>
                 ) : (
                   <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0" aria-label={`Remover filtro ${column.label}`}>

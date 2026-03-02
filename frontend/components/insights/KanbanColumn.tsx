@@ -13,20 +13,20 @@ interface KanbanColumnProps {
     metricValue: number;
     metricFormatted: string;
   }>;
-  variant?: "success" | "danger";
+  variant?: "success" | "destructive";
 }
 
 export function KanbanColumn({ title, items, variant = "success" }: KanbanColumnProps) {
   const variantStyles = {
     success: {
-      headerBg: "bg-green-500/10 border-green-500/30",
-      title: "text-green-700 dark:text-green-300",
-      accent: "border-green-500",
+      headerBg: "bg-success-10 border-success-30",
+      title: "text-success",
+      accent: "border-success",
     },
-    danger: {
-      headerBg: "bg-red-500/10 border-red-500/30",
-      title: "text-red-700 dark:text-red-300",
-      accent: "border-red-500",
+    destructive: {
+      headerBg: "bg-destructive-20 border-destructive-40",
+      title: "text-destructive",
+      accent: "border-destructive",
     },
   };
 

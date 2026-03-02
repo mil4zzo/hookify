@@ -275,33 +275,33 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
       case "golds":
         return {
           label: "Golds",
-          color: "text-yellow-600 dark:text-yellow-400",
-          bgColor: "bg-yellow-500/10 border-yellow-500/30",
+          color: "text-warning",
+          bgColor: "bg-warning-10 border-warning-30",
         };
       case "oportunidades":
         return {
           label: "Oportunidades",
-          color: "text-blue-600 dark:text-blue-400",
-          bgColor: "bg-blue-500/10 border-blue-500/30",
+          color: "text-chart-1",
+          bgColor: "bg-chart-1/10 border-chart-1/30",
         };
       case "licoes":
         return {
           label: "Lições",
-          color: "text-purple-600 dark:text-purple-400",
-          bgColor: "bg-purple-500/10 border-purple-500/30",
+          color: "text-chart-2",
+          bgColor: "bg-chart-2/10 border-chart-2/30",
         };
       case "descartes":
         return {
           label: "Descartes",
-          color: "text-red-600 dark:text-red-400",
-          bgColor: "bg-red-500/10 border-red-500/30",
+          color: "text-destructive",
+          bgColor: "bg-destructive-20 border-destructive-40",
         };
       case "neutros":
       default:
         return {
           label: "Neutros",
-          color: "text-gray-600 dark:text-gray-400",
-          bgColor: "bg-gray-500/10 border-gray-500/30",
+          color: "text-muted-foreground",
+          bgColor: "bg-muted-20 border-muted-40",
         };
     }
   };

@@ -28,8 +28,9 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
 
       {/* Lista de conexões existentes */}
       {isLoadingConnections ? (
-        <div className="flex items-center justify-center py-8">
-          <div className="text-sm text-muted-foreground">Carregando conexões...</div>
+        <div className="flex items-center justify-center gap-2 py-8">
+          <IconLoader2 className="w-4 h-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+          <span className="text-sm text-muted-foreground">Carregando conexões...</span>
         </div>
       ) : connections.length > 0 ? (
         <div className="space-y-2">
@@ -87,7 +88,7 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
           </div>
           {/* Botão Avançar do Step 1 */}
           {selectedConnectionId && !expiredConnections.has(selectedConnectionId) && (
-            <div className="pt-4 border-t border-border">
+            <div className="pt-4">
               <Button type="button" variant="default" className="w-full" onClick={onNext}>
                 Avançar
               </Button>
@@ -97,12 +98,10 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
       ) : null}
 
       {/* Botão para criar nova conexão */}
-      <div className="pt-4 border-t border-border">
-        <Button type="button" variant={connections.length === 0 ? "default" : "outline"} size="lg" className="flex items-center gap-2 w-full" onClick={onConnect} disabled={isConnecting}>
-          <IconPlus className="w-5 h-5" />
-          {isConnecting ? "Conectando..." : "Criar nova conexão"}
-        </Button>
-      </div>
+      <Button type="button" variant={connections.length === 0 ? "default" : "outline"} size="lg" className="flex items-center gap-2 w-full" onClick={onConnect} disabled={isConnecting || isLoadingConnections}>
+        <IconPlus className="w-5 h-5" />
+        {isConnecting ? "Conectando..." : "Criar nova conexão"}
+      </Button>
     </section>
   );
 }

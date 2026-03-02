@@ -25,7 +25,7 @@ export default function TestUI() {
         <EmptyState message="Nenhum resultado encontrado" />
       </div>
 
-      <button onClick={() => showSuccess("Teste de sucesso!")} className="px-4 py-2 bg-brand text-white rounded-md">
+      <button onClick={() => showSuccess("Teste de sucesso!")} className="px-4 py-2 bg-brand text-primary-foreground rounded-md">
         Testar Toast
       </button>
     </div>

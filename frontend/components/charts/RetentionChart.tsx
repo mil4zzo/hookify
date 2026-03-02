@@ -26,37 +26,37 @@ interface RetentionChartProps {
 
 type DataPoint = { x: number; y: number; label: string };
 
-// Configuração padronizada para anotações do gráfico de retenção
+// Configuração padronizada para anotações do gráfico de retenção (usa tokens do design system)
 const ANNOTATION_CONFIG = {
   connector: {
-    stroke: "#1447e6",
+    stroke: "var(--primary)",
     strokeWidth: 1.5,
   },
   circleSubject: {
     radius: 4,
-    stroke: "#1447e6",
-    fill: "#1447e6",
+    stroke: "var(--primary)",
+    fill: "var(--primary)",
   },
   label: {
     showBackground: true,
     backgroundProps: {
-      fill: "rgba(17, 24, 39, 0.9)",
+      fill: "var(--card)",
       rx: 6,
     },
     titleProps: {
-      fill: "#ffffff",
+      fill: "var(--card-foreground)",
       fontSize: 14,
       fontWeight: 600,
       style: { whiteSpace: "nowrap" as const },
     },
     subtitleProps: {
-      fill: "#93c5fd",
+      fill: "var(--chart-1)",
       fontSize: 20,
       fontWeight: 600,
       style: { fontSize: 20 },
     },
     anchorLineStroke: "transparent" as const,
-    padding: { top: 12, right: 12, bottom: 12, left: 12 }, // Padding uniforme de 12px em todos os lados
+    padding: { top: 12, right: 12, bottom: 12, left: 12 },
   },
 };
 
@@ -68,7 +68,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
     }
     const diff = value / avg - 1;
     const sign = diff >= 0 ? "+" : "";
-    const color = diff > 0 ? "#22c55e" : diff < 0 ? "#ef4444" : "#93c5fd";
+    const color = diff > 0 ? "var(--success)" : diff < 0 ? "var(--destructive)" : "var(--chart-1)";
     return {
       diff,
       text: `(${sign}${(diff * 100).toFixed(1)}%)`,
@@ -219,7 +219,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
           `}</style>
             <svg width={innerWidth} height={innerHeight} className="overflow-visible" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onClick={handleClick} style={{ cursor: onPointClick ? "pointer" : "crosshair" }}>
               {/* Gradiente com cor primary: topo 80% opaco, base 20% translúcida */}
-              <LinearGradient id="retentionGradient" from="#1447e6" to="#1447e6" fromOpacity={0.8} toOpacity={0.2} />
+              <LinearGradient id="retentionGradient" from="var(--primary)" to="var(--primary)" fromOpacity={0.8} toOpacity={0.2} />
               <g transform={`translate(${margin.left},${margin.top})`}>
                 {/* Grid lines - linhas de suporte pontilhadas */}
                 <GridRows scale={yScale} tickValues={[20, 40, 60, 80, 100]} width={w} strokeDasharray="3 3" stroke={mutedForegroundColor} strokeOpacity={0.2} pointerEvents="none" />
@@ -229,7 +229,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
                 <AreaClosed data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} yScale={yScale} curve={curveMonotoneX} fill="url(#retentionGradient)" stroke="none" strokeWidth={0} />
 
                 {/* Linha superior da curva - apenas esta linha terá stroke */}
-                <LinePath data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} curve={curveMonotoneX} stroke="#1447e6" strokeWidth={2} fill="none" />
+                <LinePath data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} curve={curveMonotoneX} stroke="var(--primary)" strokeWidth={2} fill="none" />
 
                 {/* Linha invisível para capturar eventos de mouse */}
                 <LinePath data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} curve={curveMonotoneX} stroke="transparent" strokeWidth={20} strokeLinecap="round" style={{ cursor: "crosshair" }} />
@@ -237,7 +237,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
                 {/* Ponto indicador quando hover */}
                 {tooltipData && (
                   <g>
-                    <circle cx={xScale(tooltipData.point.x)} cy={yScale(tooltipData.point.y)} r={4} fill="#1447e6" stroke="#fff" strokeWidth={2} />
+                    <circle cx={xScale(tooltipData.point.x)} cy={yScale(tooltipData.point.y)} r={4} fill="var(--primary)" stroke="var(--background)" strokeWidth={2} />
                   </g>
                 )}
 
@@ -276,13 +276,13 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
                           <CircleSubject {...ANNOTATION_CONFIG.circleSubject} />
                         </Annotation>
                         {/* Background retângulo */}
-                        <rect x={labelX} y={labelY - labelHeight} width={labelWidth} height={labelHeight} rx={6} fill="rgba(17, 24, 39, 0.9)" />
+                        <rect x={labelX} y={labelY - labelHeight} width={labelWidth} height={labelHeight} rx={6} fill="var(--card)" />
                         {/* Título */}
-                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize} fill="#ffffff" fontSize={titleFontSize} fontWeight={600}>
+                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize} fill="var(--card-foreground)" fontSize={titleFontSize} fontWeight={600}>
                           {titleText}
                         </text>
                         {/* Valor principal */}
-                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize + lineHeight + valueFontSize} fill="#93c5fd" fontSize={valueFontSize} fontWeight={600}>
+                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize + lineHeight + valueFontSize} fill="var(--chart-1)" fontSize={valueFontSize} fontWeight={600}>
                           {valueText}
                         </text>
                         {/* Badge com delta */}
@@ -333,13 +333,13 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
                           <CircleSubject {...ANNOTATION_CONFIG.circleSubject} />
                         </Annotation>
                         {/* Background retângulo */}
-                        <rect x={labelX} y={labelY - labelHeight} width={labelWidth} height={labelHeight} rx={6} fill="rgba(17, 24, 39, 0.9)" />
+                        <rect x={labelX} y={labelY - labelHeight} width={labelWidth} height={labelHeight} rx={6} fill="var(--card)" />
                         {/* Título */}
-                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize} fill="#ffffff" fontSize={titleFontSize} fontWeight={600}>
+                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize} fill="var(--card-foreground)" fontSize={titleFontSize} fontWeight={600}>
                           {titleText}
                         </text>
                         {/* Valor principal */}
-                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize + lineHeight + valueFontSize} fill="#93c5fd" fontSize={valueFontSize} fontWeight={600}>
+                        <text x={labelX + padding} y={labelY - labelHeight + padding + titleFontSize + lineHeight + valueFontSize} fill="var(--chart-1)" fontSize={valueFontSize} fontWeight={600}>
                           {valueText}
                         </text>
                         {/* Badge com delta */}

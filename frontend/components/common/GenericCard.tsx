@@ -9,6 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { normalizeLeadscoreValues, computeLeadscoreAverage } from "@/lib/utils/mqlMetrics";
 import { isLowerBetterMetric } from "@/lib/constants/metrics";
+import { getTopBadgeStyleConfig, getTopBadgeStyles, getTopBadgeVariantFromRank } from "@/lib/utils/topBadgeStyles";
 import { AdPlayArea } from "@/components/common/AdPlayArea";
 import { StandardCard } from "@/components/common/StandardCard";
 
@@ -102,44 +103,11 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
     }
   })();
 
-  // Função helper para determinar variante do badge baseado no rank (1=gold, 2=silver, 3=copper, >3=null)
-  const getBadgeVariant = (rank: number | null): "gold" | "silver" | "copper" | null => {
-    if (!rank || rank > 3) return null;
-    if (rank === 1) return "gold";
-    if (rank === 2) return "silver";
-    return "copper";
-  };
-
-  // Função helper para obter estilos do badge baseado no variant
+  // Função helper para obter estilos do badge baseado no variant (fonte única: topBadgeStyles)
   const getBadgeStyles = (variant: "gold" | "silver" | "copper" | null): React.CSSProperties | null => {
-    if (!variant) return null;
-
-    const variantStyles = {
-      gold: {
-        gradient: "linear-gradient(135deg, #FFD700 0%, #FFED4E 50%, #FFA500 100%)",
-        shadow: "rgba(255, 215, 0, 0.4)",
-        textColor: "#1a1a1a",
-      },
-      silver: {
-        gradient: "linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 50%, #A8A8A8 100%)",
-        shadow: "rgba(192, 192, 192, 0.4)",
-        textColor: "#1a1a1a",
-      },
-      copper: {
-        gradient: "linear-gradient(135deg, #CD7F32 0%, #E39A5C 50%, #B87333 100%)",
-        shadow: "rgba(205, 127, 50, 0.4)",
-        textColor: "#1a1a1a",
-      },
-    };
-
-    const styles = variantStyles[variant];
-    return {
-      background: styles.gradient,
-      boxShadow: `0 2px 8px ${styles.shadow}, inset 0 1px 2px rgba(255, 255, 255, 0.3), inset 0 -1px 2px rgba(0, 0, 0, 0.1)`,
-      border: "1px solid rgba(255, 255, 255, 0.2)",
-      borderRadius: "6px",
-      padding: "4px 8px",
-    };
+    const config = getTopBadgeStyleConfig(variant);
+    if (!config) return null;
+    return getTopBadgeStyles(variant, { borderRadius: "6px", padding: "4px 8px" });
   };
 
   // Determinar se a métrica é "lower is better" (CPM, CPR) ou "higher is better" (outras)
@@ -168,26 +136,26 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
     if (lowerIsBetter) {
       // Para métricas onde menor é melhor (ex: CPR, CPM)
       // Se atual <= média, está abaixo/igual à média (melhor) = verde
-      if (current <= average) return "text-green-600 dark:text-green-400";
+      if (current <= average) return "text-success";
 
       // Calcular ratio: atual/média (quanto maior que a média)
       const ratio = current / average;
 
       // Classificação baseada no ratio
-      if (ratio > 1 && ratio <= 1.25) return "text-yellow-600 dark:text-yellow-400"; // 100%~125% = amarelo
-      if (ratio > 1.25 && ratio <= 1.5) return "text-orange-600 dark:text-orange-400"; // 125%~150% = laranja
-      if (ratio > 1.5) return "text-red-600 dark:text-red-400"; // 150%+ = vermelho
+      if (ratio > 1 && ratio <= 1.25) return "text-warning"; // 100%~125% = amarelo
+      if (ratio > 1.25 && ratio <= 1.5) return "text-warning"; // 125%~150% = laranja
+      if (ratio > 1.5) return "text-destructive"; // 150%+ = vermelho
       return "text-foreground"; // Fallback
     } else {
       // Para métricas onde maior é melhor (ex: Hook, CTR, etc)
       const ratio = current / average;
       // Se atual >= média, está acima/igual à média (melhor) = verde
-      if (current >= average) return "text-green-600 dark:text-green-400";
+      if (current >= average) return "text-success";
 
       // Classificação baseada no ratio
-      if (ratio >= 0.75 && ratio < 1) return "text-yellow-600 dark:text-yellow-400"; // 75%~100% = amarelo
-      if (ratio >= 0.5 && ratio < 0.75) return "text-orange-600 dark:text-orange-400"; // 50%~75% = laranja
-      return "text-red-600 dark:text-red-400"; // 0%~50% = vermelho
+      if (ratio >= 0.75 && ratio < 1) return "text-warning"; // 75%~100% = amarelo
+      if (ratio >= 0.5 && ratio < 0.75) return "text-warning"; // 50%~75% = laranja
+      return "text-destructive"; // 0%~50% = vermelho
     }
   };
 
@@ -355,9 +323,9 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   const isBelowAverage = averageValue != null && ad.metricValue <= averageValue;
 
   // Determinar variant do badge para o rank (1=gold, 2=silver, 3=copper)
-  const rankBadgeVariant = getBadgeVariant(rank);
+  const rankBadgeVariant = getTopBadgeVariantFromRank(rank);
   const rankBadgeStyles = getBadgeStyles(rankBadgeVariant);
-  const rankTextColor = rankBadgeVariant ? "#1a1a1a" : undefined;
+  const rankTextColor = rankBadgeVariant ? getTopBadgeStyleConfig(rankBadgeVariant)?.textColor : undefined;
 
   const handleCardClick = (e: React.MouseEvent) => {
     e.stopPropagation();

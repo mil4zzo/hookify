@@ -13,11 +13,11 @@
   --popover-foreground: oklch(0.141 0.005 285.823);
   --primary: oklch(0.488 0.243 264.376);
   --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.96 0.002 286.16);
+  --secondary: var(--surface);
   --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.94 0.004 286.32);
+  --muted: oklch(0.93 0.004 286.32);
   --muted-foreground: oklch(0.40 0.016 285.938);
-  --accent: oklch(0.94 0.003 286.20);
+  --accent: oklch(0.92 0.003 286.20);
   --accent-foreground: oklch(0.21 0.006 285.885);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.97 0.014 254.604);
@@ -25,10 +25,8 @@
   --success-foreground: oklch(0.97 0.014 254.604);
   --warning: oklch(0.77 0.16 70.08);
   --warning-foreground: oklch(0.141 0.005 285.823);
-  --info: oklch(0.55 0.15 264);
-  --info-foreground: oklch(0.97 0.014 254.604);
-  --danger: oklch(0.60 0.22 25);
-  --danger-foreground: oklch(0.97 0.014 254.604);
+  --info: var(--primary);
+  --info-foreground: var(--primary-foreground);
   --attention: oklch(0.93 0.2 108.5);
   --attention-foreground: oklch(0.141 0.005 285.823);
   --input: oklch(0.98 0.001 286.375);
@@ -46,8 +44,18 @@
   --text: oklch(0.141 0.005 285.823);
   --text-rgb: 17 24 39;
   --surface: oklch(0.96 0.002 286.16);
-  --surface-2: oklch(0.92 0.004 286.32);
-  
+  --surface-2: color-mix(in oklab, var(--surface) 92%, oklch(0 0 0) 8%);
+  --surface-3: color-mix(in oklab, var(--surface) 85%, oklch(0 0 0) 15%);
+
+  /* Escala de radius (design system) */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius: var(--radius-md);
+
+  /* Overlay para modais (permite temas alterarem) */
+  --overlay: oklch(0 0 0 / 0.8);
+
   /* Cores para gráficos */
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
@@ -56,7 +64,7 @@
   --chart-5: oklch(0.424 0.199 265.638);
   
   /* Cores para sparklines (referenciam variáveis do design system) */
-  --sparkline-red: var(--danger);
+  --sparkline-red: var(--destructive);
   --sparkline-orange: var(--warning);
   --sparkline-yellow: oklch(0.75 0.15 90); /* yellow-500 equivalente */
   --sparkline-green: var(--success);
@@ -73,7 +81,7 @@
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.488 0.243 264.376);
   --primary-foreground: oklch(0.97 0.014 254.604);
-  --secondary: oklch(0.274 0.006 286.033);
+  --secondary: var(--surface);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.274 0.006 286.033);
   --muted-foreground: oklch(0.705 0.015 286.067);
@@ -83,13 +91,11 @@
   --destructive-foreground: oklch(0.97 0.014 254.604);
   --success: oklch(0.72 0.19 149.58);
   --success-foreground: oklch(0.97 0.014 254.604);
-  --warning: oklch(0.77 0.16 70.08);
-  --warning-foreground: oklch(0.141 0.005 285.823);
-  --info: oklch(0.55 0.15 264);
-  --info-foreground: oklch(0.97 0.014 254.604);
-  --danger: oklch(0.64 0.21 25.33);
-  --danger-foreground: oklch(0.97 0.014 254.604);
-  --attention: oklch(0.86 0.17 91.94);
+  --warning: oklch(0.58 0.18 55);
+  --warning-foreground: oklch(0.97 0.014 254.604);
+  --info: var(--primary);
+  --info-foreground: var(--primary-foreground);
+  --attention: oklch(0.78 0.16 95);
   --attention-foreground: oklch(0.141 0.005 285.823);
   --input: oklch(1 0 0 / 0.15);
   --input-foreground: oklch(0.985 0 0);
@@ -115,8 +121,18 @@
   --text: oklch(0.985 0 0);
   --text-rgb: 250 250 250;
   --surface: oklch(0.21 0.006 285.885);
-  --surface-2: oklch(0.274 0.006 286.033);
-  
+  --surface-2: color-mix(in oklab, var(--surface) 92%, var(--foreground) 8%);
+  --surface-3: color-mix(in oklab, var(--surface) 85%, var(--foreground) 15%);
+
+  /* Escala de radius (design system) */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.625rem;
+  --radius: var(--radius-md);
+
+  /* Overlay para modais (permite temas alterarem) */
+  --overlay: oklch(0 0 0 / 0.8);
+
   /* Cores para gráficos */
   --chart-1: oklch(0.809 0.105 251.813);
   --chart-2: oklch(0.623 0.214 259.815);
@@ -125,7 +141,7 @@
   --chart-5: oklch(0.424 0.199 265.638);
   
   /* Cores para sparklines (referenciam variáveis do design system) */
-  --sparkline-red: var(--danger);
+  --sparkline-red: var(--destructive);
   --sparkline-orange: var(--warning);
   --sparkline-yellow: oklch(0.75 0.15 90); /* yellow-500 equivalente */
   --sparkline-green: var(--success);
@@ -155,10 +171,8 @@
   --success-foreground: oklch(0.97 0.014 254.604);
   --warning: oklch(0.75 0.15 85);
   --warning-foreground: oklch(0.141 0.005 285.823);
-  --info: oklch(0.55 0.15 264);
-  --info-foreground: oklch(0.97 0.014 254.604);
-  --danger: oklch(0.60 0.22 25);
-  --danger-foreground: oklch(0.97 0.014 254.604);
+  --info: var(--primary);
+  --info-foreground: var(--primary-foreground);
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
   --input-foreground: oklch(0.141 0.005 285.823);
@@ -199,10 +213,8 @@
   --success-foreground: oklch(0.97 0.014 254.604);
   --warning: oklch(0.75 0.15 85);
   --warning-foreground: oklch(0.141 0.005 285.823);
-  --info: oklch(0.60 0.15 264);
-  --info-foreground: oklch(0.97 0.014 254.604);
-  --danger: oklch(0.65 0.22 25);
-  --danger-foreground: oklch(0.97 0.014 254.604);
+  --info: var(--primary);
+  --info-foreground: var(--primary-foreground);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --input-foreground: oklch(0.985 0 0);

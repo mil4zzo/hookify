@@ -8,7 +8,8 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
   variants: {
     variant: {
       default: "bg-primary text-primary-foreground hover:bg-primary-90 has-[>svg]:px-3",
-      destructive: "bg-danger text-white hover:bg-destructive-90",
+      success: "bg-success text-success-foreground hover:bg-success-90 has-[>svg]:px-3",
+      destructive: "bg-destructive text-destructive-foreground hover:bg-destructive-90",
       outline: "border shadow-xs hover:bg-accent hover:text-accent-foreground border-border has-[>svg]:px-3",
       secondary: "border bg-input-30 shadow-xs hover:bg-accent hover:text-accent-foreground border-border has-[>svg]:px-3",
       ghost: "hover:bg-accent hover:text-accent-foreground",

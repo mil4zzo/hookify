@@ -47,9 +47,9 @@ export interface ConfirmDialogProps {
 }
 
 const variantClasses = {
-  default: "bg-green-600 hover:bg-green-700 text-white",
-  destructive: "bg-red-600 hover:bg-red-700 text-white",
-  success: "bg-green-600 hover:bg-green-700 text-white",
+  default: "bg-success text-success-foreground hover:bg-success-90",
+  destructive: "bg-destructive text-destructive-foreground hover:bg-destructive-90",
+  success: "bg-success text-success-foreground hover:bg-success-90",
 };
 
 export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText = "Confirmar", cancelText = "Cancelar", variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered", loadingText = "Processando..." }: ConfirmDialogProps) {
@@ -84,7 +84,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
         {children && <div className={`w-full ${isCentered ? "" : ""}`}>{children}</div>}
 
         <div className="flex gap-4 w-full">
-          <Button onClick={handleCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-red-500/50 hover:border-red-500 hover:bg-red-500/10 text-red-500" disabled={isLoading}>
+          <Button onClick={handleCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive" disabled={isLoading}>
             {cancelIcon || <IconCircleX className="h-5 w-5" />}
             {cancelText}
           </Button>

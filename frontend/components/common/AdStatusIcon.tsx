@@ -13,7 +13,7 @@ export function AdStatusIcon({ status }: { status?: string | null }) {
     PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
     CAMPAIGN_PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
     ADSET_PAUSED: { icon: IconPlayerPause, color: "text-yellow-600 dark:text-yellow-400" },
-    ARCHIVED: { icon: IconArchive, color: "text-gray-500 dark:text-gray-400" },
+    ARCHIVED: { icon: IconArchive, color: "text-muted-foreground" },
     DELETED: { icon: IconTrash, color: "text-red-600 dark:text-red-400" },
     DISAPPROVED: { icon: IconX, color: "text-red-600 dark:text-red-400" },
     PENDING_REVIEW: { icon: IconClock, color: "text-orange-600 dark:text-orange-400" },

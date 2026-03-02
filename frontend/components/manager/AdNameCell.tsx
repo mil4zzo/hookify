@@ -117,7 +117,7 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
                 </>
               ) : (
                 <>
-                  <span className={`shrink-0 rounded-full w-1.5 h-1.5 ${dotActive ? "bg-green-500" : "bg-muted-foreground/60"}`} aria-hidden />
+                  <span className={`shrink-0 rounded-full w-1.5 h-1.5 ${dotActive ? "bg-success" : "bg-muted-foreground/60"}`} aria-hidden />
                   {secondLine}
                   <IconChevronDown className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
                 </>

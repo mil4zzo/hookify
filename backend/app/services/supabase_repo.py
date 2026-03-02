@@ -611,9 +611,9 @@ def upsert_ad_metrics(
             row["pack_ids"] = existing_pack_ids
 
     # Upsert em lotes para evitar timeout em grandes volumes de dados
-    # Tamanho de lote: 500 registros (ajustado para balancear performance e evitar timeout)
+    # Tamanho de lote: 300 registros (ajustado para balancear performance e evitar timeout)
     # JSONB fields (actions, conversions, etc.) podem ser grandes, então lote menor é mais seguro
-    batch_size = 500
+    batch_size = 300
     total_batches = (total_rows + batch_size - 1) // batch_size
     
     for batch_idx in range(0, total_rows, batch_size):

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Modal } from "@/components/common/Modal";
 import { api } from "@/lib/api/endpoints";
 import { env } from "@/lib/config/env";
@@ -47,6 +47,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [integrationId, setIntegrationId] = useState<string | null>(null);
   const [loadedIntegrationData, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
 
+  /** Número de efeitos que ainda devem ignorar limpeza (selectedSpreadsheetId + worksheetTitle) ao carregar integração existente */
+  const skipClearCountRef = useRef(0);
+
   // Hooks
   const { connections, selectedConnectionId, setSelectedConnectionId, isLoadingConnections, isDeletingConnection, expiredConnections, testingConnections, loadConnections, handleRetestConnection, handleDeleteConnection, clearVerificationCache } = useGoogleConnections(isOpen);
 
@@ -61,10 +64,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   useEffect(() => {
     if (isOpen && packId) {
       const loadExistingIntegration = async () => {
+        skipClearCountRef.current = 2;
         try {
           const res = await api.integrations.google.listSheetIntegrations(packId);
           if (res.integrations && res.integrations.length > 0) {
             const integration = res.integrations[0];
+            const integrationWithConnection = integration as { connection_id?: string | null };
             setSelectedSpreadsheetId(integration.spreadsheet_id || "");
             setSelectedSpreadsheetName(integration.spreadsheet_name || "");
             setWorksheetTitle(integration.worksheet_title || "");
@@ -75,11 +80,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             setCprMaxColumn(integration.cpr_max_column || "");
             setIntegrationId(integration.id);
 
-            if (integration.spreadsheet_id && integration.worksheet_title) {
-              setLoadedIntegrationData({
-                spreadsheetId: integration.spreadsheet_id,
-                worksheetTitle: integration.worksheet_title,
-              });
+            if (integrationWithConnection.connection_id) {
+              setSelectedConnectionId(integrationWithConnection.connection_id);
             }
           }
         } catch (error) {
@@ -101,27 +103,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setLoadedIntegrationData(null);
     }
   }, [isOpen, packId]);
-
-  // Tentar carregar colunas quando conexões estiverem disponíveis
-  useEffect(() => {
-    if (loadedIntegrationData && connections.length > 0 && !isLoadingConnections) {
-      const loadColumnsForIntegration = async () => {
-        const firstConn = connections[0];
-        try {
-          setSelectedConnectionId(firstConn.id);
-          setIsGoogleConnected(true);
-          const columnsRes = await api.integrations.google.listColumns(loadedIntegrationData.spreadsheetId, loadedIntegrationData.worksheetTitle, firstConn.id);
-          setColumns(columnsRes.columns || []);
-          setStep("select-columns");
-          setLoadedIntegrationData(null);
-        } catch (error) {
-          console.error("Erro ao carregar colunas:", error);
-          setLoadedIntegrationData(null);
-        }
-      };
-      loadColumnsForIntegration();
-    }
-  }, [loadedIntegrationData, connections, isLoadingConnections, setSelectedConnectionId]);
 
   // Listener para detectar quando token expira
   useEffect(() => {
@@ -158,6 +139,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   // Resetar estado ao abrir/fechar
   useEffect(() => {
     if (!isOpen) {
+      skipClearCountRef.current = 0;
       setStep("connect");
       setIsGoogleConnected(false);
       setIsConnecting(false);
@@ -206,8 +188,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     }
   };
 
-  // Limpar aba e colunas quando a planilha mudar
+  // Limpar aba e colunas quando a planilha mudar (não quando vier do carregamento da integração existente)
   useEffect(() => {
+    if (skipClearCountRef.current > 0) {
+      skipClearCountRef.current -= 1;
+      return;
+    }
     setWorksheetTitle("");
     // Mantemos selectedSpreadsheetName: ela será atualizada no onSpreadsheetNameChange
     setColumns([]);
@@ -217,8 +203,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     setCprMaxColumn("");
   }, [selectedSpreadsheetId]);
 
-  // Limpar colunas quando a aba mudar
+  // Limpar colunas quando a aba mudar (não quando vier do carregamento da integração existente)
   useEffect(() => {
+    if (skipClearCountRef.current > 0) {
+      skipClearCountRef.current -= 1;
+      return;
+    }
     setColumns([]);
     setAdIdColumn("");
     setDateColumn("");
@@ -300,9 +290,11 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       showSuccess("Google Sheets conectado! Agora você pode configurar a planilha para enriquecer os anúncios.");
 
       // Disparar evento de reconexão para retomar jobs pausados
-      window.dispatchEvent(new CustomEvent("google-connected", {
-        detail: { connectionId: connectionData?.connection?.id }
-      }));
+      window.dispatchEvent(
+        new CustomEvent("google-connected", {
+          detail: { connectionId: connectionData?.connection?.id },
+        }),
+      );
 
       await loadConnections();
       if (connectionData?.connection?.id) {
@@ -398,7 +390,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
               window.dispatchEvent(
                 new CustomEvent("pack-integration-updated", {
                   detail: { packId, sheetIntegration: updatedPack.sheet_integration },
-                })
+                }),
               );
             }
           }
