@@ -10,16 +10,17 @@ Responsável por:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from app.services.job_tracker import (
+    STATUS_CANCELLED,
     STATUS_COMPLETED,
     STATUS_FAILED,
     STATUS_PROCESSING,
     get_job_tracker,
 )
 from app.services.graph_api import GraphAPI
-from app.services.transcription_service import transcribe_video
+from app.services.transcription_service import TranscriptionResult, transcribe_video
 from app.services import supabase_repo
 
 logger = logging.getLogger(__name__)
@@ -97,13 +98,14 @@ def _transcribe_single(
     video_url: str,
     video_id: str,
     actor_id: str,
-) -> None:
+    check_cancelled: Callable[[], bool],
+) -> TranscriptionResult:
     """Transcreve um único vídeo e persiste o resultado."""
     supabase_repo.upsert_transcription(
         user_jwt, user_id, ad_name, status="processing"
     )
 
-    result = transcribe_video(video_url)
+    result = transcribe_video(video_url, check_cancelled=check_cancelled)
 
     if result.success:
         metadata = {
@@ -123,20 +125,22 @@ def _transcribe_single(
             timestamped_text=result.timestamped_words,
             metadata=metadata,
         )
-    else:
-        metadata = {
-            "provider": "assemblyai",
-            "source_video_id": video_id,
-            "actor_id": actor_id,
-            "error_message": result.error,
-        }
-        supabase_repo.upsert_transcription(
-            user_jwt,
-            user_id,
-            ad_name,
-            status="failed",
-            metadata=metadata,
-        )
+        return result
+
+    metadata = {
+        "provider": "assemblyai",
+        "source_video_id": video_id,
+        "actor_id": actor_id,
+        "error_message": result.error or "Transcrição cancelada pelo usuário",
+    }
+    supabase_repo.upsert_transcription(
+        user_jwt,
+        user_id,
+        ad_name,
+        status="failed",
+        metadata=metadata,
+    )
+    return result
 
 
 def run_transcription_batch(
@@ -217,12 +221,42 @@ def run_transcription_batch(
         extras={"skipped_existing": len(existing)},
     )
 
+    def _check_if_cancelled() -> bool:
+        """Verifica se o job foi cancelado pelo usuário."""
+        if not tracker or not transcription_job_id:
+            return False
+        try:
+            job = tracker.get_job(transcription_job_id)
+            return job is not None and job.get("status") == STATUS_CANCELLED
+        except Exception as e:
+            logger.warning(f"[TRANSCRIPTION] Erro ao verificar cancelamento do job {transcription_job_id}: {e}")
+            return False
+
     api = GraphAPI(access_token, user_id=user_id)
     success_count = 0
     fail_count = 0
     processed = 0
 
+    def _mark_job_cancelled() -> None:
+        logger.info(
+            f"[TRANSCRIPTION] Job {transcription_job_id} cancelado pelo usuário, interrompendo"
+        )
+        _heartbeat(
+            status=STATUS_CANCELLED,
+            done=processed,
+            total=total,
+            message="Transcrição cancelada pelo usuário",
+            extras={
+                "success_count": success_count,
+                "fail_count": fail_count,
+                "cancelled": True,
+            },
+        )
+
     for ad_name in pending:
+        if _check_if_cancelled():
+            _mark_job_cancelled()
+            return
         info = video_map[ad_name]
         video_id = info["video_id"]
         actor_id = info["actor_id"]
@@ -251,10 +285,30 @@ def run_transcription_batch(
                     message=f"Transcrevendo {processed} de {total}",
                     extras={"success_count": success_count, "fail_count": fail_count},
                 )
+                if _check_if_cancelled():
+                    _mark_job_cancelled()
+                    return
                 continue
 
-            _transcribe_single(user_jwt, user_id, ad_name, video_url, video_id, actor_id)
-            success_count += 1
+            if _check_if_cancelled():
+                _mark_job_cancelled()
+                return
+            result = _transcribe_single(
+                user_jwt,
+                user_id,
+                ad_name,
+                video_url,
+                video_id,
+                actor_id,
+                _check_if_cancelled,
+            )
+            if result.cancelled or _check_if_cancelled():
+                _mark_job_cancelled()
+                return
+            if result.success:
+                success_count += 1
+            else:
+                fail_count += 1
             processed += 1
             _heartbeat(
                 status=STATUS_PROCESSING,
@@ -289,6 +343,10 @@ def run_transcription_batch(
                 message=f"Transcrevendo {processed} de {total}",
                 extras={"success_count": success_count, "fail_count": fail_count},
             )
+
+    if _check_if_cancelled():
+        _mark_job_cancelled()
+        return
 
     final_status = STATUS_COMPLETED if success_count > 0 else STATUS_FAILED
     final_message = (

@@ -1,10 +1,12 @@
 import { toast } from "sonner";
 import { AppError } from "./errors";
 import { parseError } from "./errors";
-import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
+import { IconLoader2, IconAlertCircle, IconCheck, IconMicrophone, IconX } from "@tabler/icons-react";
 import React, { type ReactNode } from "react";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
+import { MetaIcon } from "@/components/icons/MetaIcon";
+import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
 export function showError(error: AppError | Error | unknown) {
   // Garantir que sempre temos um AppError com message string
@@ -20,7 +22,21 @@ export function showError(error: AppError | Error | unknown) {
   // Garantir que message seja string (nunca renderizar objeto)
   const message = typeof appError.message === "string" ? appError.message : JSON.stringify(appError.message);
 
-  toast.error(message);
+  const toastId = `error-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  toast.error(
+    <div className="relative pr-6">
+      <span>{message}</span>
+      <button
+        type="button"
+        onClick={() => toast.dismiss(toastId)}
+        className="absolute top-0 right-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        aria-label="Fechar"
+      >
+        <IconX className="h-4 w-4" strokeWidth={2} />
+      </button>
+    </div>,
+    { id: toastId, duration: undefined }
+  );
 }
 
 export function showSuccess(message: string) {
@@ -35,6 +51,49 @@ export function showWarning(message: string) {
   toast.warning(message, {
     duration: 5000,
   });
+}
+
+/**
+ * Mostra toast de cancelamento padronizado por processo (Meta, Sheets, Transcrição).
+ *
+ * Layout:
+ * - Linha 1 (fina): "{packName}: Meta/Leadscore/Transcrição"
+ * - Linha 2: ícone de warning + mensagem curta
+ *   - Meta / Sheets: "Atualização cancelada."
+ *   - Transcrição: "Transcrição cancelada."
+ */
+export function showProcessCancelledWarning(
+  context: "meta" | "sheets" | "transcription",
+  packName: string
+) {
+  const label =
+    context === "meta" ? "Meta" : context === "sheets" ? "Leadscore" : "Transcrição";
+  const message = context === "transcription" ? "Transcrição cancelada." : "Atualização cancelada.";
+
+  const LeftIcon =
+    context === "meta"
+      ? MetaIcon
+      : context === "sheets"
+      ? GoogleSheetsIcon
+      : IconMicrophone;
+
+  toast.warning(
+    <div className="flex items-center gap-3">
+      <LeftIcon className="h-5 w-5 flex-shrink-0" />
+      <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+        <span className="text-xs text-muted-foreground">
+          {packName}: {label}
+        </span>
+        <div className="flex items-center gap-2">
+          <IconAlertCircle className="h-4 w-4 text-yellow-400 flex-shrink-0" />
+          <span className="text-sm text-foreground">{message}</span>
+        </div>
+      </div>
+    </div>,
+    {
+      duration: 5000,
+    }
+  );
 }
 
 // Meta Ads: mapeamento status/stage -> índice 1-5 para "Etapa X de 5"
@@ -54,12 +113,9 @@ export function getMetaStageInfo(status: string, details?: any): { stepIndex: nu
     return { stepIndex: 1, title: META_STAGE_TITLES["1"] };
   }
   if (status === "processing") {
-    if (stage === "paginação" || stage === "STAGE_PAGINATION")
-      return { stepIndex: 2, title: META_STAGE_TITLES["2"] };
-    if (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT")
-      return { stepIndex: 3, title: META_STAGE_TITLES["3"] };
-    if (stage === "formatação" || stage === "STAGE_FORMATTING")
-      return { stepIndex: 4, title: META_STAGE_TITLES["4"] };
+    if (stage === "paginação" || stage === "STAGE_PAGINATION") return { stepIndex: 2, title: META_STAGE_TITLES["2"] };
+    if (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT") return { stepIndex: 3, title: META_STAGE_TITLES["3"] };
+    if (stage === "formatação" || stage === "STAGE_FORMATTING") return { stepIndex: 4, title: META_STAGE_TITLES["4"] };
   }
   if (status === "persisting" || (status === "processing" && (stage === "persistência" || stage === "STAGE_PERSISTENCE"))) {
     return { stepIndex: 5, title: META_STAGE_TITLES["5"] };
@@ -153,6 +209,8 @@ export interface ProgressToastContent {
   stageLabel: string;
   stageTitle: string;
   dynamicLine: string;
+  /** Contexto da etapa (ex.: "Meta", "Transcrevendo") para exibição no toast. */
+  stageContext?: string;
 }
 
 /** @deprecated Use ProgressToastContent */
@@ -207,15 +265,10 @@ export function getSheetsDynamicLine(status: string, stage: string, details?: an
  * Conteúdo para toast de progresso do Google Sheets (layout 3 linhas).
  * overrideDynamicLine opcional para mensagem custom (ex.: erro de rede).
  */
-export function buildSheetsToastContent(
-  status: string,
-  details?: any,
-  overrideDynamicLine?: string
-): ProgressToastContent {
+export function buildSheetsToastContent(status: string, details?: any, overrideDynamicLine?: string): ProgressToastContent {
   const { stepIndex, title } = getSheetsStageInfo(status, details);
   const stage = details?.stage ?? "";
-  const dynamicLine =
-    overrideDynamicLine ?? getSheetsDynamicLine(status, stage, details);
+  const dynamicLine = overrideDynamicLine ?? getSheetsDynamicLine(status, stage, details);
   return {
     stageLabel: `Etapa ${stepIndex} de ${SHEETS_TOTAL_STAGES}`,
     stageTitle: title,
@@ -235,7 +288,7 @@ export function calculateSheetsProgressPercent(status: string, details?: any): n
 // ----- Transcrição -----
 const TRANSCRIPTION_TOTAL_STAGES = 2;
 const TRANSCRIPTION_STAGE_TITLES: Record<string, string> = {
-  "1": "Preparando",
+  "1": "Iniciando transcrição",
   "2": "Transcrevendo anúncios",
 };
 
@@ -270,24 +323,21 @@ export function getTranscriptionDynamicLine(status: string, details?: any): stri
     const label = total === 1 ? "anúncio" : "anúncios";
     return `${current} de ${total} ${label}`;
   }
-  return "Iniciando transcrição...";
+  return "Preparando anúncios...";
 }
 
 /**
  * Conteúdo para toast de progresso da transcrição (layout 3 linhas).
  * overrideDynamicLine opcional para mensagem custom (ex.: erro de rede).
  */
-export function buildTranscriptionToastContent(
-  status: string,
-  details?: any,
-  overrideDynamicLine?: string
-): ProgressToastContent {
+export function buildTranscriptionToastContent(status: string, details?: any, overrideDynamicLine?: string): ProgressToastContent {
   const { stepIndex, title } = getTranscriptionStageInfo(status, details);
   const dynamicLine = overrideDynamicLine ?? getTranscriptionDynamicLine(status, details);
   return {
     stageLabel: `Etapa ${stepIndex} de ${TRANSCRIPTION_TOTAL_STAGES}`,
     stageTitle: title,
     dynamicLine,
+    stageContext: "Transcrevendo",
   };
 }
 
@@ -309,18 +359,8 @@ export function calculateTranscriptionProgressPercent(status: string, details?: 
   return 0;
 }
 
-function renderProgressToastContent(
-  packName: string,
-  progress: number,
-  stagedContent: ProgressToastContent | undefined,
-  message: string | undefined,
-  onCancel: (() => void) | undefined,
-  icon: ReactNode | undefined,
-  currentStep: number,
-  totalSteps: number
-) {
-  const hasStagedLayout =
-    stagedContent && stagedContent.stageLabel && stagedContent.stageTitle && stagedContent.dynamicLine;
+function renderProgressToastContent(packName: string, progress: number, stagedContent: ProgressToastContent | undefined, message: string | undefined, onCancel: (() => void) | undefined, icon: ReactNode | undefined, currentStep: number, totalSteps: number) {
+  const hasStagedLayout = stagedContent && stagedContent.stageLabel && stagedContent.stageTitle && stagedContent.dynamicLine;
 
   return (
     <div className="flex flex-col gap-2 w-full">
@@ -328,9 +368,7 @@ function renderProgressToastContent(
         {icon || <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />}
         {hasStagedLayout ? (
           <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <span className="text-xs text-muted-foreground">
-              Atualizando {packName} — {stagedContent.stageLabel}
-            </span>
+            <span className="text-xs text-muted-foreground">{stagedContent.stageContext ? `${packName}: ${stagedContent.stageContext} › ${stagedContent.stageLabel}` : `Atualizando ${packName} — ${stagedContent.stageLabel}`}</span>
             <span className="text-sm font-semibold text-foreground">{stagedContent.stageTitle}</span>
             <div className="flex items-center gap-2">
               <IconLoader2 className="h-4 w-4 animate-spin flex-shrink-0 text-muted-foreground" />
@@ -360,11 +398,7 @@ function renderProgressToastContent(
  * Calcula valor da barra: se progressPercent for fornecido, usa direto;
  * senão usa (currentStep/totalSteps)*100 como fallback.
  */
-function resolveProgressValue(
-  progressPercent: number | undefined,
-  currentStep: number,
-  totalSteps: number
-): number {
+function resolveProgressValue(progressPercent: number | undefined, currentStep: number, totalSteps: number): number {
   if (progressPercent !== undefined && typeof progressPercent === "number") {
     return Math.min(100, Math.max(0, progressPercent));
   }
@@ -376,44 +410,18 @@ function resolveProgressValue(
  * stagedContent: layout em 3 linhas (Etapa X de Y; título; linha dinâmica). Sem ele, usa fallback "etapa X/Y".
  * progressPercent: 0–100 para a barra; se omitido, usa currentStep/totalSteps.
  */
-export function showProgressToast(
-  toastId: string,
-  packName: string,
-  currentStep: number,
-  totalSteps: number,
-  message?: string,
-  onCancel?: () => void,
-  icon?: ReactNode,
-  stagedContent?: ProgressToastContent,
-  progressPercent?: number
-) {
+export function showProgressToast(toastId: string, packName: string, currentStep: number, totalSteps: number, message?: string, onCancel?: () => void, icon?: ReactNode, stagedContent?: ProgressToastContent, progressPercent?: number) {
   const progress = resolveProgressValue(progressPercent, currentStep, totalSteps);
-  toast.loading(
-    renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps),
-    { id: toastId, duration: Infinity }
-  );
+  toast.loading(renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps), { id: toastId, duration: Infinity });
 }
 
 /**
  * Atualiza toast de progresso existente.
  * stagedContent e progressPercent: mesmo que showProgressToast.
  */
-export function updateProgressToast(
-  toastId: string,
-  packName: string,
-  currentStep: number,
-  totalSteps: number,
-  message?: string,
-  onCancel?: () => void,
-  icon?: ReactNode,
-  stagedContent?: ProgressToastContent,
-  progressPercent?: number
-) {
+export function updateProgressToast(toastId: string, packName: string, currentStep: number, totalSteps: number, message?: string, onCancel?: () => void, icon?: ReactNode, stagedContent?: ProgressToastContent, progressPercent?: number) {
   const progress = resolveProgressValue(progressPercent, currentStep, totalSteps);
-  toast.loading(
-    renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps),
-    { id: toastId, duration: Infinity }
-  );
+  toast.loading(renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps), { id: toastId, duration: Infinity });
 }
 
 /**
@@ -430,17 +438,89 @@ export function showCancellingToast(toastId: string, packName: string, icon?: Re
         </span>
       </div>
     </div>,
-    { id: toastId, duration: Infinity }
+    { id: toastId, duration: Infinity },
   );
+}
+
+const TICK_MS = 100;
+
+/**
+ * Agenda dismiss do toast após N segundos de tempo com a aba visível.
+ * O contador só avança quando document.visibilityState === 'visible'; ao ficar hidden, pausa (não zera).
+ */
+function dismissAfterVisibleSeconds(toastId: string, visibleSeconds: number): void {
+  if (typeof document === "undefined") return;
+  let accumulated = 0;
+  const intervalId = setInterval(() => {
+    if (document.visibilityState === "visible") {
+      accumulated += TICK_MS / 1000;
+      if (accumulated >= visibleSeconds) {
+        clearInterval(intervalId);
+        toast.dismiss(toastId);
+      }
+    }
+  }, TICK_MS);
 }
 
 /**
  * Finaliza toast de progresso com sucesso ou erro
  * Erros são persistentes (não fecham automaticamente) até o usuário fechar
+ * options.visibleDurationOnly: quando definido (ex.: 5), o toast de sucesso só some após N segundos com a aba visível (pausa quando a aba está em segundo plano)
+ * options.context: permite layouts específicos (ex.: Meta)
  */
-export function finishProgressToast(toastId: string, success: boolean, message: string) {
+export function finishProgressToast(toastId: string, success: boolean, message: string, options?: { visibleDurationOnly?: number; context?: "meta" | "sheets" | "transcription"; packName?: string }) {
   if (success) {
-    toast.success(message, { id: toastId, duration: 5000 });
+    const visibleOnly = options?.visibleDurationOnly;
+    const context = options?.context;
+    const packName = options?.packName;
+
+    const isMeta = context === "meta" && packName;
+    const isSheets = context === "sheets" && packName;
+    const isTranscription = context === "transcription" && packName;
+
+    const content = isMeta ? (
+      <div className="flex items-start gap-3">
+        <MetaIcon className="h-5 w-5 flex-shrink-0" />
+        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="text-xs text-muted-foreground">{packName}: Meta</span>
+          <div className="flex items-center gap-2">
+            <IconCheck className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+            <span className="text-sm text-foreground">{message}</span>
+          </div>
+        </div>
+      </div>
+    ) : isSheets ? (
+      <div className="flex items-start gap-3">
+        <GoogleSheetsIcon className="h-5 w-5 flex-shrink-0" />
+        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="text-xs text-muted-foreground">{packName}: Leadscore</span>
+          <div className="flex items-center gap-2">
+            <IconCheck className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+            <span className="text-sm text-foreground">{message}</span>
+          </div>
+        </div>
+      </div>
+    ) : isTranscription ? (
+      <div className="flex items-start gap-3">
+        <IconMicrophone className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
+        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+          <span className="text-xs text-muted-foreground">{packName}: Transcrição</span>
+          <div className="flex items-center gap-2">
+            <IconCheck className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+            <span className="text-sm text-foreground">{message}</span>
+          </div>
+        </div>
+      </div>
+    ) : (
+      message
+    );
+
+    if (visibleOnly != null && visibleOnly > 0) {
+      toast.success(content, { id: toastId, duration: Infinity });
+      dismissAfterVisibleSeconds(toastId, visibleOnly);
+    } else {
+      toast.success(content, { id: toastId, duration: 5000 });
+    }
   } else {
     // Erro sempre persistente até usuário fechar
     toast.error(message, {
@@ -455,21 +535,14 @@ export function finishProgressToast(toastId: string, success: boolean, message: 
  * Mostra toast de job pausado aguardando reconexão do Google
  * Não pode ser fechado - usuário deve usar os botões
  */
-export function showPausedJobToast(
-  toastId: string,
-  packName: string,
-  onReconnect: () => void,
-  onCancel: () => void
-) {
+export function showPausedJobToast(toastId: string, packName: string, onReconnect: () => void, onCancel: () => void) {
   toast.warning(
     <div className="flex flex-col gap-2 w-full">
       <div className="flex items-center gap-2">
         <IconAlertCircle className="h-5 w-5 text-yellow-500 flex-shrink-0" />
         <span className="font-medium">Sincronização pausada</span>
       </div>
-      <span className="text-sm text-muted-foreground">
-        Planilha &quot;{packName}&quot; aguardando reconexão do Google
-      </span>
+      <span className="text-sm text-muted-foreground">Planilha &quot;{packName}&quot; aguardando reconexão do Google</span>
       <div className="flex gap-2 mt-1">
         <Button size="sm" variant="default" onClick={onReconnect}>
           Reconectar Google
@@ -483,7 +556,7 @@ export function showPausedJobToast(
       id: toastId,
       duration: Infinity,
       dismissible: false, // Força usuário a usar os botões
-    }
+    },
   );
 }
 

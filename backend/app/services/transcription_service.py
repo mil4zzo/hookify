@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import requests
 
@@ -27,12 +27,17 @@ DEFAULT_POLL_INTERVAL_S = 5
 @dataclass(frozen=True)
 class TranscriptionResult:
     success: bool
+    cancelled: bool = False
     full_text: Optional[str] = None
     timestamped_words: Optional[List[Dict[str, Any]]] = field(default=None)
     language_code: Optional[str] = None
     audio_duration_seconds: Optional[float] = None
     assemblyai_id: Optional[str] = None
     error: Optional[str] = None
+
+
+class TranscriptionCancelled(Exception):
+    """Raised when a transcription is cancelled cooperatively."""
 
 
 def _get_headers() -> Dict[str, str]:
@@ -74,6 +79,7 @@ def _poll_until_done(
     transcript_id: str,
     timeout_s: int = DEFAULT_TIMEOUT_S,
     interval_s: int = DEFAULT_POLL_INTERVAL_S,
+    check_cancelled: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """GET /v2/transcript/{id} — polling até completed/error ou timeout."""
     url = f"{ASSEMBLYAI_BASE_URL}/transcript/{transcript_id}"
@@ -81,6 +87,9 @@ def _poll_until_done(
     deadline = time.monotonic() + timeout_s
 
     while time.monotonic() < deadline:
+        if check_cancelled and check_cancelled():
+            raise TranscriptionCancelled("Transcrição cancelada pelo usuário")
+
         resp = requests.get(url, headers=headers, timeout=30)
         resp.raise_for_status()
         data = resp.json()
@@ -94,6 +103,8 @@ def _poll_until_done(
             logger.warning(f"[TRANSCRIPTION] Falha: id={transcript_id} error={error_msg}")
             raise RuntimeError(error_msg)
 
+        if check_cancelled and check_cancelled():
+            raise TranscriptionCancelled("Transcrição cancelada pelo usuário")
         time.sleep(interval_s)
 
     raise TimeoutError(
@@ -105,11 +116,21 @@ def transcribe_video(
     audio_url: str,
     timeout_s: int = DEFAULT_TIMEOUT_S,
     poll_interval_s: int = DEFAULT_POLL_INTERVAL_S,
+    check_cancelled: Optional[Callable[[], bool]] = None,
 ) -> TranscriptionResult:
     """Fluxo completo: submit + poll. Retorna resultado estruturado."""
+    transcript_id: Optional[str] = None
     try:
+        if check_cancelled and check_cancelled():
+            raise TranscriptionCancelled("Transcrição cancelada pelo usuário")
+
         transcript_id = _submit_to_assemblyai(audio_url)
-        data = _poll_until_done(transcript_id, timeout_s, poll_interval_s)
+        data = _poll_until_done(
+            transcript_id,
+            timeout_s,
+            poll_interval_s,
+            check_cancelled=check_cancelled,
+        )
 
         words = data.get("words") or []
         timestamped = [
@@ -127,16 +148,26 @@ def transcribe_video(
 
         return TranscriptionResult(
             success=True,
+            cancelled=False,
             full_text=data.get("text"),
             timestamped_words=timestamped if timestamped else None,
             language_code=data.get("language_code"),
             audio_duration_seconds=duration_s,
             assemblyai_id=transcript_id,
         )
+    except TranscriptionCancelled as e:
+        logger.info(f"[TRANSCRIPTION] Cancelada: {e}")
+        return TranscriptionResult(
+            success=False,
+            cancelled=True,
+            assemblyai_id=transcript_id,
+            error=str(e),
+        )
     except Exception as e:
         logger.warning(f"[TRANSCRIPTION] Erro na transcrição: {e}")
         return TranscriptionResult(
             success=False,
-            assemblyai_id=None,
+            cancelled=False,
+            assemblyai_id=transcript_id,
             error=str(e),
         )

@@ -6,10 +6,15 @@ import {
   updateProgressToast,
   finishProgressToast,
   dismissToast,
+  buildSheetsToastContent,
+  calculateSheetsProgressPercent,
 } from "@/lib/utils/toast";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
 const sheetsIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
+
+/** Total de etapas no toast do Sheets (barra usa progressPercent quando informado). */
+const SHEETS_TOAST_TOTAL_STEPS = 3;
 
 /**
  * Faz polling simples do job de sync do Google Sheets.
@@ -39,17 +44,20 @@ async function pollResumedSyncJob(
         return { success: false, error: progress.message || "Erro desconhecido" };
       }
 
-      // Atualizar mensagem baseada no estágio
-      let message = progress.message || "Sincronizando planilha...";
-      if (details.stage === "lendo_planilha") {
-        message = `Lendo planilha... ${details.rows_read || 0} linhas`;
-      } else if (details.stage === "processando_dados") {
-        message = `Processando dados... ${details.rows_processed || 0} linhas`;
-      } else if (details.stage === "persistindo") {
-        message = "Salvando dados de enriquecimento...";
-      }
+      const sheetsContent = buildSheetsToastContent(progress.status, details);
+      const progressPercent = calculateSheetsProgressPercent(progress.status, details);
 
-      updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, message, undefined, sheetsIcon);
+      updateProgressToast(
+        toastId,
+        `Planilha: ${packName}`,
+        1,
+        SHEETS_TOAST_TOTAL_STEPS,
+        undefined,
+        undefined,
+        sheetsIcon,
+        sheetsContent,
+        progressPercent
+      );
 
       if (progress.status === "completed") {
         const stats = (progress as any)?.stats || {};
@@ -57,13 +65,24 @@ async function pollResumedSyncJob(
         finishProgressToast(
           toastId,
           true,
-          `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`
+          `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`,
+          { visibleDurationOnly: 5, context: "sheets", packName }
         );
         return { success: true };
       }
     } catch (error) {
       console.error(`[pollResumedSyncJob] Erro ao verificar progresso:`, error);
-      updateProgressToast(toastId, `Planilha: ${packName}`, 0, 1, "Erro ao verificar progresso, tentando novamente...", undefined, sheetsIcon);
+      updateProgressToast(
+        toastId,
+        `Planilha: ${packName}`,
+        1,
+        SHEETS_TOAST_TOTAL_STEPS,
+        undefined,
+        undefined,
+        sheetsIcon,
+        buildSheetsToastContent("processing", {}, "Erro ao verificar progresso, tentando novamente..."),
+        0
+      );
     }
 
     attempts++;
@@ -99,9 +118,19 @@ export function useGoogleReconnectHandler() {
         // Fechar toast de pausa existente
         dismissToast(pausedJob.toastId);
 
-        // Criar novo toast de progresso
+        // Criar novo toast de progresso com mesmo layout padronizado do fluxo Sheets
         const newToastId = `sync-sheet-${pausedJob.packId}-${Date.now()}`;
-        showProgressToast(newToastId, `Planilha: ${pausedJob.packName}`, 0, 1, "Retomando sincronização...", undefined, sheetsIcon);
+        showProgressToast(
+          newToastId,
+          `Planilha: ${pausedJob.packName}`,
+          1,
+          SHEETS_TOAST_TOTAL_STEPS,
+          undefined,
+          undefined,
+          sheetsIcon,
+          buildSheetsToastContent("processing", { stage: "lendo_planilha" }),
+          0
+        );
 
         if (!pausedJob.integrationId) {
           console.error(`[useGoogleReconnectHandler] Job pausado sem integrationId: ${pausedJob.packId}`);

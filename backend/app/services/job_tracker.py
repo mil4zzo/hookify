@@ -112,6 +112,17 @@ class JobTracker:
     ) -> bool:
         """Atualiza status/progresso do job (heartbeat)."""
         try:
+            current_job = self.get_job(job_id)
+            current_status = (current_job or {}).get("status")
+
+            # Preserve cancelled as a terminal state for cooperative cancellation.
+            if current_status == STATUS_CANCELLED and status != STATUS_CANCELLED:
+                logger.info(
+                    f"[JobTracker] Ignorando heartbeat para job {job_id}: "
+                    f"status atual é {STATUS_CANCELLED} e tentativa foi {status}"
+                )
+                return False
+
             data: Dict[str, Any] = {
                 "status": status,
                 "progress": progress,
@@ -364,7 +375,6 @@ class JobTracker:
 def get_job_tracker(user_jwt: str, user_id: str) -> JobTracker:
     """Factory function para criar JobTracker."""
     return JobTracker(user_jwt, user_id)
-
 
 
 

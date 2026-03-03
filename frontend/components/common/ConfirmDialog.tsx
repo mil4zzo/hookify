@@ -84,7 +84,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
         {children && <div className={`w-full ${isCentered ? "" : ""}`}>{children}</div>}
 
         <div className="flex gap-4 w-full">
-          <Button onClick={handleCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive" disabled={isLoading}>
+          <Button onClick={handleCancel} variant="destructiveOutline" className="flex-1 flex items-center justify-center gap-2" disabled={isLoading}>
             {cancelIcon || <IconCircleX className="h-5 w-5" />}
             {cancelText}
           </Button>

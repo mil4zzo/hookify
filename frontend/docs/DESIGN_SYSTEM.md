@@ -134,8 +134,17 @@ Os gradientes e cores de ouro, prata e bronze estão centralizados em `frontend/
 
 ## 6. Referências
 
+### Temas
+
+Temas são aplicados via `data-theme` em `<html>`. No CSS, usar apenas o seletor `:root[data-theme="nome"]`. Temas oficiais: **light** (valores padrão de `:root`) e **dark** (`data-theme="dark"`).
+
+A **fonte única** de definição dos temas é `frontend/lib/design-system/themeDefinitions.ts` (objetos `lightTheme` e `darkTheme`). O arquivo `frontend/app/theme-generated.css` é gerado a partir desse módulo. **Após alterar** `themeDefinitions.ts`, rode `npm run generate:themes` no frontend e inclua `app/theme-generated.css` no commit. Para **adicionar um novo tema**: (1) criar um novo objeto no módulo (ex.: `highContrastTheme`) com as mesmas chaves de `THEME_VAR_NAMES`; (2) no script `scripts/generate-theme-css.ts`, gerar um bloco adicional `:root[data-theme="nome-do-tema"] { ... }` e concatenar ao CSS de saída.
+
+### Arquivos
+
 - **Página de design system (dev)**: `/design-system` — cores, tokens e componentes em uma única página (disponível apenas em development).
-- **Tokens CSS**: `frontend/app/globals.css`
+- **Tokens CSS**: `frontend/app/globals.css` (importa `app/theme-generated.css` para variáveis de tema)
+- **Definições de temas**: `frontend/lib/design-system/themeDefinitions.ts`
 - **Tailwind**: `frontend/tailwind.config.ts`
 - **Paletas Gems/Kanban**: `frontend/lib/utils/gemsColorSchemes.ts`
 - **Badges TOP 3**: `frontend/lib/utils/topBadgeStyles.ts`

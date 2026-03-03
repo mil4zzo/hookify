@@ -58,7 +58,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
           <p className="text-center text-sm text-text-muted">Encontramos 1 pack configurado para atualização automática. Deseja atualizá-lo agora?</p>
 
           <div className="flex gap-4 w-full">
-            <Button onClick={onCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive">
+            <Button onClick={onCancel} variant="destructiveOutline" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleX className="h-5 w-5" />
               Não
             </Button>
@@ -126,7 +126,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
         </div>
 
         <div className="flex gap-4 w-full">
-          <Button onClick={onCancel} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive">
+          <Button onClick={onCancel} variant="destructiveOutline" className="flex-1 flex items-center justify-center gap-2">
             <IconCircleX className="h-5 w-5" />
             Cancelar
           </Button>

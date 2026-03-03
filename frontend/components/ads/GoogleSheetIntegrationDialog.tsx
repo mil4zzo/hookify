@@ -10,6 +10,7 @@ import { IconTableExport } from "@tabler/icons-react";
 import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
 import { cn } from "@/lib/utils/cn";
 import { openAuthPopup, AuthPopupError } from "@/lib/utils/authPopup";
+import { guessColumnMappings } from "@/lib/utils/guessSheetColumns";
 import { useQueryClient } from "@tanstack/react-query";
 import { useGoogleConnections } from "./googleSheetsDialog/hooks/useGoogleConnections";
 import { useGoogleSyncJob } from "./googleSheetsDialog/hooks/useGoogleSyncJob";
@@ -53,7 +54,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   // Hooks
   const { connections, selectedConnectionId, setSelectedConnectionId, isLoadingConnections, isDeletingConnection, expiredConnections, testingConnections, loadConnections, handleRetestConnection, handleDeleteConnection, clearVerificationCache } = useGoogleConnections(isOpen);
 
-  const { isImporting, importStep, importProgress, lastSyncStats, setLastSyncStats, startSync, reset: resetSync } = useGoogleSyncJob();
+  const { isImporting, importStep, importProgress, lastSyncStats, setLastSyncStats, startSync, startSyncWithToast, reset: resetSync } = useGoogleSyncJob();
 
   // Atualizar isGoogleConnected quando selectedConnectionId mudar
   useEffect(() => {
@@ -336,7 +337,12 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       const loadedColumns = res.columns || [];
       setColumns(loadedColumns);
 
-      if (loadedColumns.length === 0) {
+      if (loadedColumns.length > 0) {
+        const guess = guessColumnMappings(loadedColumns);
+        setAdIdColumn((prev) => prev || (guess.adIdColumn ?? ""));
+        setDateColumn((prev) => prev || (guess.dateColumn ?? ""));
+        setLeadscoreColumn((prev) => prev || (guess.leadscoreColumn ?? ""));
+      } else {
         showError(new Error("Não encontramos colunas na primeira linha da aba. Verifique se a planilha possui cabeçalhos."));
       }
 
@@ -364,40 +370,16 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         connection_id: selectedConnectionId || null,
       };
 
-      // Salvar configuração
       const saveRes = await api.integrations.google.saveSheetIntegration(payload);
       const id = saveRes.integration.id;
       setIntegrationId(id);
 
-      // Iniciar sync
-      await startSync(id);
-
-      // Pequeno delay antes de mostrar o summary
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      setStep("summary");
-
-      const stats = lastSyncStats || { updated_rows: 0 };
-      showSuccess(`Importação concluída! Atualizadas ${stats.updated_rows} linhas em ad_metrics.`);
-
-      // Recarregar packs
-      if (packId) {
-        try {
-          const response = await api.analytics.listPacks(false);
-          if (response.success && response.packs) {
-            const updatedPack = response.packs.find((p: any) => p.id === packId);
-            if (updatedPack?.sheet_integration) {
-              window.dispatchEvent(
-                new CustomEvent("pack-integration-updated", {
-                  detail: { packId, sheetIntegration: updatedPack.sheet_integration },
-                }),
-              );
-            }
-          }
-        } catch (error) {
-          console.error("Erro ao recarregar pack após integração:", error);
-        }
-      }
+      onClose();
+      startSyncWithToast({
+        integrationId: id,
+        title: selectedSpreadsheetName || "Planilha",
+        packId: packId ?? null,
+      }).catch((e) => showError(e));
     } catch (e: any) {
       showError(e);
     }

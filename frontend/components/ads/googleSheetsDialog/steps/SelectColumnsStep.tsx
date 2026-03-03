@@ -3,9 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
-import { Progress } from "@/components/ui/progress";
-import { IconChevronLeft, IconLoader2, IconCheck, IconCircle } from "@tabler/icons-react";
-import { SheetSyncResponse } from "@/lib/api/schemas";
+import { IconChevronLeft, IconLoader2 } from "@tabler/icons-react";
 
 interface SelectColumnsStepProps {
   columns: string[];
@@ -68,43 +66,6 @@ export function SelectColumnsStep({ columns, adIdColumn, dateColumn, dateFormat,
         </div>
       )}
 
-      {/* Progresso da importação */}
-      {isImporting && (
-        <div className="space-y-4 pt-4 border-t border-border">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium">Progresso da importação</span>
-              <span className="text-muted-foreground">{importProgress}%</span>
-            </div>
-            <Progress value={importProgress} />
-          </div>
-
-          <div className="space-y-2">
-            <div className={`flex items-center gap-2 text-sm ${importStep === "saving" ? "text-primary" : importStep === "reading" || importStep === "processing" || importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
-              {importStep === "saving" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "reading" || importStep === "processing" || importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
-              <span>Salvando configuração da integração...</span>
-            </div>
-
-            <div className={`flex items-center gap-2 text-sm ${importStep === "reading" ? "text-primary" : importStep === "processing" || importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
-              {importStep === "reading" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "processing" || importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
-              <span>Lendo dados da planilha do Google Sheets...</span>
-            </div>
-
-            <div className={`flex items-center gap-2 text-sm ${importStep === "processing" ? "text-primary" : importStep === "complete" ? "text-green-500" : "text-muted-foreground"}`}>
-              {importStep === "processing" ? <IconLoader2 className="w-4 h-4 animate-spin" /> : importStep === "complete" ? <IconCheck className="w-4 h-4" /> : <IconCircle className="w-4 h-4" />}
-              <span>Processando e aplicando dados em ad_metrics...</span>
-            </div>
-
-            {importStep === "complete" && (
-              <div className="flex items-center gap-2 text-sm text-green-500">
-                <IconCheck className="w-4 h-4" />
-                <span>Importação concluída com sucesso!</span>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {/* Ações do Step 3 */}
       <div className="space-y-3 pt-4 border-t border-border">
         <div className="flex items-center justify-between gap-2">
@@ -119,7 +80,7 @@ export function SelectColumnsStep({ columns, adIdColumn, dateColumn, dateFormat,
                 Aplicando...
               </span>
             ) : (
-              "Aplicar"
+              "Iniciar integração"
             )}
           </Button>
         </div>

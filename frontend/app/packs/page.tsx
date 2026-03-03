@@ -1309,7 +1309,7 @@ export default function PacksPage() {
 
       const syncRes = await api.integrations.google.syncSheetIntegration(pack.sheet_integration.id);
 
-      finishProgressToast(toastId, true, `Enriquecimento de ads atualizado com sucesso! ${syncRes.stats?.updated_rows || 0} registros atualizados.`);
+      finishProgressToast(toastId, true, `Enriquecimento de ads atualizado com sucesso! ${syncRes.stats?.updated_rows || 0} registros atualizados.`, { visibleDurationOnly: 5, context: "sheets", packName: pack.name });
 
       // Recarregar packs para atualizar last_synced_at
       try {
@@ -1983,7 +1983,7 @@ export default function PacksPage() {
           </div>
 
           <div className="flex gap-4 w-full">
-            <Button onClick={cancelRefreshPack} variant="outline" className="flex-1 flex items-center justify-center gap-2 border-destructive/50 hover:border-destructive hover:bg-destructive-10 text-destructive">
+            <Button onClick={cancelRefreshPack} variant="destructiveOutline" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleX className="h-5 w-5" />
               Cancelar
             </Button>

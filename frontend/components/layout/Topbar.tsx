@@ -912,7 +912,7 @@ export default function Topbar() {
                             <p className="text-sm font-medium text-text">Excluir meus dados</p>
                             <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
                           </div>
-                          <Button variant="outline" size="sm" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
+                          <Button variant="destructiveOutline" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
                             <IconTrash className="h-4 w-4 mr-1" />
                             Excluir dados
                           </Button>
@@ -1225,7 +1225,7 @@ export default function Topbar() {
                             <p className="text-sm font-medium text-text">Excluir meus dados</p>
                             <p className="text-xs text-muted-foreground">Remove todos os dados (packs, métricas, anúncios, conexões e configurações). Sua conta Hookify será mantida.</p>
                           </div>
-                          <Button variant="outline" size="sm" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
+                          <Button variant="destructiveOutline" size="sm" className="flex-shrink-0" onClick={() => setShowDeleteDataConfirm(true)}>
                             <IconTrash className="h-4 w-4 mr-1" />
                             Excluir dados
                           </Button>
