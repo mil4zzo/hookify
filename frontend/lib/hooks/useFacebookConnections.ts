@@ -117,7 +117,15 @@ export function useFacebookConnections() {
     onSuccess: () => qc.invalidateQueries({ queryKey: qk.connections }),
   })
 
-  return { connections, connect, disconnect, setPrimary }
+  const refreshPicture = useMutation({
+    mutationFn: async (connectionId: string) => {
+      const res = await facebookConnectorApi.refreshPicture(connectionId)
+      return res.connection
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: qk.connections }),
+  })
+
+  return { connections, connect, disconnect, setPrimary, refreshPicture }
 }
 
 

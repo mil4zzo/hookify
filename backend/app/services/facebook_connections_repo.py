@@ -85,6 +85,51 @@ def list_connections(user_jwt: str) -> List[Dict[str, Any]]:
     return rows
 
 
+def get_connection_by_id(
+    user_jwt: str,
+    user_id: str,
+    connection_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Busca uma conexão pelo ID, restrita ao usuário.
+
+    Returns:
+        Registro da conexão (id, user_id, facebook_user_id, status, etc.) ou None se não encontrada.
+    """
+    sb = get_supabase_for_user(user_jwt)
+    res = (
+        sb.table("facebook_connections")
+        .select("id,user_id,facebook_user_id,status")
+        .eq("user_id", user_id)
+        .eq("id", connection_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data or len(res.data) == 0:
+        return None
+    return res.data[0]
+
+
+def update_connection_picture(
+    user_jwt: str,
+    user_id: str,
+    connection_id: str,
+    picture_storage_path: str,
+    picture_cached_at: str,
+    picture_source_url: str,
+) -> None:
+    """
+    Atualiza apenas os campos de cache da foto de perfil de uma conexão.
+    Não altera access_token nem outros campos.
+    """
+    sb = get_supabase_for_user(user_jwt)
+    sb.table("facebook_connections").update({
+        "picture_storage_path": picture_storage_path,
+        "picture_cached_at": picture_cached_at,
+        "picture_source_url": picture_source_url,
+    }).eq("id", connection_id).eq("user_id", user_id).execute()
+
+
 def upsert_connection(
     user_jwt: str,
     user_id: str,

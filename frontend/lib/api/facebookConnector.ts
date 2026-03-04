@@ -26,6 +26,10 @@ export const facebookConnectorApi = {
   async testConnection(id: string) {
     return apiClient.get<{ valid: boolean; expired?: boolean; message?: string }>(`/facebook/connections/${id}/test`)
   },
+
+  async refreshPicture(connectionId: string) {
+    return apiClient.post<{ connection: any }>(`/facebook/connections/${connectionId}/refresh-picture`)
+  },
 }
 
 

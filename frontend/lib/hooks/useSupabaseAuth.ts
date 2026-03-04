@@ -3,29 +3,54 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { formatToTitleCase } from '@/lib/utils/formatName'
+import { invalidateSessionCache } from '@/lib/api/client'
 
 type AuthState = {
   user: any | null
   session: any | null
   isLoading: boolean
   error: string | null
+  sessionReady: boolean
 }
 
 export function useSupabaseAuth() {
-  const [state, setState] = useState<AuthState>({ user: null, session: null, isLoading: true, error: null })
+  const [state, setState] = useState<AuthState>({
+    user: null,
+    session: null,
+    isLoading: true,
+    error: null,
+    sessionReady: false,
+  })
 
   useEffect(() => {
     const supabase = getSupabaseClient()
     supabase.auth.getSession().then(({ data }) => {
-      setState((s) => ({ ...s, session: data.session, user: data.session?.user ?? null, isLoading: false }))
+      setState((s) => ({
+        ...s,
+        session: data.session,
+        user: data.session?.user ?? null,
+        isLoading: false,
+      }))
     })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      invalidateSessionCache()
       setState((s) => ({ ...s, session, user: session?.user ?? null }))
     })
     return () => {
       sub.subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (state.session) {
+      const rafId = requestAnimationFrame(() => {
+        setState((s) => (s.session ? { ...s, sessionReady: true } : s))
+      })
+      return () => cancelAnimationFrame(rafId)
+    } else {
+      setState((s) => ({ ...s, sessionReady: false }))
+    }
+  }, [state.session])
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     const supabase = getSupabaseClient()
@@ -75,6 +100,7 @@ export function useSupabaseAuth() {
   return {
     user: state.user,
     session: state.session,
+    sessionReady: state.sessionReady,
     isLoading: state.isLoading,
     error: state.error,
     signInWithEmail,

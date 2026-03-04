@@ -22,7 +22,9 @@ from app.services.facebook_connections_repo import (
     upsert_connection,
     delete_connection,
     set_primary,
+    get_connection_by_id,
     get_facebook_token_for_connection,
+    update_connection_picture,
     update_connection_status,
 )
 from app.services.graph_api import GraphAPI, test_facebook_connection
@@ -201,6 +203,88 @@ def remove_connection(connection_id: str, user=Depends(get_current_user)):
 def make_primary(connection_id: str, user=Depends(get_current_user)):
     set_primary(user["token"], connection_id, user["user_id"])
     return {"ok": True}
+
+
+@router.post("/connections/{connection_id}/refresh-picture")
+def refresh_profile_picture(connection_id: str, user=Depends(get_current_user)):
+    """
+    Re-busca a foto de perfil do Facebook e salva no Storage.
+    Útil para contas antigas que tinham apenas facebook_picture_url (URL expirada).
+    """
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    conn = get_connection_by_id(user_jwt, user_id, connection_id)
+    if not conn:
+        raise HTTPException(status_code=404, detail="Conexão não encontrada")
+    if conn.get("status") != "active":
+        raise HTTPException(
+            status_code=400,
+            detail="Conexão não está ativa. Use reconectar para renovar o token.",
+        )
+
+    access_token, _, _ = get_facebook_token_for_connection(
+        user_jwt=user_jwt,
+        user_id=user_id,
+        connection_id=connection_id,
+    )
+    if not access_token:
+        raise HTTPException(
+            status_code=400,
+            detail="Token não disponível. Reconecte a conta do Facebook.",
+        )
+
+    api = GraphAPI(access_token, user_id=user_id)
+    info = api.get_account_info()
+    if info.get("status") != "success":
+        msg = info.get("message", "Token inválido ou expirado")
+        if info.get("status") == "auth_error":
+            raise HTTPException(status_code=400, detail=msg)
+        raise HTTPException(status_code=502, detail=msg)
+
+    fb = info["data"]
+    picture_url = None
+    picture_obj = fb.get("picture")
+    if isinstance(picture_obj, dict):
+        picture_data = picture_obj.get("data", {})
+        if isinstance(picture_data, dict):
+            picture_url = picture_data.get("url")
+
+    facebook_user_id = str(conn.get("facebook_user_id") or fb.get("id", ""))
+    if not picture_url or not str(picture_url).strip():
+        raise HTTPException(
+            status_code=502,
+            detail="Facebook não retornou URL da foto de perfil",
+        )
+
+    cached = cache_profile_picture(
+        user_id=user_id,
+        facebook_user_id=facebook_user_id,
+        picture_url=picture_url,
+    )
+    if not cached:
+        raise HTTPException(
+            status_code=502,
+            detail="Falha ao baixar ou salvar a foto no Storage",
+        )
+
+    update_connection_picture(
+        user_jwt=user_jwt,
+        user_id=user_id,
+        connection_id=connection_id,
+        picture_storage_path=cached.storage_path,
+        picture_cached_at=cached.cached_at,
+        picture_source_url=cached.source_url,
+    )
+
+    connections = list_connections(user_jwt)
+    rec = next((c for c in connections if c.get("id") == connection_id), None)
+    if rec:
+        if rec.get("picture_storage_path"):
+            url = build_public_storage_url(DEFAULT_BUCKET, rec["picture_storage_path"])
+            if url:
+                rec["facebook_picture_url"] = url
+    return {"connection": rec}
 
 
 @router.get("/connections/{connection_id}/test")

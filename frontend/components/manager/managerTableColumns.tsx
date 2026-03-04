@@ -20,7 +20,6 @@ export type CreateManagerTableColumnsParams = {
   activeColumns: Set<ManagerColumnType>;
   groupByAdNameEffective: boolean;
   byKey: DailySeriesByKey;
-  expanded: Record<string, boolean>;
   expandedRef: React.MutableRefObject<Record<string, boolean>>;
   setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 
@@ -97,7 +96,7 @@ function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: Ra
 }
 
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
-  const { columnHelper, currentTab, getRowKey, expanded, expandedRef, setExpanded, groupByAdNameEffective, viewMode } = params;
+  const { columnHelper, currentTab, getRowKey, expandedRef, setExpanded, groupByAdNameEffective, viewMode } = params;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
@@ -157,7 +156,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       cell: (info) => {
         const original = info.row.original as RankingsItem;
         const name = String(info.getValue() || "—");
-        return <AdNameCell original={original} value={name} getRowKey={getRowKey} expanded={expanded} setExpanded={setExpanded} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} minimal={viewMode === "minimal"} />;
+        return <AdNameCell original={original} value={name} getRowKey={getRowKey} expanded={expandedRef.current} setExpanded={setExpanded} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} minimal={viewMode === "minimal"} />;
       },
     }),
   );

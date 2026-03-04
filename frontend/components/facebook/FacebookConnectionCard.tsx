@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { IconBrandFacebook, IconCheck, IconLoader2, IconRefresh, IconTrash, IconAlertCircle } from "@tabler/icons-react";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
@@ -10,6 +11,7 @@ interface FacebookConnection {
   facebook_email?: string | null;
   facebook_user_id: string;
   facebook_picture_url?: string | null;
+  picture_storage_path?: string | null;
   status?: string;
   is_primary?: boolean;
 }
@@ -20,6 +22,7 @@ interface FacebookConnectionCardProps {
   onSelect?: (connectionId: string) => void;
   onDelete?: (connectionId: string) => void;
   onReconnect?: (connectionId: string) => void;
+  onRefreshPicture?: (connectionId: string) => void | Promise<void>;
   onSetPrimary?: (connectionId: string) => void;
   isDeleting?: boolean;
   showActions?: boolean;
@@ -31,11 +34,13 @@ export function FacebookConnectionCard({
   onSelect,
   onDelete,
   onReconnect,
+  onRefreshPicture,
   onSetPrimary,
   isDeleting = false,
   showActions = true,
 }: FacebookConnectionCardProps) {
   const { testingConnections, expiredConnections, handleRetestConnection } = useFacebookConnectionVerification();
+  const hasTriggeredPictureRefresh = useRef(false);
 
   const isTesting = testingConnections.has(connection.id);
   const isExpired = expiredConnections.has(connection.id) || connection.status === "expired" || connection.status === "invalid";
@@ -82,6 +87,16 @@ export function FacebookConnectionCard({
               src={connection.facebook_picture_url}
               alt={connection.facebook_name || "Facebook"}
               className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+              onError={() => {
+                if (
+                  !hasTriggeredPictureRefresh.current &&
+                  onRefreshPicture &&
+                  !connection.picture_storage_path
+                ) {
+                  hasTriggeredPictureRefresh.current = true;
+                  onRefreshPicture(connection.id);
+                }
+              }}
             />
           ) : (
             <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center flex-shrink-0">

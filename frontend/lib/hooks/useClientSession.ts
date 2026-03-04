@@ -64,14 +64,14 @@ export const useClientSession = () => {
  */
 export const useClientAuth = () => {
   const [isClient, setIsClient] = useState(false)
-  const { user, session, isLoading } = useSupabaseAuth()
-  
+  const { user, session, sessionReady, isLoading } = useSupabaseAuth()
+
   useEffect(() => {
     setIsClient(true)
   }, [])
-  
+
   return {
-    isAuthenticated: isClient && !!user && !!session,
+    isAuthenticated: isClient && !!user && !!session && sessionReady,
     user: isClient ? user : null,
     session: isClient ? session : null,
     isClient,

@@ -41,13 +41,13 @@ export const queryKeys = {
 
 // Hooks para queries
 export const useMe = () => {
-  const { session } = useSupabaseAuth() // Usar sessão do Supabase ao invés de accessToken do store
+  const { session, sessionReady } = useSupabaseAuth()
   const setUser = useSessionStore(s => s.setUser)
   const setAdAccounts = useSessionStore(s => s.setAdAccounts)
   const result = useQuery({
     queryKey: queryKeys.me,
     queryFn: api.facebook.getMe,
-    enabled: !!session, // Verificar sessão do Supabase ao invés de token do store
+    enabled: !!session && sessionReady,
     staleTime: 5 * 60 * 1000, // 5 minutos
     retry: 2,
   })
@@ -61,12 +61,12 @@ export const useMe = () => {
 }
 
 export const useAdAccountsDb = () => {
-  const { session } = useSupabaseAuth() // Usar sessão do Supabase ao invés de accessToken do store
+  const { session, sessionReady } = useSupabaseAuth()
   const setAdAccounts = useSessionStore(s => s.setAdAccounts)
   const result = useQuery({
     queryKey: queryKeys.adAccounts,
     queryFn: api.facebook.getAdAccounts,
-    enabled: !!session, // Verificar sessão do Supabase ao invés de token do store
+    enabled: !!session && sessionReady,
     staleTime: 10 * 60 * 1000,
     retry: 2,
   })

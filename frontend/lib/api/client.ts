@@ -3,6 +3,19 @@ import { parseError, AppError } from '@/lib/utils/errors'
 import { env } from '@/lib/config/env'
 import { getSupabaseClient } from '@/lib/supabase/client'
 
+const SESSION_CACHE_TTL_MS = 300
+
+type SessionCacheEntry = {
+  session: { access_token?: string; expires_at?: number } | null
+  expiresAt: number
+}
+
+let sessionCache: SessionCacheEntry | null = null
+
+export function invalidateSessionCache() {
+  sessionCache = null
+}
+
 class ApiClient {
   private client: AxiosInstance
 
@@ -19,40 +32,46 @@ class ApiClient {
   }
 
   private setupInterceptors() {
-    // Request interceptor - adiciona JWT do Supabase
+    // Request interceptor - adiciona JWT do Supabase (com cache para reduzir corridas e 401 iniciais)
     this.client.interceptors.request.use(
       async (config) => {
         if (typeof window !== 'undefined') {
           try {
-            const supabase = getSupabaseClient()
-            const { data, error } = await supabase.auth.getSession()
-            
-            if (error) {
-              // Se houver erro ao buscar sessão, não adiciona header mas também não bloqueia a requisição
-              // A API pode ter endpoints públicos que não precisam de autenticação
-              if (env.NODE_ENV !== 'production') {
-                console.warn('[API Client] Erro ao buscar sessão:', error.message)
+            let session: { access_token?: string; expires_at?: number } | null = null
+
+            if (sessionCache && Date.now() < sessionCache.expiresAt) {
+              session = sessionCache.session
+            } else {
+              const supabase = getSupabaseClient()
+              const { data, error } = await supabase.auth.getSession()
+              if (error) {
+                if (env.NODE_ENV !== 'production') {
+                  console.warn('[API Client] Erro ao buscar sessão:', error.message)
+                }
+                if (config.headers && 'Authorization' in config.headers) {
+                  delete (config.headers as any).Authorization
+                }
+                return config
               }
-              // Remove header se existir
-              if (config.headers && 'Authorization' in config.headers) {
-                delete (config.headers as any).Authorization
+              session = data.session ?? null
+              sessionCache = {
+                session,
+                expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
               }
-              return config
             }
-            
-            const accessToken = data.session?.access_token
-            // Verificar se há token E se a sessão ainda é válida (não expirada)
-            const isSessionValid = accessToken && data.session && 
-              (!data.session.expires_at || data.session.expires_at * 1000 > Date.now())
-            
+
+            const accessToken = session?.access_token
+            const isSessionValid =
+              accessToken &&
+              session &&
+              (!session.expires_at || session.expires_at * 1000 > Date.now())
+
             if (isSessionValid && accessToken) {
               config.headers.Authorization = `Bearer ${accessToken}`
             } else {
-              // Remove header se não houver token válido
               if (config.headers && 'Authorization' in config.headers) {
                 delete (config.headers as any).Authorization
               }
-              // Log apenas em desenvolvimento para ajudar no debug
               if (env.NODE_ENV !== 'production' && config.url) {
                 if (!accessToken) {
                   console.warn(`[API Client] Requisição sem token para: ${config.url}`)
@@ -62,7 +81,6 @@ class ApiClient {
               }
             }
           } catch (err) {
-            // Erro inesperado ao buscar sessão - remove header se existir
             if (config.headers && 'Authorization' in config.headers) {
               delete (config.headers as any).Authorization
             }
@@ -85,8 +103,11 @@ class ApiClient {
         return response
       },
       (error) => {
+        if (error?.response?.status === 401) {
+          invalidateSessionCache()
+        }
         const appError = parseError(error)
-        
+
         // Log detalhado apenas em desenvolvimento (sem usar console.error para evitar overlay do Next)
         if (env.NODE_ENV !== 'production') {
           try {

@@ -59,7 +59,7 @@ export default function Topbar() {
   const { packs, removePack } = useClientPacks();
   const { handleLogout } = useAuthManager();
   const { settings, setLanguage, setNiche, updateSettings } = useSettings();
-  const { connections, connect, disconnect, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
+  const { connections, connect, disconnect, refreshPicture, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
   const { invalidateAllPacksAds, invalidateAdPerformance, invalidatePackAds } = useInvalidatePackAds();
   const { user: supabaseUser } = useSupabaseAuth();
@@ -156,6 +156,14 @@ export default function Topbar() {
   const handleConnectFacebook = async () => {
     try {
       await connect.mutateAsync();
+    } catch (error) {
+      showError(error as any);
+    }
+  };
+
+  const handleRefreshPicture = async (connectionId: string) => {
+    try {
+      await refreshPicture.mutateAsync(connectionId);
     } catch (error) {
       showError(error as any);
     }
@@ -878,6 +886,7 @@ export default function Topbar() {
                               key={connection.id}
                               connection={connection}
                               onReconnect={handleConnectFacebook}
+                              onRefreshPicture={handleRefreshPicture}
                               onDelete={async (connectionId) => {
                                 try {
                                   clearConnectionCache(connectionId);
@@ -1191,6 +1200,7 @@ export default function Topbar() {
                               key={connection.id}
                               connection={connection}
                               onReconnect={handleConnectFacebook}
+                              onRefreshPicture={handleRefreshPicture}
                               onDelete={async (connectionId) => {
                                 try {
                                   clearConnectionCache(connectionId);

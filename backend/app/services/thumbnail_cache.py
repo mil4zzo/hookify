@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_BUCKET = "ad-thumbs"
 DEFAULT_TIMEOUT_SECONDS = 10
+# Upload de profile picture pode ser mais lento (Supabase Storage / rede)
+PROFILE_PIC_UPLOAD_TIMEOUT_SECONDS = 30
 DEFAULT_MAX_BYTES = 4_000_000  # 4MB: mais que suficiente para thumbnail
 DEFAULT_MAX_WORKERS = 8
 DEFAULT_WEBP_QUALITY = 82  # Qualidade WebP (0-100): 82 é bom balanço qualidade/tamanho
@@ -314,13 +316,14 @@ def cache_profile_picture(
     facebook_user_id: str,
     picture_url: str,
     bucket: str = DEFAULT_BUCKET,
-    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    timeout_seconds: int = PROFILE_PIC_UPLOAD_TIMEOUT_SECONDS,
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Optional[CachedThumb]:
     """Baixa e cacheia a foto de perfil do Facebook no Supabase Storage (bucket público).
 
     Path: profile-pics/{user_id}/{facebook_user_id}.webp.
     Retorna metadados para persistir no DB (facebook_connections.picture_storage_path/cached_at/source_url).
+    Usa timeout maior que o padrão (30s) para download e upload, pois o Storage pode ser lento.
     """
     user_id = str(user_id or "").strip()
     facebook_user_id = str(facebook_user_id or "").strip()

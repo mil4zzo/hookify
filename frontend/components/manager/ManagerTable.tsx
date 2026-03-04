@@ -1,12 +1,14 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef, startTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/common/Modal";
 import { useFormatCurrency } from "@/lib/utils/currency";
+import dynamic from "next/dynamic";
 import { AdInfoCard } from "@/components/ads/AdInfoCard";
-import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
-import { VideoDialog } from "@/components/ads/VideoDialog";
+
+const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
+const VideoDialog = dynamic(() => import("@/components/ads/VideoDialog").then((m) => m.VideoDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
 import { IconSearch, IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal } from "@tabler/icons-react";
@@ -27,7 +29,7 @@ import { Input } from "@/components/ui/input";
 import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AdsetDetailsDialog } from "@/components/ads/AdsetDetailsDialog";
+const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDialog").then((m) => m.AdsetDetailsDialog), { ssr: false });
 import { MetricCell } from "@/components/manager/MetricCell";
 import { AdNameCell } from "@/components/manager/AdNameCell";
 import { FilterBar } from "@/components/manager/FilterBar";
@@ -89,6 +91,13 @@ const STORAGE_KEY_VIEW_MODE = "hookify-manager-view-mode";
 
 // Tipo para o modo de visualização
 type ViewMode = "detailed" | "minimal";
+
+const MANAGER_TABS: TabItem[] = [
+  { value: "individual", label: "Individual", icon: IconDeviceTablet },
+  { value: "por-anuncio", label: "Por anúncio", icon: IconPlayCardA },
+  { value: "por-conjunto", label: "Por conjunto", icon: IconBorderAll },
+  { value: "por-campanha", label: "Por campanha", icon: IconFolder },
+];
 
 // SortIcon foi movido para `managerTableMetricColumns.tsx` junto do factory de colunas.
 
@@ -623,7 +632,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       activeColumns,
       groupByAdNameEffective,
       byKey,
-      expanded,
       expandedRef,
       setExpanded,
       currentTab,
@@ -645,7 +653,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, expanded, endDate, showTrends, averages, formatAverage, formatCurrency, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, averages, formatAverage, formatCurrency, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -848,17 +856,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     return cols;
   }, [hasSheetIntegration, currentTab, activeColumns]);
 
-  const tabs: TabItem[] = [
-    { value: "individual", label: "Individual", icon: IconDeviceTablet },
-    { value: "por-anuncio", label: "Por anúncio", icon: IconPlayCardA },
-    { value: "por-conjunto", label: "Por conjunto", icon: IconBorderAll },
-    { value: "por-campanha", label: "Por campanha", icon: IconFolder },
-  ];
 
   const searchBar = (
     <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
       <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-      <Input type="search" placeholder={currentTab === "por-conjunto" ? "Buscar por nome do conjunto..." : currentTab === "por-campanha" ? "Buscar por nome da campanha..." : "Buscar por nome do anúncio..."} value={globalFilter} onChange={(e) => setGlobalFilter(e.target.value)} className="pl-9 h-10 w-full" />
+      <Input type="search" placeholder={currentTab === "por-conjunto" ? "Buscar por nome do conjunto..." : currentTab === "por-campanha" ? "Buscar por nome da campanha..." : "Buscar por nome do anúncio..."} value={globalFilter} onChange={(e) => { const v = e.target.value; startTransition(() => setGlobalFilter(v)); }} className="pl-9 h-10 w-full" />
     </div>
   );
 
@@ -942,7 +944,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   return (
     <div className="w-full h-full flex-1 flex flex-col min-h-0">
-      <TabbedContent value={currentTab} onValueChange={handleTabChange} variant="with-controls" tabs={tabs} controls={controls} separatorAfterTabs={true}>
+      <TabbedContent value={currentTab} onValueChange={handleTabChange} variant="with-controls" tabs={MANAGER_TABS} controls={controls} separatorAfterTabs={true}>
         <TabbedContentItem value="individual" variant="with-controls">
           <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
             <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">

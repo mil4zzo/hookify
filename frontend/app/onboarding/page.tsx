@@ -140,7 +140,7 @@ function InitialSettingsStep(props: { onContinue: () => void }) {
 }
 
 function FacebookStep(props: { onContinue: () => void; onBack: () => void }) {
-  const { connections, connect, activeConnections, hasActiveConnection, disconnect } = useFacebookAccountConnection();
+  const { connections, connect, activeConnections, hasActiveConnection, disconnect, refreshPicture } = useFacebookAccountConnection();
   const { verifyConnections } = useFacebookConnectionVerification();
 
   // Verificar conexões quando carregarem
@@ -196,7 +196,21 @@ function FacebookStep(props: { onContinue: () => void; onBack: () => void }) {
             <label className="text-sm font-medium">Conexões existentes</label>
             <div className="space-y-2">
               {connections.data.map((connection: any) => (
-                <FacebookConnectionCard key={connection.id} connection={connection} onReconnect={handleReconnect} onDelete={handleDelete} isDeleting={disconnect.isPending} showActions={true} />
+                <FacebookConnectionCard
+                  key={connection.id}
+                  connection={connection}
+                  onReconnect={handleReconnect}
+                  onRefreshPicture={async (connectionId) => {
+                    try {
+                      await refreshPicture.mutateAsync(connectionId);
+                    } catch (e: any) {
+                      showError(e);
+                    }
+                  }}
+                  onDelete={handleDelete}
+                  isDeleting={disconnect.isPending}
+                  showActions={true}
+                />
               ))}
             </div>
           </div>
