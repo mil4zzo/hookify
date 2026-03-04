@@ -70,12 +70,16 @@ export const useClientAuth = () => {
     setIsClient(true)
   }, [])
 
+  // isLoading deve permanecer true até sessionReady para evitar redirect
+  // indevido no useRequireAuth (race condition de 1 frame entre isLoading=false e sessionReady=true)
+  const effectiveLoading = isLoading || (!!session && !sessionReady)
+
   return {
     isAuthenticated: isClient && !!user && !!session && sessionReady,
     user: isClient ? user : null,
     session: isClient ? session : null,
     isClient,
-    isLoading,
+    isLoading: effectiveLoading,
   }
 }
 
