@@ -290,6 +290,9 @@ function ManagerPageContent() {
   );
 
   // Usar hook semântico para buscar performance agregada de anúncios
+  // Limitar sparklines aos últimos 7 dias para reduzir payload de series (~92% de economia)
+  const SERIES_WINDOW = 7;
+
   const managerRequest: RankingsRequest = useMemo(
     () => ({
       date_start: dateRange.start || "",
@@ -301,6 +304,7 @@ function ManagerPageContent() {
       pack_ids: Array.from(selectedPackIds),
       include_series: showTrends,
       include_leadscore: hasSheetIntegration,
+      series_window: SERIES_WINDOW,
     }),
     [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
@@ -318,6 +322,7 @@ function ManagerPageContent() {
       pack_ids: Array.from(selectedPackIds),
       include_series: showTrends,
       include_leadscore: hasSheetIntegration,
+      series_window: SERIES_WINDOW,
     }),
     [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
@@ -336,6 +341,7 @@ function ManagerPageContent() {
       pack_ids: Array.from(selectedPackIds),
       include_series: showTrends,
       include_leadscore: hasSheetIntegration,
+      series_window: SERIES_WINDOW,
     }),
     [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
@@ -354,6 +360,7 @@ function ManagerPageContent() {
       pack_ids: Array.from(selectedPackIds),
       include_series: showTrends,
       include_leadscore: hasSheetIntegration,
+      series_window: SERIES_WINDOW,
     }),
     [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
@@ -367,6 +374,31 @@ function ManagerPageContent() {
   const serverDataAdset = managerDataAdset?.data || null;
   const serverDataCampaign = managerDataCampaign?.data || null;
   const availableConversionTypes = managerData?.available_conversion_types || [];
+
+  // === DIAGNÓSTICO TEMPORÁRIO DE MEMÓRIA ===
+  useEffect(() => {
+    const datasets = [
+      { name: "Por anúncio", data: serverData },
+      { name: "Individual", data: serverDataIndividual },
+      { name: "Por conjunto", data: serverDataAdset },
+      { name: "Por campanha", data: serverDataCampaign },
+    ];
+    for (const { name, data } of datasets) {
+      if (!data || data.length === 0) continue;
+      const sample = data[0];
+      const seriesKeys = sample?.series ? Object.keys(sample.series) : [];
+      const seriesAxisLen = sample?.series?.axis?.length || 0;
+      const leadscoreLen = Array.isArray(sample?.leadscore_values) ? sample.leadscore_values.length : 0;
+      const curveLen = Array.isArray(sample?.video_play_curve_actions) ? sample.video_play_curve_actions.length : 0;
+      const jsonSize = JSON.stringify(data).length;
+      console.log(`[MEM-DIAG] ${name}: ${data.length} items | JSON: ${(jsonSize / 1024 / 1024).toFixed(2)} MB | series keys: [${seriesKeys.join(",")}] | series.axis.length: ${seriesAxisLen} | leadscore: ${leadscoreLen} | curve: ${curveLen}`);
+    }
+    // Performance memory API (se disponível)
+    if ((performance as any).memory) {
+      const mem = (performance as any).memory;
+      console.log(`[MEM-DIAG] JS Heap: ${(mem.usedJSHeapSize / 1024 / 1024).toFixed(0)} MB / ${(mem.totalJSHeapSize / 1024 / 1024).toFixed(0)} MB (limit: ${(mem.jsHeapSizeLimit / 1024 / 1024).toFixed(0)} MB)`);
+    }
+  }, [serverData, serverDataIndividual, serverDataAdset, serverDataCampaign]);
 
   const uniqueConversionTypes = useMemo(() => {
     return availableConversionTypes;
@@ -622,88 +654,21 @@ function ManagerPageContent() {
       const connect_rate = Number(row.connect_rate || 0);
       const overall_conversion = website_ctr * connect_rate * page_conv;
 
-      // Usar objeto original de conversões (contém todos os tipos) - mais eficiente que criar array
-      const actions = [{ action_type: "landing_page_view", value: lpv }];
-
-      // Processar series para calcular cpr_series e page_conv_series dinamicamente (dependem de actionType)
-      // cpm_series e website_ctr_series sempre vêm do backend
-      let series = row.series;
-
-      // Calcular cpr_series e page_conv_series (dependem de actionType)
-      if (series && series.conversions && actionType) {
-        // Calcular results por dia para o action_type selecionado
-        const resultsSeries = series.conversions.map((dayConversions: Record<string, number>) => {
-          return dayConversions[actionType] || 0;
-        });
-
-        // Calcular cpr_series e page_conv_series
-        const spendSeries = series.spend || [];
-        const lpvSeries = series.lpv || [];
-
-        const page_conv_series = resultsSeries.map((resultsDay: number, idx: number) => {
-          const lpvDay = lpvSeries[idx] || 0;
-          return lpvDay > 0 ? resultsDay / lpvDay : null;
-        });
-
-        const cpr_series = resultsSeries.map((resultsDay: number, idx: number) => {
-          const spendDay = spendSeries[idx] || 0;
-          return resultsDay > 0 ? spendDay / resultsDay : null;
-        });
-
-        // Calcular série de overall_conversion (website_ctr * connect_rate * page_conv)
-        const website_ctr_series = series.website_ctr || [];
-        const connect_rate_series = series.connect_rate || [];
-        const overall_conversion_series = page_conv_series.map((pageConvDay: number | null, idx: number) => {
-          const websiteCtrDay = website_ctr_series[idx] ?? 0;
-          const connectRateDay = connect_rate_series[idx] ?? 0;
-          if (pageConvDay !== null && pageConvDay !== undefined && websiteCtrDay !== null && connectRateDay !== null) {
-            return websiteCtrDay * connectRateDay * pageConvDay;
-          }
-          return null;
-        });
-
-        series = {
-          ...series,
-          cpr: cpr_series,
-          page_conv: page_conv_series,
-          overall_conversion: overall_conversion_series,
-        } as any;
-      }
-
+      // Spread leve: herda todos os campos do original (series, leadscore_values, etc. compartilham referência)
+      // Apenas sobrescreve campos derivados que dependem de actionType
+      // Series derivadas (cpr, page_conv, overall_conversion) são calculadas sob demanda pelo MetricCell
       return {
-        account_id: row.account_id,
-        ad_id: row.ad_id,
-        ad_name: row.ad_name,
-        adset_id: row.adset_id || null,
-        adset_name: row.adset_name || null,
-        campaign_id: row.campaign_id || null,
-        campaign_name: row.campaign_name || null,
-        unique_id: row.unique_id,
-        effective_status: row.effective_status || null,
-        active_count: row.active_count != null ? Number(row.active_count) : undefined,
-        clicks: Number(row.clicks || 0),
-        impressions: Number(row.impressions || 0),
-        inline_link_clicks: Number(row.inline_link_clicks || 0),
+        ...row,
         lpv,
         spend,
-        plays: Number(row.plays || 0),
-        video_total_plays: Number(row.plays || 0),
-        hook: Number(row.hook || 0),
-        ctr: Number(row.ctr || 0),
-        connect_rate: Number(row.connect_rate || 0),
-        page_conv,
         cpr,
         cpm,
-        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        page_conv,
         overall_conversion,
-        ad_count: Number(row.ad_count || 1),
-        thumbnail: row.thumbnail || null, // Thumbnail do servidor
-        // Preservar leadscore_values agregados para cálculo de MQL/CPMQL no frontend
-        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
-        conversions: conversionsObj, // Objeto original contendo todos os tipos de conversão
-        actions,
-        series, // Séries com cpr e page_conv calculados dinamicamente, cpm e website_ctr do backend
-        video_play_curve_actions: row.video_play_curve_actions || null, // Curva agregada do servidor (ponderada por plays)
+        website_ctr,
+        connect_rate,
+        video_total_plays: Number(row.plays || 0),
+        conversions: conversionsObj,
         creative: {},
       };
     });
@@ -720,49 +685,26 @@ function ManagerPageContent() {
     const mappedData = serverDataIndividual.map((row: any) => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-
       const lpv = Number(row.lpv || 0);
       const spend = Number(row.spend || 0);
       const page_conv = lpv > 0 ? results / lpv : 0;
       const cpr = results > 0 ? spend / results : 0;
-      const cpm = Number(row.cpm || 0);
-      const overall_conversion = Number(row.overall_conversion || 0);
-
-      const actions = row.actions || null;
-      const series = row.series || null;
+      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
+      const connect_rate = Number(row.connect_rate || 0);
+      const overall_conversion = website_ctr * connect_rate * page_conv;
 
       return {
-        account_id: row.account_id,
-        ad_id: row.ad_id,
-        ad_name: row.ad_name,
-        adset_id: row.adset_id || null,
-        adset_name: row.adset_name || null,
-        campaign_id: row.campaign_id || null,
-        campaign_name: row.campaign_name || null,
-        unique_id: row.unique_id,
-        effective_status: row.effective_status || null,
-        clicks: Number(row.clicks || 0),
-        impressions: Number(row.impressions || 0),
-        inline_link_clicks: Number(row.inline_link_clicks || 0),
+        ...row,
         lpv,
         spend,
-        plays: Number(row.plays || 0),
-        video_total_plays: Number(row.plays || 0),
-        hook: Number(row.hook || 0),
-        ctr: Number(row.ctr || 0),
-        connect_rate: Number(row.connect_rate || 0),
-        page_conv,
         cpr,
-        cpm,
-        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        cpm: Number(row.cpm || 0),
+        page_conv,
         overall_conversion,
-        ad_count: Number(row.ad_count || 1),
-        thumbnail: row.thumbnail || null,
-        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
+        website_ctr,
+        connect_rate,
+        video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
-        actions,
-        series,
-        video_play_curve_actions: row.video_play_curve_actions || null,
         creative: {},
       };
     });
@@ -778,54 +720,28 @@ function ManagerPageContent() {
     const mappedData = serverDataAdset.map((row: any) => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-
       const lpv = Number(row.lpv || 0);
       const spend = Number(row.spend || 0);
       const page_conv = lpv > 0 ? results / lpv : 0;
       const cpr = results > 0 ? spend / results : 0;
-      const cpm = Number(row.cpm || 0);
-      const overall_conversion = Number(row.overall_conversion || 0);
-
-      const actions = row.actions || null;
-      const series = row.series || null;
-
-      // Para compatibilidade, manter ad_name preenchido (usado em busca), mas o UI usará adset_name na aba Por conjunto
-      const adsetId = row.adset_id;
-      const adsetName = row.adset_name;
+      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
+      const connect_rate = Number(row.connect_rate || 0);
+      const overall_conversion = website_ctr * connect_rate * page_conv;
 
       return {
-        account_id: row.account_id,
-        campaign_id: row.campaign_id,
-        campaign_name: row.campaign_name,
-        adset_id: adsetId,
-        adset_name: adsetName,
-        ad_id: row.ad_id,
-        ad_name: row.ad_name || adsetName || adsetId,
-        unique_id: row.unique_id,
-        effective_status: row.effective_status || null,
-        active_count: row.active_count != null ? Number(row.active_count) : undefined,
-        clicks: Number(row.clicks || 0),
-        impressions: Number(row.impressions || 0),
-        inline_link_clicks: Number(row.inline_link_clicks || 0),
+        ...row,
+        // Fallback para ad_name usado em busca na aba Por conjunto
+        ad_name: row.ad_name || row.adset_name || row.adset_id,
         lpv,
         spend,
-        plays: Number(row.plays || 0),
-        video_total_plays: Number(row.plays || 0),
-        hook: Number(row.hook || 0),
-        ctr: Number(row.ctr || 0),
-        connect_rate: Number(row.connect_rate || 0),
-        page_conv,
         cpr,
-        cpm,
-        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        cpm: Number(row.cpm || 0),
+        page_conv,
         overall_conversion,
-        ad_count: Number(row.ad_count || 1),
-        thumbnail: row.thumbnail || null,
-        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
+        website_ctr,
+        connect_rate,
+        video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
-        actions,
-        series,
-        video_play_curve_actions: row.video_play_curve_actions || null,
         creative: {},
       };
     });
@@ -841,54 +757,28 @@ function ManagerPageContent() {
     const mappedData = serverDataCampaign.map((row: any) => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-
       const lpv = Number(row.lpv || 0);
       const spend = Number(row.spend || 0);
       const page_conv = lpv > 0 ? results / lpv : 0;
       const cpr = results > 0 ? spend / results : 0;
-      const cpm = Number(row.cpm || 0);
-      const overall_conversion = Number(row.overall_conversion || 0);
-
-      const actions = row.actions || null;
-      const series = row.series || null;
-
-      const campaignId = row.campaign_id;
-      const campaignName = row.campaign_name;
+      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
+      const connect_rate = Number(row.connect_rate || 0);
+      const overall_conversion = website_ctr * connect_rate * page_conv;
 
       return {
-        account_id: row.account_id,
-        campaign_id: campaignId,
-        campaign_name: campaignName,
-        adset_id: row.adset_id || null,
-        adset_name: row.adset_name || null,
-        ad_id: row.ad_id,
-        // Para compat, manter ad_name como label principal (o backend já devolve campaign_name/campaign_id aqui)
-        ad_name: row.ad_name || campaignName || campaignId,
-        unique_id: row.unique_id,
-        effective_status: row.effective_status || null,
-        clicks: Number(row.clicks || 0),
-        impressions: Number(row.impressions || 0),
-        inline_link_clicks: Number(row.inline_link_clicks || 0),
+        ...row,
+        // Fallback para ad_name na aba Por campanha
+        ad_name: row.ad_name || row.campaign_name || row.campaign_id,
         lpv,
         spend,
-        plays: Number(row.plays || 0),
-        video_total_plays: Number(row.plays || 0),
-        hook: Number(row.hook || 0),
-        ctr: Number(row.ctr || 0),
-        connect_rate: Number(row.connect_rate || 0),
-        page_conv,
         cpr,
-        cpm,
-        website_ctr: typeof row.website_ctr === "number" ? row.website_ctr : 0,
+        cpm: Number(row.cpm || 0),
+        page_conv,
         overall_conversion,
-        // No agrupamento por campanha, o backend preenche ad_count como quantidade de adsets distintos
-        ad_count: Number(row.ad_count || 1),
-        thumbnail: row.thumbnail || null,
-        leadscore_values: Array.isArray(row.leadscore_values) ? row.leadscore_values : undefined,
+        website_ctr,
+        connect_rate,
+        video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
-        actions,
-        series,
-        video_play_curve_actions: row.video_play_curve_actions || null,
         creative: {},
       };
     });

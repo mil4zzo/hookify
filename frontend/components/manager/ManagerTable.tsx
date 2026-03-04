@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect, useCallback, useRef, startTransition } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef, startTransition, useDeferredValue } from "react";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/common/Modal";
 import { useFormatCurrency } from "@/lib/utils/currency";
@@ -88,6 +88,9 @@ const columnHelper = createColumnHelper<Ad>();
 
 const STORAGE_KEY_MANAGER_COLUMNS = "hookify-manager-columns";
 const STORAGE_KEY_VIEW_MODE = "hookify-manager-view-mode";
+
+// Map vazio estável para byKey quando server series existem (evita re-criação de columns)
+const EMPTY_SERIES_MAP = new Map<string, any>();
 
 // Tipo para o modo de visualização
 type ViewMode = "detailed" | "minimal";
@@ -249,8 +252,13 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // - por-anuncio: agrupado por nome (comportamento atual)
   // - por-conjunto: por adset_id (sem agrupamento por nome)
   const groupByAdNameEffective = currentTab === "por-anuncio";
-  const adsEffective = currentTab === "individual" ? (adsIndividual ?? ads) : currentTab === "por-conjunto" ? (adsAdset ?? ads) : currentTab === "por-campanha" ? (adsCampaign ?? ads) : ads;
-  const isLoadingEffective = currentTab === "individual" ? (isLoadingIndividual ?? isLoading) : currentTab === "por-conjunto" ? (isLoadingAdset ?? isLoading) : currentTab === "por-campanha" ? (isLoadingCampaign ?? isLoading) : isLoading;
+  const adsEffectiveRaw = currentTab === "individual" ? (adsIndividual ?? ads) : currentTab === "por-conjunto" ? (adsAdset ?? ads) : currentTab === "por-campanha" ? (adsCampaign ?? ads) : ads;
+  // useDeferredValue permite que o React renderize a UI com os dados anteriores enquanto processa
+  // os novos 2000+ items em background, evitando que a main thread trave por vários segundos.
+  const adsEffective = useDeferredValue(adsEffectiveRaw);
+  const isLoadingBase = currentTab === "individual" ? (isLoadingIndividual ?? isLoading) : currentTab === "por-conjunto" ? (isLoadingAdset ?? isLoading) : currentTab === "por-campanha" ? (isLoadingCampaign ?? isLoading) : isLoading;
+  // Considerar loading enquanto dados deferred não estiverem prontos (evita UI vazia sem feedback)
+  const isLoadingEffective = isLoadingBase || adsEffective !== adsEffectiveRaw;
 
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
@@ -546,24 +554,19 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     setColumnFilters([]);
   }, [setColumnFilters]);
 
-  // Pre-aggregate 5-day daily series ending at provided endDate (fallback se não vier do servidor)
+  // byKey Map: usado pelo MetricCell como fallback quando series não vêm do servidor.
+  // Quando server series existem (caso padrão), retornamos Map vazio estável:
+  // - MetricCell já acessa original.series diretamente (prioridade sobre byKey)
+  // - Map vazio = referência estável = columns useMemo NÃO recria quando dados mudam
+  // - Isso quebra a cascata: dados mudam → byKey estável → columns estáveis → table não reconstrói
   const { byKey } = useMemo(() => {
-    if (!endDate) return { byKey: new Map<string, any>() };
-    // Verificar se os dados já vêm com séries do servidor
+    if (!endDate) return { byKey: EMPTY_SERIES_MAP };
+    // Quando server envia series, MetricCell lê de original.series diretamente
     const hasServerSeries = adsEffective.length > 0 && (adsEffective as any)[0]?.series;
-
     if (hasServerSeries) {
-      // Construir mapa a partir das séries do servidor
-      const map = new Map<string, any>();
-      (adsEffective as any as RankingsItem[]).forEach((ad: RankingsItem) => {
-        const key = getRowKey({ original: ad });
-        if (ad.series) {
-          map.set(key, { series: ad.series, axis: ad.series.axis });
-        }
-      });
-      return { byKey: map };
+      return { byKey: EMPTY_SERIES_MAP };
     }
-    // Fallback: calcular séries client-side
+    // Fallback: calcular séries client-side (apenas quando server não envia series)
     return buildDailySeries(adsEffective as any, {
       groupBy: groupByAdNameEffective ? "ad_name" : "ad_id",
       actionType,

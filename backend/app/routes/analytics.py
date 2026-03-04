@@ -77,6 +77,7 @@ class RankingsRequest(BaseModel):
     pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas. Se vazio/None, não retorna dados.")
     include_series: bool = Field(default=True, description="Se False, omite series (sparklines) da resposta para economizar memória/payload")
     include_leadscore: bool = Field(default=True, description="Se False, omite leadscore_values da resposta")
+    series_window: Optional[int] = Field(default=None, description="Limitar series aos últimos N dias do range. Se None, usa range completo.")
 
 
 class DashboardRequest(BaseModel):
@@ -970,7 +971,9 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 pass
 
         S = series_acc.get(key)
-        series = _build_rankings_series(axis, S, include_cpmql=True) if (S and req.include_series) else None
+        # Recortar axis para últimos N dias quando series_window definido (reduz payload ~92%)
+        series_axis = axis[-req.series_window:] if (req.series_window and req.series_window < len(axis)) else axis
+        series = _build_rankings_series(series_axis, S, include_cpmql=True) if (S and req.include_series) else None
 
         # Calcular ad_scale e preencher ad_count:
         # - por campanha: quantidade de adsets distintos
@@ -1134,6 +1137,7 @@ def get_rankings_children(
     date_start: str,
     date_stop: str,
     order_by: Optional[str] = None,
+    include_leadscore: bool = True,
     user=Depends(get_current_user)
 ):
     """Retorna linhas-filhas agregadas por ad_id para um ad_name no período.
@@ -1328,7 +1332,7 @@ def get_rankings_children(
             "cpm": cpm,
             "website_ctr": website_ctr,
             "conversions": A.get("conversions", {}),
-            "leadscore_values": (A.get("leadscore_values") or []) if req.include_leadscore else [],
+            "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
             "thumbnail": thumbnails_map.get(key),
             "series": series,
         })
@@ -1347,6 +1351,7 @@ def get_campaign_children(
     date_start: str,
     date_stop: str,
     order_by: Optional[str] = None,
+    include_leadscore: bool = True,
     user=Depends(get_current_user),
 ):
     """Retorna linhas-filhas agregadas por adset_id para um campaign_id no período.
@@ -1553,7 +1558,7 @@ def get_campaign_children(
                 "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
                 "cpm": cpm,
                 "website_ctr": website_ctr,
-                "leadscore_values": (A.get("leadscore_values") or []) if req.include_leadscore else [],
+                "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
                 "conversions": A.get("conversions", {}),
                 "ad_count": ad_count,
                 "thumbnail": thumbnail,
@@ -1575,6 +1580,7 @@ def get_adset_children(
     date_start: str,
     date_stop: str,
     order_by: Optional[str] = None,
+    include_leadscore: bool = True,
     user=Depends(get_current_user),
 ):
     """Retorna linhas-filhas agregadas por ad_id para um adset_id no período.
@@ -1778,7 +1784,7 @@ def get_adset_children(
                 "connect_rate": connect_rate,
                 "cpm": cpm,
                 "website_ctr": website_ctr,
-                "leadscore_values": (A.get("leadscore_values") or []) if req.include_leadscore else [],
+                "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
                 "conversions": A.get("conversions", {}),
                 "ad_count": 1,
                 "thumbnail": thumbnails_map.get(key),

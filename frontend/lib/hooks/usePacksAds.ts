@@ -67,7 +67,7 @@ export function usePacksAds(packs: AdsPack[] | undefined | null) {
       enabled: !!pack.id,
       // Packs só mudam via Ads Loader (criação/refresh/delete), invalidamos manualmente
       staleTime: Infinity,
-      gcTime: 30 * 60 * 1000,
+      gcTime: 5 * 60 * 1000, // 5min - liberar memória mais rápido ao navegar para fora do Manager
       retry: 1,
       refetchOnWindowFocus: false,
       refetchOnMount: false,

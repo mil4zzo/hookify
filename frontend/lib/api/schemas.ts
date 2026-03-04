@@ -331,6 +331,7 @@ export const RankingsRequestSchema = z.object({
   pack_ids: z.array(z.string()).optional(),
   include_series: z.boolean().optional(),
   include_leadscore: z.boolean().optional(),
+  series_window: z.number().optional(),
 })
 
 // Schema centralizado para séries de métricas diárias (sparklines)
