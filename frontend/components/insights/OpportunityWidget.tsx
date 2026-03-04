@@ -45,7 +45,7 @@ function formatPct2(v: number): string {
 // Estilização padronizada das linhas da tabela
 const ROW_BASE_CLASS = "grid grid-cols-7 gap-2 py-2 px-3 rounded items-center border border-border";
 const ROW_MUTED_CLASS = `${ROW_BASE_CLASS} bg-border`;
-const ROW_GREEN_CLASS = `${ROW_BASE_CLASS} bg-green-500/20`;
+const ROW_GREEN_CLASS = `${ROW_BASE_CLASS} bg-success-20`;
 
 // Função para determinar a cor baseada na relação atual/média
 function getValueColor(current: number, average: number, lowerIsBetter: boolean = false): string {
@@ -54,26 +54,26 @@ function getValueColor(current: number, average: number, lowerIsBetter: boolean 
   if (lowerIsBetter) {
     // Para métricas onde menor é melhor (ex: CPR)
     // Se atual <= média, está abaixo/igual à média (melhor) = verde
-    if (current <= average) return "text-green-600 dark:text-green-400";
+    if (current <= average) return "text-success";
 
     // Calcular ratio: atual/média (quanto maior que a média)
     const ratio = current / average;
 
     // Classificação baseada no ratio
-    if (ratio > 1 && ratio <= 1.25) return "text-yellow-600 dark:text-yellow-400"; // 100%~125% = amarelo
-    if (ratio > 1.25 && ratio <= 1.5) return "text-orange-600 dark:text-orange-400"; // 125%~150% = laranja
-    if (ratio > 1.5) return "text-red-600 dark:text-red-400"; // 150%+ = vermelho
+    if (ratio > 1 && ratio <= 1.25) return "text-attention"; // 100%~125% = amarelo
+    if (ratio > 1.25 && ratio <= 1.5) return "text-warning"; // 125%~150% = laranja
+    if (ratio > 1.5) return "text-destructive"; // 150%+ = vermelho
     return "text-foreground"; // Fallback
   } else {
     // Para métricas onde maior é melhor (ex: Hook, CTR, etc)
     const ratio = current / average;
     // Se atual >= média, está acima/igual à média (melhor) = verde
-    if (current >= average) return "text-green-600 dark:text-green-400";
+    if (current >= average) return "text-success";
 
     // Classificação baseada no ratio
-    if (ratio >= 0.75 && ratio < 1) return "text-yellow-600 dark:text-yellow-400"; // 75%~100% = amarelo
-    if (ratio >= 0.5 && ratio < 0.75) return "text-orange-600 dark:text-orange-400"; // 50%~75% = laranja
-    return "text-red-600 dark:text-red-400"; // 0%~50% = vermelho
+    if (ratio >= 0.75 && ratio < 1) return "text-attention"; // 75%~100% = amarelo
+    if (ratio >= 0.5 && ratio < 0.75) return "text-warning"; // 50%~75% = laranja
+    return "text-destructive"; // 0%~50% = vermelho
   }
 }
 
@@ -96,34 +96,34 @@ function getMetricStatusColor(current: number, average: number, lowerIsBetter: b
   if (lowerIsBetter) {
     // Para métricas onde menor é melhor (ex: CPR)
     if (current <= average) {
-      return "bg-green-600 dark:bg-green-400";
+      return "bg-success";
     }
 
     const ratio = current / average;
     if (ratio > 1 && ratio <= 1.25) {
-      return "bg-yellow-600 dark:bg-yellow-400";
+      return "bg-attention";
     }
     if (ratio > 1.25 && ratio <= 1.5) {
-      return "bg-orange-600 dark:bg-orange-400";
+      return "bg-warning";
     }
     if (ratio > 1.5) {
-      return "bg-red-600 dark:bg-red-400";
+      return "bg-destructive";
     }
   } else {
     // Para métricas onde maior é melhor (ex: Hook, CTR, etc)
     if (current >= average) {
-      return "bg-green-600 dark:bg-green-400";
+      return "bg-success";
     }
 
     const ratio = current / average;
     if (ratio >= 0.75 && ratio < 1) {
-      return "bg-yellow-600 dark:bg-yellow-400";
+      return "bg-attention";
     }
     if (ratio >= 0.5 && ratio < 0.75) {
-      return "bg-orange-600 dark:bg-orange-400";
+      return "bg-warning";
     }
     if (ratio < 0.5) {
-      return "bg-red-600 dark:bg-red-400";
+      return "bg-destructive";
     }
   }
   return null;
@@ -304,11 +304,11 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
   const r = row;
 
   // Obter rankings para este anúncio
-  const hookRank = r.ad_id ? metricRanks.hookRank.get(r.ad_id) ?? null : null;
-  const holdRateRank = r.ad_id ? metricRanks.holdRateRank.get(r.ad_id) ?? null : null;
-  const websiteCtrRank = r.ad_id ? metricRanks.websiteCtrRank.get(r.ad_id) ?? null : null;
-  const connectRateRank = r.ad_id ? metricRanks.connectRateRank.get(r.ad_id) ?? null : null;
-  const pageConvRank = r.ad_id ? metricRanks.pageConvRank.get(r.ad_id) ?? null : null;
+  const hookRank = r.ad_id ? (metricRanks.hookRank.get(r.ad_id) ?? null) : null;
+  const holdRateRank = r.ad_id ? (metricRanks.holdRateRank.get(r.ad_id) ?? null) : null;
+  const websiteCtrRank = r.ad_id ? (metricRanks.websiteCtrRank.get(r.ad_id) ?? null) : null;
+  const connectRateRank = r.ad_id ? (metricRanks.connectRateRank.get(r.ad_id) ?? null) : null;
+  const pageConvRank = r.ad_id ? (metricRanks.pageConvRank.get(r.ad_id) ?? null) : null;
 
   // Obter variantes e emojis de medalha para cada métrica
   const hookVariant = getTopBadgeVariantFromRank(hookRank);

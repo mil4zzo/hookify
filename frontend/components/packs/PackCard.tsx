@@ -271,7 +271,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                           rows={1}
                           // `textarea` permite quebra de linha (ao contrário de `input`), evitando overflow e deslocamento do card.
                           // `fit-content` + `maxWidth: 100%` faz a borda acompanhar o conteúdo até o limite do card.
-                          className={`text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere] transition-colors ${hasNameError ? "border-red-500" : "border-white"}`}
+                          className={`text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere] transition-colors ${hasNameError ? "border-destructive" : "border-white"}`}
                           style={{ width: "fit-content", maxWidth: "100%" }}
                           maxLength={100}
                           onClick={(e) => e.stopPropagation()}
@@ -331,7 +331,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                                 e.stopPropagation();
                               }}
                             >
-                              <IconAlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
+                              <IconAlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
                             </div>
                           </TooltipTrigger>
                           <TooltipContent>
@@ -356,7 +356,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                   return (
                     <div className="flex items-center justify-center gap-2">
                       <span className="text-sm text-muted-foreground">{symbol}</span>
-                      <span className="text-3xl font-bold text-green-500">{number}</span>
+                      <span className="text-3xl font-bold text-success">{number}</span>
                     </div>
                   );
                 })()}
@@ -445,7 +445,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
-                              <IconAlertCircle className="w-3.5 h-3.5 text-yellow-500 flex-shrink-0 cursor-help" />
+                              <IconAlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0 cursor-help" />
                             </TooltipTrigger>
                             <TooltipContent>
                               <p>A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida.</p>
@@ -475,9 +475,9 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
           {pack.sheet_integration ? (
             <>
               <DropdownMenuItem disabled className="opacity-100">
-                <IconTableExport className="w-4 h-4 mr-2 text-green-500" />
+                <IconTableExport className="w-4 h-4 mr-2 text-success" />
                 <div className="flex flex-col items-start">
-                  <span className="text-xs font-medium text-green-500">Planilha conectada</span>
+                  <span className="text-xs font-medium text-success">Planilha conectada</span>
                   <span className="text-xs text-muted-foreground">
                     {pack.sheet_integration.spreadsheet_name || "Planilha"} • {pack.sheet_integration.worksheet_title || "Aba"}
                   </span>
@@ -490,7 +490,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                 </DropdownMenuItem>
               )}
               {onDeleteSheetIntegration && (
-                <DropdownMenuItem onClick={() => onDeleteSheetIntegration(pack)} className="text-red-500 focus:text-red-500 focus:bg-red-500/10">
+                <DropdownMenuItem onClick={() => onDeleteSheetIntegration(pack)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
                   <IconTrash className="w-4 h-4 mr-2" />
                   Remover integração
                 </DropdownMenuItem>
@@ -498,7 +498,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
             </>
           ) : null}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => onRemove(pack.id)} className="text-red-500 focus:text-red-500 focus:bg-red-500/10">
+          <DropdownMenuItem onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
             <IconTrash className="w-4 h-4 mr-2" />
             Remover pack
           </DropdownMenuItem>

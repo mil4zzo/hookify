@@ -20,7 +20,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
   const ignoradas = stats.skipped_sheet_rows ?? stats.skipped_no_match;
   const unicas = stats.matched_unique_pairs ?? stats.updated_rows;
 
-  const pct = (v: number) => total > 0 ? ((v / total) * 100).toFixed(1) : "0.0";
+  const pct = (v: number) => (total > 0 ? ((v / total) * 100).toFixed(1) : "0.0");
 
   return (
     <div className="border border-success-30 bg-success-10 rounded-lg p-6">
@@ -70,7 +70,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-green-500">{utilizadas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-success">{utilizadas.toLocaleString()}</span>
                 <span className="text-xs text-muted-foreground">({pct(utilizadas)}%)</span>
               </div>
             </div>
@@ -88,7 +88,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-green-500/70">{unicas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-success-70">{unicas.toLocaleString()}</span>
                 <span className="text-xs text-muted-foreground">({pct(unicas)}%)</span>
               </div>
             </div>
@@ -106,7 +106,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-yellow-500">{ignoradas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-warning">{ignoradas.toLocaleString()}</span>
                 <span className="text-xs text-muted-foreground">({pct(ignoradas)}%)</span>
               </div>
             </div>
@@ -124,7 +124,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                 </Tooltip>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-red-500">{invalidas.toLocaleString()}</span>
+                <span className="text-sm font-medium text-destructive">{invalidas.toLocaleString()}</span>
                 <span className="text-xs text-muted-foreground">({pct(invalidas)}%)</span>
               </div>
             </div>

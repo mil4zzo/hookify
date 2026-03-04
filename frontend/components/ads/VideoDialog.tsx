@@ -26,7 +26,7 @@ export function VideoDialog({ open, onOpenChange, videoId, actorId, title }: Vid
 
       <div className="aspect-video w-full bg-black rounded-lg overflow-hidden flex items-center justify-center">
         {isLoading && <div className="text-sm text-muted-foreground p-6">Carregando vídeo...</div>}
-        {error && <div className="text-sm text-red-500 p-6">Falha ao carregar o vídeo</div>}
+        {error && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo</div>}
         {!isLoading && !error && sourceUrl && <video src={sourceUrl} controls className="w-full h-full" />}
       </div>
     </Modal>

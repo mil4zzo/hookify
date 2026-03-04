@@ -33,8 +33,26 @@ from app.services.insights_collector import get_insights_collector
 from app.services.ads_enricher import get_ads_enricher, AdsEnricher
 from app.services.dataformatter import format_ads_for_api
 from app.services import supabase_repo
+from app.services.supabase_repo import PackNameConflictError
 
 logger = logging.getLogger(__name__)
+
+
+class JobCancelledError(RuntimeError):
+    """Raised when cooperative cancellation stops the job."""
+
+
+class JobLeaseLostError(RuntimeError):
+    """Raised when the worker loses the processing lease."""
+
+
+class PersistStageError(RuntimeError):
+    """Raised when a specific persistence stage fails."""
+
+    def __init__(self, stage: str, message: str):
+        super().__init__(message)
+        self.stage = stage
+        self.message = message
 
 
 class JobProcessor:
@@ -44,12 +62,39 @@ class JobProcessor:
         self,
         user_jwt: str,
         user_id: str,
-        access_token: str
+        access_token: str,
+        processing_owner: Optional[str] = None,
     ):
         self.user_jwt = user_jwt
         self.user_id = user_id
         self.access_token = access_token
-        self.tracker = get_job_tracker(user_jwt, user_id)
+        self.tracker = get_job_tracker(user_jwt, user_id, processing_owner=processing_owner)
+
+    def _raise_if_job_stopped(self, job_id: str, lease_message: str) -> None:
+        current_job = self.tracker.get_job(job_id) or {}
+        if current_job.get("status") == STATUS_CANCELLED:
+            raise JobCancelledError("Job cancelado pelo usuário")
+        raise JobLeaseLostError(lease_message)
+
+    def _heartbeat_or_raise(
+        self,
+        job_id: str,
+        status: str,
+        progress: int,
+        message: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not self.tracker.heartbeat(
+            job_id,
+            status=status,
+            progress=progress,
+            message=message,
+            details=details,
+        ):
+            self._raise_if_job_stopped(
+                job_id,
+                "Lease de processamento perdido durante atualização de progresso",
+            )
 
     def _check_if_cancelled(self, job_id: str) -> bool:
         """
@@ -63,10 +108,37 @@ class JobProcessor:
             if job and job.get("status") == STATUS_CANCELLED:
                 logger.info(f"[JobProcessor] ⛔ Job {job_id} foi cancelado pelo usuário, interrompendo processamento")
                 return True
+            if job and self.tracker.processing_owner:
+                current_owner = job.get("processing_owner")
+                if current_owner and current_owner != self.tracker.processing_owner:
+                    logger.warning(
+                        f"[JobProcessor] Lease do job {job_id} foi transferido "
+                        f"(esperado={self.tracker.processing_owner}, atual={current_owner})"
+                    )
+                    raise JobLeaseLostError("Lease de processamento perdido para outro worker")
             return False
         except Exception as e:
+            if isinstance(e, JobLeaseLostError):
+                raise
             logger.warning(f"[JobProcessor] Erro ao verificar cancelamento do job {job_id}: {e}")
             return False
+
+    def _cleanup_new_pack(self, pack_id: Optional[str], job_id: str, reason: str) -> None:
+        """Remove pack criado nesta execução quando o fluxo falha/cancela antes de concluir."""
+        if not pack_id:
+            return
+        try:
+            logger.warning(f"[JobProcessor] Cleanup compensatório do pack {pack_id} para job {job_id}: {reason}")
+            supabase_repo.delete_pack(
+                self.user_jwt,
+                pack_id,
+                user_id=self.user_id,
+            )
+            self.tracker.merge_payload(job_id, {"created_pack_id": None})
+        except Exception as cleanup_error:
+            logger.exception(
+                f"[JobProcessor] Falha no cleanup compensatório do pack {pack_id} para job {job_id}: {cleanup_error}"
+            )
 
     def process(self, job_id: str) -> Dict[str, Any]:
         """
@@ -93,13 +165,14 @@ class JobProcessor:
             pack_id_from_payload = payload.get("pack_id")
             
             # ===== FASE 1: PAGINAÇÃO =====
-            self.tracker.mark_processing(job_id, STAGE_PAGINATION, {
+            if not self.tracker.mark_processing(job_id, STAGE_PAGINATION, {
                 "page_count": 0,
                 "total_collected": 0
-            })
+            }):
+                self._raise_if_job_stopped(job_id, "Lease de processamento perdido ao iniciar paginação")
             
             def on_pagination_progress(page_count: int, total_collected: int):
-                self.tracker.heartbeat(
+                self._heartbeat_or_raise(
                     job_id,
                     status=STATUS_PROCESSING,
                     progress=100,
@@ -131,7 +204,7 @@ class JobProcessor:
 
             # Verificar cancelamento após paginação
             if self._check_if_cancelled(job_id):
-                return {"success": False, "error": "Job cancelado pelo usuário", "cancelled": True}
+                raise JobCancelledError("Job cancelado pelo usuário")
 
             if not raw_data:
                 # Job completou mas sem dados
@@ -148,7 +221,7 @@ class JobProcessor:
             unique_ads_map = temp_enricher.deduplicate_by_name(raw_data)
             unique_count = len(unique_ads_map)
             
-            self.tracker.mark_processing(job_id, STAGE_ENRICHMENT, {
+            if not self.tracker.mark_processing(job_id, STAGE_ENRICHMENT, {
                 "page_count": page_count,
                 "total_collected": total_collected,
                 "ads_before_dedup": len(raw_data),
@@ -156,10 +229,11 @@ class JobProcessor:
                 "enrichment_batches": 0,
                 "enrichment_total": 0,
                 "ads_enriched": 0
-            })
+            }):
+                self._raise_if_job_stopped(job_id, "Lease de processamento perdido ao iniciar enriquecimento")
             
             def on_enrichment_progress(batch_num: int, total_batches: int, ads_enriched: int):
-                self.tracker.heartbeat(
+                self._heartbeat_or_raise(
                     job_id,
                     status=STATUS_PROCESSING,
                     progress=100,
@@ -176,13 +250,45 @@ class JobProcessor:
                     }
                 )
             
+            existing_ads_map = {}
+            if is_refresh:
+                refresh_ad_ids = [
+                    str(ad.get("ad_id")).strip()
+                    for ad in raw_data
+                    if str(ad.get("ad_id") or "").strip()
+                ]
+                existing_ads_map = supabase_repo.get_existing_ads_map(
+                    self.user_jwt,
+                    refresh_ad_ids,
+                    self.user_id,
+                )
+                logger.info(
+                    "[JobProcessor] Refresh otimizado: %s ads existentes reaproveitados, %s ads novos",
+                    len(existing_ads_map),
+                    max(0, len(set(refresh_ad_ids)) - len(existing_ads_map)),
+                )
+
             enricher = get_ads_enricher(
                 self.access_token,
                 on_progress=on_enrichment_progress,
                 job_tracker=self.tracker,
                 job_id=job_id
             )
-            enrich_result = enricher.enrich(act_id, raw_data)
+            enrich_result = enricher.enrich(
+                act_id,
+                raw_data,
+                is_refresh=is_refresh,
+                existing_ads_map=existing_ads_map,
+            )
+            if not enrich_result.get("success"):
+                error_message = enrich_result.get("error", "Erro ao enriquecer dados")
+                self.tracker.mark_failed(
+                    job_id,
+                    error_message,
+                    error_code=enrich_result.get("error_code"),
+                    details={"stage": "erro", "failure_stage": "enrichment"},
+                )
+                return {"success": False, "error": error_message}
             
             enriched_data = enrich_result.get("data", raw_data)
             # unique_count já foi calculado acima, mas validar se bate com o resultado
@@ -196,16 +302,17 @@ class JobProcessor:
 
             # Verificar cancelamento após enriquecimento
             if self._check_if_cancelled(job_id):
-                return {"success": False, "error": "Job cancelado pelo usuário", "cancelled": True}
+                raise JobCancelledError("Job cancelado pelo usuário")
 
             # ===== FASE 3: FORMATAÇÃO =====
-            self.tracker.mark_processing(job_id, STAGE_FORMATTING, {
+            if not self.tracker.mark_processing(job_id, STAGE_FORMATTING, {
                 "page_count": page_count,
                 "total_collected": total_collected,
                 "ads_after_dedup": unique_count,
                 "ads_enriched": enriched_count,
                 "ads_formatted": 0
-            })
+            }):
+                self._raise_if_job_stopped(job_id, "Lease de processamento perdido ao iniciar formatação")
             
             formatted_data = format_ads_for_api(enriched_data, act_id)
             
@@ -213,16 +320,12 @@ class JobProcessor:
 
             # Verificar cancelamento após formatação
             if self._check_if_cancelled(job_id):
-                return {"success": False, "error": "Job cancelado pelo usuário", "cancelled": True}
+                raise JobCancelledError("Job cancelado pelo usuário")
 
             # ===== FASE 4: PERSISTÊNCIA =====
             # Não chamar mark_persisting aqui - os heartbeats específicos dentro de _persist_data
             # vão atualizar o status com mensagens detalhadas por etapa
             pack_id = self._persist_data(job_id, payload, formatted_data, is_refresh, pack_id_from_payload)
-            
-            if not pack_id:
-                self.tracker.mark_failed(job_id, "Erro ao persistir dados")
-                return {"success": False, "error": "Erro ao persistir dados"}
 
             transcription_job_id = None
             if ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH:
@@ -262,11 +365,36 @@ class JobProcessor:
                 "pack_id": pack_id,
                 "result_count": len(formatted_data)
             }
-            
+        except JobCancelledError as e:
+            logger.info(f"[JobProcessor] {e}")
+            return {"success": False, "error": str(e), "cancelled": True}
+        except JobLeaseLostError as e:
+            logger.warning(f"[JobProcessor] {e}")
+            return {"success": False, "error": str(e)}
+        except PackNameConflictError as e:
+            logger.warning(f"[JobProcessor] Conflito de nome ao processar job {job_id}: {e}")
+            self.tracker.mark_failed(
+                job_id,
+                str(e),
+                error_code="duplicate_pack_name",
+                details={"stage": "erro", "failure_stage": "pack_create"},
+            )
+            return {"success": False, "error": str(e)}
+        except PersistStageError as e:
+            logger.exception(f"[JobProcessor] Erro de persistência no estágio {e.stage}: {e.message}")
+            self.tracker.mark_failed(
+                job_id,
+                e.message,
+                error_code="persist_failed",
+                details={"stage": "erro", "failure_stage": e.stage},
+            )
+            return {"success": False, "error": e.message}
         except Exception as e:
             logger.exception(f"[JobProcessor] Erro ao processar job {job_id}: {e}")
             self.tracker.mark_failed(job_id, str(e))
             return {"success": False, "error": str(e)}
+        finally:
+            self.tracker.release_processing_claim(job_id)
     
     def _persist_data(
         self,
@@ -277,49 +405,118 @@ class JobProcessor:
         pack_id_from_payload: Optional[str]
     ) -> Optional[str]:
         """Persiste dados no Supabase."""
-        try:
-            # Heartbeat limiter: evita spam de updates no jobs durante loops longos
-            # Intervalo reduzido para 1s para garantir feedback mais frequente durante batches
-            last_hb_ts = 0.0
-            hb_min_interval_s = 1.0
+        # Heartbeat limiter: evita spam de updates no jobs durante loops longos
+        last_hb_ts = 0.0
+        hb_min_interval_s = 1.0
+        created_pack_id: Optional[str] = None
+        pack_created_in_this_run = False
 
-            def hb(message: str, force: bool = False) -> None:
-                nonlocal last_hb_ts
-                now = time.monotonic()
-                if not force and (now - last_hb_ts) < hb_min_interval_s:
-                    return
-                last_hb_ts = now
-                # Sempre incluir stage no details para consistência com frontend
-                self.tracker.heartbeat(
-                    job_id,
-                    status=STATUS_PERSISTING,
-                    progress=100,
-                    message=message,
-                    details={"stage": STAGE_PERSISTENCE}
-                )
+        def hb(message: str, force: bool = False) -> None:
+            nonlocal last_hb_ts
+            now = time.monotonic()
+            if not force and (now - last_hb_ts) < hb_min_interval_s:
+                return
+            last_hb_ts = now
+            if not self.tracker.heartbeat(
+                job_id,
+                status=STATUS_PERSISTING,
+                progress=100,
+                message=message,
+                details={"stage": STAGE_PERSISTENCE},
+            ):
+                current_job = self.tracker.get_job(job_id) or {}
+                if current_job.get("status") == STATUS_CANCELLED:
+                    raise JobCancelledError("Job cancelado pelo usuário")
+                raise JobLeaseLostError("Lease de processamento perdido durante persistência")
 
-            # Marcar início da persistência imediatamente
-            hb("Salvando tudo...", force=True)
-
-            # Verificar cancelamento antes de iniciar persistência
+        def ensure_not_cancelled(stage: str) -> None:
             if self._check_if_cancelled(job_id):
-                logger.info(f"[JobProcessor] Job {job_id} cancelado antes de persistir dados")
-                return None
+                if pack_created_in_this_run and created_pack_id:
+                    self._cleanup_new_pack(created_pack_id, job_id, f"cancelado em {stage}")
+                raise JobCancelledError("Job cancelado pelo usuário")
+
+        try:
+            hb("Salvando tudo...", force=True)
+            ensure_not_cancelled("persist_start")
 
             pack_id = None
-            
             if is_refresh and pack_id_from_payload:
-                # É refresh: atualizar pack existente
                 pack_id = pack_id_from_payload
                 logger.info(f"[JobProcessor] Atualizando pack após refresh: {pack_id}")
+            else:
+                pack_name = payload.get("name")
+                if not pack_name:
+                    raise PersistStageError("pack_create", "Payload não contém 'name', não é possível criar pack")
 
-                if formatted_data:
-                    # Verificar cancelamento antes de salvar anúncios
-                    if self._check_if_cancelled(job_id):
-                        logger.info(f"[JobProcessor] Job {job_id} cancelado antes de salvar anúncios (refresh)")
-                        return None
+                existing_created_pack_id = payload.get("created_pack_id")
+                hb("Salvando pack...", force=True)
+                if existing_created_pack_id:
+                    existing_pack = supabase_repo.get_pack(self.user_jwt, existing_created_pack_id, self.user_id)
+                    if existing_pack:
+                        pack_id = existing_created_pack_id
+                        created_pack_id = pack_id
+                        pack_created_in_this_run = True
+                        supabase_repo.upsert_pack(
+                            self.user_jwt,
+                            user_id=self.user_id,
+                            adaccount_id=payload.get("adaccount_id", ""),
+                            name=pack_name,
+                            date_start=payload.get("date_start", ""),
+                            date_stop=payload.get("date_stop", ""),
+                            level=payload.get("level", "ad"),
+                            filters=payload.get("filters", []),
+                            auto_refresh=payload.get("auto_refresh", False),
+                            pack_id=pack_id,
+                            today_local=payload.get("today_local"),
+                        )
+                        logger.info(f"[JobProcessor] Reutilizando pack parcial existente: {pack_id}")
+                    else:
+                        self.tracker.merge_payload(job_id, {"created_pack_id": None})
 
-                    hb("Salvando anúncios...", force=True)
+                if not pack_id:
+                    try:
+                        pack_id = supabase_repo.upsert_pack(
+                            self.user_jwt,
+                            user_id=self.user_id,
+                            adaccount_id=payload.get("adaccount_id", ""),
+                            name=pack_name,
+                            date_start=payload.get("date_start", ""),
+                            date_stop=payload.get("date_stop", ""),
+                            level=payload.get("level", "ad"),
+                            filters=payload.get("filters", []),
+                            auto_refresh=payload.get("auto_refresh", False),
+                            today_local=payload.get("today_local"),
+                        )
+                    except PackNameConflictError:
+                        raise
+                    except Exception as e:
+                        raise PersistStageError("pack_create", f"Erro ao criar pack: {e}") from e
+
+                    if not pack_id:
+                        raise PersistStageError("pack_create", "Erro ao criar pack")
+
+                    created_pack_id = pack_id
+                    pack_created_in_this_run = True
+                    self.tracker.merge_payload(job_id, {"created_pack_id": pack_id})
+                    logger.info(f"[JobProcessor] Pack criado: {pack_id}")
+
+                today_local = payload.get("today_local") or payload.get("date_stop")
+                if today_local:
+                    try:
+                        supabase_repo.update_pack_refresh_status(
+                            self.user_jwt,
+                            pack_id,
+                            user_id=self.user_id,
+                            last_refreshed_at=str(today_local),
+                            refresh_status="success",
+                        )
+                    except Exception as e:
+                        raise PersistStageError("pack_refresh_status", f"Erro ao atualizar status do pack: {e}") from e
+
+            if formatted_data:
+                ensure_not_cancelled("before_ads")
+                hb("Salvando anúncios...", force=True)
+                try:
                     supabase_repo.upsert_ads(
                         self.user_jwt,
                         formatted_data,
@@ -327,7 +524,14 @@ class JobProcessor:
                         pack_id=pack_id,
                         on_batch_progress=lambda b, t: hb(f"Salvando anúncios: bloco {b}/{t}..."),
                     )
-                    hb("Salvando métricas...", force=True)
+                except Exception as e:
+                    if pack_created_in_this_run and created_pack_id:
+                        self._cleanup_new_pack(created_pack_id, job_id, "falha em ads_upsert")
+                    raise PersistStageError("ads_upsert", f"Erro ao salvar anúncios: {e}") from e
+
+                ensure_not_cancelled("before_metrics")
+                hb("Salvando métricas...", force=True)
+                try:
                     supabase_repo.upsert_ad_metrics(
                         self.user_jwt,
                         formatted_data,
@@ -335,132 +539,82 @@ class JobProcessor:
                         pack_id=pack_id,
                         on_batch_progress=lambda b, t: hb(f"Salvando métricas: bloco {b}/{t}..."),
                     )
-                    
-                    ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
-                    hb("Otimizando tudo...", force=True)
+                except Exception as e:
+                    if pack_created_in_this_run and created_pack_id:
+                        self._cleanup_new_pack(created_pack_id, job_id, "falha em metrics_upsert")
+                    raise PersistStageError("metrics_upsert", f"Erro ao salvar métricas: {e}") from e
+
+                ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
+                hb("Otimizando tudo...", force=True)
+                try:
                     supabase_repo.update_pack_ad_ids(self.user_jwt, pack_id, ad_ids, user_id=self.user_id)
-                
-                # Atualizar status de refresh e date_stop do pack
+                except Exception as e:
+                    if pack_created_in_this_run and created_pack_id:
+                        self._cleanup_new_pack(created_pack_id, job_id, "falha em pack_index_update")
+                    raise PersistStageError("pack_index_update", f"Erro ao atualizar índices do pack: {e}") from e
+
+            if is_refresh and pack_id:
                 last_refreshed_at = str(payload.get("date_stop")) if payload else None
                 date_stop = str(payload.get("date_stop")) if payload else None
-                supabase_repo.update_pack_refresh_status(
-                    self.user_jwt,
-                    pack_id,
-                    user_id=self.user_id,
-                    last_refreshed_at=last_refreshed_at,
-                    refresh_status="success",
-                    date_stop=date_stop,  # Atualizar date_stop para manter sincronizado
-                )
-            else:
-                # É criação de novo pack
-                pack_name = payload.get("name")
-                if not pack_name:
-                    logger.error(f"[JobProcessor] Payload não contém 'name', não é possível criar pack")
-                    return None
-                
-                hb("Salvando pack...", force=True)
-                pack_id = supabase_repo.upsert_pack(
-                    self.user_jwt,
-                    user_id=self.user_id,
-                    adaccount_id=payload.get("adaccount_id", ""),
-                    name=pack_name,
-                    date_start=payload.get("date_start", ""),
-                    date_stop=payload.get("date_stop", ""),
-                    level=payload.get("level", "ad"),
-                    filters=payload.get("filters", []),
-                    auto_refresh=payload.get("auto_refresh", False),
-                    today_local=payload.get("today_local"),
-                )
-                
-                if not pack_id:
-                    logger.error(f"[JobProcessor] Falha ao criar pack no Supabase")
-                    return None
-                
-                logger.info(f"[JobProcessor] Pack criado: {pack_id}")
-                
-                # Atualizar last_refreshed_at
-                today_local = payload.get("today_local") or payload.get("date_stop")
-                if today_local:
+                try:
                     supabase_repo.update_pack_refresh_status(
                         self.user_jwt,
                         pack_id,
                         user_id=self.user_id,
-                        last_refreshed_at=str(today_local),
+                        last_refreshed_at=last_refreshed_at,
                         refresh_status="success",
+                        date_stop=date_stop,
                     )
-                
-                # Persistir ads e métricas
-                if formatted_data:
-                    # Verificar cancelamento antes de salvar anúncios
-                    if self._check_if_cancelled(job_id):
-                        logger.info(f"[JobProcessor] Job {job_id} cancelado antes de salvar anúncios (novo pack)")
-                        return None
+                except Exception as e:
+                    raise PersistStageError("pack_refresh_status", f"Erro ao atualizar refresh do pack: {e}") from e
 
-                    hb("Salvando anúncios...", force=True)
-                    supabase_repo.upsert_ads(
-                        self.user_jwt,
-                        formatted_data,
-                        user_id=self.user_id,
-                        pack_id=pack_id,
-                        on_batch_progress=lambda b, t: hb(f"Salvando anúncios: bloco {b}/{t}..."),
-                    )
-                    hb("Salvando métricas...", force=True)
-                    supabase_repo.upsert_ad_metrics(
-                        self.user_jwt,
-                        formatted_data,
-                        user_id=self.user_id,
-                        pack_id=pack_id,
-                        on_batch_progress=lambda b, t: hb(f"Salvando métricas: bloco {b}/{t}..."),
-                    )
-                    
-                    ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
-                    hb("Otimizando tudo...", force=True)
-                    supabase_repo.update_pack_ad_ids(self.user_jwt, pack_id, ad_ids, user_id=self.user_id)
-            
-            # Calcular e salvar stats
             if formatted_data and pack_id:
-                # Verificar cancelamento antes de calcular stats
-                if self._check_if_cancelled(job_id):
-                    logger.info(f"[JobProcessor] Job {job_id} cancelado antes de calcular stats")
-                    return None
-
-                # Aguardar um pouco para garantir consistência
+                ensure_not_cancelled("before_stats")
                 time.sleep(0.5)
-
                 hb("Calculando resumo...", force=True)
-                stats = supabase_repo.calculate_pack_stats(
-                    self.user_jwt,
-                    pack_id,
-                    user_id=self.user_id
-                )
-                
-                if stats and stats.get("totalSpend") is not None:
-                    hb("Finalizando...", force=True)
-                    supabase_repo.update_pack_stats(
+                try:
+                    stats = supabase_repo.calculate_pack_stats(
                         self.user_jwt,
                         pack_id,
-                        stats,
                         user_id=self.user_id
                     )
+                except Exception as e:
+                    raise PersistStageError("stats_calculation", f"Erro ao calcular resumo do pack: {e}") from e
+
+                if stats and stats.get("totalSpend") is not None:
+                    hb("Finalizando...", force=True)
+                    try:
+                        supabase_repo.update_pack_stats(
+                            self.user_jwt,
+                            pack_id,
+                            stats,
+                            user_id=self.user_id
+                        )
+                    except Exception as e:
+                        raise PersistStageError("stats_update", f"Erro ao salvar resumo do pack: {e}") from e
                     logger.info(f"[JobProcessor] Stats salvos para pack {pack_id}: totalSpend={stats.get('totalSpend')}")
                 else:
-                    # Stats é best-effort: não travar job por isso
                     logger.warning(f"[JobProcessor] Stats não calculados/salvos para pack {pack_id} (best-effort)")
-            
-            # Nota: O job de sincronização do Google Sheets é criado no endpoint refresh_pack
-            # ANTES de iniciar o processamento do Meta, para que o frontend possa ver ambos os toasts
-            # simultaneamente desde o início. Não precisamos criar aqui.
-            
+
+            if pack_id:
+                self.tracker.merge_payload(job_id, {"created_pack_id": None, "pack_id": pack_id})
             return pack_id
-            
-        except ValueError as e:
-            # Propagar erros de validação (ex: nome duplicado) para que a mensagem seja preservada
-            error_msg = str(e)
-            logger.warning(f"[JobProcessor] Erro de validação ao persistir dados: {error_msg}")
-            raise  # Relançar para que seja capturado no process() e marcado como falho com a mensagem correta
+        except PackNameConflictError:
+            if pack_created_in_this_run and created_pack_id:
+                self._cleanup_new_pack(created_pack_id, job_id, "conflito de nome")
+            raise
+        except JobCancelledError:
+            raise
+        except JobLeaseLostError:
+            if pack_created_in_this_run and created_pack_id:
+                self._cleanup_new_pack(created_pack_id, job_id, "lease perdido")
+            raise
+        except PersistStageError:
+            raise
         except Exception as e:
-            logger.exception(f"[JobProcessor] Erro ao persistir dados: {e}")
-            return None
+            if pack_created_in_this_run and created_pack_id:
+                self._cleanup_new_pack(created_pack_id, job_id, "erro inesperado na persistência")
+            raise PersistStageError("persist_unknown", f"Erro ao persistir dados: {e}") from e
 
     def _create_transcription_job_if_needed(
         self,
@@ -551,7 +705,8 @@ def process_job_async(
     user_jwt: str,
     user_id: str,
     access_token: str,
-    job_id: str
+    job_id: str,
+    processing_owner: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Função para processar job (pode ser chamada em background).
@@ -565,15 +720,15 @@ def process_job_async(
     Returns:
         Dict com resultado do processamento
     """
-    processor = JobProcessor(user_jwt, user_id, access_token)
+    processor = JobProcessor(user_jwt, user_id, access_token, processing_owner=processing_owner)
     return processor.process(job_id)
 
 
 def get_job_processor(
     user_jwt: str,
     user_id: str,
-    access_token: str
+    access_token: str,
+    processing_owner: Optional[str] = None,
 ) -> JobProcessor:
     """Factory function para criar JobProcessor."""
-    return JobProcessor(user_jwt, user_id, access_token)
-
+    return JobProcessor(user_jwt, user_id, access_token, processing_owner=processing_owner)

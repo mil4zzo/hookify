@@ -162,21 +162,10 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
     const isAsc = sortConfig.direction === "asc";
 
     return (
-      <TableHead
-        className="text-right cursor-pointer select-none hover:bg-muted-hover transition-colors"
-        onClick={() => handleSort(column)}
-      >
+      <TableHead className="text-right cursor-pointer select-none hover:bg-muted-hover transition-colors" onClick={() => handleSort(column)}>
         <div className="flex items-center justify-end gap-1">
           {children}
-          {isSorted ? (
-            isAsc ? (
-              <IconChevronUp className="h-4 w-4" />
-            ) : (
-              <IconChevronDown className="h-4 w-4" />
-            )
-          ) : (
-            <IconArrowsSort className="h-4 w-4 opacity-40" />
-          )}
+          {isSorted ? isAsc ? <IconChevronUp className="h-4 w-4" /> : <IconChevronDown className="h-4 w-4" /> : <IconArrowsSort className="h-4 w-4 opacity-40" />}
         </div>
       </TableHead>
     );
@@ -188,21 +177,10 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
     const isAsc = sortConfig.direction === "asc";
 
     return (
-      <TableHead
-        className="cursor-pointer select-none hover:bg-muted-hover transition-colors"
-        onClick={() => handleSort(column)}
-      >
+      <TableHead className="cursor-pointer select-none hover:bg-muted-hover transition-colors" onClick={() => handleSort(column)}>
         <div className="flex items-center gap-1">
           {children}
-          {isSorted ? (
-            isAsc ? (
-              <IconChevronUp className="h-4 w-4" />
-            ) : (
-              <IconChevronDown className="h-4 w-4" />
-            )
-          ) : (
-            <IconArrowsSort className="h-4 w-4 opacity-40" />
-          )}
+          {isSorted ? isAsc ? <IconChevronUp className="h-4 w-4" /> : <IconChevronDown className="h-4 w-4" /> : <IconArrowsSort className="h-4 w-4 opacity-40" />}
         </div>
       </TableHead>
     );
@@ -213,21 +191,10 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
     const isAsc = sortConfig.direction === "asc";
 
     return (
-      <TableHead
-        className="min-w-[200px] cursor-pointer select-none hover:bg-muted-hover transition-colors"
-        onClick={() => handleSort(column)}
-      >
+      <TableHead className="min-w-[200px] cursor-pointer select-none hover:bg-muted-hover transition-colors" onClick={() => handleSort(column)}>
         <div className="flex items-center gap-1">
           {children}
-          {isSorted ? (
-            isAsc ? (
-              <IconChevronUp className="h-4 w-4" />
-            ) : (
-              <IconChevronDown className="h-4 w-4" />
-            )
-          ) : (
-            <IconArrowsSort className="h-4 w-4 opacity-40" />
-          )}
+          {isSorted ? isAsc ? <IconChevronUp className="h-4 w-4" /> : <IconChevronDown className="h-4 w-4" /> : <IconArrowsSort className="h-4 w-4 opacity-40" />}
         </div>
       </TableHead>
     );
@@ -240,7 +207,7 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
   const avgCtr = averages?.ctr ?? null;
   const avgWebsiteCtr = averages?.website_ctr ?? null;
   const avgConnectRate = averages?.connect_rate ?? null;
-  const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? averages.per_action_type[actionType].page_conv ?? null : null;
+  const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? (averages.per_action_type[actionType].page_conv ?? null) : null;
 
   // Função para formatar porcentagem
   const formatPct = (value: number): string => {
@@ -251,21 +218,21 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
   // Função para determinar cor baseada na comparação com média
   const getMetricColor = (value: number, average: number | null, isLowerBetter: boolean): string => {
     if (average == null || average <= 0 || !Number.isFinite(value)) return "text-foreground";
-    
+
     if (isLowerBetter) {
       // Para métricas onde menor é melhor (CPR, CPM)
-      if (value <= average) return "text-green-600 dark:text-green-400";
+      if (value <= average) return "text-success";
       const ratio = value / average;
-      if (ratio <= 1.25) return "text-yellow-600 dark:text-yellow-400";
-      if (ratio <= 1.5) return "text-orange-600 dark:text-orange-400";
-      return "text-red-600 dark:text-red-400";
+      if (ratio <= 1.25) return "text-attention";
+      if (ratio <= 1.5) return "text-warning";
+      return "text-destructive";
     } else {
       // Para métricas onde maior é melhor (CTR, Connect Rate, Page Conv)
-      if (value >= average) return "text-green-600 dark:text-green-400";
+      if (value >= average) return "text-success";
       const ratio = value / average;
-      if (ratio >= 0.75) return "text-yellow-600 dark:text-yellow-400";
-      if (ratio >= 0.5) return "text-orange-600 dark:text-orange-400";
-      return "text-red-600 dark:text-red-400";
+      if (ratio >= 0.75) return "text-attention";
+      if (ratio >= 0.5) return "text-warning";
+      return "text-destructive";
     }
   };
 
@@ -307,11 +274,7 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
   };
 
   if (adsWithMetrics.length === 0) {
-    return (
-      <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">
-        Nenhum anúncio encontrado
-      </div>
-    );
+    return <div className="rounded-lg border border-border bg-card p-8 text-center text-muted-foreground">Nenhum anúncio encontrado</div>;
   }
 
   return (
@@ -337,39 +300,19 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
               const categoryInfo = getCategoryInfo(ad.category);
               return (
                 <TableRow key={ad.ad_id || ad.ad_name}>
-                  <TableCell className="font-medium">
-                    {ad.ad_name || ad.ad_id || "—"}
-                  </TableCell>
+                  <TableCell className="font-medium">{ad.ad_name || ad.ad_id || "—"}</TableCell>
                   <TableCell>
-                    <span className={cn("inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border", categoryInfo.bgColor, categoryInfo.color)}>
-                      {categoryInfo.label}
-                    </span>
+                    <span className={cn("inline-flex items-center px-2 py-1 rounded-md text-xs font-medium border", categoryInfo.bgColor, categoryInfo.color)}>{categoryInfo.label}</span>
                   </TableCell>
-                  <TableCell className="text-right text-foreground">
-                    {formatCurrency(Number((ad as any).spend || 0))}
-                  </TableCell>
-                  <TableCell className={cn("text-right", getMetricColor(ad.cpr, avgCpr, true))}>
-                    {ad.cpr > 0 ? formatCurrency(ad.cpr) : "—"}
-                  </TableCell>
-                <TableCell className={cn("text-right", getMetricColor(ad.cpm, avgCpm, true))}>
-                  {ad.cpm > 0 ? formatCurrency(ad.cpm) : "—"}
-                </TableCell>
-                <TableCell className={cn("text-right", getMetricColor(ad.hook, avgHook, false))}>
-                  {formatPct(ad.hook)}
-                </TableCell>
-                <TableCell className={cn("text-right", getMetricColor(ad.ctr, avgCtr, false))}>
-                  {formatPct(ad.ctr)}
-                </TableCell>
-                <TableCell className={cn("text-right", getMetricColor(ad.websiteCtr, avgWebsiteCtr, false))}>
-                  {formatPct(ad.websiteCtr)}
-                </TableCell>
-                <TableCell className={cn("text-right", getMetricColor(ad.connectRate, avgConnectRate, false))}>
-                  {formatPct(ad.connectRate)}
-                </TableCell>
-                <TableCell className={cn("text-right", getMetricColor(ad.pageConv, avgPageConv, false))}>
-                  {formatPct(ad.pageConv)}
-                </TableCell>
-              </TableRow>
+                  <TableCell className="text-right text-foreground">{formatCurrency(Number((ad as any).spend || 0))}</TableCell>
+                  <TableCell className={cn("text-right", getMetricColor(ad.cpr, avgCpr, true))}>{ad.cpr > 0 ? formatCurrency(ad.cpr) : "—"}</TableCell>
+                  <TableCell className={cn("text-right", getMetricColor(ad.cpm, avgCpm, true))}>{ad.cpm > 0 ? formatCurrency(ad.cpm) : "—"}</TableCell>
+                  <TableCell className={cn("text-right", getMetricColor(ad.hook, avgHook, false))}>{formatPct(ad.hook)}</TableCell>
+                  <TableCell className={cn("text-right", getMetricColor(ad.ctr, avgCtr, false))}>{formatPct(ad.ctr)}</TableCell>
+                  <TableCell className={cn("text-right", getMetricColor(ad.websiteCtr, avgWebsiteCtr, false))}>{formatPct(ad.websiteCtr)}</TableCell>
+                  <TableCell className={cn("text-right", getMetricColor(ad.connectRate, avgConnectRate, false))}>{formatPct(ad.connectRate)}</TableCell>
+                  <TableCell className={cn("text-right", getMetricColor(ad.pageConv, avgPageConv, false))}>{formatPct(ad.pageConv)}</TableCell>
+                </TableRow>
               );
             })}
           </TableBody>
@@ -378,4 +321,3 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
     </div>
   );
 }
-

@@ -368,6 +368,7 @@ export default function PacksPage() {
     filters: [],
     auto_refresh: initialDateRange.date_stop === getTodayLocal(), // Ativado se a data final for hoje
   });
+  const [packNameDuplicateError, setPackNameDuplicateError] = useState(false);
 
   // Store hooks
   const { isAuthenticated, user, isClient } = useClientAuth();
@@ -389,6 +390,7 @@ export default function PacksPage() {
   // Update pack name when packs change or modal opens
   useEffect(() => {
     if (isDialogOpen) {
+      setPackNameDuplicateError(false);
       const nextNumber = packs.length + 1;
       const packName = `Pack ${nextNumber.toString().padStart(2, "0")}`;
       // Manter o dateRange salvo no localStorage ao abrir o modal
@@ -558,6 +560,7 @@ export default function PacksPage() {
       // Verificar se já existe um pack com o mesmo nome
       const existingPack = packs.find((p) => p.name.trim().toLowerCase() === packName.toLowerCase());
       if (existingPack) {
+        setPackNameDuplicateError(true);
         showError({ message: `Já existe um pack com o nome "${packName}"` });
         setIsLoading(false);
         return;
@@ -1537,8 +1540,18 @@ export default function PacksPage() {
           {/* Pack Name */}
           <div className="space-y-2">
             <label className="text-sm font-medium">Nome do Pack</label>
-            <Input placeholder="Ex: Black Friday Campaign, Q4 Performance, etc." value={formData.name} onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))} />
-            <p className="text-xs text-muted-foreground">Dê um nome descritivo para identificar facilmente seu pack</p>
+            <Input
+              placeholder="Ex: Black Friday Campaign, Q4 Performance, etc."
+              value={formData.name}
+              onChange={(e) => {
+                setPackNameDuplicateError(false);
+                setFormData((prev) => ({ ...prev, name: e.target.value }));
+              }}
+              className={packNameDuplicateError ? "border-destructive focus-visible:ring-destructive" : undefined}
+            />
+            <p className={packNameDuplicateError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+              {packNameDuplicateError ? "Já existe um pack com esse nome. Escolha outro." : "Dê um nome descritivo para identificar facilmente seu pack"}
+            </p>
           </div>
 
           {/* Ad Account */}
@@ -1585,15 +1598,15 @@ export default function PacksPage() {
                       if (accountStatus === 1) {
                         // Ativo
                         StatusIcon = IconCircleCheck;
-                        iconColor = "text-green-500";
+                        iconColor = "text-success";
                       } else if (accountStatus === 2) {
                         // Pausado
                         StatusIcon = IconCircleDot;
-                        iconColor = "text-yellow-500";
+                        iconColor = "text-warning";
                       } else if (accountStatus === 3) {
                         // Desativado
                         StatusIcon = IconCircleX;
-                        iconColor = "text-red-500";
+                        iconColor = "text-destructive";
                       } else {
                         // Desconhecido
                         StatusIcon = IconCircleDot;
@@ -1860,7 +1873,7 @@ export default function PacksPage() {
                 </div>
                 <div>
                   <p className="font-medium text-muted-foreground">Total Investido:</p>
-                  <p className="font-bold text-yellow-500">{formatCurrency(previewPack.stats?.totalSpend ?? 0)}</p>
+                  <p className="font-bold text-warning">{formatCurrency(previewPack.stats?.totalSpend ?? 0)}</p>
                 </div>
                 <div>
                   <p className="font-medium text-muted-foreground">Anúncios:</p>
@@ -1919,7 +1932,7 @@ export default function PacksPage() {
             </div>
 
             <div className="bg-black rounded-lg p-4 overflow-auto">
-              <pre className="text-green-400 text-xs font-mono whitespace-pre-wrap">{JSON.stringify(jsonViewerPack, null, 2)}</pre>
+              <pre className="text-success text-xs font-mono whitespace-pre-wrap">{JSON.stringify(jsonViewerPack, null, 2)}</pre>
             </div>
           </div>
         )}

@@ -33,6 +33,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [isGoogleConnected, setIsGoogleConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoadingColumns, setIsLoadingColumns] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const [selectedSpreadsheetId, setSelectedSpreadsheetId] = useState("");
   const [selectedSpreadsheetName, setSelectedSpreadsheetName] = useState("");
@@ -145,6 +146,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setIsGoogleConnected(false);
       setIsConnecting(false);
       setIsLoadingColumns(false);
+      setIsSaving(false);
       setSelectedSpreadsheetId("");
       setSelectedSpreadsheetName("");
       setWorksheetTitle("");
@@ -356,7 +358,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   };
 
   const handleImport = async () => {
-    if (!canImport) return;
+    if (!canImport || isSaving) return;
+    setIsSaving(true);
     try {
       const payload: SheetIntegrationRequest = {
         spreadsheet_id: selectedSpreadsheetId,
@@ -382,6 +385,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       }).catch((e) => showError(e));
     } catch (e: any) {
       showError(e);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -480,7 +485,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} cprMaxColumn={cprMaxColumn} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onCprMaxColumnChange={setCprMaxColumn} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} cprMaxColumn={cprMaxColumn} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onCprMaxColumnChange={setCprMaxColumn} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

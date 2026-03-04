@@ -28,17 +28,7 @@ interface FacebookConnectionCardProps {
   showActions?: boolean;
 }
 
-export function FacebookConnectionCard({
-  connection,
-  isSelected = false,
-  onSelect,
-  onDelete,
-  onReconnect,
-  onRefreshPicture,
-  onSetPrimary,
-  isDeleting = false,
-  showActions = true,
-}: FacebookConnectionCardProps) {
+export function FacebookConnectionCard({ connection, isSelected = false, onSelect, onDelete, onReconnect, onRefreshPicture, onSetPrimary, isDeleting = false, showActions = true }: FacebookConnectionCardProps) {
   const { testingConnections, expiredConnections, handleRetestConnection } = useFacebookConnectionVerification();
   const hasTriggeredPictureRefresh = useRef(false);
 
@@ -67,18 +57,7 @@ export function FacebookConnectionCard({
   };
 
   return (
-    <div
-      className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${
-        isSelected && canSelect
-          ? "border-primary bg-primary-5 cursor-pointer"
-          : isExpired
-          ? "border-destructive-50 bg-destructive-5 cursor-not-allowed opacity-75"
-          : canSelect
-          ? "border-border hover:bg-accent cursor-pointer"
-          : "border-border cursor-not-allowed opacity-50"
-      }`}
-      onClick={() => canSelect && onSelect && onSelect(connection.id)}
-    >
+    <div className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-5 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-5 cursor-not-allowed opacity-75" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelect && onSelect(connection.id)}>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {/* Avatar */}
@@ -88,11 +67,7 @@ export function FacebookConnectionCard({
               alt={connection.facebook_name || "Facebook"}
               className="w-8 h-8 rounded-full object-cover flex-shrink-0"
               onError={() => {
-                if (
-                  !hasTriggeredPictureRefresh.current &&
-                  onRefreshPicture &&
-                  !connection.picture_storage_path
-                ) {
+                if (!hasTriggeredPictureRefresh.current && onRefreshPicture && !connection.picture_storage_path) {
                   hasTriggeredPictureRefresh.current = true;
                   onRefreshPicture(connection.id);
                 }
@@ -106,9 +81,7 @@ export function FacebookConnectionCard({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <div className="font-medium text-sm truncate">
-                {connection.facebook_name || connection.facebook_email || `ID: ${connection.facebook_user_id}` || "Conta do Facebook"}
-              </div>
+              <div className="font-medium text-sm truncate">{connection.facebook_name || connection.facebook_email || `ID: ${connection.facebook_user_id}` || "Conta do Facebook"}</div>
               {isTesting && (
                 <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium flex items-center gap-1">
                   <IconLoader2 className="w-3 h-3 animate-spin" />
@@ -116,27 +89,21 @@ export function FacebookConnectionCard({
                 </span>
               )}
               {!isTesting && isValid && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/20 text-green-500 border border-green-500/30">
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-success-20 text-success border border-success-30">
                   <IconCheck className="w-3 h-3" />
                   Conectada
                 </span>
               )}
               {!isTesting && isExpired && (
-                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-500/20 text-yellow-500 border border-yellow-500/30">
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning-20 text-warning border border-warning-30">
                   <IconAlertCircle className="w-3 h-3" />
                   {connection.status === "expired" ? "Expirada" : "Inválida"}
                 </span>
               )}
-              {connection.is_primary && (
-                <span className="text-xs px-2 py-0.5 rounded bg-primary-20 text-primary font-medium">Primária</span>
-              )}
+              {connection.is_primary && <span className="text-xs px-2 py-0.5 rounded bg-primary-20 text-primary font-medium">Primária</span>}
             </div>
-            {connection.facebook_email && connection.facebook_email !== connection.facebook_name && (
-              <div className="text-xs text-muted-foreground truncate">{connection.facebook_email}</div>
-            )}
-            {!connection.facebook_email && !connection.facebook_name && (
-              <div className="text-xs text-muted-foreground truncate">ID: {connection.facebook_user_id}</div>
-            )}
+            {connection.facebook_email && connection.facebook_email !== connection.facebook_name && <div className="text-xs text-muted-foreground truncate">{connection.facebook_email}</div>}
+            {!connection.facebook_email && !connection.facebook_name && <div className="text-xs text-muted-foreground truncate">ID: {connection.facebook_user_id}</div>}
           </div>
         </div>
       </div>
@@ -154,27 +121,12 @@ export function FacebookConnectionCard({
             </Button>
           ) : (
             <>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={handleRetest}
-                disabled={isDeleting}
-                title="Verificar novamente"
-              >
+              <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleRetest} disabled={isDeleting} title="Verificar novamente">
                 <IconRefresh className="w-3.5 h-3.5 mr-1" />
                 Verificar
               </Button>
               {onDelete && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10"
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                >
+                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting}>
                   <IconTrash className="w-4 h-4" />
                 </Button>
               )}
@@ -185,4 +137,3 @@ export function FacebookConnectionCard({
     </div>
   );
 }
-

@@ -22,20 +22,24 @@ export function showError(error: AppError | Error | unknown) {
   // Garantir que message seja string (nunca renderizar objeto)
   const message = typeof appError.message === "string" ? appError.message : JSON.stringify(appError.message);
 
+  // Toasts de erro nunca fecham sozinhos: usuário deve dispensar para garantir que leu.
   const toastId = `error-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   toast.error(
-    <div className="relative pr-6">
-      <span>{message}</span>
-      <button
-        type="button"
-        onClick={() => toast.dismiss(toastId)}
-        className="absolute top-0 right-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
-        aria-label="Fechar"
-      >
-        <IconX className="h-4 w-4" strokeWidth={2} />
-      </button>
+    <div className="flex items-start gap-3 w-full min-w-0">
+      <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="flex-1 min-w-0 text-sm text-foreground break-words">{message}</span>
+        <button
+          type="button"
+          onClick={() => toast.dismiss(toastId)}
+          className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+          aria-label="Fechar"
+        >
+          <IconX className="h-4 w-4" strokeWidth={2} />
+        </button>
+      </div>
     </div>,
-    { id: toastId, duration: undefined }
+    { id: toastId, duration: Infinity, dismissible: true },
   );
 }
 
@@ -48,9 +52,15 @@ export function showInfo(message: string) {
 }
 
 export function showWarning(message: string) {
-  toast.warning(message, {
-    duration: 5000,
-  });
+  toast.warning(
+    <div className="flex items-start gap-3">
+      <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-warning" />
+      <span className="text-sm text-foreground break-words">{message}</span>
+    </div>,
+    {
+      duration: 5000,
+    },
+  );
 }
 
 /**
@@ -62,20 +72,11 @@ export function showWarning(message: string) {
  *   - Meta / Sheets: "Atualização cancelada."
  *   - Transcrição: "Transcrição cancelada."
  */
-export function showProcessCancelledWarning(
-  context: "meta" | "sheets" | "transcription",
-  packName: string
-) {
-  const label =
-    context === "meta" ? "Meta" : context === "sheets" ? "Leadscore" : "Transcrição";
+export function showProcessCancelledWarning(context: "meta" | "sheets" | "transcription", packName: string) {
+  const label = context === "meta" ? "Meta" : context === "sheets" ? "Leadscore" : "Transcrição";
   const message = context === "transcription" ? "Transcrição cancelada." : "Atualização cancelada.";
 
-  const LeftIcon =
-    context === "meta"
-      ? MetaIcon
-      : context === "sheets"
-      ? GoogleSheetsIcon
-      : IconMicrophone;
+  const LeftIcon = context === "meta" ? MetaIcon : context === "sheets" ? GoogleSheetsIcon : IconMicrophone;
 
   toast.warning(
     <div className="flex items-center gap-3">
@@ -85,14 +86,14 @@ export function showProcessCancelledWarning(
           {packName}: {label}
         </span>
         <div className="flex items-center gap-2">
-          <IconAlertCircle className="h-4 w-4 text-yellow-400 flex-shrink-0" />
+          <IconAlertCircle className="h-4 w-4 text-warning flex-shrink-0" />
           <span className="text-sm text-foreground">{message}</span>
         </div>
       </div>
     </div>,
     {
       duration: 5000,
-    }
+    },
   );
 }
 
@@ -283,6 +284,14 @@ export function calculateSheetsProgressPercent(status: string, details?: any): n
   const { stepIndex } = getSheetsStageInfo(status, details);
   const pctPerStep = 100 / SHEETS_TOTAL_STAGES;
   return Math.min(100, Math.round(stepIndex * pctPerStep));
+}
+
+/** Número de etapas do toast de progresso do Google Sheets (para showProgressToast/updateProgressToast). */
+export const SHEETS_TOAST_TOTAL_STEPS = SHEETS_TOTAL_STAGES;
+
+/** Label padronizado para toasts de progresso do Sheets: "Planilha: {title}". */
+export function getSheetsProgressPackLabel(title: string): string {
+  return `Planilha: ${title || "Importação"}`;
 }
 
 // ----- Transcrição -----
@@ -484,7 +493,7 @@ export function finishProgressToast(toastId: string, success: boolean, message: 
         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
           <span className="text-xs text-muted-foreground">{packName}: Meta</span>
           <div className="flex items-center gap-2">
-            <IconCheck className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+            <IconCheck className="h-4 w-4 text-success flex-shrink-0" />
             <span className="text-sm text-foreground">{message}</span>
           </div>
         </div>
@@ -495,7 +504,7 @@ export function finishProgressToast(toastId: string, success: boolean, message: 
         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
           <span className="text-xs text-muted-foreground">{packName}: Leadscore</span>
           <div className="flex items-center gap-2">
-            <IconCheck className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+            <IconCheck className="h-4 w-4 text-success flex-shrink-0" />
             <span className="text-sm text-foreground">{message}</span>
           </div>
         </div>
@@ -506,7 +515,7 @@ export function finishProgressToast(toastId: string, success: boolean, message: 
         <div className="flex flex-col gap-0.5 min-w-0 flex-1">
           <span className="text-xs text-muted-foreground">{packName}: Transcrição</span>
           <div className="flex items-center gap-2">
-            <IconCheck className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+            <IconCheck className="h-4 w-4 text-success flex-shrink-0" />
             <span className="text-sm text-foreground">{message}</span>
           </div>
         </div>
@@ -523,11 +532,17 @@ export function finishProgressToast(toastId: string, success: boolean, message: 
     }
   } else {
     // Erro sempre persistente até usuário fechar
-    toast.error(message, {
-      id: toastId,
-      duration: Infinity,
-      dismissible: true,
-    });
+    toast.error(
+      <div className="flex items-start gap-3">
+        <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
+        <span className="text-sm text-foreground break-words">{message}</span>
+      </div>,
+      {
+        id: toastId,
+        duration: Infinity,
+        dismissible: true,
+      },
+    );
   }
 }
 
@@ -539,7 +554,7 @@ export function showPausedJobToast(toastId: string, packName: string, onReconnec
   toast.warning(
     <div className="flex flex-col gap-2 w-full">
       <div className="flex items-center gap-2">
-        <IconAlertCircle className="h-5 w-5 text-yellow-500 flex-shrink-0" />
+        <IconAlertCircle className="h-5 w-5 text-warning flex-shrink-0" />
         <span className="font-medium">Sincronização pausada</span>
       </div>
       <span className="text-sm text-muted-foreground">Planilha &quot;{packName}&quot; aguardando reconexão do Google</span>

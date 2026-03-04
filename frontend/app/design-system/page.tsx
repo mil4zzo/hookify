@@ -49,7 +49,7 @@ export default function DesignSystemPage() {
       colorTokenDefinitions.map((def) => ({
         ...def,
         computedValue: getComputedColorValue(def.value),
-      }))
+      })),
     );
     setLoading(false);
   }, []);
@@ -83,10 +83,13 @@ export default function DesignSystemPage() {
     );
   }
 
-  const byCategory = colorCategoriesOrder.reduce((acc, cat) => {
-    acc[cat] = colors.filter((c) => c.category === cat);
-    return acc;
-  }, {} as Record<string, ColorWithComputed[]>);
+  const byCategory = colorCategoriesOrder.reduce(
+    (acc, cat) => {
+      acc[cat] = colors.filter((c) => c.category === cat);
+      return acc;
+    },
+    {} as Record<string, ColorWithComputed[]>,
+  );
 
   return (
     <div className="min-h-screen bg-background p-6 pb-12">
@@ -124,13 +127,7 @@ export default function DesignSystemPage() {
                         {items.map((color) => {
                           const bgStyle = color.computedValue ? { backgroundColor: color.computedValue } : {};
                           return (
-                            <div
-                              key={color.name}
-                              className={cn(
-                                "group relative rounded-md border border-border overflow-hidden bg-card",
-                                "w-24 flex flex-col"
-                              )}
-                            >
+                            <div key={color.name} className={cn("group relative rounded-md border border-border overflow-hidden bg-card", "w-24 flex flex-col")}>
                               <div className="relative h-14 w-full">
                                 <div
                                   className="absolute inset-0"
@@ -144,12 +141,7 @@ export default function DesignSystemPage() {
                               </div>
                               <div className="p-1.5 flex items-center justify-between gap-1">
                                 <span className="text-[10px] font-medium text-foreground truncate">{color.name}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => copyToken(color.name, "bg")}
-                                  className="shrink-0 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground"
-                                  title="Copiar bg-{nome}"
-                                >
+                                <button type="button" onClick={() => copyToken(color.name, "bg")} className="shrink-0 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground" title="Copiar bg-{nome}">
                                   <IconCopy className="h-3 w-3" />
                                 </button>
                               </div>
@@ -160,11 +152,7 @@ export default function DesignSystemPage() {
                                   </code>
                                 </div>
                               )}
-                              {copied === `bg-${color.name}` && (
-                                <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[9px] bg-popover text-popover-foreground px-1.5 py-0.5 rounded shadow border border-border z-20">
-                                  Copiado
-                                </span>
-                              )}
+                              {copied === `bg-${color.name}` && <span className="absolute bottom-6 left-1/2 -translate-x-1/2 text-[9px] bg-popover text-popover-foreground px-1.5 py-0.5 rounded shadow border border-border z-20">Copiado</span>}
                             </div>
                           );
                         })}
@@ -206,9 +194,7 @@ export default function DesignSystemPage() {
               <CardDescription className="text-xs">bg-overlay para modais</CardDescription>
             </CardHeader>
             <CardContent className="pt-0">
-              <div className="h-12 rounded-md bg-overlay flex items-center justify-center text-primary-foreground text-sm">
-                Exemplo overlay
-              </div>
+              <div className="h-12 rounded-md bg-overlay flex items-center justify-center text-primary-foreground text-sm">Exemplo overlay</div>
             </CardContent>
           </Card>
         </section>
@@ -222,12 +208,24 @@ export default function DesignSystemPage() {
                 <CardTitle className="text-sm">Button</CardTitle>
               </CardHeader>
               <CardContent className="pt-0 flex flex-wrap gap-2">
-                <Button variant="default" size="sm">Default</Button>
-                <Button variant="destructive" size="sm">Destructive</Button>
-                <Button variant="outline" size="sm">Outline</Button>
-                <Button variant="secondary" size="sm">Secondary</Button>
-                <Button variant="ghost" size="sm">Ghost</Button>
-                <Button variant="success" size="sm">Success</Button>
+                <Button variant="default" size="sm">
+                  Default
+                </Button>
+                <Button variant="destructive" size="sm">
+                  Destructive
+                </Button>
+                <Button variant="outline" size="sm">
+                  Outline
+                </Button>
+                <Button variant="secondary" size="sm">
+                  Secondary
+                </Button>
+                <Button variant="ghost" size="sm">
+                  Ghost
+                </Button>
+                <Button variant="success" size="sm">
+                  Success
+                </Button>
               </CardContent>
             </Card>
             <Card>
@@ -279,11 +277,15 @@ export default function DesignSystemPage() {
                 <CardTitle className="text-sm">Modal</CardTitle>
               </CardHeader>
               <CardContent className="pt-0">
-                <Button size="sm" variant="outline" onClick={() => setModalOpen(true)}>Abrir modal</Button>
+                <Button size="sm" variant="outline" onClick={() => setModalOpen(true)}>
+                  Abrir modal
+                </Button>
                 <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} size="sm" padding="md">
                   <p className="text-sm text-muted-foreground">Exemplo de modal.</p>
                   <div className="flex justify-end gap-2 mt-4">
-                    <Button size="sm" variant="outline" onClick={() => setModalOpen(false)}>Fechar</Button>
+                    <Button size="sm" variant="outline" onClick={() => setModalOpen(false)}>
+                      Fechar
+                    </Button>
                   </div>
                 </Modal>
               </CardContent>
@@ -295,8 +297,12 @@ export default function DesignSystemPage() {
               <CardContent className="pt-0 space-y-2">
                 <Progress value={progress} />
                 <div className="flex gap-1">
-                  <Button size="sm" variant="outline" onClick={() => setProgress((p) => Math.max(0, p - 10))}>-10</Button>
-                  <Button size="sm" variant="outline" onClick={() => setProgress((p) => Math.min(100, p + 10))}>+10</Button>
+                  <Button size="sm" variant="outline" onClick={() => setProgress((p) => Math.max(0, p - 10))}>
+                    -10
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setProgress((p) => Math.min(100, p + 10))}>
+                    +10
+                  </Button>
                 </div>
               </CardContent>
             </Card>

@@ -434,6 +434,12 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
     try:
         logger.info("=== ADS PROGRESS REQUEST DEBUG ===")
         logger.info(f"Request: {request}")
+
+        pack_name = supabase_repo.normalize_pack_name(request.name or "")
+        if not pack_name:
+            raise HTTPException(status_code=400, detail="Nome do pack não pode ser vazio")
+        if supabase_repo.check_pack_name_exists(user["token"], user["user_id"], pack_name):
+            raise HTTPException(status_code=409, detail=f"Já existe um pack com o nome '{pack_name}'")
         
         # Converter formato do frontend para formato esperado pelo GraphAPI
         time_range_dict = {
@@ -483,7 +489,7 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
                 "date_stop": request.date_stop,
                 "level": request.level,
                 "filters": [f.dict() for f in request.filters],
-                "name": request.name,
+                "name": pack_name,
                 "auto_refresh": request.auto_refresh if request.auto_refresh is not None else False,
                 "today_local": getattr(request, "today_local", None),
             })
@@ -515,8 +521,6 @@ def get_job_progress(
     O frontend recebe respostas rápidas e não fica bloqueado.
     """
     try:
-        from datetime import datetime, timezone
-
         user_jwt = user["token"]
         user_id = user["user_id"]
         
@@ -527,20 +531,6 @@ def get_job_progress(
         job = tracker.get_job(job_id)
         current_status = job.get("status") if job else None
 
-        def _is_job_stale(job_row: Dict[str, Any], stale_threshold_seconds: int = 120) -> bool:
-            # Sem updated_at, assumir stale para tentar self-healing
-            updated_at_str = job_row.get("updated_at")
-            if not updated_at_str:
-                return True
-            try:
-                # updated_at costuma vir ISO com Z
-                updated_at = datetime.fromisoformat(str(updated_at_str).replace("Z", "+00:00"))
-                now = datetime.now(timezone.utc)
-                return (now - updated_at).total_seconds() > stale_threshold_seconds
-            except Exception:
-                # Se não conseguir parsear, tentar retomar
-                return True
-        
         # Se job já está em estado final, retornar diretamente
         if current_status == STATUS_COMPLETED:
             logger.debug(f"[JOB_PROGRESS] Job {job_id} já completado, retornando progresso salvo")
@@ -557,8 +547,7 @@ def get_job_progress(
 
         # Se job está em processing/persisting, retornar progresso atual (background está trabalhando)
         if current_status in (STATUS_PROCESSING, STATUS_PERSISTING):
-            # Verificar se precisa retomar (self-healing para jobs "stale")
-            if job and _is_job_stale(job):
+            if tracker.should_resume_processing(job_id):
                 # ✅ CRÍTICO: Verificar novamente se job foi cancelado antes de reiniciar
                 # (pode ter sido cancelado entre o início do request e aqui)
                 fresh_job = tracker.get_job(job_id)
@@ -566,16 +555,17 @@ def get_job_progress(
                     logger.info(f"[JOB_PROGRESS] Job {job_id} foi cancelado, não reiniciando self-healing")
                     return tracker.get_public_progress(job_id)
 
-                logger.warning(f"[JOB_PROGRESS] Job {job_id} parece stale, tentando retomar...")
+                logger.warning(f"[JOB_PROGRESS] Lease expirado para job {job_id}, tentando retomar...")
                 # Buscar token do Facebook para reprocessar
                 fb_token = get_facebook_token_for_user(user_jwt, user_id)
-                if fb_token:
+                if fb_token and tracker.try_claim_processing(job_id):
                     background_tasks.add_task(
                         process_job_async,
                         user_jwt,
                         user_id,
                         fb_token,
-                        job_id
+                        job_id,
+                        tracker.processing_owner,
                     )
             return tracker.get_public_progress(job_id)
         
@@ -595,22 +585,28 @@ def get_job_progress(
             error_msg = meta_status.get("error", "Erro desconhecido")
             if check_meta_error_for_token_expiry(error_msg):
                 mark_connection_as_expired(user_jwt, user_id)
-            raise HTTPException(
-                status_code=401,
-                detail={
-                    "error": "facebook_token_expired",
-                    "code": "TOKEN_EXPIRED",
-                    "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
-                }
-            )
-            # Se Meta falhou mas não é erro de token, atualizar status
+                raise HTTPException(
+                    status_code=401,
+                    detail={
+                        "error": "facebook_token_expired",
+                        "code": "TOKEN_EXPIRED",
+                        "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
+                    }
+                )
             tracker.heartbeat(
                 job_id,
                 status=STATUS_META_RUNNING,
                 progress=0,
-                message=f"Erro ao verificar status: {error_msg}"
+                message=f"Erro ao verificar status: {error_msg}",
+                details={"stage": "meta_status_error"},
             )
-            return tracker.get_public_progress(job_id)
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "meta_status_error",
+                    "message": f"Erro ao verificar status do job na Meta: {error_msg}",
+                }
+            )
         
         # 3) Processar resultado da Meta
         meta_job_status = meta_status.get("status")
@@ -652,15 +648,16 @@ def get_job_progress(
             # Marcar como meta_completed e iniciar processamento
             tracker.mark_meta_completed(job_id)
             
-            # Verificar se podemos marcar como processing (lock otimista)
-            if tracker.try_mark_processing(job_id):
+            # Verificar se podemos adquirir lease de processamento
+            if tracker.try_claim_processing(job_id):
                 # Disparar processamento em background
                 background_tasks.add_task(
                     process_job_async,
                     user_jwt,
                     user_id,
                     fb_token,
-                    job_id
+                    job_id,
+                    tracker.processing_owner,
                 )
                 logger.info(f"[JOB_PROGRESS] Processamento em background iniciado para job {job_id}")
             

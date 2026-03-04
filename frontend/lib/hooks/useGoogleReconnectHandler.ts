@@ -8,13 +8,12 @@ import {
   dismissToast,
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
+  SHEETS_TOAST_TOTAL_STEPS,
+  getSheetsProgressPackLabel,
 } from "@/lib/utils/toast";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
 const sheetsIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
-
-/** Total de etapas no toast do Sheets (barra usa progressPercent quando informado). */
-const SHEETS_TOAST_TOTAL_STEPS = 3;
 
 /**
  * Faz polling simples do job de sync do Google Sheets.
@@ -49,7 +48,7 @@ async function pollResumedSyncJob(
 
       updateProgressToast(
         toastId,
-        `Planilha: ${packName}`,
+        getSheetsProgressPackLabel(packName),
         1,
         SHEETS_TOAST_TOTAL_STEPS,
         undefined,
@@ -74,7 +73,7 @@ async function pollResumedSyncJob(
       console.error(`[pollResumedSyncJob] Erro ao verificar progresso:`, error);
       updateProgressToast(
         toastId,
-        `Planilha: ${packName}`,
+        getSheetsProgressPackLabel(packName),
         1,
         SHEETS_TOAST_TOTAL_STEPS,
         undefined,
@@ -122,7 +121,7 @@ export function useGoogleReconnectHandler() {
         const newToastId = `sync-sheet-${pausedJob.packId}-${Date.now()}`;
         showProgressToast(
           newToastId,
-          `Planilha: ${pausedJob.packName}`,
+          getSheetsProgressPackLabel(pausedJob.packName),
           1,
           SHEETS_TOAST_TOTAL_STEPS,
           undefined,

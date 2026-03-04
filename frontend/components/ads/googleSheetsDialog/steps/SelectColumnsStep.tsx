@@ -12,6 +12,7 @@ interface SelectColumnsStepProps {
   dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY";
   leadscoreColumn: string;
   cprMaxColumn: string;
+  isSaving: boolean;
   isImporting: boolean;
   importStep: "idle" | "saving" | "reading" | "processing" | "complete";
   importProgress: number;
@@ -25,7 +26,7 @@ interface SelectColumnsStepProps {
   onImport: () => void;
 }
 
-export function SelectColumnsStep({ columns, adIdColumn, dateColumn, dateFormat, leadscoreColumn, cprMaxColumn, isImporting, importStep, importProgress, canImport, onAdIdColumnChange, onDateColumnChange, onDateFormatChange, onLeadscoreColumnChange, onCprMaxColumnChange, onBack, onImport }: SelectColumnsStepProps) {
+export function SelectColumnsStep({ columns, adIdColumn, dateColumn, dateFormat, leadscoreColumn, cprMaxColumn, isSaving, isImporting, importStep, importProgress, canImport, onAdIdColumnChange, onDateColumnChange, onDateFormatChange, onLeadscoreColumnChange, onCprMaxColumnChange, onBack, onImport }: SelectColumnsStepProps) {
   const columnOptions = columns.map((c) => ({ label: c, value: c }));
 
   return (
@@ -69,12 +70,17 @@ export function SelectColumnsStep({ columns, adIdColumn, dateColumn, dateFormat,
       {/* Ações do Step 3 */}
       <div className="space-y-3 pt-4 border-t border-border">
         <div className="flex items-center justify-between gap-2">
-          <Button type="button" variant="ghost" size="sm" onClick={onBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground" disabled={isImporting}>
+          <Button type="button" variant="ghost" size="sm" onClick={onBack} className="flex items-center gap-1 text-muted-foreground hover:text-foreground" disabled={isSaving || isImporting}>
             <IconChevronLeft className="w-4 h-4" />
             Voltar
           </Button>
-          <Button type="button" onClick={onImport} disabled={!canImport || isImporting}>
-            {isImporting ? (
+          <Button type="button" onClick={onImport} disabled={!canImport || isSaving || isImporting}>
+            {isSaving ? (
+              <span className="flex items-center gap-2">
+                <IconLoader2 className="w-4 h-4 animate-spin" />
+                Salvando...
+              </span>
+            ) : isImporting ? (
               <span className="flex items-center gap-2">
                 <IconLoader2 className="w-4 h-4 animate-spin" />
                 Aplicando...

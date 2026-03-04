@@ -91,7 +91,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
   const avgHook = averages?.hook ?? null;
   const avgWebsiteCtr = averages?.website_ctr ?? null;
   const avgCtr = averages?.ctr ?? null;
-  const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? averages.per_action_type[actionType].page_conv ?? null : null;
+  const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? (averages.per_action_type[actionType].page_conv ?? null) : null;
   const avgHoldRate = (averages as any)?.hold_rate ?? null;
 
   const metricColorSchemes = gemsModalMetricColorSchemes;
@@ -184,16 +184,13 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
               Insights
               {metricsBelowAverage > 0 && (
                 <div className="flex items-center gap-1.5">
-                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-orange-500/20 text-orange-600 dark:text-orange-400 border border-orange-500/30">
+                  <span className="px-1.5 py-0.5 text-xs font-semibold rounded-full bg-warning-20 text-warning border border-warning-30">
                     {metricsBelowAverage} de {TOTAL_METRICS}
                   </span>
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span
-                          className="flex items-center justify-center rounded-md p-0.5 opacity-60 hover:opacity-100 hover:bg-muted-hover transition-colors cursor-help"
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <span className="flex items-center justify-center rounded-md p-0.5 opacity-60 hover:opacity-100 hover:bg-muted-hover transition-colors cursor-help" onClick={(e) => e.stopPropagation()}>
                           <IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground" />
                         </span>
                       </TooltipTrigger>
@@ -206,9 +203,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                             <li>Link CTR</li>
                             <li>Page Conv</li>
                           </ul>
-                          <p className="text-xs text-muted-foreground mt-1">
-                            Apenas métricas abaixo da média são exibidas nesta aba.
-                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">Apenas métricas abaixo da média são exibidas nesta aba.</p>
                         </div>
                       </TooltipContent>
                     </Tooltip>
@@ -229,13 +224,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                   <p className="text-sm">Todas as métricas estão acima da média. Não há insights necessários.</p>
                 </div>
               ) : (
-                <BaseKanbanWidget
-                  storageKey={STORAGE_KEY_INSIGHTS_MODAL_COLUMN_ORDER}
-                  defaultColumnOrder={columnConfigs.map((c) => c.id)}
-                  columnConfigs={columnConfigs}
-                  activeColumns={new Set(columnConfigs.map((c) => c.id))}
-                  enableDrag={false}
-                />
+                <BaseKanbanWidget storageKey={STORAGE_KEY_INSIGHTS_MODAL_COLUMN_ORDER} defaultColumnOrder={columnConfigs.map((c) => c.id)} columnConfigs={columnConfigs} activeColumns={new Set(columnConfigs.map((c) => c.id))} enableDrag={false} />
               )}
             </>
           )}
@@ -259,12 +248,8 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                   <div className="flex flex-col gap-1">
                     <span className="text-xs text-muted-foreground">CPMQL</span>
                     <div className="flex flex-col items-baseline">
-                      <span className="text-lg font-semibold text-foreground">
-                        {effectiveCpmql > 0 ? formatCurrency(effectiveCpmql) : "—"}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground">
-                        ({effectiveMqlCount.toLocaleString("pt-BR")} MQLs)
-                      </span>
+                      <span className="text-lg font-semibold text-foreground">{effectiveCpmql > 0 ? formatCurrency(effectiveCpmql) : "—"}</span>
+                      <span className="text-[11px] text-muted-foreground">({effectiveMqlCount.toLocaleString("pt-BR")} MQLs)</span>
                     </div>
                   </div>
 

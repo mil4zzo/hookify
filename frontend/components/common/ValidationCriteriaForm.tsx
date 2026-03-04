@@ -18,13 +18,7 @@ interface ValidationCriteriaFormProps {
 
 const DEFAULT_IMPRESSIONS = 3000;
 
-export function ValidationCriteriaForm({
-  defaultImpressions = DEFAULT_IMPRESSIONS,
-  isSaving,
-  error,
-  onSave,
-  onSkip,
-}: ValidationCriteriaFormProps) {
+export function ValidationCriteriaForm({ defaultImpressions = DEFAULT_IMPRESSIONS, isSaving, error, onSave, onSkip }: ValidationCriteriaFormProps) {
   // Campos disponíveis: apenas métricas numéricas/inteiras
   const numericFields = [...INTEGER_FIELDS, ...NUMERIC_FIELDS];
   const defaultField = numericFields.find((f) => f.value === "impressions")?.value || numericFields[0]?.value || "impressions";
@@ -81,46 +75,23 @@ export function ValidationCriteriaForm({
             </Select>
           </div>
           <div className="w-32">
-            <Input
-              type="number"
-              min={0}
-              value={value}
-              onChange={(e) => setValue(Number(e.target.value || defaultImpressions))}
-              className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-            />
+            <Input type="number" min={0} value={value} onChange={(e) => setValue(Number(e.target.value || defaultImpressions))} className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" />
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          Recomenda-se começar, como padrão, com <strong>Impressions &gt;= {defaultImpressions.toLocaleString("pt-BR")}</strong>,
-          mas você pode ajustar o campo, o operador e o valor conforme seu contexto.
+          Recomenda-se começar, como padrão, com <strong>Impressions &gt;= {defaultImpressions.toLocaleString("pt-BR")}</strong>, mas você pode ajustar o campo, o operador e o valor conforme seu contexto.
         </p>
       </div>
 
-      {error && (
-        <p className="text-xs text-red-500">
-          {error}
-        </p>
-      )}
+      {error && <p className="text-xs text-destructive">{error}</p>}
 
       <div className="flex gap-3">
-        <Button
-          className="flex-1 flex items-center gap-2"
-          onClick={handleSave}
-          disabled={isSaving}
-        >
-          {isSaving ? (
-            <IconLoader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <IconCheck className="w-4 h-4" />
-          )}
+        <Button className="flex-1 flex items-center gap-2" onClick={handleSave} disabled={isSaving}>
+          {isSaving ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconCheck className="w-4 h-4" />}
           {isSaving ? "Salvando..." : "Salvar e continuar"}
         </Button>
         {onSkip && (
-          <Button
-            variant="outline"
-            onClick={onSkip}
-            disabled={isSaving}
-          >
+          <Button variant="outline" onClick={onSkip} disabled={isSaving}>
             Ajustar depois
           </Button>
         )}
@@ -128,5 +99,3 @@ export function ValidationCriteriaForm({
     </div>
   );
 }
-
-

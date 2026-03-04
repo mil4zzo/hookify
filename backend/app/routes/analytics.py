@@ -75,6 +75,8 @@ class RankingsRequest(BaseModel):
     limit: int = 500
     filters: Optional[RankingsFilters] = None
     pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas. Se vazio/None, não retorna dados.")
+    include_series: bool = Field(default=True, description="Se False, omite series (sparklines) da resposta para economizar memória/payload")
+    include_leadscore: bool = Field(default=True, description="Se False, omite leadscore_values da resposta")
 
 
 class DashboardRequest(BaseModel):
@@ -968,7 +970,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                 pass
 
         S = series_acc.get(key)
-        series = _build_rankings_series(axis, S, include_cpmql=True) if S else None
+        series = _build_rankings_series(axis, S, include_cpmql=True) if (S and req.include_series) else None
 
         # Calcular ad_scale e preencher ad_count:
         # - por campanha: quantidade de adsets distintos
@@ -1027,7 +1029,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             "website_ctr": website_ctr,
             "reach": A["reach"],
             "frequency": frequency_agg,
-            "leadscore_values": A.get("leadscore_values") or [],  # Array agregado de leadscore_values
+            "leadscore_values": (A.get("leadscore_values") or []) if req.include_leadscore else [],  # Array agregado de leadscore_values
             "conversions": A.get("conversions", {}),  # {action_type: total_value} para o frontend calcular results/cpr/page_conv
             "ad_count": ad_scale,
             "thumbnail": thumbnail,
@@ -1326,7 +1328,7 @@ def get_rankings_children(
             "cpm": cpm,
             "website_ctr": website_ctr,
             "conversions": A.get("conversions", {}),
-            "leadscore_values": A.get("leadscore_values") or [],
+            "leadscore_values": (A.get("leadscore_values") or []) if req.include_leadscore else [],
             "thumbnail": thumbnails_map.get(key),
             "series": series,
         })
@@ -1551,7 +1553,7 @@ def get_campaign_children(
                 "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
                 "cpm": cpm,
                 "website_ctr": website_ctr,
-                "leadscore_values": A.get("leadscore_values") or [],
+                "leadscore_values": (A.get("leadscore_values") or []) if req.include_leadscore else [],
                 "conversions": A.get("conversions", {}),
                 "ad_count": ad_count,
                 "thumbnail": thumbnail,
@@ -1776,7 +1778,7 @@ def get_adset_children(
                 "connect_rate": connect_rate,
                 "cpm": cpm,
                 "website_ctr": website_ctr,
-                "leadscore_values": A.get("leadscore_values") or [],
+                "leadscore_values": (A.get("leadscore_values") or []) if req.include_leadscore else [],
                 "conversions": A.get("conversions", {}),
                 "ad_count": 1,
                 "thumbnail": thumbnails_map.get(key),
@@ -2889,7 +2891,7 @@ def update_pack_name(
         # Tratar erros de validação (nome vazio ou duplicado)
         error_msg = str(e)
         if "já existe" in error_msg.lower() or "already exists" in error_msg.lower():
-            raise HTTPException(status_code=400, detail=error_msg)
+            raise HTTPException(status_code=409, detail=error_msg)
         raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
         logger.exception(f"Erro ao atualizar nome do pack {pack_id}: {e}")
@@ -2928,4 +2930,3 @@ def get_transcription(
         "metadata": result.get("metadata"),
         "updated_at": result.get("updated_at"),
     }
-

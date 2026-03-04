@@ -13,6 +13,7 @@ Estados do job:
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+import uuid
 from app.core.supabase_client import get_supabase_for_user
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ STAGE_ENRICHMENT = "enriquecimento"
 STAGE_FORMATTING = "formatação"
 STAGE_PERSISTENCE = "persistência"
 STAGE_COMPLETE = "completo"
+DEFAULT_PROCESSING_LEASE_SECONDS = 300
 
 
 def _now_iso() -> str:
@@ -42,9 +44,10 @@ def _now_iso() -> str:
 class JobTracker:
     """Gerencia estados de jobs no Supabase."""
     
-    def __init__(self, user_jwt: str, user_id: str):
+    def __init__(self, user_jwt: str, user_id: str, processing_owner: Optional[str] = None):
         self.user_jwt = user_jwt
         self.user_id = user_id
+        self.processing_owner = processing_owner
         self._sb = None
     
     @property
@@ -100,6 +103,22 @@ class JobTracker:
         except Exception as e:
             logger.exception(f"[JobTracker] Erro ao criar job {job_id}: {e}")
             return False
+
+    def merge_payload(self, job_id: str, patch: Dict[str, Any]) -> bool:
+        """Mescla campos no payload do job preservando conteúdo existente."""
+        try:
+            current_job = self.get_job(job_id)
+            if not current_job:
+                return False
+            payload = current_job.get("payload") or {}
+            payload.update(patch)
+            self.sb.table("jobs").update(
+                {"payload": payload, "updated_at": _now_iso()}
+            ).eq("id", job_id).eq("user_id", self.user_id).execute()
+            return True
+        except Exception as e:
+            logger.exception(f"[JobTracker] Erro ao mesclar payload do job {job_id}: {e}")
+            return False
     
     def heartbeat(
         self,
@@ -143,50 +162,97 @@ class JobTracker:
                 existing["details"].update(details)
                 data["payload"] = existing
             
-            self.sb.table("jobs").update(data).eq("id", job_id).eq("user_id", self.user_id).execute()
+            if self.processing_owner:
+                if status in (STATUS_PROCESSING, STATUS_PERSISTING):
+                    if not self.renew_processing_claim(job_id):
+                        return False
+                else:
+                    owner_job = self.get_job(job_id)
+                    if not owner_job:
+                        return False
+                    current_owner = owner_job.get("processing_owner")
+                    if current_owner not in (None, self.processing_owner):
+                        return False
+
+                self.sb.table("jobs").update(data).eq("id", job_id).eq("user_id", self.user_id).execute()
+            else:
+                self.sb.table("jobs").update(data).eq("id", job_id).eq("user_id", self.user_id).execute()
             return True
         except Exception as e:
             logger.exception(f"[JobTracker] Erro ao atualizar heartbeat do job {job_id}: {e}")
             return False
     
-    def try_mark_processing(self, job_id: str) -> bool:
-        """
-        Tenta marcar job como 'processing' (lock otimista).
-        Retorna True se conseguiu (era meta_completed), False caso contrário.
-        """
+    def try_claim_processing(
+        self,
+        job_id: str,
+        lease_seconds: int = DEFAULT_PROCESSING_LEASE_SECONDS,
+    ) -> bool:
+        """Tenta adquirir lease de processamento de forma atômica via RPC."""
         try:
-            # Buscar status atual
-            job = self.get_job(job_id)
-            if not job:
-                return False
-
-            current_status = job.get("status")
-
-            # ✅ CRÍTICO: Se job foi cancelado, NÃO iniciar processamento
-            if current_status == STATUS_CANCELLED:
-                logger.info(f"[JobTracker] Job {job_id} foi cancelado, não iniciando processamento")
-                return False
-
-            # Só pode transicionar de meta_completed para processing
-            if current_status == STATUS_META_COMPLETED:
-                self.heartbeat(
-                    job_id,
-                    status=STATUS_PROCESSING,
-                    progress=100,
-                    message="Iniciando coleta de anúncios...",
-                    details={"stage": STAGE_PAGINATION, "started_processing_at": _now_iso()}
-                )
-                logger.info(f"[JobTracker] Job {job_id} marcado como processing")
-                return True
-            
-            # Se já está em processing/persisting, não precisa marcar novamente
-            if current_status in (STATUS_PROCESSING, STATUS_PERSISTING):
-                logger.debug(f"[JobTracker] Job {job_id} já está em {current_status}")
-                return False
-            
-            return False
+            owner = self.processing_owner or str(uuid.uuid4())
+            result = self.sb.rpc(
+                "claim_job_processing",
+                {
+                    "p_job_id": job_id,
+                    "p_user_id": self.user_id,
+                    "p_owner": owner,
+                    "p_lease_seconds": lease_seconds,
+                },
+            ).execute()
+            payload = result.data or {}
+            claimed = bool(payload.get("claimed"))
+            if claimed:
+                self.processing_owner = owner
+                logger.info(f"[JobTracker] Lease adquirido para job {job_id} (owner={owner})")
+            return claimed
         except Exception as e:
-            logger.exception(f"[JobTracker] Erro ao tentar marcar processing para job {job_id}: {e}")
+            logger.exception(f"[JobTracker] Erro ao tentar adquirir lease para job {job_id}: {e}")
+            return False
+
+    def renew_processing_claim(
+        self,
+        job_id: str,
+        lease_seconds: int = DEFAULT_PROCESSING_LEASE_SECONDS,
+    ) -> bool:
+        """Renova lease do worker atual."""
+        if not self.processing_owner:
+            return False
+        try:
+            result = self.sb.rpc(
+                "renew_job_processing_lease",
+                {
+                    "p_job_id": job_id,
+                    "p_user_id": self.user_id,
+                    "p_owner": self.processing_owner,
+                    "p_lease_seconds": lease_seconds,
+                },
+            ).execute()
+            payload = result.data or {}
+            return bool(payload.get("renewed"))
+        except Exception as e:
+            logger.exception(f"[JobTracker] Erro ao renovar lease do job {job_id}: {e}")
+            return False
+
+    def release_processing_claim(self, job_id: str) -> bool:
+        """Libera lease do worker atual."""
+        if not self.processing_owner:
+            return True
+        try:
+            result = self.sb.rpc(
+                "release_job_processing_lease",
+                {
+                    "p_job_id": job_id,
+                    "p_user_id": self.user_id,
+                    "p_owner": self.processing_owner,
+                },
+            ).execute()
+            payload = result.data or {}
+            released = bool(payload.get("released"))
+            if released:
+                logger.info(f"[JobTracker] Lease liberado para job {job_id} (owner={self.processing_owner})")
+            return released
+        except Exception as e:
+            logger.exception(f"[JobTracker] Erro ao liberar lease do job {job_id}: {e}")
             return False
     
     def mark_meta_completed(self, job_id: str) -> bool:
@@ -249,7 +315,7 @@ class JobTracker:
         full_details = {"stage": STAGE_COMPLETE, "pack_id": pack_id}
         if details:
             full_details.update(details)
-        return self.heartbeat(
+        success = self.heartbeat(
             job_id,
             status=STATUS_COMPLETED,
             progress=100,
@@ -257,6 +323,8 @@ class JobTracker:
             details=full_details,
             result_count=result_count
         )
+        self.release_processing_claim(job_id)
+        return success
     
     def mark_failed(self, job_id: str, error_message: str, error_code: str | None = None, details: Optional[Dict[str, Any]] = None) -> bool:
         """Marca job como failed."""
@@ -266,23 +334,27 @@ class JobTracker:
         # Mesclar com details adicionais se fornecidos
         if details:
             fail_details.update(details)
-        return self.heartbeat(
+        success = self.heartbeat(
             job_id,
             status=STATUS_FAILED,
             progress=0,
             message=f"Erro: {error_message}",
             details=fail_details
         )
+        self.release_processing_claim(job_id)
+        return success
     
     def mark_cancelled(self, job_id: str, reason: str = "Cancelado pelo usuário") -> bool:
         """Marca job como cancelled."""
-        return self.heartbeat(
+        success = self.heartbeat(
             job_id,
             status=STATUS_CANCELLED,
             progress=0,
             message=f"Cancelado: {reason}",
             details={"stage": "cancelado", "cancelled_at": _now_iso(), "reason": reason}
         )
+        self.release_processing_claim(job_id)
+        return success
     
     def cancel_jobs_batch(self, job_ids: List[str], reason: str = "Cancelado durante logout") -> int:
         """Cancela múltiplos jobs de uma vez. Retorna quantidade cancelada."""
@@ -336,10 +408,9 @@ class JobTracker:
         
         return response
     
-    def should_resume_processing(self, job_id: str, stale_threshold_seconds: int = 120) -> bool:
+    def should_resume_processing(self, job_id: str) -> bool:
         """
-        Verifica se o job deve ser retomado (self-healing).
-        Retorna True se job está em processing/persisting mas sem update recente.
+        Verifica se o job deve ser retomado com base no lease de processamento.
         """
         try:
             job = self.get_job(job_id)
@@ -350,21 +421,19 @@ class JobTracker:
             if status not in (STATUS_PROCESSING, STATUS_PERSISTING):
                 return False
             
-            # Verificar se updated_at está muito velho
-            updated_at_str = job.get("updated_at")
-            if not updated_at_str:
-                return True  # Sem updated_at, tentar retomar
+            lease_until_str = job.get("processing_lease_until")
+            if not lease_until_str:
+                logger.warning(f"[JobTracker] Job {job_id} sem processing_lease_until; permitindo self-healing")
+                return True
             
             try:
-                updated_at = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                lease_until = datetime.fromisoformat(str(lease_until_str).replace("Z", "+00:00"))
                 now = datetime.now(timezone.utc)
-                diff_seconds = (now - updated_at).total_seconds()
-                
-                if diff_seconds > stale_threshold_seconds:
-                    logger.warning(f"[JobTracker] Job {job_id} está stale ({diff_seconds:.0f}s sem update)")
+                if lease_until <= now:
+                    logger.warning(f"[JobTracker] Lease expirado para job {job_id}; permitindo self-healing")
                     return True
             except Exception:
-                return True  # Se não conseguir parsear, tentar retomar
+                return True
             
             return False
         except Exception as e:
@@ -372,14 +441,8 @@ class JobTracker:
             return False
 
 
-def get_job_tracker(user_jwt: str, user_id: str) -> JobTracker:
+def get_job_tracker(user_jwt: str, user_id: str, processing_owner: Optional[str] = None) -> JobTracker:
     """Factory function para criar JobTracker."""
-    return JobTracker(user_jwt, user_id)
-
-
-
-
-
-
+    return JobTracker(user_jwt, user_id, processing_owner=processing_owner)
 
 

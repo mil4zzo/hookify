@@ -7,12 +7,13 @@ import {
   finishProgressToast,
   showSuccess,
   showError,
+  showProcessCancelledWarning,
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
+  SHEETS_TOAST_TOTAL_STEPS,
+  getSheetsProgressPackLabel,
 } from "@/lib/utils/toast";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
-
-const SHEETS_TOAST_TOTAL_STEPS = 3;
 
 type ImportStep = "idle" | "saving" | "reading" | "processing" | "complete";
 
@@ -92,14 +93,29 @@ export function useGoogleSyncJob() {
   }, []);
 
   /**
-   * Inicia o sync e exibe o progresso no toast padronizado (3 linhas + barra).
-   * Usado após fechar o modal ao criar/configurar integração.
+   * Inicia o sync e exibe o progresso no toast padronizado (3 linhas + barra + botão Cancelar).
+   * Usado após fechar o modal ao criar/configurar integração. Idêntico ao toast de atualização de Sheets.
    */
   const startSyncWithToast = useCallback(
     async (options: { integrationId: string; title: string; packId?: string | null }): Promise<void> => {
       const { integrationId, title, packId } = options;
       const toastId = `sheet-import-${integrationId}-${Date.now()}`;
-      const packLabel = `Planilha: ${title || "Importação"}`;
+      const packLabel = getSheetsProgressPackLabel(title);
+      const packNameForWarning = title || "Importação";
+
+      const jobIdRef = { current: null as string | null };
+      const cancelledRef = { current: false };
+
+      const handleCancelSheets = () => {
+        cancelledRef.current = true;
+        if (jobIdRef.current) {
+          api.facebook
+            .cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário")
+            .catch(() => {});
+        }
+        finishProgressToast(toastId, false, "Importação cancelada");
+        showProcessCancelledWarning("sheets", packNameForWarning);
+      };
 
       showProgressToast(
         toastId,
@@ -107,7 +123,7 @@ export function useGoogleSyncJob() {
         1,
         SHEETS_TOAST_TOTAL_STEPS,
         undefined,
-        undefined,
+        handleCancelSheets,
         sheetsToastIcon,
         buildSheetsToastContent("processing", { stage: "lendo_planilha" }),
         0
@@ -115,11 +131,35 @@ export function useGoogleSyncJob() {
 
       try {
         const { job_id } = await api.integrations.google.startSyncJob(integrationId);
+        jobIdRef.current = job_id;
         const maxAttempts = 300;
         let attempts = 0;
 
         while (attempts < maxAttempts) {
+          if (cancelledRef.current) {
+            if (jobIdRef.current) {
+              try {
+                await api.facebook.cancelJobsBatch(
+                  [jobIdRef.current],
+                  "Importação do Leadscore cancelada pelo usuário"
+                );
+              } catch (_) {}
+            }
+            return;
+          }
           await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (cancelledRef.current) {
+            if (jobIdRef.current) {
+              try {
+                await api.facebook.cancelJobsBatch(
+                  [jobIdRef.current],
+                  "Importação do Leadscore cancelada pelo usuário"
+                );
+              } catch (_) {}
+            }
+            return;
+          }
+
           const progress = await api.integrations.google.getSyncJobProgress(job_id);
           const details = (progress as any)?.details || {};
 
@@ -177,7 +217,7 @@ export function useGoogleSyncJob() {
             1,
             SHEETS_TOAST_TOTAL_STEPS,
             undefined,
-            undefined,
+            handleCancelSheets,
             sheetsToastIcon,
             buildSheetsToastContent(progress.status, details),
             calculateSheetsProgressPercent(progress.status, details)

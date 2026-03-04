@@ -4,40 +4,13 @@ import { ComponentType, ReactNode, useCallback } from "react";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageIcon } from "@/lib/utils/pageIcon";
 import { StandardCard } from "@/components/common/StandardCard";
-import {
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "@/components/ui/accordion";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  IconBook2,
-  IconCardsFilled,
-  IconSitemapFilled,
-  IconSunFilled,
-  IconDiamond,
-  IconArrowRight,
-  IconBulb,
-  IconCode,
-  IconBrandMeta,
-  IconDatabase,
-  IconCopy,
-} from "@tabler/icons-react";
+import { IconBook2, IconCardsFilled, IconSitemapFilled, IconSunFilled, IconDiamond, IconArrowRight, IconBulb, IconCode, IconBrandMeta, IconDatabase, IconCopy } from "@tabler/icons-react";
 import { buildFullDocsMarkdown } from "@/lib/docs/buildDocsMarkdown";
 import { showSuccess, showError } from "@/lib/utils/toast";
-import {
-  META_BASE_URL_TEMPLATE,
-  META_CURRENT_VERSION,
-  META_PERMISSIONS,
-  META_ENDPOINTS,
-  META_METRICS,
-  META_PARAMS,
-  META_OAUTH_FLOW,
-  META_APP_REVIEW_CHECKLIST,
-  META_SECURITY_AND_DATA,
-} from "@/lib/docs/metaDevReference";
+import { META_BASE_URL_TEMPLATE, META_CURRENT_VERSION, META_PERMISSIONS, META_ENDPOINTS, META_METRICS, META_PARAMS, META_OAUTH_FLOW, META_APP_REVIEW_CHECKLIST, META_SECURITY_AND_DATA } from "@/lib/docs/metaDevReference";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -71,63 +44,32 @@ const PAGE_DOCS: PageDoc[] = [
     title: "Packs",
     path: "/packs",
     icon: IconCardsFilled,
-    summary:
-      "Importe e gerencie seus packs de anúncios do Facebook Ads. Packs são coleções de anúncios agrupados por filtros que você define.",
-    features: [
-      "Criar packs com filtros por campanha, conjunto de anúncios e anúncio",
-      "Definir período de datas para cada pack",
-      "Auto-refresh para manter os dados sempre atualizados",
-      "Exportar dados via CSV ou sincronizar com Google Sheets",
-      "Visualizar status de cada anúncio (ativo, pausado, etc.)",
-      "Acompanhar progresso de carregamento dos dados",
-    ],
+    summary: "Importe e gerencie seus packs de anúncios do Facebook Ads. Packs são coleções de anúncios agrupados por filtros que você define.",
+    features: ["Criar packs com filtros por campanha, conjunto de anúncios e anúncio", "Definir período de datas para cada pack", "Auto-refresh para manter os dados sempre atualizados", "Exportar dados via CSV ou sincronizar com Google Sheets", "Visualizar status de cada anúncio (ativo, pausado, etc.)", "Acompanhar progresso de carregamento dos dados"],
   },
   {
     id: "manager",
     title: "Manager",
     path: "/manager",
     icon: IconSitemapFilled,
-    summary:
-      "Visualize e analise a performance dos seus anúncios em detalhe, com múltiplas formas de agrupamento e comparação.",
-    features: [
-      "Agrupar dados por anúncio individual, nome de anúncio, conjunto ou campanha",
-      "Filtrar por período de datas e tipo de conversão (ex: landing page view, purchase)",
-      "Comparar métricas individuais com médias gerais para identificar tendências",
-      "Expandir agrupamentos para ver os anúncios individuais dentro de cada grupo",
-      "Tabela ordenável com métricas como CPR, CPM, CTR, taxa de conversão e mais",
-      "Selecionar múltiplos packs para análise cruzada",
-    ],
+    summary: "Visualize e analise a performance dos seus anúncios em detalhe, com múltiplas formas de agrupamento e comparação.",
+    features: ["Agrupar dados por anúncio individual, nome de anúncio, conjunto ou campanha", "Filtrar por período de datas e tipo de conversão (ex: landing page view, purchase)", "Comparar métricas individuais com médias gerais para identificar tendências", "Expandir agrupamentos para ver os anúncios individuais dentro de cada grupo", "Tabela ordenável com métricas como CPR, CPM, CTR, taxa de conversão e mais", "Selecionar múltiplos packs para análise cruzada"],
   },
   {
     id: "insights",
     title: "Insights",
     path: "/insights",
     icon: IconSunFilled,
-    summary:
-      "Identifique oportunidades de otimização e descubra os destaques nos seus anúncios com análises automáticas.",
-    features: [
-      "Aba Oportunidades: anúncios com performance abaixo da média, rankeados por potencial de impacto",
-      "Aba Insights: kanban visual agrupando anúncios por tipo de otimização necessária",
-      "Aba Gems: top 5 anúncios por métrica (hook rate, CTR, conversão, custo, etc.)",
-      "Filtrar por tipo de métrica para focar na análise desejada",
-      "Agrupar por pack para ver oportunidades separadamente",
-      "Critérios de validação aplicados para analisar apenas anúncios maduros",
-    ],
+    summary: "Identifique oportunidades de otimização e descubra os destaques nos seus anúncios com análises automáticas.",
+    features: ["Aba Oportunidades: anúncios com performance abaixo da média, rankeados por potencial de impacto", "Aba Insights: kanban visual agrupando anúncios por tipo de otimização necessária", "Aba Gems: top 5 anúncios por métrica (hook rate, CTR, conversão, custo, etc.)", "Filtrar por tipo de métrica para focar na análise desejada", "Agrupar por pack para ver oportunidades separadamente", "Critérios de validação aplicados para analisar apenas anúncios maduros"],
   },
   {
     id: "gold",
     title: "G.O.L.D.",
     path: "/gold",
     icon: IconDiamond,
-    summary:
-      "Rankings e classificação dos anúncios com melhor performance geral, destacando os verdadeiros campeões.",
-    features: [
-      "Leaderboard visual com visualização em kanban e tabela",
-      "Classificação por múltiplas métricas de performance",
-      "Sistema de badges para os top performers (top 3)",
-      "Filtros por período e tipo de conversão",
-      "Critérios de validação aplicados automaticamente",
-    ],
+    summary: "Rankings e classificação dos anúncios com melhor performance geral, destacando os verdadeiros campeões.",
+    features: ["Leaderboard visual com visualização em kanban e tabela", "Classificação por múltiplas métricas de performance", "Sistema de badges para os top performers (top 3)", "Filtros por período e tipo de conversão", "Critérios de validação aplicados automaticamente"],
   },
 ];
 
@@ -192,9 +134,9 @@ const SUPABASE_TABLES: TableDoc[] = [
   {
     id: "ad_metrics",
     name: "ad_metrics",
-    description: "Métricas diárias dos anúncios (time-series). Cada linha = 1 anúncio em 1 dia. ID composto: \"{date}-{ad_id}\".",
+    description: 'Métricas diárias dos anúncios (time-series). Cada linha = 1 anúncio em 1 dia. ID composto: "{date}-{ad_id}".',
     columns: [
-      { name: "id", type: "TEXT", description: "Chave primária composta: \"{date}-{ad_id}\"" },
+      { name: "id", type: "TEXT", description: 'Chave primária composta: "{date}-{ad_id}"' },
       { name: "user_id", type: "UUID", description: "FK para auth.users" },
       { name: "ad_id", type: "TEXT", description: "ID do anúncio" },
       { name: "account_id", type: "TEXT", description: "ID da conta de anúncio" },
@@ -365,7 +307,7 @@ const SUPABASE_TABLES: TableDoc[] = [
 function SectionTitle({ icon: Icon, children }: { icon: ComponentType<{ className?: string }>; children: ReactNode }) {
   return (
     <div className="flex items-center gap-2.5 mb-4">
-      <Icon className="w-5 h-5 text-yellow-500" />
+      <Icon className="w-5 h-5 text-attention" />
       <h2 className="text-base font-semibold text-foreground">{children}</h2>
     </div>
   );
@@ -374,7 +316,7 @@ function SectionTitle({ icon: Icon, children }: { icon: ComponentType<{ classNam
 function BulletItem({ children, muted = false }: { children: ReactNode; muted?: boolean }) {
   return (
     <li className={`flex items-start gap-2 text-sm ${muted ? "text-muted-foreground" : "text-foreground"}`}>
-      <span className="text-yellow-500 mt-0.5 shrink-0">•</span>
+      <span className="text-attention mt-0.5 shrink-0">•</span>
       <span>{children}</span>
     </li>
   );
@@ -417,12 +359,7 @@ export default function DocsPage() {
       description="Entenda como utilizar cada funcionalidade da plataforma Hookify"
       icon={<PageIcon icon={IconBook2} />}
       actions={
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleCopyDocsMarkdown}
-          className="gap-2"
-        >
+        <Button variant="outline" size="sm" onClick={handleCopyDocsMarkdown} className="gap-2">
           <IconCopy className="w-4 h-4" />
           Copiar em Markdown
         </Button>
@@ -430,15 +367,8 @@ export default function DocsPage() {
     >
       {/* Hero */}
       <StandardCard padding="lg">
-        <h2 className="text-lg font-semibold text-foreground mb-2">
-          O que é o Hookify?
-        </h2>
-        <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-          O Hookify é uma plataforma de análise e otimização de anúncios do
-          Facebook Ads. Ele permite que você importe seus dados de anúncios,
-          analise a performance em profundidade e identifique oportunidades de
-          melhoria de forma visual e intuitiva.
-        </p>
+        <h2 className="text-lg font-semibold text-foreground mb-2">O que é o Hookify?</h2>
+        <p className="text-sm text-muted-foreground leading-relaxed mb-4">O Hookify é uma plataforma de análise e otimização de anúncios do Facebook Ads. Ele permite que você importe seus dados de anúncios, analise a performance em profundidade e identifique oportunidades de melhoria de forma visual e intuitiva.</p>
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <span className="font-medium text-foreground">Fluxo de uso:</span>
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -459,7 +389,7 @@ export default function DocsPage() {
           <AccordionItem key={page.id} value={page.id}>
             <AccordionTrigger>
               <div className="flex items-center gap-3">
-                <page.icon className="w-5 h-5 text-yellow-500" />
+                <page.icon className="w-5 h-5 text-attention" />
                 <span className="font-medium">{page.title}</span>
                 <Badge variant="outline" className="text-[11px] px-2 py-0">
                   {page.path}
@@ -481,25 +411,15 @@ export default function DocsPage() {
       {/* Tips */}
       <StandardCard padding="lg" variant="muted">
         <div className="flex items-center gap-2 mb-3">
-          <IconBulb className="w-5 h-5 text-yellow-500" />
-          <h3 className="text-sm font-semibold text-foreground">
-            Dicas rápidas
-          </h3>
+          <IconBulb className="w-5 h-5 text-attention" />
+          <h3 className="text-sm font-semibold text-foreground">Dicas rápidas</h3>
         </div>
         <ul className="space-y-1.5">
           <BulletItem muted>
-            Comece criando seus packs na página{" "}
-            <span className="text-foreground font-medium">Packs</span> para
-            importar seus anúncios
+            Comece criando seus packs na página <span className="text-foreground font-medium">Packs</span> para importar seus anúncios
           </BulletItem>
-          <BulletItem muted>
-            Os filtros de pack, data e tipo de conversão são compartilhados
-            entre Manager, Insights e G.O.L.D.
-          </BulletItem>
-          <BulletItem muted>
-            Configure os critérios de validação para garantir que apenas
-            anúncios com dados suficientes sejam analisados
-          </BulletItem>
+          <BulletItem muted>Os filtros de pack, data e tipo de conversão são compartilhados entre Manager, Insights e G.O.L.D.</BulletItem>
+          <BulletItem muted>Configure os critérios de validação para garantir que apenas anúncios com dados suficientes sejam analisados</BulletItem>
         </ul>
       </StandardCard>
 
@@ -509,30 +429,19 @@ export default function DocsPage() {
 
       <div className="border-t border-border pt-6 mt-2">
         <div className="flex items-center gap-2.5 mb-1">
-          <IconCode className="w-5 h-5 text-yellow-500" />
-          <h2 className="text-lg font-semibold text-foreground">
-            Referência Técnica
-          </h2>
+          <IconCode className="w-5 h-5 text-attention" />
+          <h2 className="text-lg font-semibold text-foreground">Referência Técnica</h2>
         </div>
-        <p className="text-sm text-muted-foreground mb-6">
-          Documentação técnica para desenvolvedores sobre a API do Meta e o banco de dados.
-        </p>
+        <p className="text-sm text-muted-foreground mb-6">Documentação técnica para desenvolvedores sobre a API do Meta e o banco de dados.</p>
       </div>
 
       {/* ── Meta API ── */}
       <StandardCard padding="lg">
         <SectionTitle icon={IconBrandMeta}>Meta Marketing API</SectionTitle>
         <p className="text-sm text-muted-foreground mb-4">
-          Base URL:{" "}
-          <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono">
-            {META_BASE_URL_TEMPLATE}
-          </code>{" "}
+          Base URL: <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono">{META_BASE_URL_TEMPLATE}</code>{" "}
           <span className="text-xs text-muted-foreground">
-            (versão atual:{" "}
-            <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono">
-              {META_CURRENT_VERSION}
-            </code>
-            )
+            (versão atual: <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono">{META_CURRENT_VERSION}</code>)
           </span>
         </p>
 
@@ -547,9 +456,7 @@ export default function DocsPage() {
                 {META_PERMISSIONS.map((p) => (
                   <div key={p.scope} className="rounded-md border border-border/60 p-3">
                     <div className="flex items-start gap-2 text-sm">
-                      <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono text-yellow-500 shrink-0">
-                        {p.scope}
-                      </code>
+                      <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono text-attention shrink-0">{p.scope}</code>
                       <span className="text-muted-foreground">{p.description}</span>
                     </div>
                     {p.usedFor?.length ? (
@@ -585,10 +492,7 @@ export default function DocsPage() {
               <div className="space-y-2">
                 {META_ENDPOINTS.map((e, i) => (
                   <div key={i} className="flex items-start gap-2 text-sm">
-                    <Badge
-                      variant={e.method === "POST" ? "default" : "outline"}
-                      className="text-[10px] px-1.5 py-0 shrink-0 font-mono"
-                    >
+                    <Badge variant={e.method === "POST" ? "default" : "outline"} className="text-[10px] px-1.5 py-0 shrink-0 font-mono">
                       {e.method}
                     </Badge>
                     <code className="text-xs font-mono text-foreground shrink-0">{e.path}</code>
@@ -625,9 +529,7 @@ export default function DocsPage() {
               <div className="space-y-2">
                 {META_PARAMS.map((p) => (
                   <div key={p.param} className="flex items-start gap-2 text-sm">
-                    <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono text-yellow-500 shrink-0">
-                      {p.param}
-                    </code>
+                    <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono text-attention shrink-0">{p.param}</code>
                     <code className="text-xs font-mono text-muted-foreground shrink-0">{p.value}</code>
                     <span className="text-muted-foreground">— {p.description}</span>
                   </div>
@@ -714,9 +616,7 @@ export default function DocsPage() {
               <div className="space-y-4">
                 {META_APP_REVIEW_CHECKLIST.map((section) => (
                   <div key={section.title}>
-                    <span className="text-sm font-medium text-foreground">
-                      {section.title}
-                    </span>
+                    <span className="text-sm font-medium text-foreground">{section.title}</span>
                     <ul className="mt-1.5 space-y-1">
                       {section.items.map((item, i) => (
                         <BulletItem key={i} muted>
@@ -736,22 +636,17 @@ export default function DocsPage() {
       <StandardCard padding="lg">
         <SectionTitle icon={IconDatabase}>Banco de Dados (Supabase)</SectionTitle>
         <p className="text-sm text-muted-foreground mb-1">
-          Todas as tabelas possuem <strong className="text-foreground">Row Level Security (RLS)</strong> habilitado.
-          Cada usuário só acessa seus próprios dados via <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono">user_id = auth.uid()</code>.
+          Todas as tabelas possuem <strong className="text-foreground">Row Level Security (RLS)</strong> habilitado. Cada usuário só acessa seus próprios dados via <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono">user_id = auth.uid()</code>.
         </p>
-        <p className="text-sm text-muted-foreground mb-4">
-          Tokens OAuth são armazenados criptografados no banco.
-        </p>
+        <p className="text-sm text-muted-foreground mb-4">Tokens OAuth são armazenados criptografados no banco.</p>
 
         <Accordion type="multiple" defaultValue={[]}>
           {SUPABASE_TABLES.map((table) => (
             <AccordionItem key={table.id} value={`table-${table.id}`}>
               <AccordionTrigger>
                 <div className="flex items-center gap-3">
-                  <code className="text-xs font-mono text-yellow-500">{table.name}</code>
-                  <span className="text-xs text-muted-foreground font-normal hidden sm:inline">
-                    {table.description}
-                  </span>
+                  <code className="text-xs font-mono text-attention">{table.name}</code>
+                  <span className="text-xs text-muted-foreground font-normal hidden sm:inline">{table.description}</span>
                 </div>
               </AccordionTrigger>
               <AccordionContent>

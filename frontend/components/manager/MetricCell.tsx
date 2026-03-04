@@ -409,7 +409,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       // Para métricas inversas: valor > 0 quando média é 0 = pior (acima da média) = vermelho com "+"
       return (
         <div className="flex flex-col items-center gap-3">
-          <span className="text-xs font-medium text-red-600 dark:text-red-400">+∞</span>
+          <span className="text-xs font-medium text-destructive">+∞</span>
           <span className="text-base font-medium leading-none">{value}</span>
         </div>
       );
@@ -417,7 +417,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       // Para métricas normais: valor > 0 quando média é 0 = melhor (acima da média) = verde com "+"
       return (
         <div className="flex flex-col items-center gap-3">
-          <span className="text-xs font-medium text-green-600 dark:text-green-400">+∞</span>
+          <span className="text-xs font-medium text-success">+∞</span>
           <span className="text-base font-medium leading-none">{value}</span>
         </div>
       );
@@ -441,7 +441,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
   // Para métricas normais: positivo (acima da média) = verde, negativo (abaixo) = vermelho
   // Para métricas inversas: positivo (menor que média) = verde, negativo (maior que média) = vermelho
   const isPositive = diffPercent > 0;
-  const colorClass = isPositive ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400";
+  const colorClass = isPositive ? "text-success" : "text-destructive";
 
   // Para métricas inversas, inverter o sinal exibido: quando está melhor (positivo), mostrar "-" porque está abaixo da média numericamente
   // Para métricas normais, manter o sinal original

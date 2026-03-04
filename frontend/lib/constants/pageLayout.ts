@@ -7,7 +7,7 @@
 export const PAGE_ICON_SIZE = "w-6 h-6";
 
 /** Cor padrão dos ícones no header */
-export const PAGE_ICON_COLOR = "text-yellow-500";
+export const PAGE_ICON_COLOR = "text-attention";
 
 /** Classes completas para ícones de página */
 export const PAGE_ICON_CLASSES = `${PAGE_ICON_SIZE} ${PAGE_ICON_COLOR}`;

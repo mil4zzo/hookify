@@ -283,6 +283,12 @@ function ManagerPageContent() {
   // endDate = limite superior selecionado no filtro
   const endDate = useMemo(() => dateRange.end, [dateRange.end]);
 
+  // Pré-computar hasSheetIntegration para uso nos requests (evitar enviar leadscore_values quando desnecessário)
+  const hasSheetIntegration = useMemo(
+    () => selectedPackIds.size > 0 && packs.some((p) => selectedPackIds.has(p.id) && !!p.sheet_integration),
+    [packs, selectedPackIds],
+  );
+
   // Usar hook semântico para buscar performance agregada de anúncios
   const managerRequest: RankingsRequest = useMemo(
     () => ({
@@ -293,8 +299,10 @@ function ManagerPageContent() {
       limit: 10000,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
+      include_series: showTrends,
+      include_leadscore: hasSheetIntegration,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds],
+    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
 
   const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
@@ -308,8 +316,10 @@ function ManagerPageContent() {
       limit: 10000,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
+      include_series: showTrends,
+      include_leadscore: hasSheetIntegration,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds],
+    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
 
   const shouldFetchIndividual = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
@@ -324,8 +334,10 @@ function ManagerPageContent() {
       limit: 10000,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
+      include_series: showTrends,
+      include_leadscore: hasSheetIntegration,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds],
+    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
 
   const shouldFetchAdset = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
@@ -340,8 +352,10 @@ function ManagerPageContent() {
       limit: 10000,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
+      include_series: showTrends,
+      include_leadscore: hasSheetIntegration,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds],
+    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
   );
 
   const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
@@ -992,7 +1006,7 @@ function ManagerPageContent() {
         dateStop={dateRange.end}
         availableConversionTypes={uniqueConversionTypes}
         showTrends={showTrends}
-        hasSheetIntegration={selectedPacks.length > 0 ? selectedPacks.some((p) => !!p.sheet_integration) : selectedPackIds.size > 0}
+        hasSheetIntegration={hasSheetIntegration}
         isLoading={loading}
         initialFilters={initialFilters}
         averagesOverride={(() => {

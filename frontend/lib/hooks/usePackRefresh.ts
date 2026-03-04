@@ -34,6 +34,8 @@ import {
   getMetaDynamicLine,
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
+  SHEETS_TOAST_TOTAL_STEPS,
+  getSheetsProgressPackLabel,
   buildTranscriptionToastContent,
   calculateTranscriptionProgressPercent,
   type ProgressToastContent,
@@ -194,7 +196,6 @@ const metaToastIcon = React.createElement(MetaIcon, { className: "h-5 w-5 flex-s
 const sheetsToastIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
 
 /** Total de etapas no toast do Sheets (barra usa progressPercent quando informado). */
-const SHEETS_TOAST_TOTAL_STEPS = 3;
 
 /** Total de etapas no toast da transcrição (barra usa progressPercent quando informado). */
 const TRANSCRIPTION_TOAST_TOTAL_STEPS = 2;
@@ -316,7 +317,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           updateProgressToast(
             toastId,
-            `Planilha: ${packName}`,
+            getSheetsProgressPackLabel(packName),
             1,
             SHEETS_TOAST_TOTAL_STEPS,
             undefined,
@@ -373,7 +374,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           updateProgressToast(
             toastId,
-            `Planilha: ${packName}`,
+            getSheetsProgressPackLabel(packName),
             1,
             SHEETS_TOAST_TOTAL_STEPS,
             undefined,
@@ -795,7 +796,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
         showProgressToast(
           activeRefresh.sheetSyncToastId,
-          `Planilha: ${packName}`,
+          getSheetsProgressPackLabel(packName),
           1,
           SHEETS_TOAST_TOTAL_STEPS,
           undefined,
@@ -868,7 +869,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           console.log(`[PACK_REFRESH] Iniciando polling do Sheets imediatamente`);
           updateProgressToast(
             activeRefresh.sheetSyncToastId,
-            `Planilha: ${packName}`,
+            getSheetsProgressPackLabel(packName),
             1,
             SHEETS_TOAST_TOTAL_STEPS,
             undefined,
@@ -942,7 +943,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               // Atualizar (ou criar) toast do Sheets e iniciar polling
               updateProgressToast(
                 activeRefresh.sheetSyncToastId!,
-                `Planilha: ${packName}`,
+                getSheetsProgressPackLabel(packName),
                 1,
                 SHEETS_TOAST_TOTAL_STEPS,
                 undefined,

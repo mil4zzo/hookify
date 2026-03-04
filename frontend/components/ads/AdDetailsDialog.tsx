@@ -141,7 +141,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     }
     const diff = (valueRaw as number) / (avgRaw as number) - 1;
     const isBetter = better === "higher" ? diff > 0 : diff < 0;
-    const color = isBetter ? "text-green-600" : "text-red-600";
+    const color = isBetter ? "text-success" : "text-destructive";
     const sign = diff >= 0 ? "+" : "";
     return (
       <div className="flex items-center gap-2">
@@ -341,236 +341,223 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       </div>
 
       {/* Tabs */}
-      <TabbedContent
-        value={activeTab}
-        onValueChange={(value) => setActiveTab(value as typeof activeTab)}
-        variant="simple"
-        tabs={[
-          { value: "overview", label: "Visão geral" },
-          { value: "history", label: "Histórico" },
-          { value: "conversions", label: "Conversões" },
-          { value: "series", label: "Séries" },
-          ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : []),
-          { value: "video", label: "Vídeo" },
-        ]}
-        tabsListClassName="mb-4"
-      >
+      <TabbedContent value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} variant="simple" tabs={[{ value: "overview", label: "Visão geral" }, { value: "history", label: "Histórico" }, { value: "conversions", label: "Conversões" }, { value: "series", label: "Séries" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : []), { value: "video", label: "Vídeo" }]} tabsListClassName="mb-4">
         <TabbedContentItem value="overview" variant="simple">
-        <div className="space-y-4">
-          {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={ad?.hook != null ? Number(ad.hook) : null} onPointClick={handleRetentionPointClick} /> : null}
+          <div className="space-y-4">
+            {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={ad?.hook != null ? Number(ad.hook) : null} onPointClick={handleRetentionPointClick} /> : null}
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
-            <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-            <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-            <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
-            <MetricCard label="Website CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
-            <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-            <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
-            <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
-            <MetricCard label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-            <MetricCard label="Clicks" value={Number(ad?.clicks || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
+              <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+              <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+              <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
+              <MetricCard label="Website CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
+              <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+              <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
+              <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
+              <MetricCard label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+              <MetricCard label="Clicks" value={Number(ad?.clicks || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+            </div>
           </div>
-        </div>
         </TabbedContentItem>
 
         <TabbedContentItem value="conversions" variant="simple">
-        <div className="space-y-2">
-          {allConversionTypes.length === 0 ? (
-            <div className="text-sm text-muted-foreground">Sem dados de conversão.</div>
-          ) : (
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th className="py-2">Tipo</th>
-                  <th className="py-2 text-right">Conversões</th>
-                  <th className="py-2 text-right">CPR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allConversionTypes.map((type) => {
-                  const v = Number(conversionsMap[type] || 0);
-                  const spend = Number(ad?.spend || 0);
-                  const cprType = v > 0 && spend > 0 && !Number.isNaN(spend) ? spend / v : null;
-                  const isSelected = actionType && type === actionType;
-                  return (
-                    <tr key={type} className={isSelected ? "bg-muted" : ""}>
-                      <td className="py-2 pr-2">{type}</td>
-                      <td className="py-2 pr-2 text-right">{v.toLocaleString("pt-BR")}</td>
-                      <td className="py-2 pr-2 text-right">{cprType && cprType > 0 && !Number.isNaN(cprType) && isFinite(cprType) ? formatCurrency(cprType) : "—"}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-        </TabbedContentItem>
-
-        {groupByAdName && (
-          <TabbedContentItem value="variations" variant="simple">
-        <div className="space-y-2">
-          {loadingChildren ? (
-            <div className="text-sm text-muted-foreground">Carregando variações...</div>
-          ) : !childrenData || childrenData.length === 0 ? (
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-muted-foreground">{childrenData?.length === 0 ? "Sem variações no período." : "Clique para carregar variações desse anúncio agrupado."}</div>
-              {!childrenData && (
-                <Button size="sm" onClick={handleLoadChildren} disabled={loadingChildren}>
-                  {loadingChildren ? "Carregando..." : "Carregar"}
-                </Button>
-              )}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
+          <div className="space-y-2">
+            {allConversionTypes.length === 0 ? (
+              <div className="text-sm text-muted-foreground">Sem dados de conversão.</div>
+            ) : (
+              <table className="w-full text-sm border-collapse">
                 <thead>
-                  <tr className="bg-border">
-                    <th className="p-2 text-left">Ad ID</th>
-                    <th className="p-2 text-right">Hook</th>
-                    <th className="p-2 text-right">CPR</th>
-                    <th className="p-2 text-right">Spend</th>
-                    <th className="p-2 text-right">CTR</th>
-                    <th className="p-2 text-right">CPM</th>
-                    <th className="p-2 text-right">Connect</th>
-                    <th className="p-2 text-right">Page</th>
+                  <tr className="text-left text-muted-foreground">
+                    <th className="py-2">Tipo</th>
+                    <th className="py-2 text-right">Conversões</th>
+                    <th className="py-2 text-right">CPR</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {childrenData.map((child: RankingsChildrenItem) => {
-                    const lpvC = Number(child.lpv || 0);
-                    const spendC = Number(child.spend || 0);
-                    const impressionsC = Number(child.impressions || 0);
-                    const conversionsC = child.conversions || {};
-                    // Calcular resultsC: usar actionType se disponível, senão somar todas as conversões
-                    let resultsC = 0;
-                    if (actionType && typeof actionType === "string" && actionType.trim()) {
-                      resultsC = Number(conversionsC[actionType] || 0);
-                    } else {
-                      // Se não há actionType, somar todas as conversões disponíveis
-                      resultsC = Object.values(conversionsC).reduce((sum, val) => {
-                        const numVal = Number(val || 0);
-                        return sum + (Number.isNaN(numVal) ? 0 : numVal);
-                      }, 0);
-                    }
-                    const pageConvC = lpvC > 0 && resultsC > 0 ? resultsC / lpvC : 0;
-                    const cprC = resultsC > 0 && spendC > 0 ? spendC / resultsC : 0;
-                    // cpm sempre vem do backend
-                    const cpmC = typeof child.cpm === "number" ? child.cpm : 0;
+                  {allConversionTypes.map((type) => {
+                    const v = Number(conversionsMap[type] || 0);
+                    const spend = Number(ad?.spend || 0);
+                    const cprType = v > 0 && spend > 0 && !Number.isNaN(spend) ? spend / v : null;
+                    const isSelected = actionType && type === actionType;
                     return (
-                      <tr key={child.ad_id} className="hover:bg-muted">
-                        <td className="p-2 text-left">
-                          <div className="flex items-center gap-2">
-                            {(() => {
-                              const thumb = getAdThumbnail(child);
-                              return thumb ? <img src={thumb} alt="thumb" className="w-8 h-8 object-cover rounded" /> : <div className="w-8 h-8 bg-border rounded" />;
-                            })()}
-                            <div className="truncate">{child.ad_id}</div>
-                          </div>
-                        </td>
-                        <td className="p-2 text-right">{formatPct(Number(child.hook * 100))}</td>
-                        <td className="p-2 text-right">{cprC > 0 ? formatCurrency(cprC) : "—"}</td>
-                        <td className="p-2 text-right">{formatCurrency(spendC)}</td>
-                        <td className="p-2 text-right">{formatPct(Number(child.ctr * 100))}</td>
-                        <td className="p-2 text-right">{formatCurrency(cpmC)}</td>
-                        <td className="p-2 text-right">{formatPct(Number(child.connect_rate * 100))}</td>
-                        <td className="p-2 text-right">{pageConvC > 0 ? formatPct(Number(pageConvC * 100)) : "—"}</td>
+                      <tr key={type} className={isSelected ? "bg-muted" : ""}>
+                        <td className="py-2 pr-2">{type}</td>
+                        <td className="py-2 pr-2 text-right">{v.toLocaleString("pt-BR")}</td>
+                        <td className="py-2 pr-2 text-right">{cprType && cprType > 0 && !Number.isNaN(cprType) && isFinite(cprType) ? formatCurrency(cprType) : "—"}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+            )}
+          </div>
+        </TabbedContentItem>
+
+        {groupByAdName && (
+          <TabbedContentItem value="variations" variant="simple">
+            <div className="space-y-2">
+              {loadingChildren ? (
+                <div className="text-sm text-muted-foreground">Carregando variações...</div>
+              ) : !childrenData || childrenData.length === 0 ? (
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">{childrenData?.length === 0 ? "Sem variações no período." : "Clique para carregar variações desse anúncio agrupado."}</div>
+                  {!childrenData && (
+                    <Button size="sm" onClick={handleLoadChildren} disabled={loadingChildren}>
+                      {loadingChildren ? "Carregando..." : "Carregar"}
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-border">
+                        <th className="p-2 text-left">Ad ID</th>
+                        <th className="p-2 text-right">Hook</th>
+                        <th className="p-2 text-right">CPR</th>
+                        <th className="p-2 text-right">Spend</th>
+                        <th className="p-2 text-right">CTR</th>
+                        <th className="p-2 text-right">CPM</th>
+                        <th className="p-2 text-right">Connect</th>
+                        <th className="p-2 text-right">Page</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {childrenData.map((child: RankingsChildrenItem) => {
+                        const lpvC = Number(child.lpv || 0);
+                        const spendC = Number(child.spend || 0);
+                        const impressionsC = Number(child.impressions || 0);
+                        const conversionsC = child.conversions || {};
+                        // Calcular resultsC: usar actionType se disponível, senão somar todas as conversões
+                        let resultsC = 0;
+                        if (actionType && typeof actionType === "string" && actionType.trim()) {
+                          resultsC = Number(conversionsC[actionType] || 0);
+                        } else {
+                          // Se não há actionType, somar todas as conversões disponíveis
+                          resultsC = Object.values(conversionsC).reduce((sum, val) => {
+                            const numVal = Number(val || 0);
+                            return sum + (Number.isNaN(numVal) ? 0 : numVal);
+                          }, 0);
+                        }
+                        const pageConvC = lpvC > 0 && resultsC > 0 ? resultsC / lpvC : 0;
+                        const cprC = resultsC > 0 && spendC > 0 ? spendC / resultsC : 0;
+                        // cpm sempre vem do backend
+                        const cpmC = typeof child.cpm === "number" ? child.cpm : 0;
+                        return (
+                          <tr key={child.ad_id} className="hover:bg-muted">
+                            <td className="p-2 text-left">
+                              <div className="flex items-center gap-2">
+                                {(() => {
+                                  const thumb = getAdThumbnail(child);
+                                  return thumb ? <img src={thumb} alt="thumb" className="w-8 h-8 object-cover rounded" /> : <div className="w-8 h-8 bg-border rounded" />;
+                                })()}
+                                <div className="truncate">{child.ad_id}</div>
+                              </div>
+                            </td>
+                            <td className="p-2 text-right">{formatPct(Number(child.hook * 100))}</td>
+                            <td className="p-2 text-right">{cprC > 0 ? formatCurrency(cprC) : "—"}</td>
+                            <td className="p-2 text-right">{formatCurrency(spendC)}</td>
+                            <td className="p-2 text-right">{formatPct(Number(child.ctr * 100))}</td>
+                            <td className="p-2 text-right">{formatCurrency(cpmC)}</td>
+                            <td className="p-2 text-right">{formatPct(Number(child.connect_rate * 100))}</td>
+                            <td className="p-2 text-right">{pageConvC > 0 ? formatPct(Number(pageConvC * 100)) : "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          )}
-        </div>
           </TabbedContentItem>
         )}
 
         <TabbedContentItem value="series" variant="simple">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <MetricCard label="Hook" value={series?.hook ? <ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" /> : "Sem série"} series={series?.hook} metric="hook" size="large" formatPct={formatPct} />
-          <MetricCard label="Spend" value={series?.spend ? formatCurrency(Number(ad?.spend || 0)) : "Sem série"} series={series?.spend} metric="spend" size="large" formatCurrency={formatCurrency} />
-          <MetricCard label="CTR" value={series?.ctr ? <ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" /> : "Sem série"} series={series?.ctr} metric="ctr" size="large" formatPct={formatPct} />
-          <MetricCard label="Connect Rate" value={series?.connect_rate ? <ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" /> : "Sem série"} series={series?.connect_rate} metric="connect_rate" size="large" formatPct={formatPct} />
-          <MetricCard label="CPR" value={(series as any)?.cpr && hasCpr ? <ValueWithDelta display={formatCurrency(cpr)} valueRaw={cpr} avgRaw={averages?.cpr ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpr} metric="cpr" size="large" formatCurrency={formatCurrency} />
-          <MetricCard label="CPM" value={(series as any)?.cpm ? <ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpm} metric="cpm" size="large" formatCurrency={formatCurrency} />
-        </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <MetricCard label="Hook" value={series?.hook ? <ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" /> : "Sem série"} series={series?.hook} metric="hook" size="large" formatPct={formatPct} />
+            <MetricCard label="Spend" value={series?.spend ? formatCurrency(Number(ad?.spend || 0)) : "Sem série"} series={series?.spend} metric="spend" size="large" formatCurrency={formatCurrency} />
+            <MetricCard label="CTR" value={series?.ctr ? <ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" /> : "Sem série"} series={series?.ctr} metric="ctr" size="large" formatPct={formatPct} />
+            <MetricCard label="Connect Rate" value={series?.connect_rate ? <ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" /> : "Sem série"} series={series?.connect_rate} metric="connect_rate" size="large" formatPct={formatPct} />
+            <MetricCard label="CPR" value={(series as any)?.cpr && hasCpr ? <ValueWithDelta display={formatCurrency(cpr)} valueRaw={cpr} avgRaw={averages?.cpr ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpr} metric="cpr" size="large" formatCurrency={formatCurrency} />
+            <MetricCard label="CPM" value={(series as any)?.cpm ? <ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" /> : "Sem série"} series={(series as any)?.cpm} metric="cpm" size="large" formatCurrency={formatCurrency} />
+          </div>
         </TabbedContentItem>
 
         <TabbedContentItem value="video" variant="simple">
-        <div className="space-y-4">
-          {loadingCreative ? (
-            <div className="text-sm text-muted-foreground p-6 text-center">Carregando informações do vídeo...</div>
-          ) : !videoId || !actorId ? (
-            <div className="text-sm text-muted-foreground p-6 text-center">Vídeo não disponível para este anúncio.</div>
-          ) : (
-            <div className="flex flex-col md:flex-row gap-4">
-              {/* Player de vídeo */}
-              <div className="w-full bg-black rounded-lg flex items-center justify-center md:max-w-[20rem] max-w-full ml-8" style={{ aspectRatio: "9/16" }}>
-                {loadingVideo && <div className="text-sm text-muted-foreground p-6">Carregando vídeo...</div>}
-                {videoError && <div className="text-sm text-red-500 p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
-                {!loadingVideo && !videoError && (videoData as any)?.source_url && <VideoPlayer src={(videoData as any).source_url} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={retentionSeries} />}
-                {!loadingVideo && !videoError && !(videoData as any)?.source_url && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
-              </div>
+          <div className="space-y-4">
+            {loadingCreative ? (
+              <div className="text-sm text-muted-foreground p-6 text-center">Carregando informações do vídeo...</div>
+            ) : !videoId || !actorId ? (
+              <div className="text-sm text-muted-foreground p-6 text-center">Vídeo não disponível para este anúncio.</div>
+            ) : (
+              <div className="flex flex-col md:flex-row gap-4">
+                {/* Player de vídeo */}
+                <div className="w-full bg-black rounded-lg flex items-center justify-center md:max-w-[20rem] max-w-full ml-8" style={{ aspectRatio: "9/16" }}>
+                  {loadingVideo && <div className="text-sm text-muted-foreground p-6">Carregando vídeo...</div>}
+                  {videoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
+                  {!loadingVideo && !videoError && (videoData as any)?.source_url && <VideoPlayer src={(videoData as any).source_url} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={retentionSeries} />}
+                  {!loadingVideo && !videoError && !(videoData as any)?.source_url && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+                </div>
 
-              {/* Cards de métricas */}
-              <div className="flex-1 flex flex-row gap-4">
-                {/* Primeira coluna vertical */}
-                <div className="flex flex-col gap-4 flex-1">
-                  <MetricCard label="Scroll Stop" value={<ValueWithDelta display={formatPct(scrollStop * 100)} valueRaw={scrollStop} avgRaw={averages?.scroll_stop ?? null} better="higher" />} series={undefined} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
-                  <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
-                  <MetricCard label="Website CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
-                  <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
-                  <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
-                </div>
-                {/* Segunda coluna vertical */}
-                <div className="flex flex-col gap-4 flex-1">
-                  <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-                  <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-                  <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-                  <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
-                  <MetricCard label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                {/* Cards de métricas */}
+                <div className="flex-1 flex flex-row gap-4">
+                  {/* Primeira coluna vertical */}
+                  <div className="flex flex-col gap-4 flex-1">
+                    <MetricCard label="Scroll Stop" value={<ValueWithDelta display={formatPct(scrollStop * 100)} valueRaw={scrollStop} avgRaw={averages?.scroll_stop ?? null} better="higher" />} series={undefined} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
+                    <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
+                    <MetricCard label="Website CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
+                    <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
+                    <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
+                  </div>
+                  {/* Segunda coluna vertical */}
+                  <div className="flex flex-col gap-4 flex-1">
+                    <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                    <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                    <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                    <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
+                    <MetricCard label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
         </TabbedContentItem>
 
         <TabbedContentItem value="history" variant="simple">
-        <div className="flex flex-col h-full min-h-0">
-          <div className="flex items-center justify-between mb-4 flex-shrink-0">
-            <div className="text-lg font-semibold">Evolução Histórica</div>
-            <DateRangeFilter label="Filtrar período" value={historyDateRange} onChange={setHistoryDateRange} className="w-auto" showLabel={false} />
-          </div>
+          <div className="flex flex-col h-full min-h-0">
+            <div className="flex items-center justify-between mb-4 flex-shrink-0">
+              <div className="text-lg font-semibold">Evolução Histórica</div>
+              <DateRangeFilter label="Filtrar período" value={historyDateRange} onChange={setHistoryDateRange} className="w-auto" showLabel={false} />
+            </div>
 
-          {loadingHistory ? (
-            <div className="flex-1 min-h-0 flex gap-12">
-              {/* Skeleton do seletor de métricas */}
-              <div className="flex-shrink-0 w-48 flex flex-col gap-4">
-                <Skeleton className="h-4 w-20" />
-                <div className="flex flex-col gap-2">
-                  <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
-                  <Skeleton className="h-8 w-full rounded-md" />
+            {loadingHistory ? (
+              <div className="flex-1 min-h-0 flex gap-12">
+                {/* Skeleton do seletor de métricas */}
+                <div className="flex-shrink-0 w-48 flex flex-col gap-4">
+                  <Skeleton className="h-4 w-20" />
+                  <div className="flex flex-col gap-2">
+                    <Skeleton className="h-8 w-full rounded-md" />
+                    <Skeleton className="h-8 w-full rounded-md" />
+                    <Skeleton className="h-8 w-full rounded-md" />
+                    <Skeleton className="h-8 w-full rounded-md" />
+                    <Skeleton className="h-8 w-full rounded-md" />
+                    <Skeleton className="h-8 w-full rounded-md" />
+                  </div>
+                </div>
+                {/* Skeleton do gráfico */}
+                <div className="flex-1 min-w-0 min-h-0">
+                  <Skeleton className="h-full w-full rounded-md" />
                 </div>
               </div>
-              {/* Skeleton do gráfico */}
-              <div className="flex-1 min-w-0 min-h-0">
-                <Skeleton className="h-full w-full rounded-md" />
+            ) : !historyData?.data || historyData.data.length === 0 ? (
+              <div className="text-sm text-muted-foreground p-6 text-center">Sem dados históricos disponíveis para o período selecionado.</div>
+            ) : (
+              <div className="flex-1 min-h-0">
+                <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={actionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={setSelectedMetrics} />
               </div>
-            </div>
-          ) : !historyData?.data || historyData.data.length === 0 ? (
-            <div className="text-sm text-muted-foreground p-6 text-center">Sem dados históricos disponíveis para o período selecionado.</div>
-          ) : (
-            <div className="flex-1 min-h-0">
-              <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={actionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={setSelectedMetrics} />
-            </div>
-          )}
-        </div>
+            )}
+          </div>
         </TabbedContentItem>
       </TabbedContent>
     </div>

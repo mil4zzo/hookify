@@ -71,11 +71,11 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
 
   // Estilos padrão para gems (amarelo/dourado sutil)
   const defaultGemStyles = {
-    border: "border-yellow-500/30",
-    bg: "bg-yellow-500/5",
-    text: "text-yellow-600 dark:text-yellow-400",
-    accent: "border-yellow-500",
-    badge: "bg-yellow-500 text-white",
+    border: "border-warning-30",
+    bg: "bg-warning-10",
+    text: "text-warning",
+    accent: "border-warning",
+    badge: "bg-warning text-warning-foreground",
   };
 
   const gemStyles = metricColor || defaultGemStyles;
@@ -384,7 +384,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                     {/* Barra de comparação com a média - posicionada à direita e alinhada ao fundo */}
                     {diffFromAverage != null && (
                       <div className="flex flex-col items-end gap-1">
-                        <div className={cn("flex-shrink-0 inline-flex items-center text-[12px] gap-1 font-semibold", isBetter ? "text-emerald-400" : "text-red-400")}>
+                        <div className={cn("flex-shrink-0 inline-flex items-center text-[12px] gap-1 font-semibold", isBetter ? "text-success" : "text-destructive")}>
                           {/* Para métricas onde menor é melhor (CPM, CPR): quando está ruim (acima da média), mostrar seta para cima */}
                           {/* Para métricas normais: quando está bom (acima da média), mostrar seta para cima */}
                           {isLowerBetter ? isBetter ? <IconArrowBigDownLinesFilled className="h-3 w-3" /> : <IconArrowBigUpLinesFilled className="h-3 w-3" /> : isBetter ? <IconArrowBigUpLinesFilled className="h-3 w-3" /> : <IconArrowBigDownLinesFilled className="h-3 w-3" />}

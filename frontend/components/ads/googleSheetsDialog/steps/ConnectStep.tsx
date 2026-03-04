@@ -70,8 +70,8 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
                       <>
                         <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs border-border" onClick={(e) => onRetest(conn.id, e)} disabled={isDeletingConnection} title="Verificar novamente">
                           <div className="flex items-center gap-1.5">
-                            <IconCheck className="w-3.5 h-3.5 text-green-500" />
-                            <span className="text-green-500 font-medium">Conectada</span>
+                            <IconCheck className="w-3.5 h-3.5 text-success" />
+                            <span className="text-success font-medium">Conectada</span>
                             <span className="text-muted-foreground mx-1">|</span>
                             <IconRefresh className="w-3.5 h-3.5 text-muted-foreground" />
                           </div>

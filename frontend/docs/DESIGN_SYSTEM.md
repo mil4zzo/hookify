@@ -8,45 +8,45 @@ As cores são definidas em `frontend/app/globals.css` usando OKLCH. O Tailwind m
 
 ### Semânticas principais
 
-| Token | Uso |
-|-------|-----|
-| `--primary` / `primary` | Cor principal da marca (botões principais, links, destaques). Em botões/avatars primários, use `text-primary-foreground` para ícones e texto. |
-| `--primary-foreground` | Texto e ícones sobre fundo primary. Sempre use em vez de `text-white` quando o fundo for primary. |
-| `--secondary` / `secondary` | Elementos secundários (badges neutros, fundos alternativos). |
-| `--muted` / `muted` | Fundos sutis. |
-| `--muted-foreground` | Texto secundário, rótulos, placeholders. Preferir em vez de `text-gray-500` / `text-gray-400`. |
-| `--foreground` | Texto principal sobre fundo claro/escuro. |
+| Token                       | Uso                                                                                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--primary` / `primary`     | Cor principal da marca (botões principais, links, destaques). Em botões/avatars primários, use `text-primary-foreground` para ícones e texto. |
+| `--primary-foreground`      | Texto e ícones sobre fundo primary. Sempre use em vez de `text-white` quando o fundo for primary.                                             |
+| `--secondary` / `secondary` | Elementos secundários (badges neutros, fundos alternativos).                                                                                  |
+| `--muted` / `muted`         | Fundos sutis.                                                                                                                                 |
+| `--muted-foreground`        | Texto secundário, rótulos, placeholders. Preferir em vez de `text-gray-500` / `text-gray-400`.                                                |
+| `--foreground`              | Texto principal sobre fundo claro/escuro.                                                                                                     |
 
 ### Feedback
 
-| Token | Uso |
-|-------|-----|
-| `--success` / `success` | Sucesso, status positivo, ativo. Use `bg-success` / `text-success` e `text-success-foreground` em fundos success. |
+| Token                           | Uso                                                                                                                                                                  |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--success` / `success`         | Sucesso, status positivo, ativo. Use `bg-success` / `text-success` e `text-success-foreground` em fundos success.                                                    |
 | `--destructive` / `destructive` | Único token vermelho: ações destrutivas (excluir, cancelar) e indicadores de perigo (métricas ruins, alertas). Use `bg-destructive` e `text-destructive-foreground`. |
-| `--warning` / `warning` | Avisos, urgência média (laranja). |
-| `--attention` / `attention` | Atenção menos urgente (amarelo). Ordem: attention &lt; warning &lt; destructive. |
+| `--warning` / `warning`         | Avisos, urgência média (laranja).                                                                                                                                    |
+| `--attention` / `attention`     | Atenção menos urgente (amarelo). Ordem: attention &lt; warning &lt; destructive.                                                                                     |
 
 ### Componentes
 
-| Token | Uso |
-|-------|-----|
-| `--background` / `background` | Fundo da página. |
-| `--card` / `card` | Fundo de cards e superfícies elevadas. |
-| `--popover` / `popover` | Fundo de popovers e dropdowns. Use `text-popover-foreground` para conteúdo. |
-| `--border` | Bordas. |
-| `--input` | Campos de input. |
-| `--overlay` | Overlay de modais e dialogs. Use `bg-overlay` em vez de `bg-black/80`. |
+| Token                         | Uso                                                                         |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| `--background` / `background` | Fundo da página.                                                            |
+| `--card` / `card`             | Fundo de cards e superfícies elevadas.                                      |
+| `--popover` / `popover`       | Fundo de popovers e dropdowns. Use `text-popover-foreground` para conteúdo. |
+| `--border`                    | Bordas.                                                                     |
+| `--input`                     | Campos de input.                                                            |
+| `--overlay`                   | Overlay de modais e dialogs. Use `bg-overlay` em vez de `bg-black/80`.      |
 
 ### Superfícies neutras
 
-| Token | Uso |
-|-------|-----|
-| `--surface` / `surface` | Superfície elevada (cards, popover, modais). Um degrau acima do fundo. |
-| `--secondary` / `secondary` | Alias de `surface`; use para botões secundários e chips. |
-| `--muted` / `muted` | Área secundária (listas, tabelas, blocos menos importantes). |
-| `--accent` / `accent` | Estado interativo (hover, item selecionado). |
+| Token                       | Uso                                                                                                     |
+| --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `--surface` / `surface`     | Superfície elevada (cards, popover, modais). Um degrau acima do fundo.                                  |
+| `--secondary` / `secondary` | Alias de `surface`; use para botões secundários e chips.                                                |
+| `--muted` / `muted`         | Área secundária (listas, tabelas, blocos menos importantes).                                            |
+| `--accent` / `accent`       | Estado interativo (hover, item selecionado).                                                            |
 | `--surface-2` / `surface-2` | Derivado de `surface` (mais escuro). Ex.: inputs dentro de popups que precisam contraste com `surface`. |
-| `--surface-3` / `surface3` | Derivado de `surface` (ainda mais escuro). Escolha por função, não como “cinza genérico”. |
+| `--surface-3` / `surface3`  | Derivado de `surface` (ainda mais escuro). Escolha por função, não como “cinza genérico”.               |
 
 ### Brand
 
@@ -54,12 +54,12 @@ Cor principal da marca: `--primary` / `brand` (azul). Escalas leves: `primary-10
 
 ### Gráficos e sparklines
 
-| Token | Uso |
-|-------|-----|
-| `--chart-1` a `--chart-5` | Séries de gráficos. Use em `MetricHistoryChart`, `RetentionChart` etc. |
-| `--primary` | Linhas/séries principais em gráficos. |
-| `--muted-foreground` | Eixos, labels e linhas auxiliares. |
-| Sparklines: `--sparkline-red`, `--sparkline-green` etc. | Mapeados para `destructive`, `success` etc. |
+| Token                                                   | Uso                                                                    |
+| ------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `--chart-1` a `--chart-5`                               | Séries de gráficos. Use em `MetricHistoryChart`, `RetentionChart` etc. |
+| `--primary`                                             | Linhas/séries principais em gráficos.                                  |
+| `--muted-foreground`                                    | Eixos, labels e linhas auxiliares.                                     |
+| Sparklines: `--sparkline-red`, `--sparkline-green` etc. | Mapeados para `destructive`, `success` etc.                            |
 
 ---
 

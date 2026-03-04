@@ -12,6 +12,29 @@ from app.services.thumbnail_cache import cache_first_thumbs_for_ads
 logger = logging.getLogger(__name__)
 
 
+class PackNameConflictError(ValueError):
+    """Raised when a pack name already exists for the user."""
+
+
+def normalize_pack_name(name: str) -> str:
+    """Normaliza nome do pack para persistência e validação."""
+    return str(name or "").strip()
+
+
+def _normalized_pack_name_key(name: str) -> str:
+    """Chave normalizada para unicidade case-insensitive."""
+    return normalize_pack_name(name).lower()
+
+
+def _is_pack_name_unique_violation(error: Exception) -> bool:
+    """Detecta violação da constraint/índice único de nome de pack."""
+    error_text = str(error or "").lower()
+    return (
+        "packs_user_normalized_name_unique_idx" in error_text
+        or "duplicate key value violates unique constraint" in error_text
+    )
+
+
 def _now_iso() -> str:
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
@@ -339,45 +362,6 @@ def upsert_ads(
     except Exception as e:
         logger.warning(f"[UPSERT_ADS] Falha ao cachear thumbnails (best-effort): {e}")
 
-    # Se pack_id foi fornecido, fazer merge de pack_ids com estado existente
-    if pack_id and rows:
-        ad_ids = [r["ad_id"] for r in rows]
-        existing_map: Dict[str, List[str]] = {}
-        
-        # Processar busca de pack_ids existentes em lotes para evitar problemas com muitos IDs
-        # IDs de ads são longos (ex: "120236981806920782" ~18-19 chars)
-        # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
-        # Com IDs de ~19 caracteres, 400 IDs = ~7.600 chars na URL (seguro para limite de ~8KB)
-        batch_size_lookup = 400  # Reduzido de 1000 para 400 devido ao tamanho dos ad_ids
-        try:
-            for i in range(0, len(ad_ids), batch_size_lookup):
-                batch_ids = ad_ids[i:i + batch_size_lookup]
-                
-                def ads_filters(q):
-                    return q.eq("user_id", user_id).in_("ad_id", batch_ids)
-                
-                existing_rows = _fetch_all_paginated(
-                    sb,
-                    "ads",
-                    "ad_id, pack_ids",
-                    ads_filters
-                )
-                
-                for item in existing_rows:
-                    existing_map[str(item.get("ad_id"))] = (item.get("pack_ids") or [])
-            
-            logger.info(f"[UPSERT_ADS] Encontrados {len(existing_map)} registros existentes para merge de pack_ids")
-        except Exception as e:
-            logger.warning(f"[UPSERT_ADS] Erro ao buscar pack_ids existentes, continuando sem merge: {e}")
-            existing_map = {}
-
-        for row in rows:
-            existing_pack_ids = existing_map.get(row["ad_id"], []) or []
-            # garantir tipos string -> uuid no banco; aqui mantemos como strings
-            if pack_id not in existing_pack_ids:
-                existing_pack_ids.append(pack_id)
-            row["pack_ids"] = existing_pack_ids
-
     # Upsert em lotes para evitar timeout em grandes volumes de dados
     # Tamanho de lote: 1000 registros (maior que ad_metrics pois ads não têm dados por data)
     # Cada ad é único (deduplicado), então volume geralmente menor
@@ -427,7 +411,35 @@ def upsert_ads(
                 logger.error(f"[UPSERT_ADS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
                 # Re-lançar para que o caller possa tratar o erro
                 raise
-    
+
+    if pack_id and rows:
+        ad_ids = [r["ad_id"] for r in rows]
+        batch_size_attach = 500
+        total_attach_batches = (len(ad_ids) + batch_size_attach - 1) // batch_size_attach
+
+        for attach_idx in range(0, len(ad_ids), batch_size_attach):
+            batch_ids = ad_ids[attach_idx:attach_idx + batch_size_attach]
+            batch_num = (attach_idx // batch_size_attach) + 1
+            try:
+                sb.rpc(
+                    "batch_add_pack_id_to_arrays",
+                    {
+                        "p_user_id": user_id,
+                        "p_pack_id": pack_id,
+                        "p_table_name": "ads",
+                        "p_ids_to_update": batch_ids,
+                    },
+                ).execute()
+                logger.debug(
+                    f"[UPSERT_ADS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
+                    f"({len(batch_ids)} registros)"
+                )
+            except Exception as e:
+                logger.error(
+                    f"[UPSERT_ADS] Erro ao anexar pack_id no lote {batch_num}/{total_attach_batches}: {e}"
+                )
+                raise
+
     logger.info(f"[UPSERT_ADS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
     # Sync transcription_id em ads e ad_ids em ad_transcriptions (best-effort)
@@ -560,56 +572,6 @@ def upsert_ad_metrics(
     total_rows = len(rows)
     logger.info(f"[UPSERT_AD_METRICS] Processando {total_rows} registros de métricas")
 
-    # Merge de pack_ids por id (metric_id) se pack_id fornecido
-    if pack_id and rows:
-        metric_ids = [r["id"] for r in rows]
-        existing_map: Dict[str, List[str]] = {}
-        
-        # Processar busca de pack_ids existentes em lotes para evitar problemas com muitos IDs
-        # IDs de métricas são compostos e longos (ex: "2025-11-10-120236981806920782" ~30 chars)
-        # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
-        # Com IDs de ~30 caracteres, 200 IDs = ~6000 chars na URL (seguro para limite de ~8KB)
-        batch_size_lookup = 200  # Reduzido de 1000 para 200 devido ao tamanho dos IDs compostos
-        total_lookup_batches = (len(metric_ids) + batch_size_lookup - 1) // batch_size_lookup
-        
-        logger.info(f"[UPSERT_AD_METRICS] Buscando pack_ids existentes em {total_lookup_batches} lote(s) de até {batch_size_lookup} IDs")
-        
-        try:
-            for i in range(0, len(metric_ids), batch_size_lookup):
-                batch_ids = metric_ids[i:i + batch_size_lookup]
-                batch_num = (i // batch_size_lookup) + 1
-                
-                def metrics_filters(q):
-                    return q.eq("user_id", user_id).in_("id", batch_ids)
-                
-                try:
-                    existing_rows = _fetch_all_paginated(
-                        sb,
-                        "ad_metrics",
-                        "id, pack_ids",
-                        metrics_filters
-                    )
-                    
-                    for item in existing_rows:
-                        existing_map[str(item.get("id"))] = (item.get("pack_ids") or [])
-                    
-                    logger.debug(f"[UPSERT_AD_METRICS] Lote de lookup {batch_num}/{total_lookup_batches}: {len(existing_rows)} registros encontrados")
-                except Exception as batch_err:
-                    logger.warning(f"[UPSERT_AD_METRICS] Erro ao buscar pack_ids no lote {batch_num}/{total_lookup_batches}: {batch_err}")
-                    # Continuar com próximos lotes mesmo se um falhar
-                    continue
-            
-            logger.info(f"[UPSERT_AD_METRICS] Encontrados {len(existing_map)} registros existentes para merge de pack_ids")
-        except Exception as e:
-            logger.warning(f"[UPSERT_AD_METRICS] Erro geral ao buscar pack_ids existentes, continuando sem merge: {e}")
-            existing_map = {}
-
-        for row in rows:
-            existing_pack_ids = existing_map.get(row["id"], []) or []
-            if pack_id not in existing_pack_ids:
-                existing_pack_ids.append(pack_id)
-            row["pack_ids"] = existing_pack_ids
-
     # Upsert em lotes para evitar timeout em grandes volumes de dados
     # Tamanho de lote: 300 registros (ajustado para balancear performance e evitar timeout)
     # JSONB fields (actions, conversions, etc.) podem ser grandes, então lote menor é mais seguro
@@ -656,7 +618,35 @@ def upsert_ad_metrics(
             else:
                 # Re-lançar para que caller possa tratar o erro
                 raise
-    
+
+    if pack_id and rows:
+        metric_ids = [r["id"] for r in rows]
+        batch_size_attach = 300
+        total_attach_batches = (len(metric_ids) + batch_size_attach - 1) // batch_size_attach
+
+        for attach_idx in range(0, len(metric_ids), batch_size_attach):
+            batch_ids = metric_ids[attach_idx:attach_idx + batch_size_attach]
+            batch_num = (attach_idx // batch_size_attach) + 1
+            try:
+                sb.rpc(
+                    "batch_add_pack_id_to_arrays",
+                    {
+                        "p_user_id": user_id,
+                        "p_pack_id": pack_id,
+                        "p_table_name": "ad_metrics",
+                        "p_ids_to_update": batch_ids,
+                    },
+                ).execute()
+                logger.debug(
+                    f"[UPSERT_AD_METRICS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
+                    f"({len(batch_ids)} registros)"
+                )
+            except Exception as e:
+                logger.error(
+                    f"[UPSERT_AD_METRICS] Erro ao anexar pack_id no lote {batch_num}/{total_attach_batches}: {e}"
+                )
+                raise
+
     logger.info(f"[UPSERT_AD_METRICS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
 
@@ -739,6 +729,52 @@ def update_pack_ad_ids(user_jwt: str, pack_id: str, ad_ids: List[str], user_id: 
     sb = get_supabase_for_user(user_jwt)
     unique_ad_ids = sorted(list({str(a) for a in (ad_ids or [])}))
     sb.table("packs").update({"ad_ids": unique_ad_ids, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute()
+
+
+def get_existing_ads_map(
+    user_jwt: str,
+    ad_ids: List[str],
+    user_id: Optional[str],
+) -> Dict[str, Dict[str, Any]]:
+    """Busca ads ja persistidos por ad_id para reaproveito no refresh."""
+    if not user_id or not ad_ids:
+        return {}
+
+    sb = get_supabase_for_user(user_jwt)
+    unique_ad_ids = sorted({str(ad_id).strip() for ad_id in ad_ids if str(ad_id).strip()})
+    if not unique_ad_ids:
+        return {}
+
+    select_fields = (
+        "ad_id,account_id,campaign_id,campaign_name,adset_id,adset_name,ad_name,"
+        "effective_status,creative,creative_video_id,thumbnail_url,"
+        "instagram_permalink_url,adcreatives_videos_ids,adcreatives_videos_thumbs"
+    )
+    batch_size = 400
+    existing_ads: Dict[str, Dict[str, Any]] = {}
+
+    logger.info(
+        f"[GET_EXISTING_ADS_MAP] Buscando {len(unique_ad_ids)} ads existentes em lotes de {batch_size}"
+    )
+
+    for i in range(0, len(unique_ad_ids), batch_size):
+        batch_ids = unique_ad_ids[i : i + batch_size]
+        response = (
+            sb.table("ads")
+            .select(select_fields)
+            .eq("user_id", user_id)
+            .in_("ad_id", batch_ids)
+            .execute()
+        )
+        for row in response.data or []:
+            ad_id = str(row.get("ad_id") or "").strip()
+            if ad_id:
+                existing_ads[ad_id] = row
+
+    logger.info(
+        f"[GET_EXISTING_ADS_MAP] Reaproveitando {len(existing_ads)} ads ja persistidos"
+    )
+    return existing_ads
 
 
 def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) -> Dict[str, Any]:
@@ -1031,13 +1067,14 @@ def upsert_pack(
     Returns:
         UUID do pack criado/atualizado ou None se houver erro
     """
-    logger.info(f"[UPSERT_PACK] Iniciando upsert_pack - user_id={user_id}, name={name}, pack_id={pack_id}")
+    normalized_name = normalize_pack_name(name)
+    logger.info(f"[UPSERT_PACK] Iniciando upsert_pack - user_id={user_id}, name={normalized_name}, pack_id={pack_id}")
     
     if not user_id:
         logger.warning("[UPSERT_PACK] ✗ Skipped: missing user_id")
         return None
     
-    if not name:
+    if not normalized_name:
         logger.warning("[UPSERT_PACK] ✗ Skipped: missing name")
         return None
     
@@ -1055,7 +1092,7 @@ def upsert_pack(
     pack_data = {
         "user_id": user_id,
         "adaccount_id": adaccount_id,
-        "name": name,
+        "name": normalized_name,
         "date_start": date_start,
         "date_stop": date_stop,
         "level": level,
@@ -1081,9 +1118,9 @@ def upsert_pack(
             logger.info(f"[UPSERT_PACK] Criando novo pack")
             
             # Verificar se já existe um pack com o mesmo nome
-            if check_pack_name_exists(user_jwt, user_id, name):
-                logger.warning(f"[UPSERT_PACK] ✗ Pack com nome '{name}' já existe para user_id={user_id}")
-                raise ValueError(f"Já existe um pack com o nome '{name}'")
+            if check_pack_name_exists(user_jwt, user_id, normalized_name):
+                logger.warning(f"[UPSERT_PACK] ✗ Pack com nome '{normalized_name}' já existe para user_id={user_id}")
+                raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'")
             
             logger.info(f"[UPSERT_PACK] Executando insert na tabela packs...")
             res = sb.table("packs").insert(pack_data).execute()
@@ -1094,7 +1131,7 @@ def upsert_pack(
                 logger.warning(f"[UPSERT_PACK] Nenhum dado retornado do insert. Verificar RLS ou constraints.")
                 # Tentar buscar o pack criado para confirmar se foi salvo
                 try:
-                    check_res = sb.table("packs").select("id, name").eq("user_id", user_id).eq("name", name).order("created_at", desc=True).limit(1).execute()
+                    check_res = sb.table("packs").select("id, name").eq("user_id", user_id).ilike("name", normalized_name).order("created_at", desc=True).limit(1).execute()
                     if check_res.data:
                         logger.info(f"[UPSERT_PACK] Pack encontrado após insert: {check_res.data[0].get('id')}")
                         return check_res.data[0].get("id")
@@ -1103,7 +1140,7 @@ def upsert_pack(
         
         if res.data and len(res.data) > 0:
             pack_created_id = res.data[0].get("id")
-            logger.info(f"[UPSERT_PACK] ✓ Pack {'atualizado' if pack_id else 'criado'} no Supabase: {pack_created_id} (nome: {name})")
+            logger.info(f"[UPSERT_PACK] ✓ Pack {'atualizado' if pack_id else 'criado'} no Supabase: {pack_created_id} (nome: {normalized_name})")
             return pack_created_id
         else:
             logger.error(f"[UPSERT_PACK] ✗ Pack {'criado' if not pack_id else 'atualizado'} mas nenhum dado retornado do Supabase")
@@ -1115,6 +1152,9 @@ def upsert_pack(
                 logger.error(f"[UPSERT_PACK] Response.status_code: {res.status_code}")
             return None
     except Exception as e:
+        if _is_pack_name_unique_violation(e):
+            logger.warning(f"[UPSERT_PACK] ✗ Violação de unicidade para pack '{normalized_name}'")
+            raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'") from e
         logger.exception(f"[UPSERT_PACK] ✗ Erro ao criar/atualizar pack no Supabase: {e}")
         # Log detalhado do erro
         if hasattr(e, 'message'):
@@ -1728,12 +1768,13 @@ def check_pack_name_exists(
     Returns:
         True se já existe um pack com o mesmo nome, False caso contrário
     """
-    if not user_id or not name or not name.strip():
+    normalized_name = normalize_pack_name(name)
+    if not user_id or not normalized_name:
         return False
     
     try:
         sb = get_supabase_for_user(user_jwt)
-        query = sb.table("packs").select("id").eq("user_id", user_id).eq("name", name.strip())
+        query = sb.table("packs").select("id").eq("user_id", user_id).ilike("name", normalized_name)
         
         # Excluir o pack atual se for uma atualização
         if exclude_pack_id:
@@ -1741,7 +1782,7 @@ def check_pack_name_exists(
         
         res = query.limit(1).execute()
         exists = res.data and len(res.data) > 0
-        logger.info(f"[CHECK_PACK_NAME] Nome '{name.strip()}' {'já existe' if exists else 'disponível'} para user_id={user_id}")
+        logger.info(f"[CHECK_PACK_NAME] Nome '{normalized_name}' {'já existe' if exists else 'disponível'} para user_id={user_id}")
         return exists
     except Exception as e:
         logger.exception(f"[CHECK_PACK_NAME] ✗ Erro ao verificar nome do pack: {e}")
@@ -1771,24 +1812,27 @@ def update_pack_name(
         logger.warning("[UPDATE_PACK_NAME] Skipped: missing user_id or pack_id")
         return
     
-    if not name or not name.strip():
+    normalized_name = normalize_pack_name(name)
+    if not normalized_name:
         raise ValueError("Nome do pack não pode ser vazio")
     
     # Verificar se já existe outro pack com o mesmo nome
-    if check_pack_name_exists(user_jwt, user_id, name.strip(), exclude_pack_id=pack_id):
-        raise ValueError(f"Já existe um pack com o nome '{name.strip()}'")
+    if check_pack_name_exists(user_jwt, user_id, normalized_name, exclude_pack_id=pack_id):
+        raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'")
     
     sb = get_supabase_for_user(user_jwt)
     
     # Não atualizar updated_at ao renomear - essa data deve ser exclusiva para atualizações de métricas
     update_data = {
-        "name": name.strip(),
+        "name": normalized_name,
     }
     
     try:
         sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute()
-        logger.info(f"[UPDATE_PACK_NAME] ✓ Pack {pack_id} atualizado - name={name}")
+        logger.info(f"[UPDATE_PACK_NAME] ✓ Pack {pack_id} atualizado - name={normalized_name}")
     except Exception as e:
+        if _is_pack_name_unique_violation(e):
+            raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'") from e
         logger.exception(f"[UPDATE_PACK_NAME] ✗ Erro ao atualizar pack {pack_id}: {e}")
         raise
 
@@ -2150,4 +2194,3 @@ def get_transcription(
     except Exception as e:
         logger.warning(f"[TRANSCRIPTION] Erro ao buscar transcription: {e}")
         return None
-

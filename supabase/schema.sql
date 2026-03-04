@@ -20,6 +20,7 @@ create table if not exists public.packs (
   refresh_lock_until timestamp,
   refresh_progress_json jsonb,
   sheet_integration_id uuid,
+  ad_ids text[] default '{}',
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -46,6 +47,7 @@ create table if not exists public.ads (
   thumb_source_url text,
   leadscore numeric,
   cpr_max numeric,
+  pack_ids uuid[] default '{}',
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -85,6 +87,7 @@ create table if not exists public.ad_metrics (
   leadscore numeric,
   cpr_max numeric,
   raw_data jsonb,
+  pack_ids uuid[] default '{}',
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -169,6 +172,10 @@ create table if not exists public.jobs (
   message text,
   payload jsonb,
   result_count int,
+  processing_owner text,
+  processing_claimed_at timestamptz,
+  processing_lease_until timestamptz,
+  processing_attempts int not null default 0,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -192,6 +199,7 @@ create table if not exists public.ad_transcriptions (
 create index if not exists packs_user_idx on public.packs(user_id);
 create index if not exists packs_user_created_idx on public.packs(user_id, created_at desc);
 create index if not exists packs_user_adaccount_idx on public.packs(user_id, adaccount_id);
+create unique index if not exists packs_user_normalized_name_unique_idx on public.packs(user_id, lower(btrim(name)));
 create index if not exists packs_refresh_lock_idx on public.packs(auto_refresh, refresh_status, refresh_lock_until) where refresh_lock_until is not null;
 create index if not exists packs_refresh_status_date_idx on public.packs(refresh_status, last_refreshed_at);
 
@@ -200,6 +208,7 @@ create index if not exists ads_account_idx on public.ads(account_id);
 create index if not exists ads_campaign_idx on public.ads(campaign_id);
 create index if not exists ads_video_idx on public.ads(creative_video_id);
 create index if not exists ads_videos_ids_idx on public.ads using gin(adcreatives_videos_ids) where adcreatives_videos_ids is not null;
+create index if not exists ads_pack_ids_gin on public.ads using gin (pack_ids);
 
 -- Constraint única (ad_id, date) mantida como backup para integridade referencial
 -- O id composto já garante unicidade, mas este índice ajuda em queries por ad_id ou date
@@ -207,6 +216,7 @@ create unique index if not exists ad_metrics_unique_day on public.ad_metrics(ad_
 create index if not exists ad_metrics_user_date_idx on public.ad_metrics(user_id, date);
 create index if not exists ad_metrics_user_campaign_date_idx on public.ad_metrics(user_id, campaign_id, date);
 create index if not exists ad_metrics_user_ad_date_idx on public.ad_metrics(user_id, ad_id, date);
+create index if not exists ad_metrics_pack_ids_gin on public.ad_metrics using gin (pack_ids);
 
 -- Índices para ranking por ad_name e join rápido com ads
 create index if not exists ad_metrics_user_name_date_ad_idx on public.ad_metrics(user_id, ad_name, date, ad_id);
@@ -217,6 +227,7 @@ create index if not exists profiles_email_idx on public.profiles(email);
 create index if not exists ad_accounts_user_idx on public.ad_accounts(user_id);
 
 create index if not exists jobs_user_idx on public.jobs(user_id);
+create index if not exists jobs_processing_lease_idx on public.jobs(user_id, status, processing_lease_until);
 
 create index if not exists ad_transcriptions_user_status_idx on public.ad_transcriptions(user_id, status);
 
