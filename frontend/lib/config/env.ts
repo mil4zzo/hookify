@@ -12,5 +12,6 @@ export const env = {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ||
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     '',
+  SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN || '',
 } as const
 

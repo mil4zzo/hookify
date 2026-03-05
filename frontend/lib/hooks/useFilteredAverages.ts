@@ -82,10 +82,8 @@ export function useFilteredAverages({
           leadscoreRaw: (ad as any).leadscore_values,
           mqlLeadscoreMin,
         });
-        if (spend > 0 && mqlCount > 0) {
-          totalSpendForMql += spend;
-          totalMql += mqlCount;
-        }
+        totalSpendForMql += spend;
+        totalMql += mqlCount;
       }
     }
 

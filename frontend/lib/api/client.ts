@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
+import * as Sentry from '@sentry/nextjs'
 import { parseError, AppError } from '@/lib/utils/errors'
 import { env } from '@/lib/config/env'
 import { getSupabaseClient } from '@/lib/supabase/client'
@@ -107,6 +108,18 @@ class ApiClient {
           invalidateSessionCache()
         }
         const appError = parseError(error)
+
+        // Enviar erros relevantes para o Sentry (ignorar 401/403 que são esperados)
+        if (appError.status && appError.status >= 500) {
+          Sentry.captureException(error, {
+            extra: {
+              url: error?.config?.url,
+              method: error?.config?.method,
+              status: appError.status,
+              responseData: error?.response?.data,
+            },
+          })
+        }
 
         // Log detalhado apenas em desenvolvimento (sem usar console.error para evitar overlay do Next)
         if (env.NODE_ENV !== 'production') {

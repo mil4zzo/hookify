@@ -4,6 +4,7 @@ import { ReactQueryProvider } from "../components/providers/ReactQueryProvider";
 import { SidebarProvider } from "../components/layout/SidebarContext";
 import { Toaster } from "sonner";
 import AppLayout from "../components/layout/AppLayout";
+import { SentryUserIdentifier } from "../components/providers/SentryUserIdentifier";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -26,6 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${geist.className} bg-background text-text antialiased`}>
         <ReactQueryProvider>
           <SidebarProvider>
+            <SentryUserIdentifier />
             <AppLayout>{children}</AppLayout>
             <Toaster
               position="bottom-right"
