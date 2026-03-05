@@ -40,6 +40,7 @@ interface MetricCellProps {
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number;
   minimal?: boolean; // Prop para modo minimal
+  lightweight?: boolean; // Quando true, SparklineBars usa title nativo em vez de Radix Tooltip
 }
 
 // Custom comparison function for React.memo
@@ -63,6 +64,7 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
   if (prev.hasSheetIntegration !== next.hasSheetIntegration) return false;
   if (prev.mqlLeadscoreMin !== next.mqlLeadscoreMin) return false;
   if (prev.minimal !== next.minimal) return false;
+  if (prev.lightweight !== next.lightweight) return false;
 
   // Function references (should be stable if parent uses useCallback)
   if (prev.getRowKey !== next.getRowKey) return false;
@@ -78,7 +80,7 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
   return true;
 }
 
-export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, showTrends, averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false }: MetricCellProps) {
+export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, showTrends, averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false, lightweight = false }: MetricCellProps) {
   // row já é o objeto agregado (info.row.original), então precisamos ajustar
   const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
   const rowKey = getRowKey(row);
@@ -260,6 +262,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
           series={normalizedSeries}
           size="small"
           className={minimal ? "w-12 h-4" : undefined}
+          lightweight={lightweight}
           valueFormatter={(n: number) => {
             if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
               return formatCurrency(n || 0);

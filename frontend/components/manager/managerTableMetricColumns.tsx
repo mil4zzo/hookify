@@ -34,7 +34,7 @@ function applyNumericFilterMaybeArray(rowValue: number | null | undefined, filte
 }
 
 export function buildMetricColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, unknown>[] {
-  const { columnHelper, activeColumns, byKey, endDate, showTrends, averages, formatAverage, filteredAveragesRef, formatFilteredAverageRef, formatCurrency, formatPct, globalFilterRef, columnFiltersRef, viewMode, hasSheetIntegration, mqlLeadscoreMin, actionType, applyNumericFilter, getRowKey, openSettings } = params;
+  const { columnHelper, activeColumns, byKey, endDate, showTrends, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, formatCurrencyRef, formatPct, globalFilterRef, columnFiltersRef, viewMode, hasSheetIntegration, mqlLeadscoreMin, actionTypeRef, applyNumericFilter, getRowKey, openSettings } = params;
 
   const shouldShow = (id: ManagerColumnType) => {
     if (!activeColumns.has(id)) return false;
@@ -63,11 +63,11 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           <span className={isMinimal ? "text-xs" : ""}>{label}</span>
           <ColumnFilter value={displayFilterValue} readonly={true} />
         </div>
-        {formatAverage(metricId) && (
+        {formatAverageRef.current(metricId) && (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverage(metricId)}</span>
+                <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverageRef.current(metricId)}</span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p className="text-xs">{isSum ? "Soma total do pack" : "Média dos anúncios validáveis do pack"}</p>
@@ -110,7 +110,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           return applyNumericFilterMaybeArray(spend, filterValue, applyNumericFilter);
         },
         sortingFn: "auto",
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrency(Number(info.getValue()) || 0)}</span>} metric="spend" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />,
+        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrencyRef.current(Number(info.getValue()) || 0)}</span>} metric="spend" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />,
       }) as any,
     );
   }
@@ -121,7 +121,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
       columnHelper.accessor(
         (row) => {
           const ad = row as RankingsItem;
-          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+          const results = actionTypeRef.current ? ad.conversions?.[actionTypeRef.current] || 0 : 0;
           return Number(results);
         },
         {
@@ -132,13 +132,13 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           },
           filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
             const ad = row.original as RankingsItem;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            const results = actionTypeRef.current ? ad.conversions?.[actionTypeRef.current] || 0 : 0;
             return applyNumericFilterMaybeArray(Number(results), filterValue, applyNumericFilter);
           },
           sortingFn: "auto",
           cell: (info) => {
             const results = Number(info.getValue() || 0);
-            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(results)}</span>} metric="results" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(results)}</span>} metric="results" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
           },
         },
       ) as any,
@@ -176,7 +176,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           sortingFn: "auto",
           cell: (info) => {
             const mqls = Number(info.getValue() || 0);
-            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(mqls)}</span>} metric="mqls" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{Math.round(mqls)}</span>} metric="mqls" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
           },
         },
       ) as any,
@@ -189,7 +189,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
       columnHelper.accessor(
         (row) => {
           const ad = row as RankingsItem;
-          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+          const results = actionTypeRef.current ? ad.conversions?.[actionTypeRef.current] || 0 : 0;
           return results > 0 ? Number(ad.spend || 0) / Number(results) : 0;
         },
         {
@@ -200,17 +200,17 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           },
           filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
             const ad = row.original as RankingsItem;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            const results = actionTypeRef.current ? ad.conversions?.[actionTypeRef.current] || 0 : 0;
             const cpr = results > 0 ? Number(ad.spend || 0) / results : null;
             return applyNumericFilterMaybeArray(cpr, filterValue, applyNumericFilter);
           },
           sortingFn: "auto",
           cell: (info) => {
             const ad = info.row.original as RankingsItem;
-            const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+            const results = actionTypeRef.current ? ad.conversions?.[actionTypeRef.current] || 0 : 0;
             const cpr = results > 0 ? Number(info.getValue() || 0) : 0;
-            const value = cpr > 0 && Number.isFinite(cpr) ? formatCurrency(cpr) : "—";
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+            const value = cpr > 0 && Number.isFinite(cpr) ? formatCurrencyRef.current(cpr) : "—";
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
           },
         },
       ) as any,
@@ -280,11 +280,11 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                   <span className={isMinimal ? "text-xs" : ""}>CPMQL</span>
                   <ColumnFilter value={displayFilterValue} readonly={true} />
                 </div>
-                {formatAverage("cpmql") && (
+                {formatAverageRef.current("cpmql") && (
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverage("cpmql")}</span>
+                        <span className={`${textSize} text-muted-foreground font-normal cursor-help ${avgLeading}`}>{formatAverageRef.current("cpmql")}</span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
                         <p className="text-xs">Média dos anúncios validáveis do pack</p>
@@ -329,8 +329,8 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
               leadscoreRaw: ad.leadscore_values,
               mqlLeadscoreMin,
             });
-            const value = cpmql > 0 && Number.isFinite(cpmql) ? formatCurrency(cpmql) : "—";
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpmql" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+            const value = cpmql > 0 && Number.isFinite(cpmql) ? formatCurrencyRef.current(cpmql) : "—";
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpmql" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
           },
         },
       ) as any,
@@ -361,7 +361,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           cell: (info) => {
             const ad = info.row.original as RankingsItem;
             const cpm = Number(info.getValue() || 0);
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrency(cpm)}</span>} metric="cpm" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatCurrencyRef.current(cpm)}</span>} metric="cpm" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
           },
         },
       ) as any,
@@ -396,7 +396,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           const original = info.row.original as RankingsItem;
           const hookValue = info.getValue() ?? original.hook ?? 0;
           const hookAsPct = Number(hookValue) * 100;
-          return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(hookAsPct)}</span>} metric="hook" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+          return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(hookAsPct)}</span>} metric="hook" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
         },
         sortingFn: "auto",
       }) as any,
@@ -442,7 +442,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           cell: (info) => {
             const ad = info.row.original as RankingsItem;
             const websiteCtr = Number(info.getValue() || 0);
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(websiteCtr * 100)}</span>} metric="website_ctr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(websiteCtr * 100)}</span>} metric="website_ctr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
           },
         },
       ) as any,
@@ -474,7 +474,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           return checkOne(filterValue);
         },
         sortingFn: "auto",
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(Number(info.getValue()) * 100))}</span>} metric="connect_rate" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />,
+        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(Number(info.getValue()) * 100))}</span>} metric="connect_rate" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />,
       }) as any,
     );
   }
@@ -490,7 +490,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           if ("page_conv" in ad && typeof pageConvValue === "number" && !Number.isNaN(pageConvValue) && isFinite(pageConvValue)) {
             return pageConvValue;
           }
-          const results = actionType ? ad.conversions?.[actionType] || 0 : 0;
+          const results = actionTypeRef.current ? ad.conversions?.[actionTypeRef.current] || 0 : 0;
           const lpv = Number(ad.lpv || 0);
           return lpv > 0 ? Number(results) / lpv : 0;
         },
@@ -506,8 +506,8 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
             const pageConvValue = (ad as RankingsItem & { page_conv?: number }).page_conv;
             if ("page_conv" in ad && typeof pageConvValue === "number" && !Number.isNaN(pageConvValue) && isFinite(pageConvValue)) {
               pageConv = pageConvValue;
-            } else if (actionType) {
-              const results = ad.conversions?.[actionType] || 0;
+            } else if (actionTypeRef.current) {
+              const results = ad.conversions?.[actionTypeRef.current] || 0;
               const lpv = Number(ad.lpv || 0);
               pageConv = lpv > 0 ? Number(results) / lpv : null;
             }
@@ -528,7 +528,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           cell: (info) => {
             const ad = info.row.original as RankingsItem;
             const pageConv = Number(info.getValue() || 0);
-            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(pageConv * 100)}</span>} metric="page_conv" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />;
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{formatPct(pageConv * 100)}</span>} metric="page_conv" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
           },
         },
       ) as any,
@@ -560,7 +560,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           return checkOne(filterValue);
         },
         sortingFn: "auto",
-        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(Number(info.getValue()) * 100))}</span>} metric="ctr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averages} formatCurrency={formatCurrency} actionType={actionType} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} />,
+        cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(Number(info.getValue()) * 100))}</span>} metric="ctr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />,
       }) as any,
     );
   }

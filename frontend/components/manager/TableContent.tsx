@@ -52,13 +52,13 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   const prevState = prev.table.getState();
   const nextState = next.table.getState();
 
-  // Comparar filtros
-  if (JSON.stringify(prevState.columnFilters) !== JSON.stringify(nextState.columnFilters)) {
+  // Comparar filtros (referência primeiro, stringify só se necessário)
+  if (prevState.columnFilters !== nextState.columnFilters && JSON.stringify(prevState.columnFilters) !== JSON.stringify(nextState.columnFilters)) {
     return false;
   }
 
-  // Comparar sorting usando a prop direta (mais confiável que table.getState())
-  if (JSON.stringify(prev.sorting) !== JSON.stringify(next.sorting)) {
+  // Comparar sorting (referência primeiro, stringify só se necessário)
+  if (prev.sorting !== next.sorting && JSON.stringify(prev.sorting) !== JSON.stringify(next.sorting)) {
     return false;
   }
 
@@ -68,17 +68,17 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   // 3. O TanStack Table já atualiza o DOM diretamente via CSS (width das colunas)
   // 4. Comparar columnSizing aqui causaria re-renders desnecessários durante resize
 
-  // 4. Comparação de columnFilters (array)
-  if (prev.columnFilters.length !== next.columnFilters.length) {
-    return false;
-  }
-
-  // Comparação profunda de filtros
-  for (let i = 0; i < prev.columnFilters.length; i++) {
-    const prevFilter = prev.columnFilters[i];
-    const nextFilter = next.columnFilters[i];
-    if (prevFilter.id !== nextFilter.id || JSON.stringify(prevFilter.value) !== JSON.stringify(nextFilter.value)) {
+  // 4. Comparação de columnFilters (array) — referência primeiro
+  if (prev.columnFilters !== next.columnFilters) {
+    if (prev.columnFilters.length !== next.columnFilters.length) {
       return false;
+    }
+    for (let i = 0; i < prev.columnFilters.length; i++) {
+      const prevFilter = prev.columnFilters[i];
+      const nextFilter = next.columnFilters[i];
+      if (prevFilter.id !== nextFilter.id || (prevFilter.value !== nextFilter.value && JSON.stringify(prevFilter.value) !== JSON.stringify(nextFilter.value))) {
+        return false;
+      }
     }
   }
 
@@ -97,8 +97,10 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
     }
   }
 
-  // 6. Filtros das tabelas expandidas
-  if (JSON.stringify(prev.expandedTableColumnFilters ?? []) !== JSON.stringify(next.expandedTableColumnFilters ?? [])) {
+  // 6. Filtros das tabelas expandidas (referência primeiro)
+  const prevExpFilters = prev.expandedTableColumnFilters ?? [];
+  const nextExpFilters = next.expandedTableColumnFilters ?? [];
+  if (prevExpFilters !== nextExpFilters && JSON.stringify(prevExpFilters) !== JSON.stringify(nextExpFilters)) {
     return false;
   }
   if (prev.setExpandedTableColumnFilters !== next.setExpandedTableColumnFilters) {
@@ -115,17 +117,10 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
   // rows só deve ser recalculado quando dados, filtros ou sorting mudarem
   // NÃO recalcular quando apenas columnSizing mudar (durante resize)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- columnFilters/sorting comparados por referência, suficiente pois vêm de state controlado
   const rows = useMemo(() => {
     return table.getRowModel().rows;
-  }, [
-    // Dados originais - se mudarem, rows mudam
-    table.options.data,
-    // Filtros - se mudarem, rows filtradas mudam
-    JSON.stringify(table.getState().columnFilters),
-    // Sorting - usar a prop direta para garantir atualização imediata
-    JSON.stringify(sorting),
-    // NÃO incluir columnSizing - não afeta quais rows são mostradas
-  ]);
+  }, [table.options.data, table.getState().columnFilters, sorting]);
 
   // Estado para controlar se está redimensionando uma coluna
   const [isResizing, setIsResizing] = useState(false);

@@ -28,18 +28,18 @@ export type CreateManagerTableColumnsParams = {
 
   endDate?: string;
   showTrends: boolean;
-  averages: ManagerAverages;
-  formatAverage: (metricId: string) => string;
+  averagesRef: React.MutableRefObject<ManagerAverages>;
+  formatAverageRef: React.MutableRefObject<(metricId: string) => string>;
   filteredAveragesRef: React.MutableRefObject<ManagerAverages | null>;
   formatFilteredAverageRef: React.MutableRefObject<(metricId: string) => string>;
 
-  formatCurrency: (n: number) => string;
+  formatCurrencyRef: React.MutableRefObject<(n: number) => string>;
   formatPct: (v: number) => string;
 
   viewMode: ViewMode;
   hasSheetIntegration: boolean;
   mqlLeadscoreMin: number;
-  actionType: string;
+  actionTypeRef: React.MutableRefObject<string>;
 
   applyNumericFilter: (rowValue: number | null | undefined, filterValue: FilterValue | undefined) => boolean;
   openSettings: (tab?: SettingsTab) => void;

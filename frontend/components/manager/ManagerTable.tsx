@@ -43,6 +43,9 @@ import { getColumnId } from "@/lib/utils/columnFilters";
 
 type Ad = RankingsItem;
 
+/** Referência estável para filtros vazios — evita que TanStack Table detecte "mudança" quando o array é [] em ambos os renders */
+const EMPTY_FILTERS: ColumnFiltersState = [];
+
 interface ManagerTableProps {
   ads: Ad[];
   groupByAdName?: boolean;
@@ -522,6 +525,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const filteredAveragesRef = useRef<any>(null);
   const formatFilteredAverageRef = useRef<(metricId: string) => string>(() => "");
 
+
   const getRowKey = useCallback(
     (row: { original?: RankingsItem } | RankingsItem) => {
       const original = "original" in row ? row.original : row;
@@ -629,6 +633,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   const { openSettings } = useSettingsModalStore();
 
+  // Refs para valores que mudam frequentemente mas NÃO devem invalidar columns (evita recriação de colunas pelo TanStack Table)
+  const averagesRef = useRef(averages);
+  const formatAverageRef = useRef(formatAverage);
+  const formatCurrencyRef = useRef(formatCurrency);
+  const actionTypeRef = useRef(actionType);
+
   const columns = useMemo<ColumnDef<Ad, any>[]>(() => {
     return createManagerTableColumns({
       columnHelper: columnHelper as any,
@@ -641,22 +651,22 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       getRowKey,
       endDate,
       showTrends,
-      averages,
-      formatAverage,
+      averagesRef,
+      formatAverageRef,
       filteredAveragesRef,
       formatFilteredAverageRef,
-      formatCurrency,
+      formatCurrencyRef,
       formatPct,
       viewMode,
       hasSheetIntegration,
       mqlLeadscoreMin,
-      actionType,
+      actionTypeRef,
       applyNumericFilter,
       openSettings: openSettings as any,
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, averages, formatAverage, formatCurrency, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -680,6 +690,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       arr.push(filter.value);
       byColumn.set(colId, arr);
     }
+    if (byColumn.size === 0) return EMPTY_FILTERS;
     return Array.from(byColumn.entries()).map(([id, values]) => ({
       id,
       value: values.length === 1 ? values[0] : values,
@@ -787,32 +798,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   formatFilteredAverageRef.current = formatFilteredAverage;
   columnFiltersRef.current = columnFilters;
   globalFilterRef.current = globalFilter;
+  averagesRef.current = averages;
+  formatAverageRef.current = formatAverage;
+  formatCurrencyRef.current = formatCurrency;
+  actionTypeRef.current = actionType;
 
-  // Sincronizar filtros com as colunas da tabela (agregação por columnId para múltiplos filtros)
-  useEffect(() => {
-    const byColumn = new Map<string, unknown[]>();
-    for (const filter of columnFilters) {
-      if (!filter.value) continue;
-      const colId = getColumnId(filter.id);
-      const arr = byColumn.get(colId) ?? [];
-      arr.push(filter.value);
-      byColumn.set(colId, arr);
-    }
-    const currentFilterColumnIds = new Set(table.getState().columnFilters.map((f) => getColumnId(f.id)));
-    const columnIdsToUpdate = new Set([...byColumn.keys(), ...currentFilterColumnIds]);
-    for (const columnId of columnIdsToUpdate) {
-      const column = table.getColumn(columnId);
-      if (!column) continue;
-      const values = byColumn.get(columnId);
-      if (!values || values.length === 0) {
-        column.setFilterValue(undefined);
-      } else if (values.length === 1) {
-        column.setFilterValue(values[0]);
-      } else {
-        column.setFilterValue(values);
-      }
-    }
-  }, [columnFilters, table]);
 
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
@@ -860,14 +850,15 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   }, [hasSheetIntegration, currentTab, activeColumns]);
 
 
-  const searchBar = (
+  const searchBar = useMemo(() => (
     <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
       <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
       <Input type="search" placeholder={currentTab === "por-conjunto" ? "Buscar por nome do conjunto..." : currentTab === "por-campanha" ? "Buscar por nome da campanha..." : "Buscar por nome do anúncio..."} value={globalFilter} onChange={(e) => { const v = e.target.value; startTransition(() => setGlobalFilter(v)); }} className="pl-9 h-10 w-full" />
     </div>
-  );
+  ), [currentTab, globalFilter]);
 
-  const controls = (
+  const hasCustomColumnSizes = Object.keys(columnSizing).length > 0;
+  const controls = useMemo(() => (
     <>
       <div className="flex items-center gap-2">
         {/* Toggle de visualização: dois botões alternantes */}
@@ -902,7 +893,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={handleResetColumnSizes} className="h-10 px-3" aria-label="Resetar tamanho das colunas" disabled={Object.keys(columnSizing).length === 0}>
+              <Button variant="outline" size="sm" onClick={handleResetColumnSizes} className="h-10 px-3" aria-label="Resetar tamanho das colunas" disabled={!hasCustomColumnSizes}>
                 <IconArrowsHorizontal className="h-4 w-4" />
               </Button>
             </TooltipTrigger>
@@ -913,7 +904,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         </TooltipProvider>
       </div>
     </>
-  );
+  ), [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration, handleResetColumnSizes, hasCustomColumnSizes]);
 
   const tableContentProps = useMemo(
     () => ({

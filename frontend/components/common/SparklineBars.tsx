@@ -224,6 +224,7 @@ type SparklineBarsProps = {
   zeroValueLabel?: string; // Label customizado para valores zero quando há dados mas valor é zero/null (ex: "Sem MQLs", "Sem leads")
   zeroValueColorClass?: string; // Classe de cor para valores zero quando há dados (padrão: "destructive")
   dates?: Array<string>; // Array de datas correspondentes a cada ponto da série (formato YYYY-MM-DD)
+  lightweight?: boolean; // Quando true, usa title nativo em vez de Radix Tooltip (performance: elimina ~1250 componentes na ManagerTable)
 };
 
 function formatDateForTooltip(dateStr: string): string {
@@ -235,7 +236,7 @@ function formatDateForTooltip(dateStr: string): string {
   }
 }
 
-export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand-70", nullClass = "bg-muted-20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false, packAverage = null, dataAvailability, zeroValueLabel, zeroValueColorClass = "destructive", dates }: SparklineBarsProps) {
+export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand-70", nullClass = "bg-muted-20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false, packAverage = null, dataAvailability, zeroValueLabel, zeroValueColorClass = "destructive", dates, lightweight = false }: SparklineBarsProps) {
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;
   const seriesColor = dynamicColor && colorMode === "series" ? colorByTrend(getSeriesTrendPct(series), inverseColors) : colorClass;
@@ -243,69 +244,91 @@ export const SparklineBars = React.memo(function SparklineBars({ series, classNa
   // Usar className customizado se fornecido, senão usar preset baseado no size
   const finalClassName = className || sizePresets[size];
 
+  // Pre-compute bar data for all items (shared between lightweight and full modes)
+  const bars = series.map((v, i) => {
+    const isNull = v == null || Number.isNaN(v as number);
+    const hasData = dataAvailability?.[i] ?? (v != null && !Number.isNaN(v as number));
+    const isZeroWithData = hasData && (isNull || v === 0);
+
+    let heightPct = 0;
+    if (isNull && !hasData) {
+      heightPct = minBarHeightPct;
+    } else if (isZeroWithData) {
+      heightPct = minBarHeightPct;
+    } else if (isNull) {
+      heightPct = minBarHeightPct;
+    } else if (max <= 1e-9) {
+      heightPct = minBarHeightPct;
+    } else {
+      heightPct = (Number(v) / max) * 100;
+      heightPct = Math.max(validMinBarHeightPct, heightPct);
+    }
+
+    let barColor: string;
+    if (isNull && !hasData) {
+      barColor = nullClass;
+    } else if (isZeroWithData) {
+      barColor = zeroValueColorClass;
+    } else if (packAverage != null && Number.isFinite(packAverage)) {
+      barColor = getColorClassByPackAverage(Number(v), packAverage, inverseColors);
+    } else if (dynamicColor && colorMode === "per-bar") {
+      barColor = getColorClassByNormalized(max > 1e-9 ? Math.max(0, Math.min(1, Number(v) / max)) : 0, inverseColors);
+    } else {
+      barColor = seriesColor;
+    }
+
+    const gradientClass = getGradientClass(barColor);
+    const borderClass = getBorderClass(barColor);
+
+    const dateDisplay = dates && dates[i] ? formatDateForTooltip(dates[i]) : null;
+    let valueDisplay: string;
+    if (!hasData) {
+      valueDisplay = "Sem dados";
+    } else if (isNull || (v === 0 && hasData)) {
+      valueDisplay = zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
+    } else {
+      valueDisplay = valueFormatter ? valueFormatter(Number(v)) : `${Number(v).toFixed(2)}`;
+    }
+
+    const titleText = dateDisplay ? `${dateDisplay}: ${valueDisplay}` : valueDisplay;
+
+    return { heightPct, gradientClass, borderClass, barColor, isNull, hasData, isZeroWithData, dateDisplay, valueDisplay, titleText };
+  });
+
+  // Lightweight mode: native title attributes (no Radix Tooltip overhead)
+  if (lightweight) {
+    return (
+      <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
+        {bars.map((bar, i) => (
+          <div key={i} className="rounded-xs flex-1 relative" style={{ height: `${bar.heightPct}%` }} title={bar.titleText}>
+            <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  // Full mode: Radix Tooltips with rich formatting
   return (
     <TooltipProvider delayDuration={200}>
       <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
-        {series.map((v, i) => {
-          const isNull = v == null || Number.isNaN(v as number);
-          const hasData = dataAvailability?.[i] ?? (v != null && !Number.isNaN(v as number));
-          const isZeroWithData = hasData && (isNull || v === 0);
-
-          let heightPct = 0;
-          if (isNull && !hasData) {
-            heightPct = minBarHeightPct;
-          } else if (isZeroWithData) {
-            heightPct = minBarHeightPct;
-          } else if (isNull) {
-            heightPct = minBarHeightPct;
-          } else if (max <= 1e-9) {
-            heightPct = minBarHeightPct;
-          } else {
-            heightPct = (Number(v) / max) * 100;
-            heightPct = Math.max(validMinBarHeightPct, heightPct);
-          }
-
-          let barColor: string;
-          if (isNull && !hasData) {
-            barColor = nullClass;
-          } else if (isZeroWithData) {
-            barColor = zeroValueColorClass;
-          } else if (packAverage != null && Number.isFinite(packAverage)) {
-            barColor = getColorClassByPackAverage(Number(v), packAverage, inverseColors);
-          } else if (dynamicColor && colorMode === "per-bar") {
-            barColor = getColorClassByNormalized(max > 1e-9 ? Math.max(0, Math.min(1, Number(v) / max)) : 0, inverseColors);
-          } else {
-            barColor = seriesColor;
-          }
-
-          const gradientClass = getGradientClass(barColor);
-          const borderClass = getBorderClass(barColor);
+        {bars.map((bar, i) => {
           const shouldColorText =
-            isZeroWithData ||
-            (!isNull && hasData && ((packAverage != null && Number.isFinite(packAverage)) || (dynamicColor && colorMode === "per-bar")));
-          const textClass = shouldColorText ? getTextClass(barColor) : "text-foreground";
-
-          const dateDisplay = dates && dates[i] ? formatDateForTooltip(dates[i]) : null;
-          let valueDisplay: string;
-          if (!hasData) {
-            valueDisplay = "Sem dados";
-          } else if (isNull || (v === 0 && hasData)) {
-            valueDisplay = zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
-          } else {
-            valueDisplay = valueFormatter ? valueFormatter(Number(v)) : `${Number(v).toFixed(2)}`;
-          }
+            bar.isZeroWithData ||
+            (!bar.isNull && bar.hasData && ((packAverage != null && Number.isFinite(packAverage)) || (dynamicColor && colorMode === "per-bar")));
+          const textClass = shouldColorText ? getTextClass(bar.barColor) : "text-foreground";
 
           return (
             <Tooltip key={i}>
               <TooltipTrigger asChild>
-                <div className="rounded-xs flex-1 relative cursor-pointer" style={{ height: `${heightPct}%` }}>
-                  <div className={`w-full h-full rounded-xs ${gradientClass} ${borderClass} border-t-2`} />
+                <div className="rounded-xs flex-1 relative cursor-pointer" style={{ height: `${bar.heightPct}%` }}>
+                  <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
                 </div>
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">
                 <div className="flex flex-col items-center">
-                  {dateDisplay && <div className="text-[10px] text-muted-foreground mb-0.5 whitespace-nowrap">{dateDisplay}</div>}
-                  <div className={`whitespace-nowrap ${textClass}`}>{valueDisplay}</div>
+                  {bar.dateDisplay && <div className="text-[10px] text-muted-foreground mb-0.5 whitespace-nowrap">{bar.dateDisplay}</div>}
+                  <div className={`whitespace-nowrap ${textClass}`}>{bar.valueDisplay}</div>
                 </div>
               </TooltipContent>
             </Tooltip>
