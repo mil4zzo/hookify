@@ -50,6 +50,7 @@ import { AppError } from "@/lib/utils/errors";
 import { AdsPack } from "@/lib/types";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
+import { logger } from "@/lib/utils/logger";
 
 // ============================================================================
 // TYPES
@@ -352,7 +353,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             return { success: false, error: "Cancelado" };
           }
         } catch (error) {
-          console.error(`Erro ao verificar progresso do sync job ${syncJobId}:`, error);
+          logger.error(`Erro ao verificar progresso do sync job ${syncJobId}:`, error);
 
           // Se o usuário já cancelou, não ressuscitar o toast de progresso
           if (getCancelled()) {
@@ -563,7 +564,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             dismissToast(toastId);
             showCancelledWarningOnce();
           } catch (error) {
-            console.error("Erro ao cancelar transcrição:", error);
+            logger.error("Erro ao cancelar transcrição:", error);
             dismissToast(toastId);
           }
         } else {
@@ -591,7 +592,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             try {
               await api.facebook.cancelJobsBatch([res.transcription_job_id], "Transcrição cancelada pelo usuário");
             } catch (err) {
-              console.error("Erro ao cancelar transcrição pendente:", err);
+              logger.error("Erro ao cancelar transcrição pendente:", err);
             }
             dismissToast(toastId);
             showCancelledWarningOnce();
@@ -612,13 +613,13 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             0
           );
           pollTranscriptionJob(res.transcription_job_id, toastId, packName, () => cancelled, handleCancelTranscriptionOnly).catch((err) => {
-            console.error("Erro no polling da transcrição:", err);
+            logger.error("Erro no polling da transcrição:", err);
           });
         } else {
           finishProgressToast(toastId, false, res.message || "Todos anúncios já estão transcritos.");
         }
       } catch (error) {
-        console.error("Erro ao iniciar transcrição:", error);
+        logger.error("Erro ao iniciar transcrição:", error);
         finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao iniciar transcrição");
       }
     },
@@ -658,7 +659,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         await api.facebook.cancelJobsBatch(jobsToCancel, "Cancelado pelo usuário");
         console.log(`[PACK_REFRESH] Jobs cancelados: ${jobsToCancel.join(", ")}`);
       } catch (error) {
-        console.error("Erro ao cancelar jobs:", error);
+        logger.error("Erro ao cancelar jobs:", error);
       }
     } else if (!activeRefresh.metaJobId) {
       activeRefresh.pendingCancellation = true;
@@ -733,7 +734,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             finishProgressToast(ar.toastId, false, "Atualização Meta cancelada pelo usuário");
             showProcessCancelledWarning("meta", ar.packName);
           } catch (error) {
-            console.error("Erro ao cancelar job Meta:", error);
+            logger.error("Erro ao cancelar job Meta:", error);
             finishProgressToast(ar.toastId, false, "Erro ao cancelar atualização Meta");
           }
         } else {
@@ -754,7 +755,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             finishProgressToast(ar.sheetSyncToastId, false, "Importação do Leadscore cancelada pelo usuário");
             showProcessCancelledWarning("sheets", ar.packName);
           } catch (error) {
-            console.error("Erro ao cancelar sync job:", error);
+            logger.error("Erro ao cancelar sync job:", error);
             finishProgressToast(ar.sheetSyncToastId, false, "Erro ao cancelar importação da planilha");
           }
         } else if (ar.sheetSyncToastId) {
@@ -773,7 +774,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           dismissToast(transcriptionToastId);
           showProcessCancelledWarning("transcription", ar.packName);
         } catch (error) {
-          console.error("Erro ao cancelar transcrição:", error);
+          logger.error("Erro ao cancelar transcrição:", error);
           finishProgressToast(transcriptionToastId, false, "Erro ao cancelar transcrição");
         }
       };
@@ -829,7 +830,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           try {
             await api.facebook.cancelJobsBatch([refreshResult.job_id], "Atualização Meta cancelada pelo usuário");
           } catch (error) {
-            console.error("Erro ao cancelar job Meta pendente:", error);
+            logger.error("Erro ao cancelar job Meta pendente:", error);
           }
           // Sheets continua se tiver sync_job_id (usuário cancelou só Meta)
           if (activeRefresh.sheetSyncJobId && activeRefresh.sheetSyncToastId) {
@@ -844,7 +845,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                 handleCancelSheets
               );
             } catch (error) {
-              console.error(`Erro no polling do sync job:`, error);
+              logger.error(`Erro no polling do sync job:`, error);
             }
           }
           return;
@@ -887,7 +888,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             () => activeRefresh.sheetsCancelled,
             handleCancelSheets
           ).catch((error) => {
-            console.error(`Erro no polling do sync job:`, error);
+            logger.error(`Erro no polling do sync job:`, error);
           });
         } else if (!activeRefresh.sheetSyncJobId && activeRefresh.sheetSyncToastId) {
           // Toast do Sheets foi criado antecipadamente mas API não retornou sync_job_id
@@ -961,7 +962,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                 () => activeRefresh.sheetsCancelled,
                 handleCancelSheets
               ).catch((error) => {
-                console.error(`Erro no polling do sync job:`, error);
+                logger.error(`Erro no polling do sync job:`, error);
               });
             }
 
@@ -1013,7 +1014,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
                 invalidateAdPerformance();
               } catch (error) {
-                console.error("Erro ao recarregar pack após refresh:", error);
+                logger.error("Erro ao recarregar pack após refresh:", error);
               }
 
               const transcriptionJobId = details?.transcription_job_id;
@@ -1039,7 +1040,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                   () => activeRefresh.transcriptionCancelled,
                   onCancelTranscription
                 ).catch((error) => {
-                  console.error("Erro no polling da transcrição:", error);
+                  logger.error("Erro no polling da transcrição:", error);
                 });
               }
 
@@ -1059,7 +1060,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               completed = true;
             }
           } catch (error) {
-            console.error(`Erro ao verificar progresso do pack ${packId}:`, error);
+            logger.error(`Erro ao verificar progresso do pack ${packId}:`, error);
             updateProgressToast(
               toastId,
               packName,
@@ -1092,7 +1093,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       } catch (error) {
         // Não mostrar erro se foi cancelado
         if (!activeRefresh.metaCancelled) {
-          console.error(`Erro ao atualizar pack ${packId}:`, error);
+          logger.error(`Erro ao atualizar pack ${packId}:`, error);
           finishProgressToast(
             toastId,
             false,

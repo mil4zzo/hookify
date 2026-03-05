@@ -12,6 +12,7 @@ import {
   getSheetsProgressPackLabel,
 } from "@/lib/utils/toast";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
+import { logger } from "@/lib/utils/logger";
 
 const sheetsIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
 
@@ -70,7 +71,7 @@ async function pollResumedSyncJob(
         return { success: true };
       }
     } catch (error) {
-      console.error(`[pollResumedSyncJob] Erro ao verificar progresso:`, error);
+      logger.error(`[pollResumedSyncJob] Erro ao verificar progresso:`, error);
       updateProgressToast(
         toastId,
         getSheetsProgressPackLabel(packName),
@@ -132,7 +133,7 @@ export function useGoogleReconnectHandler() {
         );
 
         if (!pausedJob.integrationId) {
-          console.error(`[useGoogleReconnectHandler] Job pausado sem integrationId: ${pausedJob.packId}`);
+          logger.error(`[useGoogleReconnectHandler] Job pausado sem integrationId: ${pausedJob.packId}`);
           finishProgressToast(newToastId, false, "Erro: integração não encontrada");
           clearJob(pausedJob.packId);
           continue;
@@ -142,7 +143,7 @@ export function useGoogleReconnectHandler() {
         const syncResponse = await api.integrations.google.startSyncJob(pausedJob.integrationId);
 
         if (!syncResponse.job_id) {
-          console.error(`[useGoogleReconnectHandler] Falha ao criar novo job para pack ${pausedJob.packId}`);
+          logger.error(`[useGoogleReconnectHandler] Falha ao criar novo job para pack ${pausedJob.packId}`);
           finishProgressToast(newToastId, false, "Erro ao retomar sincronização");
           clearJob(pausedJob.packId);
           continue;
@@ -156,10 +157,10 @@ export function useGoogleReconnectHandler() {
 
         // Iniciar polling do novo job (não bloqueia)
         pollResumedSyncJob(syncResponse.job_id, newToastId, pausedJob.packName).catch((error) => {
-          console.error(`[useGoogleReconnectHandler] Erro no polling do novo job:`, error);
+          logger.error(`[useGoogleReconnectHandler] Erro no polling do novo job:`, error);
         });
       } catch (error) {
-        console.error(`[useGoogleReconnectHandler] Erro ao retomar sync do pack ${pausedJob.packId}:`, error);
+        logger.error(`[useGoogleReconnectHandler] Erro ao retomar sync do pack ${pausedJob.packId}:`, error);
         finishProgressToast(pausedJob.toastId, false, "Erro ao retomar sincronização");
         clearJob(pausedJob.packId);
       }

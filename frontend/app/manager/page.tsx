@@ -20,6 +20,7 @@ import { PageContainer } from "@/components/common/PageContainer";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { PageIcon } from "@/lib/utils/pageIcon";
+import { logger } from "@/lib/utils/logger";
 
 // Chaves compartilhadas entre Insights e Manager
 const STORAGE_KEY_PACKS = "hookify-selected-packs";
@@ -36,7 +37,7 @@ const savePackPreferences = (prefs: PackPreferences) => {
   try {
     localStorage.setItem(STORAGE_KEY_PACKS, JSON.stringify(prefs));
   } catch (e) {
-    console.error("Erro ao salvar preferências de packs:", e);
+    logger.error("Erro ao salvar preferências de packs:", e);
   }
 };
 
@@ -91,7 +92,7 @@ const loadPackPreferences = (): PackPreferences => {
 
     return {};
   } catch (e) {
-    console.error("Erro ao carregar preferências de packs:", e);
+    logger.error("Erro ao carregar preferências de packs:", e);
     return {};
   }
 };
@@ -101,7 +102,7 @@ const saveDateRange = (dateRange: { start?: string; end?: string }) => {
   try {
     localStorage.setItem(STORAGE_KEY_DATE_RANGE, JSON.stringify(dateRange));
   } catch (e) {
-    console.error("Erro ao salvar dateRange no localStorage:", e);
+    logger.error("Erro ao salvar dateRange no localStorage:", e);
   }
 };
 
@@ -138,7 +139,7 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
     }
     return null;
   } catch (e) {
-    console.error("Erro ao carregar dateRange do localStorage:", e);
+    logger.error("Erro ao carregar dateRange do localStorage:", e);
     return null;
   }
 };
@@ -203,7 +204,7 @@ function ManagerPageContent() {
         return saved;
       }
     } catch (e) {
-      console.error("Erro ao carregar actionType do localStorage:", e);
+      logger.error("Erro ao carregar actionType do localStorage:", e);
     }
     return "";
   });
@@ -230,7 +231,7 @@ function ManagerPageContent() {
       const saved = localStorage.getItem("hookify-manager-show-trends");
       return saved !== "false"; // padrão é true (tendências)
     } catch (e) {
-      console.error("Erro ao carregar showTrends do localStorage:", e);
+      logger.error("Erro ao carregar showTrends do localStorage:", e);
       return true;
     }
   });
@@ -275,7 +276,7 @@ function ManagerPageContent() {
 
       return saved === "true";
     } catch (e) {
-      console.error("Erro ao carregar usePackDates do localStorage:", e);
+      logger.error("Erro ao carregar usePackDates do localStorage:", e);
       return false;
     }
   });
@@ -420,7 +421,7 @@ function ManagerPageContent() {
           setActionType(uniqueConversionTypes[0]);
         }
       } catch (e) {
-        console.error("Erro ao carregar actionType:", e);
+        logger.error("Erro ao carregar actionType:", e);
         setActionType(uniqueConversionTypes[0]);
       }
     } else {
@@ -438,7 +439,7 @@ function ManagerPageContent() {
     try {
       localStorage.setItem(STORAGE_KEY_ACTION_TYPE, value);
     } catch (e) {
-      console.error("Erro ao salvar actionType no localStorage:", e);
+      logger.error("Erro ao salvar actionType no localStorage:", e);
     }
   };
 
@@ -490,7 +491,7 @@ function ManagerPageContent() {
     try {
       localStorage.setItem(STORAGE_KEY_USE_PACK_DATES, checked.toString());
     } catch (e) {
-      console.error("Erro ao salvar usePackDates no localStorage:", e);
+      logger.error("Erro ao salvar usePackDates no localStorage:", e);
     }
     // Não aplicar datas automaticamente - apenas selecionar no calendário e aguardar confirmação
   };
@@ -525,7 +526,7 @@ function ManagerPageContent() {
   // Tratar erros
   useEffect(() => {
     if (managerError) {
-      console.error("Erro ao buscar manager:", managerError);
+      logger.error("Erro ao buscar manager:", managerError);
     }
   }, [managerError]);
 
@@ -624,7 +625,7 @@ function ManagerPageContent() {
     try {
       localStorage.setItem("hookify-manager-show-trends", checked.toString());
     } catch (e) {
-      console.error("Erro ao salvar showTrends no localStorage:", e);
+      logger.error("Erro ao salvar showTrends no localStorage:", e);
     }
   };
 

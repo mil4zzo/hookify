@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "./useSupabaseAuth";
 import { useSettingsStore } from "@/lib/store/settings";
+import { logger } from "@/lib/utils/logger";
 
 const DEFAULT_LANGUAGE = "pt-BR";
 
@@ -76,7 +77,7 @@ export function useLanguage(): UseLanguageReturn {
             });
 
           if (upsertError) {
-            console.warn("Erro ao criar registro de preferências:", upsertError);
+            logger.warn("Erro ao criar registro de preferências:", upsertError);
             // Fallback para store/localStorage em caso de erro
             const fallbackLanguage = settings.language || DEFAULT_LANGUAGE;
             setLanguage(fallbackLanguage);
@@ -86,7 +87,7 @@ export function useLanguage(): UseLanguageReturn {
             setLanguageStore(defaultLanguage);
           }
         } else {
-          console.warn("Erro ao carregar idioma do Supabase:", supabaseError);
+          logger.warn("Erro ao carregar idioma do Supabase:", supabaseError);
           // Fallback para store/localStorage em caso de erro
           const fallbackLanguage = settings.language || DEFAULT_LANGUAGE;
           setLanguage(fallbackLanguage);
@@ -150,7 +151,7 @@ export function useLanguage(): UseLanguageReturn {
         });
 
       if (upsertError) {
-        console.warn("Erro ao salvar idioma no Supabase:", upsertError);
+        logger.warn("Erro ao salvar idioma no Supabase:", upsertError);
         // Não falhar, já salvou no store/localStorage
       }
     } catch (err: any) {

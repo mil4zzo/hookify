@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "./useSupabaseAuth";
 import { useSettingsStore } from "@/lib/store/settings";
+import { logger } from "@/lib/utils/logger";
 
 const DEFAULT_CURRENCY = "BRL";
 
@@ -76,7 +77,7 @@ export function useCurrency(): UseCurrencyReturn {
             });
 
           if (upsertError) {
-            console.warn("Erro ao criar registro de preferências:", upsertError);
+            logger.warn("Erro ao criar registro de preferências:", upsertError);
             // Fallback para store/localStorage em caso de erro
             const fallbackCurrency = settings.currency || DEFAULT_CURRENCY;
             setCurrency(fallbackCurrency);
@@ -86,7 +87,7 @@ export function useCurrency(): UseCurrencyReturn {
             setCurrencyStore(defaultCurrency);
           }
         } else {
-          console.warn("Erro ao carregar moeda do Supabase:", supabaseError);
+          logger.warn("Erro ao carregar moeda do Supabase:", supabaseError);
           // Fallback para store/localStorage em caso de erro
           const fallbackCurrency = settings.currency || DEFAULT_CURRENCY;
           setCurrency(fallbackCurrency);
@@ -144,7 +145,7 @@ export function useCurrency(): UseCurrencyReturn {
         });
 
       if (upsertError) {
-        console.warn("Erro ao salvar moeda no Supabase:", upsertError);
+        logger.warn("Erro ao salvar moeda no Supabase:", upsertError);
         // Não falhar, já salvou no store/localStorage
       }
     } catch (err: any) {

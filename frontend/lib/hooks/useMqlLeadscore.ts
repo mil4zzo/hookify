@@ -4,6 +4,7 @@ import { useEffect, useCallback, useRef } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "./useSupabaseAuth";
 import { useMqlLeadscoreStore } from "@/lib/store/mqlLeadscore";
+import { logger } from "@/lib/utils/logger";
 
 const DEFAULT_MQL_LEADSCORE_MIN = 0;
 
@@ -87,7 +88,7 @@ export function useMqlLeadscore(): UseMqlLeadscoreReturn {
       }
       // Se não autenticado, usar valor do localStorage (já carregado pelo persist)
     } catch (err) {
-      console.error("Erro ao carregar MQL leadscore min:", err);
+      logger.error("Erro ao carregar MQL leadscore min:", err);
       setError("Erro ao carregar configuração");
       // Manter valor do localStorage (já carregado pelo persist)
     } finally {
@@ -129,7 +130,7 @@ export function useMqlLeadscore(): UseMqlLeadscoreReturn {
         }
       }
     } catch (err: any) {
-      console.error("Erro ao salvar MQL leadscore min:", err);
+      logger.error("Erro ao salvar MQL leadscore min:", err);
       setError(err.message || "Erro ao salvar configuração");
       throw err;
     } finally {

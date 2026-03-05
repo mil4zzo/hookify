@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils/cn";
 import { openAuthPopup, AuthPopupError } from "@/lib/utils/authPopup";
 import { guessColumnMappings } from "@/lib/utils/guessSheetColumns";
 import { useQueryClient } from "@tanstack/react-query";
+import { logger } from "@/lib/utils/logger";
 import { useGoogleConnections } from "./googleSheetsDialog/hooks/useGoogleConnections";
 import { useGoogleSyncJob } from "./googleSheetsDialog/hooks/useGoogleSyncJob";
 import { ConnectStep } from "./googleSheetsDialog/steps/ConnectStep";
@@ -87,7 +88,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             }
           }
         } catch (error) {
-          console.error("Erro ao carregar integração existente:", error);
+          logger.error("Erro ao carregar integração existente:", error);
         }
       };
       loadExistingIntegration();
@@ -232,7 +233,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       try {
         res = await api.integrations.google.getAuthUrl("google_sheets", redirectUri);
       } catch (error: any) {
-        console.error("Erro ao obter URL de autenticação:", error);
+        logger.error("Erro ao obter URL de autenticação:", error);
         throw new Error(error?.message || "Erro ao conectar com o servidor. Verifique se o backend está rodando e acessível.");
       }
 
@@ -266,7 +267,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       try {
         connectionData = await api.integrations.google.exchangeCode(messageData.code, redirectUri);
       } catch (e: any) {
-        console.error("Erro ao trocar código por token:", e);
+        logger.error("Erro ao trocar código por token:", e);
         let errorMessage = "Erro ao finalizar autenticação. Verifique sua conexão com a internet e tente novamente.";
 
         if (e?.message) {
@@ -310,7 +311,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         return;
       }
 
-      console.error("Erro completo na conexão Google:", e);
+      logger.error("Erro completo na conexão Google:", e);
 
       if (authError?.code === "AUTH_POPUP_TIMEOUT") {
         showError(new Error("Tempo limite para autenticação com Google Sheets atingido."));

@@ -17,6 +17,7 @@ import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
 import { api } from "@/lib/api/endpoints";
 import { LoadingState } from "@/components/common/States";
 import { showError, showSuccess } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -276,7 +277,7 @@ function ValidationStep(props: { onContinue: () => void; onBack: () => void }) {
     try {
       await api.onboarding.complete();
     } catch (e: any) {
-      console.error("Erro ao completar onboarding:", e);
+      logger.error("Erro ao completar onboarding:", e);
       // Não bloquear o fluxo se houver erro ao marcar como completo
     }
 

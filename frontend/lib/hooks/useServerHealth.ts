@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from 'react'
 import { parseError, AppError } from '@/lib/utils/errors'
 import { env } from '@/lib/config/env'
 import { api } from '@/lib/api/endpoints'
+import { logger } from '@/lib/utils/logger'
 import { useClientAuth, useClientPacks } from '@/lib/hooks/useClientSession'
 import { useInvalidatePackAds } from '@/lib/api/hooks'
 import { showSuccess } from '@/lib/utils/toast'
@@ -249,7 +250,7 @@ export function useServerHealth(
       // 4. Mostrar toast de sucesso
       showSuccess('Servidor reconectado! Dados atualizados.')
     } catch (error) {
-      console.error('Erro ao recarregar dados após reconexão:', error)
+      logger.error('Erro ao recarregar dados após reconexão:', error)
       // Não mostrar erro ao usuário - apenas logar
     }
   }

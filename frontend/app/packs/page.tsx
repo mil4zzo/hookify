@@ -38,6 +38,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { filterVideoAds } from "@/lib/utils/filterVideoAds";
 import { useActiveJobsStore } from "@/lib/store/activeJobs";
 import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
+import { logger } from "@/lib/utils/logger";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
 
@@ -46,7 +47,7 @@ const saveDateRange = (dateRange: { start?: string; end?: string }) => {
   try {
     localStorage.setItem(STORAGE_KEY_DATE_RANGE, JSON.stringify(dateRange));
   } catch (e) {
-    console.error("Erro ao salvar dateRange no localStorage:", e);
+    logger.error("Erro ao salvar dateRange no localStorage:", e);
   }
 };
 
@@ -62,7 +63,7 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
     }
     return null;
   } catch (e) {
-    console.error("Erro ao carregar dateRange do localStorage:", e);
+    logger.error("Erro ao carregar dateRange do localStorage:", e);
     return null;
   }
 };
@@ -497,10 +498,10 @@ export default function PacksPage() {
       try {
         const { removeCachedPackAds } = await import("@/lib/storage/adsCache");
         await removeCachedPackAds(packId).catch((error) => {
-          console.error("Erro ao remover cache do pack cancelado:", error);
+          logger.error("Erro ao remover cache do pack cancelado:", error);
         });
       } catch (error) {
-        console.error("Erro ao importar função de remoção de cache:", error);
+        logger.error("Erro ao importar função de remoção de cache:", error);
       }
 
       // Tentar deletar do backend também (opcional, não bloqueia)
@@ -813,7 +814,7 @@ export default function PacksPage() {
             if (formattedAds.length > 0 && !isCancelledRef.current) {
               const { cachePackAds } = await import("@/lib/storage/adsCache");
               await cachePackAds(packId, formattedAds).catch((error) => {
-                console.error("Erro ao salvar ads no cache:", error);
+                logger.error("Erro ao salvar ads no cache:", error);
               });
             }
 
@@ -870,7 +871,7 @@ export default function PacksPage() {
             errorMessage = errorObj.message || errorObj.error || errorObj.detail || errorMessage;
           }
 
-          console.error("Error polling job progress:", error);
+          logger.error("Error polling job progress:", error);
 
           // Verificar se é timeout HTTP (não é timeout do polling, apenas da requisição)
           const isHttpTimeout = errorMessage.includes("timeout") || errorMessage.includes("Timeout") || (typeof error === "object" && error !== null && (error as any).code === "ECONNABORTED");
@@ -967,7 +968,7 @@ export default function PacksPage() {
           adsCount = response.pack.stats.uniqueAds || 0;
         }
       } catch (error) {
-        console.error("Erro ao buscar stats do pack:", error);
+        logger.error("Erro ao buscar stats do pack:", error);
         // Usar 0 como fallback
         adsCount = 0;
       }
@@ -1000,7 +1001,7 @@ export default function PacksPage() {
       showSuccess(`Pack "${packToRemove.name}" removido com sucesso!`);
       setPackToRemove(null);
     } catch (error) {
-      console.error("Erro ao deletar pack do Supabase:", error);
+      logger.error("Erro ao deletar pack do Supabase:", error);
       // Ainda remove do estado local mesmo se falhar no Supabase
       removePack(packToRemove.id);
 
@@ -1058,7 +1059,7 @@ export default function PacksPage() {
       setPackToRename(null);
       setNewPackName("");
     } catch (error) {
-      console.error("Erro ao renomear pack:", error);
+      logger.error("Erro ao renomear pack:", error);
       showError({ message: `Erro ao renomear pack: ${error}` });
     } finally {
       setIsRenaming(false);
@@ -1127,7 +1128,7 @@ export default function PacksPage() {
 
       setPreviewPack({ ...pack, ads, stats: finalStats });
     } catch (error) {
-      console.error("Erro ao carregar ads do pack para preview:", error);
+      logger.error("Erro ao carregar ads do pack para preview:", error);
       setPreviewPack(pack);
     }
   };
@@ -1157,7 +1158,7 @@ export default function PacksPage() {
         setJsonViewerPack(pack);
       }
     } catch (error) {
-      console.error("Erro ao carregar ads do pack para JSON viewer:", error);
+      logger.error("Erro ao carregar ads do pack para JSON viewer:", error);
       setJsonViewerPack(pack);
     }
   };
@@ -1263,7 +1264,7 @@ export default function PacksPage() {
         setPackToDisableAutoRefresh(null);
       }
     } catch (error) {
-      console.error("Erro ao atualizar auto_refresh:", error);
+      logger.error("Erro ao atualizar auto_refresh:", error);
       showError({ message: `Erro ao ${newValue ? "ativar" : "desativar"} auto-refresh: ${error}` });
     } finally {
       setIsTogglingAutoRefresh(null);
@@ -1326,7 +1327,7 @@ export default function PacksPage() {
           }
         }
       } catch (error) {
-        console.error("Erro ao recarregar pack após sincronização:", error);
+        logger.error("Erro ao recarregar pack após sincronização:", error);
         // Não bloquear sucesso da sincronização se falhar ao recarregar
       }
 
@@ -1369,7 +1370,7 @@ export default function PacksPage() {
           }
         }
       } catch (error) {
-        console.error("Erro ao recarregar pack após deletar integração:", error);
+        logger.error("Erro ao recarregar pack após deletar integração:", error);
       }
     } catch (error) {
       showError(error instanceof Error ? error : new Error("Erro ao remover integração"));

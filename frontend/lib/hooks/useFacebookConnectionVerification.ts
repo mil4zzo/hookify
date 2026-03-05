@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { facebookConnectorApi } from "@/lib/api/facebookConnector";
+import { logger } from "@/lib/utils/logger";
 
 // Constantes para cache de verificação
 const VERIFICATION_CACHE_KEY = "facebook_connections_verification_cache";
@@ -34,7 +35,7 @@ function getVerificationCache(): Record<string, VerificationCache> {
     }
     return valid;
   } catch (error) {
-    console.error("Erro ao ler cache de verificação:", error);
+    logger.error("Erro ao ler cache de verificação:", error);
     return {};
   }
 }
@@ -49,7 +50,7 @@ function saveVerificationCache(connectionId: string, isValid: boolean): void {
     };
     localStorage.setItem(VERIFICATION_CACHE_KEY, JSON.stringify(cache));
   } catch (error) {
-    console.error("Erro ao salvar cache de verificação:", error);
+    logger.error("Erro ao salvar cache de verificação:", error);
   }
 }
 
@@ -66,7 +67,7 @@ function clearVerificationCache(connectionId?: string): void {
       localStorage.removeItem(VERIFICATION_CACHE_KEY);
     }
   } catch (error) {
-    console.error("Erro ao limpar cache de verificação:", error);
+    logger.error("Erro ao limpar cache de verificação:", error);
   }
 }
 
@@ -103,7 +104,7 @@ export function useFacebookConnectionVerification() {
         return isValid;
       } catch (error: any) {
         // Em caso de erro na requisição, considerar como inválida
-        console.error(`Erro ao testar conexão ${connectionId}:`, error);
+        logger.error(`Erro ao testar conexão ${connectionId}:`, error);
         saveVerificationCache(connectionId, false);
         return false;
       }
@@ -136,7 +137,7 @@ export function useFacebookConnectionVerification() {
 
         return isValid;
       } catch (error) {
-        console.error(`Erro ao retestar conexão ${connectionId}:`, error);
+        logger.error(`Erro ao retestar conexão ${connectionId}:`, error);
         setExpiredConnections((prev) => new Set(prev).add(connectionId));
         saveVerificationCache(connectionId, false);
         return false;
@@ -198,7 +199,7 @@ export function useFacebookConnectionVerification() {
           onProgress?.(connId, isValid);
           return { connectionId: connId, isValid };
         } catch (error) {
-          console.error(`Erro ao testar conexão ${connId}:`, error);
+          logger.error(`Erro ao testar conexão ${connId}:`, error);
           setExpiredConnections((prev) => new Set(prev).add(connId));
           saveVerificationCache(connId, false);
           onProgress?.(connId, false);

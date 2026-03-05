@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "./useSupabaseAuth";
 import { useSettingsStore } from "@/lib/store/settings";
+import { logger } from "@/lib/utils/logger";
 
 const DEFAULT_NICHE = "";
 
@@ -76,7 +77,7 @@ export function useNiche(): UseNicheReturn {
             });
 
           if (upsertError) {
-            console.warn("Erro ao criar registro de preferências:", upsertError);
+            logger.warn("Erro ao criar registro de preferências:", upsertError);
             // Fallback para store/localStorage em caso de erro
             const fallbackNiche = settings.niche || DEFAULT_NICHE;
             setNiche(fallbackNiche);
@@ -88,12 +89,12 @@ export function useNiche(): UseNicheReturn {
         } else {
           // Se o campo não existir (erro de coluna), usar store como fallback
           if (supabaseError.code === "42703" || supabaseError.message?.includes("column") || supabaseError.message?.includes("does not exist")) {
-            console.warn("Campo 'niche' não existe na tabela user_preferences. Usando store local.");
+            logger.warn("Campo 'niche' não existe na tabela user_preferences. Usando store local.");
             const fallbackNiche = settings.niche || DEFAULT_NICHE;
             setNiche(fallbackNiche);
             setNicheStore(fallbackNiche);
           } else {
-            console.warn("Erro ao carregar nicho do Supabase:", supabaseError);
+            logger.warn("Erro ao carregar nicho do Supabase:", supabaseError);
             // Fallback para store/localStorage em caso de erro
             const fallbackNiche = settings.niche || DEFAULT_NICHE;
             setNiche(fallbackNiche);
@@ -154,9 +155,9 @@ export function useNiche(): UseNicheReturn {
       if (upsertError) {
         // Se o campo não existir, apenas logar e continuar (já salvou no store)
         if (upsertError.code === "42703" || upsertError.message?.includes("column") || upsertError.message?.includes("does not exist")) {
-          console.warn("Campo 'niche' não existe na tabela user_preferences. Valor salvo apenas localmente.");
+          logger.warn("Campo 'niche' não existe na tabela user_preferences. Valor salvo apenas localmente.");
         } else {
-          console.warn("Erro ao salvar nicho no Supabase:", upsertError);
+          logger.warn("Erro ao salvar nicho no Supabase:", upsertError);
           // Não falhar, já salvou no store/localStorage
         }
       }

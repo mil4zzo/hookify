@@ -3,6 +3,7 @@ import { api } from "@/lib/api/endpoints";
 import { env } from "@/lib/config/env";
 import { openAuthPopup, AuthPopupError } from "@/lib/utils/authPopup";
 import { showSuccess, showError } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 interface GoogleOAuthConnectResult {
   success: boolean;
@@ -38,7 +39,7 @@ export function useGoogleOAuthConnect() {
       try {
         res = await api.integrations.google.getAuthUrl("google_sheets", redirectUri);
       } catch (error: any) {
-        console.error("[useGoogleOAuthConnect] Erro ao obter URL de autenticação:", error);
+        logger.error("[useGoogleOAuthConnect] Erro ao obter URL de autenticação:", error);
         throw new Error(error?.message || "Erro ao conectar com o servidor.");
       }
 
@@ -72,7 +73,7 @@ export function useGoogleOAuthConnect() {
       try {
         connectionData = await api.integrations.google.exchangeCode(messageData.code, redirectUri);
       } catch (e: any) {
-        console.error("[useGoogleOAuthConnect] Erro ao trocar código por token:", e);
+        logger.error("[useGoogleOAuthConnect] Erro ao trocar código por token:", e);
         let errorMessage = "Erro ao finalizar autenticação.";
 
         if (e?.message) {

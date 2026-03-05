@@ -6,6 +6,7 @@ import { showSuccess, showError } from '@/lib/utils/toast'
 import { queryKeys } from '@/lib/api/hooks'
 import { useSupabaseAuth } from './useSupabaseAuth'
 import { api } from '@/lib/api/endpoints'
+import { logger } from '@/lib/utils/logger'
 
 export const useAuthManager = () => {
   const queryClient = useQueryClient()
@@ -47,7 +48,7 @@ export const useAuthManager = () => {
           await api.facebook.cancelJobsBatch(jobIdsArray, 'Cancelado durante logout')
           console.log(`[LOGOUT] ${jobIdsArray.length} job(s) cancelado(s)`)
         } catch (error) {
-          console.warn('[LOGOUT] Erro ao cancelar jobs (continuando logout):', error)
+          logger.error('[LOGOUT] Erro ao cancelar jobs (continuando logout):', error)
           // Não bloquear logout se falhar ao cancelar jobs
         }
       }
@@ -81,7 +82,7 @@ export const useAuthManager = () => {
         try {
           await api.facebook.cancelJobsBatch(jobIdsArray, 'Cancelado durante logout (erro)')
         } catch (cancelError) {
-          console.warn('[LOGOUT] Erro ao cancelar jobs em caso de erro:', cancelError)
+          logger.error('[LOGOUT] Erro ao cancelar jobs em caso de erro:', cancelError)
         }
       }
       queryClient.cancelQueries()

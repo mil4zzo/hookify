@@ -7,6 +7,7 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/api/endpoints'
 import * as adsCache from '@/lib/storage/adsCache'
 import { filterVideoAds } from '@/lib/utils/filterVideoAds'
+import { logger } from '@/lib/utils/logger'
 
 interface UsePackAdsOptions {
   enabled?: boolean
@@ -53,7 +54,7 @@ export function usePackAds(packId: string | null, options: UsePackAdsOptions = {
 
       // 3. Salva no cache IndexedDB para próximas vezes (salva todos, mas retorna apenas vídeos)
       await adsCache.cachePackAds(packId, ads, ttl).catch((error) => {
-        console.warn(`[Cache] Erro ao salvar cache:`, error)
+        logger.error(`[Cache] Erro ao salvar cache:`, error)
         // Não falha a query se o cache falhar
       })
 
@@ -98,7 +99,7 @@ export function useMultiplePackAds(packIds: string[], options: UsePackAdsOptions
               await adsCache.cachePackAds(packId, ads).catch(() => {})
             }
           } catch (error) {
-            console.error(`Erro ao buscar ads do pack ${packId}:`, error)
+            logger.error(`Erro ao buscar ads do pack ${packId}:`, error)
             results[packId] = []
           }
         })

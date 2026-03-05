@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useClientAuth, useClientPacks } from '@/lib/hooks/useClientSession'
 import { api } from '@/lib/api/endpoints'
 import { getAdStatistics } from '@/lib/utils/adCounting'
+import { logger } from '@/lib/utils/logger'
 
 /**
  * Carrega packs do Supabase na inicialização da sessão
@@ -33,7 +34,7 @@ export function useLoadPacks() {
             }
           }
         } catch (error) {
-          console.error('Erro ao atualizar pack após integração:', error)
+          logger.error('Erro ao atualizar pack após integração:', error)
         }
       }
     }
@@ -130,7 +131,7 @@ export function useLoadPacks() {
           })
         }
       } catch (error) {
-        console.error('Erro ao carregar packs do Supabase:', error)
+        logger.error('Erro ao carregar packs do Supabase:', error)
         loadedRef.current = false
       } finally {
         setIsLoading(false)

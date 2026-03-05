@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "./useSupabaseAuth";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
+import { logger } from "@/lib/utils/logger";
 
 const STORAGE_KEY = "hookify-validation-criteria";
 
@@ -57,7 +58,7 @@ export function useValidationCriteria(): UseValidationCriteriaReturn {
               } as any);
 
             if (insertError) {
-              console.warn("Erro ao criar registro de preferências:", insertError);
+              logger.warn("Erro ao criar registro de preferências:", insertError);
               // Fallback para localStorage
               if (typeof window !== "undefined") {
                 const saved = localStorage.getItem(STORAGE_KEY);
@@ -78,7 +79,7 @@ export function useValidationCriteria(): UseValidationCriteriaReturn {
               setCriteria([]);
             }
           } else {
-            console.warn("Erro ao carregar critérios do Supabase:", supabaseError);
+            logger.warn("Erro ao carregar critérios do Supabase:", supabaseError);
             // Fallback para localStorage
             if (typeof window !== "undefined") {
               const saved = localStorage.getItem(STORAGE_KEY);
