@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
   typedRoutes: true,
   experimental: {
     optimizePackageImports: ["@tabler/icons-react"],
+    clientTraceMetadata: ['sentry-trace', 'baggage'],
   },
   images: {
     remotePatterns: [
@@ -52,8 +53,10 @@ export default withSentryConfig(nextConfig, {
   // Suppress source map upload logs
   silent: !process.env.CI,
 
-  // Automatically tree-shake Sentry logger statements
-  disableLogger: true,
+  // Tree-shake Sentry debug logging
+  bundleSizeOptimizations: {
+    excludeDebugStatements: true,
+  },
 })
 
 
