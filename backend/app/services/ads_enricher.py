@@ -7,6 +7,7 @@ Responsavel por:
 - mesclar detalhes nos dados brutos
 """
 import logging
+import time
 import urllib.parse
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
@@ -265,6 +266,9 @@ class AdsEnricher:
                 )
                 if self.on_progress:
                     self.on_progress(batch_num, total_batches, len(all_results))
+                # Delay entre batches para evitar rate limit da Meta (evitar burst)
+                if batch_num < total_batches:
+                    time.sleep(2)
             except requests.exceptions.Timeout:
                 logger.error(
                     f"[AdsEnricher] Timeout no lote STATUS {batch_num} apos {REQUEST_TIMEOUT} segundos"

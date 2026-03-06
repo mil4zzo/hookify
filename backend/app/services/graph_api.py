@@ -2,6 +2,7 @@ import json
 import time
 import urllib.parse
 import logging
+import time
 from typing import Any, Dict, List, Optional, Union
 import requests
 from app.core.config import META_GRAPH_BASE_URL
@@ -284,6 +285,9 @@ class GraphAPI:
                 batch_data = response.json().get('data', [])
                 all_results.extend(batch_data)
                 logger.info(f"[GET_ADS_STATUS_ONLY] Lote {batch_num} concluído: {len(batch_data)} anúncios retornados")
+                # Delay entre batches para evitar rate limit da Meta (evitar burst)
+                if batch_num < total_batches:
+                    time.sleep(2)
             except requests.exceptions.Timeout:
                 logger.error(f"[GET_ADS_STATUS_ONLY] Timeout no lote {batch_num} após 90 segundos")
                 continue
