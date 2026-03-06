@@ -118,6 +118,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         clearVerificationCache(connectionId);
       }
 
+      logger.error("GoogleSheetIntegrationDialog: token Google expirado", { connectionId });
       showError(new Error("Sua conexão com o Google Sheets expirou. Por favor, reconecte sua conta para continuar."));
 
       if (connectionId && selectedConnectionId === connectionId) {
@@ -238,6 +239,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       }
 
       if (!res?.auth_url) {
+        logger.error("GoogleSheetIntegrationDialog: URL de auth inválida retornada pelo backend", { res });
         throw new Error("Resposta inválida do servidor ao obter URL de autenticação.");
       }
 
@@ -260,6 +262,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       });
 
       if (!messageData.code) {
+        logger.error("GoogleSheetIntegrationDialog: auth code ausente na resposta do callback Google", { messageData });
         throw new Error("Código de autorização não recebido do Google.");
       }
 

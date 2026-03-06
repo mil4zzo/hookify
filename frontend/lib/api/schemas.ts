@@ -122,6 +122,8 @@ export const GetAdsRequestSchema = z.object({
 export const GetVideoSourceRequestSchema = z.object({
   video_id: z.string(),
   actor_id: z.string(),
+  ad_id: z.string().optional(),
+  video_owner_page_id: z.string().optional(),
 })
 
 export const AuthTokenRequestSchema = z.object({
@@ -140,6 +142,7 @@ export const GetVideoSourceResponseSchema = z.object({
   source_url: z.string(),
   thumbnail_url: z.string().optional(),
   duration: z.number().optional(),
+  video_owner_page_id: z.string().optional(),
 }).passthrough()
 
 export const AuthTokenResponseSchema = z.object({

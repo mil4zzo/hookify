@@ -9,7 +9,6 @@ import {
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
   SHEETS_TOAST_TOTAL_STEPS,
-  getSheetsProgressPackLabel,
 } from "@/lib/utils/toast";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 import { logger } from "@/lib/utils/logger";
@@ -49,7 +48,7 @@ async function pollResumedSyncJob(
 
       updateProgressToast(
         toastId,
-        getSheetsProgressPackLabel(packName),
+        packName,
         1,
         SHEETS_TOAST_TOTAL_STEPS,
         undefined,
@@ -74,7 +73,7 @@ async function pollResumedSyncJob(
       logger.error(`[pollResumedSyncJob] Erro ao verificar progresso:`, error);
       updateProgressToast(
         toastId,
-        getSheetsProgressPackLabel(packName),
+        packName,
         1,
         SHEETS_TOAST_TOTAL_STEPS,
         undefined,
@@ -122,7 +121,7 @@ export function useGoogleReconnectHandler() {
         const newToastId = `sync-sheet-${pausedJob.packId}-${Date.now()}`;
         showProgressToast(
           newToastId,
-          getSheetsProgressPackLabel(pausedJob.packName),
+          pausedJob.packName,
           1,
           SHEETS_TOAST_TOTAL_STEPS,
           undefined,

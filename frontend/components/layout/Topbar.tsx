@@ -1,5 +1,6 @@
 "use client";
 
+import * as Sentry from "@sentry/nextjs";
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -623,6 +624,20 @@ export default function Topbar() {
 
           {/* User Section - Right Side */}
           <div className="flex items-center gap-3">
+            {process.env.NODE_ENV === "development" && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => {
+                  const mockResponse = { success: false, error: "mock_error", message: "Simulação de success:false para teste do Sentry" };
+                  Sentry.captureException(new Error("Teste Sentry: success:false simulado"), {
+                    extra: { response: mockResponse, url: "/api/analytics/packs", method: "GET" },
+                  });
+                }}
+              >
+                Sentry Test
+              </Button>
+            )}
             {/* Conectar Facebook ou Atualizar Dados Button - only show when authenticated */}
             {isAuthenticated && (
               <>

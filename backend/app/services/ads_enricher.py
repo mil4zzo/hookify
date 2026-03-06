@@ -85,7 +85,8 @@ class AdsEnricher:
                 unique_ads[ad_name] = ad_id
 
         logger.info(
-            f"[AdsEnricher] Deduplicacao: {len(raw_data)} -> {len(unique_ads)} anuncios unicos"
+            f"[AdsEnricher] Deduplicacao por nome: {len(raw_data)} registros -> "
+            f"{len(unique_ads)} anuncios (para detalhes)"
         )
         return unique_ads
 
@@ -146,8 +147,8 @@ class AdsEnricher:
         total_batches = (len(ad_ids) + BATCH_SIZE - 1) // BATCH_SIZE
 
         logger.info(
-            f"[AdsEnricher] Iniciando busca de detalhes para {len(ad_ids)} anuncios "
-            f"em {total_batches} lote(s)"
+            f"[AdsEnricher] Detalhes (creative/video): {len(ad_ids)} anuncios em "
+            f"{total_batches} lote(s)"
         )
 
         for i in range(0, len(ad_ids), BATCH_SIZE):
@@ -229,7 +230,7 @@ class AdsEnricher:
         total_batches = (len(ad_ids) + BATCH_SIZE - 1) // BATCH_SIZE
 
         logger.info(
-            f"[AdsEnricher] Iniciando busca de STATUS para {len(ad_ids)} anuncios em "
+            f"[AdsEnricher] Status (effective_status) por ad_id: {len(ad_ids)} ids em "
             f"{total_batches} lote(s)"
         )
 

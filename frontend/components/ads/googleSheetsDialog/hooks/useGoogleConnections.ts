@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { api } from "@/lib/api/endpoints";
 import { GoogleConnection } from "@/lib/api/schemas";
 import { showError } from "@/lib/utils/toast";
+import { logger } from "@/lib/utils/logger";
 
 const VERIFICATION_CACHE_KEY = "google_connections_verification_cache";
 const VERIFICATION_CACHE_TTL = 15 * 60 * 1000; // 15 minutos
@@ -37,7 +38,7 @@ export function useGoogleConnections(isOpen: boolean) {
       }
       return valid;
     } catch (error) {
-      console.error("Erro ao ler cache de verificação:", error);
+      logger.error("useGoogleConnections: erro ao ler cache de verificação do localStorage", error);
       return {};
     }
   }, []);
@@ -53,7 +54,7 @@ export function useGoogleConnections(isOpen: boolean) {
         };
         localStorage.setItem(VERIFICATION_CACHE_KEY, JSON.stringify(cache));
       } catch (error) {
-        console.error("Erro ao salvar cache de verificação:", error);
+        logger.error("useGoogleConnections: erro ao salvar cache de verificação no localStorage", error);
       }
     },
     [getVerificationCache]
@@ -71,7 +72,7 @@ export function useGoogleConnections(isOpen: boolean) {
           localStorage.removeItem(VERIFICATION_CACHE_KEY);
         }
       } catch (error) {
-        console.error("Erro ao limpar cache de verificação:", error);
+        logger.error("useGoogleConnections: erro ao limpar cache de verificação no localStorage", error);
       }
     },
     [getVerificationCache]
@@ -109,7 +110,7 @@ export function useGoogleConnections(isOpen: boolean) {
 
         return isValid;
       } catch (error: any) {
-        console.error(`Erro ao testar conexão ${connectionId}:`, error);
+        logger.error(`useGoogleConnections: erro ao testar conexão Google`, { connectionId, error });
         const appError = error as any;
         if (appError?.code === "GOOGLE_TOKEN_EXPIRED") {
           setExpiredConnections((prev) => new Set(prev).add(connectionId));
@@ -178,7 +179,7 @@ export function useGoogleConnections(isOpen: boolean) {
             });
             return { connectionId: conn.id, isValid };
           } catch (error) {
-            console.error(`Erro ao testar conexão ${conn.id}:`, error);
+            logger.error(`useGoogleConnections: erro ao testar conexão Google em batch`, { connectionId: conn.id, error });
             setExpiredConnections((prev) => new Set(prev).add(conn.id));
             saveVerificationCache(conn.id, false);
             return { connectionId: conn.id, isValid: false };
@@ -209,7 +210,7 @@ export function useGoogleConnections(isOpen: boolean) {
         setSelectedConnectionId("");
       }
     } catch (error) {
-      console.error("Erro ao carregar conexões:", error);
+      logger.error("useGoogleConnections: erro ao carregar conexões Google", error);
       setIsLoadingConnections(false);
     }
   }, [testConnection, getVerificationCache, saveVerificationCache]);
@@ -232,7 +233,7 @@ export function useGoogleConnections(isOpen: boolean) {
           return next;
         });
       } catch (error) {
-        console.error(`Erro ao retestar conexão ${connectionId}:`, error);
+        logger.error(`useGoogleConnections: erro ao retestar conexão Google`, { connectionId, error });
         setExpiredConnections((prev) => new Set(prev).add(connectionId));
         saveVerificationCache(connectionId, false);
       } finally {
@@ -280,6 +281,7 @@ export function useGoogleConnections(isOpen: boolean) {
           setSelectedConnectionId("");
         }
       } catch (error) {
+        logger.error("useGoogleConnections: erro ao deletar conexão Google", { connectionId, error });
         showError(error instanceof Error ? error : new Error("Erro ao deletar conexão"));
         // Em caso de erro, recarregar para garantir sincronização
         await loadConnections();

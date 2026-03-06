@@ -527,15 +527,15 @@ class GraphAPI:
             payload['filtering'] = '[' + ','.join(json_filters) + ']'
         
         try:
-            resp = requests.post(url, params=payload)
+            resp = requests.post(url, params=payload, timeout=30)
             resp.raise_for_status()
             resp_data = resp.json()
-            
+
             report_run_id = resp_data.get('report_run_id')
             if not report_run_id:
                 return {"status": "error", "message": "Failed to get report_run_id"}
-            
-            # Guardar metadados do job para enriquecimento posterior
+
+            # Guardar metadados do job para enriquecimento posterior (cache in-memory)
             JOBS_META[report_run_id] = {"act_id": act_id, "time_range": time_range}
 
             return report_run_id
@@ -675,9 +675,12 @@ class GraphAPI:
                 
                 # Enriquecimento com detalhes do anúncio (creative e asset_feed_spec videos)
                 job_meta = JOBS_META.get(report_run_id)
+                if not job_meta:
+                    logger.warning(f"[JOBS_META] Metadados do job {report_run_id} não encontrados no cache in-memory. "
+                                   f"Enriquecimento será ignorado (possível multi-worker ou restart).")
                 progress_details["stage"] = "enriquecimento"
                 progress_details["ads_before_dedup"] = len(data)
-                
+
                 if job_meta and data:
                     try:
                         logger.info(f"=== ENRIQUECIMENTO DEBUG - Iniciando processo ===")
@@ -776,6 +779,7 @@ class GraphAPI:
                         logger.info(f"Campos exemplo: {list(sample.keys())[:12]} ... total={len(sample.keys())}")
                         # Tipos de alguns campos chave
                         logger.info(f"Tipos exemplo: clicks={type(sample.get('clicks'))}, ctr={type(sample.get('ctr'))}, actions={type(sample.get('actions'))}")
+                    JOBS_META.pop(report_run_id, None)
                     return {
                         "status": "completed",
                         "progress": 100,
@@ -788,6 +792,7 @@ class GraphAPI:
                     # Fallback: retornar raw
                     progress_details["stage"] = "completo"
                     progress_details["ads_formatted"] = len(data)
+                    JOBS_META.pop(report_run_id, None)
                     return {
                         "status": "completed",
                         "progress": 100,
@@ -797,6 +802,7 @@ class GraphAPI:
                     }
             elif async_status == 'Job Failed':
                 error_msg = status_data.get('error', 'Job failed without specific error')
+                JOBS_META.pop(report_run_id, None)
                 return {
                     "status": "failed",
                     "progress": 100,
@@ -817,12 +823,59 @@ class GraphAPI:
                 "message": str(err)
             }
 
-    def get_video_source_url(self, video_id: Union[str, int], actor_id: str) -> Union[str, Dict[str, Any]]:
+    def get_video_owner_page_id(self, video_id: Union[str, int]) -> Optional[str]:
+        """Resolve o page_id do dono real do vídeo via GET /{video_id}?fields=from."""
+        try:
+            video_url = self.base_url + str(video_id) + self.user_token
+            resp = requests.get(video_url, params={'fields': 'from'})
+            resp.raise_for_status()
+            from_data = resp.json().get('from')
+            if from_data and from_data.get('id'):
+                owner_id = str(from_data['id'])
+                logger.info("Video %s owner resolved: from.id=%s", video_id, owner_id)
+                return owner_id
+        except Exception as e:
+            logger.warning("get_video_owner_page_id failed for video %s: %s", video_id, e)
+        return None
+
+    def _fetch_video_source_with_token(self, video_id: Union[str, int], page_token: str) -> Optional[str]:
+        """Tenta buscar source do vídeo com o token fornecido. Retorna source ou None."""
+        try:
+            video_url = self.base_url + str(video_id) + page_token
+            resp = requests.get(video_url, params={'fields': 'source'})
+            resp.raise_for_status()
+            return resp.json().get('source')
+        except Exception:
+            return None
+
+    def get_video_source_url(
+        self, video_id: Union[str, int], actor_id: str, video_owner_page_id: Optional[str] = None
+    ) -> Union[str, Dict[str, Any]]:
         if not actor_id or not video_id:
             raise ValueError("actor_id and video_id are required")
 
+        resolved_owner_page_id = video_owner_page_id
+
         try:
-            # Tentar obter token da página (com fallback para token do usuário)
+            # 1. Se já temos o owner, usar direto
+            if resolved_owner_page_id:
+                owner_token = self.get_page_access_token(resolved_owner_page_id)
+                source = self._fetch_video_source_with_token(video_id, owner_token)
+                if source:
+                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
+
+            # 2. Se não temos owner, resolver via GET /{video_id}?fields=from
+            if not resolved_owner_page_id:
+                resolved_owner_page_id = self.get_video_owner_page_id(video_id)
+
+            # 3. Tentar com token do owner resolvido (se diferente do actor_id)
+            if resolved_owner_page_id and resolved_owner_page_id != actor_id:
+                owner_token = self.get_page_access_token(resolved_owner_page_id)
+                source = self._fetch_video_source_with_token(video_id, owner_token)
+                if source:
+                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
+
+            # 4. Fallback: tentar com actor_id (comportamento original)
             page_token = self.get_page_access_token(actor_id)
             video_url = self.base_url + str(video_id) + page_token
             payload = {'fields': 'source'}
@@ -830,7 +883,7 @@ class GraphAPI:
             resp.raise_for_status()
             source = resp.json().get('source')
             if source:
-                return source
+                return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}
             return {"status": "not_found", "message": "No video source returned"}
         except requests.exceptions.HTTPError as http_err:
             decoded_url = urllib.parse.unquote(http_err.request.url)  # type: ignore
@@ -839,7 +892,7 @@ class GraphAPI:
                 error_data = json.loads(decoded_text)
                 error_message = error_data.get('error', {}).get('message', decoded_text)
                 error_code = error_data.get('error', {}).get('code')
-                
+
                 # Mensagens de erro mais claras baseadas no código de erro
                 if error_code == 100:
                     user_friendly_message = (
@@ -866,10 +919,10 @@ class GraphAPI:
                     f"Não foi possível acessar o vídeo do anúncio. "
                     f"Verifique se sua conta do Facebook tem as permissões necessárias."
                 )
-            
+
             logger.error("get_video_source_url http_error: %s %s for %s", http_err.response.status_code, decoded_text, decoded_url)
             return {
-                'status': f"Status: {http_err.response.status_code} - http_error", 
+                'status': f"Status: {http_err.response.status_code} - http_error",
                 'message': user_friendly_message
             }
         except Exception as err:
@@ -883,6 +936,6 @@ class GraphAPI:
                 user_friendly_message = (
                     f"Erro ao acessar o vídeo: {error_message}"
                 )
-            
+
             logger.exception("get_video_source_url error: %s", err)
             return {'status': 'error', 'message': user_friendly_message}

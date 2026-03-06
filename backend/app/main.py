@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import logging
-from app.core.config import CORS_ORIGINS, LOG_LEVEL
+from app.core.config import CORS_ORIGINS, LOG_AD_ID_TRUNCATED, LOG_LEVEL, LOG_SUPPRESS_HTTPX
 from app.core.logging_config import setup_httpx_logging_filter
 from app.routes.facebook import router as facebook_router
 from app.routes.analytics import router as analytics_router
@@ -15,8 +15,15 @@ logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper()))
 logger = logging.getLogger(__name__)
 
 # Configurar filtro para truncar URLs longas nos logs do httpx
-# Limita URLs a 300 caracteres para preservar legibilidade
-setup_httpx_logging_filter(max_url_length=300)
+# LOG_AD_ID_TRUNCATED controla se id=in.(...) vira id=in.(...N IDs...)
+setup_httpx_logging_filter(
+    max_url_length=300,
+    truncate_ad_ids=LOG_AD_ID_TRUNCATED,
+)
+# Suprimir logs INFO do httpx/httpcore (só WARNING+); desative com LOG_SUPPRESS_HTTPX=false
+if LOG_SUPPRESS_HTTPX:
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # Create FastAPI app
 app = FastAPI(

@@ -72,9 +72,10 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const creative = creativeData?.creative || {};
   const videoId = creative.video_id || creativeData?.adcreatives_videos_ids?.[0];
   const actorId = creative.actor_id;
+  const videoOwnerPageId = (creativeData as any)?.video_owner_page_id;
   const shouldLoadVideo = activeTab === "video" && !!videoId && !!actorId && !loadingCreative;
 
-  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || "" }, shouldLoadVideo);
+  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || "", ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
 
   const { data: historyDataById, isLoading: loadingHistoryById } = useAdHistory(adId, dateStart || "", dateStop || "", shouldLoadHistoryById);
   const { data: historyDataByName, isLoading: loadingHistoryByName } = useAdNameHistory(adName, dateStart || "", dateStop || "", shouldLoadHistoryByName);

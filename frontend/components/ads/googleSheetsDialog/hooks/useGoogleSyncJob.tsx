@@ -1,18 +1,8 @@
 import { useState, useCallback } from "react";
 import { api } from "@/lib/api/endpoints";
+import { logger } from "@/lib/utils/logger";
 import { SheetSyncResponse } from "@/lib/api/schemas";
-import {
-  showProgressToast,
-  updateProgressToast,
-  finishProgressToast,
-  showSuccess,
-  showError,
-  showProcessCancelledWarning,
-  buildSheetsToastContent,
-  calculateSheetsProgressPercent,
-  SHEETS_TOAST_TOTAL_STEPS,
-  getSheetsProgressPackLabel,
-} from "@/lib/utils/toast";
+import { showProgressToast, updateProgressToast, finishProgressToast, showSuccess, showError, showProcessCancelledWarning, buildSheetsToastContent, calculateSheetsProgressPercent, SHEETS_TOAST_TOTAL_STEPS } from "@/lib/utils/toast";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
 type ImportStep = "idle" | "saving" | "reading" | "processing" | "complete";
@@ -85,6 +75,7 @@ export function useGoogleSyncJob() {
           await new Promise((resolve) => setTimeout(resolve, 500));
           return poll();
         }
+        logger.error("useGoogleSyncJob: erro no polling do job de sync", { jobId, error });
         throw error;
       }
     };
@@ -96,145 +87,103 @@ export function useGoogleSyncJob() {
    * Inicia o sync e exibe o progresso no toast padronizado (3 linhas + barra + botão Cancelar).
    * Usado após fechar o modal ao criar/configurar integração. Idêntico ao toast de atualização de Sheets.
    */
-  const startSyncWithToast = useCallback(
-    async (options: { integrationId: string; title: string; packId?: string | null }): Promise<void> => {
-      const { integrationId, title, packId } = options;
-      const toastId = `sheet-import-${integrationId}-${Date.now()}`;
-      const packLabel = getSheetsProgressPackLabel(title);
-      const packNameForWarning = title || "Importação";
+  const startSyncWithToast = useCallback(async (options: { integrationId: string; title: string; packId?: string | null }): Promise<void> => {
+    const { integrationId, title, packId } = options;
+    const toastId = `sheet-import-${integrationId}-${Date.now()}`;
+    const packNameForWarning = title || "Importação";
 
-      const jobIdRef = { current: null as string | null };
-      const cancelledRef = { current: false };
+    const jobIdRef = { current: null as string | null };
+    const cancelledRef = { current: false };
 
-      const handleCancelSheets = () => {
-        cancelledRef.current = true;
-        if (jobIdRef.current) {
-          api.facebook
-            .cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário")
-            .catch(() => {});
-        }
-        finishProgressToast(toastId, false, "Importação cancelada");
-        showProcessCancelledWarning("sheets", packNameForWarning);
-      };
-
-      showProgressToast(
-        toastId,
-        packLabel,
-        1,
-        SHEETS_TOAST_TOTAL_STEPS,
-        undefined,
-        handleCancelSheets,
-        sheetsToastIcon,
-        buildSheetsToastContent("processing", { stage: "lendo_planilha" }),
-        0
-      );
-
-      try {
-        const { job_id } = await api.integrations.google.startSyncJob(integrationId);
-        jobIdRef.current = job_id;
-        const maxAttempts = 300;
-        let attempts = 0;
-
-        while (attempts < maxAttempts) {
-          if (cancelledRef.current) {
-            if (jobIdRef.current) {
-              try {
-                await api.facebook.cancelJobsBatch(
-                  [jobIdRef.current],
-                  "Importação do Leadscore cancelada pelo usuário"
-                );
-              } catch (_) {}
-            }
-            return;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          if (cancelledRef.current) {
-            if (jobIdRef.current) {
-              try {
-                await api.facebook.cancelJobsBatch(
-                  [jobIdRef.current],
-                  "Importação do Leadscore cancelada pelo usuário"
-                );
-              } catch (_) {}
-            }
-            return;
-          }
-
-          const progress = await api.integrations.google.getSyncJobProgress(job_id);
-          const details = (progress as any)?.details || {};
-
-          if (progress.status === "completed") {
-            const stats = (progress as any)?.stats || {};
-            const updatedRows = stats.rows_updated ?? stats.updated_rows ?? 0;
-            finishProgressToast(
-              toastId,
-              true,
-              updatedRows > 0
-                ? `Planilha importada com sucesso! ${updatedRows} registros atualizados.`
-                : "Importação concluída. Nenhuma atualização necessária.",
-              { visibleDurationOnly: 5, context: "sheets", packName: title }
-            );
-            showSuccess(
-              updatedRows > 0
-                ? `Importação concluída! Atualizadas ${updatedRows} linhas em ad_metrics.`
-                : "Importação concluída!"
-            );
-            if (packId) {
-              try {
-                const response = await api.analytics.listPacks(false);
-                if (response.success && response.packs) {
-                  const updatedPack = response.packs.find((p: any) => p.id === packId);
-                  if (updatedPack?.sheet_integration) {
-                    window.dispatchEvent(
-                      new CustomEvent("pack-integration-updated", {
-                        detail: { packId, sheetIntegration: updatedPack.sheet_integration },
-                      })
-                    );
-                  }
-                }
-              } catch (e) {
-                console.error("Erro ao recarregar pack após integração:", e);
-              }
-            }
-            return;
-          }
-
-          if (progress.status === "failed") {
-            const msg = progress.message || "Erro ao importar planilha";
-            finishProgressToast(toastId, false, msg);
-            showError(new Error(msg));
-            return;
-          }
-
-          if (progress.status === "cancelled") {
-            finishProgressToast(toastId, false, "Importação cancelada");
-            return;
-          }
-
-          updateProgressToast(
-            toastId,
-            packLabel,
-            1,
-            SHEETS_TOAST_TOTAL_STEPS,
-            undefined,
-            handleCancelSheets,
-            sheetsToastIcon,
-            buildSheetsToastContent(progress.status, details),
-            calculateSheetsProgressPercent(progress.status, details)
-          );
-          attempts++;
-        }
-
-        finishProgressToast(toastId, false, "Timeout ao importar planilha (demorou mais de 10 minutos)");
-        showError(new Error("Timeout ao importar planilha"));
-      } catch (error: any) {
-        const msg = error?.message || "Erro ao iniciar importação";
-        finishProgressToast(toastId, false, msg);
-        showError(error instanceof Error ? error : new Error(msg));
+    const handleCancelSheets = () => {
+      cancelledRef.current = true;
+      if (jobIdRef.current) {
+        api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário").catch(() => {});
       }
-    },
-    []
-  );
+      finishProgressToast(toastId, false, "Importação cancelada");
+      showProcessCancelledWarning("sheets", packNameForWarning);
+    };
+
+    showProgressToast(toastId, title, 1, SHEETS_TOAST_TOTAL_STEPS, undefined, handleCancelSheets, sheetsToastIcon, buildSheetsToastContent("processing", { stage: "lendo_planilha" }), 0);
+
+    try {
+      const { job_id } = await api.integrations.google.startSyncJob(integrationId);
+      jobIdRef.current = job_id;
+      const maxAttempts = 300;
+      let attempts = 0;
+
+      while (attempts < maxAttempts) {
+        if (cancelledRef.current) {
+          if (jobIdRef.current) {
+            try {
+              await api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário");
+            } catch (_) {}
+          }
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        if (cancelledRef.current) {
+          if (jobIdRef.current) {
+            try {
+              await api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário");
+            } catch (_) {}
+          }
+          return;
+        }
+
+        const progress = await api.integrations.google.getSyncJobProgress(job_id);
+        const details = (progress as any)?.details || {};
+
+        if (progress.status === "completed") {
+          const stats = (progress as any)?.stats || {};
+          const updatedRows = stats.rows_updated ?? stats.updated_rows ?? 0;
+          finishProgressToast(toastId, true, updatedRows > 0 ? `Planilha importada com sucesso! ${updatedRows} registros atualizados.` : "Importação concluída. Nenhuma atualização necessária.", { visibleDurationOnly: 5, context: "sheets", packName: title });
+          showSuccess(updatedRows > 0 ? `Importação concluída! Atualizadas ${updatedRows} linhas em ad_metrics.` : "Importação concluída!");
+          if (packId) {
+            try {
+              const response = await api.analytics.listPacks(false);
+              if (response.success && response.packs) {
+                const updatedPack = response.packs.find((p: any) => p.id === packId);
+                if (updatedPack?.sheet_integration) {
+                  window.dispatchEvent(
+                    new CustomEvent("pack-integration-updated", {
+                      detail: { packId, sheetIntegration: updatedPack.sheet_integration },
+                    }),
+                  );
+                }
+              }
+            } catch (e) {
+              logger.error("useGoogleSyncJob: erro ao recarregar pack após sync concluído", { packId, error: e });
+            }
+          }
+          return;
+        }
+
+        if (progress.status === "failed") {
+          const msg = progress.message || "Erro ao importar planilha";
+          finishProgressToast(toastId, false, msg);
+          showError(new Error(msg));
+          return;
+        }
+
+        if (progress.status === "cancelled") {
+          finishProgressToast(toastId, false, "Importação cancelada");
+          return;
+        }
+
+        updateProgressToast(toastId, title, 1, SHEETS_TOAST_TOTAL_STEPS, undefined, handleCancelSheets, sheetsToastIcon, buildSheetsToastContent(progress.status, details), calculateSheetsProgressPercent(progress.status, details));
+        attempts++;
+      }
+
+      finishProgressToast(toastId, false, "Timeout ao importar planilha (demorou mais de 10 minutos)");
+      showError(new Error("Timeout ao importar planilha"));
+    } catch (error: any) {
+      const msg = error?.message || "Erro ao iniciar importação";
+      logger.error("useGoogleSyncJob: erro ao iniciar ou processar sync com Google Sheets", { integrationId, packId, error });
+      finishProgressToast(toastId, false, msg);
+      showError(error instanceof Error ? error : new Error(msg));
+    }
+  }, []);
 
   const startSync = useCallback(
     async (integrationId: string): Promise<void> => {
@@ -251,7 +200,7 @@ export function useGoogleSyncJob() {
         setImportProgress(0);
       }
     },
-    [pollJobProgress]
+    [pollJobProgress],
   );
 
   const reset = useCallback(() => {

@@ -79,12 +79,16 @@ def _resolve_video_url(api: GraphAPI, video_id: str, actor_id: str) -> Optional[
     """Resolve URL do vídeo via Meta Graph API. Retorna None se falhar."""
     try:
         result = api.get_video_source_url(video_id, actor_id)
+        if isinstance(result, dict):
+            source = result.get("source")
+            if source and isinstance(source, str) and source.startswith("http"):
+                return source
+            if "status" in result:
+                logger.warning(
+                    f"[TRANSCRIPTION] get_video_source_url retornou erro: {result.get('message', result)}"
+                )
         if isinstance(result, str) and result.startswith("http"):
             return result
-        if isinstance(result, dict):
-            logger.warning(
-                f"[TRANSCRIPTION] get_video_source_url retornou erro: {result.get('message', result)}"
-            )
         return None
     except Exception as e:
         logger.warning(f"[TRANSCRIPTION] Erro ao resolver vídeo {video_id}: {e}")

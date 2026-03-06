@@ -319,7 +319,7 @@ def upsert_ads(
             try:
                 existing_cached: Dict[str, str] = {}
                 ad_ids = list(ad_id_to_thumb_url.keys())
-                batch_lookup = 400
+                batch_lookup = 200  # Reduzido de 400 para alinhar a outros selects em lote
                 for i in range(0, len(ad_ids), batch_lookup):
                     batch_ids = ad_ids[i:i + batch_lookup]
 
@@ -363,9 +363,9 @@ def upsert_ads(
         logger.warning(f"[UPSERT_ADS] Falha ao cachear thumbnails (best-effort): {e}")
 
     # Upsert em lotes para evitar timeout em grandes volumes de dados
-    # Tamanho de lote: 1000 registros (maior que ad_metrics pois ads não têm dados por data)
-    # Cada ad é único (deduplicado), então volume geralmente menor
-    batch_size = 1000
+    # Tamanho de lote: 200 registros (reduzido de 1000 para evitar ReadTimeout do httpx)
+    # Alinhado à estratégia de ad_metrics; JSONB (creative, etc.) e concorrência exigem lotes menores
+    batch_size = 200
     total_batches = (total_rows + batch_size - 1) // batch_size
     
     for batch_idx in range(0, total_rows, batch_size):
@@ -414,7 +414,7 @@ def upsert_ads(
 
     if pack_id and rows:
         ad_ids = [r["ad_id"] for r in rows]
-        batch_size_attach = 500
+        batch_size_attach = 200  # Alinhado ao batch_size do upsert para evitar timeout
         total_attach_batches = (len(ad_ids) + batch_size_attach - 1) // batch_size_attach
 
         for attach_idx in range(0, len(ad_ids), batch_size_attach):
@@ -448,6 +448,23 @@ def upsert_ads(
         _sync_ads_transcription_links(user_jwt, user_id, ad_id_name_pairs)
     except Exception as e:
         logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
+
+
+def update_ad_video_owner(
+    user_jwt: str,
+    user_id: str,
+    ad_id: str,
+    video_owner_page_id: str,
+) -> None:
+    """Persiste o video_owner_page_id resolvido na coluna dedicada da tabela ads."""
+    try:
+        sb = get_supabase_for_user(user_jwt)
+        sb.table("ads").update({"video_owner_page_id": video_owner_page_id}).eq(
+            "ad_id", ad_id
+        ).eq("user_id", user_id).execute()
+        logger.info(f"[UPDATE_AD_VIDEO_OWNER] ad_id={ad_id} → video_owner_page_id={video_owner_page_id}")
+    except Exception as e:
+        logger.warning(f"[UPDATE_AD_VIDEO_OWNER] Falha (best-effort) para ad_id={ad_id}: {e}")
 
 
 def upsert_ad_metrics(
@@ -573,9 +590,10 @@ def upsert_ad_metrics(
     logger.info(f"[UPSERT_AD_METRICS] Processando {total_rows} registros de métricas")
 
     # Upsert em lotes para evitar timeout em grandes volumes de dados
-    # Tamanho de lote: 300 registros (ajustado para balancear performance e evitar timeout)
-    # JSONB fields (actions, conversions, etc.) podem ser grandes, então lote menor é mais seguro
-    batch_size = 300
+    # Tamanho de lote: 150 registros (reduzido de 300 para evitar statement timeout em produção)
+    # JSONB fields (actions, conversions, etc.) podem ser grandes, e com múltiplos usuários
+    # simultâneos, lotes menores reduzem contenção e evitam timeout do Supabase (~8s)
+    batch_size = 150
     total_batches = (total_rows + batch_size - 1) // batch_size
     
     for batch_idx in range(0, total_rows, batch_size):
@@ -621,7 +639,7 @@ def upsert_ad_metrics(
 
     if pack_id and rows:
         metric_ids = [r["id"] for r in rows]
-        batch_size_attach = 300
+        batch_size_attach = 200  # Alinhado aos lotes de select/attach para consistência
         total_attach_batches = (len(metric_ids) + batch_size_attach - 1) // batch_size_attach
 
         for attach_idx in range(0, len(metric_ids), batch_size_attach):
@@ -750,7 +768,7 @@ def get_existing_ads_map(
         "effective_status,creative,creative_video_id,thumbnail_url,"
         "instagram_permalink_url,adcreatives_videos_ids,adcreatives_videos_thumbs"
     )
-    batch_size = 400
+    batch_size = 200  # Reduzido de 400 para evitar timeout/URL longa
     existing_ads: Dict[str, Dict[str, Any]] = {}
 
     logger.info(
@@ -1440,9 +1458,8 @@ def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None,
             if to_delete_ad_ids:
                 # Deletar em lotes para evitar problemas com muitos IDs
                 # IDs de ads são longos (ex: "120236981806920782" ~18-19 chars)
-                # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
-                # Com IDs de ~19 caracteres, 400 IDs = ~7.600 chars na URL (seguro para limite de ~8KB)
-                batch_size = 400  # Reduzido de 1000 para 400 devido ao tamanho dos ad_ids
+                # Reduzir batch_size para evitar URLs muito longas e timeout (~8KB / ReadTimeout)
+                batch_size = 200  # Reduzido de 400 para 200 (alinhado a upsert/select)
                 total_batches = (len(to_delete_ad_ids) + batch_size - 1) // batch_size
                 
                 logger.info(f"Deletando {len(to_delete_ad_ids)} registros de ads em {total_batches} lote(s) de até {batch_size} IDs")
@@ -1684,23 +1701,19 @@ def update_pack_refresh_status(
     if not user_id or not pack_id:
         logger.warning("[UPDATE_REFRESH_STATUS] Skipped: missing user_id or pack_id")
         return
-    
-    if last_refreshed_at is None:
-        today = datetime.utcnow().date()
-        last_refreshed_at = today.strftime("%Y-%m-%d")
-    
+
     sb = get_supabase_for_user(user_jwt)
-    
+
     update_data = {
-        "last_refreshed_at": last_refreshed_at,
         "refresh_status": refresh_status,
-        # ✅ CORREÇÃO: Só atualizar updated_at quando o refresh for bem-sucedido
-        # Isso garante que a data mostrada no frontend seja apenas de atualizações concluídas
-        # Não atualiza para "running", "failed" ou "cancelled"
     }
-    
-    # Só atualizar updated_at quando o refresh completar com sucesso
+
+    # Só atualizar last_refreshed_at e updated_at quando o refresh completar com sucesso.
+    # Atualizar em "running"/"failed"/"cancelled" corrompe o cálculo de since_last_refresh.
     if refresh_status == "success":
+        if last_refreshed_at is None:
+            last_refreshed_at = datetime.utcnow().date().strftime("%Y-%m-%d")
+        update_data["last_refreshed_at"] = last_refreshed_at
         update_data["updated_at"] = _now_iso()
     
     # Atualizar date_stop se fornecido (útil para manter o pack sincronizado com a data de atualização)
@@ -1709,7 +1722,9 @@ def update_pack_refresh_status(
     
     try:
         sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute()
-        log_msg = f"[UPDATE_REFRESH_STATUS] ✓ Pack {pack_id} atualizado - last_refreshed_at={last_refreshed_at}, status={refresh_status}"
+        log_msg = f"[UPDATE_REFRESH_STATUS] ✓ Pack {pack_id} atualizado - status={refresh_status}"
+        if last_refreshed_at is not None:
+            log_msg += f", last_refreshed_at={last_refreshed_at}"
         if date_stop:
             log_msg += f", date_stop={date_stop}"
         logger.info(log_msg)
@@ -1870,13 +1885,11 @@ def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]
             ad_ids = list(set([m.get("ad_id") for m in metrics_rows if m.get("ad_id")]))
             
             if ad_ids:
-                # Processar ad_ids em lotes para evitar URLs muito longas
+                # Processar ad_ids em lotes para evitar URLs muito longas e timeout
                 # IDs de ads são longos (ex: "120236981806920782" ~18-19 chars)
-                # Reduzir batch_size para evitar URLs muito longas que excedem limite do Supabase (~8KB)
-                # Com IDs de ~19 caracteres, 400 IDs = ~7.600 chars na URL (seguro para limite de ~8KB)
-                batch_size = 400  # Reduzido de 500 para 400 devido ao tamanho dos ad_ids
+                batch_size = 200  # Reduzido de 400 para 200 (alinhado a outros selects)
                 all_ads = []
-                
+
                 logger.info(f"[GET_ADS_FOR_PACK] Processando {len(ad_ids)} ad_ids em lotes de {batch_size}")
                 
                 for i in range(0, len(ad_ids), batch_size):
@@ -1979,7 +1992,7 @@ def get_existing_transcriptions(
 
     sb = get_supabase_for_user(user_jwt)
     result: Dict[str, str] = {}
-    batch_size = 400
+    batch_size = 200  # Reduzido de 400 para alinhar a outros selects em lote
 
     for i in range(0, len(ad_names), batch_size):
         batch = ad_names[i : i + batch_size]

@@ -1,6 +1,6 @@
 from typing import Optional
 import logging
-from supabase import create_client, Client
+from supabase import create_client, Client, ClientOptions
 from app.core.config import (
     SUPABASE_URL,
     SUPABASE_ANON_KEY,
@@ -10,6 +10,10 @@ from app.core.config import (
 
 _logger = logging.getLogger(__name__)
 _service_client: Optional[Client] = None
+
+# Timeout para operações PostgREST (upsert em lotes, etc.)
+# 15s dá margem para batches de ~200 registros sem mascarar lentidão real
+POSTGREST_TIMEOUT_SECONDS = 15
 
 
 def get_supabase() -> Client:
@@ -26,7 +30,11 @@ def get_supabase_service() -> Client:
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise RuntimeError("Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in env.")
 
-    _service_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+    _service_client = create_client(
+        SUPABASE_URL,
+        SUPABASE_SERVICE_ROLE_KEY,
+        options=ClientOptions(postgrest_client_timeout=POSTGREST_TIMEOUT_SECONDS),
+    )
     _logger.info("Supabase service client initialized (service role)")
     return _service_client
 
@@ -40,7 +48,11 @@ def get_supabase_for_user(jwt_token: str) -> Client:
         raise RuntimeError("Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in env.")
     
     # Create client with anon key (for RLS to work, we need anon key, not service role)
-    client = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+    client = create_client(
+        SUPABASE_URL,
+        SUPABASE_ANON_KEY,
+        options=ClientOptions(postgrest_client_timeout=POSTGREST_TIMEOUT_SECONDS),
+    )
     
     # Set the JWT token for PostgREST to enable RLS
     # The supabase-py library should respect this for subsequent queries

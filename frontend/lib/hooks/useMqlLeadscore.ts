@@ -70,13 +70,13 @@ export function useMqlLeadscore(): UseMqlLeadscoreReturn {
               } as any);
 
             if (insertError) {
-              console.warn("Erro ao criar registro de preferências:", insertError);
+              logger.error("useMqlLeadscore: erro ao inserir user_preferences no Supabase", insertError);
               // Manter valor do localStorage (já carregado pelo persist)
             } else {
               setMqlLeadscoreMin(DEFAULT_MQL_LEADSCORE_MIN);
             }
           } else {
-            console.warn("Erro ao carregar MQL leadscore min do Supabase:", supabaseError);
+            logger.error("useMqlLeadscore: erro ao carregar mql_leadscore_min do Supabase", supabaseError);
             // Manter valor do localStorage (já carregado pelo persist)
           }
         } else {
@@ -125,7 +125,7 @@ export function useMqlLeadscore(): UseMqlLeadscoreReturn {
           });
 
         if (upsertError) {
-          console.warn("Erro ao salvar MQL leadscore min no Supabase:", upsertError);
+          logger.error("useMqlLeadscore: erro no upsert de mql_leadscore_min no Supabase", upsertError);
           // Não falhar, já atualizou o store
         }
       }

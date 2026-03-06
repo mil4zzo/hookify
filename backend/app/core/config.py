@@ -51,6 +51,14 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 
+# Logging flags - controle de verbosidade dos logs httpx/httpcore
+# LOG_AD_ID_TRUNCATED: trunca id=in.(...) para id=in.(...N IDs...) nos logs.
+#   Use false para ver URLs completas.
+# LOG_SUPPRESS_HTTPX: se true, não emite logs INFO do httpx/httpcore (só WARNING+).
+#   Use false para ver requisições HTTP nos logs.
+LOG_AD_ID_TRUNCATED = os.getenv("LOG_AD_ID_TRUNCATED", "true").lower() in ("true", "1", "yes")
+LOG_SUPPRESS_HTTPX = os.getenv("LOG_SUPPRESS_HTTPX", "true").lower() in ("true", "1", "yes")
+
 # Supabase Auth (Frontend JWT validation and RLS usage)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # NUNCA expor no frontend

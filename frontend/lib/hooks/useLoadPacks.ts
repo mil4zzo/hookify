@@ -32,6 +32,8 @@ export function useLoadPacks() {
             if (updatedPack) {
               updatePack(packId, { sheet_integration: updatedPack.sheet_integration } as any)
             }
+          } else if (!response.success) {
+            logger.error('useLoadPacks: listPacks retornou success:false no handler de integração', { packId, response })
           }
         } catch (error) {
           logger.error('Erro ao atualizar pack após integração:', error)
@@ -60,6 +62,9 @@ export function useLoadPacks() {
       
       try {
         const response = await api.analytics.listPacks(false)
+        if (!response.success) {
+          logger.error('useLoadPacks: listPacks retornou success:false', { response })
+        }
         if (response.success && response.packs) {
           const supabasePacks = await Promise.all(
             response.packs.map(async (pack: any) => {

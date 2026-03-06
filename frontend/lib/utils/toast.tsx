@@ -29,12 +29,7 @@ export function showError(error: AppError | Error | unknown) {
       <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
       <div className="flex items-center gap-2 flex-1 min-w-0">
         <span className="flex-1 min-w-0 text-sm text-foreground break-words">{message}</span>
-        <button
-          type="button"
-          onClick={() => toast.dismiss(toastId)}
-          className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
-          aria-label="Fechar"
-        >
+        <button type="button" onClick={() => toast.dismiss(toastId)} className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring" aria-label="Fechar">
           <IconX className="h-4 w-4" strokeWidth={2} />
         </button>
       </div>
@@ -141,9 +136,12 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
   }
 
   // Enriquecimento: "X de Y anúncios"
+  // Duas subfasas: creative (total = ads_after_dedup) e status (total = ads_before_dedup). Escolhemos o total pelo payload já enviado.
   if (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT") {
     const adsEnriched = details?.ads_enriched;
-    const total = details?.ads_after_dedup ?? details?.enrichment_total;
+    const totalAfterDedup = details?.ads_after_dedup ?? 0;
+    const totalBeforeDedup = details?.ads_before_dedup ?? 0;
+    const total = (adsEnriched ?? 0) > totalAfterDedup ? totalBeforeDedup || totalAfterDedup : totalAfterDedup || details?.enrichment_total;
     if (adsEnriched != null && total != null && total > 0) {
       return `${adsEnriched} de ${total} anúncios`;
     }
@@ -274,6 +272,7 @@ export function buildSheetsToastContent(status: string, details?: any, overrideD
     stageLabel: `Etapa ${stepIndex} de ${SHEETS_TOTAL_STAGES}`,
     stageTitle: title,
     dynamicLine,
+    stageContext: "Leadscore",
   };
 }
 

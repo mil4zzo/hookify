@@ -742,6 +742,7 @@ export default function PacksPage() {
             const packResponse = await api.analytics.getPack(packId, true);
 
             if (!packResponse.success || !packResponse.pack) {
+              logger.error('packs/page: getPack retornou success:false após criação do pack', { packId, packResponse });
               showError({ message: "Erro ao carregar pack criado." });
               completed = true;
               break;
@@ -922,6 +923,7 @@ export default function PacksPage() {
     } catch (error) {
       // Não mostrar erro se foi cancelado
       if (!isCancelledRef.current) {
+        logger.error('packs/page: erro no fluxo de criação/carregamento do pack', error);
         showError(error as any);
       }
     } finally {
@@ -1090,6 +1092,8 @@ export default function PacksPage() {
           // Salvar no cache para próximas vezes
           const { cachePackAds } = await import("@/lib/storage/adsCache");
           await cachePackAds(pack.id, allAds).catch(() => {});
+        } else if (!response.success) {
+          logger.error('packs/page: getPack retornou success:false ao carregar preview', { packId: pack.id, response });
         }
       }
 

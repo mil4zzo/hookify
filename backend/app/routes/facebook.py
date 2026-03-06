@@ -10,6 +10,7 @@ import threading
 import uuid
 from app.services.graph_api import GraphAPI
 from app.services import supabase_repo
+from app.core.supabase_client import get_supabase_for_user
 from app.services.facebook_token_service import (
     get_facebook_token_for_user, 
     TokenFetchError,
@@ -682,19 +683,23 @@ def get_job_progress(
 
 @router.get("/video-source")
 def get_video_source(
-    video_id: str, 
-    actor_id: str, 
+    video_id: str,
+    actor_id: str,
+    ad_id: str = "",
+    video_owner_page_id: str = "",
     api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Get Facebook video source URL."""
+    """Get Facebook video source URL, resolving video owner page when needed."""
     try:
-        result = api.get_video_source_url(video_id, actor_id)
-        
+        result = api.get_video_source_url(
+            video_id, actor_id, video_owner_page_id=video_owner_page_id or None
+        )
+
         # Check if result is an error dict
         if isinstance(result, dict) and "status" in result:
             error_msg = result.get("message", "")
-            
+
             # Verificar se é erro de token expirado
             if check_meta_error_for_token_expiry(error_msg):
                 user_jwt = user["token"]
@@ -708,10 +713,26 @@ def get_video_source(
                         "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
                     }
                 )
-            
+
             raise HTTPException(status_code=400, detail=error_msg)
-        
-        return {"source_url": result}
+
+        # result is now {"source": url, "video_owner_page_id": id}
+        source_url = result.get("source") if isinstance(result, dict) else result
+        resolved_owner = result.get("video_owner_page_id") if isinstance(result, dict) else None
+
+        # Persist resolved owner (fire-and-forget, best-effort)
+        if ad_id and resolved_owner and resolved_owner != video_owner_page_id:
+            try:
+                supabase_repo.update_ad_video_owner(
+                    user_jwt=user["token"],
+                    user_id=user["user_id"],
+                    ad_id=ad_id,
+                    video_owner_page_id=resolved_owner,
+                )
+            except Exception:
+                pass  # best-effort, already logged inside the function
+
+        return {"source_url": source_url, "video_owner_page_id": resolved_owner}
     except HTTPException:
         raise
     except Exception as e:
@@ -829,51 +850,59 @@ def refresh_pack(
     """
     try:
         logger.info(f"[REFRESH_PACK] Iniciando refresh do pack {pack_id}")
-        
+
         # Buscar pack do Supabase para obter dados necessários
-        from app.core.supabase_client import get_supabase_for_user
         sb = get_supabase_for_user(user["token"])
         pack_res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user["user_id"]).limit(1).execute()
-        
+
         if not pack_res.data or len(pack_res.data) == 0:
             raise HTTPException(status_code=404, detail=f"Pack {pack_id} não encontrado")
-        
+
         pack = pack_res.data[0]
-        
+
         # Validar dados necessários
         if not pack.get("adaccount_id"):
             raise HTTPException(status_code=400, detail="Pack não tem adaccount_id configurado")
-        
+
         # Obter filtros do pack
         filters = pack.get("filters", [])
         if not isinstance(filters, list):
             filters = []
-        
+
         # Validar refresh_type
         refresh_type = request.refresh_type
         if refresh_type not in ["since_last_refresh", "full_period"]:
             raise HTTPException(status_code=400, detail="refresh_type deve ser 'since_last_refresh' ou 'full_period'")
-        
+
+        # Validar until_date
+        try:
+            until_date_parsed = date.fromisoformat(request.until_date)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail=f"until_date inválido: '{request.until_date}'. Use formato YYYY-MM-DD.")
+
         # Calcular range de datas baseado no refresh_type (datas lógicas YYYY-MM-DD)
         if refresh_type == "since_last_refresh":
             # Opção 1: Desde a última atualização
             if not pack.get("last_refreshed_at"):
                 raise HTTPException(status_code=400, detail="Pack não tem last_refreshed_at configurado. Use 'full_period' para atualizar todo o período.")
-            
+
             last_refreshed_str = pack["last_refreshed_at"]
-            last_refreshed_date = datetime.strptime(last_refreshed_str, "%Y-%m-%d").date()
-            since_date = last_refreshed_date - timedelta(days=1)
+            # Parsing robusto: funciona com "YYYY-MM-DD" e "YYYY-MM-DDThh:mm:ss..."
+            since_date = date.fromisoformat(last_refreshed_str[:10]) - timedelta(days=1)
             since_str = since_date.strftime("%Y-%m-%d")
             until_str = request.until_date
-            
+
+            if since_date > until_date_parsed:
+                raise HTTPException(status_code=400, detail=f"Range inválido: since ({since_str}) > until ({until_str})")
+
             logger.info(f"[REFRESH_PACK] Pack {pack_id} - Tipo: desde última atualização - Range: {since_str} até {until_str} (last_refreshed: {last_refreshed_str})")
         else:
             # Opção 2: Todo o período
             if not pack.get("date_start"):
                 raise HTTPException(status_code=400, detail="Pack não tem date_start configurado")
-            
+
             since_str = pack["date_start"]
-            
+
             # Se auto_refresh estiver ativado, usar até hoje (until_date), senão usar date_stop
             auto_refresh = pack.get("auto_refresh", False)
             if auto_refresh:
@@ -882,9 +911,9 @@ def refresh_pack(
                 if not pack.get("date_stop"):
                     raise HTTPException(status_code=400, detail="Pack não tem date_stop configurado")
                 until_str = pack["date_stop"]
-            
+
             logger.info(f"[REFRESH_PACK] Pack {pack_id} - Tipo: todo o período - Range: {since_str} até {until_str} (auto_refresh: {auto_refresh})")
-        
+
         # Atualizar status do pack para "running"
         supabase_repo.update_pack_refresh_status(
             user["token"],
@@ -892,30 +921,34 @@ def refresh_pack(
             user["user_id"],
             refresh_status="running"
         )
-        
-        # Converter filtros para formato do GraphAPI
+
+        # Converter filtros para formato do GraphAPI (ignorar filtros com campos vazios)
         filters_list = []
         for filter_rule in filters:
             if isinstance(filter_rule, dict):
-                filters_list.append({
-                    "field": filter_rule.get("field", ""),
-                    "operator": filter_rule.get("operator", ""),
-                    "value": filter_rule.get("value", "")
-                })
-        
+                field = filter_rule.get("field", "")
+                operator = filter_rule.get("operator", "")
+                value = filter_rule.get("value", "")
+                if field and operator and value:
+                    filters_list.append({
+                        "field": field,
+                        "operator": operator,
+                        "value": value
+                    })
+
         # Preparar time_range
         time_range_dict = {
             "since": since_str,
             "until": until_str
         }
-        
+
         # Iniciar job no Meta
         job_id = api.start_ads_job(pack["adaccount_id"], time_range_dict, filters_list)
-        
+
         if isinstance(job_id, dict) and "status" in job_id:
             logger.error(f"[REFRESH_PACK] GraphAPI returned error: {job_id}")
             error_msg = job_id.get("message", "")
-            
+
             # Atualizar status para failed
             supabase_repo.update_pack_refresh_status(
                 user["token"],
@@ -923,7 +956,7 @@ def refresh_pack(
                 user["user_id"],
                 refresh_status="failed"
             )
-            
+
             # Verificar se é erro de token expirado
             if check_meta_error_for_token_expiry(error_msg):
                 mark_connection_as_expired(user["token"], user["user_id"])
@@ -935,49 +968,47 @@ def refresh_pack(
                         "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
                     }
                 )
-            
+
             raise HTTPException(status_code=502, detail=error_msg)
-        
-        # Preparar payload do job
+
+        # Preparar payload do job (usar filters_list limpo para consistência)
         payload_data = {
             "pack_id": pack_id,
             "adaccount_id": pack["adaccount_id"],
             "date_start": since_str,
             "date_stop": until_str,
             "level": pack.get("level", "ad"),
-            "filters": filters,
+            "filters": filters_list,
             "name": pack.get("name", ""),
             "auto_refresh": pack.get("auto_refresh", False),
-            "is_refresh": True,  # Flag para identificar que é refresh
+            "is_refresh": True,
         }
-        
-        # Verificar se pack tem integração Sheets e criar job paralelo ANTES de iniciar processamento
-        # Isso permite que o frontend veja ambos os toasts simultaneamente desde o início
+
+        # Verificar se pack tem integração Sheets e criar job paralelo
         sheet_integration_id = pack.get("sheet_integration_id")
         sync_job_id = None
-        
+        sync_details = None
+
         if sheet_integration_id:
             try:
                 from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
-                import threading
-                
+
                 logger.info(f"[REFRESH_PACK] Pack {pack_id} tem integração Sheets ({sheet_integration_id}). Criando job paralelo...")
-                
-                # Criar job de sincronização ANTES de iniciar processamento Meta
+
                 sync_job_id = create_sync_job(
                     user_jwt=user["token"],
                     user_id=user["user_id"],
                     integration_id=sheet_integration_id,
                 )
-                
-                # Adicionar sync_job_id e integration_id no payload desde o início (em details para o frontend acessar)
-                payload_data["details"] = {
+
+                # Details separado do payload — passado via parâmetro details de record_job
+                sync_details = {
                     "sync_job_id": sync_job_id,
                     "integration_id": sheet_integration_id,
                     "has_sheet_sync": True
                 }
-                
-                # Iniciar processamento em thread separada (não bloqueia)
+
+                # Iniciar processamento em thread separada (daemon=False para não ser morta em restart)
                 def run_sync():
                     try:
                         logger.info(f"[REFRESH_PACK] Iniciando processamento do sync job {sync_job_id} em thread separada")
@@ -990,31 +1021,29 @@ def refresh_pack(
                         logger.info(f"[REFRESH_PACK] Sync job {sync_job_id} concluído com sucesso")
                     except Exception as e:
                         logger.error(f"[REFRESH_PACK] Erro ao processar sync job {sync_job_id}: {e}")
-                
-                thread = threading.Thread(target=run_sync, daemon=True)
+
+                thread = threading.Thread(target=run_sync, daemon=False)
                 thread.start()
                 logger.info(f"[REFRESH_PACK] Thread de sync Sheets iniciada para job {sync_job_id}")
-                
+
             except Exception as e:
                 # Não falhar refresh se criação do sync job falhar
                 logger.warning(f"[REFRESH_PACK] Erro ao criar job de sync Sheets para pack {pack_id}: {e}")
-        
-        # Registrar job no Supabase com payload (já incluindo sync_job_id se houver)
-        try:
-            supabase_repo.record_job(
-                user["token"],
-                str(job_id),
-                status="running",
-                user_id=user["user_id"],
-                progress=0,
-                message="Refresh de pack iniciado",
-                payload=payload_data
-            )
-        except Exception:
-            logger.exception("Falha ao registrar job no Supabase (refresh)")
-        
+
+        # Registrar job no Supabase (crítico — se falhar, abortar refresh)
+        supabase_repo.record_job(
+            user["token"],
+            str(job_id),
+            status="running",
+            user_id=user["user_id"],
+            progress=0,
+            message="Refresh de pack iniciado",
+            payload=payload_data,
+            details=sync_details
+        )
+
         logger.info(f"[REFRESH_PACK] ✓ Job {job_id} iniciado para refresh do pack {pack_id}")
-        
+
         return {
             "job_id": job_id,
             "status": "started",
@@ -1024,10 +1053,9 @@ def refresh_pack(
                 "since": since_str,
                 "until": until_str
             },
-            # Incluir sync_job_id para que o frontend possa cancelar imediatamente se necessário
             "sync_job_id": sync_job_id,
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:

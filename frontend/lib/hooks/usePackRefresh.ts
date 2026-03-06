@@ -35,7 +35,6 @@ import {
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
   SHEETS_TOAST_TOTAL_STEPS,
-  getSheetsProgressPackLabel,
   buildTranscriptionToastContent,
   calculateTranscriptionProgressPercent,
   type ProgressToastContent,
@@ -309,7 +308,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               return { success: false, error: errorMessage, paused: true, needsGoogleReconnect: true };
             }
 
-            finishProgressToast(toastId, false, `Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`);
+            const syncError = new Error(`Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`);
+            logger.error(syncError);
+            finishProgressToast(toastId, false, syncError.message);
             return { success: false, error: progress.message || "Erro desconhecido" };
           }
 
@@ -318,7 +319,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           updateProgressToast(
             toastId,
-            getSheetsProgressPackLabel(packName),
+            packName,
             1,
             SHEETS_TOAST_TOTAL_STEPS,
             undefined,
@@ -375,7 +376,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           updateProgressToast(
             toastId,
-            getSheetsProgressPackLabel(packName),
+            packName,
             1,
             SHEETS_TOAST_TOTAL_STEPS,
             undefined,
@@ -444,7 +445,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           updateProgressToast(
             toastId,
-            `Transcrição: ${packName}`,
+            packName,
             1,
             TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined,
@@ -485,11 +486,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           }
 
           if (progress.status === "failed") {
-            finishProgressToast(
-              toastId,
-              false,
-              progress.message || `Transcrição de "${packName}" falhou`
-            );
+            const transcriptionError = new Error(progress.message || `Transcrição de "${packName}" falhou`);
+            logger.error(transcriptionError);
+            finishProgressToast(toastId, false, transcriptionError.message);
             return { success: false, error: progress.message || "Falha na transcrição" };
           }
         } catch (error) {
@@ -501,9 +500,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             return { success: false, error: "Cancelado pelo usuário" };
           }
 
+          logger.error(`usePackRefresh: erro no polling do job de transcrição`, { transcriptionJobId, packName, error });
+
           updateProgressToast(
             toastId,
-            `Transcrição: ${packName}`,
+            packName,
             1,
             TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined,
@@ -576,7 +577,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       // Toast imediato (antes de qualquer await)
       showProgressToast(
         toastId,
-        `Transcrição: ${packName}`,
+        packName,
         1,
         TRANSCRIPTION_TOAST_TOTAL_STEPS,
         undefined,
@@ -603,7 +604,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           jobIdRef.current = res.transcription_job_id;
           updateProgressToast(
             toastId,
-            `Transcrição: ${packName}`,
+            packName,
             1,
             TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined,
@@ -797,7 +798,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         activeRefresh.sheetSyncToastId = `sync-sheet-${packId}`;
         showProgressToast(
           activeRefresh.sheetSyncToastId,
-          getSheetsProgressPackLabel(packName),
+          packName,
           1,
           SHEETS_TOAST_TOTAL_STEPS,
           undefined,
@@ -870,7 +871,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           console.log(`[PACK_REFRESH] Iniciando polling do Sheets imediatamente`);
           updateProgressToast(
             activeRefresh.sheetSyncToastId,
-            getSheetsProgressPackLabel(packName),
+            packName,
             1,
             SHEETS_TOAST_TOTAL_STEPS,
             undefined,
@@ -944,7 +945,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               // Atualizar (ou criar) toast do Sheets e iniciar polling
               updateProgressToast(
                 activeRefresh.sheetSyncToastId!,
-                getSheetsProgressPackLabel(packName),
+                packName,
                 1,
                 SHEETS_TOAST_TOTAL_STEPS,
                 undefined,
@@ -1024,7 +1025,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                 const onCancelTranscription = () => handleCancelTranscription(transcriptionToastId, transcriptionJobId);
                 showProgressToast(
                   transcriptionToastId,
-                  `Transcrição: ${packName}`,
+                  packName,
                   1,
                   TRANSCRIPTION_TOAST_TOTAL_STEPS,
                   undefined,
@@ -1053,9 +1054,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                 adsCount,
               });
             } else if (progress.status === "failed") {
-              finishProgressToast(toastId, false, `Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
+              const failError = new Error(`Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
+              logger.error(failError);
+              finishProgressToast(toastId, false, failError.message);
               completed = true;
-              options?.onError?.(new Error(progress.message || "Erro desconhecido"));
+              options?.onError?.(failError);
             } else if (progress.status === "cancelled") {
               completed = true;
             }

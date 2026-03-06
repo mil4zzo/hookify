@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from app.core.supabase_client import get_supabase_for_user
 from app.core.auth import get_current_user
 from app.services import supabase_repo
-from app.services.thumbnail_cache import build_public_storage_url, cache_first_thumbs_for_ads, DEFAULT_BUCKET
+from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
 
 
 logger = logging.getLogger(__name__)
@@ -2236,7 +2236,7 @@ def get_ad_creative(ad_id: str, user=Depends(get_current_user)):
     """Retorna apenas creative e video_ids de um anúncio (leve, para uso em player de vídeo)."""
     sb = get_supabase_for_user(user["token"])
     try:
-        ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
+        ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id,video_owner_page_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
         if ads_res.data and len(ads_res.data) > 0:
             ad_row = ads_res.data[0]
             creative = ad_row.get("creative") or {}
@@ -2246,6 +2246,7 @@ def get_ad_creative(ad_id: str, user=Depends(get_current_user)):
             return {
                 "creative": creative,
                 "adcreatives_videos_ids": ad_row.get("adcreatives_videos_ids") or [],
+                "video_owner_page_id": ad_row.get("video_owner_page_id"),
             }
         return {"creative": {}, "adcreatives_videos_ids": []}
     except Exception as e:
@@ -2699,104 +2700,6 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
     except Exception as e:
         logger.exception(f"Erro ao buscar pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao buscar pack: {str(e)}")
-
-
-@router.post("/packs/{pack_id}/cache-thumbnails")
-def cache_pack_thumbnails(pack_id: str, user=Depends(get_current_user)):
-    """Backfill (on-demand) de thumbnails no Storage para packs antigos.
-
-    - Usa somente `adcreatives_videos_thumbs[0]`
-    - Cacheia apenas quando `ads.thumb_storage_path` estiver vazio
-    - Best-effort: falhas individuais não quebram o processo inteiro
-    """
-    sb = get_supabase_for_user(user["token"])
-    user_id = user["user_id"]
-
-    # 1) Carregar ad_ids do pack
-    pres = sb.table("packs").select("id,ad_ids").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
-    if not pres.data:
-        raise HTTPException(status_code=404, detail="Pack não encontrado")
-    ad_ids = pres.data[0].get("ad_ids") or []
-    if not isinstance(ad_ids, list) or not ad_ids:
-        return {"success": True, "pack_id": pack_id, "cached": 0, "eligible": 0, "skipped": 0, "failed": 0}
-
-    # 2) Buscar ads e determinar elegíveis (sem thumb_storage_path e com thumbs[0])
-    ad_id_to_thumb_url: Dict[str, str] = {}
-    skipped = 0
-    failed = 0
-
-    batch_size = 400
-    for i in range(0, len(ad_ids), batch_size):
-        batch_ids = [str(x) for x in ad_ids[i:i + batch_size] if x]
-        if not batch_ids:
-            continue
-        try:
-            def ads_filters(q):
-                return q.eq("user_id", user_id).in_("ad_id", batch_ids)
-
-            ads_rows = _fetch_all_paginated(
-                sb,
-                "ads",
-                "ad_id,thumb_storage_path,adcreatives_videos_thumbs,thumbnail_url",
-                ads_filters,
-            )
-        except Exception as e:
-            # Se o schema ainda não estiver aplicado em algum ambiente, degradar com mensagem clara
-            raise HTTPException(status_code=500, detail=f"Falha ao ler ads para backfill: {str(e)}")
-
-        for r in (ads_rows or []):
-            ad_id = str(r.get("ad_id") or "").strip()
-            if not ad_id:
-                continue
-            existing_path = str(r.get("thumb_storage_path") or "").strip()
-            if existing_path:
-                skipped += 1
-                continue
-            thumb_url: Optional[str] = None
-            thumbs = r.get("adcreatives_videos_thumbs")
-            if isinstance(thumbs, list) and thumbs:
-                first = str(thumbs[0] or "").strip()
-                if first:
-                    thumb_url = first
-            if not thumb_url:
-                thumb_url = str(r.get("thumbnail_url") or "").strip() or None
-            if thumb_url:
-                ad_id_to_thumb_url[ad_id] = thumb_url
-            else:
-                skipped += 1
-
-    eligible = len(ad_id_to_thumb_url)
-    if eligible == 0:
-        return {"success": True, "pack_id": pack_id, "cached": 0, "eligible": 0, "skipped": skipped, "failed": failed}
-
-    # 3) Cache em paralelo
-    cached_map = cache_first_thumbs_for_ads(user_id=str(user_id), ad_id_to_thumb_url=ad_id_to_thumb_url)
-    cached = 0
-    upload_success = len(cached_map)
-
-    # 4) Persistir no DB (update por ad_id)
-    for ad_id, c in cached_map.items():
-        try:
-            sb.table("ads").update(
-                {
-                    "thumb_storage_path": c.storage_path,
-                    "thumb_cached_at": c.cached_at,
-                    "thumb_source_url": c.source_url,
-                }
-            ).eq("ad_id", ad_id).eq("user_id", user_id).execute()
-            cached += 1
-        except Exception:
-            failed += 1
-
-    return {
-        "success": True,
-        "pack_id": pack_id,
-        "eligible": eligible,
-        "upload_success": upload_success,
-        "cached": cached,
-        "skipped": skipped,
-        "failed": max(0, eligible - cached),
-    }
 
 
 @router.delete("/packs/{pack_id}")
