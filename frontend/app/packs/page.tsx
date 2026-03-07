@@ -31,6 +31,7 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
+import { subDays } from "date-fns";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -715,7 +716,7 @@ export default function PacksPage() {
           const { cachePackAds } = await import("@/lib/storage/adsCache");
           await cachePackAds(pack.id, allAds).catch(() => {});
         } else if (!response.success) {
-          logger.error('packs/page: getPack retornou success:false ao carregar preview', { packId: pack.id, response });
+          logger.error("packs/page: getPack retornou success:false ao carregar preview", { packId: pack.id, response });
         }
       }
 
@@ -1153,15 +1154,7 @@ export default function PacksPage() {
       </PageContainer>
 
       {/* Load Pack Modal */}
-      <Modal
-        isOpen={isDialogOpen}
-        onClose={() => setIsDialogOpen(false)}
-        size="2xl"
-        padding="md"
-        closeOnOverlayClick
-        closeOnEscape
-        showCloseButton
-      >
+      <Modal isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} size="2xl" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="space-y-1.5 mb-6">
           <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
           <p className="text-sm text-muted-foreground">Configure os parâmetros para carregar um novo pack de anúncios</p>
@@ -1180,9 +1173,7 @@ export default function PacksPage() {
               }}
               className={packNameDuplicateError ? "border-destructive focus-visible:ring-destructive" : undefined}
             />
-            <p className={packNameDuplicateError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
-              {packNameDuplicateError ? "Já existe um pack com esse nome. Escolha outro." : "Dê um nome descritivo para identificar facilmente seu pack"}
-            </p>
+            <p className={packNameDuplicateError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{packNameDuplicateError ? "Já existe um pack com esse nome. Escolha outro." : "Dê um nome descritivo para identificar facilmente seu pack"}</p>
           </div>
 
           {/* Ad Account */}
@@ -1524,34 +1515,12 @@ export default function PacksPage() {
 
       {/* Refresh Pack Confirmation Dialog */}
       <Modal isOpen={!!packToRefresh} onClose={cancelRefreshPack} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
-        <div className="flex flex-col items-center gap-6 py-4">
-          <h2 className="text-xl font-semibold text-text">Atualizar Pack?</h2>
-
-          <p className="text-center text-sm text-text-muted">
-            Deseja atualizar o pack <strong>"{packToRefresh?.name}"</strong>? Escolha o tipo de atualização:
-          </p>
-
-          {/* Opções de atualização */}
-          <div className="w-full space-y-3">
-            <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-success bg-success-10" : "border-border hover:border-success-50 bg-input-30"}`}>
-              <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "since_last_refresh" ? "border-success" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-success" />}</div>
-                <div className="flex-1">
-                  <div className="font-semibold text-text">Desde a última atualização</div>
-                  <div className="text-xs text-text-muted mt-1">Busca novos dados desde a última atualização até hoje</div>
-                </div>
-              </div>
-            </button>
-
-            <button type="button" onClick={() => setRefreshType("full_period")} className={`w-full p-4 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "full_period" ? "border-success bg-success-10" : "border-border hover:border-success-50 bg-input-30"}`}>
-              <div className="flex items-start gap-3">
-                <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center ${refreshType === "full_period" ? "border-success" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-success" />}</div>
-                <div className="flex-1">
-                  <div className="font-semibold text-text">Todo o período</div>
-                  <div className="text-xs text-text-muted mt-1">Atualiza todos os dados do pack desde a data inicial até a data final</div>
-                </div>
-              </div>
-            </button>
+        <div className="flex flex-col gap-5 py-4">
+          <div>
+            <h2 className="text-xl font-semibold text-text mb-1">Atualizar Pack?</h2>
+            <p className="text-sm text-text-muted">
+              Deseja atualizar o pack <strong>"{packToRefresh?.name}"</strong>? Escolha o tipo de atualização:
+            </p>
           </div>
 
           {/* Toggles: Meta, Leadscore, Transcrição */}
@@ -1560,35 +1529,59 @@ export default function PacksPage() {
             const hasSheetIntegration = !!pack?.sheet_integration?.id;
             return (
               <div className="w-full space-y-2">
-                <p className="text-sm font-medium text-text">O que atualizar:</p>
-                <div className="flex flex-col gap-2">
-                  <ToggleSwitch
-                    id="refresh-toggle-meta"
-                    checked={refreshToggles.meta}
-                    onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, meta: checked }))}
-                    label="Meta"
-                    variant="minimal"
-                    icon={<MetaIcon className="h-4 w-4 flex-shrink-0" />}
-                  />
-                  <ToggleSwitch
-                    id="refresh-toggle-leadscore"
-                    checked={hasSheetIntegration ? refreshToggles.leadscore : false}
-                    onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, leadscore: checked }))}
-                    label="Leadscore (Google Sheets)"
-                    variant="minimal"
-                    icon={<GoogleSheetsIcon className="h-4 w-4 flex-shrink-0" />}
-                    disabled={!hasSheetIntegration}
-                    helperText={!hasSheetIntegration ? "Pack sem integração com planilha" : undefined}
-                  />
-                  <ToggleSwitch
-                    id="refresh-toggle-transcription"
-                    checked={refreshToggles.transcription}
-                    onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, transcription: checked }))}
-                    label="Transcrição"
-                    variant="minimal"
-                    icon={<IconMicrophone className="h-4 w-4 flex-shrink-0" />}
-                  />
+                <div className="flex flex-col gap-3">
+                  <ToggleSwitch id="refresh-toggle-meta" checked={refreshToggles.meta} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, meta: checked }))} label="Meta" variant="minimal" icon={<MetaIcon className="h-4 w-4 flex-shrink-0" />} />
+                  <div className="flex items-center gap-2">
+                    <ToggleSwitch id="refresh-toggle-leadscore" checked={hasSheetIntegration ? refreshToggles.leadscore : false} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, leadscore: checked }))} label="Leadscore (Google Sheets)" variant="minimal" icon={<GoogleSheetsIcon className="h-4 w-4 flex-shrink-0" />} disabled={!hasSheetIntegration} />
+                    {!hasSheetIntegration && (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <IconInfoCircle className="h-3.5 w-3.5 text-muted-foreground cursor-help flex-shrink-0" />
+                          </TooltipTrigger>
+                          <TooltipContent>Ative o leadscore integrando uma planilha.</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    )}
+                  </div>
+                  <ToggleSwitch id="refresh-toggle-transcription" checked={refreshToggles.transcription} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, transcription: checked }))} label="Transcrição" variant="minimal" icon={<IconMicrophone className="h-4 w-4 flex-shrink-0 text-orange-500" />} />
                 </div>
+              </div>
+            );
+          })()}
+
+          {/* Opções de período */}
+          {(() => {
+            const pack = refreshModalPack;
+            const formatDateDisplay = (s: string) => {
+              if (!s) return "";
+              const [y, m, d] = s.split("-");
+              return `${d}/${m}/${y}`;
+            };
+            const today = getTodayLocal();
+            const sinceLastRange = pack?.last_refreshed_at ? `${formatDateDisplay(formatDateLocal(subDays(new Date(pack.last_refreshed_at + "T12:00:00"), 1)))} → ${formatDateDisplay(today)}` : "—";
+            const fullPeriodRange = pack?.date_start && pack?.date_stop ? (pack.auto_refresh ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(today)}` : `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(pack.date_stop)}`) : "—";
+            return (
+              <div className="w-full space-y-2">
+                <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-primary bg-primary-10" : "border-border hover:border-primary-50 bg-input-30"}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "since_last_refresh" ? "border-primary" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
+                    <div>
+                      <div className="font-semibold text-text text-sm">Desde a última atualização</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{sinceLastRange}</div>
+                    </div>
+                  </div>
+                </button>
+
+                <button type="button" onClick={() => setRefreshType("full_period")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "full_period" ? "border-primary bg-primary-10" : "border-border hover:border-primary-50 bg-input-30"}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "full_period" ? "border-primary" : "border-border"}`}>{refreshType === "full_period" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
+                    <div>
+                      <div className="font-semibold text-text text-sm">Todo o período</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{fullPeriodRange}</div>
+                    </div>
+                  </div>
+                </button>
               </div>
             );
           })()}

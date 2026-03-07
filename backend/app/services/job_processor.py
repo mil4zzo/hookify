@@ -10,7 +10,7 @@ Responsável por:
 Executa fora do request de polling para não bloquear.
 """
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 import time
 from app.services.job_tracker import (
     JobTracker,
@@ -30,7 +30,7 @@ from app.services.ads_enricher import get_ads_enricher
 from app.services.dataformatter import format_ads_for_api
 from app.core.supabase_client import get_supabase_service
 from app.services import supabase_repo
-from app.services.background_tasks import get_background_status, spawn_pack_background_tasks
+from app.services.background_tasks import spawn_pack_background_tasks
 from app.services.supabase_repo import PackNameConflictError
 
 logger = logging.getLogger(__name__)
@@ -146,6 +146,100 @@ class JobProcessor:
                 f"[JobProcessor] Falha no cleanup compensatório do pack {pack_id} para job {job_id}: {cleanup_error}"
             )
 
+    @staticmethod
+    def _extract_thumb_url_from_formatted_ad(ad: Dict[str, Any]) -> Optional[str]:
+        thumb_url: Optional[str] = None
+        thumbs = ad.get("adcreatives_videos_thumbs")
+        if isinstance(thumbs, list) and thumbs:
+            first = str(thumbs[0] or "").strip()
+            if first:
+                thumb_url = first
+        if not thumb_url:
+            creative = ad.get("creative") or {}
+            thumb_url = str(creative.get("thumbnail_url") or "").strip() or None
+        return thumb_url
+
+    def _build_thumb_groups_by_ad_name(self, formatted_data: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """
+        Constrói grupos de thumbnails por ad_name (normalizado), deduplicando por ad_id.
+
+        Retorno:
+        {
+            ad_name_key: {
+                "ad_name": str,
+                "ad_ids": List[str],
+                "rep_ad_id": str,
+                "thumb_url": str,
+            }
+        }
+        """
+        canonical_by_ad_id: Dict[str, Dict[str, Optional[str]]] = {}
+        duplicate_rows = 0
+
+        for ad in formatted_data:
+            ad_id = str(ad.get("ad_id") or "").strip()
+            if not ad_id:
+                continue
+
+            ad_name = str(ad.get("ad_name") or "").strip()
+            thumb_url = self._extract_thumb_url_from_formatted_ad(ad)
+
+            existing = canonical_by_ad_id.get(ad_id)
+            if not existing:
+                canonical_by_ad_id[ad_id] = {"ad_name": ad_name, "thumb_url": thumb_url}
+                continue
+
+            duplicate_rows += 1
+            if not existing.get("ad_name") and ad_name:
+                existing["ad_name"] = ad_name
+            if not existing.get("thumb_url") and thumb_url:
+                existing["thumb_url"] = thumb_url
+
+        grouped_ad_ids: Dict[str, List[str]] = {}
+        ad_name_labels: Dict[str, str] = {}
+        skipped_missing_name = 0
+        skipped_missing_thumb = 0
+
+        for ad_id, item in canonical_by_ad_id.items():
+            ad_name = str(item.get("ad_name") or "").strip()
+            if not ad_name:
+                skipped_missing_name += 1
+                continue
+
+            thumb_url = str(item.get("thumb_url") or "").strip()
+            if not thumb_url:
+                skipped_missing_thumb += 1
+                continue
+
+            ad_name_key = ad_name.casefold()
+            grouped_ad_ids.setdefault(ad_name_key, []).append(ad_id)
+            ad_name_labels.setdefault(ad_name_key, ad_name)
+
+        groups: Dict[str, Dict[str, Any]] = {}
+        for ad_name_key, ad_ids in grouped_ad_ids.items():
+            sorted_ad_ids = sorted(ad_ids)
+            rep_ad_id = sorted_ad_ids[0]
+            rep_thumb_url = str(canonical_by_ad_id.get(rep_ad_id, {}).get("thumb_url") or "").strip()
+            if not rep_thumb_url:
+                continue
+            groups[ad_name_key] = {
+                "ad_name": ad_name_labels.get(ad_name_key) or ad_name_key,
+                "ad_ids": sorted_ad_ids,
+                "rep_ad_id": rep_ad_id,
+                "thumb_url": rep_thumb_url,
+            }
+
+        logger.info(
+            "[JobProcessor] Thumb groups por ad_name: ad_ids_unique=%s, groups_total=%s, "
+            "skipped_missing_name=%s, skipped_missing_thumb=%s, duplicate_rows=%s",
+            len(canonical_by_ad_id),
+            len(groups),
+            skipped_missing_name,
+            skipped_missing_thumb,
+            duplicate_rows,
+        )
+        return groups
+
     def process(self, job_id: str) -> Dict[str, Any]:
         """
         Processa um job completo.
@@ -169,6 +263,9 @@ class JobProcessor:
             act_id = payload.get("adaccount_id", "")
             is_refresh = payload.get("is_refresh", False)
             pack_id_from_payload = payload.get("pack_id")
+            meta_filters = payload.get("filters")
+            if not isinstance(meta_filters, list):
+                meta_filters = []
             
             # ===== FASE 1: PAGINAÇÃO =====
             if not self.tracker.mark_processing(job_id, STAGE_PAGINATION, {
@@ -234,11 +331,12 @@ class JobProcessor:
                 self._raise_if_job_stopped(job_id, "Lease de processamento perdido ao iniciar enriquecimento")
 
             def on_enrichment_progress(batch_num: int, total_batches: int, ads_enriched: int):
+                batch_text = f"bloco {batch_num}/{total_batches}" if total_batches > 0 else f"bloco {batch_num}"
                 self._heartbeat_or_raise(
                     job_id,
                     status=STATUS_PROCESSING,
                     progress=100,
-                    message=f"Enriquecendo dados: bloco {batch_num}/{total_batches}...",
+                    message=f"Enriquecendo dados: {batch_text}...",
                     details={
                         "stage": STAGE_ENRICHMENT,
                         "page_count": page_count,
@@ -284,6 +382,7 @@ class JobProcessor:
                 raw_data,
                 is_refresh=is_refresh,
                 existing_ads_map=existing_ads_map,
+                meta_filters=meta_filters,
             )
             if not enrich_result.get("success"):
                 error_message = enrich_result.get("error", "Erro ao enriquecer dados")
@@ -570,28 +669,13 @@ class JobProcessor:
                     logger.warning(f"[JobProcessor] Erro ao calcular/salvar stats essenciais para pack {pack_id} (best-effort): {e}")
 
                 # Spawn tasks em background: thumbnails + stats estendidos
-                ad_id_to_thumb_url: Dict[str, str] = {}
-                for ad in formatted_data:
-                    ad_id = str(ad.get("ad_id") or "").strip()
-                    if not ad_id:
-                        continue
-                    thumb_url: Optional[str] = None
-                    thumbs = ad.get("adcreatives_videos_thumbs")
-                    if isinstance(thumbs, list) and thumbs:
-                        first = str(thumbs[0] or "").strip()
-                        if first:
-                            thumb_url = first
-                    if not thumb_url:
-                        creative = ad.get("creative") or {}
-                        thumb_url = str(creative.get("thumbnail_url") or "").strip() or None
-                    if thumb_url:
-                        ad_id_to_thumb_url[ad_id] = thumb_url
+                ad_name_groups = self._build_thumb_groups_by_ad_name(formatted_data)
                 spawn_pack_background_tasks(
                     job_id=job_id,
                     pack_id=pack_id,
                     user_id=self.user_id,
                     user_jwt=self.user_jwt,
-                    ad_id_to_thumb_url=ad_id_to_thumb_url,
+                    ad_name_groups=ad_name_groups,
                     use_service_role=self.use_service_role,
                 )
 

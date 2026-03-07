@@ -2724,6 +2724,9 @@ def delete_pack(
                 "pack_deleted": result.get("pack_deleted", False),
                 "ads_deleted": result.get("ads_deleted", 0),
                 "metrics_deleted": result.get("metrics_deleted", 0),
+                "storage_thumbs_candidates": result.get("storage_thumbs_candidates", 0),
+                "storage_thumbs_deleted": result.get("storage_thumbs_deleted", 0),
+                "storage_thumbs_kept": result.get("storage_thumbs_kept", 0),
             }
         }
     except Exception as e:

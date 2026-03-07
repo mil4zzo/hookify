@@ -165,7 +165,7 @@ export const api = {
       apiClient.get('/analytics/packs', { params: { include_ads: includeAds || false } }),
     getPack: (packId: string, includeAds: boolean = true): Promise<{ success: boolean; pack: any }> =>
       apiClient.get(`/analytics/packs/${packId}`, { params: { include_ads: includeAds } }),
-    deletePack: (packId: string, adIds: string[] = []): Promise<{ success: boolean; pack_id: string; stats: { pack_deleted: boolean; ads_deleted: number; metrics_deleted: number } }> =>
+    deletePack: (packId: string, adIds: string[] = []): Promise<{ success: boolean; pack_id: string; stats: { pack_deleted: boolean; ads_deleted: number; metrics_deleted: number; storage_thumbs_candidates: number; storage_thumbs_deleted: number; storage_thumbs_kept: number } }> =>
       apiClient.deleteWithBody(`/analytics/packs/${packId}`, { ad_ids: adIds }),
     updatePackAutoRefresh: (packId: string, autoRefresh: boolean): Promise<{ success: boolean; pack_id: string; auto_refresh: boolean }> =>
       apiClient.patch(`/analytics/packs/${packId}/auto-refresh`, { auto_refresh: autoRefresh }),

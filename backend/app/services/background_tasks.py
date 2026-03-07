@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, Future
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 
 from app.services import supabase_repo
@@ -67,7 +67,7 @@ def run_pack_background_tasks(
     pack_id: str,
     user_id: str,
     user_jwt: str,
-    ad_id_to_thumb_url: Dict[str, str],
+    ad_name_groups: Dict[str, Dict[str, Any]],
     *,
     use_service_role: bool = False,
 ) -> None:
@@ -82,14 +82,58 @@ def run_pack_background_tasks(
 
     def _run_thumbnails() -> None:
         try:
-            if ad_id_to_thumb_url:
-                cached = cache_first_thumbs_for_ads(
+            groups_total = len(ad_name_groups)
+            uploads_requested = 0
+            uploads_succeeded = 0
+            ads_updated = 0
+            groups_failed = 0
+
+            if ad_name_groups:
+                rep_ad_id_to_thumb_url: Dict[str, str] = {}
+                rep_ad_id_to_ad_ids: Dict[str, list[str]] = {}
+
+                for group in ad_name_groups.values():
+                    rep_ad_id = str(group.get("rep_ad_id") or "").strip()
+                    thumb_url = str(group.get("thumb_url") or "").strip()
+                    ad_ids_raw = group.get("ad_ids") or []
+                    if not rep_ad_id or not thumb_url or not isinstance(ad_ids_raw, list):
+                        continue
+
+                    ad_ids = sorted({str(ad_id).strip() for ad_id in ad_ids_raw if str(ad_id).strip()})
+                    if not ad_ids:
+                        continue
+
+                    rep_ad_id_to_thumb_url[rep_ad_id] = thumb_url
+                    rep_ad_id_to_ad_ids[rep_ad_id] = ad_ids
+
+                uploads_requested = len(rep_ad_id_to_thumb_url)
+
+                cached_by_rep_ad_id = cache_first_thumbs_for_ads(
                     user_id=user_id,
-                    ad_id_to_thumb_url=ad_id_to_thumb_url,
+                    ad_id_to_thumb_url=rep_ad_id_to_thumb_url,
                 )
-                if cached:
-                    supabase_repo.update_ads_thumbnail_cache(user_id=user_id, ad_id_to_cached=cached)
-                    logger.info(f"[BACKGROUND_TASKS] Thumbnails cacheados: {len(cached)} para pack {pack_id}")
+                uploads_succeeded = len(cached_by_rep_ad_id)
+                groups_failed = max(0, uploads_requested - uploads_succeeded)
+
+                ad_id_to_cached = {}
+                for rep_ad_id, cached_thumb in cached_by_rep_ad_id.items():
+                    for ad_id in rep_ad_id_to_ad_ids.get(rep_ad_id, []):
+                        ad_id_to_cached[ad_id] = cached_thumb
+
+                if ad_id_to_cached:
+                    supabase_repo.update_ads_thumbnail_cache(user_id=user_id, ad_id_to_cached=ad_id_to_cached)
+                    ads_updated = len(ad_id_to_cached)
+
+            logger.info(
+                "[BACKGROUND_TASKS] Thumbnail cache summary pack=%s groups_total=%s uploads_requested=%s "
+                "uploads_succeeded=%s groups_failed=%s ads_updated=%s",
+                pack_id,
+                groups_total,
+                uploads_requested,
+                uploads_succeeded,
+                groups_failed,
+                ads_updated,
+            )
             _set_status(job_id, thumbnails="completed")
         except Exception as e:
             logger.exception(f"[BACKGROUND_TASKS] Falha ao cachear thumbnails para pack {pack_id}: {e}")
@@ -123,7 +167,7 @@ def spawn_pack_background_tasks(
     pack_id: str,
     user_id: str,
     user_jwt: str,
-    ad_id_to_thumb_url: Dict[str, str],
+    ad_name_groups: Dict[str, Dict[str, Any]],
     *,
     use_service_role: bool = False,
 ) -> None:
@@ -132,7 +176,7 @@ def spawn_pack_background_tasks(
 
     def _run():
         run_pack_background_tasks(
-            job_id, pack_id, user_id, user_jwt, ad_id_to_thumb_url,
+            job_id, pack_id, user_id, user_jwt, ad_name_groups,
             use_service_role=use_service_role,
         )
 

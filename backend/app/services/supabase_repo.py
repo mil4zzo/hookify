@@ -237,6 +237,103 @@ def _process_pack_deletion_in_batches(
     return (to_update_ids, to_delete_ids, failed_ids)
 
 
+def _get_pack_thumb_storage_paths(
+    sb,
+    user_id: str,
+    pack_id: str,
+) -> List[str]:
+    """Retorna thumb_storage_path dos ads que pertencem ao pack (antes da deleção)."""
+    try:
+        def ads_filters(q):
+            return q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
+
+        rows = _fetch_all_paginated(sb, "ads", "thumb_storage_path", ads_filters)
+    except Exception as e:
+        logger.warning(f"[PACK_DELETION] Falha ao coletar thumb_storage_path do pack {pack_id}: {e}")
+        return []
+
+    prefix = f"thumbs/{user_id}/"
+    paths = {
+        str(r.get("thumb_storage_path") or "").strip()
+        for r in rows
+        if str(r.get("thumb_storage_path") or "").strip()
+    }
+    # Segurança: remover apenas paths de thumbs de ads do usuário
+    filtered = sorted([p for p in paths if p.startswith(prefix)])
+    logger.info(
+        f"[PACK_DELETION] Thumb paths candidatos coletados para pack {pack_id}: {len(filtered)}"
+    )
+    return filtered
+
+
+def _delete_unreferenced_thumb_paths(
+    sb,
+    user_id: str,
+    candidate_paths: List[str],
+    *,
+    storage_batch_size: int = 200,
+    lookup_batch_size: int = 200,
+) -> int:
+    """Remove do Storage somente paths sem referência restante em ads do usuário."""
+    if not candidate_paths:
+        logger.info("[PACK_DELETION] Nenhum thumb path candidato para cleanup no storage")
+        return 0
+
+    unique_paths = sorted({str(p).strip() for p in candidate_paths if str(p).strip()})
+    if not unique_paths:
+        logger.info("[PACK_DELETION] Thumb paths candidatos vazios após normalização")
+        return 0
+
+    still_referenced: set[str] = set()
+    logger.info(
+        f"[PACK_DELETION] Iniciando verificação de referências de thumbs: candidates={len(unique_paths)}"
+    )
+
+    for i in range(0, len(unique_paths), lookup_batch_size):
+        batch = unique_paths[i:i + lookup_batch_size]
+        try:
+            def ads_filters(q):
+                return q.eq("user_id", user_id).in_("thumb_storage_path", batch)
+
+            rows = _fetch_all_paginated(sb, "ads", "thumb_storage_path", ads_filters)
+            for row in rows:
+                p = str(row.get("thumb_storage_path") or "").strip()
+                if p:
+                    still_referenced.add(p)
+        except Exception as e:
+            logger.warning(f"[PACK_DELETION] Falha ao verificar referências de thumbs: {e}")
+            # Em caso de erro de verificação, manter segurança (não deletar)
+            return 0
+
+    to_delete = [p for p in unique_paths if p not in still_referenced]
+    logger.info(
+        f"[PACK_DELETION] Resultado verificação de thumbs: referenced={len(still_referenced)}, "
+        f"orphans={len(to_delete)}"
+    )
+    if not to_delete:
+        return 0
+
+    sb_service = get_supabase_service()
+    deleted_count = 0
+
+    for i in range(0, len(to_delete), storage_batch_size):
+        batch = to_delete[i:i + storage_batch_size]
+        try:
+            sb_service.storage.from_("ad-thumbs").remove(batch)
+            deleted_count += len(batch)
+        except Exception as e:
+            logger.warning(
+                f"[PACK_DELETION] Falha ao remover lote de thumbs do storage "
+                f"(pack cleanup): {e}"
+            )
+
+    logger.info(
+        f"[PACK_DELETION] Cleanup de thumbs no storage concluído: deleted={deleted_count}, "
+        f"attempted={len(to_delete)}"
+    )
+    return deleted_count
+
+
 def upsert_ads(
     user_jwt: str,
     formatted_ads: List[Dict[str, Any]],
@@ -1312,12 +1409,22 @@ def delete_pack(
         Dict com estatísticas da deleção: {
             "pack_deleted": bool,
             "ads_deleted": int,
-            "metrics_deleted": int
+            "metrics_deleted": int,
+            "storage_thumbs_candidates": int,
+            "storage_thumbs_deleted": int,
+            "storage_thumbs_kept": int
         }
     """
     if not user_id:
         logger.warning("Supabase delete_pack skipped: missing user_id")
-        return {"pack_deleted": False, "ads_deleted": 0, "metrics_deleted": 0}
+        return {
+            "pack_deleted": False,
+            "ads_deleted": 0,
+            "metrics_deleted": 0,
+            "storage_thumbs_candidates": 0,
+            "storage_thumbs_deleted": 0,
+            "storage_thumbs_kept": 0,
+        }
     
     # Sempre buscar pack para obter ad_ids e período (fonte de verdade)
     sb = _get_sb(user_jwt, sb_client)
@@ -1325,6 +1432,7 @@ def delete_pack(
     pack_ad_ids = None
     date_start = None
     date_stop = None
+    thumb_paths_candidates: List[str] = []
     
     try:
         pres = sb.table("packs").select("ad_ids, date_start, date_stop").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
@@ -1349,10 +1457,17 @@ def delete_pack(
     result = {
         "pack_deleted": False,
         "ads_deleted": 0,
-        "metrics_deleted": 0
+        "metrics_deleted": 0,
+        "storage_thumbs_candidates": 0,
+        "storage_thumbs_deleted": 0,
+        "storage_thumbs_kept": 0,
     }
     
     try:
+        # Coletar paths de thumbs antes da deleção/ajustes em ads
+        thumb_paths_candidates = _get_pack_thumb_storage_paths(sb, user_id, pack_id)
+        result["storage_thumbs_candidates"] = len(thumb_paths_candidates)
+
         # 1. Deletar o pack (se existir no Supabase)
         # Tenta tanto por UUID quanto por id local (pack_xxx)
         try:
@@ -1528,11 +1643,39 @@ def delete_pack(
                 logger.info(f"Deletados {len(to_delete_ad_ids)} registros de ads (não usados por outros packs)")
         except Exception as e:
             logger.warning(f"Erro ao ajustar ads ao deletar pack: {e}")
+
+        # 4. Cleanup de storage (best-effort): remover apenas thumbs sem referência restante em ads
+        try:
+            deleted_files = _delete_unreferenced_thumb_paths(
+                sb,
+                user_id=user_id,
+                candidate_paths=thumb_paths_candidates,
+            )
+            result["storage_thumbs_deleted"] = int(deleted_files or 0)
+            result["storage_thumbs_kept"] = max(
+                0,
+                int(result["storage_thumbs_candidates"]) - int(result["storage_thumbs_deleted"]),
+            )
+            if deleted_files:
+                logger.info(
+                    f"[PACK_DELETION] Removidos {deleted_files} arquivos de thumbnails órfãos "
+                    f"do storage para pack {pack_id}"
+                )
+        except Exception as e:
+            logger.warning(f"[PACK_DELETION] Erro no cleanup de thumbnails do storage: {e}")
         
     except Exception as e:
         logger.exception(f"Erro ao deletar pack {pack_id}: {e}")
         raise
     
+    logger.info(
+        f"[PACK_DELETION] Resumo pack={pack_id}: pack_deleted={result.get('pack_deleted')}, "
+        f"ads_deleted={result.get('ads_deleted')}, metrics_deleted={result.get('metrics_deleted')}, "
+        f"storage_thumbs_candidates={result.get('storage_thumbs_candidates')}, "
+        f"storage_thumbs_deleted={result.get('storage_thumbs_deleted')}, "
+        f"storage_thumbs_kept={result.get('storage_thumbs_kept')}"
+    )
+
     return result
 
 

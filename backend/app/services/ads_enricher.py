@@ -9,6 +9,7 @@ Responsavel por:
 import logging
 import time
 import urllib.parse
+import json
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 import requests
@@ -168,15 +169,23 @@ class AdsEnricher:
         return raw_data
 
     def _fetch_batch_with_retry(
-        self, url: str, payload: Dict[str, Any], batch_label: str
-    ) -> List[Dict[str, Any]]:
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        batch_label: str,
+        *,
+        return_full: bool = False,
+    ) -> Any:
         """Faz GET de um batch com retry e backoff. Levanta excecao se todas as tentativas falharem."""
         last_exc: Optional[Exception] = None
         for attempt in range(MAX_RETRIES):
             try:
                 response = requests.get(url, params=payload, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
-                return response.json().get("data", [])
+                response_json = response.json()
+                if return_full:
+                    return response_json
+                return response_json.get("data", [])
             except requests.exceptions.HTTPError as http_err:
                 decoded_text = urllib.parse.unquote(http_err.response.text)
                 if _is_meta_rate_limit_error(decoded_text):
@@ -275,6 +284,67 @@ class AdsEnricher:
         )
         return all_results
 
+    def _fetch_by_filter_paginated(
+        self,
+        act_id: str,
+        fields: str,
+        meta_filters: List[Dict[str, Any]],
+        label: str,
+    ) -> List[Dict[str, Any]]:
+        if not meta_filters:
+            return []
+
+        all_results: List[Dict[str, Any]] = []
+        page = 0
+        url = f"{self.base_url}{act_id}/ads"
+        payload: Dict[str, Any] = {
+            "access_token": self.access_token,
+            "fields": fields,
+            "limit": 1000,
+            "filtering": json.dumps(meta_filters),
+        }
+
+        logger.info("[AdsEnricher] %s: iniciando busca paginada por filtros", label)
+
+        while True:
+            page += 1
+            if not self._ensure_not_cancelled(f"{label} na pagina {page}"):
+                return all_results
+
+            page_label = f"{label} pag.{page}"
+            response_data = self._fetch_batch_with_retry(
+                url,
+                payload,
+                page_label,
+                return_full=True,
+            )
+            data = response_data.get("data", [])
+            all_results.extend(data)
+
+            logger.info(
+                "[AdsEnricher] %s concluida: %d ads retornados (total=%d)",
+                page_label,
+                len(data),
+                len(all_results),
+            )
+
+            if self.on_progress:
+                self.on_progress(page, 0, len(all_results))
+
+            next_url = str(response_data.get("paging", {}).get("next") or "").strip()
+            if not next_url:
+                break
+            url = next_url
+            payload = {}
+
+        logger.info(
+            "[AdsEnricher] %s concluida: %d ads em %d pagina(s)",
+            label,
+            len(all_results),
+            page,
+        )
+        return all_results
+
     _DETAILS_FIELDS = (
         "id,name,effective_status,"
         "creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
@@ -291,6 +361,16 @@ class AdsEnricher:
         self, act_id: str, ad_ids: List[str], *, _split_depth: int = 0
     ) -> List[Dict[str, Any]]:
         return self._fetch_in_batches(act_id, ad_ids, "id,effective_status", "status", _split_depth=_split_depth)
+
+    def fetch_status_by_filter(
+        self, act_id: str, meta_filters: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        return self._fetch_by_filter_paginated(
+            act_id,
+            "id,effective_status",
+            meta_filters,
+            "status-filter",
+        )
 
     def merge_details(
         self,
@@ -342,6 +422,7 @@ class AdsEnricher:
         *,
         is_refresh: bool = False,
         existing_ads_map: Optional[Dict[str, Dict[str, Any]]] = None,
+        meta_filters: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         try:
             if not raw_data:
@@ -381,7 +462,10 @@ class AdsEnricher:
                 )
 
             media_details = self.fetch_details(act_id, rep_ids)
-            status_details = self.fetch_status_only(act_id, unique_ad_ids)
+            if meta_filters:
+                status_details = self.fetch_status_by_filter(act_id, meta_filters)
+            else:
+                status_details = self.fetch_status_only(act_id, unique_ad_ids)
 
             enriched = self.merge_details(raw_data, media_details)
 
