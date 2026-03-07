@@ -1,7 +1,7 @@
 """
-Google Sheet Sync Job: Processa sincronização de planilhas Google em background.
+Google Sheet Sync Job: Processa sincronizacao de planilhas Google em background.
 
-Responsável por:
+Responsavel por:
 - Ler dados da planilha Google Sheets
 - Processar e validar dados
 - Persistir no Supabase (ad_metrics enrichment)
@@ -9,6 +9,7 @@ Responsável por:
 """
 import logging
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from app.services.job_tracker import (
     JobTracker,
@@ -23,7 +24,7 @@ from app.services.ad_metrics_sheet_importer import run_ad_metrics_sheet_import, 
 
 logger = logging.getLogger(__name__)
 
-# Estágios do sync
+# Estagios do sync
 STAGE_READING = "lendo_planilha"
 STAGE_PROCESSING = "processando_dados"
 STAGE_PERSISTING = "persistindo"
@@ -31,19 +32,38 @@ STAGE_COMPLETE = "completo"
 
 
 def _check_if_cancelled(tracker: JobTracker, job_id: str) -> bool:
-    """
-    Verifica se o job foi cancelado pelo usuário.
-    Retorna True se o job está com status CANCELLED.
-    """
+    """Verifica se o job foi cancelado pelo usuario."""
     try:
         job = tracker.get_job(job_id)
         if job and job.get("status") == STATUS_CANCELLED:
-            logger.info(f"[GoogleSheetSyncJob] Job {job_id} foi cancelado pelo usuário")
+            logger.info(f"[GoogleSheetSyncJob] Job {job_id} foi cancelado pelo usuario")
             return True
         return False
     except Exception as e:
         logger.warning(f"[GoogleSheetSyncJob] Erro ao verificar cancelamento do job {job_id}: {e}")
         return False
+
+
+def _mark_integration_failed(user_jwt: str, user_id: str, integration_id: str) -> None:
+    """Atualiza status da integracao para 'failed' (best-effort)."""
+    try:
+        from app.core.supabase_client import get_supabase_for_user
+
+        sb = get_supabase_for_user(user_jwt)
+        now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        sb.table("ad_sheet_integrations").update(
+            {
+                "last_synced_at": now_iso,
+                "last_sync_status": "failed",
+                "updated_at": now_iso,
+            }
+        ).eq("id", integration_id).eq("owner_id", user_id).execute()
+    except Exception as update_error:
+        logger.warning(
+            "[GoogleSheetSyncJob] Falha ao atualizar status da integracao %s: %s",
+            integration_id,
+            update_error,
+        )
 
 
 def process_sync_job(
@@ -53,13 +73,13 @@ def process_sync_job(
     integration_id: str,
 ) -> Dict[str, Any]:
     """
-    Processa um job de sincronização de planilha Google em background.
+    Processa um job de sincronizacao de planilha Google em background.
 
     Args:
         user_jwt: JWT do Supabase
-        user_id: ID do usuário
+        user_id: ID do usuario
         job_id: ID do job
-        integration_id: ID da integração (ad_sheet_integrations)
+        integration_id: ID da integracao (ad_sheet_integrations)
 
     Returns:
         Dict com resultado do processamento
@@ -67,71 +87,30 @@ def process_sync_job(
     tracker = get_job_tracker(user_jwt, user_id)
 
     try:
-        logger.info(f"[GoogleSheetSyncJob] Iniciando sync do job {job_id} para integração {integration_id}")
+        logger.info(f"[GoogleSheetSyncJob] Iniciando sync do job {job_id} para integracao {integration_id}")
 
-        # ✅ VERIFICAR CANCELAMENTO ANTES DE INICIAR
+        # Verificar cancelamento antes de iniciar
         if _check_if_cancelled(tracker, job_id):
-            logger.info(f"[GoogleSheetSyncJob] Job {job_id} cancelado antes de iniciar processamento")
-            return {
-                "success": False,
-                "error": "Job cancelado pelo usuário",
-                "cancelled": True,
-            }
+            return {"success": False, "error": "Job cancelado pelo usuario", "cancelled": True}
 
-        # ===== FASE 1: LENDO PLANILHA =====
-        tracker.mark_processing(job_id, STAGE_READING, {
-            "integration_id": integration_id,
-            "rows_read": 0,
-        })
+        # Marcar como processando e delegar ao importador
+        tracker.mark_processing(job_id, STAGE_READING, {"integration_id": integration_id})
 
-        # ✅ VERIFICAR CANCELAMENTO APÓS MARCAR LEITURA
-        if _check_if_cancelled(tracker, job_id):
-            logger.info(f"[GoogleSheetSyncJob] Job {job_id} cancelado durante leitura da planilha")
-            return {
-                "success": False,
-                "error": "Job cancelado pelo usuário",
-                "cancelled": True,
-            }
+        def _on_stage(stage: str) -> None:
+            if stage == STAGE_PERSISTING:
+                tracker.mark_persisting(job_id, {"integration_id": integration_id})
+            else:
+                tracker.mark_processing(job_id, stage, {"integration_id": integration_id})
 
-        # ===== FASE 2: PROCESSANDO DADOS =====
-        tracker.mark_processing(job_id, STAGE_PROCESSING, {
-            "integration_id": integration_id,
-            "rows_processed": 0,
-        })
-
-        # ✅ VERIFICAR CANCELAMENTO ANTES DE PROCESSAR
-        if _check_if_cancelled(tracker, job_id):
-            logger.info(f"[GoogleSheetSyncJob] Job {job_id} cancelado antes de processar dados")
-            return {
-                "success": False,
-                "error": "Job cancelado pelo usuário",
-                "cancelled": True,
-            }
-
-        # ===== FASE 3: PERSISTINDO =====
-        tracker.mark_persisting(job_id, {
-            "integration_id": integration_id,
-        })
-
-        # ✅ VERIFICAR CANCELAMENTO ANTES DE PERSISTIR
-        if _check_if_cancelled(tracker, job_id):
-            logger.info(f"[GoogleSheetSyncJob] Job {job_id} cancelado antes de persistir dados")
-            return {
-                "success": False,
-                "error": "Job cancelado pelo usuário",
-                "cancelled": True,
-            }
-
-        # Executar importação (já faz todo o trabalho: ler, processar, persistir)
-        # Passar callback de cancelamento para verificar durante o processamento
         stats = run_ad_metrics_sheet_import(
             user_jwt=user_jwt,
             user_id=user_id,
             integration_id=integration_id,
             check_cancelled=lambda: _check_if_cancelled(tracker, job_id),
+            on_stage_change=_on_stage,
         )
-        
-        # ===== CONCLUSÃO =====
+
+        # Conclusao
         result_count = stats.get("updated_rows", 0)
         tracker.mark_completed(job_id, pack_id="", result_count=result_count, details={
             "integration_id": integration_id,
@@ -142,92 +121,29 @@ def process_sync_job(
             "unique_ad_date_pairs": stats.get("unique_ad_date_pairs", 0),
             "total_update_queries": stats.get("total_update_queries", 0),
         })
-        
-        logger.info(
-            f"[GoogleSheetSyncJob] Job {job_id} concluído com sucesso. "
-            f"Processados: {result_count} linhas"
-        )
-        
-        return {
-            "success": True,
-            "stats": stats,
-            "result_count": result_count,
-        }
+
+        logger.info(f"[GoogleSheetSyncJob] Job {job_id} concluido. Atualizados: {result_count}")
+
+        return {"success": True, "stats": stats, "result_count": result_count}
 
     except AdMetricsImportCancelled:
-        # ✅ TRATAMENTO ESPECÍFICO PARA CANCELAMENTO
-        logger.info(f"[GoogleSheetSyncJob] Job {job_id} foi cancelado durante a importação")
-        # Não marcar como failed - já está marcado como cancelled via API
-        return {
-            "success": False,
-            "error": "Job cancelado pelo usuário",
-            "cancelled": True,
-        }
+        logger.info(f"[GoogleSheetSyncJob] Job {job_id} foi cancelado durante a importacao")
+        return {"success": False, "error": "Job cancelado pelo usuario", "cancelled": True}
 
     except AdMetricsImportError as e:
         error_message = e.message if hasattr(e, 'message') else str(e)
         error_code = getattr(e, 'code', None)
         logger.error(f"[GoogleSheetSyncJob] Erro ao processar job {job_id}: {error_message} (code: {error_code})")
         tracker.mark_failed(job_id, error_message, error_code=error_code, details={"integration_id": integration_id})
+        _mark_integration_failed(user_jwt, user_id, integration_id)
+        return {"success": False, "error": error_message, "error_code": error_code}
 
-        # Atualizar status da integração para "failed"
-        try:
-            from datetime import datetime as dt
-            from app.core.supabase_client import get_supabase_for_user
-
-            sb = get_supabase_for_user(user_jwt)
-            now_iso = dt.utcnow().isoformat(timespec="seconds") + "Z"
-            sb.table("ad_sheet_integrations").update(
-                {
-                    "last_synced_at": now_iso,
-                    # last_successful_sync_at não é atualizado em caso de falha
-                    "last_sync_status": "failed",
-                    "updated_at": now_iso,
-                }
-            ).eq("id", integration_id).eq("owner_id", user_id).execute()
-        except Exception as update_error:
-            logger.warning(
-                "[GoogleSheetSyncJob] Falha ao atualizar status da integração %s: %s",
-                integration_id,
-                update_error,
-            )
-
-        return {
-            "success": False,
-            "error": error_message,
-            "error_code": error_code,
-        }
     except Exception as e:
         error_message = f"Erro inesperado: {str(e)}"
         logger.exception(f"[GoogleSheetSyncJob] Erro inesperado ao processar job {job_id}")
         tracker.mark_failed(job_id, error_message, details={"integration_id": integration_id})
-
-        # Atualizar status da integração para "failed"
-        try:
-            from datetime import datetime as dt
-            from app.core.supabase_client import get_supabase_for_user
-
-            sb = get_supabase_for_user(user_jwt)
-            now_iso = dt.utcnow().isoformat(timespec="seconds") + "Z"
-            sb.table("ad_sheet_integrations").update(
-                {
-                    "last_synced_at": now_iso,
-                    # last_successful_sync_at não é atualizado em caso de falha
-                    "last_sync_status": "failed",
-                    "updated_at": now_iso,
-                }
-            ).eq("id", integration_id).eq("owner_id", user_id).execute()
-        except Exception as update_error:
-            logger.warning(
-                "[GoogleSheetSyncJob] Falha ao atualizar status da integração %s: %s",
-                integration_id,
-                update_error,
-            )
-
-        return {
-            "success": False,
-            "error": error_message,
-        }
+        _mark_integration_failed(user_jwt, user_id, integration_id)
+        return {"success": False, "error": error_message}
 
 
 def create_sync_job(
@@ -235,33 +151,21 @@ def create_sync_job(
     user_id: str,
     integration_id: str,
 ) -> str:
-    """
-    Cria um novo job de sincronização.
-    
-    Args:
-        user_jwt: JWT do Supabase
-        user_id: ID do usuário
-        integration_id: ID da integração
-    
-    Returns:
-        ID do job criado
-    """
+    """Cria um novo job de sincronizacao. Retorna job_id."""
     job_id = str(uuid.uuid4())
     tracker = get_job_tracker(user_jwt, user_id)
-    
+
     payload = {
         "integration_id": integration_id,
         "type": "google_sheet_sync",
     }
-    
+
     tracker.create_job(
         job_id=job_id,
         payload=payload,
         status=STATUS_PROCESSING,
-        message="Iniciando sincronização da planilha...",
+        message="Iniciando sincronizacao da planilha...",
     )
-    
-    logger.info(f"[GoogleSheetSyncJob] Job {job_id} criado para integração {integration_id}")
-    
-    return job_id
 
+    logger.info(f"[GoogleSheetSyncJob] Job {job_id} criado para integracao {integration_id}")
+    return job_id

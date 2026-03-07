@@ -102,6 +102,11 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                   </TooltipTrigger>
                   <TooltipContent>
                     <p>Linhas válidas cujo par (ad_id, data) não tem match no ad_metrics</p>
+                    {stats.ids_not_found_count != null && stats.ids_out_of_pack_count != null && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Não encontrados: {stats.ids_not_found_count} · Fora do pack: {stats.ids_out_of_pack_count}
+                      </p>
+                    )}
                   </TooltipContent>
                 </Tooltip>
               </div>

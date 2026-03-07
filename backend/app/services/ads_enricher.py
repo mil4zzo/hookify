@@ -22,10 +22,21 @@ logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 50
 REQUEST_TIMEOUT = 90
+MAX_RETRIES = 3
+RETRY_DELAYS = [2, 4, 8]
+BATCH_DELAY_S = 2
+MAX_SPLIT_DEPTH = 3
+
+# HTTP status codes que justificam retry
+_RETRYABLE_STATUS_CODES = {429, 500, 502, 503}
 
 
 class MetaRateLimitError(RuntimeError):
     """Raised when Meta rejects requests due to rate limiting."""
+
+
+class EnrichmentBatchError(RuntimeError):
+    """Raised when a batch fails after all retries."""
 
 
 def _is_meta_rate_limit_error(decoded_text: str) -> bool:
@@ -44,6 +55,21 @@ def _build_meta_rate_limit_message() -> str:
         "A Meta limitou temporariamente as requisicoes desta conta de anuncios. "
         "Tente novamente em alguns minutos."
     )
+
+
+def _is_retryable(exc: Exception) -> bool:
+    if isinstance(exc, requests.exceptions.Timeout):
+        return True
+    if isinstance(exc, requests.exceptions.HTTPError) and exc.response is not None:
+        return exc.response.status_code in _RETRYABLE_STATUS_CODES
+    if isinstance(exc, requests.exceptions.ConnectionError):
+        return True
+    return False
+
+
+def _is_reduce_data_error(http_err: requests.exceptions.HTTPError) -> bool:
+    decoded_text = urllib.parse.unquote(http_err.response.text)
+    return '"code":1' in decoded_text and "reduce the amount of data" in decoded_text
 
 
 class AdsEnricher:
@@ -72,7 +98,8 @@ class AdsEnricher:
             job = self.job_tracker.get_job(self.job_id)
             if job and job.get("status") == STATUS_CANCELLED:
                 logger.info(
-                    f"[AdsEnricher] Job {self.job_id} cancelado, interrompendo {batch_label}"
+                    "[AdsEnricher] Job %s cancelado, interrompendo %s",
+                    self.job_id, batch_label,
                 )
                 return False
         return True
@@ -86,8 +113,8 @@ class AdsEnricher:
                 unique_ads[ad_name] = ad_id
 
         logger.info(
-            f"[AdsEnricher] Deduplicacao por nome: {len(raw_data)} registros -> "
-            f"{len(unique_ads)} anuncios (para detalhes)"
+            "[AdsEnricher] Deduplicacao por nome: %d registros -> %d anuncios (para detalhes)",
+            len(raw_data), len(unique_ads),
         )
         return unique_ads
 
@@ -140,90 +167,55 @@ class AdsEnricher:
 
         return raw_data
 
-    def fetch_details(self, act_id: str, ad_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
-        if not ad_ids:
-            return []
-
-        all_results: List[Dict[str, Any]] = []
-        total_batches = (len(ad_ids) + BATCH_SIZE - 1) // BATCH_SIZE
-
-        logger.info(
-            f"[AdsEnricher] Detalhes (creative/video): {len(ad_ids)} anuncios em "
-            f"{total_batches} lote(s)"
-        )
-
-        for i in range(0, len(ad_ids), BATCH_SIZE):
-            if not self._ensure_not_cancelled(f"detalhes no lote {(i // BATCH_SIZE) + 1}"):
-                return all_results if all_results else None
-
-            batch_ids = ad_ids[i:i + BATCH_SIZE]
-            batch_num = (i // BATCH_SIZE) + 1
-
-            logger.info(
-                f"[AdsEnricher] Processando lote {batch_num}/{total_batches} "
-                f"({len(batch_ids)} anuncios)"
-            )
-
-            url = f"{self.base_url}{act_id}/ads?access_token={self.access_token}"
-            payload = {
-                "fields": (
-                    "id,name,effective_status,"
-                    "creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
-                    "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
-                    "adcreatives{asset_feed_spec}"
-                ),
-                "limit": self.limit,
-                "filtering": "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) + "']}]",
-            }
-
+    def _fetch_batch_with_retry(
+        self, url: str, payload: Dict[str, Any], batch_label: str
+    ) -> List[Dict[str, Any]]:
+        """Faz GET de um batch com retry e backoff. Levanta excecao se todas as tentativas falharem."""
+        last_exc: Optional[Exception] = None
+        for attempt in range(MAX_RETRIES):
             try:
                 response = requests.get(url, params=payload, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
-                batch_data = response.json().get("data", [])
-                all_results.extend(batch_data)
-
-                logger.info(
-                    f"[AdsEnricher] Lote {batch_num} concluido: {len(batch_data)} anuncios retornados"
-                )
-
-                if self.on_progress:
-                    self.on_progress(batch_num, total_batches, len(all_results))
-            except requests.exceptions.Timeout:
-                logger.error(
-                    f"[AdsEnricher] Timeout no lote {batch_num} apos {REQUEST_TIMEOUT} segundos"
-                )
-                continue
+                return response.json().get("data", [])
             except requests.exceptions.HTTPError as http_err:
                 decoded_text = urllib.parse.unquote(http_err.response.text)
                 if _is_meta_rate_limit_error(decoded_text):
                     raise MetaRateLimitError(_build_meta_rate_limit_message()) from http_err
-                if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
-                    logger.warning(
-                        f"[AdsEnricher] Meta pediu para reduzir dados no lote {batch_num}, dividindo"
-                    )
-                    mid = len(batch_ids) // 2
-                    first = self.fetch_details(act_id, batch_ids[:mid])
-                    second = self.fetch_details(act_id, batch_ids[mid:])
-                    if first is not None:
-                        all_results.extend(first)
-                    if second is not None:
-                        all_results.extend(second)
-                    continue
-                logger.error(
-                    f"[AdsEnricher] HTTP error no lote {batch_num}: "
-                    f"{http_err.response.status_code} - {decoded_text[:200]}"
-                )
-                continue
-            except Exception as err:
-                logger.exception(f"[AdsEnricher] Erro inesperado no lote {batch_num}: {err}")
-                continue
+                if _is_reduce_data_error(http_err):
+                    raise  # propagar para tratamento de split
+                last_exc = http_err
+                if not _is_retryable(http_err) or attempt >= MAX_RETRIES - 1:
+                    raise EnrichmentBatchError(
+                        f"Falha no {batch_label} apos {MAX_RETRIES} tentativas: "
+                        f"{http_err.response.status_code} - {decoded_text[:200]}"
+                    ) from http_err
+            except requests.exceptions.Timeout as exc:
+                last_exc = exc
+                if attempt >= MAX_RETRIES - 1:
+                    raise EnrichmentBatchError(
+                        f"Timeout no {batch_label} apos {MAX_RETRIES} tentativas"
+                    ) from exc
+            except Exception as exc:
+                raise EnrichmentBatchError(
+                    f"Erro inesperado no {batch_label}: {exc}"
+                ) from exc
+            delay = RETRY_DELAYS[attempt]
+            logger.warning(
+                "[AdsEnricher] %s: tentativa %d/%d falhou (%s), retry em %ds...",
+                batch_label, attempt + 1, MAX_RETRIES, last_exc, delay,
+            )
+            time.sleep(delay)
+        raise last_exc  # type: ignore[misc]
 
-        logger.info(
-            f"[AdsEnricher] Busca de detalhes concluida: {len(all_results)} de {len(ad_ids)} anuncios"
-        )
-        return all_results if all_results else None
-
-    def fetch_status_only(self, act_id: str, ad_ids: List[str]) -> Optional[List[Dict[str, Any]]]:
+    def _fetch_in_batches(
+        self,
+        act_id: str,
+        ad_ids: List[str],
+        fields: str,
+        label_prefix: str,
+        *,
+        _split_depth: int = 0,
+    ) -> List[Dict[str, Any]]:
         if not ad_ids:
             return []
 
@@ -231,78 +223,74 @@ class AdsEnricher:
         total_batches = (len(ad_ids) + BATCH_SIZE - 1) // BATCH_SIZE
 
         logger.info(
-            f"[AdsEnricher] Status (effective_status) por ad_id: {len(ad_ids)} ids em "
-            f"{total_batches} lote(s)"
+            "[AdsEnricher] %s: %d anuncios em %d lote(s)",
+            label_prefix, len(ad_ids), total_batches,
         )
 
         for i in range(0, len(ad_ids), BATCH_SIZE):
-            if not self._ensure_not_cancelled(f"status no lote {(i // BATCH_SIZE) + 1}"):
-                return all_results if all_results else None
+            batch_num = (i // BATCH_SIZE) + 1
+            if not self._ensure_not_cancelled(f"{label_prefix} no lote {batch_num}"):
+                return all_results
 
             batch_ids = ad_ids[i:i + BATCH_SIZE]
-            batch_num = (i // BATCH_SIZE) + 1
+            batch_label = f"lote {label_prefix} {batch_num}/{total_batches}"
 
-            logger.info(
-                f"[AdsEnricher] Processando lote STATUS {batch_num}/{total_batches} "
-                f"({len(batch_ids)} anuncios)"
-            )
+            logger.info("[AdsEnricher] Processando %s (%d anuncios)", batch_label, len(batch_ids))
 
             url = f"{self.base_url}{act_id}/ads?access_token={self.access_token}"
             payload = {
-                "fields": "id,effective_status",
+                "fields": fields,
                 "limit": self.limit,
                 "filtering": "[{'field':'id','operator':'IN','value':['" + "','".join(batch_ids) + "']}]",
             }
 
             try:
-                response = requests.get(url, params=payload, timeout=REQUEST_TIMEOUT)
-                response.raise_for_status()
-                batch_data = response.json().get("data", [])
+                batch_data = self._fetch_batch_with_retry(url, payload, batch_label)
                 all_results.extend(batch_data)
+                logger.info("[AdsEnricher] %s concluido: %d anuncios retornados", batch_label, len(batch_data))
 
-                logger.info(
-                    f"[AdsEnricher] Lote STATUS {batch_num} concluido: "
-                    f"{len(batch_data)} anuncios retornados"
-                )
                 if self.on_progress:
                     self.on_progress(batch_num, total_batches, len(all_results))
-                # Delay entre batches para evitar rate limit da Meta (evitar burst)
+
                 if batch_num < total_batches:
-                    time.sleep(2)
-            except requests.exceptions.Timeout:
-                logger.error(
-                    f"[AdsEnricher] Timeout no lote STATUS {batch_num} apos {REQUEST_TIMEOUT} segundos"
-                )
-                continue
+                    time.sleep(BATCH_DELAY_S)
             except requests.exceptions.HTTPError as http_err:
-                decoded_text = urllib.parse.unquote(http_err.response.text)
-                if _is_meta_rate_limit_error(decoded_text):
-                    raise MetaRateLimitError(_build_meta_rate_limit_message()) from http_err
-                if '"code":1' in decoded_text and "reduce the amount of data" in decoded_text:
-                    logger.warning(
-                        f"[AdsEnricher] Meta pediu para reduzir dados no lote STATUS {batch_num}, dividindo"
-                    )
+                if _is_reduce_data_error(http_err):
+                    if _split_depth >= MAX_SPLIT_DEPTH:
+                        raise EnrichmentBatchError(
+                            f"Meta continua pedindo reducao de dados apos {MAX_SPLIT_DEPTH} splits no {batch_label}"
+                        ) from http_err
+                    logger.warning("[AdsEnricher] Meta pediu para reduzir dados no %s, dividindo (depth=%d)", batch_label, _split_depth)
                     mid = len(batch_ids) // 2
-                    first = self.fetch_status_only(act_id, batch_ids[:mid])
-                    second = self.fetch_status_only(act_id, batch_ids[mid:])
-                    if first is not None:
-                        all_results.extend(first)
-                    if second is not None:
-                        all_results.extend(second)
+                    first = self._fetch_in_batches(act_id, batch_ids[:mid], fields, label_prefix, _split_depth=_split_depth + 1)
+                    second = self._fetch_in_batches(act_id, batch_ids[mid:], fields, label_prefix, _split_depth=_split_depth + 1)
+                    all_results.extend(first)
+                    all_results.extend(second)
                     continue
-                logger.error(
-                    f"[AdsEnricher] HTTP error no lote STATUS {batch_num}: "
-                    f"{http_err.response.status_code} - {decoded_text[:200]}"
-                )
-                continue
-            except Exception as err:
-                logger.exception(f"[AdsEnricher] Erro inesperado no lote STATUS {batch_num}: {err}")
-                continue
+                raise
 
         logger.info(
-            f"[AdsEnricher] Busca de STATUS concluida: {len(all_results)} de {len(ad_ids)} anuncios"
+            "[AdsEnricher] %s concluida: %d de %d anuncios",
+            label_prefix, len(all_results), len(ad_ids),
         )
-        return all_results if all_results else None
+        return all_results
+
+    _DETAILS_FIELDS = (
+        "id,name,effective_status,"
+        "creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
+        "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
+        "adcreatives{asset_feed_spec}"
+    )
+
+    def fetch_details(
+        self, act_id: str, ad_ids: List[str], *, _split_depth: int = 0
+    ) -> List[Dict[str, Any]]:
+        return self._fetch_in_batches(act_id, ad_ids, self._DETAILS_FIELDS, "detalhes", _split_depth=_split_depth)
+
+    def fetch_status_only(
+        self, act_id: str, ad_ids: List[str], *, _split_depth: int = 0
+    ) -> List[Dict[str, Any]]:
+        return self._fetch_in_batches(act_id, ad_ids, "id,effective_status", "status", _split_depth=_split_depth)
 
     def merge_details(
         self,
@@ -313,7 +301,6 @@ class AdsEnricher:
             return raw_data
 
         creative_map = {d.get("name"): d.get("creative") for d in details}
-        status_map = {d.get("name"): d.get("effective_status") for d in details}
 
         videos_map: Dict[str, List[Dict[str, Any]]] = {}
         for detail in details:
@@ -329,9 +316,10 @@ class AdsEnricher:
             ad_name = ad.get("ad_name")
             if not ad_name:
                 continue
-            ad["creative"] = creative_map.get(ad_name)
-            if not ad.get("effective_status"):
-                ad["effective_status"] = status_map.get(ad_name)
+
+            creative = creative_map.get(ad_name)
+            if creative is not None:
+                ad["creative"] = creative
 
             videos = videos_map.get(ad_name, [])
             video_ids = []
@@ -344,7 +332,7 @@ class AdsEnricher:
             ad["adcreatives_videos_ids"] = video_ids
             ad["adcreatives_videos_thumbs"] = video_thumbs
 
-        logger.info(f"[AdsEnricher] Detalhes mesclados em {len(raw_data)} anuncios")
+        logger.info("[AdsEnricher] Detalhes mesclados em %d anuncios", len(raw_data))
         return raw_data
 
     def enrich(
@@ -371,14 +359,12 @@ class AdsEnricher:
             rep_ids = list(unique_ads.values())
             existing_ads_map = existing_ads_map or {}
 
-            new_ad_ids = unique_ad_ids
             if is_refresh and existing_ads_map:
                 self._apply_existing_fixed_fields(raw_data, existing_ads_map)
 
-                new_ad_ids = [
+                new_ad_ids_set = set(
                     ad_id for ad_id in unique_ad_ids if ad_id not in existing_ads_map
-                ]
-                new_ad_ids_set = set(new_ad_ids)
+                )
                 new_unique_ads = self.deduplicate_by_name(
                     [
                         ad
@@ -389,7 +375,7 @@ class AdsEnricher:
                 rep_ids = list(new_unique_ads.values())
 
                 logger.info(
-                    "[AdsEnricher] Refresh otimizado: %s ads existentes reutilizados, %s ads novos para enriquecimento completo",
+                    "[AdsEnricher] Refresh otimizado: %d ads existentes reutilizados, %d ads novos para enriquecimento completo",
                     len(existing_ads_map),
                     len(rep_ids),
                 )
@@ -397,32 +383,22 @@ class AdsEnricher:
             media_details = self.fetch_details(act_id, rep_ids)
             status_details = self.fetch_status_only(act_id, unique_ad_ids)
 
-            enriched = self.merge_details(raw_data, media_details or [])
-            if is_refresh and existing_ads_map:
-                self._apply_existing_fixed_fields(enriched, existing_ads_map)
+            enriched = self.merge_details(raw_data, media_details)
 
-            status_by_ad_id: Dict[str, Any] = {}
-            if status_details:
-                for detail in status_details:
-                    ad_id = detail.get("id")
-                    if ad_id:
-                        status_by_ad_id[str(ad_id)] = detail.get("effective_status")
-
+            status_map = {d.get("id"): d.get("effective_status") for d in status_details}
             for ad in enriched:
-                ad_id = ad.get("ad_id")
-                if ad_id:
-                    status = status_by_ad_id.get(str(ad_id))
-                    if status is not None:
-                        ad["effective_status"] = status
+                ad_id = str(ad.get("ad_id") or "")
+                if ad_id and ad_id in status_map:
+                    ad["effective_status"] = status_map[ad_id]
 
             return {
                 "success": True,
                 "data": enriched,
                 "unique_count": len(unique_ads),
-                "enriched_count": len(media_details) if media_details else 0,
+                "enriched_count": len(media_details),
             }
         except MetaRateLimitError as e:
-            logger.warning(f"[AdsEnricher] Rate limit da Meta detectado: {e}")
+            logger.warning("[AdsEnricher] Rate limit da Meta detectado: %s", e)
             return {
                 "success": False,
                 "data": raw_data,
@@ -431,8 +407,17 @@ class AdsEnricher:
                 "error": str(e),
                 "error_code": "meta_rate_limited",
             }
+        except EnrichmentBatchError as e:
+            logger.error("[AdsEnricher] Falha no enriquecimento: %s", e)
+            return {
+                "success": False,
+                "data": raw_data,
+                "unique_count": 0,
+                "enriched_count": 0,
+                "error": str(e),
+            }
         except Exception as e:
-            logger.exception(f"[AdsEnricher] Erro no pipeline de enriquecimento: {e}")
+            logger.exception("[AdsEnricher] Erro no pipeline de enriquecimento: %s", e)
             return {
                 "success": False,
                 "data": raw_data,

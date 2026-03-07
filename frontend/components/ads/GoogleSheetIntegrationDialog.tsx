@@ -17,7 +17,7 @@ import { useGoogleConnections } from "./googleSheetsDialog/hooks/useGoogleConnec
 import { useGoogleSyncJob } from "./googleSheetsDialog/hooks/useGoogleSyncJob";
 import { ConnectStep } from "./googleSheetsDialog/steps/ConnectStep";
 import { SelectSheetStep } from "./googleSheetsDialog/steps/SelectSheetStep";
-import { SelectColumnsStep } from "./googleSheetsDialog/steps/SelectColumnsStep";
+import { SelectColumnsStep, ColumnWithIndex } from "./googleSheetsDialog/steps/SelectColumnsStep";
 import { SummaryStep } from "./googleSheetsDialog/steps/SummaryStep";
 
 export interface GoogleSheetIntegrationDialogProps {
@@ -40,6 +40,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [selectedSpreadsheetName, setSelectedSpreadsheetName] = useState("");
   const [worksheetTitle, setWorksheetTitle] = useState("");
   const [columns, setColumns] = useState<string[]>([]);
+  const [columnsWithIndices, setColumnsWithIndices] = useState<ColumnWithIndex[]>([]);
+  const [duplicates, setDuplicates] = useState<Record<string, number[]>>({});
+  const [sampleRows, setSampleRows] = useState<string[][]>([]);
 
   const [adIdColumn, setAdIdColumn] = useState("");
   const [dateColumn, setDateColumn] = useState("");
@@ -72,15 +75,23 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
           const res = await api.integrations.google.listSheetIntegrations(packId);
           if (res.integrations && res.integrations.length > 0) {
             const integration = res.integrations[0];
-            const integrationWithConnection = integration as { connection_id?: string | null };
+            const integrationWithConnection = integration as {
+              connection_id?: string | null;
+              ad_id_column_index?: number | null;
+              date_column_index?: number | null;
+              leadscore_column_index?: number | null;
+              cpr_max_column_index?: number | null;
+            };
+            const fmt = (name: string, idx: number | null | undefined) =>
+              name && idx != null ? `${name}|${idx}` : name || "";
             setSelectedSpreadsheetId(integration.spreadsheet_id || "");
             setSelectedSpreadsheetName(integration.spreadsheet_name || "");
             setWorksheetTitle(integration.worksheet_title || "");
-            setAdIdColumn(integration.ad_id_column || "");
-            setDateColumn(integration.date_column || "");
+            setAdIdColumn(fmt(integration.ad_id_column, integrationWithConnection.ad_id_column_index) || integration.ad_id_column || "");
+            setDateColumn(fmt(integration.date_column, integrationWithConnection.date_column_index) || integration.date_column || "");
             setDateFormat((integration.date_format as "DD/MM/YYYY" | "MM/DD/YYYY") || "DD/MM/YYYY");
-            setLeadscoreColumn(integration.leadscore_column || "");
-            setCprMaxColumn(integration.cpr_max_column || "");
+            setLeadscoreColumn(fmt(integration.leadscore_column, integrationWithConnection.leadscore_column_index) || integration.leadscore_column || "");
+            setCprMaxColumn(fmt(integration.cpr_max_column, integrationWithConnection.cpr_max_column_index) || integration.cpr_max_column || "");
             setIntegrationId(integration.id);
 
             if (integrationWithConnection.connection_id) {
@@ -98,6 +109,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setSelectedSpreadsheetName("");
       setWorksheetTitle("");
       setColumns([]);
+      setColumnsWithIndices([]);
+      setDuplicates({});
+      setSampleRows([]);
       setAdIdColumn("");
       setDateColumn("");
       setLeadscoreColumn("");
@@ -126,8 +140,11 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         setIsGoogleConnected(false);
         setSelectedSpreadsheetId("");
         setWorksheetTitle("");
-        setColumns([]);
-        setStep("connect");
+      setColumns([]);
+      setColumnsWithIndices([]);
+      setDuplicates({});
+      setSampleRows([]);
+      setStep("connect");
       }
 
       loadConnections();
@@ -153,6 +170,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setSelectedSpreadsheetName("");
       setWorksheetTitle("");
       setColumns([]);
+      setColumnsWithIndices([]);
+      setDuplicates({});
+      setSampleRows([]);
       setAdIdColumn("");
       setDateColumn("");
       setDateFormat("DD/MM/YYYY");
@@ -202,6 +222,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     setWorksheetTitle("");
     // Mantemos selectedSpreadsheetName: ela será atualizada no onSpreadsheetNameChange
     setColumns([]);
+    setColumnsWithIndices([]);
+    setDuplicates({});
+    setSampleRows([]);
     setAdIdColumn("");
     setDateColumn("");
     setLeadscoreColumn("");
@@ -215,6 +238,9 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       return;
     }
     setColumns([]);
+    setColumnsWithIndices([]);
+    setDuplicates({});
+    setSampleRows([]);
     setAdIdColumn("");
     setDateColumn("");
     setLeadscoreColumn("");
@@ -341,13 +367,24 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setIsLoadingColumns(true);
       const res: SheetColumnsResponse = await api.integrations.google.listColumns(selectedSpreadsheetId, worksheetTitle, selectedConnectionId || undefined);
       const loadedColumns = res.columns || [];
+      const colsWithIndices = res.columnsWithIndices || [];
+      const dups = res.duplicates || {};
+      const samples = res.sampleRows || [];
       setColumns(loadedColumns);
+      setColumnsWithIndices(colsWithIndices);
+      setDuplicates(dups);
+      setSampleRows(samples);
 
       if (loadedColumns.length > 0) {
         const guess = guessColumnMappings(loadedColumns);
-        setAdIdColumn((prev) => prev || (guess.adIdColumn ?? ""));
-        setDateColumn((prev) => prev || (guess.dateColumn ?? ""));
-        setLeadscoreColumn((prev) => prev || (guess.leadscoreColumn ?? ""));
+        const toValue = (name: string | null): string => {
+          if (!name) return "";
+          if (dups[name]?.length) return `${name}|${dups[name][0]}`;
+          return name;
+        };
+        setAdIdColumn((prev) => prev || toValue(guess.adIdColumn ?? null));
+        setDateColumn((prev) => prev || toValue(guess.dateColumn ?? null));
+        setLeadscoreColumn((prev) => prev || toValue(guess.leadscoreColumn ?? null));
       } else {
         showError(new Error("Não encontramos colunas na primeira linha da aba. Verifique se a planilha possui cabeçalhos."));
       }
@@ -361,18 +398,37 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     }
   };
 
+  const parseColumnValue = (val: string): { name: string; index?: number } => {
+    if (!val) return { name: "", index: undefined };
+    const i = val.indexOf("|");
+    if (i >= 0) {
+      const name = val.slice(0, i);
+      const idx = parseInt(val.slice(i + 1), 10);
+      return { name, index: Number.isNaN(idx) ? undefined : idx };
+    }
+    return { name: val, index: undefined };
+  };
+
   const handleImport = async () => {
     if (!canImport || isSaving) return;
     setIsSaving(true);
     try {
+      const ad = parseColumnValue(adIdColumn);
+      const dt = parseColumnValue(dateColumn);
+      const ls = parseColumnValue(leadscoreColumn || "");
+      const cpr = parseColumnValue(cprMaxColumn || "");
       const payload: SheetIntegrationRequest = {
         spreadsheet_id: selectedSpreadsheetId,
         worksheet_title: worksheetTitle,
-        ad_id_column: adIdColumn,
-        date_column: dateColumn,
+        ad_id_column: ad.name,
+        date_column: dt.name,
         date_format: dateFormat,
-        leadscore_column: leadscoreColumn || null,
-        cpr_max_column: cprMaxColumn || null,
+        leadscore_column: ls.name || null,
+        cpr_max_column: cpr.name || null,
+        ad_id_column_index: ad.index ?? null,
+        date_column_index: dt.index ?? null,
+        leadscore_column_index: ls.index ?? null,
+        cpr_max_column_index: cpr.index ?? null,
         pack_id: packId || null,
         connection_id: selectedConnectionId || null,
       };
@@ -397,7 +453,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const handleSyncAgain = async () => {
     if (!integrationId) return;
     try {
-      await startSync(integrationId);
+      await startSync(integrationId, packId ?? null);
       const stats = lastSyncStats || { updated_rows: 0 };
       showSuccess(`Dados atualizados! Atualizadas ${stats.updated_rows} linhas em ad_metrics.`);
     } catch (e: any) {
@@ -489,7 +545,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} cprMaxColumn={cprMaxColumn} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onCprMaxColumnChange={setCprMaxColumn} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} cprMaxColumn={cprMaxColumn} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onCprMaxColumnChange={setCprMaxColumn} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

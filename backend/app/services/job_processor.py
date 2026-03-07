@@ -10,8 +10,6 @@ Responsável por:
 Executa fora do request de polling para não bloquear.
 """
 import logging
-import threading
-import uuid
 from typing import Any, Dict, Optional
 import time
 from app.services.job_tracker import (
@@ -26,13 +24,13 @@ from app.services.job_tracker import (
     STAGE_ENRICHMENT,
     STAGE_FORMATTING,
     STAGE_PERSISTENCE,
-    STAGE_COMPLETE,
 )
-from app.core.config import ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH
 from app.services.insights_collector import get_insights_collector
-from app.services.ads_enricher import get_ads_enricher, AdsEnricher
+from app.services.ads_enricher import get_ads_enricher
 from app.services.dataformatter import format_ads_for_api
+from app.core.supabase_client import get_supabase_service
 from app.services import supabase_repo
+from app.services.background_tasks import get_background_status, spawn_pack_background_tasks
 from app.services.supabase_repo import PackNameConflictError
 
 logger = logging.getLogger(__name__)
@@ -64,11 +62,18 @@ class JobProcessor:
         user_id: str,
         access_token: str,
         processing_owner: Optional[str] = None,
+        use_service_role: bool = False,
     ):
         self.user_jwt = user_jwt
         self.user_id = user_id
         self.access_token = access_token
-        self.tracker = get_job_tracker(user_jwt, user_id, processing_owner=processing_owner)
+        self.use_service_role = use_service_role
+        self._sb = get_supabase_service() if use_service_role else None
+        self.tracker = get_job_tracker(
+            user_jwt, user_id,
+            processing_owner=processing_owner,
+            use_service_role=use_service_role,
+        )
 
     def _raise_if_job_stopped(self, job_id: str, lease_message: str) -> None:
         current_job = self.tracker.get_job(job_id) or {}
@@ -133,6 +138,7 @@ class JobProcessor:
                 self.user_jwt,
                 pack_id,
                 user_id=self.user_id,
+                sb_client=self._sb,
             )
             self.tracker.merge_payload(job_id, {"created_pack_id": None})
         except Exception as cleanup_error:
@@ -172,6 +178,7 @@ class JobProcessor:
                 self._raise_if_job_stopped(job_id, "Lease de processamento perdido ao iniciar paginação")
             
             def on_pagination_progress(page_count: int, total_collected: int):
+                # progress=100 is a placeholder; frontend calculates real % from details.stage
                 self._heartbeat_or_raise(
                     job_id,
                     status=STATUS_PROCESSING,
@@ -216,22 +223,16 @@ class JobProcessor:
                 return {"success": True, "data": [], "pack_id": None, "result_count": 0}
 
             # ===== FASE 2: ENRIQUECIMENTO =====
-            # Calcular unique_count antes do enriquecimento para incluir no progresso
-            temp_enricher = AdsEnricher(self.access_token)
-            unique_ads_map = temp_enricher.deduplicate_by_name(raw_data)
-            unique_count = len(unique_ads_map)
-            
             if not self.tracker.mark_processing(job_id, STAGE_ENRICHMENT, {
                 "page_count": page_count,
                 "total_collected": total_collected,
                 "ads_before_dedup": len(raw_data),
-                "ads_after_dedup": unique_count,
                 "enrichment_batches": 0,
                 "enrichment_total": 0,
                 "ads_enriched": 0
             }):
                 self._raise_if_job_stopped(job_id, "Lease de processamento perdido ao iniciar enriquecimento")
-            
+
             def on_enrichment_progress(batch_num: int, total_batches: int, ads_enriched: int):
                 self._heartbeat_or_raise(
                     job_id,
@@ -243,7 +244,6 @@ class JobProcessor:
                         "page_count": page_count,
                         "total_collected": total_collected,
                         "ads_before_dedup": len(raw_data),
-                        "ads_after_dedup": unique_count,  # Incluir unique_count no progresso
                         "enrichment_batches": batch_num,
                         "enrichment_total": total_batches,
                         "ads_enriched": ads_enriched
@@ -261,7 +261,12 @@ class JobProcessor:
                     self.user_jwt,
                     refresh_ad_ids,
                     self.user_id,
+                    sb_client=self._sb,
                 )
+                ad_ids = list(existing_ads_map.keys()) if existing_ads_map else refresh_ad_ids
+                if not ad_ids:
+                    logger.warning("[JobProcessor] Nenhum ad_id para enriquecer após get_existing_ads_map")
+                    return {"success": False, "error": "Nenhum ad_id para enriquecer"}
                 logger.info(
                     "[JobProcessor] Refresh otimizado: %s ads existentes reaproveitados, %s ads novos",
                     len(existing_ads_map),
@@ -291,13 +296,9 @@ class JobProcessor:
                 return {"success": False, "error": error_message}
             
             enriched_data = enrich_result.get("data", raw_data)
-            # unique_count já foi calculado acima, mas validar se bate com o resultado
-            enrich_result_unique_count = enrich_result.get("unique_count", 0)
-            if enrich_result_unique_count != unique_count:
-                logger.warning(f"[JobProcessor] Discrepância em unique_count: calculado={unique_count}, resultado={enrich_result_unique_count}")
-            unique_count = enrich_result_unique_count if enrich_result_unique_count > 0 else unique_count
+            unique_count = enrich_result.get("unique_count", 0)
             enriched_count = enrich_result.get("enriched_count", 0)
-            
+
             logger.info(f"[JobProcessor] Enriquecimento concluído: {enriched_count} de {unique_count} anúncios únicos")
 
             # Verificar cancelamento após enriquecimento
@@ -327,14 +328,6 @@ class JobProcessor:
             # vão atualizar o status com mensagens detalhadas por etapa
             pack_id = self._persist_data(job_id, payload, formatted_data, is_refresh, pack_id_from_payload)
 
-            transcription_job_id = None
-            if ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH:
-                transcription_job_id = self._create_transcription_job_if_needed(
-                    pack_id=pack_id,
-                    formatted_data=formatted_data,
-                    meta_job_id=job_id,
-                )
-
             # ===== CONCLUSÃO =====
             completion_details = {
                 "page_count": page_count,
@@ -343,8 +336,6 @@ class JobProcessor:
                 "ads_enriched": enriched_count,
                 "ads_formatted": len(formatted_data)
             }
-            if transcription_job_id:
-                completion_details["transcription_job_id"] = transcription_job_id
 
             self.tracker.mark_completed(
                 job_id,
@@ -352,13 +343,9 @@ class JobProcessor:
                 result_count=len(formatted_data),
                 details=completion_details,
             )
-            
+
             logger.info(f"[JobProcessor] Job {job_id} concluído com sucesso. Pack: {pack_id}, Ads: {len(formatted_data)}")
-            
-            # ===== TRANSCRIÇÃO (fire-and-forget, best-effort) — só se habilitada =====
-            if ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH:
-                self._fire_transcription_batch(formatted_data, transcription_job_id)
-            
+
             return {
                 "success": True,
                 "data": formatted_data,
@@ -451,7 +438,7 @@ class JobProcessor:
                 existing_created_pack_id = payload.get("created_pack_id")
                 hb("Salvando pack...", force=True)
                 if existing_created_pack_id:
-                    existing_pack = supabase_repo.get_pack(self.user_jwt, existing_created_pack_id, self.user_id)
+                    existing_pack = supabase_repo.get_pack(self.user_jwt, existing_created_pack_id, self.user_id, sb_client=self._sb)
                     if existing_pack:
                         pack_id = existing_created_pack_id
                         created_pack_id = pack_id
@@ -468,6 +455,7 @@ class JobProcessor:
                             auto_refresh=payload.get("auto_refresh", False),
                             pack_id=pack_id,
                             today_local=payload.get("today_local"),
+                            sb_client=self._sb,
                         )
                         logger.info(f"[JobProcessor] Reutilizando pack parcial existente: {pack_id}")
                     else:
@@ -486,32 +474,17 @@ class JobProcessor:
                             filters=payload.get("filters", []),
                             auto_refresh=payload.get("auto_refresh", False),
                             today_local=payload.get("today_local"),
+                            sb_client=self._sb,
                         )
                     except PackNameConflictError:
                         raise
                     except Exception as e:
                         raise PersistStageError("pack_create", f"Erro ao criar pack: {e}") from e
 
-                    if not pack_id:
-                        raise PersistStageError("pack_create", "Erro ao criar pack")
-
                     created_pack_id = pack_id
                     pack_created_in_this_run = True
                     self.tracker.merge_payload(job_id, {"created_pack_id": pack_id})
                     logger.info(f"[JobProcessor] Pack criado: {pack_id}")
-
-                today_local = payload.get("today_local") or payload.get("date_stop")
-                if today_local:
-                    try:
-                        supabase_repo.update_pack_refresh_status(
-                            self.user_jwt,
-                            pack_id,
-                            user_id=self.user_id,
-                            last_refreshed_at=str(today_local),
-                            refresh_status="success",
-                        )
-                    except Exception as e:
-                        raise PersistStageError("pack_refresh_status", f"Erro ao atualizar status do pack: {e}") from e
 
             if formatted_data:
                 ensure_not_cancelled("before_ads")
@@ -523,6 +496,7 @@ class JobProcessor:
                         user_id=self.user_id,
                         pack_id=pack_id,
                         on_batch_progress=lambda b, t: hb(f"Salvando anúncios: bloco {b}/{t}..."),
+                        sb_client=self._sb,
                     )
                 except Exception as e:
                     if pack_created_in_this_run and created_pack_id:
@@ -538,6 +512,7 @@ class JobProcessor:
                         user_id=self.user_id,
                         pack_id=pack_id,
                         on_batch_progress=lambda b, t: hb(f"Salvando métricas: bloco {b}/{t}..."),
+                        sb_client=self._sb,
                     )
                 except Exception as e:
                     if pack_created_in_this_run and created_pack_id:
@@ -547,7 +522,7 @@ class JobProcessor:
                 ad_ids = sorted(list({str(a.get("ad_id")) for a in formatted_data if a.get("ad_id")}))
                 hb("Otimizando tudo...", force=True)
                 try:
-                    supabase_repo.update_pack_ad_ids(self.user_jwt, pack_id, ad_ids, user_id=self.user_id)
+                    supabase_repo.update_pack_ad_ids(self.user_jwt, pack_id, ad_ids, user_id=self.user_id, sb_client=self._sb)
                 except Exception as e:
                     if pack_created_in_this_run and created_pack_id:
                         self._cleanup_new_pack(created_pack_id, job_id, "falha em pack_index_update")
@@ -564,37 +539,61 @@ class JobProcessor:
                         last_refreshed_at=last_refreshed_at,
                         refresh_status="success",
                         date_stop=date_stop,
+                        sb_client=self._sb,
                     )
                 except Exception as e:
                     raise PersistStageError("pack_refresh_status", f"Erro ao atualizar refresh do pack: {e}") from e
 
             if formatted_data and pack_id:
                 ensure_not_cancelled("before_stats")
-                time.sleep(0.5)
                 hb("Calculando resumo...", force=True)
                 try:
-                    stats = supabase_repo.calculate_pack_stats(
+                    stats = supabase_repo.calculate_pack_stats_essential(
                         self.user_jwt,
                         pack_id,
-                        user_id=self.user_id
+                        user_id=self.user_id,
+                        sb_client=self._sb,
                     )
-                except Exception as e:
-                    raise PersistStageError("stats_calculation", f"Erro ao calcular resumo do pack: {e}") from e
-
-                if stats and stats.get("totalSpend") is not None:
-                    hb("Finalizando...", force=True)
-                    try:
+                    if stats and stats.get("totalSpend") is not None:
+                        hb("Finalizando...", force=True)
                         supabase_repo.update_pack_stats(
                             self.user_jwt,
                             pack_id,
                             stats,
-                            user_id=self.user_id
+                            user_id=self.user_id,
+                            sb_client=self._sb,
                         )
-                    except Exception as e:
-                        raise PersistStageError("stats_update", f"Erro ao salvar resumo do pack: {e}") from e
-                    logger.info(f"[JobProcessor] Stats salvos para pack {pack_id}: totalSpend={stats.get('totalSpend')}")
-                else:
-                    logger.warning(f"[JobProcessor] Stats não calculados/salvos para pack {pack_id} (best-effort)")
+                        logger.info(f"[JobProcessor] Stats essenciais salvos para pack {pack_id}: totalSpend={stats.get('totalSpend')}")
+                    else:
+                        logger.warning(f"[JobProcessor] Stats essenciais não calculados/salvos para pack {pack_id} (best-effort)")
+                except Exception as e:
+                    logger.warning(f"[JobProcessor] Erro ao calcular/salvar stats essenciais para pack {pack_id} (best-effort): {e}")
+
+                # Spawn tasks em background: thumbnails + stats estendidos
+                ad_id_to_thumb_url: Dict[str, str] = {}
+                for ad in formatted_data:
+                    ad_id = str(ad.get("ad_id") or "").strip()
+                    if not ad_id:
+                        continue
+                    thumb_url: Optional[str] = None
+                    thumbs = ad.get("adcreatives_videos_thumbs")
+                    if isinstance(thumbs, list) and thumbs:
+                        first = str(thumbs[0] or "").strip()
+                        if first:
+                            thumb_url = first
+                    if not thumb_url:
+                        creative = ad.get("creative") or {}
+                        thumb_url = str(creative.get("thumbnail_url") or "").strip() or None
+                    if thumb_url:
+                        ad_id_to_thumb_url[ad_id] = thumb_url
+                spawn_pack_background_tasks(
+                    job_id=job_id,
+                    pack_id=pack_id,
+                    user_id=self.user_id,
+                    user_jwt=self.user_jwt,
+                    ad_id_to_thumb_url=ad_id_to_thumb_url,
+                    use_service_role=self.use_service_role,
+                )
 
             if pack_id:
                 self.tracker.merge_payload(job_id, {"created_pack_id": None, "pack_id": pack_id})
@@ -616,90 +615,6 @@ class JobProcessor:
                 self._cleanup_new_pack(created_pack_id, job_id, "erro inesperado na persistência")
             raise PersistStageError("persist_unknown", f"Erro ao persistir dados: {e}") from e
 
-    def _create_transcription_job_if_needed(
-        self,
-        pack_id: str,
-        formatted_data: list,
-        meta_job_id: str,
-    ) -> Optional[str]:
-        """
-        Cria job de transcrição quando há ad_names pendentes para transcrever.
-
-        Retorna o transcription_job_id (UUID) ou None quando não houver trabalho.
-        """
-        try:
-            from app.services.transcription_worker import count_pending_transcriptions
-
-            pending_count = count_pending_transcriptions(
-                user_jwt=self.user_jwt,
-                user_id=self.user_id,
-                formatted_ads=formatted_data,
-            )
-            if pending_count <= 0:
-                logger.info("[JobProcessor] Sem transcrições pendentes; não criando transcription job")
-                return None
-
-            transcription_job_id = str(uuid.uuid4())
-            tracker = get_job_tracker(self.user_jwt, self.user_id)
-            tracker.create_job(
-                job_id=transcription_job_id,
-                payload={
-                    "type": "transcription",
-                    "pack_id": pack_id,
-                    "meta_job_id": meta_job_id,
-                    "total": pending_count,
-                },
-                status=STATUS_PROCESSING,
-                message="Transcrevendo vídeos...",
-            )
-            tracker.heartbeat(
-                transcription_job_id,
-                status=STATUS_PROCESSING,
-                progress=0,
-                message=f"Transcrevendo 0 de {pending_count}",
-                details={
-                    "stage": "transcription",
-                    "type": "transcription",
-                    "done": 0,
-                    "total": pending_count,
-                    "pack_id": pack_id,
-                    "meta_job_id": meta_job_id,
-                },
-            )
-            logger.info(
-                f"[JobProcessor] Transcription job criado: {transcription_job_id} (pending={pending_count})"
-            )
-            return transcription_job_id
-        except Exception as e:
-            logger.warning(f"[JobProcessor] Não foi possível criar transcription job: {e}")
-            return None
-
-    def _fire_transcription_batch(
-        self,
-        formatted_data: list,
-        transcription_job_id: Optional[str],
-    ) -> None:
-        """Dispara transcrição de vídeos em thread separada (fire-and-forget)."""
-        user_jwt = self.user_jwt
-        user_id = self.user_id
-        access_token = self.access_token
-
-        def _run():
-            try:
-                from app.services.transcription_worker import run_transcription_batch
-                run_transcription_batch(
-                    user_jwt,
-                    user_id,
-                    access_token,
-                    formatted_data,
-                    transcription_job_id=transcription_job_id,
-                )
-            except Exception as e:
-                logger.warning(f"[JobProcessor] Transcription batch failed (best-effort): {e}")
-
-        threading.Thread(target=_run, daemon=True).start()
-        logger.info("[JobProcessor] Transcription batch disparado em background")
-
 
 def process_job_async(
     user_jwt: str,
@@ -720,7 +635,7 @@ def process_job_async(
     Returns:
         Dict com resultado do processamento
     """
-    processor = JobProcessor(user_jwt, user_id, access_token, processing_owner=processing_owner)
+    processor = JobProcessor(user_jwt, user_id, access_token, processing_owner=processing_owner, use_service_role=True)
     return processor.process(job_id)
 
 

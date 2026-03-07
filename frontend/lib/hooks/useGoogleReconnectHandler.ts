@@ -1,95 +1,20 @@
-import React, { useEffect, useCallback } from "react";
+import React, { useEffect, useCallback, useRef } from "react";
 import { usePausedSheetJobsStore } from "@/lib/store/pausedSheetJobs";
+import { useGoogleOAuthConnect } from "@/lib/hooks/useGoogleOAuthConnect";
 import { api } from "@/lib/api/endpoints";
 import {
   showProgressToast,
-  updateProgressToast,
   finishProgressToast,
   dismissToast,
+  showProcessCancelledWarning,
   buildSheetsToastContent,
-  calculateSheetsProgressPercent,
   SHEETS_TOAST_TOTAL_STEPS,
 } from "@/lib/utils/toast";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 import { logger } from "@/lib/utils/logger";
+import { pollSheetsSyncJob } from "@/lib/utils/pollSheetsSyncJob";
 
 const sheetsIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
-
-/**
- * Faz polling simples do job de sync do Google Sheets.
- * Esta versão NÃO pausa novamente em caso de erro - apenas reporta o erro.
- */
-async function pollResumedSyncJob(
-  syncJobId: string,
-  toastId: string,
-  packName: string
-): Promise<{ success: boolean; error?: string }> {
-  let attempts = 0;
-  const maxAttempts = 300; // 10 minutos máximo
-
-  while (attempts < maxAttempts) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-
-    try {
-      const progress = await api.integrations.google.getSyncJobProgress(syncJobId);
-      const details = (progress as any)?.details || {};
-
-      if (progress.status === "failed") {
-        finishProgressToast(
-          toastId,
-          false,
-          `Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`
-        );
-        return { success: false, error: progress.message || "Erro desconhecido" };
-      }
-
-      const sheetsContent = buildSheetsToastContent(progress.status, details);
-      const progressPercent = calculateSheetsProgressPercent(progress.status, details);
-
-      updateProgressToast(
-        toastId,
-        packName,
-        1,
-        SHEETS_TOAST_TOTAL_STEPS,
-        undefined,
-        undefined,
-        sheetsIcon,
-        sheetsContent,
-        progressPercent
-      );
-
-      if (progress.status === "completed") {
-        const stats = (progress as any)?.stats || {};
-        const updatedRows = stats.rows_updated || stats.updated_rows || 0;
-        finishProgressToast(
-          toastId,
-          true,
-          `Planilha sincronizada! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`,
-          { visibleDurationOnly: 5, context: "sheets", packName }
-        );
-        return { success: true };
-      }
-    } catch (error) {
-      logger.error(`[pollResumedSyncJob] Erro ao verificar progresso:`, error);
-      updateProgressToast(
-        toastId,
-        packName,
-        1,
-        SHEETS_TOAST_TOTAL_STEPS,
-        undefined,
-        undefined,
-        sheetsIcon,
-        buildSheetsToastContent("processing", {}, "Erro ao verificar progresso, tentando novamente..."),
-        0
-      );
-    }
-
-    attempts++;
-  }
-
-  finishProgressToast(toastId, false, "Timeout ao sincronizar planilha (demorou mais de 10 minutos)");
-  return { success: false, error: "Timeout" };
-}
 
 /**
  * Hook que escuta o evento "google-connected" e retoma jobs de sincronização pausados.
@@ -97,11 +22,14 @@ async function pollResumedSyncJob(
  * Quando o usuário reconecta a conta do Google após um token expirado:
  * 1. Fecha o toast de pausa existente
  * 2. Cria um NOVO job de sync (o anterior ficou como "failed" no backend)
- * 3. Inicia o polling do novo job
+ * 3. Inicia o polling do novo job via pollSheetsSyncJob (toast, cancelar, pause, reconnect)
  * 4. Limpa o job pausado da store
  */
 export function useGoogleReconnectHandler() {
-  const { getAllPausedJobs, clearJob } = usePausedSheetJobsStore();
+  const { getAllPausedJobs, clearJob, pauseJob } = usePausedSheetJobsStore();
+  const { connect: connectGoogle } = useGoogleOAuthConnect();
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
 
   const handleGoogleConnected = useCallback(async () => {
     const pausedJobs = getAllPausedJobs();
@@ -110,7 +38,7 @@ export function useGoogleReconnectHandler() {
       return;
     }
 
-    console.log(`[useGoogleReconnectHandler] Reconexão detectada. Retomando ${pausedJobs.length} job(s) pausado(s).`);
+    logger.debug(`[useGoogleReconnectHandler] Reconexão detectada. Retomando ${pausedJobs.length} job(s) pausado(s).`);
 
     for (const pausedJob of pausedJobs) {
       try {
@@ -119,13 +47,25 @@ export function useGoogleReconnectHandler() {
 
         // Criar novo toast de progresso com mesmo layout padronizado do fluxo Sheets
         const newToastId = `sync-sheet-${pausedJob.packId}-${Date.now()}`;
+        const cancelledRef = { current: false };
+        const jobIdRef = { current: null as string | null };
+
+        const handleCancelSheets = () => {
+          cancelledRef.current = true;
+          if (jobIdRef.current) {
+            api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário").catch(() => {});
+          }
+          finishProgressToast(newToastId, false, "Importação cancelada");
+          showProcessCancelledWarning("sheets", pausedJob.packName);
+        };
+
         showProgressToast(
           newToastId,
           pausedJob.packName,
           1,
           SHEETS_TOAST_TOTAL_STEPS,
           undefined,
-          undefined,
+          handleCancelSheets,
           sheetsIcon,
           buildSheetsToastContent("processing", { stage: "lendo_planilha" }),
           0
@@ -148,14 +88,30 @@ export function useGoogleReconnectHandler() {
           continue;
         }
 
-        console.log(`[useGoogleReconnectHandler] Novo job criado: ${syncResponse.job_id} para pack ${pausedJob.packId}`);
+        jobIdRef.current = syncResponse.job_id;
+        logger.debug(`[useGoogleReconnectHandler] Novo job criado: ${syncResponse.job_id} para pack ${pausedJob.packId}`);
 
         // Limpar job pausado da store ANTES de iniciar polling
         // (para evitar que seja retomado novamente se houver outro evento)
         clearJob(pausedJob.packId);
 
-        // Iniciar polling do novo job (não bloqueia)
-        pollResumedSyncJob(syncResponse.job_id, newToastId, pausedJob.packName).catch((error) => {
+        // Iniciar polling do novo job via helper compartilhado (toast, cancelar, pause, reconnect)
+        pollSheetsSyncJob({
+          syncJobId: syncResponse.job_id,
+          toastId: newToastId,
+          packName: pausedJob.packName,
+          packId: pausedJob.packId,
+          integrationId: pausedJob.integrationId,
+          getCancelled: () => cancelledRef.current,
+          getMounted: () => mountedRef.current,
+          onCancel: handleCancelSheets,
+          pauseJob,
+          clearJob,
+          connectGoogle,
+          onPackIntegrationUpdated: (pId) => {
+            window.dispatchEvent(new CustomEvent("pack-integration-updated", { detail: { packId: pId } }));
+          },
+        }).catch((error) => {
           logger.error(`[useGoogleReconnectHandler] Erro no polling do novo job:`, error);
         });
       } catch (error) {
@@ -164,7 +120,7 @@ export function useGoogleReconnectHandler() {
         clearJob(pausedJob.packId);
       }
     }
-  }, [getAllPausedJobs, clearJob]);
+  }, [getAllPausedJobs, clearJob, pauseJob, connectGoogle]);
 
   useEffect(() => {
     // Escutar evento de reconexão do Google

@@ -226,8 +226,17 @@ export const ListGoogleConnectionsResponseSchema = z.object({
   connections: z.array(GoogleConnectionSchema),
 })
 
+export const ColumnWithIndexSchema = z.object({
+  name: z.string(),
+  index: z.number(),
+  label: z.string(),
+})
+
 export const SheetColumnsResponseSchema = z.object({
   columns: z.array(z.string()),
+  duplicates: z.record(z.string(), z.array(z.number())).optional().default({}),
+  sampleRows: z.array(z.array(z.string())).optional().default([]),
+  columnsWithIndices: z.array(ColumnWithIndexSchema).optional().default([]),
 })
 
 export const SheetIntegrationRequestSchema = z.object({
@@ -238,6 +247,11 @@ export const SheetIntegrationRequestSchema = z.object({
   date_format: z.enum(["DD/MM/YYYY", "MM/DD/YYYY"]),
   leadscore_column: z.string().optional().nullable(),
   cpr_max_column: z.string().optional().nullable(),
+  // Índices explícitos quando há headers duplicados (0-based)
+  ad_id_column_index: z.number().optional().nullable(),
+  date_column_index: z.number().optional().nullable(),
+  leadscore_column_index: z.number().optional().nullable(),
+  cpr_max_column_index: z.number().optional().nullable(),
   // Quando presente, a integração é específica daquele pack (booster por pack)
   pack_id: z.string().optional().nullable(),
   // ID da conexão Google específica a usar para esta integração
@@ -250,7 +264,6 @@ export const SheetIntegrationSchema = z.object({
   pack_id: z.string().nullable().optional(),
   spreadsheet_id: z.string(),
   worksheet_title: z.string(),
-  match_strategy: z.string(),
   ad_id_column: z.string(),
   date_column: z.string(),
   date_format: z.string().nullable().optional(),
@@ -273,6 +286,10 @@ export const SheetSyncStatsSchema = z.object({
   utilized_sheet_rows: z.number().optional(),
   skipped_sheet_rows: z.number().optional(),
   matched_unique_pairs: z.number().optional(),
+  ids_not_found_count: z.number().optional(),
+  ids_out_of_pack_count: z.number().optional(),
+  total_update_queries: z.number().optional(),
+  integration_status_updated: z.boolean().optional(),
 })
 
 export const SheetSyncJobProgressSchema = z.object({

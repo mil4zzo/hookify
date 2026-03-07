@@ -9,8 +9,7 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from dotenv import load_dotenv
-from app.services.graph_api import GraphAPI
-from app.services.dataformatter import format_ads_data
+from app.services.graph_api import GraphAPI, GraphAPIError
 
 if __name__ == "__main__":
     # Carregar .env do diretório backend
@@ -37,12 +36,9 @@ if __name__ == "__main__":
 
     act_id = adaccounts[0]["id"]
     tr = {"since": "2024-12-29", "until": "2025-01-05"}
-    print(f"→ /ads act_id={act_id} time_range={tr}")
-    ads = api.get_ads(act_id, tr, [])
-    if isinstance(ads, dict) and ads.get("status") != None:
-        raise SystemExit(f"Erro get_ads: {ads}")
-
-    print(f"Retornados {len(ads)} registros de anúncios.")
-    df = format_ads_data(ads)
-    print("DF colunas:", len(df.columns), "Linhas:", len(df))
-    print(df.head(1).to_dict(orient="records"))
+    print(f"→ start_ads_job act_id={act_id} time_range={tr}")
+    try:
+        job_id = api.start_ads_job(act_id, tr, [])
+        print(f"Job iniciado com sucesso: report_run_id={job_id}")
+    except GraphAPIError as e:
+        raise SystemExit(f"Erro start_ads_job: {e.status} - {e.message}")

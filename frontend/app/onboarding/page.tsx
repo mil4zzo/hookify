@@ -17,6 +17,7 @@ import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
 import { api } from "@/lib/api/endpoints";
 import { LoadingState } from "@/components/common/States";
 import { showError, showSuccess } from "@/lib/utils/toast";
+import { AuthPopupError } from "@/lib/utils/authPopup";
 import { logger } from "@/lib/utils/logger";
 
 type Step = 1 | 2 | 3 | 4;
@@ -161,6 +162,8 @@ function FacebookStep(props: { onContinue: () => void; onBack: () => void }) {
         props.onContinue();
       }
     } catch (e: any) {
+      const authError = e as AuthPopupError;
+      if (authError?.code === "AUTH_POPUP_CLOSED") return; // Cancelamento pelo usuário — não mostrar toast
       showError(e);
     }
   };

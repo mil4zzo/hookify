@@ -14,7 +14,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
-from app.core.supabase_client import get_supabase_for_user
+from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 
 logger = logging.getLogger(__name__)
 
@@ -44,16 +44,26 @@ def _now_iso() -> str:
 class JobTracker:
     """Gerencia estados de jobs no Supabase."""
     
-    def __init__(self, user_jwt: str, user_id: str, processing_owner: Optional[str] = None):
+    def __init__(
+        self,
+        user_jwt: str,
+        user_id: str,
+        processing_owner: Optional[str] = None,
+        use_service_role: bool = False,
+    ):
         self.user_jwt = user_jwt
         self.user_id = user_id
         self.processing_owner = processing_owner
+        self.use_service_role = use_service_role
         self._sb = None
-    
+
     @property
     def sb(self):
         if self._sb is None:
-            self._sb = get_supabase_for_user(self.user_jwt)
+            if self.use_service_role:
+                self._sb = get_supabase_service()
+            else:
+                self._sb = get_supabase_for_user(self.user_jwt)
         return self._sb
     
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
@@ -441,8 +451,18 @@ class JobTracker:
             return False
 
 
-def get_job_tracker(user_jwt: str, user_id: str, processing_owner: Optional[str] = None) -> JobTracker:
+def get_job_tracker(
+    user_jwt: str,
+    user_id: str,
+    processing_owner: Optional[str] = None,
+    use_service_role: bool = False,
+) -> JobTracker:
     """Factory function para criar JobTracker."""
-    return JobTracker(user_jwt, user_id, processing_owner=processing_owner)
+    return JobTracker(
+        user_jwt,
+        user_id,
+        processing_owner=processing_owner,
+        use_service_role=use_service_role,
+    )
 
 

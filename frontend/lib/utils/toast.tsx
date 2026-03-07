@@ -168,6 +168,79 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
   return "Aguarde...";
 }
 
+// ----- Meta Ads: Progress Calculation & Toast Content -----
+
+const ESTIMATED_PAGES_COLLECTION = 10;
+
+/**
+ * Calcula progressPercent (0-100) baseado em etapas e sub-unidades do Meta.
+ */
+export function calculateMetaProgressPercent(status: string, details: any, apiProgress?: number): number {
+  if (status === "completed") return 100;
+  if (status === "failed" || status === "cancelled") return 0;
+
+  const stage = details?.stage || "";
+
+  // Etapa 1 (0-20%): meta_running
+  if (status === "meta_running" || status === "meta_completed") {
+    if (apiProgress != null && apiProgress >= 0 && apiProgress <= 100) {
+      return (apiProgress / 100) * 20;
+    }
+    return 0;
+  }
+
+  // Etapa 2 (20-40%): paginação
+  if (status === "processing" && (stage === "paginação" || stage === "STAGE_PAGINATION")) {
+    const pageCount = details?.page_count ?? 0;
+    const pageProgress = Math.min(pageCount / ESTIMATED_PAGES_COLLECTION, 1);
+    return 20 + pageProgress * 20;
+  }
+
+  // Etapa 3 (40-60%): enriquecimento
+  if (status === "processing" && (stage === "enriquecimento" || stage === "STAGE_ENRICHMENT")) {
+    const batchNum = details?.enrichment_batches ?? 0;
+    const totalBatches = details?.enrichment_total || 1;
+    const enrichProgress = totalBatches > 0 ? Math.min(batchNum / totalBatches, 1) : 0;
+    return 40 + enrichProgress * 20;
+  }
+
+  // Etapa 4 (60-80%): formatação
+  if (status === "processing" && (stage === "formatação" || stage === "STAGE_FORMATTING")) {
+    return 60;
+  }
+
+  // Etapa 5 (80-100%): persistência
+  if (status === "persisting" || (stage === "persistência" || stage === "STAGE_PERSISTENCE")) {
+    const msg = details?.message || "";
+    if (msg.includes("Salvando anúncios")) return 82;
+    if (msg.includes("Salvando métricas")) return 86;
+    if (msg.includes("Calculando")) return 90;
+    if (msg.includes("Otimizando")) return 94;
+    if (msg.includes("Finalizando")) return 98;
+    return 80;
+  }
+
+  // processing sem stage reconhecido: assumir etapa 2 (início)
+  if (status === "processing") return 20;
+  return 0;
+}
+
+/** Constrói conteúdo das 3 linhas do toast Meta a partir de status e details */
+export function buildMetaToastContent(status: string, details: any, topLevelMessage?: string): ProgressToastContent {
+  const { stepIndex, title } = getMetaStageInfo(status, details);
+  const stage = details?.stage || "";
+  const detailsWithMessage = topLevelMessage
+    ? { ...details, message: topLevelMessage }
+    : details;
+  const dynamicLine = getMetaDynamicLine(status, stage, detailsWithMessage);
+  return {
+    stageLabel: `Etapa ${stepIndex} de 5`,
+    stageTitle: title,
+    dynamicLine,
+    stageContext: "Meta",
+  };
+}
+
 /**
  * Traduz stages técnicos do backend para mensagens amigáveis (legado)
  */
@@ -255,7 +328,7 @@ export function getSheetsDynamicLine(status: string, stage: string, details?: an
     return "Validando dados...";
   }
   if (stage === "persistindo" || status === "persisting") {
-    return "Salvando no banco de dados...";
+    return "Aplicando leadscore aos anúncios...";
   }
   return "Preparando importação...";
 }

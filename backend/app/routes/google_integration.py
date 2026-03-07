@@ -17,7 +17,7 @@ from app.core.config import (
     GOOGLE_OAUTH_SCOPES,
 )
 from app.services.google_accounts_repo import upsert_google_account, list_google_accounts, delete_google_account
-from app.services.google_sheets_service import fetch_headers, list_spreadsheets, list_worksheets, get_spreadsheet_name, GoogleSheetsError
+from app.services.google_sheets_service import fetch_columns_with_duplicate_detection, list_spreadsheets, list_worksheets, get_spreadsheet_name, GoogleSheetsError
 from app.services.google_errors import (
     raise_google_http_error,
     GOOGLE_TOKEN_EXPIRED,
@@ -423,11 +423,11 @@ def list_sheet_columns(
     user=Depends(get_current_user),
 ):
     """
-    Retorna as colunas (header da primeira linha) de uma aba específica da planilha.
+    Retorna colunas (header + amostra) com detecção de duplicatas.
     Usado pelo modal para montar os selects de ad_id, data, Leadscore e CPR max.
     """
     try:
-        headers = fetch_headers(
+        result = fetch_columns_with_duplicate_detection(
             user_jwt=user["token"],
             user_id=user["user_id"],
             spreadsheet_id=spreadsheet_id,
@@ -448,7 +448,12 @@ def list_sheet_columns(
         logger.exception("[GOOGLE_SHEETS] Erro inesperado ao listar colunas")
         raise HTTPException(status_code=500, detail="Erro ao listar colunas da planilha")
 
-    return {"columns": headers}
+    return {
+        "columns": result["columns"],
+        "duplicates": result["duplicates"],
+        "sampleRows": result["sampleRows"],
+        "columnsWithIndices": result["columnsWithIndices"],
+    }
 
 
 class SheetIntegrationRequest(BaseModel):
@@ -459,6 +464,11 @@ class SheetIntegrationRequest(BaseModel):
     date_format: str  # 'DD/MM/YYYY' ou 'MM/DD/YYYY'
     leadscore_column: Optional[str] = None
     cpr_max_column: Optional[str] = None
+    # Índices explícitos quando há headers duplicados (0-based)
+    ad_id_column_index: Optional[int] = None
+    date_column_index: Optional[int] = None
+    leadscore_column_index: Optional[int] = None
+    cpr_max_column_index: Optional[int] = None
     # Quando informado, a integração passa a ser específica daquele pack
     pack_id: Optional[str] = None
     # ID da conexão Google específica a usar para esta integração
@@ -496,12 +506,15 @@ def save_ad_sheet_integration(
         "pack_id": payload.pack_id,
         "spreadsheet_id": payload.spreadsheet_id,
         "worksheet_title": payload.worksheet_title,
-        "match_strategy": "AD_ID",
         "ad_id_column": payload.ad_id_column,
         "date_column": payload.date_column,
         "date_format": payload.date_format,
         "leadscore_column": payload.leadscore_column,
         "cpr_max_column": payload.cpr_max_column,
+        "ad_id_column_index": payload.ad_id_column_index,
+        "date_column_index": payload.date_column_index,
+        "leadscore_column_index": payload.leadscore_column_index,
+        "cpr_max_column_index": payload.cpr_max_column_index,
         "connection_id": payload.connection_id,
     }
     try:
@@ -534,7 +547,7 @@ def save_ad_sheet_integration(
     if payload.pack_id and integration_id:
         try:
             from datetime import datetime as dt
-            now_iso = dt.utcnow().isoformat(timespec="seconds") + "Z"
+            now_iso = dt.now(timezone.utc).isoformat(timespec="seconds")
             sb.table("packs").update({
                 "sheet_integration_id": integration_id,
                 "updated_at": now_iso
@@ -664,7 +677,7 @@ def sync_ad_sheet_integration(
             sb = get_supabase_for_user(user["token"])
             from datetime import datetime as dt
 
-            now_iso = dt.utcnow().isoformat(timespec="seconds") + "Z"
+            now_iso = dt.now(timezone.utc).isoformat(timespec="seconds")
             sb.table("ad_sheet_integrations").update(
                 {
                     "last_synced_at": now_iso,
@@ -805,7 +818,7 @@ def delete_ad_sheet_integration(
     if pack_id:
         try:
             from datetime import datetime as dt
-            now_iso = dt.utcnow().isoformat(timespec="seconds") + "Z"
+            now_iso = dt.now(timezone.utc).isoformat(timespec="seconds")
             sb.table("packs").update({
                 "sheet_integration_id": None,
                 "updated_at": now_iso

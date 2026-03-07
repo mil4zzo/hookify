@@ -24,6 +24,8 @@ class RefreshPackRequest(BaseModel):
     until_date: str
     # Tipo de atualização: 'since_last_refresh' (desde última atualização) ou 'full_period' (todo o período)
     refresh_type: str = "since_last_refresh"
+    # Se True, pula o sync automático de Google Sheets (frontend controla independentemente)
+    skip_sheets_sync: bool = False
 
 class UpdateStatusRequest(BaseModel):
     """

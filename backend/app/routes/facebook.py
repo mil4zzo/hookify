@@ -8,7 +8,7 @@ import json
 import asyncio
 import threading
 import uuid
-from app.services.graph_api import GraphAPI
+from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
 from app.core.supabase_client import get_supabase_for_user
 from app.services.facebook_token_service import (
@@ -45,6 +45,7 @@ from app.services.job_tracker import (
 )
 from app.services.meta_job_client import get_meta_job_client
 from app.services.job_processor import process_job_async
+from app.services.background_tasks import get_background_status
 
 logger = logging.getLogger(__name__)
 
@@ -460,14 +461,11 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
         logger.info(f"Converted filters: {filters_list}")
         
         # Iniciar job e retornar job_id
-        job_id = api.start_ads_job(request.adaccount_id, time_range_dict, filters_list)
-        
-        if isinstance(job_id, dict) and "status" in job_id:
-            logger.error(f"GraphAPI returned error: {job_id}")
-            error_msg = job_id.get("message", "")
-            
-            # Verificar se é erro de token expirado
-            if check_meta_error_for_token_expiry(error_msg):
+        try:
+            job_id = api.start_ads_job(request.adaccount_id, time_range_dict, filters_list)
+        except GraphAPIError as e:
+            logger.error(f"GraphAPI returned error: {e.status} - {e.message}")
+            if check_meta_error_for_token_expiry(e.message):
                 user_jwt = user["token"]
                 user_id = user["user_id"]
                 mark_connection_as_expired(user_jwt, user_id)
@@ -479,9 +477,8 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
                         "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
                     }
                 )
-            
-            raise HTTPException(status_code=502, detail=error_msg)
-        
+            raise HTTPException(status_code=502, detail=e.message)
+
         # registrar job inicial (opcional)
         try:
             supabase_repo.record_job(user["token"], str(job_id), status="running", user_id=user["user_id"], progress=0, message="Job iniciado", payload={
@@ -527,6 +524,15 @@ def get_job_progress(
         
         # Criar tracker para este job
         tracker = get_job_tracker(user_jwt, user_id)
+
+        def _progress_with_bg():
+            p = tracker.get_public_progress(job_id)
+            if p.get("status") == STATUS_COMPLETED:
+                bg = get_background_status(job_id)
+                if bg:
+                    p = dict(p)
+                    p["background_tasks_status"] = bg
+            return p
         
         # 1) Verificar status atual no Supabase (rápido)
         job = tracker.get_job(job_id)
@@ -535,16 +541,16 @@ def get_job_progress(
         # Se job já está em estado final, retornar diretamente
         if current_status == STATUS_COMPLETED:
             logger.debug(f"[JOB_PROGRESS] Job {job_id} já completado, retornando progresso salvo")
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
         
         if current_status == STATUS_FAILED:
             logger.debug(f"[JOB_PROGRESS] Job {job_id} já falhou, retornando progresso salvo")
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
 
         # ✅ CRÍTICO: Verificar se job foi cancelado - NÃO continuar processamento!
         if current_status == STATUS_CANCELLED:
             logger.info(f"[JOB_PROGRESS] Job {job_id} foi cancelado, retornando status cancelado")
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
 
         # Se job está em processing/persisting, retornar progresso atual (background está trabalhando)
         if current_status in (STATUS_PROCESSING, STATUS_PERSISTING):
@@ -554,7 +560,7 @@ def get_job_progress(
                 fresh_job = tracker.get_job(job_id)
                 if fresh_job and fresh_job.get("status") == STATUS_CANCELLED:
                     logger.info(f"[JOB_PROGRESS] Job {job_id} foi cancelado, não reiniciando self-healing")
-                    return tracker.get_public_progress(job_id)
+                    return _progress_with_bg()
 
                 logger.warning(f"[JOB_PROGRESS] Lease expirado para job {job_id}, tentando retomar...")
                 # Buscar token do Facebook para reprocessar
@@ -568,7 +574,7 @@ def get_job_progress(
                         job_id,
                         tracker.processing_owner,
                     )
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
         
         # 2) Consultar status na Meta API (rápido, sem paginação)
         fb_token = get_facebook_token_for_user(user_jwt, user_id)
@@ -622,7 +628,7 @@ def get_job_progress(
                 message="Solicitando pack ao Meta...",
                 details={"stage": "meta_processing"}
             )
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
         
         elif meta_job_status == "failed":
             # Meta falhou
@@ -640,7 +646,7 @@ def get_job_progress(
                     }
                 )
             
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
         
         elif meta_job_status == "completed":
             # Meta completou! Disparar processamento em background
@@ -662,7 +668,7 @@ def get_job_progress(
                 )
                 logger.info(f"[JOB_PROGRESS] Processamento em background iniciado para job {job_id}")
             
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
         
         else:
             # Status desconhecido - atualizar e retornar do banco
@@ -673,7 +679,7 @@ def get_job_progress(
                 message=f"Status: {meta_job_status}",
                 details={"stage": "meta_processing"}
             )
-            return tracker.get_public_progress(job_id)
+            return _progress_with_bg()
     
     except HTTPException:
         raise
@@ -943,22 +949,17 @@ def refresh_pack(
         }
 
         # Iniciar job no Meta
-        job_id = api.start_ads_job(pack["adaccount_id"], time_range_dict, filters_list)
-
-        if isinstance(job_id, dict) and "status" in job_id:
-            logger.error(f"[REFRESH_PACK] GraphAPI returned error: {job_id}")
-            error_msg = job_id.get("message", "")
-
-            # Atualizar status para failed
+        try:
+            job_id = api.start_ads_job(pack["adaccount_id"], time_range_dict, filters_list)
+        except GraphAPIError as e:
+            logger.error(f"[REFRESH_PACK] GraphAPI returned error: {e.status} - {e.message}")
             supabase_repo.update_pack_refresh_status(
                 user["token"],
                 pack_id,
                 user["user_id"],
                 refresh_status="failed"
             )
-
-            # Verificar se é erro de token expirado
-            if check_meta_error_for_token_expiry(error_msg):
+            if check_meta_error_for_token_expiry(e.message):
                 mark_connection_as_expired(user["token"], user["user_id"])
                 raise HTTPException(
                     status_code=401,
@@ -968,8 +969,7 @@ def refresh_pack(
                         "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
                     }
                 )
-
-            raise HTTPException(status_code=502, detail=error_msg)
+            raise HTTPException(status_code=502, detail=e.message)
 
         # Preparar payload do job (usar filters_list limpo para consistência)
         payload_data = {
@@ -989,7 +989,7 @@ def refresh_pack(
         sync_job_id = None
         sync_details = None
 
-        if sheet_integration_id:
+        if sheet_integration_id and not request.skip_sheets_sync:
             try:
                 from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
 

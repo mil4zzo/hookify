@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,19 +15,18 @@ import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFi
 import { Switch } from "@/components/ui/switch";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Progress } from "@/components/ui/progress";
 import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError, showWarning, showProgressToast, finishProgressToast } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport } from "@tabler/icons-react";
+import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport, IconMicrophone } from "@tabler/icons-react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, createColumnHelper, flexRender, ColumnDef } from "@tanstack/react-table";
 
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
-import { getAggregatedPackStatistics, getAdStatistics } from "@/lib/utils/adCounting";
+import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
@@ -36,11 +35,19 @@ import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { filterVideoAds } from "@/lib/utils/filterVideoAds";
-import { useActiveJobsStore } from "@/lib/store/activeJobs";
-import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
+import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh";
+import { usePackCreation } from "@/lib/hooks/usePackCreation";
+import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { logger } from "@/lib/utils/logger";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
+const STORAGE_KEY_REFRESH_TOGGLES = "hookify:refresh-toggles";
+
+const DEFAULT_REFRESH_TOGGLES: RefreshToggles = {
+  meta: true,
+  leadscore: true,
+  transcription: false,
+};
 
 // Funções auxiliares para gerenciar dateRange no localStorage
 const saveDateRange = (dateRange: { start?: string; end?: string }) => {
@@ -65,6 +72,35 @@ const loadDateRange = (): { start?: string; end?: string } | null => {
   } catch (e) {
     logger.error("Erro ao carregar dateRange do localStorage:", e);
     return null;
+  }
+};
+
+// Funções auxiliares para persistir preferências dos toggles de refresh
+const loadRefreshToggles = (): RefreshToggles | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_REFRESH_TOGGLES);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved);
+    if (parsed && typeof parsed === "object" && "meta" in parsed && "leadscore" in parsed && "transcription" in parsed) {
+      return {
+        meta: Boolean(parsed.meta),
+        leadscore: Boolean(parsed.leadscore),
+        transcription: Boolean(parsed.transcription),
+      };
+    }
+    return null;
+  } catch (e) {
+    logger.error("Erro ao carregar refresh toggles do localStorage:", e);
+    return null;
+  }
+};
+
+const saveRefreshToggles = (toggles: RefreshToggles) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_REFRESH_TOGGLES, JSON.stringify(toggles));
+  } catch (e) {
+    logger.error("Erro ao salvar refresh toggles no localStorage:", e);
   }
 };
 
@@ -305,30 +341,32 @@ export default function PacksPage() {
   const pageConfig = usePageConfig();
   const formatCurrency = useFormatCurrency();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [packToRemove, setPackToRemove] = useState<{ id: string; name: string; adsCount: number } | null>(null);
   const [packToRefresh, setPackToRefresh] = useState<{ id: string; name: string } | null>(null);
   const [refreshType, setRefreshType] = useState<"since_last_refresh" | "full_period">("since_last_refresh");
+  const [refreshToggles, setRefreshToggles] = useState<RefreshToggles>(() => loadRefreshToggles() ?? DEFAULT_REFRESH_TOGGLES);
   const [packToDisableAutoRefresh, setPackToDisableAutoRefresh] = useState<{ id: string; name: string } | null>(null);
   const [packToRename, setPackToRename] = useState<{ id: string; name: string } | null>(null);
   const [newPackName, setNewPackName] = useState<string>("");
   const [isRenaming, setIsRenaming] = useState(false);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
   const { isPackUpdating } = useUpdatingPacksStore();
-  const { addActiveJob, removeActiveJob } = useActiveJobsStore();
   const { refreshPack, isRefreshing, startTranscriptionOnly } = usePackRefresh();
+  const { startCreation, cancelCreation, isCreating } = usePackCreation({
+    onComplete: () => {
+      setFormData((prev) => ({
+        ...prev,
+        name: getNextPackName(),
+        filters: [],
+        auto_refresh: false,
+      }));
+    },
+  });
   const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
-  const [debugInfo, setDebugInfo] = useState<string>("");
-  const [progressDetails, setProgressDetails] = useState<any>(null);
-  const [animatedPercent, setAnimatedPercent] = useState(0);
   const [jsonViewerPack, setJsonViewerPack] = useState<any>(null);
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
-
-  // Refs para controlar cancelamento do carregamento
-  const isCancelledRef = useRef(false);
-  const createdPackIdRef = useRef<string | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
   const getTwoDaysAgoLocal = (): string => {
@@ -373,7 +411,7 @@ export default function PacksPage() {
 
   // Store hooks
   const { isAuthenticated, user, isClient } = useClientAuth();
-  const { packs, addPack, removePack, updatePack } = useClientPacks();
+  const { packs, removePack, updatePack } = useClientPacks();
   const { adAccounts } = useClientAdAccounts();
   const { authStatus, onboardingStatus } = useOnboardingGate("app");
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
@@ -387,6 +425,11 @@ export default function PacksPage() {
 
   // Calculate statistics using centralized utility
   const packStats = getAggregatedPackStatistics(packs);
+
+  // Para o modal de refresh: habilita botão Confirmar apenas se ao menos um processo estiver selecionado
+  const refreshModalPack = packToRefresh ? packs.find((p) => p.id === packToRefresh.id) : null;
+  const hasSheetIntegrationInModal = !!refreshModalPack?.sheet_integration?.id;
+  const canConfirmRefresh = refreshToggles.meta || (refreshToggles.leadscore && hasSheetIntegrationInModal) || refreshToggles.transcription;
 
   // Update pack name when packs change or modal opens
   useEffect(() => {
@@ -483,53 +526,6 @@ export default function PacksPage() {
     return null;
   };
 
-  const handleCancelLoadPack = async () => {
-    // Marcar como cancelado
-    isCancelledRef.current = true;
-
-    // Se um pack foi criado, remover do store e do cache
-    if (createdPackIdRef.current) {
-      const packId = createdPackIdRef.current;
-
-      // Remover do store
-      removePack(packId);
-
-      // Remover do cache IndexedDB
-      try {
-        const { removeCachedPackAds } = await import("@/lib/storage/adsCache");
-        await removeCachedPackAds(packId).catch((error) => {
-          logger.error("Erro ao remover cache do pack cancelado:", error);
-        });
-      } catch (error) {
-        logger.error("Erro ao importar função de remoção de cache:", error);
-      }
-
-      // Tentar deletar do backend também (opcional, não bloqueia)
-      try {
-        await api.analytics.deletePack(packId, []).catch(() => {
-          // Ignorar erros - pack pode não ter sido totalmente criado no backend
-        });
-      } catch (error) {
-        // Ignorar erros
-      }
-
-      createdPackIdRef.current = null;
-    }
-
-    // Limpar estados
-    setIsLoading(false);
-    setDebugInfo("");
-    setProgressDetails(null);
-
-    // Fechar modal apenas se não estiver sendo chamado pelo onClose do modal
-    // (evitar loop infinito)
-    if (isDialogOpen) {
-      setIsDialogOpen(false);
-    }
-
-    showWarning("Carregamento do pack cancelado. Todos os dados foram limpos.");
-  };
-
   const handleLoadPack = async () => {
     const validationError = validateForm();
     if (validationError) {
@@ -537,38 +533,18 @@ export default function PacksPage() {
       return;
     }
 
-    // Resetar flags de cancelamento
-    isCancelledRef.current = false;
-    createdPackIdRef.current = null;
+    const packName = formData.name.trim() || getNextPackName();
 
-    setIsLoading(true);
-    // Inicializar progresso imediatamente
-    setDebugInfo("Solicitando pack ao Meta...");
-    setProgressDetails({ stage: "meta_processing" });
-    setAnimatedPercent(0);
+    // Verificar nome duplicado
+    const existingPack = packs.find((p) => p.name.trim().toLowerCase() === packName.toLowerCase());
+    if (existingPack) {
+      setPackNameDuplicateError(true);
+      showError({ message: `Já existe um pack com o nome "${packName}"` });
+      return;
+    }
 
-    let jobId: string | null = null; // Para poder limpar no finally
     try {
-      // Verificar se foi cancelado antes de iniciar
-      if (isCancelledRef.current) {
-        return;
-      }
-
-      // Garantir que sempre tenha um nome válido (evita condição de corrida)
-      // Se o nome estiver vazio por algum motivo, usar o nome gerado automaticamente
-      const packName = formData.name.trim() || getNextPackName();
-
-      // Verificar se já existe um pack com o mesmo nome
-      const existingPack = packs.find((p) => p.name.trim().toLowerCase() === packName.toLowerCase());
-      if (existingPack) {
-        setPackNameDuplicateError(true);
-        showError({ message: `Já existe um pack com o nome "${packName}"` });
-        setIsLoading(false);
-        return;
-      }
-
-      // Start the async job (sempre usa nível "ad")
-      const result = await api.facebook.startAdsJob({
+      const result = await startCreation({
         adaccount_id: formData.adaccount_id,
         date_start: formData.date_start,
         date_stop: formData.date_stop,
@@ -580,367 +556,13 @@ export default function PacksPage() {
         today_local: getTodayLocal(),
       });
 
-      if (!result.job_id) {
-        throw new Error("Falha ao iniciar job de busca de anúncios");
-      }
-
-      jobId = result.job_id; // Armazenar para limpar no finally
-
-      // ✅ VERIFICAR E ADICIONAR JOB ATIVO (proteção contra múltiplos pollings)
-      if (!addActiveJob(jobId)) {
-        console.warn(`Polling já ativo para job ${jobId}. Ignorando nova tentativa...`);
-        showError({ message: "Este job já está sendo processado. Aguarde a conclusão." });
-        setIsLoading(false);
-        return;
-      }
-
-      // Primeira chamada imediata (sem esperar 2s)
-      try {
-        const initialProgress = await api.facebook.getJobProgress(result.job_id);
-        const details = (initialProgress as any)?.details || {};
-        setProgressDetails({ ...details, status: initialProgress.status });
-        setDebugInfo(initialProgress.message || "Solicitando pack ao Meta...");
-
-        // Calcular percentual inicial
-        let initialPercent = 0;
-        if (initialProgress.status === "meta_running" || initialProgress.status === "running") {
-          initialPercent = Math.min(initialProgress.progress || 0, 30);
-        } else if (initialProgress.status === "processing") {
-          if (details.stage === "paginação") {
-            initialPercent = 30 + Math.min((details.page_count || 0) * 2, 20);
-          } else if (details.stage === "enriquecimento") {
-            const batchProgress = details.enrichment_total > 0 ? Math.round(((details.enrichment_batches || 0) / details.enrichment_total) * 100) : 0;
-            initialPercent = 50 + Math.round(batchProgress * 0.3);
-          } else if (details.stage === "formatação") {
-            initialPercent = 85;
-          } else {
-            initialPercent = 50;
-          }
-        } else if (initialProgress.status === "persisting") {
-          initialPercent = 95;
-        }
-        setAnimatedPercent(initialPercent);
-      } catch (error) {
-        console.warn("Erro ao buscar progresso inicial:", error);
-      }
-
-      // Poll for completion
-      let completed = false;
-      let attempts = 0;
-      const maxAttempts = 600; // 20 minutes max (600 * 2s = 1200s = 20min)
-
-      while (!completed && attempts < maxAttempts) {
-        // Verificar se foi cancelado antes de cada iteração
-        if (isCancelledRef.current) {
-          completed = true;
-          break;
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds
-
-        // Verificar novamente após o timeout
-        if (isCancelledRef.current) {
-          completed = true;
-          break;
-        }
-
-        try {
-          const progress = await api.facebook.getJobProgress(result.job_id);
-
-          // Verificar se foi cancelado após a requisição
-          if (isCancelledRef.current) {
-            completed = true;
-            break;
-          }
-
-          const rawAds = Array.isArray((progress as any)?.data) ? (progress as any).data : Array.isArray((progress as any)?.data?.data) ? (progress as any).data.data : [];
-          const details = (progress as any)?.details || {};
-
-          // Armazenar detalhes do progresso
-          setProgressDetails(details);
-
-          // Simplificado: usar progress.message como fonte única de verdade
-          // details.stage e progress.status apenas para calcular percentual e emoji
-          let debugMessage = progress.message || "Processando...";
-          let stageEmoji = "⏳";
-          let stagePercent = 0;
-
-          // Calcular percentual e emoji baseado em status e stage
-          if (progress.status === "meta_running" || progress.status === "running") {
-            stageEmoji = "🔄";
-            stagePercent = Math.min(progress.progress || 0, 30);
-          } else if (progress.status === "processing") {
-            stageEmoji = "⏳";
-            // Calcular percentual baseado no stage dentro de processing
-            if (details.stage === "paginação") {
-              stagePercent = 30 + Math.min((details.page_count || 0) * 2, 20);
-            } else if (details.stage === "enriquecimento") {
-              const batchProgress = details.enrichment_total > 0 ? Math.round(((details.enrichment_batches || 0) / details.enrichment_total) * 100) : 0;
-              stagePercent = 50 + Math.round(batchProgress * 0.3);
-            } else if (details.stage === "formatação") {
-              stagePercent = 85;
-            } else {
-              stagePercent = 50; // fallback
-            }
-          } else if (progress.status === "persisting") {
-            stageEmoji = "💾";
-            stagePercent = 95;
-          } else if (progress.status === "completed") {
-            stageEmoji = "✅";
-            stagePercent = 100;
-          } else if (progress.status === "failed") {
-            stageEmoji = "❌";
-            stagePercent = 0;
-          }
-
-          // Atualizar mensagem, percentual animado e detalhes com status
-          setDebugInfo(debugMessage);
-          setAnimatedPercent(stagePercent);
-          setProgressDetails({ ...details, status: progress.status });
-
-          if (progress.status === "completed") {
-            // Verificar se foi cancelado antes de processar
-            if (isCancelledRef.current) {
-              completed = true;
-              break;
-            }
-
-            // Usar pack_id retornado pelo backend
-            const packId = (progress as any).pack_id;
-            const resultCount = (progress as any).result_count || 0;
-
-            if (!packId) {
-              // Fallback: se não tiver pack_id, pode ser nenhum anúncio encontrado
-              if (resultCount === 0) {
-                showError({ message: "Nenhum anúncio encontrado para os parâmetros selecionados." });
-              } else {
-                showError({ message: "Erro: Pack ID não retornado pelo backend." });
-              }
-              completed = true;
-              break;
-            }
-
-            // Armazenar packId para possível cancelamento futuro
-            createdPackIdRef.current = packId;
-
-            // Verificar warnings do backend
-            const warnings = (progress as any).warnings || [];
-            if (warnings.length > 0) {
-              warnings.forEach((warning: string) => {
-                showWarning(warning);
-              });
-            }
-
-            // Verificar se foi cancelado antes de buscar pack
-            if (isCancelledRef.current) {
-              completed = true;
-              break;
-            }
-
-            // Buscar pack completo do backend (com ads e stats)
-            setDebugInfo("🔄 Finalizando... Carregando dados do pack...");
-            const packResponse = await api.analytics.getPack(packId, true);
-
-            if (!packResponse.success || !packResponse.pack) {
-              logger.error('packs/page: getPack retornou success:false após criação do pack', { packId, packResponse });
-              showError({ message: "Erro ao carregar pack criado." });
-              completed = true;
-              break;
-            }
-
-            const backendPack = packResponse.pack;
-            const formattedAds = Array.isArray(backendPack.ads) ? backendPack.ads : [];
-
-            // Filtrar apenas ads de vídeo para exibição
-            const videoAds = filterVideoAds(formattedAds);
-
-            // Verificar se há anúncios de vídeo
-            if (!videoAds || videoAds.length === 0) {
-              showError({ message: "Nenhum anúncio de vídeo retornado para os parâmetros selecionados." });
-              completed = true;
-              break;
-            }
-
-            // Verificar se foi cancelado antes de criar o pack
-            if (isCancelledRef.current) {
-              completed = true;
-              break;
-            }
-
-            // Usar stats do backend (já calculados) ou calcular localmente como fallback
-            const backendStats = backendPack.stats || {};
-            const localStats = getAdStatistics(formattedAds);
-
-            // Create pack para o store local
-            const pack = {
-              id: packId,
-              name: backendPack.name || packName,
-              adaccount_id: backendPack.adaccount_id || formData.adaccount_id,
-              date_start: backendPack.date_start || formData.date_start,
-              date_stop: backendPack.date_stop || formData.date_stop,
-              level: "ad" as const,
-              filters: backendPack.filters || formData.filters,
-              auto_refresh: backendPack.auto_refresh || formData.auto_refresh || false,
-              ads: [], // Não salvar ads no store - usar cache IndexedDB
-              stats: {
-                totalAds: backendStats.totalAds || formattedAds.length,
-                uniqueAds: backendStats.uniqueAds || localStats.uniqueAds,
-                uniqueAdNames: backendStats.uniqueAdNames || localStats.uniqueAds, // Fallback para uniqueAds se não houver uniqueAdNames
-                uniqueCampaigns: backendStats.uniqueCampaigns || localStats.uniqueCampaigns,
-                uniqueAdsets: backendStats.uniqueAdsets || localStats.uniqueAdsets,
-                totalSpend: backendStats.totalSpend || localStats.totalSpend,
-                totalClicks: backendStats.totalClicks || formattedAds.reduce((sum: number, ad: any) => sum + (ad.clicks || 0), 0),
-                totalImpressions: backendStats.totalImpressions || formattedAds.reduce((sum: number, ad: any) => sum + (ad.impressions || 0), 0),
-                totalReach: backendStats.totalReach || formattedAds.reduce((sum: number, ad: any) => sum + (ad.reach || 0), 0),
-                totalInlineLinkClicks: backendStats.totalInlineLinkClicks || formattedAds.reduce((sum: number, ad: any) => sum + (ad.inline_link_clicks || 0), 0),
-                totalPlays: backendStats.totalPlays || formattedAds.reduce((sum: number, ad: any) => sum + (ad.video_plays || 0), 0),
-                totalThruplays: backendStats.totalThruplays || formattedAds.reduce((sum: number, ad: any) => sum + (ad.video_thruplay || 0), 0),
-                ctr: backendStats.ctr || 0,
-                cpm: backendStats.cpm || 0,
-                frequency: backendStats.frequency || 0,
-              },
-              created_at: backendPack.created_at || new Date().toISOString(),
-              updated_at: backendPack.updated_at || new Date().toISOString(),
-            };
-
-            // Verificar novamente antes de adicionar ao store
-            if (isCancelledRef.current) {
-              completed = true;
-              break;
-            }
-
-            addPack(pack);
-
-            // Salvar ads no cache IndexedDB (separado do store)
-            if (formattedAds.length > 0 && !isCancelledRef.current) {
-              const { cachePackAds } = await import("@/lib/storage/adsCache");
-              await cachePackAds(packId, formattedAds).catch((error) => {
-                logger.error("Erro ao salvar ads no cache:", error);
-              });
-            }
-
-            // Se foi cancelado após salvar, limpar dados
-            if (isCancelledRef.current) {
-              await handleCancelLoadPack();
-              return;
-            }
-
-            // Mostrar mensagem com total de ads e quantos são vídeos
-            const totalAds = formattedAds.length;
-            const videoAdsCount = videoAds.length;
-            if (totalAds === videoAdsCount) {
-              showSuccess(`Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo!`);
-            } else {
-              showSuccess(`Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo (de ${totalAds} total)!`);
-            }
-
-            // Reset form and close dialog
-            setFormData((prev) => ({
-              ...prev,
-              name: getNextPackName(),
-              filters: [],
-              auto_refresh: false,
-            }));
-            setIsDialogOpen(false);
-            setDebugInfo("");
-            setProgressDetails(null); // Limpar debug info
-            setProgressDetails(null); // Limpar detalhes
-            completed = true;
-
-            // Limpar refs após sucesso
-            createdPackIdRef.current = null;
-          } else if (progress.status === "failed") {
-            throw new Error(progress.message || "Job falhou");
-          }
-        } catch (error) {
-          // Incrementar attempts mesmo em caso de erro para evitar loop infinito
-          attempts++;
-
-          // Se foi cancelado, não mostrar erro
-          if (isCancelledRef.current) {
-            completed = true;
-            break;
-          }
-
-          // Melhorar tratamento de erro para exibir mensagens mais claras
-          let errorMessage = "Erro ao verificar progresso do job";
-          if (error instanceof Error) {
-            errorMessage = error.message || errorMessage;
-          } else if (typeof error === "object" && error !== null) {
-            // Tentar extrair mensagem de erro do objeto
-            const errorObj = error as any;
-            errorMessage = errorObj.message || errorObj.error || errorObj.detail || errorMessage;
-          }
-
-          logger.error("Error polling job progress:", error);
-
-          // Verificar se é timeout HTTP (não é timeout do polling, apenas da requisição)
-          const isHttpTimeout = errorMessage.includes("timeout") || errorMessage.includes("Timeout") || (typeof error === "object" && error !== null && (error as any).code === "ECONNABORTED");
-
-          // Se for timeout HTTP, continuar polling (não é erro fatal)
-          if (isHttpTimeout) {
-            console.warn(`Timeout HTTP na requisição getJobProgress (tentativa ${attempts}/${maxAttempts}). Continuando polling...`);
-            setDebugInfo(`Timeout na requisição, tentando novamente... (${attempts}/${maxAttempts})`);
-            // Continuar loop sem lançar erro
-            continue;
-          }
-
-          // Se o erro for vazio ou muito genérico, verificar se o job pode ter completado
-          // mesmo com erro na requisição (timeout de rede, etc)
-          if (!errorMessage || errorMessage === "{}" || errorMessage.trim() === "") {
-            // Tentar uma última verificação antes de falhar
-            try {
-              const lastProgress = await api.facebook.getJobProgress(result.job_id);
-              if (lastProgress.status === "completed" && (lastProgress as any).pack_id) {
-                // Job completou, continuar processamento normalmente
-                continue;
-              }
-            } catch (retryError) {
-              // Se a retentativa também falhar, continuar polling (não é erro fatal)
-              console.warn(`Erro ao tentar retry do getJobProgress (tentativa ${attempts}/${maxAttempts}). Continuando polling...`);
-              continue;
-            }
-          }
-
-          // Para erros não-fatais, continuar polling
-          // Apenas lançar erro para erros realmente críticos
-          if (attempts >= maxAttempts) {
-            throw new Error(`Timeout: Job demorou mais que 20 minutos para completar (${attempts} tentativas)`);
-          }
-
-          // Para outros erros, continuar tentando
-          console.warn(`Erro ao verificar progresso (tentativa ${attempts}/${maxAttempts}): ${errorMessage}. Continuando polling...`);
-          continue;
-        }
-
-        // Incrementar attempts apenas quando não houve erro (ou quando o erro foi tratado com continue)
-        attempts++;
-      }
-
-      if (!completed && !isCancelledRef.current) {
-        throw new Error("Timeout: Job demorou mais que 20 minutos para completar");
+      if (result) {
+        // Job iniciado — fechar modal, o progresso segue no toast
+        setIsDialogOpen(false);
       }
     } catch (error) {
-      // Não mostrar erro se foi cancelado
-      if (!isCancelledRef.current) {
-        logger.error('packs/page: erro no fluxo de criação/carregamento do pack', error);
-        showError(error as any);
-      }
-    } finally {
-      // ✅ REMOVER JOB ATIVO QUANDO TERMINAR
-      if (jobId) {
-        removeActiveJob(jobId);
-      }
-      // Limpar refs ao finalizar
-      if (isCancelledRef.current) {
-        // Já foi limpo pelo handleCancelLoadPack
-        isCancelledRef.current = false;
-      } else {
-        createdPackIdRef.current = null;
-      }
-      setIsLoading(false);
-      setDebugInfo("");
-      setProgressDetails(null); // Limpar debug info ao finalizar
+      logger.error("packs/page: erro ao iniciar criação do pack", error);
+      showError(error as any);
     }
   };
 
@@ -1292,16 +914,27 @@ export default function PacksPage() {
     const packId = packToRefresh.id;
     const packName = packToRefresh.name;
     const pack = packs.find((p) => p.id === packId);
+    const hasSheetIntegration = !!pack?.sheet_integration?.id;
+
+    // Toggles efetivos: leadscore só conta se o pack tiver integração
+    const effectiveToggles: RefreshToggles = {
+      ...refreshToggles,
+      leadscore: refreshToggles.leadscore && hasSheetIntegration,
+    };
+
+    // Persistir preferência dos toggles para a próxima abertura do modal
+    saveRefreshToggles(refreshToggles);
 
     // Fechar modal imediatamente após confirmar
     setPackToRefresh(null);
 
-    // Usar hook centralizado para refresh
+    // Usar hook centralizado para refresh (processos independentes conforme toggles)
     await refreshPack({
       packId,
       packName,
       refreshType,
       sheetIntegrationId: pack?.sheet_integration?.id,
+      toggles: effectiveToggles,
     });
   };
 
@@ -1522,19 +1155,12 @@ export default function PacksPage() {
       {/* Load Pack Modal */}
       <Modal
         isOpen={isDialogOpen}
-        onClose={() => {
-          if (isLoading) {
-            // Se estiver carregando, cancelar ao invés de apenas fechar
-            handleCancelLoadPack();
-          } else {
-            setIsDialogOpen(false);
-          }
-        }}
+        onClose={() => setIsDialogOpen(false)}
         size="2xl"
         padding="md"
-        closeOnOverlayClick={!isLoading}
-        closeOnEscape={!isLoading}
-        showCloseButton={!isLoading}
+        closeOnOverlayClick
+        closeOnEscape
+        showCloseButton
       >
         <div className="space-y-1.5 mb-6">
           <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
@@ -1771,84 +1397,12 @@ export default function PacksPage() {
           </div>
 
           {/* Submit Button */}
-          {!isLoading && (
-            <div className="flex gap-3">
-              <Button onClick={handleLoadPack} disabled={!!validateForm()} className="flex-1" size="lg">
-                <IconChartBar className="w-4 h-4 mr-2" />
-                Carregar Pack
-              </Button>
-            </div>
-          )}
-
-          {/* Progress Component */}
-          {isLoading && (
-            <div className="mt-4 p-6 bg-card border border-border rounded-lg space-y-4">
-              {/* Header com emoji, mensagem e botão cancelar */}
-              <div className="flex items-center gap-3">
-                <div className="text-2xl">
-                  {(progressDetails?.status === "failed" || progressDetails?.status === "error") && "❌"}
-                  {progressDetails?.status === "completed" && "✅"}
-                  {progressDetails?.status === "persisting" && "💾"}
-                  {progressDetails?.status === "meta_running" || progressDetails?.status === "running" ? "🔄" : null}
-                  {progressDetails?.status === "processing" && progressDetails?.stage === "paginação" && "📄"}
-                  {progressDetails?.status === "processing" && progressDetails?.stage === "enriquecimento" && "🔍"}
-                  {progressDetails?.status === "processing" && progressDetails?.stage === "formatação" && "✨"}
-                  {progressDetails?.status === "processing" && !progressDetails?.stage && "⏳"}
-                  {!progressDetails?.status && "⏳"}
-                </div>
-                <div className="flex-1">
-                  <p className="font-semibold text-base">{debugInfo || "Iniciando..."}</p>
-                  <p className="text-sm text-muted-foreground mt-0.5">
-                    {progressDetails?.stage === "meta_processing" && "Aguardando resposta do Facebook..."}
-                    {progressDetails?.stage === "paginação" && "Coletando dados dos anúncios..."}
-                    {progressDetails?.stage === "enriquecimento" && "Enriquecendo dados coletados..."}
-                    {progressDetails?.stage === "formatação" && "Organizando dados..."}
-                    {progressDetails?.stage === "persistência" && "Salvando no banco de dados..."}
-                    {progressDetails?.stage === "completo" && "Processo concluído!"}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-2xl font-bold">{animatedPercent}%</p>
-                  <p className="text-xs text-muted-foreground">Progresso</p>
-                </div>
-              </div>
-
-              {/* Barra de progresso */}
-              <Progress value={animatedPercent} max={100} className="h-3" />
-
-              {/* Botão de cancelamento */}
-              <Button onClick={handleCancelLoadPack} variant="outline" size="sm" className="w-full">
-                <IconCircleX className="w-4 h-4 mr-2" />
-                Cancelar
-              </Button>
-
-              {/* Informações secundárias - Ocultas, mas dados mantidos em progressDetails para uso futuro */}
-              {/* {progressDetails && (
-                <div className="pt-3">
-                  <div className="grid grid-cols-2 gap-3 text-xs">
-                    {progressDetails.page_count > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Blocos:</span>
-                        <span className="ml-1 font-medium">{progressDetails.page_count}</span>
-                      </div>
-                    )}
-                    {progressDetails.total_collected > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Coletados:</span>
-                        <span className="ml-1 font-medium">{progressDetails.total_collected.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {progressDetails.ads_after_dedup > 0 && (
-                      <div>
-                        <span className="text-muted-foreground">Únicos:</span>
-                        <span className="ml-1 font-medium">{progressDetails.ads_after_dedup.toLocaleString()}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )} */}
-            </div>
-          )}
+          <div className="flex gap-3">
+            <Button onClick={handleLoadPack} disabled={!!validateForm() || isCreating} className="flex-1" size="lg">
+              <IconChartBar className="w-4 h-4 mr-2" />
+              Carregar Pack
+            </Button>
+          </div>
         </div>
       </Modal>
 
@@ -2000,13 +1554,52 @@ export default function PacksPage() {
             </button>
           </div>
 
+          {/* Toggles: Meta, Leadscore, Transcrição */}
+          {(() => {
+            const pack = packToRefresh ? packs.find((p) => p.id === packToRefresh.id) : null;
+            const hasSheetIntegration = !!pack?.sheet_integration?.id;
+            return (
+              <div className="w-full space-y-2">
+                <p className="text-sm font-medium text-text">O que atualizar:</p>
+                <div className="flex flex-col gap-2">
+                  <ToggleSwitch
+                    id="refresh-toggle-meta"
+                    checked={refreshToggles.meta}
+                    onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, meta: checked }))}
+                    label="Meta"
+                    variant="minimal"
+                    icon={<MetaIcon className="h-4 w-4 flex-shrink-0" />}
+                  />
+                  <ToggleSwitch
+                    id="refresh-toggle-leadscore"
+                    checked={hasSheetIntegration ? refreshToggles.leadscore : false}
+                    onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, leadscore: checked }))}
+                    label="Leadscore (Google Sheets)"
+                    variant="minimal"
+                    icon={<GoogleSheetsIcon className="h-4 w-4 flex-shrink-0" />}
+                    disabled={!hasSheetIntegration}
+                    helperText={!hasSheetIntegration ? "Pack sem integração com planilha" : undefined}
+                  />
+                  <ToggleSwitch
+                    id="refresh-toggle-transcription"
+                    checked={refreshToggles.transcription}
+                    onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, transcription: checked }))}
+                    label="Transcrição"
+                    variant="minimal"
+                    icon={<IconMicrophone className="h-4 w-4 flex-shrink-0" />}
+                  />
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="flex gap-4 w-full">
             <Button onClick={cancelRefreshPack} variant="destructiveOutline" className="flex-1 flex items-center justify-center gap-2">
               <IconCircleX className="h-5 w-5" />
               Cancelar
             </Button>
 
-            <Button onClick={confirmRefreshPack} variant="success" className="flex-1 flex items-center justify-center gap-2">
+            <Button onClick={confirmRefreshPack} variant="success" className="flex-1 flex items-center justify-center gap-2" disabled={!canConfirmRefresh}>
               <IconCircleCheck className="h-5 w-5" />
               Confirmar
             </Button>

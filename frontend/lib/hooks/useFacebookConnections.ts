@@ -42,22 +42,32 @@ export function useFacebookConnections() {
       const state = Math.random().toString(36).slice(2)
       const { auth_url } = await facebookConnectorApi.getAuthUrl(redirectUri, state)
 
-      const messageData = await openAuthPopup<{
-        type?: string
-        code?: string
-        error?: string
-        errorDescription?: string
-        error_description?: string
-        state?: string
-      }>({
-        url: auth_url,
-        windowName: 'facebook-connect',
-        windowFeatures: 'width=600,height=700,scrollbars=yes',
-        successType: 'FACEBOOK_AUTH_SUCCESS',
-        errorType: 'FACEBOOK_AUTH_ERROR',
-        expectedState: state,
-        // timeout padrão de 5min é suficiente aqui
-      })
+      let messageData: { type?: string; code?: string; error?: string; errorDescription?: string; error_description?: string; state?: string }
+      try {
+        messageData = await openAuthPopup<{
+          type?: string
+          code?: string
+          error?: string
+          errorDescription?: string
+          error_description?: string
+          state?: string
+        }>({
+          url: auth_url,
+          windowName: 'facebook-connect',
+          windowFeatures: 'width=600,height=700,scrollbars=yes',
+          successType: 'FACEBOOK_AUTH_SUCCESS',
+          errorType: 'FACEBOOK_AUTH_ERROR',
+          expectedState: state,
+          // timeout padrão de 5min é suficiente aqui
+        })
+      } catch (e: unknown) {
+        const authError = e as AuthPopupError
+        // Cancelamento pelo usuário (fechou modal) — não mostrar toast de erro
+        if (authError?.code === 'AUTH_POPUP_CLOSED') {
+          return false
+        }
+        throw e
+      }
 
       if (!messageData.code) {
         throw new Error('Código de autorização não recebido do Facebook.')

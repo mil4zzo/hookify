@@ -99,7 +99,6 @@ create table if not exists public.ad_sheet_integrations (
   pack_id uuid,
   spreadsheet_id text not null,
   worksheet_title text not null,
-  match_strategy text not null default 'AD_ID',
   ad_id_column text not null,
   date_column text not null,
   -- Formato de data configurado pelo usuário (DD/MM/YYYY ou MM/DD/YYYY)

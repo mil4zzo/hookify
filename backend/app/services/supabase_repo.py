@@ -2,14 +2,25 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Callable, Dict, List, Optional, Tuple
-from datetime import datetime, timedelta, date
+from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from datetime import datetime, timedelta, date, timezone
 
-from app.core.supabase_client import get_supabase_for_user
-from app.services.thumbnail_cache import cache_first_thumbs_for_ads
+from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.services.thumbnail_cache import CachedThumb
 
+if TYPE_CHECKING:
+    from supabase import Client
 
 logger = logging.getLogger(__name__)
+
+
+def _get_sb(user_jwt: Optional[str] = None, sb_client: Optional["Client"] = None) -> "Client":
+    """Retorna cliente Supabase: sb_client se fornecido, senão get_supabase_for_user(user_jwt)."""
+    if sb_client is not None:
+        return sb_client
+    if user_jwt:
+        return get_supabase_for_user(user_jwt)
+    raise ValueError("Either user_jwt or sb_client is required")
 
 
 class PackNameConflictError(ValueError):
@@ -36,7 +47,7 @@ def _is_pack_name_unique_violation(error: Exception) -> bool:
 
 
 def _now_iso() -> str:
-    return datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 def _hook_at_3_from_curve(curve: Any) -> float:
@@ -109,11 +120,11 @@ def _process_pack_deletion_in_batches(
     pack_id: str, 
     user_id: str,
     batch_size: int = 500
-) -> Tuple[List[str], List[str]]:
+) -> Tuple[List[str], List[str], List[str]]:
     """Processa registros durante a busca em lotes, separando IDs para atualizar vs deletar.
-    
+
     Otimiza uso de memória ao processar durante a busca em vez de carregar tudo primeiro.
-    
+
     Args:
         sb: Cliente Supabase
         table_name: Nome da tabela ("ad_metrics" ou "ads")
@@ -122,12 +133,13 @@ def _process_pack_deletion_in_batches(
         pack_id: ID do pack a ser removido
         user_id: ID do usuário
         batch_size: Tamanho do lote para batch updates
-    
+
     Returns:
-        Tuple[List[str], List[str]]: (ids_to_update, ids_to_delete)
+        Tuple[List[str], List[str], List[str]]: (ids_updated, ids_to_delete, ids_failed)
     """
     to_update_ids: List[str] = []
     to_delete_ids: List[str] = []
+    failed_ids: List[str] = []
     current_batch_ids: List[str] = []
     offset = 0
     page_size = 1000
@@ -172,12 +184,10 @@ def _process_pack_deletion_in_batches(
                                 to_update_ids.extend(current_batch_ids)
                             else:
                                 logger.warning(f"Erro no batch update durante streaming: {rpc_result.data}")
-                                # Adicionar de volta para processar depois
-                                to_update_ids.extend(current_batch_ids)
+                                failed_ids.extend(current_batch_ids)
                         except Exception as batch_err:
                             logger.warning(f"Erro ao fazer batch update durante streaming: {batch_err}")
-                            # Adicionar de volta para processar depois
-                            to_update_ids.extend(current_batch_ids)
+                            failed_ids.extend(current_batch_ids)
                         
                         current_batch_ids = []
                 else:
@@ -209,14 +219,22 @@ def _process_pack_deletion_in_batches(
                 to_update_ids.extend(current_batch_ids)
             else:
                 logger.warning(f"Erro no batch update final: {rpc_result.data}")
-                to_update_ids.extend(current_batch_ids)
+                failed_ids.extend(current_batch_ids)
         except Exception as batch_err:
             logger.warning(f"Erro ao fazer batch update final: {batch_err}")
-            to_update_ids.extend(current_batch_ids)
-    
-    logger.info(f"Processados {total_processed} registros de {table_name} (streaming): {len(to_update_ids)} para atualizar, {len(to_delete_ids)} para deletar")
-    
-    return (to_update_ids, to_delete_ids)
+            failed_ids.extend(current_batch_ids)
+
+    if failed_ids:
+        logger.error(
+            f"[PACK_DELETION] {len(failed_ids)} registros de {table_name} falharam no batch_remove_pack_id "
+            f"para pack {pack_id}. IDs afetados precisam de cleanup manual."
+        )
+    logger.info(
+        f"Processados {total_processed} registros de {table_name} (streaming): "
+        f"{len(to_update_ids)} atualizados, {len(to_delete_ids)} para deletar, {len(failed_ids)} falharam"
+    )
+
+    return (to_update_ids, to_delete_ids, failed_ids)
 
 
 def upsert_ads(
@@ -225,6 +243,8 @@ def upsert_ads(
     user_id: Optional[str],
     pack_id: Optional[str] = None,
     on_batch_progress: Optional[Callable[[int, int], None]] = None,
+    *,
+    sb_client: Optional["Client"] = None,
 ) -> None:
     """Upsert de identidade + creative dos anúncios na tabela ads.
 
@@ -290,77 +310,13 @@ def upsert_ads(
     if len(formatted_ads) > len(rows):
         logger.info(f"[UPSERT_ADS] Deduplicados {len(formatted_ads) - len(rows)} registros duplicados de ads. Total único: {len(rows)}")
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     
     total_rows = len(rows)
     logger.info(f"[UPSERT_ADS] Processando {total_rows} registros de ads")
 
-    # Cache de thumbnails (best-effort) no Supabase Storage (bucket público)
-    # Prioridade: adcreatives_videos_thumbs[0] (vídeo); fallback: thumbnail_url (imagem).
-    try:
-        ad_id_to_thumb_url: Dict[str, str] = {}
-        for r in rows:
-            ad_id = str(r.get("ad_id") or "")
-            if not ad_id:
-                continue
-            thumb_url: Optional[str] = None
-            thumbs = r.get("adcreatives_videos_thumbs")
-            if isinstance(thumbs, list) and thumbs:
-                first = str(thumbs[0] or "").strip()
-                if first:
-                    thumb_url = first
-            if not thumb_url:
-                thumb_url = str(r.get("thumbnail_url") or "").strip() or None
-            if thumb_url:
-                ad_id_to_thumb_url[ad_id] = thumb_url
-
-        if ad_id_to_thumb_url:
-            # Evitar recache (se já existe thumb_storage_path no banco)
-            try:
-                existing_cached: Dict[str, str] = {}
-                ad_ids = list(ad_id_to_thumb_url.keys())
-                batch_lookup = 200  # Reduzido de 400 para alinhar a outros selects em lote
-                for i in range(0, len(ad_ids), batch_lookup):
-                    batch_ids = ad_ids[i:i + batch_lookup]
-
-                    def ads_thumb_filters(q):
-                        return q.eq("user_id", user_id).in_("ad_id", batch_ids)
-
-                    existing_rows = _fetch_all_paginated(
-                        sb,
-                        "ads",
-                        "ad_id,thumb_storage_path",
-                        ads_thumb_filters,
-                    )
-                    for item in existing_rows:
-                        ad_id_val = str(item.get("ad_id") or "")
-                        p = str(item.get("thumb_storage_path") or "").strip()
-                        if ad_id_val and p:
-                            existing_cached[ad_id_val] = p
-
-                if existing_cached:
-                    for ad_id_val in list(ad_id_to_thumb_url.keys()):
-                        if ad_id_val in existing_cached:
-                            ad_id_to_thumb_url.pop(ad_id_val, None)
-            except Exception as e:
-                logger.info(f"[UPSERT_ADS] Lookup de thumbs já cacheadas falhou (seguindo sem skip): {e}")
-
-            cached = cache_first_thumbs_for_ads(user_id=str(user_id), ad_id_to_thumb_url=ad_id_to_thumb_url)
-            if cached:
-                applied = 0
-                for r in rows:
-                    ad_id = str(r.get("ad_id") or "")
-                    c = cached.get(ad_id)
-                    if not c:
-                        continue
-                    # Só setar campos quando houver sucesso (evita apagar valores existentes)
-                    r["thumb_storage_path"] = c.storage_path
-                    r["thumb_cached_at"] = c.cached_at
-                    r["thumb_source_url"] = c.source_url
-                    applied += 1
-                logger.info(f"[UPSERT_ADS] Thumbnails cacheados: {applied}/{len(ad_id_to_thumb_url)}")
-    except Exception as e:
-        logger.warning(f"[UPSERT_ADS] Falha ao cachear thumbnails (best-effort): {e}")
+    # Cache de thumbnails movido para background (run_pack_background_tasks).
+    # Frontend usa fallback: thumbnail_url / adcreatives_videos_thumbs via thumbnailFallback.ts
 
     # Upsert em lotes para evitar timeout em grandes volumes de dados
     # Tamanho de lote: 200 registros (reduzido de 1000 para evitar ReadTimeout do httpx)
@@ -414,40 +370,89 @@ def upsert_ads(
 
     if pack_id and rows:
         ad_ids = [r["ad_id"] for r in rows]
-        batch_size_attach = 200  # Alinhado ao batch_size do upsert para evitar timeout
+        batch_size_attach = 200
         total_attach_batches = (len(ad_ids) + batch_size_attach - 1) // batch_size_attach
+        failed_attach_ids: List[str] = []
 
         for attach_idx in range(0, len(ad_ids), batch_size_attach):
             batch_ids = ad_ids[attach_idx:attach_idx + batch_size_attach]
             batch_num = (attach_idx // batch_size_attach) + 1
-            try:
-                sb.rpc(
-                    "batch_add_pack_id_to_arrays",
-                    {
-                        "p_user_id": user_id,
-                        "p_pack_id": pack_id,
-                        "p_table_name": "ads",
-                        "p_ids_to_update": batch_ids,
-                    },
-                ).execute()
-                logger.debug(
-                    f"[UPSERT_ADS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
-                    f"({len(batch_ids)} registros)"
-                )
-            except Exception as e:
-                logger.error(
-                    f"[UPSERT_ADS] Erro ao anexar pack_id no lote {batch_num}/{total_attach_batches}: {e}"
-                )
-                raise
+            for attempt in range(3):
+                try:
+                    sb.rpc(
+                        "batch_add_pack_id_to_arrays",
+                        {
+                            "p_user_id": user_id,
+                            "p_pack_id": pack_id,
+                            "p_table_name": "ads",
+                            "p_ids_to_update": batch_ids,
+                        },
+                    ).execute()
+                    logger.debug(
+                        f"[UPSERT_ADS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
+                        f"({len(batch_ids)} registros)"
+                    )
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        delay = 0.5 * (attempt + 1)
+                        logger.warning(
+                            f"[UPSERT_ADS] Tentativa {attempt + 1}/3 para attach pack_id lote {batch_num}: {e}"
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.critical(
+                            f"[UPSERT_ADS] Falha definitiva ao anexar pack_id no lote {batch_num}/{total_attach_batches}. "
+                            f"pack_id={pack_id}, ad_ids afetados={batch_ids}. Erro: {e}"
+                        )
+                        failed_attach_ids.extend(batch_ids)
+
+        if failed_attach_ids:
+            logger.error(
+                f"[UPSERT_ADS] {len(failed_attach_ids)} ads ficaram sem pack_id={pack_id} vinculado. "
+                f"Necessario cleanup manual."
+            )
+            raise RuntimeError(
+                f"Falha ao vincular {len(failed_attach_ids)} ads ao pack {pack_id} apos retries"
+            )
 
     logger.info(f"[UPSERT_ADS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
     # Sync transcription_id em ads e ad_ids em ad_transcriptions (best-effort)
     try:
         ad_id_name_pairs = [(str(r.get("ad_id") or ""), str(r.get("ad_name") or "")) for r in rows]
-        _sync_ads_transcription_links(user_jwt, user_id, ad_id_name_pairs)
+        _sync_ads_transcription_links(user_jwt, user_id, ad_id_name_pairs, sb_client=sb)
     except Exception as e:
         logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
+
+
+def update_ads_thumbnail_cache(
+    user_id: str,
+    ad_id_to_cached: Dict[str, "CachedThumb"],
+) -> None:
+    """Atualiza ads com thumb_storage_path, thumb_cached_at, thumb_source_url após cache em background.
+    Usa service role para evitar expiração de JWT em tasks longas."""
+    if not ad_id_to_cached:
+        return
+    sb = get_supabase_service()
+    rows = [
+        {
+            "ad_id": ad_id,
+            "user_id": user_id,
+            "thumb_storage_path": c.storage_path,
+            "thumb_cached_at": c.cached_at,
+            "thumb_source_url": c.source_url,
+        }
+        for ad_id, c in ad_id_to_cached.items()
+    ]
+    batch_size = 200
+    for i in range(0, len(rows), batch_size):
+        batch = rows[i : i + batch_size]
+        try:
+            sb.table("ads").upsert(batch, on_conflict="ad_id,user_id").execute()
+        except Exception as e:
+            logger.warning(f"[UPDATE_ADS_THUMB_CACHE] Erro no lote: {e}")
+            raise
 
 
 def update_ad_video_owner(
@@ -473,6 +478,8 @@ def upsert_ad_metrics(
     user_id: Optional[str],
     pack_id: Optional[str] = None,
     on_batch_progress: Optional[Callable[[int, int], None]] = None,
+    *,
+    sb_client: Optional["Client"] = None,
 ) -> None:
     """Upsert diário por (ad_id, date) com métricas agregáveis/derivadas e jsonb auxiliares.
     - Requer: ad_id e date (YYYY-MM-DD)
@@ -533,10 +540,8 @@ def upsert_ad_metrics(
         # - thruplay_rate = thruplays / plays (já é decimal 0-1)
         # - hook vem da curva que pode estar em 0-100, então normalizamos para 0-1
         # Usar video_total_thruplays que já existe no banco (não criar coluna duplicada)
-        hook_raw = _hook_at_3_from_curve(curve)  # hook já vem normalizado em decimal (0-1) pela função
-        # Garantir que hook está em decimal (0-1): se > 1, assume que está em 0-100 e normaliza
-        hook = hook_raw / 100.0 if hook_raw > 1.0 else hook_raw
-        thruplay_rate = _safe_div(float(thruplays), float(plays)) if plays > 0 else 0.0  # decimal (0-1)
+        hook = _hook_at_3_from_curve(curve)  # already normalized to decimal 0-1
+        thruplay_rate = _safe_div(float(thruplays), float(plays)) if plays > 0 else 0.0
         # Ambos estão em decimal (0-1), então a divisão está correta
         # IMPORTANTE: Limitar hold_rate a no máximo 1.0 (100%) devido a arredondamentos da curva de retenção
         # Não faz sentido ter mais pessoas que chegaram ao thruplay do que as que passaram do hook
@@ -576,7 +581,6 @@ def upsert_ad_metrics(
             # Evita parsing de JSONB (actions) em endpoints de rankings.
             "lpv": lpv,
             "profile_ctr": float(ad.get("profile_ctr") or 0),
-            "raw_data": ad,
             "updated_at": _now_iso(),
         }
         rows.append(row)
@@ -584,7 +588,7 @@ def upsert_ad_metrics(
     if not rows:
         return
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     
     total_rows = len(rows)
     logger.info(f"[UPSERT_AD_METRICS] Processando {total_rows} registros de métricas")
@@ -639,112 +643,83 @@ def upsert_ad_metrics(
 
     if pack_id and rows:
         metric_ids = [r["id"] for r in rows]
-        batch_size_attach = 200  # Alinhado aos lotes de select/attach para consistência
+        batch_size_attach = 200
         total_attach_batches = (len(metric_ids) + batch_size_attach - 1) // batch_size_attach
+        failed_attach_ids: List[str] = []
 
         for attach_idx in range(0, len(metric_ids), batch_size_attach):
             batch_ids = metric_ids[attach_idx:attach_idx + batch_size_attach]
             batch_num = (attach_idx // batch_size_attach) + 1
-            try:
-                sb.rpc(
-                    "batch_add_pack_id_to_arrays",
-                    {
-                        "p_user_id": user_id,
-                        "p_pack_id": pack_id,
-                        "p_table_name": "ad_metrics",
-                        "p_ids_to_update": batch_ids,
-                    },
-                ).execute()
-                logger.debug(
-                    f"[UPSERT_AD_METRICS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
-                    f"({len(batch_ids)} registros)"
-                )
-            except Exception as e:
-                logger.error(
-                    f"[UPSERT_AD_METRICS] Erro ao anexar pack_id no lote {batch_num}/{total_attach_batches}: {e}"
-                )
-                raise
+            for attempt in range(3):
+                try:
+                    sb.rpc(
+                        "batch_add_pack_id_to_arrays",
+                        {
+                            "p_user_id": user_id,
+                            "p_pack_id": pack_id,
+                            "p_table_name": "ad_metrics",
+                            "p_ids_to_update": batch_ids,
+                        },
+                    ).execute()
+                    logger.debug(
+                        f"[UPSERT_AD_METRICS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
+                        f"({len(batch_ids)} registros)"
+                    )
+                    break
+                except Exception as e:
+                    if attempt < 2:
+                        delay = 0.5 * (attempt + 1)
+                        logger.warning(
+                            f"[UPSERT_AD_METRICS] Tentativa {attempt + 1}/3 para attach pack_id lote {batch_num}: {e}"
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.critical(
+                            f"[UPSERT_AD_METRICS] Falha definitiva ao anexar pack_id no lote {batch_num}/{total_attach_batches}. "
+                            f"pack_id={pack_id}, metric_ids afetados={batch_ids}. Erro: {e}"
+                        )
+                        failed_attach_ids.extend(batch_ids)
 
-    logger.info(f"[UPSERT_AD_METRICS] ✓ Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
-
-
-def verify_metrics_persisted(
-    user_jwt: str, 
-    pack_id: str, 
-    user_id: Optional[str],
-    expected_min_count: int = 1,
-    max_retries: int = 5,
-    initial_delay: float = 0.2
-) -> Tuple[bool, int]:
-    """Verifica se as métricas foram realmente persistidas no banco.
-    
-    Args:
-        user_jwt: JWT do Supabase do usuário
-        pack_id: ID do pack
-        user_id: ID do usuário
-        expected_min_count: Número mínimo de métricas esperadas
-        max_retries: Número máximo de tentativas
-        initial_delay: Delay inicial em segundos (dobra a cada retry)
-    
-    Returns:
-        Tuple[bool, int]: (sucesso, número_de_métricas_encontradas)
-    """
-    if not user_id or not pack_id:
-        return False, 0
-    
-    sb = get_supabase_for_user(user_jwt)
-    delay = initial_delay
-    
-    for attempt in range(max_retries):
-        try:
-            # Buscar métricas do pack
-            def metrics_filters(q):
-                return q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
-            
-            metrics = _fetch_all_paginated(
-                sb,
-                "ad_metrics",
-                "id",
-                metrics_filters
+        if failed_attach_ids:
+            logger.error(
+                f"[UPSERT_AD_METRICS] {len(failed_attach_ids)} metricas ficaram sem pack_id={pack_id} vinculado. "
+                f"Necessario cleanup manual."
             )
-            
-            count = len(metrics) if metrics else 0
-            
-            if count >= expected_min_count:
-                logger.info(f"[VERIFY_METRICS] ✓ Métricas verificadas: {count} encontradas para pack {pack_id} (tentativa {attempt + 1})")
-                return True, count
-            
-            # Se não encontrou o suficiente e não é a última tentativa, aguardar
-            if attempt < max_retries - 1:
-                logger.debug(f"[VERIFY_METRICS] Métricas ainda não disponíveis: {count} encontradas, esperando {delay}s...")
-                import time
-                time.sleep(delay)
-                delay *= 2  # Backoff exponencial
-        
-        except Exception as e:
-            logger.warning(f"[VERIFY_METRICS] Erro ao verificar métricas (tentativa {attempt + 1}): {e}")
-            if attempt < max_retries - 1:
-                import time
-                time.sleep(delay)
-                delay *= 2
-    
-    logger.warning(f"[VERIFY_METRICS] ✗ Não foi possível verificar métricas após {max_retries} tentativas")
-    return False, 0
+            raise RuntimeError(
+                f"Falha ao vincular {len(failed_attach_ids)} metricas ao pack {pack_id} apos retries"
+            )
+
+    logger.info(f"[UPSERT_AD_METRICS] Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
 
-def update_pack_stats(user_jwt: str, pack_id: str, stats: Dict[str, Any], user_id: Optional[str]) -> None:
+
+def update_pack_stats(
+    user_jwt: str,
+    pack_id: str,
+    stats: Dict[str, Any],
+    user_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> None:
     if not user_id:
         return
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     sb.table("packs").update({"stats": stats, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute()
 
 
-def update_pack_ad_ids(user_jwt: str, pack_id: str, ad_ids: List[str], user_id: Optional[str]) -> None:
+def update_pack_ad_ids(
+    user_jwt: str,
+    pack_id: str,
+    ad_ids: List[str],
+    user_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> None:
     """Atualiza packs.ad_ids com a lista fornecida (deduplicada).
     """
     if not user_id or not pack_id:
         return
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     unique_ad_ids = sorted(list({str(a) for a in (ad_ids or [])}))
     sb.table("packs").update({"ad_ids": unique_ad_ids, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute()
 
@@ -753,12 +728,14 @@ def get_existing_ads_map(
     user_jwt: str,
     ad_ids: List[str],
     user_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Busca ads ja persistidos por ad_id para reaproveito no refresh."""
     if not user_id or not ad_ids:
         return {}
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     unique_ad_ids = sorted({str(ad_id).strip() for ad_id in ad_ids if str(ad_id).strip()})
     if not unique_ad_ids:
         return {}
@@ -795,7 +772,86 @@ def get_existing_ads_map(
     return existing_ads
 
 
-def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) -> Dict[str, Any]:
+def calculate_pack_stats_essential(
+    user_jwt: str,
+    pack_id: str,
+    user_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> Dict[str, Any]:
+    """Calcula apenas os stats essenciais para exibição nos cards de /packs.
+    
+    Query leve (5 colunas) para permitir redirect rápido. O restante é calculado em background.
+    
+    Returns:
+        Dict com: totalSpend, uniqueAds, uniqueAdNames, uniqueCampaigns, uniqueAdsets
+    """
+    if not user_id:
+        return {}
+    
+    sb = _get_sb(user_jwt, sb_client)
+    
+    try:
+        pack_res = sb.table("packs").select("id").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
+        if not pack_res.data or len(pack_res.data) == 0:
+            logger.warning(f"[CALCULATE_PACK_STATS_ESSENTIAL] Pack {pack_id} não encontrado")
+            return {}
+        
+        def metrics_filters(q):
+            return q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
+        
+        metrics = _fetch_all_paginated(
+            sb,
+            "ad_metrics",
+            "ad_id, ad_name, campaign_id, adset_id, spend",
+            metrics_filters,
+        )
+    except Exception as e:
+        logger.warning(f"[CALCULATE_PACK_STATS_ESSENTIAL] Erro ao buscar métricas para pack {pack_id}: {e}")
+        return {}
+    
+    if not metrics:
+        return {
+            "totalSpend": 0.0,
+            "uniqueAds": 0,
+            "uniqueAdNames": 0,
+            "uniqueCampaigns": 0,
+            "uniqueAdsets": 0,
+        }
+    
+    unique_ad_ids = set()
+    unique_ad_names = set()
+    unique_campaign_ids = set()
+    unique_adset_ids = set()
+    total_spend = 0.0
+    
+    for metric in metrics:
+        if metric.get("ad_id"):
+            unique_ad_ids.add(str(metric["ad_id"]))
+        if metric.get("ad_name"):
+            unique_ad_names.add(str(metric["ad_name"]))
+        if metric.get("campaign_id"):
+            unique_campaign_ids.add(str(metric["campaign_id"]))
+        if metric.get("adset_id"):
+            unique_adset_ids.add(str(metric["adset_id"]))
+        total_spend += float(metric.get("spend", 0) or 0)
+    
+    return {
+        "totalSpend": round(total_spend, 2),
+        "uniqueAds": len(unique_ad_ids),
+        "uniqueAdNames": len(unique_ad_names),
+        "uniqueCampaigns": len(unique_campaign_ids),
+        "uniqueAdsets": len(unique_adset_ids),
+    }
+
+
+def calculate_pack_stats(
+    user_jwt: str,
+    pack_id: str,
+    user_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> Dict[str, Any]:
     """Calcula estatísticas agregadas de um pack baseado nas métricas de ad_metrics.
     
     Filtra métricas por pack_ids (não por período) para incluir todos os dados do pack,
@@ -831,7 +887,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
     if not user_id:
         return {}
     
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     
     try:
         # Verificar se pack existe (apenas para validação)
@@ -1051,7 +1107,7 @@ def calculate_pack_stats(user_jwt: str, pack_id: str, user_id: Optional[str]) ->
         
     except Exception as e:
         logger.exception(f"[CALCULATE_PACK_STATS] Erro ao calcular stats do pack {pack_id}: {e}")
-        return {}
+        raise
 
 
 def upsert_pack(
@@ -1066,6 +1122,8 @@ def upsert_pack(
     auto_refresh: bool = False,
     pack_id: Optional[str] = None,
     today_local: Optional[str] = None,
+    *,
+    sb_client: Optional["Client"] = None,
 ) -> Optional[str]:
     """Cria ou atualiza um pack na tabela packs do Supabase.
     
@@ -1089,23 +1147,16 @@ def upsert_pack(
     logger.info(f"[UPSERT_PACK] Iniciando upsert_pack - user_id={user_id}, name={normalized_name}, pack_id={pack_id}")
     
     if not user_id:
-        logger.warning("[UPSERT_PACK] ✗ Skipped: missing user_id")
-        return None
-    
+        raise ValueError("[UPSERT_PACK] missing user_id")
+
     if not normalized_name:
-        logger.warning("[UPSERT_PACK] ✗ Skipped: missing name")
-        return None
+        raise ValueError("[UPSERT_PACK] missing name")
     
     # Usar today_local se fornecido, senão usar date_stop como fallback (já vem do frontend no fuso local)
     # Nunca usar UTC para datas lógicas
     today_str = today_local if today_local else date_stop
     
-    try:
-        sb = get_supabase_for_user(user_jwt)
-        logger.info(f"[UPSERT_PACK] Cliente Supabase obtido com sucesso")
-    except Exception as e:
-        logger.error(f"[UPSERT_PACK] ✗ Erro ao obter cliente Supabase: {e}")
-        return None
+    sb = _get_sb(user_jwt, sb_client)
     
     pack_data = {
         "user_id": user_id,
@@ -1136,7 +1187,7 @@ def upsert_pack(
             logger.info(f"[UPSERT_PACK] Criando novo pack")
             
             # Verificar se já existe um pack com o mesmo nome
-            if check_pack_name_exists(user_jwt, user_id, normalized_name):
+            if check_pack_name_exists(user_jwt, user_id, normalized_name, sb_client=sb):
                 logger.warning(f"[UPSERT_PACK] ✗ Pack com nome '{normalized_name}' já existe para user_id={user_id}")
                 raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'")
             
@@ -1161,27 +1212,17 @@ def upsert_pack(
             logger.info(f"[UPSERT_PACK] ✓ Pack {'atualizado' if pack_id else 'criado'} no Supabase: {pack_created_id} (nome: {normalized_name})")
             return pack_created_id
         else:
-            logger.error(f"[UPSERT_PACK] ✗ Pack {'criado' if not pack_id else 'atualizado'} mas nenhum dado retornado do Supabase")
-            logger.error(f"[UPSERT_PACK] Response object: {res}")
-            logger.error(f"[UPSERT_PACK] Response type: {type(res)}")
-            if hasattr(res, 'data'):
-                logger.error(f"[UPSERT_PACK] Response.data: {res.data}")
-            if hasattr(res, 'status_code'):
-                logger.error(f"[UPSERT_PACK] Response.status_code: {res.status_code}")
-            return None
+            raise RuntimeError(
+                f"[UPSERT_PACK] Pack {'criado' if not pack_id else 'atualizado'} mas nenhum dado retornado do Supabase. "
+                f"Response: {res}"
+            )
+    except PackNameConflictError:
+        raise
     except Exception as e:
         if _is_pack_name_unique_violation(e):
-            logger.warning(f"[UPSERT_PACK] ✗ Violação de unicidade para pack '{normalized_name}'")
             raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'") from e
         logger.exception(f"[UPSERT_PACK] ✗ Erro ao criar/atualizar pack no Supabase: {e}")
-        # Log detalhado do erro
-        if hasattr(e, 'message'):
-            logger.error(f"[UPSERT_PACK] Mensagem do erro: {e.message}")
-        if hasattr(e, 'details'):
-            logger.error(f"[UPSERT_PACK] Detalhes do erro: {e.details}")
-        if hasattr(e, 'hint'):
-            logger.error(f"[UPSERT_PACK] Hint do erro: {e.hint}")
-        return None
+        raise
 
 
 def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], progress: int = 0, message: Optional[str] = None, payload: Optional[Dict[str, Any]] = None, result_count: Optional[int] = None, details: Optional[Dict[str, Any]] = None) -> None:
@@ -1246,7 +1287,14 @@ def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], 
             sb.table("jobs").insert(data).execute()
 
 
-def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None, user_id: Optional[str] = None) -> Dict[str, Any]:
+def delete_pack(
+    user_jwt: str,
+    pack_id: str,
+    ad_ids: Optional[List[str]] = None,
+    user_id: Optional[str] = None,
+    *,
+    sb_client: Optional["Client"] = None,
+) -> Dict[str, Any]:
     """Remove pack e ajusta ads/ad_metrics conforme referência pack_ids.
     
     A função sempre processa ad_metrics e ads baseado no pack_id no array pack_ids,
@@ -1272,7 +1320,7 @@ def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None,
         return {"pack_deleted": False, "ads_deleted": 0, "metrics_deleted": 0}
     
     # Sempre buscar pack para obter ad_ids e período (fonte de verdade)
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     pack = None
     pack_ad_ids = None
     date_start = None
@@ -1328,7 +1376,7 @@ def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None,
                 return q
             
             # Processar em lotes durante a busca (streaming) - mais eficiente em memória
-            to_update_ids, to_delete_ids = _process_pack_deletion_in_batches(
+            to_update_ids, to_delete_ids, failed_metric_ids = _process_pack_deletion_in_batches(
                 sb=sb,
                 table_name="ad_metrics",
                 id_field="id",
@@ -1410,7 +1458,7 @@ def delete_pack(user_jwt: str, pack_id: str, ad_ids: Optional[List[str]] = None,
                 return q
             
             # Processar em lotes durante a busca (streaming) - mais eficiente em memória
-            to_update_ad_ids, to_delete_ad_ids = _process_pack_deletion_in_batches(
+            to_update_ad_ids, to_delete_ad_ids, failed_ad_ids = _process_pack_deletion_in_batches(
                 sb=sb,
                 table_name="ads",
                 id_field="ad_id",
@@ -1630,11 +1678,17 @@ def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
     return packs
 
 
-def get_pack(user_jwt: str, pack_id: str, user_id: Optional[str]) -> Optional[Dict[str, Any]]:
+def get_pack(
+    user_jwt: str,
+    pack_id: str,
+    user_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> Optional[Dict[str, Any]]:
     """Busca um pack específico do Supabase, incluindo dados de integração de planilha."""
     if not user_id or not pack_id:
         return None
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
     if res.data and len(res.data) > 0:
         pack = res.data[0]
@@ -1687,6 +1741,8 @@ def update_pack_refresh_status(
     last_refreshed_at: Optional[str] = None,
     refresh_status: str = "success",
     date_stop: Optional[str] = None,
+    *,
+    sb_client: Optional["Client"] = None,
 ) -> None:
     """Atualiza o status de refresh de um pack no Supabase.
     
@@ -1702,7 +1758,7 @@ def update_pack_refresh_status(
         logger.warning("[UPDATE_REFRESH_STATUS] Skipped: missing user_id or pack_id")
         return
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
 
     update_data = {
         "refresh_status": refresh_status,
@@ -1712,7 +1768,7 @@ def update_pack_refresh_status(
     # Atualizar em "running"/"failed"/"cancelled" corrompe o cálculo de since_last_refresh.
     if refresh_status == "success":
         if last_refreshed_at is None:
-            last_refreshed_at = datetime.utcnow().date().strftime("%Y-%m-%d")
+            last_refreshed_at = datetime.now(timezone.utc).date().strftime("%Y-%m-%d")
         update_data["last_refreshed_at"] = last_refreshed_at
         update_data["updated_at"] = _now_iso()
     
@@ -1771,6 +1827,8 @@ def check_pack_name_exists(
     user_id: str,
     name: str,
     exclude_pack_id: Optional[str] = None,
+    *,
+    sb_client: Optional["Client"] = None,
 ) -> bool:
     """Verifica se já existe um pack com o mesmo nome para o usuário.
     
@@ -1788,7 +1846,7 @@ def check_pack_name_exists(
         return False
     
     try:
-        sb = get_supabase_for_user(user_jwt)
+        sb = _get_sb(user_jwt, sb_client)
         query = sb.table("packs").select("id").eq("user_id", user_id).ilike("name", normalized_name)
         
         # Excluir o pack atual se for uma atualização
@@ -2023,11 +2081,13 @@ def _sync_ads_transcription_links(
     user_jwt: str,
     user_id: str,
     ad_id_name_pairs: List[Tuple[str, str]],
+    *,
+    sb_client: Optional["Client"] = None,
 ) -> None:
     """Atualiza ads.transcription_id e ad_transcriptions.ad_ids quando ads são upsertados."""
     if not user_id or not ad_id_name_pairs:
         return
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     ad_name_to_ad_ids: Dict[str, List[str]] = {}
     for ad_id, ad_name in ad_id_name_pairs:
         aid = str(ad_id).strip()

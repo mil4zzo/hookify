@@ -12,6 +12,7 @@ import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConn
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
 import { FacebookConnectionCard } from "@/components/facebook/FacebookConnectionCard";
 import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
+import { AuthPopupError } from "@/lib/utils/authPopup";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
@@ -158,6 +159,8 @@ export default function Topbar() {
     try {
       await connect.mutateAsync();
     } catch (error) {
+      const authError = error as AuthPopupError;
+      if (authError?.code === "AUTH_POPUP_CLOSED") return; // Cancelamento pelo usuário — não mostrar toast
       showError(error as any);
     }
   };

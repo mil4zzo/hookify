@@ -7,7 +7,7 @@ backend_dir = Path(__file__).parent.parent.parent
 env_path = backend_dir / ".env"
 load_dotenv(env_path)
 
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://localhost:8501").split(",")
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://localhost:3000,http://localhost:8501").split(",")
 
 # Meta Graph API – versão centralizada
 META_API_VERSION = os.getenv("META_API_VERSION", "v24.0")
@@ -72,8 +72,6 @@ SUPABASE_JWKS_URL = os.getenv("SUPABASE_JWKS_URL") or (
 
 # AssemblyAI (speech-to-text para transcrição de vídeos de anúncios)
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
-# Transcrição automática após refresh do pack. Se False, transcrição só roda ao clicar em "Transcrever anúncios" em /packs
-ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH = os.getenv("ENABLE_AUTO_TRANSCRIPTION_AFTER_REFRESH", "false").lower() in ("true", "1", "yes")
 
 # Chave de criptografia para tokens de conectores (se usar app-level encryption)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
