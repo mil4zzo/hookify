@@ -48,7 +48,7 @@ export interface PollSheetsSyncJobConfig {
     reason: "google_token_expired";
   }) => void;
   clearJob: (packId: string) => void;
-  connectGoogle: (opts?: { silent?: boolean }) => Promise<void>;
+  connectGoogle: (opts?: { silent?: boolean }) => Promise<unknown>;
   /** Chamado ao concluir com sucesso (para atualizar lastSyncStats etc.) */
   onCompleted?: (stats: { rows_updated?: number; rows_processed?: number }) => void;
   /** Chamado ao concluir para disparar evento pack-integration-updated */
