@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 import requests
 from app.core.config import META_GRAPH_BASE_URL
 from app.services.facebook_page_token_service import get_page_access_token_for_page_id
+from app.services.meta_usage_logger import log_meta_usage
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +40,9 @@ def test_facebook_connection(access_token: str) -> Dict[str, Any]:
         
         response = requests.get(url, params=payload, timeout=10)
         response.raise_for_status()
+        log_meta_usage(response, "GraphAPI.test_connection")
         data = response.json()
-        
+
         # Se chegou aqui, o token é válido
         return {'status': 'success', 'data': data}
         
@@ -79,6 +81,7 @@ class GraphAPI:
         try:
             response = requests.get(url, params=payload, timeout=10)
             response.raise_for_status()
+            log_meta_usage(response, "GraphAPI.get_account_info")
             data = response.json()
 
             logger.debug("get_account_info status=%s adaccounts=%d", response.status_code, len(data.get('adaccounts', {}).get('data', [])) if isinstance(data.get('adaccounts'), dict) else 0)
@@ -94,6 +97,7 @@ class GraphAPI:
                         next_url = ad_node['paging']['next']
                         next_resp = requests.get(next_url, timeout=10)
                         next_resp.raise_for_status()
+                        log_meta_usage(next_resp, "GraphAPI.get_account_info.pagination")
                         next_json = next_resp.json()
                         accounts.extend(next_json.get('data', []))
                         ad_node = next_json
@@ -131,6 +135,7 @@ class GraphAPI:
         try:
             response = requests.get(url, params=payload, timeout=10)
             response.raise_for_status()
+            log_meta_usage(response, "GraphAPI.get_adaccounts")
             data = response.json()
 
             logger.debug("get_adaccounts status=%s count=%d", response.status_code, len(data.get('data', [])))
@@ -209,6 +214,7 @@ class GraphAPI:
         try:
             resp = requests.post(url, params=payload, timeout=30)
             resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.start_ads_job")
             resp_data = resp.json()
 
             report_run_id = resp_data.get('report_run_id')
@@ -248,6 +254,7 @@ class GraphAPI:
         try:
             resp = requests.post(url, params=params, json=payload, timeout=30)
             resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.update_entity_status")
             data = resp.json() if resp.content else {}
 
             # Normalmente, a API retorna {"success": true}
@@ -290,6 +297,7 @@ class GraphAPI:
             video_url = self.base_url + str(video_id) + self.user_token
             resp = requests.get(video_url, params={'fields': 'from'}, timeout=15)
             resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.get_video_owner_page_id")
             from_data = resp.json().get('from')
             if from_data and from_data.get('id'):
                 owner_id = str(from_data['id'])
@@ -305,6 +313,7 @@ class GraphAPI:
             video_url = self.base_url + str(video_id) + page_token
             resp = requests.get(video_url, params={'fields': 'source'}, timeout=15)
             resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.fetch_video_source")
             return resp.json().get('source')
         except Exception:
             return None
@@ -342,6 +351,7 @@ class GraphAPI:
             payload = {'fields': 'source'}
             resp = requests.get(video_url, params=payload, timeout=15)
             resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.get_video_source_url")
             source = resp.json().get('source')
             if source:
                 return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}

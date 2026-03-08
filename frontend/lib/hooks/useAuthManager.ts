@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useSessionStore } from '../store/session'
 import { useActiveJobsStore } from '../store/activeJobs'
-import { setAuthToken } from '@/lib/api/client'
+import { setAuthToken, setLoggingOut } from '@/lib/api/client'
 import { showSuccess, showError } from '@/lib/utils/toast'
 import { queryKeys } from '@/lib/api/hooks'
 import { useSupabaseAuth } from './useSupabaseAuth'
@@ -35,68 +35,44 @@ export const useAuthManager = () => {
   }
 
   const handleLogout = async () => {
+    // Sinalizar imediatamente que logout está em andamento.
+    // O interceptor do Axios vai rejeitar qualquer nova requisição e silenciar 401s em-voo.
+    setLoggingOut(true)
+
     try {
-      // 1. Cancelar todas as queries ativas ANTES de fazer logout
-      // Isso evita que requisições sejam enviadas após o logout
+      // 1. Cancelar queries no React Query (soft-cancel — não aborta HTTP em-voo, mas
+      //    impede que novos fetches sejam disparados pelo React Query)
       queryClient.cancelQueries()
-      
-      // 2. Cancelar todos os jobs ativos no backend ANTES de limpar o token
-      // Isso garante que os jobs sejam marcados como "cancelled" no banco de dados
+
+      // 2. Cancelar jobs ativos no backend ANTES de limpar o token
       const jobIdsArray = Array.from(activeJobIds)
       if (jobIdsArray.length > 0) {
         try {
           await api.facebook.cancelJobsBatch(jobIdsArray, 'Cancelado durante logout')
-          console.log(`[LOGOUT] ${jobIdsArray.length} job(s) cancelado(s)`)
+          logger.debug(`[LOGOUT] ${jobIdsArray.length} job(s) cancelado(s)`)
         } catch (error) {
           logger.error('[LOGOUT] Erro ao cancelar jobs (continuando logout):', error)
-          // Não bloquear logout se falhar ao cancelar jobs
         }
       }
-      
-      // 3. Limpar token do cliente HTTP
-      setAuthToken(null)
-      
-      // 4. Limpar store Zustand (inclui activeJobs)
-      logout()
-      clearAllActiveJobs() // Garantir limpeza explícita dos jobs ativos
-      
-      // 5. Limpar cache do React Query (depois de cancelar)
-      queryClient.clear()
-      
-      // 6. Fazer signOut do Supabase (isso limpa a sessão e cookies)
-      // O signOut já inclui um pequeno delay para garantir limpeza dos cookies
-      await signOut()
-      
-      // 7. Mostrar mensagem de sucesso
-      showSuccess('Logout realizado com sucesso!')
-      
-      // 8. Redirecionar para login com parâmetro de logout para forçar acesso
-      // Isso garante que o middleware permita acesso mesmo se ainda houver cookies residuais
-      // Usar window.location para forçar reload completo e resetar todos os hooks
-      window.location.href = '/login?logout=true'
-    } catch (error) {
-      showError(error as any)
-      // Mesmo com erro, tentar cancelar jobs, cancelar queries, limpar localmente e redirecionar
-      const jobIdsArray = Array.from(activeJobIds)
-      if (jobIdsArray.length > 0) {
-        try {
-          await api.facebook.cancelJobsBatch(jobIdsArray, 'Cancelado durante logout (erro)')
-        } catch (cancelError) {
-          logger.error('[LOGOUT] Erro ao cancelar jobs em caso de erro:', cancelError)
-        }
-      }
-      queryClient.cancelQueries()
-      setAuthToken(null)
+
+      // 3. Limpar estado local
+      setAuthToken(null) // cosmético — o interceptor já bloqueia novas requisições
       logout()
       clearAllActiveJobs()
       queryClient.clear()
-      // Tentar signOut mesmo com erro para limpar cookies
+
+      // 4. Encerrar sessão Supabase (limpa cookies)
       try {
         await signOut()
       } catch (signOutError) {
-        // Ignorar erro do signOut se já houve erro anterior
+        logger.error('[LOGOUT] Erro ao fazer signOut do Supabase (continuando logout):', signOutError)
       }
-      // Usar window.location para forçar reload completo mesmo em caso de erro
+    } catch (error) {
+      logger.error('[LOGOUT] Erro inesperado durante logout:', error)
+      showError(error as any)
+    } finally {
+      // Redirect garantido: executa mesmo que qualquer etapa acima falhe.
+      // O flag loggingOut não precisa ser resetado pois o reload da página reinicia o módulo.
       window.location.href = '/login?logout=true'
     }
   }

@@ -293,32 +293,12 @@ export default function Topbar() {
         localStorage.removeItem(key);
       });
 
-      // Resetar estado do onboarding no Supabase
-      if (supabaseUser?.id) {
-        try {
-          const supabase = getSupabaseClient();
-          const { error: upsertError } = await supabase.from("user_preferences").upsert(
-            {
-              user_id: supabaseUser.id,
-              has_completed_onboarding: false,
-              updated_at: new Date().toISOString(),
-            } as any,
-            {
-              onConflict: "user_id",
-            },
-          );
-
-          if (upsertError) {
-            console.warn("Erro ao resetar onboarding no Supabase:", upsertError);
-            // Não falhar a operação inteira se apenas o onboarding falhar
-          } else {
-            // Invalidar cache do React Query para forçar refetch do status de onboarding
-            queryClient.invalidateQueries({ queryKey: ["onboarding", "status"] });
-          }
-        } catch (error) {
-          console.warn("Erro ao resetar onboarding:", error);
-          // Não falhar a operação inteira se apenas o onboarding falhar
-        }
+      // Resetar estado do onboarding via API
+      try {
+        await api.onboarding.reset();
+        queryClient.invalidateQueries({ queryKey: ["onboarding", "status"] });
+      } catch (error) {
+        console.warn("Erro ao resetar onboarding:", error);
       }
 
       showSuccess("Preferências resetadas com sucesso!");

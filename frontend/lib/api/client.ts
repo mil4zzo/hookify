@@ -12,9 +12,18 @@ type SessionCacheEntry = {
 }
 
 let sessionCache: SessionCacheEntry | null = null
+let loggingOut = false
 
 export function invalidateSessionCache() {
   sessionCache = null
+}
+
+export function setLoggingOut(value: boolean) {
+  loggingOut = value
+}
+
+export function getIsLoggingOut() {
+  return loggingOut
 }
 
 class ApiClient {
@@ -36,6 +45,9 @@ class ApiClient {
     // Request interceptor - adiciona JWT do Supabase (com cache para reduzir corridas e 401 iniciais)
     this.client.interceptors.request.use(
       async (config) => {
+        if (loggingOut) {
+          return Promise.reject({ cancelled: true, status: 0, message: 'Request cancelled: logout in progress' })
+        }
         if (typeof window !== 'undefined') {
           try {
             let session: { access_token?: string; expires_at?: number } | null = null
@@ -104,8 +116,16 @@ class ApiClient {
         return response
       },
       (error) => {
+        // Requisição cancelada durante logout — ignorar silenciosamente
+        if (error?.cancelled === true) {
+          return Promise.reject(error)
+        }
         if (error?.response?.status === 401) {
           invalidateSessionCache()
+          // Se estamos em processo de logout, silenciar o 401 — não propagar toasts/retries
+          if (loggingOut) {
+            return Promise.reject(error)
+          }
         }
         const appError = parseError(error)
 

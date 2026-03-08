@@ -1,4 +1,5 @@
 import { logger } from "@/lib/utils/logger";
+import { getIsLoggingOut } from "@/lib/api/client";
 
 export interface PollJobConfig<TResult> {
   /** Label for debug logs */
@@ -75,7 +76,7 @@ export async function pollJob<TResult>(
       logger.debug(`[pollJob:${label}] Component unmounted, stopping`);
       return onUnmounted();
     }
-    if (getCancelled()) {
+    if (getCancelled() || getIsLoggingOut()) {
       logger.debug(`[pollJob:${label}] Cancelled before fetch`);
       return onCancelled();
     }
@@ -87,7 +88,7 @@ export async function pollJob<TResult>(
         logger.debug(`[pollJob:${label}] Unmounted after fetch`);
         return onUnmounted();
       }
-      if (getCancelled()) {
+      if (getCancelled() || getIsLoggingOut()) {
         logger.debug(`[pollJob:${label}] Cancelled after fetch`);
         return onCancelled();
       }

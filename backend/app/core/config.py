@@ -58,6 +58,10 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 #   Use false para ver requisições HTTP nos logs.
 LOG_AD_ID_TRUNCATED = os.getenv("LOG_AD_ID_TRUNCATED", "true").lower() in ("true", "1", "yes")
 LOG_SUPPRESS_HTTPX = os.getenv("LOG_SUPPRESS_HTTPX", "true").lower() in ("true", "1", "yes")
+# LOG_META_USAGE: se true, loga headers de usage (x-app-usage, x-business-use-case-usage,
+#   x-ad-account-usage) retornados pela Meta API em cada request.
+#   Use para observar consumo de quota antes de atingir rate limit.
+LOG_META_USAGE = os.getenv("LOG_META_USAGE", "false").lower() in ("true", "1", "yes")
 
 # Supabase Auth (Frontend JWT validation and RLS usage)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")

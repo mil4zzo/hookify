@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 import requests
 
 from app.core.config import META_GRAPH_BASE_URL
+from app.services.meta_usage_logger import log_meta_usage
 
 if TYPE_CHECKING:
     from app.services.job_tracker import JobTracker
@@ -46,6 +47,7 @@ def _fetch_with_retry(url: str, timeout: int = 60) -> requests.Response:
         try:
             response = requests.get(url, timeout=timeout)
             response.raise_for_status()
+            log_meta_usage(response, "InsightsCollector")
             return response
         except Exception as exc:
             last_exc = exc

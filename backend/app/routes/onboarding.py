@@ -42,6 +42,8 @@ def save_initial_settings(
       currency=settings.currency,
       niche=settings.niche or "",
     )
+  except ValueError as e:
+    raise HTTPException(status_code=400, detail=str(e)) from e
   except Exception as e:
     raise HTTPException(status_code=500, detail="Erro ao salvar configurações iniciais") from e
 
@@ -58,6 +60,21 @@ def mark_complete(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str,
     )
   except Exception as e:
     raise HTTPException(status_code=500, detail="Erro ao completar onboarding") from e
+
+
+@router.post("/reset")
+def reset_onboarding(user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+  """
+  Reseta o onboarding do usuário (has_completed_onboarding = false).
+  Usado quando o usuário reseta suas preferências.
+  """
+  try:
+    return onboarding_service.reset_onboarding(
+      user_jwt=user["token"],
+      user_id=user["user_id"],
+    )
+  except Exception as e:
+    raise HTTPException(status_code=500, detail="Erro ao resetar onboarding") from e
 
 
 

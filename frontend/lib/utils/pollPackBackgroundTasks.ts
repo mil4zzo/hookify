@@ -47,6 +47,14 @@ export function pollPackBackgroundTasks(jobId: string): void {
 
       try {
         const progress = await api.facebook.getJobProgress(jobId);
+
+        // Parar imediatamente se o job está em estado final (proteção defensiva)
+        const jobStatus = (progress as any).status;
+        if (jobStatus === "failed" || jobStatus === "cancelled") {
+          logger.debug(`[pollPackBackgroundTasks] Job em estado final (${jobStatus}), parando imediatamente`);
+          break;
+        }
+
         const bg = (progress as any).background_tasks_status as BackgroundTasksStatus | undefined;
 
         if (!bg) {

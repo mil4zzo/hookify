@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Union
 import requests
 
 from app.core.config import META_GRAPH_BASE_URL
+from app.services.meta_usage_logger import log_meta_usage
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +76,9 @@ class MetaJobClient:
         try:
             response = requests.post(url, params=payload, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
+            log_meta_usage(response, "MetaJobClient.start_job")
             resp_data = response.json()
-            
+
             report_run_id = resp_data.get("report_run_id")
             if not report_run_id:
                 return {"success": False, "error": "Failed to get report_run_id"}
@@ -111,6 +113,7 @@ class MetaJobClient:
             
             response = requests.get(status_url, timeout=REQUEST_TIMEOUT)
             response.raise_for_status()
+            log_meta_usage(response, "MetaJobClient.get_status")
             status_data = response.json()
             
             async_status = status_data.get("async_status", "Unknown")

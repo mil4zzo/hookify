@@ -28,11 +28,10 @@ import { env } from '@/lib/config/env'
 // Tipos simples para o fluxo de onboarding inicial
 export interface OnboardingStatusResponse {
   has_completed_onboarding: boolean
+  initial_settings_configured: boolean
   facebook_connected: boolean
   validation_criteria_configured: boolean
 }
-
-export type OnboardingCompleteResponse = OnboardingStatusResponse
 
 export interface InitialSettingsRequest {
   language: string
@@ -40,7 +39,9 @@ export interface InitialSettingsRequest {
   niche?: string
 }
 
-export type InitialSettingsResponse = OnboardingStatusResponse
+export interface SuccessResponse {
+  success: boolean
+}
 
 export const api = {
   // Health check
@@ -53,10 +54,12 @@ export const api = {
   onboarding: {
     getStatus: (): Promise<OnboardingStatusResponse> =>
       apiClient.get('/onboarding/status'),
-    saveInitialSettings: (data: InitialSettingsRequest): Promise<InitialSettingsResponse> =>
+    saveInitialSettings: (data: InitialSettingsRequest): Promise<SuccessResponse> =>
       apiClient.post('/onboarding/initial-settings', data),
-    complete: (): Promise<OnboardingCompleteResponse> =>
+    complete: (): Promise<SuccessResponse> =>
       apiClient.post('/onboarding/complete'),
+    reset: (): Promise<SuccessResponse> =>
+      apiClient.post('/onboarding/reset'),
   },
 
   // Facebook OAuth

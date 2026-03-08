@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 import requests
 
 from app.core.config import META_GRAPH_BASE_URL
+from app.services.meta_usage_logger import log_meta_usage
 
 if TYPE_CHECKING:
     from app.services.job_tracker import JobTracker
@@ -182,6 +183,7 @@ class AdsEnricher:
             try:
                 response = requests.get(url, params=payload, timeout=REQUEST_TIMEOUT)
                 response.raise_for_status()
+                log_meta_usage(response, "AdsEnricher")
                 response_json = response.json()
                 if return_full:
                     return response_json

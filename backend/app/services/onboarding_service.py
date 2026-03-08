@@ -26,12 +26,12 @@ def get_onboarding_status(user_jwt: str, user_id: str) -> Dict[str, Any]:
   """
   sb = get_supabase_for_user(user_jwt)
 
-  # 1) Buscar preferências do usuário (inclui flag de onboarding e critérios)
+  # 1) Buscar preferências do usuário (inclui flag de onboarding, critérios e locale)
   prefs = None
   try:
     res = (
       sb.table("user_preferences")
-      .select("has_completed_onboarding, validation_criteria")
+      .select("has_completed_onboarding, validation_criteria, locale")
       .eq("user_id", user_id)
       .limit(1)
       .execute()
@@ -68,8 +68,12 @@ def get_onboarding_status(user_jwt: str, user_id: str) -> Dict[str, Any]:
     except Exception:
       validation_criteria_configured = False
 
+  # 4) Verificar se configurações iniciais foram salvas (locale preenchido)
+  initial_settings_configured = bool(prefs and prefs.get("locale"))
+
   return {
     "has_completed_onboarding": has_completed,
+    "initial_settings_configured": initial_settings_configured,
     "facebook_connected": facebook_connected,
     "validation_criteria_configured": validation_criteria_configured,
   }
@@ -119,8 +123,7 @@ def save_initial_settings(
     logger.exception(f"[ONBOARDING] Erro ao salvar configurações iniciais para {user_id}: {e}")
     raise
 
-  # Retornar status consolidado após atualização
-  return get_onboarding_status(user_jwt, user_id)
+  return {"success": True}
 
 
 def complete_onboarding(user_jwt: str, user_id: str) -> Dict[str, Any]:
@@ -147,11 +150,28 @@ def complete_onboarding(user_jwt: str, user_id: str) -> Dict[str, Any]:
     logger.info(f"[ONBOARDING] has_completed_onboarding=true salvo para user {user_id}")
   except Exception as e:
     logger.exception(f"[ONBOARDING] Erro ao completar onboarding para {user_id}: {e}")
-    # Não levantar exceção dura aqui; quem chama pode decidir o que fazer.
     raise
 
-  # Retornar status consolidado após atualização
-  return get_onboarding_status(user_jwt, user_id)
+  return {"success": True}
 
 
+def reset_onboarding(user_jwt: str, user_id: str) -> Dict[str, Any]:
+  """
+  Reseta o onboarding do usuário (has_completed_onboarding = false).
+  Usado quando o usuário reseta suas preferências.
+  """
+  sb = get_supabase_for_user(user_jwt)
+
+  try:
+    sb.table("user_preferences").upsert(
+      {"user_id": user_id, "has_completed_onboarding": False},
+      on_conflict="user_id",
+    ).execute()
+
+    logger.info(f"[ONBOARDING] has_completed_onboarding=false (reset) para user {user_id}")
+  except Exception as e:
+    logger.exception(f"[ONBOARDING] Erro ao resetar onboarding para {user_id}: {e}")
+    raise
+
+  return {"success": True}
 

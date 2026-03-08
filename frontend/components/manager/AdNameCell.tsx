@@ -68,10 +68,10 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
   const key = getRowKey({ original });
   const isExpanded = !!expanded[key];
   const hasActive = (original?.effective_status || "").toUpperCase() === "ACTIVE";
-  const dotActive = adCount > 0 && hasActive;
   const thumbnailSize = minimal ? "sm" : "md";
 
   let secondLine = "";
+  let activeCountForDisplay: number | undefined;
   if (groupByAdNameEffective || currentTab === "por-conjunto" || currentTab === "por-campanha") {
     const isPorCampanha = currentTab === "por-campanha";
     if (isPorCampanha) {
@@ -80,13 +80,18 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
     } else {
       const total = adCount;
       const x = typeof activeCount === "number" ? activeCount : total;
+      activeCountForDisplay = x;
       const countLabel = total === 1 ? "anúncio" : "anúncios";
       secondLine = `${x} / ${total} ${countLabel}`;
     }
-  } else if (currentTab === "individual") {
+  }
+  // Bolinha verde quando há anúncios ativos; cinza quando há 0 ativos (sempre exibir quando temos "X / Y anúncios")
+  const dotActive = activeCountForDisplay !== undefined && activeCountForDisplay > 0;
+  const showDot = activeCountForDisplay !== undefined;
+  if (currentTab === "individual") {
     const adsetName = (original as any)?.adset_name;
     secondLine = adsetName ? String(adsetName) : `ID: ${id || "-"}`;
-  } else {
+  } else if (!(groupByAdNameEffective || currentTab === "por-conjunto" || currentTab === "por-campanha")) {
     const countLabel = "dias";
     const count = Math.max(adCount, 1);
     secondLine = count === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${count} ${countLabel})`;
@@ -117,7 +122,12 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
                 </>
               ) : (
                 <>
-                  <span className={`shrink-0 rounded-full w-1.5 h-1.5 ${dotActive ? "bg-success" : "bg-muted-foreground/60"}`} aria-hidden />
+                  {showDot && (
+                    <span
+                      className={`shrink-0 rounded-full w-1.5 h-1.5 ${dotActive ? "bg-success" : "bg-muted-foreground/60"}`}
+                      aria-hidden
+                    />
+                  )}
                   {secondLine}
                   <IconChevronDown className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
                 </>
