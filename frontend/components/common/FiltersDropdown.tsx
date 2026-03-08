@@ -37,11 +37,13 @@ export interface FiltersDropdownProps {
   dateRangeLabel?: string;
   dateRangeRequireConfirmation?: boolean;
   dateRangeDisabled?: boolean;
+  disableFutureDates?: boolean; // Se true (padrão), desabilita seleção de datas futuras no calendário
   expanded?: boolean;
   packDatesRange?: DateRangeValue | null; // Datas dos packs para selecionar no calendário quando switch for ativado. null = sem dados disponíveis, undefined = aguardando dados
   groupByPacks?: boolean; // Se true, agrupa por packs
   onGroupByPacksChange?: (checked: boolean) => void; // Handler para mudança do switch
   singlePackSelect?: boolean; // Se true (padrão), apenas um pack pode ser selecionado. Se false, permite multi-select.
+  onSetSinglePack?: (packId: string) => void; // Handler atômico para single-select (evita race condition de múltiplos toggles)
 }
 
 /**
@@ -84,28 +86,29 @@ export interface FiltersDropdownProps {
  *   onUsePackDatesChange={handleUsePackDatesChange}
  * />
  */
-export function FiltersDropdown({ dateRange, onDateRangeChange, actionType, onActionTypeChange, actionTypeOptions, packs, selectedPackIds, onTogglePack, packsClient, usePackDates = false, onUsePackDatesChange, dateRangeLabel = "Período", dateRangeRequireConfirmation = true, dateRangeDisabled = false, expanded = false, packDatesRange, groupByPacks = false, onGroupByPacksChange, singlePackSelect = true }: FiltersDropdownProps) {
+export function FiltersDropdown({ dateRange, onDateRangeChange, actionType, onActionTypeChange, actionTypeOptions, packs, selectedPackIds, onTogglePack, packsClient, usePackDates = false, onUsePackDatesChange, dateRangeLabel = "Período", dateRangeRequireConfirmation = true, dateRangeDisabled = false, disableFutureDates = true, expanded = false, packDatesRange, groupByPacks = false, onGroupByPacksChange, singlePackSelect = true, onSetSinglePack }: FiltersDropdownProps) {
   const [open, setOpen] = useState(false);
 
   // Wrapper para onTogglePack que garante single-select
-  // Se o pack já está selecionado, desmarca. Caso contrário, desmarca todos e marca apenas o selecionado.
+  // Prefere onSetSinglePack (operação atômica) quando disponível para evitar race condition
   const handleSingleSelectPack = useCallback(
     (packId: string) => {
+      if (onSetSinglePack) {
+        onSetSinglePack(packId);
+        return;
+      }
+      // Fallback: múltiplos toggles (pode ter race condition com localStorage)
       if (selectedPackIds.has(packId)) {
-        // Se já está selecionado, desmarca (permite desmarcar o único pack selecionado)
         onTogglePack(packId);
       } else {
-        // Para single-select: desmarca todos os outros packs primeiro
-        // Usa Array.from para criar uma cópia e evitar problemas de iteração durante modificação
         const otherPackIds = Array.from(selectedPackIds).filter((id) => id !== packId);
         otherPackIds.forEach((id) => {
           onTogglePack(id);
         });
-        // Marca o novo pack
         onTogglePack(packId);
       }
     },
-    [selectedPackIds, onTogglePack],
+    [selectedPackIds, onTogglePack, onSetSinglePack],
   );
 
   // Contar quantos filtros estão ativos
@@ -123,7 +126,7 @@ export function FiltersDropdown({ dateRange, onDateRangeChange, actionType, onAc
   const filtersContentCollapsed = (
     <>
       <div className="space-y-2">
-        <DateRangeFilter label={dateRangeLabel} value={dateRange} onChange={onDateRangeChange} requireConfirmation={dateRangeRequireConfirmation} disabled={dateRangeDisabled} usePackDates={usePackDates} onUsePackDatesChange={packsClient && packs.length > 0 && selectedPackIds.size > 0 ? onUsePackDatesChange : undefined} showPackDatesSwitch={packsClient && packs.length > 0 && selectedPackIds.size > 0 && !!onUsePackDatesChange} packDatesRange={packDatesRange} />
+        <DateRangeFilter label={dateRangeLabel} value={dateRange} onChange={onDateRangeChange} requireConfirmation={dateRangeRequireConfirmation} disabled={dateRangeDisabled} disableFutureDates={disableFutureDates} usePackDates={usePackDates} onUsePackDatesChange={packsClient && packs.length > 0 && selectedPackIds.size > 0 ? onUsePackDatesChange : undefined} showPackDatesSwitch={packsClient && packs.length > 0 && selectedPackIds.size > 0 && !!onUsePackDatesChange} packDatesRange={packDatesRange} />
       </div>
 
       <ActionTypeFilter label="Evento de Conversão" value={actionType} onChange={onActionTypeChange} options={actionTypeOptions} isLoading={actionTypeOptions.length === 0} />
@@ -146,7 +149,7 @@ export function FiltersDropdown({ dateRange, onDateRangeChange, actionType, onAc
       </div>
 
       <div className="flex flex-col min-w-[200px]">
-        <DateRangeFilter label={dateRangeLabel} showLabel={false} value={dateRange} onChange={onDateRangeChange} requireConfirmation={dateRangeRequireConfirmation} disabled={dateRangeDisabled} usePackDates={usePackDates} onUsePackDatesChange={packsClient && packs.length > 0 && selectedPackIds.size > 0 ? onUsePackDatesChange : undefined} showPackDatesSwitch={packsClient && packs.length > 0 && selectedPackIds.size > 0 && !!onUsePackDatesChange} packDatesRange={packDatesRange} />
+        <DateRangeFilter label={dateRangeLabel} showLabel={false} value={dateRange} onChange={onDateRangeChange} requireConfirmation={dateRangeRequireConfirmation} disabled={dateRangeDisabled} disableFutureDates={disableFutureDates} usePackDates={usePackDates} onUsePackDatesChange={packsClient && packs.length > 0 && selectedPackIds.size > 0 ? onUsePackDatesChange : undefined} showPackDatesSwitch={packsClient && packs.length > 0 && selectedPackIds.size > 0 && !!onUsePackDatesChange} packDatesRange={packDatesRange} />
       </div>
     </>
   );

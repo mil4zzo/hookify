@@ -40,6 +40,8 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [tempDateRangePopover, setTempDateRangePopover] = useState<DateRange | undefined>(date);
   const [isMobile, setIsMobile] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => date?.from || new Date());
+  const [calendarMonthModal, setCalendarMonthModal] = useState<Date>(() => date?.from || new Date());
 
   // Função para obter a data de hoje sem hora (para comparação correta)
   const getTodayWithoutTime = () => {
@@ -135,12 +137,16 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
       // Sempre atualizar tempDateRange e tempDateRangePopover com as datas dos packs quando switch está ativo
       setTempDateRange(packDatesRange);
       setTempDateRangePopover(packDatesRange);
+      // Atualizar mês do calendário para acompanhar datas dos packs
+      const targetMonth = isMobile ? packDatesRange.from : new Date(packDatesRange.from.getFullYear(), packDatesRange.from.getMonth() - 1);
+      setCalendarMonth(targetMonth);
+      setCalendarMonthModal(targetMonth);
     } else if (!usePackDates) {
       // Quando o switch é desativado, resetar para o valor atual (date)
       setTempDateRange(date || getDefaultDateRange());
       setTempDateRangePopover(date || getDefaultDateRange());
     }
-  }, [usePackDates, packDatesRange, date]);
+  }, [usePackDates, packDatesRange, date, isMobile]);
 
   const handleModalOpen = () => {
     // Quando abre modal, inicializar com datas dos packs se usePackDates estiver ativo, senão usar valor atual
@@ -149,6 +155,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
     } else {
       setTempDateRange(date || getDefaultDateRange());
     }
+    setCalendarMonthModal(getDefaultMonth(true));
     setIsModalOpen(true);
   };
 
@@ -184,6 +191,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
       } else {
         setTempDateRangePopover(date || getDefaultDateRange());
       }
+      setCalendarMonth(getDefaultMonth(false));
     }
   };
 
@@ -319,7 +327,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
 
             <div className="flex justify-center w-full min-w-0 overflow-x-auto pb-2">
               <div className={cn("w-fit min-w-0 mx-auto", usePackDates && "opacity-50 pointer-events-none")}>
-                <Calendar initialFocus mode="range" defaultMonth={getDefaultMonth(true)} selected={tempDateRange || (usePackDates && packDatesRange ? packDatesRange : getDefaultDateRange())} onSelect={usePackDates ? () => {} : setTempDateRange} numberOfMonths={isMobile ? 1 : 2} locale={ptBR} disabled={getDisabledDatesWithPackDates()} />
+                <Calendar initialFocus mode="range" month={calendarMonthModal} onMonthChange={setCalendarMonthModal} selected={tempDateRange || (usePackDates && packDatesRange ? packDatesRange : getDefaultDateRange())} onSelect={usePackDates ? () => {} : setTempDateRange} numberOfMonths={isMobile ? 1 : 2} locale={ptBR} disabled={getDisabledDatesWithPackDates()} />
               </div>
             </div>
 
@@ -347,7 +355,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
           <div className="space-y-2">
             {showPackDatesSwitch && onUsePackDatesChange && <ToggleSwitch id="use-pack-dates-popover" checked={usePackDates} onCheckedChange={onUsePackDatesChange} label="Usar datas dos packs" variant="default" size="md" />}
             <div className={cn("relative", usePackDates && "opacity-50 pointer-events-none")}>
-              <Calendar initialFocus mode="range" defaultMonth={getDefaultMonth(false)} selected={tempDateRangePopover || (usePackDates && packDatesRange ? packDatesRange : undefined)} onSelect={usePackDates ? () => {} : setTempDateRangePopover} numberOfMonths={isMobile ? 1 : 2} locale={ptBR} disabled={getDisabledDatesWithPackDates()} />
+              <Calendar initialFocus mode="range" month={calendarMonth} onMonthChange={setCalendarMonth} selected={tempDateRangePopover || (usePackDates && packDatesRange ? packDatesRange : undefined)} onSelect={usePackDates ? () => {} : setTempDateRangePopover} numberOfMonths={isMobile ? 1 : 2} locale={ptBR} disabled={getDisabledDatesWithPackDates()} />
             </div>
             {requireConfirmation && (
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 p-3 pt-2 border-t border-border">

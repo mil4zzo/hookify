@@ -990,6 +990,7 @@ export default function InsightsPage() {
           packs={packs}
           selectedPackIds={selectedPackIds}
           onTogglePack={handleTogglePack}
+          onSetSinglePack={handleTogglePack}
           packsClient={packsClient}
           usePackDates={usePackDates}
           onUsePackDatesChange={handleUsePackDatesChange}

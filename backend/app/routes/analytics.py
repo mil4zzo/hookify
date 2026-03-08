@@ -17,6 +17,50 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
 
 
+def _fetch_ad_metrics_via_rpc(
+    sb,
+    user_id: str,
+    date_start: str,
+    date_stop: str,
+    pack_ids: Optional[List[str]] = None,
+    account_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Fetch ad_metrics via RPC with pagination to bypass PostgREST 1000-row limit.
+
+    Uses the && (overlap) operator with GIN index instead of multiple
+    paginated PostgREST queries with OR-chained contains operators.
+    """
+    params: Dict[str, Any] = {
+        "p_user_id": user_id,
+        "p_date_start": date_start,
+        "p_date_stop": date_stop,
+    }
+    if pack_ids:
+        params["p_pack_ids"] = pack_ids
+    if account_ids:
+        params["p_account_ids"] = account_ids
+
+    all_rows: List[Dict[str, Any]] = []
+    page_size = 1000
+    offset = 0
+
+    while True:
+        result = sb.rpc("fetch_ad_metrics_for_analytics", params).range(offset, offset + page_size - 1).execute()
+        page_data = result.data or []
+
+        if not page_data:
+            break
+
+        all_rows.extend(page_data)
+
+        if len(page_data) < page_size:
+            break
+
+        offset += page_size
+
+    return all_rows
+
+
 def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, max_per_page: int = 1000) -> List[Dict[str, Any]]:
     """Busca todos os registros de uma tabela usando paginação para contornar limite de 1000 linhas do Supabase.
     
@@ -509,11 +553,27 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             "available_conversion_types": [],
         }
 
-    # Window para sparklines (5 dias terminando em date_stop)
-    axis = _axis_5_days(req.date_stop)
-    window_start = axis[0]
     full_start = req.date_start
     full_stop = req.date_stop
+
+    # Normalizar intervalo invertido (defensivo) e gerar eixo base no range solicitado.
+    # Quando series_window é fornecido, recorta para os últimos N dias.
+    # Sem series_window, mantém compatibilidade histórica: até 5 dias.
+    try:
+        start_dt = _to_date(full_start)
+        stop_dt = _to_date(full_stop)
+        if stop_dt < start_dt:
+            full_start, full_stop = full_stop, full_start
+            start_dt, stop_dt = stop_dt, start_dt
+    except Exception:
+        # Se houver formato inesperado, segue com os valores recebidos.
+        pass
+
+    axis_full = _axis_date_range(full_start, full_stop)
+    if req.series_window and req.series_window > 0:
+        axis = axis_full[-req.series_window:]
+    else:
+        axis = axis_full[-5:] if len(axis_full) > 5 else axis_full
 
     # Buscar linhas diárias no período completo (para totais) e na janela de 5 dias (para séries)
     # Para simplificar, trazemos toda a janela completa (full) e processamos em memória.
@@ -521,45 +581,25 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     # Usar paginação para contornar limite de 1000 linhas do Supabase
     f = req.filters or RankingsFilters()
 
-    def metrics_filters(q):
-        q = q.gte("date", full_start).lte("date", full_stop)
-
-        # NOVO: Filtrar por pack_ids usando operador cs (contains)
-        # Usar OR lógico para incluir métricas que pertencem a QUALQUER pack selecionado
-        if req.pack_ids and len(req.pack_ids) > 0:
-            # PostgREST cs operator: verifica se pack_ids array contém QUALQUER dos UUIDs
-            # Sintaxe: .or_("pack_ids.cs.{uuid1},pack_ids.cs.{uuid2},...")
-            pack_filters = ",".join([f"pack_ids.cs.{{{pack_id}}}" for pack_id in req.pack_ids])
-            q = q.or_(pack_filters)
-
-        if f.adaccount_ids:
-            q = q.in_("account_id", f.adaccount_ids)
-        return q
-    
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,"
-        "clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,"
-        "conversions,actions,video_play_curve_actions,hold_rate,reach,frequency,leadscore_values,lpv"
+    data = _fetch_ad_metrics_via_rpc(
+        sb, user["user_id"], full_start, full_stop,
+        pack_ids=req.pack_ids,
+        account_ids=f.adaccount_ids,
     )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,"
-        "clicks,impressions,inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,"
-        "conversions,actions,video_play_curve_actions,hold_rate,reach,frequency,leadscore_values"
-    )
-    try:
-        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-    except Exception as e:
-        msg = str(e or "")
-        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-            logger.warning("[rankings] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-        else:
-            raise
     
     # LOG TEMPORÁRIO PARA DEBUG
-    logger.info(f"[INSIGHTS DEBUG] Dados brutos do Supabase: data_count={len(data)}, date_start={full_start}, date_stop={full_stop}")
+    logger.info(f"[INSIGHTS DEBUG] Dados brutos do Supabase: data_count={len(data)}, date_start={full_start}, date_stop={full_stop}, series_window={req.series_window}, axis_len={len(axis)}")
     if len(data) > 0:
         logger.info(f"[INSIGHTS DEBUG] Primeiro registro: ad_name={data[0].get('ad_name')}, date={data[0].get('date')}, impressions={data[0].get('impressions')}")
+        # Contar registros por data para diagnosticar problema de sparklines
+        from collections import Counter
+        date_counts = Counter()
+        for row in data:
+            d = row.get("date")
+            d_str = str(d)[:10] if d else "None"
+            date_counts[d_str] += 1
+        logger.info(f"[INSIGHTS DEBUG] Registros por data: {dict(sorted(date_counts.items()))}")
+        logger.info(f"[INSIGHTS DEBUG] Axis: {axis}")
     
     # Filtros por contains serão aplicados em memória (pode-se otimizar com ilike + expressões geradas futuramente)
 

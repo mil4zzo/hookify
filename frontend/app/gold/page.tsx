@@ -465,7 +465,7 @@ export default function GoldPage() {
 
   if (loading || isLoadingCriteria) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} onSetSinglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
         <LoadingState />
       </PageContainer>
     );
@@ -473,14 +473,14 @@ export default function GoldPage() {
 
   if (!validatedRankings || validatedRankings.length === 0) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} onSetSinglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
         <EmptyState message="Nenhum anúncio encontrado para os filtros selecionados." />
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+    <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} onSetSinglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
       {actionType && validatedAverages && (
         <>
           <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria || []} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />

@@ -280,11 +280,20 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const getFiltersStorageKey = (tab: ManagerTab) => `hookify-manager-filters:${tab}`;
   const getGlobalFilterStorageKey = (tab: ManagerTab) => `hookify-manager-global-filter:${tab}`;
 
+  // Filtro padrão para aba individual: Status = Ativo (reduz lag em packs grandes)
+  const DEFAULT_INDIVIDUAL_FILTERS: ColumnFiltersState = [
+    { id: `status__default`, value: { selectedStatuses: ["ACTIVE"] } },
+  ];
+
   const loadColumnFilters = (tab: ManagerTab): ColumnFiltersState => {
     if (typeof window === "undefined") return [];
     try {
       const saved = sessionStorage.getItem(getFiltersStorageKey(tab));
-      if (!saved) return [];
+      if (!saved) {
+        // Aba individual: aplicar filtro de Status = Ativo por padrão
+        if (tab === "individual") return DEFAULT_INDIVIDUAL_FILTERS;
+        return [];
+      }
       const parsed = JSON.parse(saved);
       return Array.isArray(parsed) ? parsed : [];
     } catch (e) {

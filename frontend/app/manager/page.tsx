@@ -376,31 +376,6 @@ function ManagerPageContent() {
   const serverDataCampaign = managerDataCampaign?.data || null;
   const availableConversionTypes = managerData?.available_conversion_types || [];
 
-  // === DIAGNÓSTICO TEMPORÁRIO DE MEMÓRIA ===
-  useEffect(() => {
-    const datasets = [
-      { name: "Por anúncio", data: serverData },
-      { name: "Individual", data: serverDataIndividual },
-      { name: "Por conjunto", data: serverDataAdset },
-      { name: "Por campanha", data: serverDataCampaign },
-    ];
-    for (const { name, data } of datasets) {
-      if (!data || data.length === 0) continue;
-      const sample = data[0];
-      const seriesKeys = sample?.series ? Object.keys(sample.series) : [];
-      const seriesAxisLen = sample?.series?.axis?.length || 0;
-      const leadscoreLen = Array.isArray(sample?.leadscore_values) ? sample.leadscore_values.length : 0;
-      const curveLen = Array.isArray(sample?.video_play_curve_actions) ? sample.video_play_curve_actions.length : 0;
-      const jsonSize = JSON.stringify(data).length;
-      console.log(`[MEM-DIAG] ${name}: ${data.length} items | JSON: ${(jsonSize / 1024 / 1024).toFixed(2)} MB | series keys: [${seriesKeys.join(",")}] | series.axis.length: ${seriesAxisLen} | leadscore: ${leadscoreLen} | curve: ${curveLen}`);
-    }
-    // Performance memory API (se disponível)
-    if ((performance as any).memory) {
-      const mem = (performance as any).memory;
-      console.log(`[MEM-DIAG] JS Heap: ${(mem.usedJSHeapSize / 1024 / 1024).toFixed(0)} MB / ${(mem.totalJSHeapSize / 1024 / 1024).toFixed(0)} MB (limit: ${(mem.jsHeapSizeLimit / 1024 / 1024).toFixed(0)} MB)`);
-    }
-  }, [serverData, serverDataIndividual, serverDataAdset, serverDataCampaign]);
-
   const uniqueConversionTypes = useMemo(() => {
     return availableConversionTypes;
   }, [availableConversionTypes]);
@@ -617,6 +592,37 @@ function ManagerPageContent() {
         .map(([id]) => id),
     );
     setSelectedPackIds(enabledPackIds);
+  };
+
+  // Handler atômico para single-select de pack (evita race condition de múltiplos toggles no localStorage)
+  const handleSetSinglePack = (packId: string) => {
+    const currentPrefs = loadPackPreferences();
+    const isCurrentlySelected = currentPrefs[packId] ?? false;
+    const enabledCount = Object.values(currentPrefs).filter((v) => v).length;
+
+    if (isCurrentlySelected && enabledCount <= 1) {
+      return; // Não desmarcar o último pack
+    }
+
+    if (isCurrentlySelected) {
+      // Desmarcar este pack
+      const newPrefs: PackPreferences = { ...currentPrefs, [packId]: false };
+      savePackPreferences(newPrefs);
+      const enabledPackIds = new Set(
+        Object.entries(newPrefs)
+          .filter(([_, enabled]) => enabled)
+          .map(([id]) => id),
+      );
+      setSelectedPackIds(enabledPackIds);
+    } else {
+      // Selecionar apenas este pack — operação atômica única
+      const newPrefs: PackPreferences = {};
+      Object.keys(currentPrefs).forEach((id) => {
+        newPrefs[id] = id === packId;
+      });
+      savePackPreferences(newPrefs);
+      setSelectedPackIds(new Set([packId]));
+    }
   };
 
   // Handler para toggle de tendências/performance
