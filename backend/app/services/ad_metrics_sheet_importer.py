@@ -494,10 +494,6 @@ def run_ad_metrics_sheet_import(
         rpc_result = _execute_batch_update(sb, user_id, pack_id, rpc_updates)
     except Exception as e:
         raise AdMetricsImportError(f"Falha ao executar atualização em lote: {e}")
-    if rpc_result.get("status") == "error":
-        raise AdMetricsImportError(
-            f"Erro na atualização em lote: {rpc_result.get('error_message', 'Erro desconhecido')}"
-        )
 
     total_updated = rpc_result.get("total_rows_updated", 0)
     total_groups_processed = rpc_result.get("total_groups_processed", 0)
