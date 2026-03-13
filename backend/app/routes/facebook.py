@@ -494,7 +494,7 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
         except Exception:
             logger.exception("Falha ao registrar job no Supabase (início)")
 
-        return {"job_id": job_id, "status": "started", "message": "Job iniciado com sucesso"}
+        return {"job_id": str(job_id), "status": "started", "message": "Job iniciado com sucesso"}
         
     except HTTPException:
         raise
@@ -1045,7 +1045,7 @@ def refresh_pack(
         logger.info(f"[REFRESH_PACK] ✓ Job {job_id} iniciado para refresh do pack {pack_id}")
 
         return {
-            "job_id": job_id,
+            "job_id": str(job_id),
             "status": "started",
             "message": "Refresh de pack iniciado com sucesso",
             "pack_id": pack_id,

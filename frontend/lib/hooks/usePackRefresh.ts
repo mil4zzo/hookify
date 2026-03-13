@@ -147,9 +147,12 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   const [refreshingPackIds, setRefreshingPackIds] = useState<string[]>([]);
   const activeRefreshesRef = useRef<Map<string, ActiveRefresh>>(new Map());
 
-  // Fix #1: cleanup on unmount
+  // Fix #1: track mount state safely (StrictMode mounts/unmounts twice in dev)
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // Fix #8: stable options ref
   const optionsRef = useRef(options);
@@ -474,26 +477,28 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       // Always skip_sheets_sync — frontend controls Sheets independently now
       const refreshResult = await api.facebook.refreshPack(packId, getTodayLocal(), refreshType, true);
 
+      const jobId = refreshResult.job_id ? String(refreshResult.job_id) : "";
+
       // Check if Meta was cancelled before receiving job_id
-      if (activeRefresh.metaCancelled && activeRefresh.pendingCancellation && refreshResult.job_id) {
-        logger.debug(`[PACK_REFRESH] Executando cancelamento pendente do Meta job ${refreshResult.job_id}`);
+      if (activeRefresh.metaCancelled && activeRefresh.pendingCancellation && jobId) {
+        logger.debug(`[PACK_REFRESH] Executando cancelamento pendente do Meta job ${jobId}`);
         try {
-          await api.facebook.cancelJobsBatch([refreshResult.job_id], "Atualização Meta cancelada pelo usuário");
+          await api.facebook.cancelJobsBatch([jobId], "Atualização Meta cancelada pelo usuário");
         } catch (error) {
           logger.error("Erro ao cancelar job Meta pendente:", error);
         }
         return { completed: false, adsCount: 0 };
       }
 
-      if (!refreshResult.job_id) {
+      if (!jobId) {
         finishProgressToast(toastId, false, `Erro ao iniciar atualização de "${packName}"`);
         return { completed: false, adsCount: 0 };
       }
 
-      updateActiveRefresh(activeRefreshesRef, packId, { metaJobId: refreshResult.job_id });
+      updateActiveRefresh(activeRefreshesRef, packId, { metaJobId: jobId });
 
-      if (!addActiveJob(refreshResult.job_id)) {
-        logger.warn(`[PACK_REFRESH] Polling já ativo para job ${refreshResult.job_id}. Ignorando...`);
+      if (!addActiveJob(jobId)) {
+        logger.warn(`[PACK_REFRESH] Polling já ativo para job ${jobId}. Ignorando...`);
         finishProgressToast(toastId, false, `Este job já está sendo processado. Aguarde a conclusão.`);
         return { completed: false, adsCount: 0 };
       }
@@ -512,8 +517,6 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       );
 
       type MetaResult = { completed: boolean; adsCount: number; error?: string };
-      const jobId = refreshResult.job_id;
-
       const metaResult = await pollJob<MetaResult>({
         label: `meta-${jobId.slice(0, 8)}`,
         maxAttempts: 450, // 15 min

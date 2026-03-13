@@ -75,7 +75,10 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // ============================================================================
   // CANCEL

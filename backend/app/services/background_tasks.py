@@ -12,7 +12,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 
 from app.services import supabase_repo
-from app.services.thumbnail_cache import cache_first_thumbs_for_ads
+from app.core.config import THUMB_CACHE_ENABLED, THUMB_CACHE_MIN_TTL_SECONDS
+from app.services.thumbnail_cache import (
+    cache_first_thumbs_for_ad_names,
+    normalize_ad_name,
+    select_representative_thumb_url,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +27,19 @@ _lock = threading.Lock()
 
 _TTL_SECONDS = 600  # 10 minutos
 _MAX_ENTRIES = 200
+
+
+def _is_transient_bg_error(error: Exception) -> bool:
+    text = str(error or "")
+    markers = (
+        "WinError 10035",
+        "ReadError",
+        "ConnectError",
+        "Timeout",
+        "temporarily unavailable",
+        "connection reset",
+    )
+    return any(m in text for m in markers)
 
 
 def _cleanup_stale_entries() -> None:
@@ -68,6 +86,7 @@ def run_pack_background_tasks(
     user_id: str,
     user_jwt: str,
     ad_name_groups: Dict[str, Dict[str, Any]],
+    is_refresh: bool = False,
     *,
     use_service_role: bool = False,
 ) -> None:
@@ -82,57 +101,113 @@ def run_pack_background_tasks(
 
     def _run_thumbnails() -> None:
         try:
-            groups_total = len(ad_name_groups)
-            uploads_requested = 0
+            if not THUMB_CACHE_ENABLED:
+                logger.info(
+                    "[BACKGROUND_TASKS] Thumbnail cache desativado por THUMB_CACHE_ENABLED=false (pack=%s)",
+                    pack_id,
+                )
+                _set_status(job_id, thumbnails="completed")
+                return
+
+            ad_names_total = len(ad_name_groups)
+            uploads_requested = 0  # ad_names novos enviados para cache
             uploads_succeeded = 0
             ads_updated = 0
-            groups_failed = 0
+            write_retries = 0
+            write_failures = 0
+            already_cached = 0
+            reused_for_new_ad_ids = 0
+            skipped_invalid_url = 0
 
             if ad_name_groups:
-                rep_ad_id_to_thumb_url: Dict[str, str] = {}
-                rep_ad_id_to_ad_ids: Dict[str, list[str]] = {}
+                ad_name_list = [
+                    str(group.get("ad_name") or "").strip()
+                    for group in ad_name_groups.values()
+                    if str(group.get("ad_name") or "").strip()
+                ]
+                existing_cache_by_key = supabase_repo.get_cached_thumbs_by_ad_names(
+                    user_id=user_id,
+                    ad_names=ad_name_list,
+                )
+
+                ad_id_to_cached: Dict[str, Any] = {}
+                ad_name_to_thumb_url: Dict[str, str] = {}
+                ad_name_to_ad_ids: Dict[str, list[str]] = {}
 
                 for group in ad_name_groups.values():
-                    rep_ad_id = str(group.get("rep_ad_id") or "").strip()
-                    thumb_url = str(group.get("thumb_url") or "").strip()
+                    ad_name = str(group.get("ad_name") or "").strip()
+                    if not ad_name:
+                        continue
+                    thumb_key = str(group.get("thumb_key") or normalize_ad_name(ad_name))
                     ad_ids_raw = group.get("ad_ids") or []
-                    if not rep_ad_id or not thumb_url or not isinstance(ad_ids_raw, list):
+                    if not isinstance(ad_ids_raw, list):
                         continue
 
                     ad_ids = sorted({str(ad_id).strip() for ad_id in ad_ids_raw if str(ad_id).strip()})
                     if not ad_ids:
                         continue
 
-                    rep_ad_id_to_thumb_url[rep_ad_id] = thumb_url
-                    rep_ad_id_to_ad_ids[rep_ad_id] = ad_ids
+                    existing_cached = existing_cache_by_key.get(thumb_key)
+                    if existing_cached:
+                        already_cached += 1
+                        reused_for_new_ad_ids += len(ad_ids)
+                        for ad_id in ad_ids:
+                            ad_id_to_cached[ad_id] = existing_cached
+                        continue
 
-                uploads_requested = len(rep_ad_id_to_thumb_url)
+                    # Política por fase:
+                    # - criação inicial: cachear todos sem cache prévio
+                    # - update: cachear somente ad_names sem cache prévio (mesma regra prática)
+                    thumb_candidates = group.get("thumb_candidates") or []
+                    if not isinstance(thumb_candidates, list):
+                        thumb_candidates = []
+                    thumb_url = select_representative_thumb_url(
+                        thumb_candidates,
+                        min_ttl_seconds=THUMB_CACHE_MIN_TTL_SECONDS,
+                    )
+                    if not thumb_url:
+                        skipped_invalid_url += 1
+                        continue
 
-                cached_by_rep_ad_id = cache_first_thumbs_for_ads(
+                    ad_name_to_thumb_url[ad_name] = thumb_url
+                    ad_name_to_ad_ids[thumb_key] = ad_ids
+
+                uploads_requested = len(ad_name_to_thumb_url)
+
+                cached_by_thumb_key = cache_first_thumbs_for_ad_names(
                     user_id=user_id,
-                    ad_id_to_thumb_url=rep_ad_id_to_thumb_url,
+                    ad_name_to_thumb_url=ad_name_to_thumb_url,
                 )
-                uploads_succeeded = len(cached_by_rep_ad_id)
-                groups_failed = max(0, uploads_requested - uploads_succeeded)
+                uploads_succeeded = len(cached_by_thumb_key)
 
-                ad_id_to_cached = {}
-                for rep_ad_id, cached_thumb in cached_by_rep_ad_id.items():
-                    for ad_id in rep_ad_id_to_ad_ids.get(rep_ad_id, []):
+                for thumb_key, cached_thumb in cached_by_thumb_key.items():
+                    for ad_id in ad_name_to_ad_ids.get(thumb_key, []):
                         ad_id_to_cached[ad_id] = cached_thumb
 
                 if ad_id_to_cached:
-                    supabase_repo.update_ads_thumbnail_cache(user_id=user_id, ad_id_to_cached=ad_id_to_cached)
-                    ads_updated = len(ad_id_to_cached)
+                    write_result = supabase_repo.update_ads_thumbnail_cache(
+                        user_id=user_id,
+                        ad_id_to_cached=ad_id_to_cached,
+                    )
+                    ads_updated = int(write_result.get("updated", 0))
+                    write_retries = int(write_result.get("retries", 0))
+                    write_failures = int(write_result.get("failed_batches", 0))
 
             logger.info(
-                "[BACKGROUND_TASKS] Thumbnail cache summary pack=%s groups_total=%s uploads_requested=%s "
-                "uploads_succeeded=%s groups_failed=%s ads_updated=%s",
+                "[BACKGROUND_TASKS] Thumbnail cache summary pack=%s is_refresh=%s ad_names_total=%s "
+                "already_cached=%s uploads_requested=%s new_cached=%s reused_for_new_ad_ids=%s "
+                "skipped_invalid_url=%s ads_updated=%s write_retries=%s write_failures=%s",
                 pack_id,
-                groups_total,
+                is_refresh,
+                ad_names_total,
+                already_cached,
                 uploads_requested,
                 uploads_succeeded,
-                groups_failed,
+                reused_for_new_ad_ids,
+                skipped_invalid_url,
                 ads_updated,
+                write_retries,
+                write_failures,
             )
             _set_status(job_id, thumbnails="completed")
         except Exception as e:
@@ -141,14 +216,29 @@ def run_pack_background_tasks(
 
     def _run_stats_extended() -> None:
         try:
-            stats = supabase_repo.calculate_pack_stats(
-                user_jwt, pack_id, user_id, sb_client=sb
-            )
-            if stats and stats.get("totalSpend") is not None:
-                supabase_repo.update_pack_stats(
-                    user_jwt, pack_id, stats, user_id, sb_client=sb
-                )
-                logger.info(f"[BACKGROUND_TASKS] Stats estendidos salvos para pack {pack_id}")
+            max_attempts = 3
+            stats = None
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    stats = supabase_repo.calculate_pack_stats(
+                        user_jwt, pack_id, user_id, sb_client=sb
+                    )
+                    if stats and stats.get("totalSpend") is not None:
+                        supabase_repo.update_pack_stats(
+                            user_jwt, pack_id, stats, user_id, sb_client=sb
+                        )
+                        logger.info(f"[BACKGROUND_TASKS] Stats estendidos salvos para pack {pack_id}")
+                    break
+                except Exception as e:
+                    if _is_transient_bg_error(e) and attempt < max_attempts:
+                        delay = 0.5 * attempt
+                        logger.warning(
+                            f"[BACKGROUND_TASKS] Erro transitório em stats estendidos "
+                            f"(tentativa {attempt}/{max_attempts}) pack={pack_id}: {e}. Retry em {delay:.1f}s"
+                        )
+                        time.sleep(delay)
+                        continue
+                    raise
             _set_status(job_id, stats_extended="completed")
         except Exception as e:
             logger.exception(f"[BACKGROUND_TASKS] Falha ao calcular stats para pack {pack_id}: {e}")
@@ -168,6 +258,7 @@ def spawn_pack_background_tasks(
     user_id: str,
     user_jwt: str,
     ad_name_groups: Dict[str, Dict[str, Any]],
+    is_refresh: bool = False,
     *,
     use_service_role: bool = False,
 ) -> None:
@@ -177,6 +268,7 @@ def spawn_pack_background_tasks(
     def _run():
         run_pack_background_tasks(
             job_id, pack_id, user_id, user_jwt, ad_name_groups,
+            is_refresh=is_refresh,
             use_service_role=use_service_role,
         )
 

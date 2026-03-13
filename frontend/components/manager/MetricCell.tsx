@@ -2,6 +2,7 @@
 
 import React from "react";
 import { SparklineBars } from "@/components/common/SparklineBars";
+import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 
@@ -83,6 +84,63 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
 export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, showTrends, averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false, lightweight = false }: MetricCellProps) {
   // row já é o objeto agregado (info.row.original), então precisamos ajustar
   const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
+  const seriesLoading = Boolean((original as any).series_loading);
+  const BAR_COUNT = 5;
+  const FADE_DURATION_MS = 500;
+  const STAGGER_MS = 250;
+  const SPARKLINE_START_DELAY_MS = 250;
+  const loadedBarsCount =
+    Array.isArray((original as any).series?.axis) && (original as any).series.axis.length > 0
+      ? Math.min(BAR_COUNT, (original as any).series.axis.length)
+      : BAR_COUNT;
+  const TOTAL_STAGGERED_TRANSITION_MS = SPARKLINE_START_DELAY_MS + (Math.max(loadedBarsCount, 1) - 1) * STAGGER_MS + FADE_DURATION_MS;
+  const [sparklinePhase, setSparklinePhase] = React.useState<"skeleton" | "transition" | "sparkline">(seriesLoading ? "skeleton" : "sparkline");
+  const fadeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    if (fadeTimerRef.current) {
+      clearTimeout(fadeTimerRef.current);
+      fadeTimerRef.current = null;
+    }
+
+    if (!showTrends) {
+      setSparklinePhase("sparkline");
+      return;
+    }
+
+    if (seriesLoading) {
+      setSparklinePhase("skeleton");
+      return;
+    }
+
+    setSparklinePhase((prev) => {
+      if (prev === "skeleton") {
+        fadeTimerRef.current = setTimeout(() => {
+          setSparklinePhase("sparkline");
+          fadeTimerRef.current = null;
+        }, TOTAL_STAGGERED_TRANSITION_MS);
+        return "transition";
+      }
+      return "sparkline";
+    });
+
+    return () => {
+      if (fadeTimerRef.current) {
+        clearTimeout(fadeTimerRef.current);
+        fadeTimerRef.current = null;
+      }
+    };
+  }, [seriesLoading, showTrends, TOTAL_STAGGERED_TRANSITION_MS]);
+
+  if (showTrends && sparklinePhase === "skeleton") {
+    return (
+      <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
+        <SparklineSkeleton minimal={minimal} barCount={loadedBarsCount} />
+        <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
+      </div>
+    );
+  }
+
   const rowKey = getRowKey(row);
   const dates = original.series?.axis || (endDate ? byKey.get(rowKey)?.axis : null);
 
@@ -256,30 +314,78 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       }
     }
 
+    if (sparklinePhase === "transition") {
+      return (
+        <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
+          <div className={`relative ${minimal ? "w-12 h-4" : "w-16 h-6"}`}>
+            <div className="absolute inset-0">
+              <SparklineSkeleton
+                minimal={minimal}
+                barCount={loadedBarsCount}
+                staggeredFadeOut
+                fadeOutDurationMs={FADE_DURATION_MS}
+                fadeOutStaggerMs={STAGGER_MS}
+              />
+            </div>
+            <div className="absolute inset-0">
+              <SparklineBars
+                series={normalizedSeries}
+                size="small"
+                className="w-full h-full"
+                lightweight
+                staggeredFadeIn
+                fadeInDurationMs={FADE_DURATION_MS}
+                fadeInStaggerMs={STAGGER_MS}
+                fadeInStartDelayMs={SPARKLINE_START_DELAY_MS}
+                valueFormatter={(n: number) => {
+                  if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
+                    return formatCurrency(n || 0);
+                  }
+                  if (metric === "results" || metric === "mqls") {
+                    return Math.round(n || 0).toString();
+                  }
+                  return `${(n * 100).toFixed(2)}%`;
+                }}
+                inverseColors={isInverseMetric}
+                packAverage={packAverageForMetric}
+                colorMode={useTrendMode ? "series" : undefined}
+                dataAvailability={dataAvailability}
+                zeroValueLabel={zeroValueLabel}
+                dates={dates}
+              />
+            </div>
+          </div>
+          <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
+        </div>
+      );
+    }
+
     return (
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
-        <SparklineBars
-          series={normalizedSeries}
-          size="small"
-          className={minimal ? "w-12 h-4" : undefined}
-          lightweight={lightweight}
-          valueFormatter={(n: number) => {
-            if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
-              return formatCurrency(n || 0);
-            }
-            if (metric === "results" || metric === "mqls") {
-              return Math.round(n || 0).toString();
-            }
-            // percent-based metrics
-            return `${(n * 100).toFixed(2)}%`;
-          }}
-          inverseColors={isInverseMetric}
-          packAverage={packAverageForMetric}
-          colorMode={useTrendMode ? "series" : undefined}
-          dataAvailability={dataAvailability}
-          zeroValueLabel={zeroValueLabel}
-          dates={dates}
-        />
+        <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-[500ms]">
+          <SparklineBars
+            series={normalizedSeries}
+            size="small"
+            className={minimal ? "w-12 h-4" : undefined}
+            lightweight={lightweight}
+            valueFormatter={(n: number) => {
+              if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
+                return formatCurrency(n || 0);
+              }
+              if (metric === "results" || metric === "mqls") {
+                return Math.round(n || 0).toString();
+              }
+              // percent-based metrics
+              return `${(n * 100).toFixed(2)}%`;
+            }}
+            inverseColors={isInverseMetric}
+            packAverage={packAverageForMetric}
+            colorMode={useTrendMode ? "series" : undefined}
+            dataAvailability={dataAvailability}
+            zeroValueLabel={zeroValueLabel}
+            dates={dates}
+          />
+        </div>
         <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
       </div>
     );

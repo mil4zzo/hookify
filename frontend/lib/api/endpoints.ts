@@ -10,6 +10,10 @@ import {
   AuthUrlResponse,
   RankingsRequest,
   RankingsResponse,
+  RankingsSeriesRequest,
+  RankingsSeriesResponse,
+  RankingsRetentionRequest,
+  RankingsRetentionResponse,
   RankingsChildrenItem,
   AdCreativeResponse,
   GlobalSearchResponse,
@@ -125,6 +129,10 @@ export const api = {
     // Alias semântico para evolução futura: mesma payload, rota nova
     getAdPerformance: (params: RankingsRequest): Promise<RankingsResponse> =>
       apiClient.post('/analytics/ad-performance', params),
+    getRankingsSeries: (params: RankingsSeriesRequest): Promise<RankingsSeriesResponse> =>
+      apiClient.post('/analytics/rankings/series', params),
+    getRankingsRetention: (params: RankingsRetentionRequest): Promise<RankingsRetentionResponse> =>
+      apiClient.post('/analytics/rankings/retention', params),
     getRankingsChildren: (
       adName: string,
       params: { date_start: string; date_stop: string; order_by?: string }

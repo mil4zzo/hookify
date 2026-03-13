@@ -63,9 +63,34 @@ LOG_SUPPRESS_HTTPX = os.getenv("LOG_SUPPRESS_HTTPX", "true").lower() in ("true",
 #   Use para observar consumo de quota antes de atingir rate limit.
 LOG_META_USAGE = os.getenv("LOG_META_USAGE", "false").lower() in ("true", "1", "yes")
 
+# Analytics (cutover gradual da RPC agregada do Manager)
+ANALYTICS_MANAGER_RPC_ENABLED = os.getenv("ANALYTICS_MANAGER_RPC_ENABLED", "false").lower() in ("true", "1", "yes")
+ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED = os.getenv("ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED", "false").lower() in ("true", "1", "yes")
+ANALYTICS_MANAGER_RPC_FAIL_OPEN = os.getenv("ANALYTICS_MANAGER_RPC_FAIL_OPEN", "true").lower() in ("true", "1", "yes")
+try:
+    ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE = float(os.getenv("ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE", "0.1"))
+except ValueError:
+    ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE = 0.1
+ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE = max(0.0, min(1.0, ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE))
+try:
+    ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = float(
+        os.getenv("ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS", "35")
+    )
+except ValueError:
+    ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = 35.0
+ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = max(1.0, ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS)
+
 # Supabase Auth (Frontend JWT validation and RLS usage)
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # NUNCA expor no frontend
+
+# Thumbnail cache (best-effort, não bloqueia refresh principal)
+THUMB_CACHE_ENABLED = os.getenv("THUMB_CACHE_ENABLED", "true").lower() in ("true", "1", "yes")
+try:
+    THUMB_CACHE_MIN_TTL_SECONDS = int(os.getenv("THUMB_CACHE_MIN_TTL_SECONDS", "900"))
+except ValueError:
+    THUMB_CACHE_MIN_TTL_SECONDS = 900
+THUMB_CACHE_MIN_TTL_SECONDS = max(0, THUMB_CACHE_MIN_TTL_SECONDS)
 
 # JWKS URL para validar JWT emitidos pelo Supabase
 # Conforme documentação: https://supabase.com/docs/guides/auth/jwts

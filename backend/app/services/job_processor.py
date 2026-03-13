@@ -32,6 +32,7 @@ from app.core.supabase_client import get_supabase_service
 from app.services import supabase_repo
 from app.services.background_tasks import spawn_pack_background_tasks
 from app.services.supabase_repo import PackNameConflictError
+from app.services.thumbnail_cache import normalize_ad_name
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,7 @@ class JobProcessor:
 
         grouped_ad_ids: Dict[str, List[str]] = {}
         ad_name_labels: Dict[str, str] = {}
+        grouped_thumb_candidates: Dict[str, List[str]] = {}
         skipped_missing_name = 0
         skipped_missing_thumb = 0
 
@@ -211,22 +213,30 @@ class JobProcessor:
                 skipped_missing_thumb += 1
                 continue
 
-            ad_name_key = ad_name.casefold()
+            ad_name_key = normalize_ad_name(ad_name)
             grouped_ad_ids.setdefault(ad_name_key, []).append(ad_id)
             ad_name_labels.setdefault(ad_name_key, ad_name)
+            grouped_thumb_candidates.setdefault(ad_name_key, []).append(thumb_url)
 
         groups: Dict[str, Dict[str, Any]] = {}
         for ad_name_key, ad_ids in grouped_ad_ids.items():
             sorted_ad_ids = sorted(ad_ids)
             rep_ad_id = sorted_ad_ids[0]
-            rep_thumb_url = str(canonical_by_ad_id.get(rep_ad_id, {}).get("thumb_url") or "").strip()
-            if not rep_thumb_url:
-                continue
+            thumb_candidates = [
+                str(u).strip()
+                for u in grouped_thumb_candidates.get(ad_name_key, [])
+                if str(u).strip()
+            ]
+            # Remover duplicatas mantendo ordem
+            thumb_candidates = list(dict.fromkeys(thumb_candidates))
+            rep_thumb_url = thumb_candidates[0] if thumb_candidates else ""
             groups[ad_name_key] = {
+                "thumb_key": ad_name_key,
                 "ad_name": ad_name_labels.get(ad_name_key) or ad_name_key,
                 "ad_ids": sorted_ad_ids,
                 "rep_ad_id": rep_ad_id,
-                "thumb_url": rep_thumb_url,
+                "thumb_url": rep_thumb_url or None,
+                "thumb_candidates": thumb_candidates,
             }
 
         logger.info(
@@ -676,6 +686,7 @@ class JobProcessor:
                     user_id=self.user_id,
                     user_jwt=self.user_jwt,
                     ad_name_groups=ad_name_groups,
+                    is_refresh=bool(is_refresh),
                     use_service_role=self.use_service_role,
                 )
 

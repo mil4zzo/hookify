@@ -11,9 +11,18 @@ from app.core.config import (
 _logger = logging.getLogger(__name__)
 _service_client: Optional[Client] = None
 
-# Timeout para operações PostgREST (upsert em lotes, etc.)
-# 15s dá margem para batches de ~200 registros sem mascarar lentidão real
-POSTGREST_TIMEOUT_SECONDS = 15
+# Timeout padrao para operacoes PostgREST (upsert em lotes, etc.)
+POSTGREST_TIMEOUT_SECONDS = 15.0
+
+
+def _coerce_postgrest_timeout(timeout_seconds: Optional[float]) -> float:
+    """Normaliza timeout PostgREST garantindo valor minimo de 1s."""
+    if timeout_seconds is None:
+        return POSTGREST_TIMEOUT_SECONDS
+    try:
+        return max(1.0, float(timeout_seconds))
+    except (TypeError, ValueError):
+        return POSTGREST_TIMEOUT_SECONDS
 
 
 def get_supabase() -> Client:
@@ -39,38 +48,34 @@ def get_supabase_service() -> Client:
     return _service_client
 
 
-def get_supabase_for_user(jwt_token: str) -> Client:
+def get_supabase_for_user(
+    jwt_token: str,
+    *,
+    postgrest_timeout_seconds: Optional[float] = None,
+) -> Client:
     """Creates a per-request client authenticated as the user to enforce RLS.
-    
+
     The client will use the JWT token in requests to enable Row Level Security.
     """
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         raise RuntimeError("Supabase not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY in env.")
-    
+
+    timeout_seconds = _coerce_postgrest_timeout(postgrest_timeout_seconds)
+
     # Create client with anon key (for RLS to work, we need anon key, not service role)
     client = create_client(
         SUPABASE_URL,
         SUPABASE_ANON_KEY,
-        options=ClientOptions(postgrest_client_timeout=POSTGREST_TIMEOUT_SECONDS),
+        options=ClientOptions(postgrest_client_timeout=timeout_seconds),
     )
-    
-    # Set the JWT token for PostgREST to enable RLS
-    # The supabase-py library should respect this for subsequent queries
+
+    # Set the JWT token for PostgREST to enable RLS.
     try:
-        # Method 1: Try direct postgrest auth if available
-        if hasattr(client, 'postgrest') and hasattr(client.postgrest, 'auth'):
+        if hasattr(client, "postgrest") and hasattr(client.postgrest, "auth"):
             client.postgrest.auth(jwt_token)
-        # Method 2: Try setting it on the client options
-        elif hasattr(client, 'set_session'):
+        elif hasattr(client, "set_session"):
             client.set_session(jwt_token)
     except AttributeError:
-        # If neither method works, we'll set it manually in options
-        # The library may handle this automatically via the anon key + JWT header
         pass
-    
-    # Store token for manual header injection if needed (fallback)
-    # The supabase-py library should handle this via postgrest.auth() above
+
     return client
-
-
-

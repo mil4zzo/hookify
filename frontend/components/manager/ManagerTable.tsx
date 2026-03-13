@@ -85,6 +85,8 @@ interface ManagerTableProps {
   isLoading?: boolean;
   /** Filtros iniciais a serem aplicados (ex: vindos de query params da URL) */
   initialFilters?: Array<{ id: string; value: any }>;
+  /** Callback para informar chaves de grupo visiveis no viewport da tabela atual. */
+  onVisibleGroupKeysChange?: (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", keys: string[]) => void;
 }
 
 const columnHelper = createColumnHelper<Ad>();
@@ -109,7 +111,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow foi extraído para arquivo próprio em `frontend/components/manager/ExpandedChildrenRow.tsx`
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, initialFilters }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -259,9 +261,41 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // useDeferredValue permite que o React renderize a UI com os dados anteriores enquanto processa
   // os novos 2000+ items em background, evitando que a main thread trave por vários segundos.
   const adsEffective = useDeferredValue(adsEffectiveRaw);
+  const isDeferredAdsPending = adsEffective !== adsEffectiveRaw;
   const isLoadingBase = currentTab === "individual" ? (isLoadingIndividual ?? isLoading) : currentTab === "por-conjunto" ? (isLoadingAdset ?? isLoading) : currentTab === "por-campanha" ? (isLoadingCampaign ?? isLoading) : isLoading;
-  // Considerar loading enquanto dados deferred não estiverem prontos (evita UI vazia sem feedback)
-  const isLoadingEffective = isLoadingBase || adsEffective !== adsEffectiveRaw;
+  // Evita empty-state transitório: quando o fetch terminou e o dado bruto já chegou,
+  // mas o valor deferido ainda não materializou as linhas na tabela.
+  const shouldHoldLoadingForDeferred = !isLoadingBase && isDeferredAdsPending && adsEffective.length === 0 && adsEffectiveRaw.length > 0;
+  // Mantém o comportamento anterior (loading guiado pelo fetch base), com exceção
+  // do gap curto de defer acima para não piscar "Nenhum resultado".
+  const isLoadingEffective = isLoadingBase || shouldHoldLoadingForDeferred;
+  const [showSlowLoadingHint, setShowSlowLoadingHint] = useState(false);
+  const slowLoadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (slowLoadingTimerRef.current) {
+      clearTimeout(slowLoadingTimerRef.current);
+      slowLoadingTimerRef.current = null;
+    }
+
+    if (!isLoadingEffective) {
+      setShowSlowLoadingHint(false);
+      return;
+    }
+
+    // Avoid noisy UI flashes; only show hint on sustained loading.
+    slowLoadingTimerRef.current = setTimeout(() => {
+      setShowSlowLoadingHint(true);
+      slowLoadingTimerRef.current = null;
+    }, 12000);
+
+    return () => {
+      if (slowLoadingTimerRef.current) {
+        clearTimeout(slowLoadingTimerRef.current);
+        slowLoadingTimerRef.current = null;
+      }
+    };
+  }, [isLoadingEffective, currentTab]);
 
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
@@ -938,12 +972,19 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       mqlLeadscoreMin,
       sorting,
       dataLength: data.length,
+      dataRef: data,
       showTrends,
       expandedTableColumnFilters: expandedTableFilters[currentTab] ?? [],
       setExpandedTableColumnFilters,
+      onVisibleRowKeysChange: (keys: string[]) => onVisibleGroupKeysChange?.(currentTab, keys),
     }),
-    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data.length, showTrends, expandedTableFilters, setExpandedTableColumnFilters],
+    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, onVisibleGroupKeysChange],
   );
+  const slowLoadingHint = showSlowLoadingHint ? (
+    <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      Carregamento demorando mais que o esperado nesta aba. Os dados continuam sendo processados.
+    </div>
+  ) : null;
 
   return (
     <div className="w-full h-full flex-1 flex flex-col min-h-0">
@@ -956,6 +997,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
+            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>
@@ -968,6 +1010,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
+            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>
@@ -980,6 +1023,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
+            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>
@@ -992,6 +1036,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
+            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>

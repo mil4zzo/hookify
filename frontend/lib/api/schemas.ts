@@ -352,6 +352,8 @@ export const RankingsRequestSchema = z.object({
   include_series: z.boolean().optional(),
   include_leadscore: z.boolean().optional(),
   series_window: z.number().optional(),
+  offset: z.number().int().nonnegative().optional(),
+  include_available_conversion_types: z.boolean().optional(),
 })
 
 // Schema centralizado para séries de métricas diárias (sparklines)
@@ -374,6 +376,7 @@ const RankingsSeriesSchema = z.object({
 }).passthrough();
 
 export const RankingsItemSchema = z.object({
+  group_key: z.string().nullable().optional(),
   unique_id: z.string().nullable().optional(),
   account_id: z.string().nullable().optional(),
   campaign_id: z.string().nullable().optional(),
@@ -433,6 +436,66 @@ export const RankingsResponseSchema = z.object({
       ),
     })
     .optional(),
+  header_aggregates: z
+    .object({
+      sums: z
+        .object({
+          spend: z.number().optional(),
+          results: z.number().optional(),
+          mqls: z.number().nullable().optional(),
+        })
+        .optional(),
+      weighted_averages: z
+        .object({
+          hook: z.number().optional(),
+          scroll_stop: z.number().optional(),
+          ctr: z.number().optional(),
+          website_ctr: z.number().optional(),
+          connect_rate: z.number().optional(),
+          cpm: z.number().optional(),
+          page_conv: z.number().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  pagination: z
+    .object({
+      limit: z.number().int().nonnegative(),
+      offset: z.number().int().nonnegative(),
+      total: z.number().int().nonnegative(),
+      has_more: z.boolean(),
+    })
+    .optional(),
+})
+
+export const RankingsSeriesRequestSchema = z.object({
+  date_start: z.string(),
+  date_stop: z.string(),
+  group_by: z.enum(['ad_id', 'ad_name', 'adset_id', 'campaign_id']).default('ad_id'),
+  action_type: z.string().optional(),
+  pack_ids: z.array(z.string()).optional(),
+  filters: RankingsFiltersSchema.optional(),
+  group_keys: z.array(z.string()),
+  window: z.number().int().min(1).max(30).optional(),
+})
+
+export const RankingsSeriesResponseSchema = z.object({
+  series_by_group: z.record(z.string(), RankingsSeriesSchema),
+  window: z.number().optional(),
+})
+
+export const RankingsRetentionRequestSchema = z.object({
+  date_start: z.string(),
+  date_stop: z.string(),
+  group_by: z.enum(['ad_id', 'ad_name', 'adset_id', 'campaign_id']).default('ad_id'),
+  pack_ids: z.array(z.string()).optional(),
+  filters: RankingsFiltersSchema.optional(),
+  group_key: z.string(),
+})
+
+export const RankingsRetentionResponseSchema = z.object({
+  group_key: z.string(),
+  video_play_curve_actions: z.array(z.number()),
 })
 
 // ===== Global Search (Sidebar) =====
@@ -506,6 +569,10 @@ export type AdCreativeResponse = z.infer<typeof AdCreativeResponseSchema>
 export type RankingsFilters = z.infer<typeof RankingsFiltersSchema>
 export type RankingsRequest = z.infer<typeof RankingsRequestSchema>
 export type RankingsResponse = z.infer<typeof RankingsResponseSchema>
+export type RankingsSeriesRequest = z.infer<typeof RankingsSeriesRequestSchema>
+export type RankingsSeriesResponse = z.infer<typeof RankingsSeriesResponseSchema>
+export type RankingsRetentionRequest = z.infer<typeof RankingsRetentionRequestSchema>
+export type RankingsRetentionResponse = z.infer<typeof RankingsRetentionResponseSchema>
 export type GlobalSearchResultType = z.infer<typeof GlobalSearchResultTypeSchema>
 export type GlobalSearchResult = z.infer<typeof GlobalSearchResultSchema>
 export type GlobalSearchResponse = z.infer<typeof GlobalSearchResponseSchema>

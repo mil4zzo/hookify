@@ -2,11 +2,22 @@ from __future__ import annotations
 
 import logging
 import time
+import random
 from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta, date, timezone
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
-from app.services.thumbnail_cache import CachedThumb
+from app.services.thumbnail_cache import CachedThumb, normalize_ad_name
+
+try:
+    import httpx
+except Exception:  # pragma: no cover - dependência opcional em runtime
+    httpx = None  # type: ignore
+
+try:
+    import httpcore
+except Exception:  # pragma: no cover - dependência opcional em runtime
+    httpcore = None  # type: ignore
 
 if TYPE_CHECKING:
     from supabase import Client
@@ -523,14 +534,153 @@ def upsert_ads(
         logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
 
 
+def get_cached_thumbs_by_ad_names(
+    user_id: str,
+    ad_names: List[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> Dict[str, CachedThumb]:
+    """Resolve thumbs já cacheadas para ad_names informados (por chave normalizada)."""
+    if not user_id or not ad_names:
+        return {}
+
+    sb = sb_client or get_supabase_service()
+    unique_names = sorted({str(n or "").strip() for n in ad_names if str(n or "").strip()})
+    target_keys = {normalize_ad_name(n) for n in unique_names if normalize_ad_name(n)}
+    if not unique_names or not target_keys:
+        return {}
+
+    cached_by_key: Dict[str, CachedThumb] = {}
+
+    def _register_row(row: Dict[str, Any]) -> None:
+        ad_name = str(row.get("ad_name") or "").strip()
+        thumb_storage_path = str(row.get("thumb_storage_path") or "").strip()
+        if not ad_name or not thumb_storage_path:
+            return
+        thumb_key = normalize_ad_name(ad_name)
+        if not thumb_key or thumb_key not in target_keys or thumb_key in cached_by_key:
+            return
+
+        thumb_cached_at = str(row.get("thumb_cached_at") or "").strip() or _now_iso()
+        thumb_source_url = str(row.get("thumb_source_url") or "").strip()
+        cached_by_key[thumb_key] = CachedThumb(
+            storage_path=thumb_storage_path,
+            public_url="",
+            cached_at=thumb_cached_at,
+            source_url=thumb_source_url,
+        )
+
+    # Passo 1 (rápido): busca direta por nomes exatos.
+    batch_size = 200
+    for i in range(0, len(unique_names), batch_size):
+        batch_names = unique_names[i : i + batch_size]
+        try:
+            response = (
+                sb.table("ads")
+                .select("ad_name,thumb_storage_path,thumb_cached_at,thumb_source_url")
+                .eq("user_id", user_id)
+                .in_("ad_name", batch_names)
+                .execute()
+            )
+        except Exception as e:
+            logger.warning(f"[GET_CACHED_THUMBS_BY_AD_NAMES] Erro ao buscar lote de nomes: {e}")
+            continue
+
+        for row in response.data or []:
+            _register_row(row)
+
+    missing_keys = target_keys - set(cached_by_key.keys())
+    if missing_keys:
+        # Passo 2 (fallback): varrer ads do usuário para cobrir diferenças de caixa/whitespace.
+        page_size = 1000
+        offset = 0
+        scanned = 0
+        max_scan_rows = 20000
+
+        while missing_keys and scanned < max_scan_rows:
+            try:
+                response = (
+                    sb.table("ads")
+                    .select("ad_name,thumb_storage_path,thumb_cached_at,thumb_source_url")
+                    .eq("user_id", user_id)
+                    .range(offset, offset + page_size - 1)
+                    .execute()
+                )
+            except Exception as e:
+                logger.warning(f"[GET_CACHED_THUMBS_BY_AD_NAMES] Erro no fallback paginado: {e}")
+                break
+
+            rows = response.data or []
+            if not rows:
+                break
+
+            for row in rows:
+                _register_row(row)
+            missing_keys = target_keys - set(cached_by_key.keys())
+
+            scanned += len(rows)
+            offset += page_size
+            if len(rows) < page_size:
+                break
+
+    return cached_by_key
+
+
+def _is_transient_supabase_error(error: Exception) -> bool:
+    text = str(error or "")
+    transient_markers = (
+        "WinError 10035",
+        "temporarily unavailable",
+        "ReadError",
+        "ConnectError",
+        "Timeout",
+        "connection reset",
+    )
+    if any(m in text for m in transient_markers):
+        return True
+
+    transient_types = []
+    if httpx is not None:
+        transient_types.extend(
+            [
+                getattr(httpx, "ReadError", tuple()),
+                getattr(httpx, "ConnectError", tuple()),
+                getattr(httpx, "TimeoutException", tuple()),
+                getattr(httpx, "NetworkError", tuple()),
+                getattr(httpx, "RemoteProtocolError", tuple()),
+            ]
+        )
+    if httpcore is not None:
+        transient_types.extend(
+            [
+                getattr(httpcore, "ReadError", tuple()),
+                getattr(httpcore, "ConnectError", tuple()),
+                getattr(httpcore, "TimeoutException", tuple()),
+                getattr(httpcore, "NetworkError", tuple()),
+                getattr(httpcore, "ProtocolError", tuple()),
+            ]
+        )
+    transient_types = [t for t in transient_types if isinstance(t, type)]
+    return bool(transient_types and isinstance(error, tuple(transient_types)))
+
+
 def update_ads_thumbnail_cache(
     user_id: str,
     ad_id_to_cached: Dict[str, "CachedThumb"],
-) -> None:
-    """Atualiza ads com thumb_storage_path, thumb_cached_at, thumb_source_url após cache em background.
-    Usa service role para evitar expiração de JWT em tasks longas."""
+) -> Dict[str, int]:
+    """Atualiza ads.thumb_* após cache em background (best-effort + retry transitório).
+
+    Returns:
+        Dict com métricas de execução:
+        {
+            "updated": int,         # total de linhas alvo
+            "retries": int,         # tentativas extras executadas
+            "failed_batches": int,  # batches que falharam definitivamente
+        }
+    """
     if not ad_id_to_cached:
-        return
+        return {"updated": 0, "retries": 0, "failed_batches": 0}
+
     sb = get_supabase_service()
     rows = [
         {
@@ -542,14 +692,44 @@ def update_ads_thumbnail_cache(
         }
         for ad_id, c in ad_id_to_cached.items()
     ]
-    batch_size = 200
+
+    batch_size = 100
+    max_attempts = 4
+    retries = 0
+    failed_batches = 0
+    updated_rows = 0
+
     for i in range(0, len(rows), batch_size):
         batch = rows[i : i + batch_size]
-        try:
-            sb.table("ads").upsert(batch, on_conflict="ad_id,user_id").execute()
-        except Exception as e:
-            logger.warning(f"[UPDATE_ADS_THUMB_CACHE] Erro no lote: {e}")
-            raise
+        success = False
+        for attempt in range(1, max_attempts + 1):
+            try:
+                sb.table("ads").upsert(batch, on_conflict="ad_id,user_id").execute()
+                success = True
+                updated_rows += len(batch)
+                break
+            except Exception as e:
+                is_transient = _is_transient_supabase_error(e)
+                if is_transient and attempt < max_attempts:
+                    retries += 1
+                    delay = min(2.0, 0.25 * (2 ** (attempt - 1))) + random.uniform(0, 0.2)
+                    logger.warning(
+                        f"[UPDATE_ADS_THUMB_CACHE] Erro transitório no lote (tentativa {attempt}/{max_attempts}): {e}. "
+                        f"Retry em {delay:.2f}s"
+                    )
+                    time.sleep(delay)
+                    continue
+                logger.warning(f"[UPDATE_ADS_THUMB_CACHE] Erro no lote: {e}")
+                break
+
+        if not success:
+            failed_batches += 1
+
+    return {
+        "updated": updated_rows,
+        "retries": retries,
+        "failed_batches": failed_batches,
+    }
 
 
 def update_ad_video_owner(
@@ -638,6 +818,14 @@ def upsert_ad_metrics(
         # - hook vem da curva que pode estar em 0-100, então normalizamos para 0-1
         # Usar video_total_thruplays que já existe no banco (não criar coluna duplicada)
         hook = _hook_at_3_from_curve(curve)  # already normalized to decimal 0-1
+        try:
+            if isinstance(curve, list) and len(curve) > 0:
+                scroll_raw = float(curve[min(1, len(curve) - 1)] or 0)
+                scroll_stop_rate = (scroll_raw / 100.0) if scroll_raw > 1 else scroll_raw
+            else:
+                scroll_stop_rate = 0.0
+        except Exception:
+            scroll_stop_rate = 0.0
         thruplay_rate = _safe_div(float(thruplays), float(plays)) if plays > 0 else 0.0
         # Ambos estão em decimal (0-1), então a divisão está correta
         # IMPORTANTE: Limitar hold_rate a no máximo 1.0 (100%) devido a arredondamentos da curva de retenção
@@ -672,6 +860,8 @@ def upsert_ad_metrics(
             "conversions": conversions,
             "cost_per_conversion": cost_per_conversion,
             "video_play_curve_actions": curve,
+            "hook_rate": hook,
+            "scroll_stop_rate": scroll_stop_rate,
             "hold_rate": hold_rate,
             "connect_rate": connect_rate,
             # Denominador explícito para métricas de funil (ex: page_conv = results / lpv)
@@ -717,18 +907,27 @@ def upsert_ad_metrics(
             logger.error(f"[UPSERT_AD_METRICS] Erro ao processar lote {batch_num}/{total_batches}: {e}")
             msg = str(e or "")
             # Compatibilidade: se o DB ainda não tem a coluna `lpv`, reprocessar removendo o campo
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            missing_optional_cols = []
+            for col in ("lpv", "hook_rate", "scroll_stop_rate"):
+                if col in msg and ("column" in msg or "does not exist" in msg):
+                    missing_optional_cols.append(col)
+
+            if missing_optional_cols:
                 logger.warning(
-                    f"[UPSERT_AD_METRICS] Coluna `lpv` parece ausente no DB; "
-                    f"reprocessando lote {batch_num}/{total_batches} sem lpv"
+                    f"[UPSERT_AD_METRICS] Colunas {missing_optional_cols} parecem ausentes no DB; "
+                    f"reprocessando lote {batch_num}/{total_batches} sem essas colunas"
                 )
                 cleaned = []
                 for r in batch:
                     rr = dict(r)
-                    rr.pop("lpv", None)
+                    for col in missing_optional_cols:
+                        rr.pop(col, None)
                     cleaned.append(rr)
                 sb.table("ad_metrics").upsert(cleaned, on_conflict="id,user_id").execute()
-                logger.info(f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} reprocessado sem lpv ({len(cleaned)} registros)")
+                logger.info(
+                    f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} reprocessado "
+                    f"sem {missing_optional_cols} ({len(cleaned)} registros)"
+                )
                 if on_batch_progress:
                     try:
                         on_batch_progress(batch_num, total_batches)
@@ -737,6 +936,41 @@ def upsert_ad_metrics(
             else:
                 # Re-lançar para que caller possa tratar o erro
                 raise
+
+    if pack_id and rows:
+        map_rows = [
+            {
+                "user_id": user_id,
+                "pack_id": pack_id,
+                "ad_id": str(r.get("ad_id") or ""),
+                "metric_date": r.get("date"),
+            }
+            for r in rows
+            if str(r.get("ad_id") or "").strip() and r.get("date")
+        ]
+
+        if map_rows:
+            map_batch_size = 500
+            total_map_batches = (len(map_rows) + map_batch_size - 1) // map_batch_size
+            for map_idx in range(0, len(map_rows), map_batch_size):
+                map_batch = map_rows[map_idx:map_idx + map_batch_size]
+                map_batch_num = (map_idx // map_batch_size) + 1
+                try:
+                    sb.table("ad_metric_pack_map").upsert(
+                        map_batch,
+                        on_conflict="user_id,pack_id,ad_id,metric_date",
+                    ).execute()
+                    logger.debug(
+                        f"[UPSERT_AD_METRICS] ad_metric_pack_map lote {map_batch_num}/{total_map_batches} "
+                        f"({len(map_batch)} vínculos)"
+                    )
+                except Exception as e:
+                    # Durante rollout, ambientes sem a tabela nova devem continuar funcionando.
+                    logger.warning(
+                        f"[UPSERT_AD_METRICS] Falha ao upsert em ad_metric_pack_map "
+                        f"(fallback legado pack_ids[] mantido): {e}"
+                    )
+                    break
 
     if pack_id and rows:
         metric_ids = [r["id"] for r in rows]
@@ -1478,7 +1712,14 @@ def delete_pack(
                 logger.info(f"Pack deletado do Supabase: {pack_id}")
         except Exception as e:
             logger.debug(f"Pack {pack_id} não encontrado no Supabase ou não é UUID: {e}")
-        
+
+        # 1.1 Remover vínculos relacionais do pack nas métricas (dual-write v2).
+        #      Em ambientes sem a tabela nova, seguimos normalmente com o fluxo legado.
+        try:
+            sb.table("ad_metric_pack_map").delete().eq("user_id", user_id).eq("pack_id", pack_id).execute()
+        except Exception as e:
+            logger.warning(f"Erro ao remover vínculos de ad_metric_pack_map para pack {pack_id}: {e}")
+
         # 2. Ajustar/deletar ad_metrics do período do pack
         # Processar sempre, mesmo se ad_ids estiver vazio - usar pack_id no array pack_ids como filtro principal
         # Preserva dados que são usados por outros packs (remove apenas o pack_id do array se houver múltiplos)

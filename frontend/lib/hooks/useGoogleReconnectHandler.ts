@@ -29,7 +29,10 @@ export function useGoogleReconnectHandler() {
   const { getAllPausedJobs, clearJob, pauseJob } = usePausedSheetJobsStore();
   const { connect: connectGoogle } = useGoogleOAuthConnect();
   const mountedRef = useRef(true);
-  useEffect(() => () => { mountedRef.current = false; }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const handleGoogleConnected = useCallback(async () => {
     const pausedJobs = getAllPausedJobs();

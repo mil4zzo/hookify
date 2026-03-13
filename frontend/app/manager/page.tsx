@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, Suspense } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { LoadingState, EmptyState } from "@/components/common/States";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
@@ -8,9 +8,9 @@ import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
 import { Card, CardContent } from "@/components/ui/card";
 import { api } from "@/lib/api/endpoints";
-import { RankingsRequest, RankingsResponse } from "@/lib/api/schemas";
+import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
-import { useAdPerformance } from "@/lib/api/hooks";
+import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
@@ -31,6 +31,7 @@ const STORAGE_KEY_USE_PACK_DATES = "hookify-use-pack-dates";
 // Tipo para as preferências de packs no localStorage
 // Estrutura: { [packId: string]: boolean } onde true = habilitado, false = desabilitado
 type PackPreferences = Record<string, boolean>;
+type ManagerRow = RankingsItem & { series_loading?: boolean };
 
 // Funções auxiliares para gerenciar preferências de packs
 const savePackPreferences = (prefs: PackPreferences) => {
@@ -291,23 +292,99 @@ function ManagerPageContent() {
   );
 
   // Usar hook semântico para buscar performance agregada de anúncios
-  // Limitar sparklines aos últimos 7 dias para reduzir payload de series (~92% de economia)
-  const SERIES_WINDOW = 7;
+  // Janela fixa de 5 dias para sparkline (carregamento sob demanda)
+  const SERIES_WINDOW = 5;
+  const MAX_SERIES_GROUP_KEYS = 100;
+
+  const [visibleSeriesKeys, setVisibleSeriesKeys] = useState<Record<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha", string[]>>({
+    individual: [],
+    "por-anuncio": [],
+    "por-conjunto": [],
+    "por-campanha": [],
+  });
+  const visibleKeysDebounceRef = useRef<Partial<Record<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha", ReturnType<typeof setTimeout>>>>({});
+  const [seriesCacheByTab, setSeriesCacheByTab] = useState<Record<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha", Record<string, any>>>({
+    individual: {},
+    "por-anuncio": {},
+    "por-conjunto": {},
+    "por-campanha": {},
+  });
+
+  const selectedPackIdsKey = useMemo(() => Array.from(selectedPackIds).sort().join("|"), [selectedPackIds]);
+
+  const mergeSeriesCache = useCallback((tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", incoming: any) => {
+    if (!incoming || typeof incoming !== "object") return;
+    const entries = Object.entries(incoming);
+    if (entries.length === 0) return;
+    setSeriesCacheByTab((prev) => {
+      const current = prev[tab] || {};
+      let changed = false;
+      const nextTabMap: Record<string, any> = { ...current };
+      for (const [k, v] of entries) {
+        if (!k) continue;
+        if (nextTabMap[k] !== v) {
+          nextTabMap[k] = v;
+          changed = true;
+        }
+      }
+      if (!changed) return prev;
+      return { ...prev, [tab]: nextTabMap };
+    });
+  }, []);
+
+  const handleVisibleGroupKeysChange = useCallback(
+    (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", keys: string[]) => {
+      const normalized = Array.from(new Set((keys || []).map(String).filter(Boolean))).slice(0, MAX_SERIES_GROUP_KEYS);
+      const previousTimer = visibleKeysDebounceRef.current[tab];
+      if (previousTimer) clearTimeout(previousTimer);
+      visibleKeysDebounceRef.current[tab] = setTimeout(() => {
+        setVisibleSeriesKeys((prev) => {
+          const current = prev[tab] || [];
+          if (current.length === normalized.length && current.every((k, i) => k === normalized[i])) {
+            return prev;
+          }
+          return { ...prev, [tab]: normalized };
+        });
+      }, 120);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      const timers = visibleKeysDebounceRef.current;
+      (Object.keys(timers) as Array<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha">).forEach((tab) => {
+        const timer = timers[tab];
+        if (timer) clearTimeout(timer);
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    setSeriesCacheByTab({
+      individual: {},
+      "por-anuncio": {},
+      "por-conjunto": {},
+      "por-campanha": {},
+    });
+  }, [dateRange.start, dateRange.end, actionType, selectedPackIdsKey]);
 
   const managerRequest: RankingsRequest = useMemo(
     () => ({
       date_start: dateRange.start || "",
       date_stop: dateRange.end || "",
       group_by: "ad_name",
-      // Não enviar action_type - vamos calcular localmente baseado no selecionado
+      action_type: actionType || undefined,
       limit: 10000,
+      offset: 0,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
-      include_series: showTrends,
+      include_series: false,
       include_leadscore: hasSheetIntegration,
       series_window: SERIES_WINDOW,
+      include_available_conversion_types: true,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
+    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
   const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
@@ -318,14 +395,17 @@ function ManagerPageContent() {
       date_start: dateRange.start || "",
       date_stop: dateRange.end || "",
       group_by: "ad_id",
+      action_type: actionType || undefined,
       limit: 10000,
+      offset: 0,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
-      include_series: showTrends,
+      include_series: false,
       include_leadscore: hasSheetIntegration,
       series_window: SERIES_WINDOW,
+      include_available_conversion_types: false,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
+    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
   const shouldFetchIndividual = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
@@ -337,14 +417,17 @@ function ManagerPageContent() {
       date_start: dateRange.start || "",
       date_stop: dateRange.end || "",
       group_by: "adset_id",
+      action_type: actionType || undefined,
       limit: 10000,
+      offset: 0,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
-      include_series: showTrends,
+      include_series: false,
       include_leadscore: hasSheetIntegration,
       series_window: SERIES_WINDOW,
+      include_available_conversion_types: false,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
+    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
   const shouldFetchAdset = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
@@ -356,14 +439,17 @@ function ManagerPageContent() {
       date_start: dateRange.start || "",
       date_stop: dateRange.end || "",
       group_by: "campaign_id",
+      action_type: actionType || undefined,
       limit: 10000,
+      offset: 0,
       filters: {},
       pack_ids: Array.from(selectedPackIds),
-      include_series: showTrends,
+      include_series: false,
       include_leadscore: hasSheetIntegration,
       series_window: SERIES_WINDOW,
+      include_available_conversion_types: false,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds, showTrends, hasSheetIntegration],
+    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
   const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
@@ -375,6 +461,145 @@ function ManagerPageContent() {
   const serverDataAdset = managerDataAdset?.data || null;
   const serverDataCampaign = managerDataCampaign?.data || null;
   const availableConversionTypes = managerData?.available_conversion_types || [];
+
+  const seriesKeysAdName = useMemo(() => visibleSeriesKeys["por-anuncio"], [visibleSeriesKeys]);
+  const seriesKeysIndividual = useMemo(() => visibleSeriesKeys.individual, [visibleSeriesKeys]);
+  const seriesKeysAdset = useMemo(() => visibleSeriesKeys["por-conjunto"], [visibleSeriesKeys]);
+  const seriesKeysCampaign = useMemo(() => visibleSeriesKeys["por-campanha"], [visibleSeriesKeys]);
+
+  const managerSeriesRequest = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "ad_name" as const,
+      action_type: actionType || undefined,
+      pack_ids: Array.from(selectedPackIds),
+      filters: {},
+      group_keys: seriesKeysAdName,
+      window: SERIES_WINDOW,
+    }),
+    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysAdName],
+  );
+  const managerSeriesRequestIndividual = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "ad_id" as const,
+      action_type: actionType || undefined,
+      pack_ids: Array.from(selectedPackIds),
+      filters: {},
+      group_keys: seriesKeysIndividual,
+      window: SERIES_WINDOW,
+    }),
+    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysIndividual],
+  );
+  const managerSeriesRequestAdset = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "adset_id" as const,
+      action_type: actionType || undefined,
+      pack_ids: Array.from(selectedPackIds),
+      filters: {},
+      group_keys: seriesKeysAdset,
+      window: SERIES_WINDOW,
+    }),
+    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysAdset],
+  );
+  const managerSeriesRequestCampaign = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "campaign_id" as const,
+      action_type: actionType || undefined,
+      pack_ids: Array.from(selectedPackIds),
+      filters: {},
+      group_keys: seriesKeysCampaign,
+      window: SERIES_WINDOW,
+    }),
+    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysCampaign],
+  );
+
+  const shouldFetchSeriesAdName = showTrends && activeManagerTab === "por-anuncio" && seriesKeysAdName.length > 0;
+  const shouldFetchSeriesIndividual = showTrends && activeManagerTab === "individual" && seriesKeysIndividual.length > 0;
+  const shouldFetchSeriesAdset = showTrends && activeManagerTab === "por-conjunto" && seriesKeysAdset.length > 0;
+  const shouldFetchSeriesCampaign = showTrends && activeManagerTab === "por-campanha" && seriesKeysCampaign.length > 0;
+
+  const { data: managerSeriesData, isError: managerSeriesErrorAdName } = useAdPerformanceSeries(managerSeriesRequest, shouldFetchSeriesAdName);
+  const { data: managerSeriesDataIndividual, isError: managerSeriesErrorIndividual } = useAdPerformanceSeries(managerSeriesRequestIndividual, shouldFetchSeriesIndividual);
+  const { data: managerSeriesDataAdset, isError: managerSeriesErrorAdset } = useAdPerformanceSeries(managerSeriesRequestAdset, shouldFetchSeriesAdset);
+  const { data: managerSeriesDataCampaign, isError: managerSeriesErrorCampaign } = useAdPerformanceSeries(managerSeriesRequestCampaign, shouldFetchSeriesCampaign);
+
+  useEffect(() => {
+    mergeSeriesCache("por-anuncio", (managerSeriesData as any)?.series_by_group);
+  }, [managerSeriesData, mergeSeriesCache]);
+
+  useEffect(() => {
+    mergeSeriesCache("individual", (managerSeriesDataIndividual as any)?.series_by_group);
+  }, [managerSeriesDataIndividual, mergeSeriesCache]);
+
+  useEffect(() => {
+    mergeSeriesCache("por-conjunto", (managerSeriesDataAdset as any)?.series_by_group);
+  }, [managerSeriesDataAdset, mergeSeriesCache]);
+
+  useEffect(() => {
+    mergeSeriesCache("por-campanha", (managerSeriesDataCampaign as any)?.series_by_group);
+  }, [managerSeriesDataCampaign, mergeSeriesCache]);
+
+  const seriesByGroupAdName = seriesCacheByTab["por-anuncio"];
+  const seriesByGroupIndividual = seriesCacheByTab.individual;
+  const seriesByGroupAdset = seriesCacheByTab["por-conjunto"];
+  const seriesByGroupCampaign = seriesCacheByTab["por-campanha"];
+  const pendingSeriesKeysByTab = useMemo(() => {
+    const buildPendingSet = (keys: string[], cache: Record<string, any>, shouldLoad: boolean): Set<string> => {
+      if (!shouldLoad) return new Set<string>();
+      return new Set(keys.filter((k) => !!k && !cache[k]));
+    };
+
+    return {
+      "por-anuncio": buildPendingSet(seriesKeysAdName, seriesByGroupAdName, showTrends && activeManagerTab === "por-anuncio" && !managerSeriesErrorAdName),
+      individual: buildPendingSet(seriesKeysIndividual, seriesByGroupIndividual, showTrends && activeManagerTab === "individual" && !managerSeriesErrorIndividual),
+      "por-conjunto": buildPendingSet(seriesKeysAdset, seriesByGroupAdset, showTrends && activeManagerTab === "por-conjunto" && !managerSeriesErrorAdset),
+      "por-campanha": buildPendingSet(seriesKeysCampaign, seriesByGroupCampaign, showTrends && activeManagerTab === "por-campanha" && !managerSeriesErrorCampaign),
+    };
+  }, [
+    seriesKeysAdName,
+    seriesKeysIndividual,
+    seriesKeysAdset,
+    seriesKeysCampaign,
+    seriesByGroupAdName,
+    seriesByGroupIndividual,
+    seriesByGroupAdset,
+    seriesByGroupCampaign,
+    showTrends,
+    activeManagerTab,
+    managerSeriesErrorAdName,
+    managerSeriesErrorIndividual,
+    managerSeriesErrorAdset,
+    managerSeriesErrorCampaign,
+  ]);
+  const seriesPrimingByTab = useMemo(() => {
+    const isPriming = (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", tabKeys: string[], tabError: boolean) =>
+      showTrends && activeManagerTab === tab && !tabError && tabKeys.length === 0;
+
+    return {
+      "por-anuncio": isPriming("por-anuncio", seriesKeysAdName, managerSeriesErrorAdName),
+      individual: isPriming("individual", seriesKeysIndividual, managerSeriesErrorIndividual),
+      "por-conjunto": isPriming("por-conjunto", seriesKeysAdset, managerSeriesErrorAdset),
+      "por-campanha": isPriming("por-campanha", seriesKeysCampaign, managerSeriesErrorCampaign),
+    };
+  }, [
+    showTrends,
+    activeManagerTab,
+    seriesKeysAdName,
+    seriesKeysIndividual,
+    seriesKeysAdset,
+    seriesKeysCampaign,
+    managerSeriesErrorAdName,
+    managerSeriesErrorIndividual,
+    managerSeriesErrorAdset,
+    managerSeriesErrorCampaign,
+  ]);
 
   const uniqueConversionTypes = useMemo(() => {
     return availableConversionTypes;
@@ -643,7 +868,10 @@ function ManagerPageContent() {
     if (activeManagerTab !== "por-anuncio") return [] as any[];
     if (!serverData || serverData.length === 0) return [] as any[];
 
-    let mappedData = serverData.map((row: any) => {
+    let mappedData = serverData.map((row: any): ManagerRow => {
+      const groupKey = String(row?.group_key || row?.ad_name || row?.ad_id || "");
+      const series = showTrends ? (seriesByGroupAdName[groupKey] || null) : null;
+      const seriesLoading = showTrends && !managerSeriesErrorAdName && (!series && (seriesPrimingByTab["por-anuncio"] || pendingSeriesKeysByTab["por-anuncio"].has(groupKey)));
       // Calcular results baseado no action_type selecionado a partir de row.conversions
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
@@ -676,20 +904,25 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
+        series,
+        series_loading: seriesLoading,
         creative: {},
       };
     });
 
     // Retornar todos os anúncios (backend já filtrou por pack_ids)
     return mappedData;
-  }, [serverData, actionType, activeManagerTab]);
+  }, [serverData, actionType, activeManagerTab, showTrends, seriesByGroupAdName, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdName]);
 
   const adsForIndividualTable = useMemo(() => {
     // Processar apenas quando a aba "Individual" estiver ativa
     if (activeManagerTab !== "individual") return [] as any[];
     if (!serverDataIndividual || serverDataIndividual.length === 0) return [] as any[];
 
-    const mappedData = serverDataIndividual.map((row: any) => {
+    const mappedData = serverDataIndividual.map((row: any): ManagerRow => {
+      const groupKey = String(row?.group_key || row?.ad_id || "");
+      const series = showTrends ? (seriesByGroupIndividual[groupKey] || null) : null;
+      const seriesLoading = showTrends && !managerSeriesErrorIndividual && (!series && (seriesPrimingByTab.individual || pendingSeriesKeysByTab.individual.has(groupKey)));
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
       const lpv = Number(row.lpv || 0);
@@ -712,19 +945,24 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
+        series,
+        series_loading: seriesLoading,
         creative: {},
       };
     });
 
     return mappedData;
-  }, [serverDataIndividual, actionType, activeManagerTab]);
+  }, [serverDataIndividual, actionType, activeManagerTab, showTrends, seriesByGroupIndividual, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorIndividual]);
 
   const adsForAdsetTable = useMemo(() => {
     // Processar apenas quando a aba "Por conjunto" estiver ativa
     if (activeManagerTab !== "por-conjunto") return [] as any[];
     if (!serverDataAdset || serverDataAdset.length === 0) return [] as any[];
 
-    const mappedData = serverDataAdset.map((row: any) => {
+    const mappedData = serverDataAdset.map((row: any): ManagerRow => {
+      const groupKey = String(row?.group_key || row?.adset_id || "");
+      const series = showTrends ? (seriesByGroupAdset[groupKey] || null) : null;
+      const seriesLoading = showTrends && !managerSeriesErrorAdset && (!series && (seriesPrimingByTab["por-conjunto"] || pendingSeriesKeysByTab["por-conjunto"].has(groupKey)));
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
       const lpv = Number(row.lpv || 0);
@@ -749,19 +987,24 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
+        series,
+        series_loading: seriesLoading,
         creative: {},
       };
     });
 
     return mappedData;
-  }, [serverDataAdset, actionType, activeManagerTab]);
+  }, [serverDataAdset, actionType, activeManagerTab, showTrends, seriesByGroupAdset, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdset]);
 
   const adsForCampaignTable = useMemo(() => {
     // Processar apenas quando a aba "Por campanha" estiver ativa
     if (activeManagerTab !== "por-campanha") return [] as any[];
     if (!serverDataCampaign || serverDataCampaign.length === 0) return [] as any[];
 
-    const mappedData = serverDataCampaign.map((row: any) => {
+    const mappedData = serverDataCampaign.map((row: any): ManagerRow => {
+      const groupKey = String(row?.group_key || row?.campaign_id || "");
+      const series = showTrends ? (seriesByGroupCampaign[groupKey] || null) : null;
+      const seriesLoading = showTrends && !managerSeriesErrorCampaign && (!series && (seriesPrimingByTab["por-campanha"] || pendingSeriesKeysByTab["por-campanha"].has(groupKey)));
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
       const lpv = Number(row.lpv || 0);
@@ -786,12 +1029,14 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
+        series,
+        series_loading: seriesLoading,
         creative: {},
       };
     });
 
     return mappedData;
-  }, [serverDataCampaign, actionType, activeManagerTab]);
+  }, [serverDataCampaign, actionType, activeManagerTab, showTrends, seriesByGroupCampaign, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorCampaign]);
 
   // Conjunto de anúncios que passam pelos critérios de validação globais
   // Usado apenas para cálculo de médias (baseline de anúncios "maduros")
@@ -897,6 +1142,7 @@ function ManagerPageContent() {
         isLoadingAdset={loadingAdset}
         adsCampaign={adsForCampaignTable}
         isLoadingCampaign={loadingCampaign}
+        onVisibleGroupKeysChange={handleVisibleGroupKeysChange}
         actionType={actionType}
         endDate={endDate}
         dateStart={dateRange.start}

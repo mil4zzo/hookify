@@ -1,20 +1,86 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Dict, List, Optional, Literal, Set
 from datetime import datetime, timedelta
 import logging
+import random
+import time
 
 from fastapi import APIRouter, HTTPException, Body, Depends, Query
 from pydantic import BaseModel, Field
 
 from app.core.supabase_client import get_supabase_for_user
 from app.core.auth import get_current_user
+from app.core.config import (
+    ANALYTICS_MANAGER_RPC_ENABLED,
+    ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED,
+    ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE,
+    ANALYTICS_MANAGER_RPC_FAIL_OPEN,
+    ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS,
+)
 from app.services import supabase_repo
 from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
+
+try:
+    import httpx
+except Exception:  # pragma: no cover - optional at runtime
+    httpx = None  # type: ignore
+
+try:
+    import httpcore
+except Exception:  # pragma: no cover - optional at runtime
+    httpcore = None  # type: ignore
 
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/analytics", tags=["analytics"])
+
+
+def _get_analytics_supabase(jwt_token: str):
+    return get_supabase_for_user(
+        jwt_token,
+        postgrest_timeout_seconds=ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS,
+    )
+
+
+def _is_transient_analytics_rpc_error(error: Exception) -> bool:
+    text = str(error or "")
+    transient_markers = (
+        "ReadTimeout",
+        "ConnectTimeout",
+        "Timeout",
+        "timed out",
+        "connection reset",
+        "temporarily unavailable",
+    )
+    if any(marker in text for marker in transient_markers):
+        return True
+
+    transient_types: List[type] = []
+    if httpx is not None:
+        transient_types.extend(
+            [
+                getattr(httpx, "ReadTimeout", tuple()),
+                getattr(httpx, "ConnectTimeout", tuple()),
+                getattr(httpx, "TimeoutException", tuple()),
+                getattr(httpx, "ReadError", tuple()),
+                getattr(httpx, "ConnectError", tuple()),
+                getattr(httpx, "NetworkError", tuple()),
+            ]
+        )
+    if httpcore is not None:
+        transient_types.extend(
+            [
+                getattr(httpcore, "ReadTimeout", tuple()),
+                getattr(httpcore, "ConnectTimeout", tuple()),
+                getattr(httpcore, "TimeoutException", tuple()),
+                getattr(httpcore, "ReadError", tuple()),
+                getattr(httpcore, "ConnectError", tuple()),
+                getattr(httpcore, "NetworkError", tuple()),
+            ]
+        )
+    transient_types = [t for t in transient_types if isinstance(t, type)]
+    return bool(transient_types and isinstance(error, tuple(transient_types)))
 
 
 def _fetch_ad_metrics_via_rpc(
@@ -122,6 +188,31 @@ class RankingsRequest(BaseModel):
     include_series: bool = Field(default=True, description="Se False, omite series (sparklines) da resposta para economizar memória/payload")
     include_leadscore: bool = Field(default=True, description="Se False, omite leadscore_values da resposta")
     series_window: Optional[int] = Field(default=None, description="Limitar series aos últimos N dias do range. Se None, usa range completo.")
+    offset: int = Field(default=0, ge=0, description="Offset para paginação server-side")
+    include_available_conversion_types: bool = Field(
+        default=True,
+        description="Se False, omite available_conversion_types para reduzir processamento.",
+    )
+
+
+class RankingsSeriesRequest(BaseModel):
+    date_start: str
+    date_stop: str
+    group_by: GroupBy = "ad_id"
+    action_type: Optional[str] = None
+    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas.")
+    filters: Optional[RankingsFilters] = None
+    group_keys: List[str] = Field(default_factory=list, description="Chaves dos grupos para retornar séries.")
+    window: int = Field(default=5, ge=1, le=30, description="Janela da série em dias.")
+
+
+class RankingsRetentionRequest(BaseModel):
+    date_start: str
+    date_stop: str
+    group_by: GroupBy = "ad_id"
+    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas.")
+    filters: Optional[RankingsFilters] = None
+    group_key: str = Field(..., description="Chave do grupo para calcular curva de retenção.")
 
 
 class DashboardRequest(BaseModel):
@@ -290,6 +381,432 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         series["cpmql"] = cpmql_series
         series["mqls"] = mqls_series
     return series
+
+
+def _group_key_from_rankings_item(item: Dict[str, Any], group_by: GroupBy) -> str:
+    if group_by == "ad_id":
+        return str(item.get("ad_id") or "")
+    if group_by == "ad_name":
+        return str(item.get("ad_name") or item.get("ad_id") or "")
+    if group_by == "adset_id":
+        return str(item.get("adset_id") or "")
+    return str(item.get("campaign_id") or "")
+
+
+def _group_key_from_metric_row(row: Dict[str, Any], group_by: GroupBy) -> str:
+    ad_id = str(row.get("ad_id") or "")
+    if group_by == "ad_id":
+        return ad_id
+    if group_by == "ad_name":
+        return str(row.get("ad_name") or ad_id)
+    if group_by == "adset_id":
+        return str(row.get("adset_id") or "")
+    return str(row.get("campaign_id") or "")
+
+
+def _normalize_date_str(date_raw: Any) -> Optional[str]:
+    if date_raw is None:
+        return None
+    if isinstance(date_raw, str):
+        d = date_raw[:10] if len(date_raw) >= 10 else date_raw
+    elif hasattr(date_raw, "strftime"):
+        d = date_raw.strftime("%Y-%m-%d")
+    else:
+        d = str(date_raw)[:10]
+    if len(d) != 10 or d[4] != "-" or d[7] != "-":
+        return None
+    return d
+
+
+def _build_header_aggregates(items: List[Dict[str, Any]], action_type: Optional[str], averages: Dict[str, Any]) -> Dict[str, Any]:
+    selected_key = str(action_type or "").strip()
+    sum_spend = 0.0
+    sum_results = 0.0
+
+    for row in items:
+        spend = float(row.get("spend") or 0)
+        convs = row.get("conversions") or {}
+        results = float(convs.get(selected_key) or 0) if selected_key and isinstance(convs, dict) else 0.0
+        sum_spend += spend
+        sum_results += results
+
+    weighted = {
+        "hook": float((averages or {}).get("hook") or 0),
+        "scroll_stop": float((averages or {}).get("scroll_stop") or 0),
+        "ctr": float((averages or {}).get("ctr") or 0),
+        "website_ctr": float((averages or {}).get("website_ctr") or 0),
+        "connect_rate": float((averages or {}).get("connect_rate") or 0),
+        "cpm": float((averages or {}).get("cpm") or 0),
+        "page_conv": 0.0,
+    }
+
+    per_action = (averages or {}).get("per_action_type") or {}
+    if selected_key and isinstance(per_action, dict):
+        selected_avg = per_action.get(selected_key) or {}
+        if isinstance(selected_avg, dict):
+            weighted["page_conv"] = float(selected_avg.get("page_conv") or 0)
+
+    return {
+        "sums": {
+            "spend": sum_spend,
+            "results": sum_results,
+            "mqls": None,
+        },
+        "weighted_averages": weighted,
+    }
+
+
+def _get_rankings_core_v2(req: RankingsRequest, user: Dict[str, Any], sb, mql_leadscore_min: float) -> Dict[str, Any]:
+    # Reusa agregação validada do legado, mas com shape de resposta "core".
+    req_legacy = req.model_copy(deep=True)
+    req_legacy.include_series = False
+    req_legacy.limit = 100000  # obter universo filtrado para paginação server-side
+
+    legacy = _get_rankings_legacy(req_legacy, user, sb, mql_leadscore_min)
+    all_items = list(legacy.get("data") or [])
+
+    selected_action = str(req.action_type or "").strip()
+    for item in all_items:
+        item.pop("series", None)
+        item.pop("video_play_curve_actions", None)
+
+        convs = item.get("conversions") or {}
+        if not isinstance(convs, dict):
+            convs = {}
+
+        if selected_action:
+            results = float(convs.get(selected_action) or 0)
+            spend = float(item.get("spend") or 0)
+            lpv = float(item.get("lpv") or 0)
+            item["conversions"] = {selected_action: results}
+            item["results"] = results
+            item["cpr"] = (spend / results) if results > 0 else 0
+            item["page_conv"] = (results / lpv) if lpv > 0 else 0
+        else:
+            item["conversions"] = {}
+            item["results"] = 0
+            item["cpr"] = 0
+            item["page_conv"] = 0
+
+    total = len(all_items)
+    limit = max(1, int(req.limit or 500))
+    offset = max(0, int(req.offset or 0))
+    page_items = all_items[offset: offset + limit]
+
+    available = legacy.get("available_conversion_types") or []
+    if not req.include_available_conversion_types:
+        available = []
+
+    averages = legacy.get("averages") if isinstance(legacy.get("averages"), dict) else {}
+    header_aggregates = _build_header_aggregates(all_items, req.action_type, averages)
+
+    return {
+        "data": page_items,
+        "available_conversion_types": available,
+        "averages": averages,
+        "header_aggregates": header_aggregates,
+        "pagination": {
+            "limit": limit,
+            "offset": offset,
+            "total": total,
+            "has_more": (offset + limit) < total,
+        },
+    }
+
+
+def _get_rankings_series_v2(req: RankingsSeriesRequest, user: Dict[str, Any], sb, mql_leadscore_min: float) -> Dict[str, Any]:
+    group_keys_set = {str(k) for k in (req.group_keys or []) if str(k).strip()}
+    if not group_keys_set:
+        return {"series_by_group": {}, "window": req.window}
+
+    legacy_req = RankingsRequest(
+        date_start=req.date_start,
+        date_stop=req.date_stop,
+        group_by=req.group_by,
+        action_type=req.action_type,
+        order_by="spend",
+        limit=100000,
+        filters=req.filters,
+        pack_ids=req.pack_ids,
+        include_series=True,
+        include_leadscore=False,
+        series_window=req.window,
+    )
+    legacy = _get_rankings_legacy(legacy_req, user, sb, mql_leadscore_min)
+    rows = legacy.get("data") or []
+
+    action_key = str(req.action_type or "").strip()
+    out: Dict[str, Any] = {}
+    for row in rows:
+        key = _group_key_from_rankings_item(row, req.group_by)
+        if key not in group_keys_set:
+            continue
+        series = dict(row.get("series") or {})
+        if not series:
+            continue
+
+        if action_key:
+            conv_series = series.get("conversions") or []
+            if isinstance(conv_series, list):
+                reduced = []
+                for c in conv_series:
+                    if isinstance(c, dict):
+                        reduced.append({action_key: float(c.get(action_key) or 0)})
+                    else:
+                        reduced.append({})
+                series["conversions"] = reduced
+        out[key] = series
+
+    return {"series_by_group": out, "window": req.window}
+
+
+def _get_rankings_retention_v2(req: RankingsRetentionRequest, user: Dict[str, Any], sb) -> Dict[str, Any]:
+    f = req.filters or RankingsFilters()
+    data = _fetch_ad_metrics_via_rpc(
+        sb,
+        user["user_id"],
+        req.date_start,
+        req.date_stop,
+        pack_ids=req.pack_ids,
+        account_ids=f.adaccount_ids,
+    )
+
+    target = str(req.group_key or "")
+    weighted: Dict[int, Dict[str, float]] = {}
+
+    for r in data:
+        if f.campaign_name_contains and f.campaign_name_contains.lower() not in str(r.get("campaign_name") or "").lower():
+            continue
+        if f.adset_name_contains and f.adset_name_contains.lower() not in str(r.get("adset_name") or "").lower():
+            continue
+        if f.ad_name_contains and f.ad_name_contains.lower() not in str(r.get("ad_name") or "").lower():
+            continue
+
+        key = _group_key_from_metric_row(r, req.group_by)
+        if key != target:
+            continue
+
+        plays = int(r.get("video_total_plays") or 0)
+        curve = r.get("video_play_curve_actions") or []
+        if plays <= 0 or not isinstance(curve, list):
+            continue
+
+        for idx, val in enumerate(curve):
+            try:
+                numeric = float(val or 0)
+            except Exception:
+                numeric = 0.0
+            slot = weighted.setdefault(idx, {"weighted_sum": 0.0, "plays_sum": 0.0})
+            slot["weighted_sum"] += numeric * plays
+            slot["plays_sum"] += plays
+
+    if not weighted:
+        return {"group_key": target, "video_play_curve_actions": []}
+
+    max_idx = max(weighted.keys())
+    curve_out: List[int] = []
+    for i in range(max_idx + 1):
+        slot = weighted.get(i)
+        if not slot or slot["plays_sum"] <= 0:
+            curve_out.append(0)
+            continue
+        curve_out.append(int(round(slot["weighted_sum"] / slot["plays_sum"])))
+
+    return {"group_key": target, "video_play_curve_actions": curve_out}
+
+
+def _extract_rpc_object_payload(raw_payload: Any, rpc_name: str) -> Dict[str, Any]:
+    payload: Any = raw_payload
+    if isinstance(payload, list):
+        if len(payload) == 1 and isinstance(payload[0], dict):
+            payload = payload[0]
+        else:
+            return {}
+    if isinstance(payload, dict) and rpc_name in payload:
+        payload = payload.get(rpc_name)
+    return payload if isinstance(payload, dict) else {}
+
+
+def _series_axis_for_request(date_start: str, date_stop: str, window: int) -> List[str]:
+    full_axis = _axis_date_range(date_start, date_stop)
+    w = max(1, int(window or 5))
+    return full_axis[-w:] if len(full_axis) > w else full_axis
+
+
+def _empty_series_for_axis(axis: List[str]) -> Dict[str, Any]:
+    n = len(axis)
+    return {
+        "axis": axis,
+        "hook": [None] * n,
+        "spend": [None] * n,
+        "ctr": [None] * n,
+        "connect_rate": [None] * n,
+        "lpv": [0] * n,
+        "impressions": [None] * n,
+        "cpm": [None] * n,
+        "website_ctr": [None] * n,
+        "conversions": [{} for _ in axis],
+        "cpmql": [None] * n,
+        "mqls": [None] * n,
+    }
+
+
+def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) -> Dict[str, Any]:
+    f = req.filters or RankingsFilters()
+    params: Dict[str, Any] = {
+        "p_user_id": user["user_id"],
+        "p_date_start": req.date_start,
+        "p_date_stop": req.date_stop,
+        "p_group_by": req.group_by,
+        "p_pack_ids": req.pack_ids,
+        "p_account_ids": f.adaccount_ids,
+        "p_campaign_name_contains": f.campaign_name_contains,
+        "p_adset_name_contains": f.adset_name_contains,
+        "p_ad_name_contains": f.ad_name_contains,
+        "p_action_type": req.action_type,
+        "p_include_leadscore": bool(req.include_leadscore),
+        "p_include_available_conversion_types": bool(req.include_available_conversion_types),
+        "p_limit": max(1, int(req.limit or 500)),
+        "p_offset": max(0, int(req.offset or 0)),
+        "p_order_by": (req.order_by or "spend"),
+    }
+    rpc_result = sb.rpc("fetch_manager_rankings_core_v2", params).execute()
+    return _normalize_rankings_rpc_response(rpc_result.data)
+
+
+def _get_rankings_core_v2_rpc_with_retry(
+    req: RankingsRequest,
+    user: Dict[str, Any],
+    sb,
+    *,
+    max_attempts: int,
+) -> Dict[str, Any]:
+    """Executa RPC agregada com retry curto apenas para falhas transitórias."""
+    attempts = max(1, int(max_attempts or 1))
+    for attempt in range(1, attempts + 1):
+        try:
+            return _get_rankings_core_v2_rpc(req, user, sb)
+        except Exception as e:
+            is_transient = _is_transient_analytics_rpc_error(e)
+            is_last = attempt >= attempts
+            if is_last or not is_transient:
+                raise
+
+            delay_s = min(1.0, 0.25 * attempt)
+            logger.warning(
+                "[rankings_cutover] aggregated_rpc_retry attempt=%s/%s delay_s=%.2f group_by=%s range=%s..%s packs=%s error=%s",
+                attempt + 1,
+                attempts,
+                delay_s,
+                req.group_by,
+                req.date_start,
+                req.date_stop,
+                len(req.pack_ids or []),
+                e,
+            )
+            time.sleep(delay_s)
+
+
+def _get_rankings_series_v2_rpc(req: RankingsSeriesRequest, user: Dict[str, Any], sb) -> Dict[str, Any]:
+    keys = [str(k) for k in (req.group_keys or []) if str(k).strip()]
+    if not keys:
+        return {"series_by_group": {}, "window": req.window}
+
+    f = req.filters or RankingsFilters()
+    params: Dict[str, Any] = {
+        "p_user_id": user["user_id"],
+        "p_date_start": req.date_start,
+        "p_date_stop": req.date_stop,
+        "p_group_by": req.group_by,
+        "p_pack_ids": req.pack_ids,
+        "p_account_ids": f.adaccount_ids,
+        "p_campaign_name_contains": f.campaign_name_contains,
+        "p_adset_name_contains": f.adset_name_contains,
+        "p_ad_name_contains": f.ad_name_contains,
+        "p_action_type": req.action_type,
+        "p_group_keys": keys,
+        "p_window": req.window,
+    }
+
+    rpc_result = sb.rpc("fetch_manager_rankings_series_v2", params).execute()
+    payload = _extract_rpc_object_payload(rpc_result.data, "fetch_manager_rankings_series_v2")
+    raw_map = payload.get("series_by_group") if isinstance(payload.get("series_by_group"), dict) else {}
+
+    axis = _series_axis_for_request(req.date_start, req.date_stop, req.window)
+    series_by_group: Dict[str, Any] = {}
+    for k in keys:
+        entry = raw_map.get(k)
+        if isinstance(entry, dict):
+            series_by_group[k] = entry
+        else:
+            series_by_group[k] = _empty_series_for_axis(axis)
+
+    return {
+        "series_by_group": series_by_group,
+        "window": int(payload.get("window") or req.window),
+    }
+
+
+def _get_rankings_series_v2_rpc_with_retry(
+    req: RankingsSeriesRequest,
+    user: Dict[str, Any],
+    sb,
+    *,
+    max_attempts: int,
+) -> Dict[str, Any]:
+    """Executes series RPC with short retry only for transient failures."""
+    attempts = max(1, int(max_attempts or 1))
+    for attempt in range(1, attempts + 1):
+        try:
+            return _get_rankings_series_v2_rpc(req, user, sb)
+        except Exception as e:
+            is_transient = _is_transient_analytics_rpc_error(e)
+            is_last = attempt >= attempts
+            if is_last or not is_transient:
+                raise
+
+            delay_s = min(1.0, 0.25 * attempt)
+            logger.warning(
+                "[rankings_series] rpc_retry attempt=%s/%s delay_s=%.2f group_by=%s range=%s..%s packs=%s group_keys=%s error=%s",
+                attempt + 1,
+                attempts,
+                delay_s,
+                req.group_by,
+                req.date_start,
+                req.date_stop,
+                len(req.pack_ids or []),
+                len(req.group_keys or []),
+                e,
+            )
+            time.sleep(delay_s)
+
+
+def _get_rankings_retention_v2_rpc(req: RankingsRetentionRequest, user: Dict[str, Any], sb) -> Dict[str, Any]:
+    f = req.filters or RankingsFilters()
+    params: Dict[str, Any] = {
+        "p_user_id": user["user_id"],
+        "p_date_start": req.date_start,
+        "p_date_stop": req.date_stop,
+        "p_group_by": req.group_by,
+        "p_pack_ids": req.pack_ids,
+        "p_account_ids": f.adaccount_ids,
+        "p_campaign_name_contains": f.campaign_name_contains,
+        "p_adset_name_contains": f.adset_name_contains,
+        "p_ad_name_contains": f.ad_name_contains,
+        "p_group_key": req.group_key,
+    }
+    rpc_result = sb.rpc("fetch_manager_rankings_retention_v2", params).execute()
+    payload = _extract_rpc_object_payload(rpc_result.data, "fetch_manager_rankings_retention_v2")
+
+    group_key = str(payload.get("group_key") or req.group_key or "")
+    curve = payload.get("video_play_curve_actions")
+    if not isinstance(curve, list):
+        curve = []
+
+    return {
+        "group_key": group_key,
+        "video_play_curve_actions": curve,
+    }
 
 def _merge_row_conversions_actions(r: Dict[str, Any], target: Dict[str, Any]) -> None:
     """Agrega conversions e actions de uma linha de ad_metrics em `target` usando chaves prefixadas.
@@ -540,12 +1057,153 @@ def search_global(
     return {"results": results}
 
 
-@router.post("/rankings")
-@router.post("/ad-performance")
-def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+_AB_COMPARE_EPSILON = 1e-6
+_AB_AVERAGE_KEYS = ("hook", "hold_rate", "scroll_stop", "ctr", "website_ctr", "connect_rate", "cpm")
+_AB_PER_ACTION_KEYS = ("results", "cpr", "page_conv")
 
+
+def _normalize_rankings_rpc_response(raw_payload: Any) -> Dict[str, Any]:
+    """Normaliza payload da RPC para o contrato esperado do endpoint de rankings."""
+    payload: Any = raw_payload
+
+    if isinstance(payload, dict) and "fetch_manager_analytics_aggregated" in payload:
+        payload = payload.get("fetch_manager_analytics_aggregated")
+    elif isinstance(payload, dict) and "fetch_manager_rankings_core_v2" in payload:
+        payload = payload.get("fetch_manager_rankings_core_v2")
+    elif isinstance(payload, list):
+        if len(payload) == 1 and isinstance(payload[0], dict):
+            first = payload[0]
+            if "fetch_manager_analytics_aggregated" in first:
+                payload = first.get("fetch_manager_analytics_aggregated")
+            else:
+                payload = first
+        else:
+            payload = {"data": payload}
+
+    if not isinstance(payload, dict):
+        payload = {}
+
+    data = payload.get("data")
+    if not isinstance(data, list):
+        data = []
+
+    raw_conv = payload.get("available_conversion_types")
+    available_conversion_types: List[str] = []
+    if isinstance(raw_conv, list):
+        available_conversion_types = [str(v) for v in raw_conv if v is not None]
+
+    out: Dict[str, Any] = {
+        "data": data,
+        "available_conversion_types": available_conversion_types,
+    }
+
+    averages = payload.get("averages")
+    if isinstance(averages, dict):
+        out["averages"] = averages
+
+    header_aggregates = payload.get("header_aggregates")
+    if isinstance(header_aggregates, dict):
+        out["header_aggregates"] = header_aggregates
+
+    pagination = payload.get("pagination")
+    if isinstance(pagination, dict):
+        out["pagination"] = pagination
+
+    return out
+
+
+def _to_float_or_none(value: Any) -> Optional[float]:
+    try:
+        if value is None:
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _floats_close(a: Any, b: Any, eps: float = _AB_COMPARE_EPSILON) -> bool:
+    fa = _to_float_or_none(a)
+    fb = _to_float_or_none(b)
+    if fa is None and fb is None:
+        return True
+    if fa is None or fb is None:
+        return False
+    return abs(fa - fb) <= eps
+
+
+def _compare_rankings_payloads(primary: Dict[str, Any], shadow: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """Compara payload principal vs sombra e loga divergências."""
+    mismatches: List[str] = []
+
+    primary_data = primary.get("data") or []
+    shadow_data = shadow.get("data") or []
+    if len(primary_data) != len(shadow_data):
+        mismatches.append(f"data_len:{len(primary_data)}!={len(shadow_data)}")
+
+    primary_conv: Set[str] = set(str(v) for v in (primary.get("available_conversion_types") or []))
+    shadow_conv: Set[str] = set(str(v) for v in (shadow.get("available_conversion_types") or []))
+    if primary_conv != shadow_conv:
+        mismatches.append("available_conversion_types")
+
+    primary_avg = primary.get("averages") or {}
+    shadow_avg = shadow.get("averages") or {}
+    if isinstance(primary_avg, dict) and isinstance(shadow_avg, dict):
+        for key in _AB_AVERAGE_KEYS:
+            if not _floats_close(primary_avg.get(key), shadow_avg.get(key)):
+                mismatches.append(f"averages.{key}:{primary_avg.get(key)}!={shadow_avg.get(key)}")
+
+        primary_per = primary_avg.get("per_action_type") or {}
+        shadow_per = shadow_avg.get("per_action_type") or {}
+        if isinstance(primary_per, dict) and isinstance(shadow_per, dict):
+            action_keys: Set[str] = set(str(k) for k in primary_per.keys()) | set(str(k) for k in shadow_per.keys())
+            for action_key in sorted(action_keys):
+                p_entry = primary_per.get(action_key) if isinstance(primary_per.get(action_key), dict) else {}
+                s_entry = shadow_per.get(action_key) if isinstance(shadow_per.get(action_key), dict) else {}
+                for metric_key in _AB_PER_ACTION_KEYS:
+                    if not _floats_close(p_entry.get(metric_key), s_entry.get(metric_key)):
+                        mismatches.append(
+                            f"averages.per_action_type[{action_key}].{metric_key}:{p_entry.get(metric_key)}!={s_entry.get(metric_key)}"
+                        )
+
+    if mismatches:
+        logger.warning(
+            "[rankings_ab] divergence_detected count=%s context=%s mismatches=%s",
+            len(mismatches),
+            context,
+            mismatches[:40],
+        )
+
+
+def _should_sample_ab_compare() -> bool:
+    if not ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED:
+        return False
+    return random.random() < ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE
+
+
+def _get_rankings_via_aggregated_rpc(sb, req: RankingsRequest, user_id: str) -> Dict[str, Any]:
+    """Executa RPC agregada do Manager e retorna payload no contrato de rankings."""
+    f = req.filters or RankingsFilters()
+    params: Dict[str, Any] = {
+        "p_user_id": user_id,
+        "p_date_start": req.date_start,
+        "p_date_stop": req.date_stop,
+        "p_group_by": req.group_by,
+        "p_pack_ids": req.pack_ids,
+        "p_account_ids": f.adaccount_ids,
+        "p_campaign_name_contains": f.campaign_name_contains,
+        "p_adset_name_contains": f.adset_name_contains,
+        "p_ad_name_contains": f.ad_name_contains,
+        "p_include_series": bool(req.include_series),
+        "p_include_leadscore": bool(req.include_leadscore),
+        "p_series_window": req.series_window if (req.series_window and req.series_window > 0) else 5,
+        "p_limit": max(1, int(req.limit or 500)),
+        "p_order_by": (req.order_by or "spend"),
+    }
+    rpc_result = sb.rpc("fetch_manager_analytics_aggregated", params).execute()
+    return _normalize_rankings_rpc_response(rpc_result.data)
+
+
+def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_leadscore_min: float):
     # NOVO: Se pack_ids estiver vazio ou None, retornar resposta vazia
     if not req.pack_ids or len(req.pack_ids) == 0:
         return {
@@ -586,21 +1244,6 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         pack_ids=req.pack_ids,
         account_ids=f.adaccount_ids,
     )
-    
-    # LOG TEMPORÁRIO PARA DEBUG
-    logger.info(f"[INSIGHTS DEBUG] Dados brutos do Supabase: data_count={len(data)}, date_start={full_start}, date_stop={full_stop}, series_window={req.series_window}, axis_len={len(axis)}")
-    if len(data) > 0:
-        logger.info(f"[INSIGHTS DEBUG] Primeiro registro: ad_name={data[0].get('ad_name')}, date={data[0].get('date')}, impressions={data[0].get('impressions')}")
-        # Contar registros por data para diagnosticar problema de sparklines
-        from collections import Counter
-        date_counts = Counter()
-        for row in data:
-            d = row.get("date")
-            d_str = str(d)[:10] if d else "None"
-            date_counts[d_str] += 1
-        logger.info(f"[INSIGHTS DEBUG] Registros por data: {dict(sorted(date_counts.items()))}")
-        logger.info(f"[INSIGHTS DEBUG] Axis: {axis}")
-    
     # Filtros por contains serão aplicados em memória (pode-se otimizar com ilike + expressões geradas futuramente)
 
     # Extrair tipos únicos de conversão e actions de todos os dados
@@ -635,9 +1278,6 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         return needle.lower() in v
 
     rows: List[Dict[str, Any]] = [r for r in data if name_ok(r.get("campaign_name"), f.campaign_name_contains) and name_ok(r.get("adset_name"), f.adset_name_contains) and name_ok(r.get("ad_name"), f.ad_name_contains)]
-
-    # LOG TEMPORÁRIO PARA DEBUG
-    logger.info(f"[INSIGHTS DEBUG] Após filtros: rows_count={len(rows)}, data_count={len(data)}")
 
     # Agregar por chave (req.group_by)
     from collections import defaultdict
@@ -886,9 +1526,6 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
                         S["conversions"][date][action_key] += value
             except Exception:
                 pass
-
-    # LOG TEMPORÁRIO PARA DEBUG - após processar todos os rows
-    logger.info(f"[INSIGHTS DEBUG] Após processar rows: agg_keys_count={len(agg.keys())}, agg_keys_sample={list(agg.keys())[:5]}")
 
     # Buscar thumbnails da tabela ads (usar ad_id representativo por ad_name)
     # Também buscar todos os ad_ids do grupo para verificar se há pelo menos um ACTIVE
@@ -1159,16 +1796,253 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         reverse = order not in {"cpr"}  # cpr menor é melhor; os demais maior é melhor
         items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
 
-    # LOG TEMPORÁRIO PARA DEBUG
-    logger.info(f"[INSIGHTS DEBUG] Retornando resposta: items_count={len(items)}, available_conversion_types_count={len(available_conversion_types)}, has_averages={bool(averages_payload)}")
-    if len(items) == 0:
-        logger.warning(f"[INSIGHTS DEBUG] Nenhum item retornado! data_count={len(data)}, rows_count={len(rows)}, agg_keys_count={len(agg.keys())}, agg_keys={list(agg.keys())[:5]}")
-    
     return {
         "data": items[: max(1, req.limit)],
         "available_conversion_types": available_conversion_types,
         "averages": averages_payload,
     }
+
+
+@router.post("/rankings")
+@router.post("/ad-performance")
+def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
+    sb = _get_analytics_supabase(user["token"])
+    user_id = str(user["user_id"])
+
+    # Se pack_ids estiver vazio ou None, manter contrato legado (sem averages).
+    if not req.pack_ids or len(req.pack_ids) == 0:
+        return {
+            "data": [],
+            "available_conversion_types": [],
+        }
+
+    if not ANALYTICS_MANAGER_RPC_ENABLED:
+        mql_leadscore_min = _get_user_mql_leadscore_min(sb, user_id)
+        return _get_rankings_core_v2(req, user, sb, mql_leadscore_min)
+
+    started_at = time.perf_counter()
+    logger.info(
+        "[rankings_cutover] request_start group_by=%s range=%s..%s packs=%s include_series=%s include_leadscore=%s limit=%s offset=%s",
+        req.group_by,
+        req.date_start,
+        req.date_stop,
+        len(req.pack_ids or []),
+        bool(req.include_series),
+        bool(req.include_leadscore),
+        int(req.limit or 0),
+        int(req.offset or 0),
+    )
+    try:
+        max_rpc_attempts = 2 if req.group_by == "ad_id" else 1
+        primary = _get_rankings_core_v2_rpc_with_retry(
+            req,
+            user,
+            sb,
+            max_attempts=max_rpc_attempts,
+        )
+    except Exception as e:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        if ANALYTICS_MANAGER_RPC_FAIL_OPEN:
+            logger.exception(
+                "[rankings_cutover] aggregated_rpc_failed fallback_legacy=true elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s error=%s",
+                elapsed_ms,
+                req.group_by,
+                req.date_start,
+                req.date_stop,
+                len(req.pack_ids or []),
+                e,
+            )
+            mql_leadscore_min = _get_user_mql_leadscore_min(sb, user_id)
+            return _get_rankings_core_v2(req, user, sb, mql_leadscore_min)
+        logger.exception(
+            "[rankings_cutover] aggregated_rpc_failed fallback_legacy=false elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s error=%s",
+            elapsed_ms,
+            req.group_by,
+            req.date_start,
+            req.date_stop,
+            len(req.pack_ids or []),
+            e,
+        )
+        raise HTTPException(status_code=500, detail="Erro ao consultar analytics agregados.")
+
+    elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+    logger.info(
+        "[rankings_cutover] aggregated_rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s",
+        elapsed_ms,
+        req.group_by,
+        req.date_start,
+        req.date_stop,
+        len(req.pack_ids or []),
+        len(primary.get("data") or []),
+    )
+
+    # Compare apenas quando pedimos conversion types completos para reduzir ruído
+    # (nas abas secundárias usamos payload reduzido focado no action_type selecionado).
+    if _should_sample_ab_compare() and bool(req.include_available_conversion_types):
+        context = {
+            "group_by": req.group_by,
+            "date_start": req.date_start,
+            "date_stop": req.date_stop,
+            "pack_count": len(req.pack_ids or []),
+            "include_series": bool(req.include_series),
+            "series_window": req.series_window if req.series_window else 5,
+            "limit": req.limit,
+        }
+        try:
+            shadow_started = time.perf_counter()
+            mql_leadscore_min = _get_user_mql_leadscore_min(sb, user_id)
+            shadow = _get_rankings_legacy(req, user, sb, mql_leadscore_min)
+            shadow_elapsed_ms = (time.perf_counter() - shadow_started) * 1000.0
+            _compare_rankings_payloads(primary, shadow, context)
+            logger.info(
+                "[rankings_ab] compare_done shadow_elapsed_ms=%.2f context=%s",
+                shadow_elapsed_ms,
+                context,
+            )
+        except Exception as e:
+            logger.exception("[rankings_ab] compare_failed context=%s error=%s", context, e)
+
+    return primary
+
+
+@router.post("/rankings/series")
+@router.post("/ad-performance/series")
+def get_rankings_series(req: RankingsSeriesRequest, user=Depends(get_current_user)):
+    started_at = time.perf_counter()
+    context = {
+        "group_by": req.group_by,
+        "date_start": req.date_start,
+        "date_stop": req.date_stop,
+        "pack_count": len(req.pack_ids or []),
+        "group_keys_count": len(req.group_keys or []),
+        "window": req.window,
+    }
+    sb = _get_analytics_supabase(user["token"])
+    logger.info("[rankings_series] request_start context=%s", context)
+    if not req.pack_ids or len(req.pack_ids) == 0:
+        logger.info(
+            "[rankings_series] skip_empty_packs elapsed_ms=%.2f context=%s",
+            (time.perf_counter() - started_at) * 1000.0,
+            context,
+        )
+        return {"series_by_group": {}, "window": req.window}
+
+    try:
+        if ANALYTICS_MANAGER_RPC_ENABLED:
+            max_rpc_attempts = 2 if req.group_by == "ad_id" else 1
+            payload = _get_rankings_series_v2_rpc_with_retry(
+                req,
+                user,
+                sb,
+                max_attempts=max_rpc_attempts,
+            )
+        else:
+            mql_leadscore_min = _get_user_mql_leadscore_min(sb, str(user["user_id"]))
+            payload = _get_rankings_series_v2(req, user, sb, mql_leadscore_min)
+        series_by_group = payload.get("series_by_group") if isinstance(payload, dict) else {}
+
+        def _series_has_signal(series: Any) -> bool:
+            if not isinstance(series, dict):
+                return False
+
+            for metric in ("spend", "hook", "ctr", "connect_rate", "lpv", "impressions", "cpm", "website_ctr", "cpmql", "mqls"):
+                values = series.get(metric)
+                if isinstance(values, list) and any(isinstance(v, (int, float)) and float(v) != 0.0 for v in values):
+                    return True
+
+            conv_values = series.get("conversions")
+            if isinstance(conv_values, list):
+                for item in conv_values:
+                    if isinstance(item, dict) and any(float(v or 0) != 0.0 for v in item.values()):
+                        return True
+
+            return False
+
+        non_empty_groups = sum(1 for s in (series_by_group or {}).values() if _series_has_signal(s))
+        logger.info(
+            "[rankings_series] success elapsed_ms=%.2f context=%s returned_groups=%s non_empty_groups=%s",
+            (time.perf_counter() - started_at) * 1000.0,
+            context,
+            len(series_by_group or {}),
+            non_empty_groups,
+        )
+        return payload
+    except Exception as e:
+        if ANALYTICS_MANAGER_RPC_ENABLED and ANALYTICS_MANAGER_RPC_FAIL_OPEN:
+            try:
+                mql_leadscore_min = _get_user_mql_leadscore_min(sb, str(user["user_id"]))
+                payload = _get_rankings_series_v2(req, user, sb, mql_leadscore_min)
+                logger.warning(
+                    "[rankings_series] rpc_failed_fallback_legacy elapsed_ms=%.2f context=%s error=%s",
+                    (time.perf_counter() - started_at) * 1000.0,
+                    context,
+                    e,
+                )
+                return payload
+            except Exception:
+                pass
+        logger.exception(
+            "[rankings_series] failed elapsed_ms=%.2f context=%s error=%s",
+            (time.perf_counter() - started_at) * 1000.0,
+            context,
+            e,
+        )
+        raise HTTPException(status_code=500, detail="Erro ao consultar séries do Manager.")
+
+
+@router.post("/rankings/retention")
+@router.post("/ad-performance/retention")
+def get_rankings_retention(req: RankingsRetentionRequest, user=Depends(get_current_user)):
+    started_at = time.perf_counter()
+    context = {
+        "group_by": req.group_by,
+        "group_key": req.group_key,
+        "date_start": req.date_start,
+        "date_stop": req.date_stop,
+        "pack_count": len(req.pack_ids or []),
+    }
+    sb = _get_analytics_supabase(user["token"])
+    if not req.pack_ids or len(req.pack_ids) == 0:
+        logger.info(
+            "[rankings_retention] skip_empty_packs elapsed_ms=%.2f context=%s",
+            (time.perf_counter() - started_at) * 1000.0,
+            context,
+        )
+        return {"group_key": req.group_key, "video_play_curve_actions": []}
+
+    try:
+        if ANALYTICS_MANAGER_RPC_ENABLED:
+            payload = _get_rankings_retention_v2_rpc(req, user, sb)
+        else:
+            payload = _get_rankings_retention_v2(req, user, sb)
+        curve = payload.get("video_play_curve_actions") if isinstance(payload, dict) else []
+        logger.info(
+            "[rankings_retention] success elapsed_ms=%.2f context=%s curve_points=%s",
+            (time.perf_counter() - started_at) * 1000.0,
+            context,
+            len(curve or []),
+        )
+        return payload
+    except Exception as e:
+        if ANALYTICS_MANAGER_RPC_ENABLED and ANALYTICS_MANAGER_RPC_FAIL_OPEN:
+            try:
+                payload = _get_rankings_retention_v2(req, user, sb)
+                logger.warning(
+                    "[rankings_retention] rpc_failed_fallback_legacy elapsed_ms=%.2f context=%s error=%s",
+                    (time.perf_counter() - started_at) * 1000.0,
+                    context,
+                    e,
+                )
+                return payload
+            except Exception:
+                pass
+        logger.exception(
+            "[rankings_retention] failed elapsed_ms=%.2f context=%s error=%s",
+            (time.perf_counter() - started_at) * 1000.0,
+            context,
+            e,
+        )
+        raise HTTPException(status_code=500, detail="Erro ao consultar curva de retenção do Manager.")
 
 
 @router.get("/rankings/ad-name/{ad_name}/children")

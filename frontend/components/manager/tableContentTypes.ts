@@ -33,10 +33,14 @@ export interface SharedTableContentProps {
   sorting: { id: string; desc: boolean }[];
   // Adicionado para detectar quando dados chegam do servidor (evita cache incorreto)
   dataLength: number;
+  /** Referência direta ao array de dados para detectar mudanças de conteúdo (ex: series data) no React.memo */
+  dataRef: readonly any[] | any[];
   /** Toggle Médias vs Tendências: quando muda, a tabela deve re-renderizar para mostrar sparklines ou médias */
   showTrends?: boolean;
   /** Filtros das tabelas expandidas (compartilhados por aba) */
   expandedTableColumnFilters?: ColumnFiltersState;
   setExpandedTableColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
+  /** Chaves de grupo visiveis no viewport virtualizado (ordem atual da tabela). */
+  onVisibleRowKeysChange?: (keys: string[]) => void;
 }
 

@@ -21,7 +21,7 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
   }
 
   // 2. Comparação de funções (devem ser estáveis via useCallback)
-  if (prev.getRowKey !== next.getRowKey || prev.setExpanded !== next.setExpanded || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setColumnFilters !== next.setColumnFilters) {
+  if (prev.getRowKey !== next.getRowKey || prev.setExpanded !== next.setExpanded || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setColumnFilters !== next.setColumnFilters || prev.onVisibleRowKeysChange !== next.onVisibleRowKeysChange) {
     return false;
   }
 
@@ -32,14 +32,12 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
     return false;
   }
 
-  // 3. Comparação de table (TanStack Table - verifica se dados/filtros mudaram)
-  // OTIMIZAÇÃO: Comparar dados originais diretamente em vez de processar todas as rows
-  // Isso evita processar 873 linhas durante resize (columnSizing não afeta os dados)
-  const prevData = prev.table.options.data;
-  const nextData = next.table.options.data;
-
-  // Se os dados originais mudaram, as rows mudaram
-  if (prevData !== nextData) {
+  // 3. Comparação de dados via referência direta ao array
+  // NOTA: table.options.data não funciona para detectar mudanças porque table é uma
+  // instância mutável estável do TanStack — prev.table === next.table sempre, então
+  // prev.table.options.data === next.table.options.data é sempre true.
+  // Usamos dataRef (referência direta ao array de dados) para detectar mudanças reais.
+  if (prev.dataRef !== next.dataRef) {
     return false;
   }
 
@@ -110,7 +108,7 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
   return true;
 }
 
-export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters }: MinimalTableContentProps) {
+export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters, onVisibleRowKeysChange }: MinimalTableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -196,6 +194,33 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
 
   const virtualRows = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+
+  const getSeriesGroupKey = useCallback(
+    (row: any): string => {
+      const original = row?.original as RankingsItem | undefined;
+      if (!original) return "";
+      if ((original as any).group_key) return String((original as any).group_key);
+      if (currentTab === "individual") return String(original.ad_id || "");
+      if (currentTab === "por-conjunto") return String((original as any).adset_id || "");
+      if (currentTab === "por-campanha") return String((original as any).campaign_id || "");
+      return String(original.ad_name || original.ad_id || "");
+    },
+    [currentTab],
+  );
+
+  useEffect(() => {
+    if (!onVisibleRowKeysChange) return;
+    if (isLoadingEffective) {
+      return;
+    }
+    const keys = virtualRows
+      .map((virtualRow) => rows[virtualRow.index])
+      .filter(Boolean)
+      .map((row) => getSeriesGroupKey(row))
+      .filter(Boolean);
+    if (keys.length === 0) return;
+    onVisibleRowKeysChange(Array.from(new Set(keys)));
+  }, [virtualRows, rows, getSeriesGroupKey, onVisibleRowKeysChange, isLoadingEffective]);
 
   // Calculate padding for virtualization
   const paddingTop = virtualRows.length > 0 ? virtualRows[0]?.start || 0 : 0;

@@ -4,9 +4,9 @@ import hashlib
 import io
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Iterable, List, Optional, Tuple
-from urllib.parse import urlparse, quote
+from urllib.parse import urlparse, quote, parse_qs
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -27,6 +27,7 @@ DEFAULT_MAX_WORKERS = 8
 DEFAULT_WEBP_QUALITY = 82  # Qualidade WebP (0-100): 82 é bom balanço qualidade/tamanho
 DEFAULT_MAX_WIDTH = 640  # Largura máxima em pixels (mantém aspect ratio)
 PROFILE_PIC_MAX_WIDTH = 256  # Largura máxima para avatar de perfil (Facebook)
+DEFAULT_META_URL_MIN_TTL_SECONDS = 900  # 15 min
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,11 @@ def _is_http_url(u: str) -> bool:
         return False
 
 
+def normalize_ad_name(ad_name: str) -> str:
+    """Normaliza ad_name para chave canônica de cache."""
+    return str(ad_name or "").strip().casefold()
+
+
 def _sha256_hex(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
@@ -56,6 +62,57 @@ def _sha256_hex(s: str) -> str:
 def _quote_path(path: str) -> str:
     # Preserva separadores "/" e escapa cada segmento individualmente
     return "/".join(quote(seg, safe="") for seg in (path or "").split("/"))
+
+
+def _parse_meta_thumb_oe_expiry(url: str) -> Optional[datetime]:
+    """Extrai expiração do parâmetro `oe` (hex epoch) quando presente em URLs da Meta."""
+    try:
+        parsed = urlparse(url)
+        qs = parse_qs(parsed.query or "")
+        oe_values = qs.get("oe") or []
+        if not oe_values:
+            return None
+        oe_hex = str(oe_values[0]).strip()
+        if not oe_hex:
+            return None
+        expiry_ts = int(oe_hex, 16)
+        return datetime.fromtimestamp(expiry_ts, tz=timezone.utc)
+    except Exception:
+        return None
+
+
+def is_thumb_url_cacheable(
+    url: str,
+    *,
+    min_ttl_seconds: int = DEFAULT_META_URL_MIN_TTL_SECONDS,
+) -> bool:
+    """
+    Valida se URL de thumb parece cacheável.
+    - Se não houver `oe`, considera cacheável (não dá para inferir expiração).
+    - Se houver `oe`, exige validade além do TTL mínimo.
+    """
+    if not _is_http_url(url):
+        return False
+    expiry = _parse_meta_thumb_oe_expiry(url)
+    if not expiry:
+        return True
+    now = datetime.now(timezone.utc)
+    return expiry > (now + timedelta(seconds=max(0, int(min_ttl_seconds))))
+
+
+def select_representative_thumb_url(
+    thumb_candidates: Iterable[str],
+    *,
+    min_ttl_seconds: int = DEFAULT_META_URL_MIN_TTL_SECONDS,
+) -> Optional[str]:
+    """Escolhe a primeira URL candidata que passe na validação de cache."""
+    for u in thumb_candidates or []:
+        url = str(u or "").strip()
+        if not url:
+            continue
+        if is_thumb_url_cacheable(url, min_ttl_seconds=min_ttl_seconds):
+            return url
+    return None
 
 
 def build_public_storage_url(bucket: str, storage_path: str) -> Optional[str]:
@@ -221,10 +278,10 @@ def _upload_to_supabase_storage(bucket: str, storage_path: str, content: bytes, 
         raise
 
 
-def cache_first_thumb_for_ad(
+def cache_first_thumb_for_ad_name(
     *,
     user_id: str,
-    ad_id: str,
+    ad_name: str,
     thumb_url: str,
     bucket: str = DEFAULT_BUCKET,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
@@ -235,10 +292,11 @@ def cache_first_thumb_for_ad(
     Retorna metadados para persistir no DB (ads.thumb_storage_path/cached_at/source_url).
     """
     user_id = str(user_id or "").strip()
-    ad_id = str(ad_id or "").strip()
+    ad_name = str(ad_name or "").strip()
     thumb_url = str(thumb_url or "").strip()
+    thumb_key = normalize_ad_name(ad_name)
 
-    if not user_id or not ad_id or not thumb_url:
+    if not user_id or not thumb_key or not thumb_url:
         return None
     if not _is_http_url(thumb_url):
         return None
@@ -251,8 +309,8 @@ def cache_first_thumb_for_ad(
         webp_content = _convert_to_webp(content, max_width=DEFAULT_MAX_WIDTH, quality=DEFAULT_WEBP_QUALITY)
         
         # Sempre usar extensão .webp e content-type image/webp
-        digest16 = _sha256_hex(thumb_url)[:16]
-        storage_path = f"thumbs/{user_id}/{ad_id}/{digest16}.webp"
+        digest16 = _sha256_hex(thumb_key)[:16]
+        storage_path = f"thumbs/{user_id}/by-adname/{digest16}.webp"
         webp_content_type = "image/webp"
 
         _upload_to_supabase_storage(bucket, storage_path, webp_content, webp_content_type, timeout_seconds=timeout_seconds)
@@ -261,25 +319,25 @@ def cache_first_thumb_for_ad(
         cached_at = _now_iso()
         return CachedThumb(storage_path=storage_path, public_url=public_url, cached_at=cached_at, source_url=thumb_url)
     except Exception as e:
-        logger.info(f"[THUMB_CACHE] Falha ao cachear thumb ad_id={ad_id}: {e}")
+        logger.info(f"[THUMB_CACHE] Falha ao cachear thumb ad_name={ad_name!r}: {e}")
         return None
 
 
-def cache_first_thumbs_for_ads(
+def cache_first_thumbs_for_ad_names(
     *,
     user_id: str,
-    ad_id_to_thumb_url: Dict[str, str],
+    ad_name_to_thumb_url: Dict[str, str],
     bucket: str = DEFAULT_BUCKET,
     max_workers: int = DEFAULT_MAX_WORKERS,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     max_bytes: int = DEFAULT_MAX_BYTES,
 ) -> Dict[str, CachedThumb]:
     """Cacheia thumbnails em paralelo (best-effort). Retorna apenas os sucessos."""
-    if not ad_id_to_thumb_url:
+    if not ad_name_to_thumb_url:
         return {}
 
     results: Dict[str, CachedThumb] = {}
-    items = [(str(ad_id), str(u)) for ad_id, u in ad_id_to_thumb_url.items() if ad_id and u]
+    items = [(str(ad_name), str(u)) for ad_name, u in ad_name_to_thumb_url.items() if ad_name and u]
     if not items:
         return {}
 
@@ -287,24 +345,24 @@ def cache_first_thumbs_for_ads(
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = {
             ex.submit(
-                cache_first_thumb_for_ad,
+                cache_first_thumb_for_ad_name,
                 user_id=user_id,
-                ad_id=ad_id,
+                ad_name=ad_name,
                 thumb_url=thumb_url,
                 bucket=bucket,
                 timeout_seconds=timeout_seconds,
                 max_bytes=max_bytes,
-            ): ad_id
-            for ad_id, thumb_url in items
+            ): normalize_ad_name(ad_name)
+            for ad_name, thumb_url in items
         }
         for fut in as_completed(futs):
-            ad_id = futs.get(fut) or ""
+            thumb_key = futs.get(fut) or ""
             try:
                 r = fut.result()
                 if r and r.storage_path:
-                    results[ad_id] = r
+                    results[thumb_key] = r
             except Exception:
-                # cache_first_thumb_for_ad já faz best-effort, mas manter robustez
+                # cache_first_thumb_for_ad_name ja faz best-effort, manter robustez.
                 continue
 
     return results
@@ -361,5 +419,3 @@ def cache_profile_picture(
             f"[THUMB_CACHE] Falha ao cachear profile picture user_id={user_id[:8]}... fb={facebook_user_id[:8]}...: {e}"
         )
         return None
-
-

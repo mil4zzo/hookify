@@ -14,6 +14,10 @@ import {
   RankingsItem,
   RankingsRequest,
   RankingsResponse,
+  RankingsSeriesRequest,
+  RankingsSeriesResponse,
+  RankingsRetentionRequest,
+  RankingsRetentionResponse,
 } from './schemas'
 import { useSessionStore } from '@/lib/store/session'
 import { useSupabaseAuth } from '@/lib/hooks/useSupabaseAuth'
@@ -34,9 +38,55 @@ export const queryKeys = {
   campaignChildren: (campaignId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop] as const,
   adsetChildren: (adsetId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
-  rankings: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters, params.pack_ids, params.include_series, params.include_leadscore, params.series_window] as const,
+  rankings: (params: RankingsRequest) => [
+    'analytics',
+    'rankings',
+    params.date_start,
+    params.date_stop,
+    params.group_by,
+    params.action_type,
+    params.filters,
+    params.pack_ids,
+    params.include_series,
+    params.include_leadscore,
+    params.series_window,
+    params.offset,
+    params.limit,
+    params.include_available_conversion_types,
+  ] as const,
   // Alias semântico para consultas de performance agregada de anúncios
-  adPerformance: (params: RankingsRequest) => ['analytics', 'rankings', params.date_start, params.date_stop, params.group_by, params.filters, params.pack_ids, params.include_series, params.include_leadscore, params.series_window] as const,
+  adPerformance: (params: RankingsRequest) => [
+    'analytics',
+    'rankings',
+    params.date_start,
+    params.date_stop,
+    params.group_by,
+    params.action_type,
+    params.filters,
+    params.pack_ids,
+    params.include_series,
+    params.include_leadscore,
+    params.series_window,
+    params.offset,
+    params.limit,
+    params.include_available_conversion_types,
+  ] as const,
+  adPerformanceSeries: (params: RankingsSeriesRequest, groupKeysHash: string) =>
+    ['analytics', 'rankings-series', params.date_start, params.date_stop, params.group_by, params.action_type, params.pack_ids, params.window, groupKeysHash] as const,
+  adPerformanceRetention: (params: RankingsRetentionRequest) =>
+    ['analytics', 'rankings-retention', params.date_start, params.date_stop, params.group_by, params.group_key, params.pack_ids] as const,
+}
+
+const hashStringArray = (values: string[]): string => {
+  let hash = 2166136261
+  for (const value of values) {
+    const text = `${value}|`
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i)
+      hash = (hash * 16777619) >>> 0
+    }
+  }
+  return hash.toString(16)
 }
 
 // Hooks para queries
@@ -327,6 +377,43 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
     staleTime: 2 * 60 * 1000,
     gcTime: 60 * 1000, // 1 min — liberar cache rápido para reduzir uso de memória com datasets grandes
     retry: 2,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+}
+
+export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: boolean = true) => {
+  const normalizedKeys = [...(params.group_keys || [])].map(String).sort()
+  const groupKeysHash = hashStringArray(normalizedKeys)
+
+  return useQuery<RankingsSeriesResponse>({
+    queryKey: queryKeys.adPerformanceSeries(params, groupKeysHash),
+    queryFn: () =>
+      api.analytics.getRankingsSeries({
+        ...params,
+        group_keys: normalizedKeys,
+      }),
+    enabled:
+      enabled &&
+      !!params.date_start &&
+      !!params.date_stop &&
+      normalizedKeys.length > 0,
+    staleTime: 60 * 1000,
+    gcTime: 2 * 60 * 1000,
+    retry: 1,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+}
+
+export const useAdPerformanceRetention = (params: RankingsRetentionRequest, enabled: boolean = true) => {
+  return useQuery<RankingsRetentionResponse>({
+    queryKey: queryKeys.adPerformanceRetention(params),
+    queryFn: () => api.analytics.getRankingsRetention(params),
+    enabled: enabled && !!params.date_start && !!params.date_stop && !!params.group_key,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
   })
 }
 

@@ -225,6 +225,10 @@ type SparklineBarsProps = {
   zeroValueColorClass?: string; // Classe de cor para valores zero quando há dados (padrão: "destructive")
   dates?: Array<string>; // Array de datas correspondentes a cada ponto da série (formato YYYY-MM-DD)
   lightweight?: boolean; // Quando true, usa title nativo em vez de Radix Tooltip (performance: elimina ~1250 componentes na ManagerTable)
+  staggeredFadeIn?: boolean; // fade in sequencial por barra
+  fadeInDurationMs?: number; // duração do fade in por barra
+  fadeInStaggerMs?: number; // atraso entre barras
+  fadeInStartDelayMs?: number; // atraso inicial antes da primeira barra
 };
 
 function formatDateForTooltip(dateStr: string): string {
@@ -236,13 +240,45 @@ function formatDateForTooltip(dateStr: string): string {
   }
 }
 
-export const SparklineBars = React.memo(function SparklineBars({ series, className, size = "medium", barWidth = 2, gap = 2, colorClass = "bg-brand-70", nullClass = "bg-muted-20", minBarHeightPct = 6, validMinBarHeightPct = 12, valueFormatter, dynamicColor = true, colorMode = "series", inverseColors = false, packAverage = null, dataAvailability, zeroValueLabel, zeroValueColorClass = "destructive", dates, lightweight = false }: SparklineBarsProps) {
+export const SparklineBars = React.memo(function SparklineBars({
+  series,
+  className,
+  size = "medium",
+  barWidth = 2,
+  gap = 2,
+  colorClass = "bg-brand-70",
+  nullClass = "bg-muted-20",
+  minBarHeightPct = 6,
+  validMinBarHeightPct = 12,
+  valueFormatter,
+  dynamicColor = true,
+  colorMode = "series",
+  inverseColors = false,
+  packAverage = null,
+  dataAvailability,
+  zeroValueLabel,
+  zeroValueColorClass = "destructive",
+  dates,
+  lightweight = false,
+  staggeredFadeIn = false,
+  fadeInDurationMs = 500,
+  fadeInStaggerMs = 250,
+  fadeInStartDelayMs = 0,
+}: SparklineBarsProps) {
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;
   const seriesColor = dynamicColor && colorMode === "series" ? colorByTrend(getSeriesTrendPct(series), inverseColors) : colorClass;
 
   // Usar className customizado se fornecido, senão usar preset baseado no size
   const finalClassName = className || sizePresets[size];
+
+  const getRevealStyle = (index: number): React.CSSProperties | undefined => {
+    if (!staggeredFadeIn) return undefined;
+    return {
+      ["--sparkline-fade-in-duration" as any]: `${fadeInDurationMs}ms`,
+      ["--sparkline-fade-in-delay" as any]: `${fadeInStartDelayMs + index * fadeInStaggerMs}ms`,
+    };
+  };
 
   // Pre-compute bar data for all items (shared between lightweight and full modes)
   const bars = series.map((v, i) => {
@@ -295,16 +331,56 @@ export const SparklineBars = React.memo(function SparklineBars({ series, classNa
     return { heightPct, gradientClass, borderClass, barColor, isNull, hasData, isZeroWithData, dateDisplay, valueDisplay, titleText };
   });
 
+  const transitionStyles = (
+    <style jsx>{`
+      .sparklineFadeInBar {
+        opacity: 0;
+        transform: scaleY(0.2);
+        transform-origin: bottom center;
+        animation: sparklineStaggeredFadeIn var(--sparkline-fade-in-duration, 500ms) cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        animation-delay: var(--sparkline-fade-in-delay, 0ms);
+        will-change: transform, opacity;
+      }
+
+      @keyframes sparklineStaggeredFadeIn {
+        from {
+          opacity: 0;
+          transform: scaleY(0.2);
+        }
+        to {
+          opacity: 1;
+          transform: scaleY(1);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .sparklineFadeInBar {
+          animation: none;
+          opacity: 1;
+          transform: none;
+        }
+      }
+    `}</style>
+  );
+
   // Lightweight mode: native title attributes (no Radix Tooltip overhead)
   if (lightweight) {
     return (
-      <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
-        {bars.map((bar, i) => (
-          <div key={i} className="rounded-xs flex-1 relative" style={{ height: `${bar.heightPct}%` }} title={bar.titleText}>
-            <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
-          </div>
-        ))}
-      </div>
+      <>
+        <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
+          {bars.map((bar, i) => (
+            <div
+              key={i}
+              className={`rounded-xs flex-1 relative ${staggeredFadeIn ? "sparklineFadeInBar" : ""}`}
+              style={{ height: `${bar.heightPct}%`, ...getRevealStyle(i) }}
+              title={bar.titleText}
+            >
+              <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
+            </div>
+          ))}
+        </div>
+        {staggeredFadeIn ? transitionStyles : null}
+      </>
     );
   }
 
@@ -321,7 +397,10 @@ export const SparklineBars = React.memo(function SparklineBars({ series, classNa
           return (
             <Tooltip key={i}>
               <TooltipTrigger asChild>
-                <div className="rounded-xs flex-1 relative cursor-pointer" style={{ height: `${bar.heightPct}%` }}>
+                <div
+                  className={`rounded-xs flex-1 relative cursor-pointer ${staggeredFadeIn ? "sparklineFadeInBar" : ""}`}
+                  style={{ height: `${bar.heightPct}%`, ...getRevealStyle(i) }}
+                >
                   <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
                 </div>
               </TooltipTrigger>
@@ -335,6 +414,7 @@ export const SparklineBars = React.memo(function SparklineBars({ series, classNa
           );
         })}
       </div>
+      {staggeredFadeIn ? transitionStyles : null}
     </TooltipProvider>
   );
 });
