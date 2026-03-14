@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -32,7 +31,6 @@ export interface PackCardProps {
   onRefresh: (packId: string) => void;
   onRemove: (packId: string) => void;
   onToggleAutoRefresh: (packId: string, checked: boolean) => void;
-  onSyncSheetIntegration: (packId: string) => void;
   onSetSheetIntegration: (pack: AdsPack) => void;
   onEditSheetIntegration?: (pack: AdsPack) => void;
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
@@ -42,7 +40,6 @@ export interface PackCardProps {
   isUpdating: boolean;
   isTogglingAutoRefresh: string | null;
   packToDisableAutoRefresh: { id: string; name: string } | null;
-  isSyncingSheetIntegration: string | null;
 }
 
 /**
@@ -55,7 +52,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRefresh, onRemove, onToggleAutoRefresh, onSyncSheetIntegration, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh, isSyncingSheetIntegration }: PackCardProps) {
+export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
@@ -223,6 +220,11 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
   const dateStartDisplay = isToday(pack.date_start) ? "HOJE" : formatDate(pack.date_start);
   const dateEndDisplay = isToday(pack.date_stop) ? "HOJE" : formatDate(pack.date_stop);
   const dateRangeDisplay = isSameDate ? dateStartDisplay : `${formatDate(pack.date_start)} → ${dateEndDisplay}`;
+  const lastSuccessfulSyncAt = pack.sheet_integration?.last_successful_sync_at;
+  const lastSyncAttemptAt = pack.sheet_integration?.last_synced_at;
+  const leadscoreSyncFailed = pack.sheet_integration?.last_sync_status === "failed";
+  const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
+  const leadscoreDateForDisplay = leadscoreSyncFailed ? (lastSuccessfulSyncAt || "") : (lastSuccessfulSyncAt || lastSyncAttemptAt || "");
 
   return (
     <div className="relative inline-block w-full">
@@ -297,7 +299,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                 </div>
                 {/* Filtros */}
                 {pack.filters && pack.filters.length > 0 && (
-                  <div className="flex justify-start flex-wrap gap-2">
+                  <div className="flex justify-center flex-wrap gap-2">
                     {pack.filters.map((filter: FilterRule, index: number) => (
                       <div key={index} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                         <IconFilter className="w-3.5 h-3.5 flex-shrink-0" />
@@ -434,26 +436,34 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                   </div>
                   <UpdatedAtText dateTime={pack.updated_at} />
                 </div>
-                {(pack.sheet_integration?.last_successful_sync_at || pack.sheet_integration?.last_synced_at) && (
+                {hasAnyLeadscoreSyncInfo && (
                   <div className="flex items-center justify-between text-xs text-foreground">
                     <div className="flex items-center gap-1.5">
                       <GoogleSheetsIcon className="w-3.5 h-3.5 flex-shrink-0" />
                       <span>Leadscore:</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      {pack.sheet_integration.last_sync_status === "failed" && (
+                      {leadscoreSyncFailed && (
                         <TooltipProvider>
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <IconAlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0 cursor-help" />
                             </TooltipTrigger>
                             <TooltipContent>
-                              <p>A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida.</p>
+                              <p>
+                                {lastSuccessfulSyncAt
+                                  ? "A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida."
+                                  : "A última tentativa de sincronização falhou e ainda não há sincronização bem-sucedida para este pack."}
+                              </p>
                             </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       )}
-                      <UpdatedAtText dateTime={pack.sheet_integration.last_successful_sync_at || pack.sheet_integration.last_synced_at || ""} />
+                      {leadscoreDateForDisplay ? (
+                        <UpdatedAtText dateTime={leadscoreDateForDisplay} />
+                      ) : (
+                        <span className="text-muted-foreground">Sem sync bem-sucedido</span>
+                      )}
                     </div>
                   </div>
                 )}

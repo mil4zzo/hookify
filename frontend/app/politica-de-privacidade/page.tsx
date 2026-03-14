@@ -84,8 +84,7 @@ export default function PrivacyPolicyPage() {
             <h3 className="text-lg font-medium">2.3 Dados do Google Sheets (integração opcional)</h3>
             <p className="text-sm leading-relaxed text-muted-foreground">
               Se você optar por integrar, processamos apenas os dados/colunas que você autorizar e
-              configurar para enriquecimento (ex.: <strong>leadscore</strong>,{" "}
-              <strong>cpr_max</strong>, colunas de match e datas), para melhorar a análise e
+              configurar para enriquecimento (ex.: <strong>leadscore</strong>, colunas de match e datas), para melhorar a análise e
               priorização de oportunidades.
             </p>
 

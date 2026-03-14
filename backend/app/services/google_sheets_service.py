@@ -219,17 +219,22 @@ MAX_COLUMNS_A1 = "ZZ"
 
 
 def _fetch_sheet_range(
-    access_token: str,
+    user_jwt: str,
+    user_id: str,
+    connection_id: Optional[str],
     spreadsheet_id: str,
     worksheet_title: str,
     range_suffix: str,
 ) -> List[List[Any]]:
-    """Busca um range especifico da planilha. Qualquer erro propaga (critico)."""
+    """Busca um range especifico da planilha com retry em 401. Qualquer erro propaga (critico)."""
     value_range = _build_sheet_range(worksheet_title, range_suffix)
     url = f"{SHEETS_API_BASE}/{quote(spreadsheet_id)}/values/{quote(value_range)}"
-    resp = requests.get(
-        url,
-        headers={"Authorization": f"Bearer {access_token}"},
+    resp = _request_with_retry(
+        url=url,
+        user_jwt=user_jwt,
+        user_id=user_id,
+        connection_id=connection_id,
+        operation="fetch_all_rows",
         params={
             "majorDimension": "ROWS",
             "valueRenderOption": "UNFORMATTED_VALUE",
@@ -237,20 +242,7 @@ def _fetch_sheet_range(
         },
         timeout=60,
     )
-    if resp.status_code == 401:
-        logger.warning("[GOOGLE_SHEETS] Unauthorized when fetching range %s", range_suffix)
-        raise GoogleSheetsError(
-            "Token do Google invalido ou expirado. Refaca a conexao.",
-            code=GOOGLE_TOKEN_EXPIRED,
-            details={"http_status": 401, "operation": "fetch_all_rows", "range": range_suffix},
-        )
-    if resp.status_code != 200:
-        logger.error("[GOOGLE_SHEETS] Error fetching range %s: %s - %s", range_suffix, resp.status_code, resp.text)
-        raise GoogleSheetsError(
-            f"Erro ao ler planilha do Google (status {resp.status_code}).",
-            code=GOOGLE_SHEETS_ERROR,
-            details={"http_status": resp.status_code, "operation": "fetch_all_rows", "range": range_suffix},
-        )
+    _check_response(resp, "fetch_all_rows", error_code=GOOGLE_SHEETS_ERROR)
     data = resp.json()
     return data.get("values") or []
 
@@ -266,8 +258,6 @@ def fetch_all_rows(
     Busca toda a aba em chunks: primeira linha e header, demais sao dados.
     Nao corta dados - processa a planilha inteira. Qualquer erro e critico.
     """
-    access_token = _get_access_token_or_raise(user_jwt, user_id, connection_id, "fetch_all_rows")
-
     all_rows: List[List[str]] = []
     headers: List[str] = []
     start_row = 1
@@ -278,7 +268,14 @@ def fetch_all_rows(
         end_row = start_row + CHUNK_SIZE_ROWS
         range_suffix = f"A{start_row}:{MAX_COLUMNS_A1}{end_row}"
         try:
-            values = _fetch_sheet_range(access_token, spreadsheet_id, worksheet_title, range_suffix)
+            values = _fetch_sheet_range(
+                user_jwt=user_jwt,
+                user_id=user_id,
+                connection_id=connection_id,
+                spreadsheet_id=spreadsheet_id,
+                worksheet_title=worksheet_title,
+                range_suffix=range_suffix,
+            )
         except GoogleSheetsError:
             raise
         except Exception as e:

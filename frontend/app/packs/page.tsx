@@ -19,7 +19,7 @@ import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
 import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
-import { showSuccess, showError, showWarning, showProgressToast, finishProgressToast } from "@/lib/utils/toast";
+import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
 import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport, IconMicrophone } from "@tabler/icons-react";
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, createColumnHelper, flexRender, ColumnDef } from "@tanstack/react-table";
@@ -364,7 +364,6 @@ export default function PacksPage() {
       }));
     },
   });
-  const [isSyncingSheetIntegration, setIsSyncingSheetIntegration] = useState<string | null>(null);
   const [previewPack, setPreviewPack] = useState<any>(null);
   const [jsonViewerPack, setJsonViewerPack] = useState<any>(null);
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
@@ -939,48 +938,6 @@ export default function PacksPage() {
     });
   };
 
-  const handleSyncSheetIntegration = async (packId: string) => {
-    const pack = packs.find((p) => p.id === packId);
-    if (!pack || !pack.sheet_integration?.id) return;
-
-    setIsSyncingSheetIntegration(packId);
-    const toastId = `sync-sheet-${packId}`;
-
-    try {
-      showProgressToast(toastId, pack.name, 0, 1, "Iniciando sincronização...");
-
-      const syncRes = await api.integrations.google.syncSheetIntegration(pack.sheet_integration.id);
-
-      finishProgressToast(toastId, true, `Enriquecimento de ads atualizado com sucesso! ${syncRes.stats?.updated_rows || 0} registros atualizados.`, { visibleDurationOnly: 5, context: "sheets", packName: pack.name });
-
-      // Recarregar packs para atualizar last_synced_at
-      try {
-        const response = await api.analytics.listPacks(false);
-        if (response.success && response.packs) {
-          const updatedPack = response.packs.find((p: any) => p.id === packId);
-          if (updatedPack?.sheet_integration) {
-            updatePack(packId, {
-              sheet_integration: updatedPack.sheet_integration,
-            } as Partial<AdsPack>);
-          }
-        }
-      } catch (error) {
-        logger.error("Erro ao recarregar pack após sincronização:", error);
-        // Não bloquear sucesso da sincronização se falhar ao recarregar
-      }
-
-      // Invalidar cache de ads e dados agregados para refletir novos dados de enriquecimento
-      await invalidatePackAds(packId);
-      invalidateAdPerformance();
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Erro desconhecido";
-      finishProgressToast(toastId, false, `Erro ao sincronizar planilha: ${errorMessage}`);
-      showError({ message: `Erro ao sincronizar planilha: ${errorMessage}` });
-    } finally {
-      setIsSyncingSheetIntegration(null);
-    }
-  };
-
   const handleEditSheetIntegration = (pack: AdsPack) => {
     setSheetIntegrationPack(pack);
   };
@@ -1147,7 +1104,7 @@ export default function PacksPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {packs.map((pack) => (
-              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSyncSheetIntegration={handleSyncSheetIntegration} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} isSyncingSheetIntegration={isSyncingSheetIntegration} />
+              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
             ))}
           </div>
         )}

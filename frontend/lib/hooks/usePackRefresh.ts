@@ -641,7 +641,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       packName: string,
       integrationId: string,
       activeRefresh: ActiveRefresh,
-    ): Promise<{ success: boolean }> => {
+    ): Promise<{ success: boolean; paused?: boolean; error?: string }> => {
       const toastId = `sync-sheet-${packId}`;
       updateActiveRefresh(activeRefreshesRef, packId, { sheetSyncToastId: toastId });
 
@@ -692,16 +692,21 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }
 
         // Poll the sync job
-        await runPollSheetsSyncJob(
+        const pollResult = await runPollSheetsSyncJob(
           syncJobId, toastId, packName, packId, integrationId,
           () => activeRefresh.sheetsCancelled, handleCancelSheets
         );
 
-        return { success: true };
+        return {
+          success: pollResult.success,
+          paused: pollResult.paused,
+          error: pollResult.error,
+        };
       } catch (error) {
         logger.error("Erro ao iniciar sync do Leadscore:", error);
-        finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao iniciar sincronização do Leadscore");
-        return { success: false };
+        const message = error instanceof Error ? error.message : "Erro ao iniciar sincronização do Leadscore";
+        finishProgressToast(toastId, false, message);
+        return { success: false, error: message };
       }
     },
     [runPollSheetsSyncJob]
@@ -830,6 +835,8 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       addUpdatingPack(packId);
 
       const promises: Promise<any>[] = [];
+      let leadscoreStarted = false;
+      let leadscoreResult: { success: boolean; paused?: boolean; error?: string } = { success: false, error: "Leadscore não executado" };
 
       try {
         // Start all selected processes in parallel
@@ -849,11 +856,29 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }
 
         if (toggles.leadscore && sheetIntegrationId) {
+          leadscoreStarted = true;
           promises.push(
-            runLeadscoreSync(packId, packName, sheetIntegrationId, activeRefresh).catch((error) => {
-              logger.error(`Erro no Leadscore do pack ${packId}:`, error);
-            })
+            runLeadscoreSync(packId, packName, sheetIntegrationId, activeRefresh)
+              .then((result) => {
+                leadscoreResult = result;
+                if (!result.success && !result.paused && !activeRefresh.sheetsCancelled) {
+                  optionsRef.current?.onError?.(
+                    new Error(result.error || `Falha na sincronização de Leadscore para "${packName}"`)
+                  );
+                }
+              })
+              .catch((error) => {
+                logger.error(`Erro no Leadscore do pack ${packId}:`, error);
+                leadscoreResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                if (!activeRefresh.sheetsCancelled) {
+                  optionsRef.current?.onError?.(
+                    error instanceof Error ? error : new Error(String(error))
+                  );
+                }
+              })
           );
+        } else if (toggles.leadscore && !sheetIntegrationId) {
+          logger.warn(`[PACK_REFRESH] Leadscore habilitado, mas pack ${packId} não possui integração de planilha`);
         }
 
         if (toggles.transcription) {
@@ -866,6 +891,15 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
         // Wait for all processes to complete
         await Promise.allSettled(promises);
+        if (leadscoreStarted) {
+          if (leadscoreResult.success) {
+            logger.debug(`[PACK_REFRESH] Leadscore concluído com sucesso para pack ${packId}`);
+          } else if (leadscoreResult.paused) {
+            logger.info(`[PACK_REFRESH] Leadscore pausado aguardando reconexão Google para pack ${packId}`);
+          } else {
+            logger.warn(`[PACK_REFRESH] Leadscore finalizado com falha para pack ${packId}: ${leadscoreResult.error || "erro desconhecido"}`);
+          }
+        }
       } finally {
         logger.debug(`[PACK_REFRESH] Finalizando refresh do pack ${packId}`);
         const ar = activeRefreshesRef.current.get(packId);

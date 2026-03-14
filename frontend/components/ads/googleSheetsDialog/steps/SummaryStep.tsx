@@ -47,7 +47,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas com ad_id não nulo, data válida e leadscore ou cpr_max não nulo</p>
+                    <p>Linhas com ad_id não nulo, data válida e leadscore não nulo</p>
                   </TooltipContent>
                 </Tooltip>
               </div>
@@ -124,7 +124,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
                     <IconInfoCircle className="w-3.5 h-3.5 text-muted-foreground cursor-help" />
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p>Linhas com ad_id nulo, data inválida ou sem leadscore e cpr_max</p>
+                    <p>Linhas com ad_id nulo, data inválida ou sem leadscore</p>
                   </TooltipContent>
                 </Tooltip>
               </div>

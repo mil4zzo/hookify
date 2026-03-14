@@ -48,7 +48,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [dateColumn, setDateColumn] = useState("");
   const [dateFormat, setDateFormat] = useState<"DD/MM/YYYY" | "MM/DD/YYYY">("DD/MM/YYYY");
   const [leadscoreColumn, setLeadscoreColumn] = useState("");
-  const [cprMaxColumn, setCprMaxColumn] = useState("");
 
   const [integrationId, setIntegrationId] = useState<string | null>(null);
   const [loadedIntegrationData, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
@@ -80,7 +79,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
               ad_id_column_index?: number | null;
               date_column_index?: number | null;
               leadscore_column_index?: number | null;
-              cpr_max_column_index?: number | null;
             };
             const fmt = (name: string, idx: number | null | undefined) =>
               name && idx != null ? `${name}|${idx}` : name || "";
@@ -91,7 +89,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
             setDateColumn(fmt(integration.date_column, integrationWithConnection.date_column_index) || integration.date_column || "");
             setDateFormat((integration.date_format as "DD/MM/YYYY" | "MM/DD/YYYY") || "DD/MM/YYYY");
             setLeadscoreColumn(fmt(integration.leadscore_column, integrationWithConnection.leadscore_column_index) || integration.leadscore_column || "");
-            setCprMaxColumn(fmt(integration.cpr_max_column, integrationWithConnection.cpr_max_column_index) || integration.cpr_max_column || "");
             setIntegrationId(integration.id);
 
             if (integrationWithConnection.connection_id) {
@@ -115,7 +112,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setAdIdColumn("");
       setDateColumn("");
       setLeadscoreColumn("");
-      setCprMaxColumn("");
       setIntegrationId("");
       setLoadedIntegrationData(null);
     }
@@ -177,7 +173,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       setDateColumn("");
       setDateFormat("DD/MM/YYYY");
       setLeadscoreColumn("");
-      setCprMaxColumn("");
       setIntegrationId(null);
       setSelectedConnectionId("");
       resetSync();
@@ -228,7 +223,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     setAdIdColumn("");
     setDateColumn("");
     setLeadscoreColumn("");
-    setCprMaxColumn("");
   }, [selectedSpreadsheetId]);
 
   // Limpar colunas quando a aba mudar (não quando vier do carregamento da integração existente)
@@ -244,7 +238,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     setAdIdColumn("");
     setDateColumn("");
     setLeadscoreColumn("");
-    setCprMaxColumn("");
   }, [worksheetTitle]);
 
   const canLoadColumns = useMemo(() => !!selectedSpreadsheetId && !!worksheetTitle, [selectedSpreadsheetId, worksheetTitle]);
@@ -416,19 +409,16 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       const ad = parseColumnValue(adIdColumn);
       const dt = parseColumnValue(dateColumn);
       const ls = parseColumnValue(leadscoreColumn || "");
-      const cpr = parseColumnValue(cprMaxColumn || "");
       const payload: SheetIntegrationRequest = {
         spreadsheet_id: selectedSpreadsheetId,
         worksheet_title: worksheetTitle,
         ad_id_column: ad.name,
         date_column: dt.name,
         date_format: dateFormat,
-        leadscore_column: ls.name || null,
-        cpr_max_column: cpr.name || null,
+        leadscore_column: ls.name,
         ad_id_column_index: ad.index ?? null,
         date_column_index: dt.index ?? null,
         leadscore_column_index: ls.index ?? null,
-        cpr_max_column_index: cpr.index ?? null,
         pack_id: packId || null,
         connection_id: selectedConnectionId || null,
       };
@@ -545,7 +535,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} cprMaxColumn={cprMaxColumn} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onCprMaxColumnChange={setCprMaxColumn} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

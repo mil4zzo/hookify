@@ -180,8 +180,8 @@ def _load_sheet_config(sb: Any, integration_id: str, user_id: str) -> Dict[str, 
         sb.table("ad_sheet_integrations")
         .select(
             "id, spreadsheet_id, worksheet_title, ad_id_column, date_column, "
-            "leadscore_column, cpr_max_column, date_format, pack_id, connection_id, "
-            "ad_id_column_index, date_column_index, leadscore_column_index, cpr_max_column_index"
+            "leadscore_column, date_format, pack_id, connection_id, spreadsheet_name, "
+            "ad_id_column_index, date_column_index, leadscore_column_index"
         )
         .eq("id", integration_id)
         .eq("owner_id", user_id)
@@ -223,12 +223,11 @@ def _parse_and_aggregate_rows(
     ad_id_idx: Optional[int],
     date_idx: Optional[int],
     leadscore_idx: Optional[int],
-    cpr_max_idx: Optional[int],
     date_format: str,
     check_cancelled: Optional[Callable[[], bool]],
 ) -> tuple[Dict[tuple[str, str], Dict[str, Any]], int, int]:
     """Parse e agrega linhas por (ad_id, date). Retorna aggregated_data, processed, skipped_invalid."""
-    aggregated_data = defaultdict(lambda: {'leadscore_values': [], 'cpr_max': None, 'row_count': 0})
+    aggregated_data = defaultdict(lambda: {'leadscore_values': [], 'row_count': 0})
     processed = 0
     skipped_invalid = 0
 
@@ -249,7 +248,6 @@ def _parse_and_aggregate_rows(
         ad_id_raw = safe_get(row, ad_id_idx)
         date_raw = safe_get(row, date_idx)
         leadscore_raw = safe_get(row, leadscore_idx)
-        cpr_max_raw = safe_get(row, cpr_max_idx)
 
         ad_id = _sanitize_ad_id(ad_id_raw)
         if not ad_id:
@@ -268,8 +266,7 @@ def _parse_and_aggregate_rows(
             continue
 
         leadscore_val = _validate_numeric(_to_float_or_none(leadscore_raw), min_val=0)
-        cpr_max_val = _validate_numeric(_to_float_or_none(cpr_max_raw), min_val=0)
-        if leadscore_val is None and cpr_max_val is None:
+        if leadscore_val is None:
             skipped_invalid += 1
             continue
 
@@ -277,17 +274,13 @@ def _parse_and_aggregate_rows(
         aggregated_data[key]['row_count'] += 1
         if leadscore_val is not None:
             aggregated_data[key]['leadscore_values'].append(leadscore_val)
-        if cpr_max_val is not None:
-            current_max = aggregated_data[key]['cpr_max']
-            if current_max is None or cpr_max_val > current_max:
-                aggregated_data[key]['cpr_max'] = cpr_max_val
 
     return aggregated_data, processed, skipped_invalid
 
 
 def _build_final_data_and_groups(
     aggregated_data: Dict[tuple[str, str], Dict[str, Any]],
-) -> tuple[Dict[str, Dict[str, Any]], Dict[tuple, List[str]]]:
+) -> tuple[Dict[str, Dict[str, Any]], Dict[tuple, List[str]], List[Dict[str, Any]]]:
     """Constrói final_data e updates_by_values para o RPC."""
     final_data: Dict[str, Dict[str, Any]] = {}
     for (ad_id, date), agg in aggregated_data.items():
@@ -300,7 +293,6 @@ def _build_final_data_and_groups(
             'ad_id': ad_id,
             'date': date,
             'leadscore_values': leadscore_values,
-            'cpr_max': agg['cpr_max'],
             'lead_count': agg['row_count'],
         }
 
@@ -308,19 +300,14 @@ def _build_final_data_and_groups(
     for metric_id, data in final_data.items():
         leadscore_vals = data.get('leadscore_values')
         leadscore_key = tuple(leadscore_vals) if leadscore_vals else None
-        value_key = (
-            leadscore_key,
-            round(data['cpr_max'], 6) if data['cpr_max'] is not None else None,
-        )
+        value_key = leadscore_key
         updates_by_values[value_key].append(metric_id)
 
     rpc_updates = []
-    for (leadscore_key, cpr_max), ids_batch in updates_by_values.items():
+    for leadscore_key, ids_batch in updates_by_values.items():
         update_item: Dict[str, Any] = {"ids": ids_batch}
         if leadscore_key is not None:
             update_item["leadscore_values"] = list(leadscore_key)
-        if cpr_max is not None:
-            update_item["cpr_max"] = float(cpr_max)
         rpc_updates.append(update_item)
 
     return final_data, updates_by_values, rpc_updates
@@ -332,43 +319,91 @@ def _execute_batch_update(
     pack_id: Optional[str],
     rpc_updates: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    """Executa RPC batch_update_ad_metrics_enrichment e retorna o resultado."""
-    result = sb.rpc(
-        "batch_update_ad_metrics_enrichment",
-        {
-            "p_user_id": user_id,
-            "p_updates": rpc_updates,
-            "p_pack_id": pack_id,
-        },
-    ).execute()
-    if not result.data:
-        raise AdMetricsImportError("RPC de atualização não retornou dados.")
-    rpc_result = result.data
-    if rpc_result.get("status") == "error":
-        raise AdMetricsImportError(
-            f"Erro na atualização em lote: {rpc_result.get('error_message', 'Erro desconhecido')}"
-        )
-    return rpc_result
-
-
-def _update_integration_status(
-    sb: Any,
-    integration_id: str,
-    user_id: str,
-) -> None:
-    """Atualiza last_sync_status da integracao. Falha propaga excecao."""
-    from datetime import datetime as dt, timezone as tz
-
-    now_iso = dt.now(tz.utc).isoformat(timespec="seconds")
-    sb.table("ad_sheet_integrations").update(
-        {
-            "last_synced_at": now_iso,
-            "last_successful_sync_at": now_iso,
-            "last_sync_status": "success",
-            "updated_at": now_iso,
+    """Executa RPC batch_update_ad_metrics_enrichment em lotes e agrega o resultado."""
+    if not rpc_updates:
+        return {
+            "status": "success",
+            "total_groups_processed": 0,
+            "total_rows_updated": 0,
+            "total_ids_sent": 0,
+            "ids_not_found_count": 0,
+            "ids_out_of_pack_count": 0,
         }
-    ).eq("id", integration_id).eq("owner_id", user_id).execute()
 
+    batch_size = 400
+    max_attempts = 3
+    total_batches = (len(rpc_updates) + batch_size - 1) // batch_size
+
+    aggregated = {
+        "status": "success",
+        "total_groups_processed": 0,
+        "total_rows_updated": 0,
+        "total_ids_sent": 0,
+        "ids_not_found_count": 0,
+        "ids_out_of_pack_count": 0,
+    }
+
+    for i in range(0, len(rpc_updates), batch_size):
+        batch = rpc_updates[i:i + batch_size]
+        batch_num = (i // batch_size) + 1
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = sb.rpc(
+                    "batch_update_ad_metrics_enrichment",
+                    {
+                        "p_user_id": user_id,
+                        "p_updates": batch,
+                        "p_pack_id": pack_id,
+                    },
+                ).execute()
+
+                if not result.data:
+                    raise AdMetricsImportError("RPC de atualizacao nao retornou dados.")
+
+                rpc_result = result.data
+                if rpc_result.get("status") == "error":
+                    raise AdMetricsImportError(
+                        f"Erro na atualizacao em lote: {rpc_result.get('error_message', 'Erro desconhecido')}"
+                    )
+
+                aggregated["total_groups_processed"] += int(rpc_result.get("total_groups_processed") or 0)
+                aggregated["total_rows_updated"] += int(rpc_result.get("total_rows_updated") or 0)
+                aggregated["total_ids_sent"] += int(rpc_result.get("total_ids_sent") or 0)
+                aggregated["ids_not_found_count"] += int(rpc_result.get("ids_not_found_count") or 0)
+                aggregated["ids_out_of_pack_count"] += int(rpc_result.get("ids_out_of_pack_count") or 0)
+
+                if batch_num % 5 == 0 or batch_num == total_batches:
+                    logger.info(
+                        "[AD_METRICS_IMPORT] RPC batch %d/%d concluido (%d grupos)",
+                        batch_num,
+                        total_batches,
+                        len(batch),
+                    )
+                last_error = None
+                break
+            except Exception as e:
+                last_error = e
+                error_text = str(e).lower()
+                is_timeout = "timed out" in error_text or "timeout" in error_text
+                if is_timeout and attempt < max_attempts:
+                    logger.warning(
+                        "[AD_METRICS_IMPORT] Timeout no RPC batch %d/%d (tentativa %d/%d). Retentando...",
+                        batch_num,
+                        total_batches,
+                        attempt,
+                        max_attempts,
+                    )
+                    continue
+                break
+
+        if last_error is not None:
+            raise AdMetricsImportError(
+                f"Falha no RPC batch {batch_num}/{total_batches}: {last_error}"
+            ) from last_error
+
+    return aggregated
 
 def run_ad_metrics_sheet_import(
     user_jwt: str,
@@ -395,14 +430,12 @@ def run_ad_metrics_sheet_import(
     ad_id_col_name = cfg.get("ad_id_column")
     date_col_name = cfg.get("date_column")
     leadscore_col_name = cfg.get("leadscore_column")
-    cpr_max_col_name = cfg.get("cpr_max_column")
     date_format = cfg.get("date_format")
     pack_id = cfg.get("pack_id")
     connection_id = cfg.get("connection_id")
     ad_id_col_idx = cfg.get("ad_id_column_index")
     date_col_idx = cfg.get("date_column_index")
     leadscore_col_idx = cfg.get("leadscore_column_index")
-    cpr_max_col_idx = cfg.get("cpr_max_column_index")
 
     if not date_format or date_format not in ("DD/MM/YYYY", "MM/DD/YYYY"):
         raise AdMetricsImportError(
@@ -444,20 +477,19 @@ def run_ad_metrics_sheet_import(
     ad_id_idx = col_idx(ad_id_col_name, cfg.get("ad_id_column_index"))
     date_idx = col_idx(date_col_name, cfg.get("date_column_index"))
     leadscore_idx = col_idx(leadscore_col_name, cfg.get("leadscore_column_index"))
-    cpr_max_idx = col_idx(cpr_max_col_name, cfg.get("cpr_max_column_index"))
     if ad_id_idx is None or date_idx is None:
         raise AdMetricsImportError(
             "Colunas de ad_id ou data não encontradas no header da planilha."
         )
-    if leadscore_idx is None and cpr_max_idx is None:
+    if leadscore_idx is None:
         raise AdMetricsImportError(
-            "Nenhuma coluna de Leadscore ou CPR max configurada."
+            "Coluna de Leadscore não encontrada no header da planilha."
         )
 
     if on_stage_change:
         on_stage_change("processando_dados")
     aggregated_data, processed, skipped_invalid = _parse_and_aggregate_rows(
-        rows, ad_id_idx, date_idx, leadscore_idx, cpr_max_idx, date_format, check_cancelled
+        rows, ad_id_idx, date_idx, leadscore_idx, date_format, check_cancelled
     )
 
     if not aggregated_data:
@@ -556,5 +588,4 @@ def run_ad_metrics_sheet_import(
     logger.debug("[AD_METRICS_IMPORT] Stats detalhadas: %s", stats)
 
     return stats
-
 

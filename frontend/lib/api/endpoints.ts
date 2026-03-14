@@ -23,7 +23,6 @@ import {
   SheetColumnsResponse,
   SheetIntegrationRequest,
   SaveSheetIntegrationResponse,
-  SheetSyncResponse,
   SheetSyncJobProgress,
   UpdateEntityStatusResponse,
 } from './schemas'
@@ -236,9 +235,6 @@ export const api = {
 
       saveSheetIntegration: (payload: SheetIntegrationRequest): Promise<SaveSheetIntegrationResponse> =>
         apiClient.post('/integrations/google/ad-sheet-integrations', payload),
-
-      syncSheetIntegration: (integrationId: string): Promise<SheetSyncResponse> =>
-        apiClient.post(`/integrations/google/ad-sheet-integrations/${integrationId}/sync`),
 
       startSyncJob: (integrationId: string): Promise<{ job_id: string }> =>
         apiClient.post(`/integrations/google/ad-sheet-integrations/${integrationId}/sync-job`),

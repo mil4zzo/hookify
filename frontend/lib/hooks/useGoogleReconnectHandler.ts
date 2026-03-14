@@ -44,12 +44,14 @@ export function useGoogleReconnectHandler() {
     logger.debug(`[useGoogleReconnectHandler] Reconexão detectada. Retomando ${pausedJobs.length} job(s) pausado(s).`);
 
     for (const pausedJob of pausedJobs) {
+      let activeToastId = pausedJob.toastId;
       try {
         // Fechar toast de pausa existente
         dismissToast(pausedJob.toastId);
 
         // Criar novo toast de progresso com mesmo layout padronizado do fluxo Sheets
         const newToastId = `sync-sheet-${pausedJob.packId}-${Date.now()}`;
+        activeToastId = newToastId;
         const cancelledRef = { current: false };
         const jobIdRef = { current: null as string | null };
 
@@ -119,7 +121,7 @@ export function useGoogleReconnectHandler() {
         });
       } catch (error) {
         logger.error(`[useGoogleReconnectHandler] Erro ao retomar sync do pack ${pausedJob.packId}:`, error);
-        finishProgressToast(pausedJob.toastId, false, "Erro ao retomar sincronização");
+        finishProgressToast(activeToastId, false, "Erro ao retomar sincronização");
         clearJob(pausedJob.packId);
       }
     }

@@ -24,10 +24,6 @@ from app.services.google_errors import (
     GOOGLE_SHEETS_ERROR,
     GOOGLE_DRIVE_ERROR,
 )
-from app.services.ad_metrics_sheet_importer import (
-    run_ad_metrics_sheet_import,
-    AdMetricsImportError,
-)
 from app.core.supabase_client import get_supabase_for_user
 from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
 from app.services.job_tracker import get_job_tracker
@@ -424,7 +420,7 @@ def list_sheet_columns(
 ):
     """
     Retorna colunas (header + amostra) com detecção de duplicatas.
-    Usado pelo modal para montar os selects de ad_id, data, Leadscore e CPR max.
+    Usado pelo modal para montar os selects de ad_id, data e Leadscore.
     """
     try:
         result = fetch_columns_with_duplicate_detection(
@@ -462,13 +458,11 @@ class SheetIntegrationRequest(BaseModel):
     ad_id_column: str
     date_column: str
     date_format: str  # 'DD/MM/YYYY' ou 'MM/DD/YYYY'
-    leadscore_column: Optional[str] = None
-    cpr_max_column: Optional[str] = None
+    leadscore_column: str
     # Índices explícitos quando há headers duplicados (0-based)
     ad_id_column_index: Optional[int] = None
     date_column_index: Optional[int] = None
     leadscore_column_index: Optional[int] = None
-    cpr_max_column_index: Optional[int] = None
     # Quando informado, a integração passa a ser específica daquele pack
     pack_id: Optional[str] = None
     # ID da conexão Google específica a usar para esta integração
@@ -484,13 +478,13 @@ def save_ad_sheet_integration(
     Salva a configuração da integração da planilha para o usuário atual.
 
     - Caso `pack_id` seja informado, a integração é específica daquele pack
-      (um "booster" de leadscore/CPR max por pack).
+      (um "booster" de leadscore por pack).
     - Caso `pack_id` seja None, a integração é global (modo legado).
     """
-    if not payload.leadscore_column and not payload.cpr_max_column:
+    if not payload.leadscore_column:
         raise HTTPException(
             status_code=400,
-            detail="É obrigatório selecionar pelo menos uma coluna (Leadscore ou CPR max).",
+            detail="É obrigatório selecionar a coluna de Leadscore.",
         )
     
     # Validar formato de data
@@ -501,41 +495,79 @@ def save_ad_sheet_integration(
         )
 
     sb = get_supabase_for_user(user["token"])
+    spreadsheet_name: Optional[str] = None
+    if payload.spreadsheet_id:
+        try:
+            spreadsheet_name = get_spreadsheet_name(
+                user_jwt=user["token"],
+                user_id=user["user_id"],
+                spreadsheet_id=payload.spreadsheet_id,
+                connection_id=payload.connection_id,
+            )
+        except Exception as e:
+            logger.warning(
+                "[AD_SHEET_INTEGRATION] Não foi possível obter spreadsheet_name para %s: %s",
+                payload.spreadsheet_id,
+                e,
+            )
+
     data = {
         "owner_id": user["user_id"],
         "pack_id": payload.pack_id,
         "spreadsheet_id": payload.spreadsheet_id,
+        "spreadsheet_name": spreadsheet_name,
         "worksheet_title": payload.worksheet_title,
         "ad_id_column": payload.ad_id_column,
         "date_column": payload.date_column,
         "date_format": payload.date_format,
         "leadscore_column": payload.leadscore_column,
-        "cpr_max_column": payload.cpr_max_column,
         "ad_id_column_index": payload.ad_id_column_index,
         "date_column_index": payload.date_column_index,
         "leadscore_column_index": payload.leadscore_column_index,
-        "cpr_max_column_index": payload.cpr_max_column_index,
         "connection_id": payload.connection_id,
     }
     try:
-        # A partir de agora, permitimos múltiplas integrações por usuário (uma por pack).
-        # Usamos on_conflict em (owner_id, pack_id):
-        # - pack_id NULL ⇒ integração global (legado), no máximo 1 por usuário
-        # - pack_id NOT NULL ⇒ no máximo 1 integração por (usuário, pack)
-        sb.table("ad_sheet_integrations").upsert(data, on_conflict="owner_id,pack_id").execute()
-
-        # Buscar o registro inserido/atualizado
-        query = (
-            sb.table("ad_sheet_integrations")
-            .select("*")
-            .eq("owner_id", user["user_id"])
-        )
+        # Fluxo determinístico:
+        # - pack_id NOT NULL: upsert por (owner_id, pack_id)
+        # - pack_id NULL: update-or-insert explícito para evitar ambiguidade com NULL em on_conflict
         if payload.pack_id is not None:
-            query = query.eq("pack_id", payload.pack_id)
+            sb.table("ad_sheet_integrations").upsert(
+                data,
+                on_conflict="owner_id,pack_id",
+            ).execute()
+            res = (
+                sb.table("ad_sheet_integrations")
+                .select("*")
+                .eq("owner_id", user["user_id"])
+                .eq("pack_id", payload.pack_id)
+                .limit(1)
+                .execute()
+            )
         else:
-            query = query.is_("pack_id", None)
+            existing_global = (
+                sb.table("ad_sheet_integrations")
+                .select("id")
+                .eq("owner_id", user["user_id"])
+                .is_("pack_id", None)
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if existing_global.data:
+                global_id = existing_global.data[0]["id"]
+                sb.table("ad_sheet_integrations").update(data).eq("id", global_id).eq("owner_id", user["user_id"]).execute()
+            else:
+                sb.table("ad_sheet_integrations").insert(data).execute()
 
-        res = query.limit(1).execute()
+            res = (
+                sb.table("ad_sheet_integrations")
+                .select("*")
+                .eq("owner_id", user["user_id"])
+                .is_("pack_id", None)
+                .order("updated_at", desc=True)
+                .limit(1)
+                .execute()
+            )
     except Exception as e:
         logger.exception("[AD_SHEET_INTEGRATION] Erro ao salvar configuração")
         raise HTTPException(status_code=500, detail="Erro ao salvar configuração.")
@@ -662,44 +694,13 @@ def sync_ad_sheet_integration(
     user=Depends(get_current_user),
 ):
     """
-    Dispara o import/patch da planilha para ad_metrics (síncrono - legado).
-    Para o MVP, roda síncrono e retorna estatísticas simples.
+    Endpoint legado descontinuado.
+    Use /ad-sheet-integrations/{integration_id}/sync-job.
     """
-    try:
-        stats = run_ad_metrics_sheet_import(
-            user_jwt=user["token"],
-            user_id=user["user_id"],
-            integration_id=integration_id,
-        )
-    except AdMetricsImportError as e:
-        # Atualizar status da integração como erro
-        try:
-            sb = get_supabase_for_user(user["token"])
-            from datetime import datetime as dt
-
-            now_iso = dt.now(timezone.utc).isoformat(timespec="seconds")
-            sb.table("ad_sheet_integrations").update(
-                {
-                    "last_synced_at": now_iso,
-                    # last_successful_sync_at não é atualizado em caso de erro
-                    "last_sync_status": f"ERROR: {e}",
-                    "updated_at": now_iso,
-                }
-            ).eq("id", integration_id).eq("owner_id", user["user_id"]).execute()
-        except Exception:
-            logger.warning(
-                "[AD_SHEET_INTEGRATION] Falha ao registrar erro de sync para integração %s",
-                integration_id,
-            )
-
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.exception("[AD_SHEET_INTEGRATION] Erro inesperado ao rodar sync")
-        raise HTTPException(
-            status_code=500, detail="Erro inesperado ao sincronizar planilha."
-        )
-
-    return {"status": "ok", "stats": stats}
+    raise HTTPException(
+        status_code=410,
+        detail="Endpoint legado descontinuado. Utilize o fluxo assíncrono de sync-job.",
+    )
 
 
 @router.get("/ad-sheet-integrations")
@@ -729,19 +730,24 @@ def list_ad_sheet_integrations(
     
     integrations = res.data or []
     
-    # Enriquecer com nomes das planilhas usando connection_id salvo
+    # Priorizar spreadsheet_name persistido; fallback remoto apenas quando ausente.
     enriched_integrations: List[Dict[str, Any]] = []
     for integration in integrations:
         if not isinstance(integration, dict):
             # Pular integrações que não são dicts (não deveria acontecer, mas type checker precisa)
             continue
-            
+
+        existing_name = integration.get("spreadsheet_name")
+        if isinstance(existing_name, str) and existing_name.strip():
+            enriched_integrations.append(integration)
+            continue
+
         spreadsheet_id = integration.get("spreadsheet_id")
         connection_id = integration.get("connection_id")
-        
+
         if spreadsheet_id and isinstance(spreadsheet_id, str):
             try:
-                # Buscar nome da planilha diretamente pelo ID (muito mais eficiente)
+                # Fallback pontual para preencher nome faltante em telas de configuração.
                 spreadsheet_name = get_spreadsheet_name(
                     user_jwt=user["token"],
                     user_id=user["user_id"],
@@ -750,7 +756,6 @@ def list_ad_sheet_integrations(
                 )
                 integration["spreadsheet_name"] = spreadsheet_name or "Planilha desconhecida"
             except GoogleSheetsError as e:
-                # Se for erro de token expirado, não falhar completamente
                 error_code = getattr(e, 'code', None)
                 if error_code == GOOGLE_TOKEN_EXPIRED:
                     logger.warning(
@@ -774,7 +779,7 @@ def list_ad_sheet_integrations(
                 integration["spreadsheet_name"] = None
         else:
             integration["spreadsheet_name"] = None
-        
+
         enriched_integrations.append(integration)
     
     return {"integrations": enriched_integrations}
@@ -829,5 +834,3 @@ def delete_ad_sheet_integration(
             # Não falhar a operação principal se isso falhar
     
     return {"success": True}
-
-

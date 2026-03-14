@@ -25,7 +25,6 @@ interface SelectColumnsStepProps {
   dateColumn: string;
   dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY";
   leadscoreColumn: string;
-  cprMaxColumn: string;
   isSaving: boolean;
   isImporting: boolean;
   importStep: "idle" | "saving" | "reading" | "processing" | "complete";
@@ -35,7 +34,6 @@ interface SelectColumnsStepProps {
   onDateColumnChange: (value: string) => void;
   onDateFormatChange: (value: "DD/MM/YYYY" | "MM/DD/YYYY") => void;
   onLeadscoreColumnChange: (value: string) => void;
-  onCprMaxColumnChange: (value: string) => void;
   onBack: () => void;
   onImport: () => void;
 }
@@ -121,7 +119,6 @@ export function SelectColumnsStep({
   dateColumn,
   dateFormat,
   leadscoreColumn,
-  cprMaxColumn,
   isSaving,
   isImporting,
   importStep,
@@ -131,7 +128,6 @@ export function SelectColumnsStep({
   onDateColumnChange,
   onDateFormatChange,
   onLeadscoreColumnChange,
-  onCprMaxColumnChange,
   onBack,
   onImport,
 }: SelectColumnsStepProps) {

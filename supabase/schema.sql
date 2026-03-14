@@ -46,7 +46,6 @@ create table if not exists public.ads (
   thumb_cached_at timestamptz,
   thumb_source_url text,
   leadscore numeric,
-  cpr_max numeric,
   pack_ids uuid[] default '{}',
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -85,7 +84,6 @@ create table if not exists public.ad_metrics (
   profile_ctr numeric,
    -- enrichment via Google Sheets
   leadscore numeric,
-  cpr_max numeric,
   raw_data jsonb,
   pack_ids uuid[] default '{}',
   created_at timestamptz default now(),
@@ -104,7 +102,7 @@ create table if not exists public.ad_sheet_integrations (
   -- Formato de data configurado pelo usuário (DD/MM/YYYY ou MM/DD/YYYY)
   date_format text,
   leadscore_column text,
-  cpr_max_column text,
+  spreadsheet_name text,
   -- ID da conexão Google específica a usar para esta integração
   connection_id uuid,
   last_synced_at timestamptz,

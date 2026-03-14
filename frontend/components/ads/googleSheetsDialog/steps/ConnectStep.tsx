@@ -43,7 +43,7 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
               const canSelect = !isExpired && !isTesting;
 
               return (
-                <div key={conn.id} className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-5 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-5 cursor-not-allowed opacity-75" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelectConnection(conn.id)}>
+                <div key={conn.id} className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-5 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-5 cursor-not-allowed" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelectConnection(conn.id)}>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <div className="font-medium text-sm truncate">{conn.google_email || conn.google_name || conn.google_user_id || "Conta Google"}</div>

@@ -80,28 +80,16 @@ export function useGoogleSyncJob() {
           packId: storeKey,
           integrationId,
           getCancelled: () => cancelledRef.current,
-          getMounted: () => mountedRef.current,
+          // Fluxo detached: o modal fecha antes do polling concluir.
+          // Não interromper por unmount do componente do dialog.
+          getMounted: () => true,
           onCancel: handleCancelSheets,
           pauseJob,
           clearJob,
           connectGoogle,
           onPackIntegrationUpdated: packId
             ? (pId) => {
-                api.analytics
-                  .listPacks(false)
-                  .then((response) => {
-                    if (response.success && response.packs) {
-                      const updatedPack = response.packs.find((p: any) => p.id === pId);
-                      if (updatedPack?.sheet_integration) {
-                        window.dispatchEvent(
-                          new CustomEvent("pack-integration-updated", {
-                            detail: { packId: pId, sheetIntegration: updatedPack.sheet_integration },
-                          })
-                        );
-                      }
-                    }
-                  })
-                  .catch((e) => logger.error("useGoogleSyncJob: erro ao recarregar pack após sync concluído", { packId: pId, error: e }));
+                window.dispatchEvent(new CustomEvent("pack-integration-updated", { detail: { packId: pId } }));
               }
             : undefined,
         });
@@ -110,13 +98,16 @@ export function useGoogleSyncJob() {
           const updatedRows = result.stats?.rows_updated ?? 0;
           showSuccess(updatedRows > 0 ? `Importação concluída! Atualizadas ${updatedRows} linhas em ad_metrics.` : "Importação concluída!");
         } else if (!result.paused && result.error) {
-          showError(new Error(result.error));
+          logger.warn("useGoogleSyncJob: sync finalizado com falha (toast de progresso já exibido)", {
+            integrationId,
+            packId,
+            error: result.error,
+          });
         }
       } catch (error: any) {
         const msg = error?.message || "Erro ao iniciar importação";
         logger.error("useGoogleSyncJob: erro ao iniciar ou processar sync com Google Sheets", { integrationId, packId, error });
         finishProgressToast(toastId, false, msg);
-        showError(error instanceof Error ? error : new Error(msg));
       }
     },
     [pauseJob, clearJob, connectGoogle]

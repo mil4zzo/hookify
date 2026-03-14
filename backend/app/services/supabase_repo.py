@@ -2014,46 +2014,19 @@ def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
                 integrations = _fetch_all_paginated(
                     sb,
                     "ad_sheet_integrations",
-                    "id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status, last_successful_sync_at",
+                    "id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at",
                     lambda q: q.in_("id", integration_ids)
                 )
                 # Criar mapa id -> integration
                 integrations_map = {str(int["id"]): int for int in integrations}
                 
-                # Enriquecer packs com dados da integração
-                # Buscar nomes das planilhas individualmente usando connection_id salvo (mais eficiente)
-                from app.services.google_sheets_service import get_spreadsheet_name
-                
+                # Enriquecer packs com dados da integração já persistidos.
                 for pack in packs:
                     if not isinstance(pack, dict):
                         continue
                     sheet_integration_id = pack.get("sheet_integration_id")
                     if sheet_integration_id and str(sheet_integration_id) in integrations_map:
                         integration = integrations_map[str(sheet_integration_id)]
-                        if not isinstance(integration, dict):
-                            pack["sheet_integration"] = integration
-                            continue
-                            
-                        spreadsheet_id = integration.get("spreadsheet_id")
-                        connection_id = integration.get("connection_id")
-                        
-                        # Buscar nome da planilha diretamente pelo ID
-                        if spreadsheet_id and isinstance(spreadsheet_id, str):
-                            try:
-                                spreadsheet_name = get_spreadsheet_name(
-                                    user_jwt=user_jwt,
-                                    user_id=user_id,
-                                    spreadsheet_id=spreadsheet_id,
-                                    connection_id=connection_id if isinstance(connection_id, str) else None,
-                                )
-                                if spreadsheet_name:
-                                    integration["spreadsheet_name"] = spreadsheet_name
-                            except Exception as e:
-                                logger.warning(
-                                    f"[LIST_PACKS] Erro ao buscar nome da planilha {spreadsheet_id}: {e}"
-                                )
-                                # Não falhar completamente, apenas não adicionar o nome
-                        
                         pack["sheet_integration"] = integration
             except Exception as e:
                 logger.warning(f"[LIST_PACKS] Erro ao buscar integrações: {e}")
@@ -2083,32 +2056,13 @@ def get_pack(
             try:
                 int_res = (
                     sb.table("ad_sheet_integrations")
-                    .select("id, spreadsheet_id, worksheet_title, last_synced_at, last_sync_status, last_successful_sync_at")
+                    .select("id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at")
                     .eq("id", sheet_integration_id)
                     .limit(1)
                     .execute()
                 )
                 if int_res.data and len(int_res.data) > 0:
                     integration = int_res.data[0]
-                    # Buscar nome da planilha via Google API
-                    spreadsheet_id = integration.get("spreadsheet_id")
-                    if spreadsheet_id:
-                        try:
-                            from app.services.google_sheets_service import list_spreadsheets
-                            spreadsheets, _ = list_spreadsheets(
-                                user_jwt=user_jwt,
-                                user_id=user_id,
-                                query=None,
-                                page_size=100,
-                            )
-                            matching_spreadsheet = next(
-                                (s for s in spreadsheets if s.get("id") == spreadsheet_id),
-                                None
-                            )
-                            if matching_spreadsheet:
-                                integration["spreadsheet_name"] = matching_spreadsheet.get("name", "Planilha desconhecida")
-                        except Exception as e:
-                            logger.warning(f"[GET_PACK] Erro ao buscar nome da planilha: {e}")
                     pack["sheet_integration"] = integration
             except Exception as e:
                 logger.warning(f"[GET_PACK] Erro ao buscar integração para pack {pack_id}: {e}")

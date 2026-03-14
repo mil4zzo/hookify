@@ -245,13 +245,11 @@ export const SheetIntegrationRequestSchema = z.object({
   ad_id_column: z.string(),
   date_column: z.string(),
   date_format: z.enum(["DD/MM/YYYY", "MM/DD/YYYY"]),
-  leadscore_column: z.string().optional().nullable(),
-  cpr_max_column: z.string().optional().nullable(),
+  leadscore_column: z.string(),
   // Índices explícitos quando há headers duplicados (0-based)
   ad_id_column_index: z.number().optional().nullable(),
   date_column_index: z.number().optional().nullable(),
   leadscore_column_index: z.number().optional().nullable(),
-  cpr_max_column_index: z.number().optional().nullable(),
   // Quando presente, a integração é específica daquele pack (booster por pack)
   pack_id: z.string().optional().nullable(),
   // ID da conexão Google específica a usar para esta integração
@@ -268,7 +266,7 @@ export const SheetIntegrationSchema = z.object({
   date_column: z.string(),
   date_format: z.string().nullable().optional(),
   leadscore_column: z.string().nullable().optional(),
-  cpr_max_column: z.string().nullable().optional(),
+  spreadsheet_name: z.string().nullable().optional(),
   last_synced_at: z.string().nullable().optional(),
   last_sync_status: z.string().nullable().optional(),
   last_successful_sync_at: z.string().nullable().optional(),
