@@ -100,8 +100,9 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
     const heightMatch = windowFeatures.match(/height=(\d+)/i);
     const width = widthMatch ? parseInt(widthMatch[1], 10) : 600;
     const height = heightMatch ? parseInt(heightMatch[1], 10) : 700;
-    const left = Math.round((window.screen.availWidth - width) / 2 + window.screen.availLeft);
-    const top = Math.round((window.screen.availHeight - height) / 2 + window.screen.availTop);
+    const screen = window.screen as Screen & { availLeft?: number; availTop?: number };
+    const left = Math.round((screen.availWidth - width) / 2 + (screen.availLeft ?? 0));
+    const top = Math.round((screen.availHeight - height) / 2 + (screen.availTop ?? 0));
     features = `${windowFeatures},left=${left},top=${top}`;
   }
 

@@ -410,7 +410,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       </div>
 
       {/* Tabs */}
-      <TabbedContent value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} variant="simple" tabs={[{ value: "overview", label: "Visão geral" }, { value: "history", label: "Histórico" }, { value: "conversions", label: "Conversões" }, { value: "series", label: "Séries" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : []), { value: "video", label: "Vídeo" }]} tabsListClassName="mb-4">
+      <TabbedContent value={activeTab} onValueChange={(value) => setActiveTab(value as typeof activeTab)} variant="simple" tabs={[{ value: "overview", label: "Visão geral" }, { value: "history", label: "Histórico" }, { value: "conversions", label: "Conversões" }, { value: "series", label: "Séries" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : []), { value: "video", label: "Vídeo" }]} tabsListClassName="mb-6">
         <TabbedContentItem value="overview" variant="simple">
           <div className="space-y-4">
             {retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={ad?.hook != null ? Number(ad.hook) : null} onPointClick={handleRetentionPointClick} /> : null}
@@ -570,7 +570,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                 </div>
 
                 {/* Métricas em seções */}
-                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-start md:h-[calc(100vh-12rem)] md:justify-between">
+                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-between">
                   {/* Seletor de evento de conversão */}
                   {allConversionTypes.length > 0 && (
                     <div className="space-y-1.5">
