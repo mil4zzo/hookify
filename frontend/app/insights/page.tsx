@@ -1159,7 +1159,7 @@ export default function InsightsPage() {
           setSelectedAd(null);
           setOpenInVideoTab(false);
         }}
-        size="4xl"
+        size="5xl"
         padding="md"
       >
         {selectedAd && (

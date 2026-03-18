@@ -435,11 +435,11 @@ export default async function PvPage({
             <p>
               © {new Date().getFullYear()} Hookify.{" "}
               <Link className="underline underline-offset-4" href="/politica-de-privacidade">
-                Privacidade
+                Política de privacidade
               </Link>{" "}
               ·{" "}
               <Link className="underline underline-offset-4" href="/termos-de-uso">
-                Termos
+                Termos de uso
               </Link>
             </p>
             <p>

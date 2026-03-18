@@ -360,6 +360,9 @@ export const RankingsRequestSchema = z.object({
 const RankingsSeriesSchema = z.object({
   axis: z.array(z.string()),
   hook: z.array(z.number().nullable()),
+  scroll_stop: z.array(z.number().nullable()).optional(),
+  hold_rate: z.array(z.number().nullable()).optional(),
+  video_watched_p50: z.array(z.number().nullable()).optional(),
   spend: z.array(z.number().nullable()),
   ctr: z.array(z.number().nullable()),
   connect_rate: z.array(z.number().nullable()),

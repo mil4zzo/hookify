@@ -15,7 +15,7 @@ export interface ModalProps {
   /** Classe CSS customizada para o container do modal */
   className?: string;
   /** Tamanho máximo do modal (padrão: 'lg') */
-  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "full";
+  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "full";
   /** Padding customizado (padrão: '6') */
   padding?: "none" | "sm" | "md" | "lg" | "xl";
   /** Se deve mostrar o botão de fechar (padrão: true) */
@@ -38,6 +38,7 @@ const sizeClasses = {
   "2xl": "max-w-2xl",
   "3xl": "max-w-3xl",
   "4xl": "max-w-4xl",
+  "5xl": "max-w-[calc(100vw-2rem)] md:max-w-5xl mx-4",
   full: "max-w-full mx-4",
 };
 

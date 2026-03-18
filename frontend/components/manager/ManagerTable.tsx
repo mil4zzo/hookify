@@ -1043,7 +1043,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       </TabbedContent>
 
       {/* Details Dialog */}
-      <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="4xl" padding="md">
+      <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="5xl" padding="md">
         {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdNameEffective} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} averages={averages} />}
       </Modal>
 

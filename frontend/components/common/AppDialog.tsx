@@ -15,7 +15,7 @@ export interface AppDialogProps {
   /** Classe CSS customizada para o container do conteúdo */
   className?: string;
   /** Tamanho máximo do dialog (padrão: 'lg') */
-  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "full";
+  size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "full";
   /** Padding customizado (padrão: 'md') */
   padding?: "none" | "sm" | "md" | "lg" | "xl";
   /** Se deve mostrar o botão de fechar (padrão: true) */
@@ -30,6 +30,8 @@ export interface AppDialogProps {
   overlayClassName?: string;
   /** Título acessível (para leitores de tela). Se não informado, usa "Dialog". */
   title?: string;
+  /** Variante de apresentação no mobile. "bottom-sheet" ancora na base da tela com slide-up. */
+  mobileVariant?: "center" | "bottom-sheet";
 }
 
 const sizeClasses: Record<NonNullable<AppDialogProps["size"]>, string> = {
@@ -40,6 +42,7 @@ const sizeClasses: Record<NonNullable<AppDialogProps["size"]>, string> = {
   "2xl": "max-w-2xl",
   "3xl": "max-w-3xl",
   "4xl": "max-w-4xl",
+  "5xl": "max-w-[calc(100vw-2rem)] md:max-w-5xl mx-4",
   full: "max-w-full mx-4",
 };
 
@@ -55,7 +58,7 @@ const paddingClasses: Record<NonNullable<AppDialogProps["padding"]>, string> = {
  * Wrapper de dialog que usa Radix UI por dentro e expõe API compatível com o Modal
  * (isOpen, onClose, size, padding, etc.). Garante foco inicial e focus trap para acessibilidade.
  */
-export function AppDialog({ isOpen, onClose, children, className, size = "lg", padding = "md", showCloseButton = true, closeOnOverlayClick = true, closeOnEscape = true, overlayOpacity = 0.8, overlayClassName, title }: AppDialogProps) {
+export function AppDialog({ isOpen, onClose, children, className, size = "lg", padding = "md", showCloseButton = true, closeOnOverlayClick = true, closeOnEscape = true, overlayOpacity = 0.8, overlayClassName, title, mobileVariant = "center" }: AppDialogProps) {
   const handleOpenChange = React.useCallback(
     (open: boolean) => {
       if (!open) onClose();
@@ -90,10 +93,36 @@ export function AppDialog({ isOpen, onClose, children, className, size = "lg", p
     <DialogPrimitive.Root open={isOpen} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className={cn("fixed inset-0 z-50 bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0", overlayClassName)} style={overlayStyle} />
-        <DialogPrimitive.Content onOpenAutoFocus={handleOpenAutoFocus} onInteractOutside={handleInteractOutside} onEscapeKeyDown={handleEscapeKeyDown} className={cn("fixed left-[50%] top-[50%] z-50 w-full translate-x-[-50%] translate-y-[-50%]", "border border-border bg-card shadow-lg rounded-lg", "max-h-[90vh] overflow-y-auto", "duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out", "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0", "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95", "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]", "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]", sizeClasses[size], paddingClasses[padding], className)}>
+        <DialogPrimitive.Content onOpenAutoFocus={handleOpenAutoFocus} onInteractOutside={handleInteractOutside} onEscapeKeyDown={handleEscapeKeyDown} className={cn(
+          // Base
+          "fixed z-50 border border-border bg-card shadow-lg duration-200",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out",
+          "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+          // Variante mobile
+          mobileVariant === "bottom-sheet"
+            ? cn(
+                // Mobile: bottom-sheet (full-width, anchored to bottom)
+                "left-0 right-0 bottom-0 w-full rounded-t-2xl max-h-[95vh] overflow-hidden",
+                "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+                // Desktop: centered dialog (override mobile positioning)
+                "md:left-[50%] md:right-auto md:bottom-auto md:top-[50%] md:w-full",
+                "md:translate-x-[-50%] md:translate-y-[-50%] md:rounded-lg md:rounded-t-lg md:max-h-[90vh] md:overflow-y-auto",
+                "md:data-[state=closed]:zoom-out-95 md:data-[state=open]:zoom-in-95",
+                "md:data-[state=closed]:slide-out-to-left-1/2 md:data-[state=closed]:slide-out-to-top-[48%]",
+                "md:data-[state=open]:slide-in-from-left-1/2 md:data-[state=open]:slide-in-from-top-[48%]"
+              )
+            : cn(
+                // Always centered
+                "left-[50%] top-[50%] w-full translate-x-[-50%] translate-y-[-50%] rounded-lg max-h-[90vh] overflow-y-auto",
+                "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+                "data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%]",
+                "data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]"
+              ),
+          sizeClasses[size], paddingClasses[padding], className
+        )}>
           <DialogPrimitive.Title className="sr-only">{title ?? "Dialog"}</DialogPrimitive.Title>
           {showCloseButton && (
-            <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-30 disabled:cursor-not-allowed z-10 text-text" aria-label="Fechar">
+            <DialogPrimitive.Close className={cn("absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none disabled:opacity-30 disabled:cursor-not-allowed z-10 text-text", mobileVariant === "bottom-sheet" && "hidden md:flex")} aria-label="Fechar">
               <IconX className="h-4 w-4" />
             </DialogPrimitive.Close>
           )}

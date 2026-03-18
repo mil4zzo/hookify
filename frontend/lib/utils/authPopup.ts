@@ -28,6 +28,10 @@ export interface OpenAuthPopupOptions<TData extends AuthPopupEventData = AuthPop
    */
   windowFeatures?: string;
   /**
+   * Se true, centraliza o popup no meio da tela. Default: true.
+   */
+  center?: boolean;
+  /**
    * Origin esperado para as mensagens recebidas via postMessage.
    * Default: window.location.origin.
    */
@@ -46,7 +50,7 @@ export interface OpenAuthPopupOptions<TData extends AuthPopupEventData = AuthPop
    */
   expectedState?: string;
   /**
-   * Timeout de segurança em ms. Default: 5 minutos.
+   * Timeout de segurança em ms. Se 0 ou omitido, não há timeout.
    */
   timeoutMs?: number;
   /**
@@ -81,15 +85,27 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
     url,
     windowName,
     windowFeatures = "width=600,height=700,scrollbars=yes",
+    center = true,
     expectedOrigin = window.location.origin,
     successType,
     errorType,
     expectedState,
-    timeoutMs = 5 * 60 * 1000,
+    timeoutMs = 0,
     checkMessage,
   } = options;
 
-  const popup = window.open(url, windowName, windowFeatures);
+  let features = windowFeatures;
+  if (center) {
+    const widthMatch = windowFeatures.match(/width=(\d+)/i);
+    const heightMatch = windowFeatures.match(/height=(\d+)/i);
+    const width = widthMatch ? parseInt(widthMatch[1], 10) : 600;
+    const height = heightMatch ? parseInt(heightMatch[1], 10) : 700;
+    const left = Math.round((window.screen.availWidth - width) / 2 + window.screen.availLeft);
+    const top = Math.round((window.screen.availHeight - height) / 2 + window.screen.availTop);
+    features = `${windowFeatures},left=${left},top=${top}`;
+  }
+
+  const popup = window.open(url, windowName, features);
 
   if (!popup) {
     const err: AuthPopupError = Object.assign(
@@ -167,13 +183,15 @@ export async function openAuthPopup<TData extends AuthPopupEventData = AuthPopup
 
     window.addEventListener("message", handleMessage as any);
 
-    timeoutId = window.setTimeout(() => {
-      const err: AuthPopupError = Object.assign(
-        new Error("Tempo limite para autenticação atingido."),
-        { code: "AUTH_POPUP_TIMEOUT" as AuthPopupErrorCode }
-      );
-      safeReject(err);
-    }, timeoutMs);
+    if (timeoutMs > 0) {
+      timeoutId = window.setTimeout(() => {
+        const err: AuthPopupError = Object.assign(
+          new Error("Tempo limite para autenticação atingido."),
+          { code: "AUTH_POPUP_TIMEOUT" as AuthPopupErrorCode }
+        );
+        safeReject(err);
+      }, timeoutMs);
+    }
 
     closeWatcherId = window.setInterval(() => {
       if (popup.closed) {

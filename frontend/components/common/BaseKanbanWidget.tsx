@@ -211,7 +211,7 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
             setSelectedAd(null);
             setOpenInVideoTab(false);
           }}
-          size="4xl"
+          size="5xl"
           padding="md"
         >
           {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={modalProps.dateStart} dateStop={modalProps.dateStop} actionType={modalProps.actionType} availableConversionTypes={modalProps.availableConversionTypes} initialTab={openInVideoTab ? "video" : "overview"} averages={dialogAverages} />}

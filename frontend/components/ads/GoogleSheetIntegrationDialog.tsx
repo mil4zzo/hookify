@@ -277,7 +277,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         successType: "GOOGLE_SHEETS_AUTH_SUCCESS",
         errorType: "GOOGLE_SHEETS_AUTH_ERROR",
         expectedState: "google_sheets",
-        timeoutMs: 5 * 60 * 1000,
       });
 
       if (!messageData.code) {

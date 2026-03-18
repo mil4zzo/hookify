@@ -14,6 +14,9 @@ import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
+import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 
 interface AdDetailsDialogProps {
   ad: RankingsItem;
@@ -46,6 +49,12 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     setShouldAutoplay(initialTab === "video");
     setInitialVideoTime(null); // Resetar tempo inicial quando mudar de anúncio
   }, [initialTab, ad?.ad_id]); // Resetar quando o anúncio mudar
+  // Local actionType que pode ser alterado dentro do dialog sem afetar o Manager
+  const [localActionType, setLocalActionType] = useState<string>(actionType || "");
+  useEffect(() => {
+    setLocalActionType(actionType || "");
+  }, [actionType, ad?.ad_id]);
+
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(["spend"]);
   // Date range específico para o histórico (inicializa com o date range principal ou vazio para mostrar todos)
   const [historyDateRange, setHistoryDateRange] = useState<DateRangeValue>(() => ({
@@ -152,6 +161,55 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     );
   }
 
+  function VideoMetricCell({
+    label,
+    value,
+    subtitle,
+    subtitleInLabelRow = false,
+    series: cellSeries,
+    inverse,
+    formatFn,
+  }: {
+    label: string;
+    value: React.ReactNode;
+    subtitle?: React.ReactNode;
+    /** Se true, renderiza o subtitle na mesma linha do label (lado direito) */
+    subtitleInLabelRow?: boolean;
+    series?: Array<number | null | undefined>;
+    inverse?: boolean;
+    formatFn?: (n: number) => string;
+  }) {
+    const hasSeries = cellSeries && cellSeries.length > 0 && cellSeries.some((v) => v != null && !Number.isNaN(v as number));
+    return (
+      <div className="p-2 rounded border border-border">
+        {subtitle && subtitleInLabelRow ? (
+          <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground mb-1">
+            <span className="min-w-0 truncate">{label}</span>
+            <span className="text-right flex-1 truncate">{subtitle}</span>
+          </div>
+        ) : (
+          <div className="text-[10px] text-muted-foreground mb-1">{label}</div>
+        )}
+        <div className="text-sm font-semibold leading-tight">{value}</div>
+        {!subtitleInLabelRow && subtitle && <div className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</div>}
+        {hasSeries && (
+          <div className="w-full mt-1.5">
+            <SparklineBars series={cellSeries} size="small" className="w-full h-5" valueFormatter={formatFn} inverseColors={inverse} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  function MetricSection({ title, children }: { title: string; children: React.ReactNode }) {
+    return (
+      <div className="space-y-1.5">
+        <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{title}</div>
+        <div className="grid grid-cols-4 gap-1.5">{children}</div>
+      </div>
+    );
+  }
+
   // Mapa de conversões do ad (objeto original do servidor contendo todos os tipos)
   const conversionsMap: Record<string, number> = useMemo(() => {
     const c = ad?.conversions;
@@ -196,9 +254,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   }, [availableConversionTypes, ad?.conversions, childrenData]);
 
   const resultsForActionType = useMemo(() => {
-    if (!actionType) return 0;
-    return Number(conversionsMap[actionType] || 0);
-  }, [conversionsMap, actionType]);
+    if (!localActionType) return 0;
+    return Number(conversionsMap[localActionType] || 0);
+  }, [conversionsMap, localActionType]);
 
   // CPR: usar o valor já calculado do ranking se disponível, senão calcular
   const cpr = useMemo(() => {
@@ -237,19 +295,29 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     return typeof (ad as any)?.website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr) ? (ad as any).website_ctr : 0;
   }, [ad]);
 
+  // MQL / CPMQL
+  const { mqlLeadscoreMin } = useMqlLeadscore();
+  const mqlMetrics = useMemo(() => {
+    return computeMqlMetricsFromLeadscore({
+      spend: Number(ad?.spend || 0),
+      leadscoreRaw: (ad as any)?.leadscore_values,
+      mqlLeadscoreMin,
+    });
+  }, [ad?.spend, (ad as any)?.leadscore_values, mqlLeadscoreMin]);
+
   // Calcular séries dinâmicas (cpr e page_conv) baseadas no actionType
   const series = useMemo(() => {
     const baseSeries = ad?.series;
     if (!baseSeries) return baseSeries;
 
     // Se não há actionType ou não há conversions, retornar série base
-    if (!actionType || !baseSeries.conversions) {
+    if (!localActionType || !baseSeries.conversions) {
       return baseSeries;
     }
 
     // Calcular results por dia para o action_type selecionado
     const resultsSeries = baseSeries.conversions.map((dayConversions: Record<string, number>) => {
-      return dayConversions[actionType] || 0;
+      return dayConversions[localActionType] || 0;
     });
 
     // Calcular cpr_series e page_conv_series
@@ -271,7 +339,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       cpr: cpr_series,
       page_conv: page_conv_series,
     } as any;
-  }, [ad?.series, actionType]);
+  }, [ad?.series, localActionType]);
 
   // Retenção de vídeo (array 0..100 por segundo) - priorizar do ad (já vem do ranking agregado)
   const retentionSeries: number[] = useMemo(() => {
@@ -380,7 +448,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     const v = Number(conversionsMap[type] || 0);
                     const spend = Number(ad?.spend || 0);
                     const cprType = v > 0 && spend > 0 && !Number.isNaN(spend) ? spend / v : null;
-                    const isSelected = actionType && type === actionType;
+                    const isSelected = localActionType && type === localActionType;
                     return (
                       <tr key={type} className={isSelected ? "bg-muted" : ""}>
                         <td className="py-2 pr-2">{type}</td>
@@ -430,12 +498,12 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                         const spendC = Number(child.spend || 0);
                         const impressionsC = Number(child.impressions || 0);
                         const conversionsC = child.conversions || {};
-                        // Calcular resultsC: usar actionType se disponível, senão somar todas as conversões
+                        // Calcular resultsC: usar localActionType se disponível, senão somar todas as conversões
                         let resultsC = 0;
-                        if (actionType && typeof actionType === "string" && actionType.trim()) {
-                          resultsC = Number(conversionsC[actionType] || 0);
+                        if (localActionType && typeof localActionType === "string" && localActionType.trim()) {
+                          resultsC = Number(conversionsC[localActionType] || 0);
                         } else {
-                          // Se não há actionType, somar todas as conversões disponíveis
+                          // Se não há localActionType, somar todas as conversões disponíveis
                           resultsC = Object.values(conversionsC).reduce((sum, val) => {
                             const numVal = Number(val || 0);
                             return sum + (Number.isNaN(numVal) ? 0 : numVal);
@@ -492,7 +560,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
             ) : !videoId || !actorId ? (
               <div className="text-sm text-muted-foreground p-6 text-center">Vídeo não disponível para este anúncio.</div>
             ) : (
-              <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex flex-col md:flex-row gap-4 md:gap-8">
                 {/* Player de vídeo */}
                 <div className="w-full bg-black rounded-lg flex items-center justify-center md:max-w-[20rem] max-w-full ml-8" style={{ aspectRatio: "9/16" }}>
                   {loadingVideo && <div className="text-sm text-muted-foreground p-6">Carregando vídeo...</div>}
@@ -501,24 +569,47 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   {!loadingVideo && !videoError && !(videoData as any)?.source_url && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
                 </div>
 
-                {/* Cards de métricas */}
-                <div className="flex-1 flex flex-row gap-4">
-                  {/* Primeira coluna vertical */}
-                  <div className="flex flex-col gap-4 flex-1">
-                    <MetricCard label="Scroll Stop" value={<ValueWithDelta display={formatPct(scrollStop * 100)} valueRaw={scrollStop} avgRaw={averages?.scroll_stop ?? null} better="higher" />} series={undefined} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
-                    <MetricCard label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} metric="hook" size="medium" layout="horizontal" formatPct={formatPct} />
-                    <MetricCard label="Website CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
-                    <MetricCard label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} metric="connect_rate" size="medium" layout="horizontal" formatPct={formatPct} />
-                    <MetricCard label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} metric="page_conv" size="medium" layout="horizontal" formatPct={formatPct} />
-                  </div>
-                  {/* Segunda coluna vertical */}
-                  <div className="flex flex-col gap-4 flex-1">
-                    <MetricCard label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} series={(series as any)?.cpr} metric="cpr" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-                    <MetricCard label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} metric="spend" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-                    <MetricCard label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-                    <MetricCard label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} metric="ctr" size="medium" layout="horizontal" formatPct={formatPct} />
-                    <MetricCard label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} series={undefined} metric="cpm" size="medium" layout="horizontal" formatCurrency={formatCurrency} />
-                  </div>
+                {/* Métricas em seções */}
+                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-start md:h-[calc(100vh-12rem)] md:justify-between">
+                  {/* Seletor de evento de conversão */}
+                  {allConversionTypes.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Evento de conversão</div>
+                      <ActionTypeFilter label="" value={localActionType} onChange={setLocalActionType} options={allConversionTypes} placeholder="Evento de Conversão" />
+                    </div>
+                  )}
+
+                  {/* Retenção */}
+                  <MetricSection title="Retenção">
+                    <VideoMetricCell label="Scroll Stop" value={<ValueWithDelta display={formatPct(scrollStop * 100)} valueRaw={scrollStop} avgRaw={averages?.scroll_stop ?? null} better="higher" />} series={series?.scroll_stop} formatFn={(n: number) => formatPct(n * 100)} />
+                    <VideoMetricCell label="Hook" value={<ValueWithDelta display={formatPct(Number(ad?.hook * 100))} valueRaw={Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" />} series={series?.hook} formatFn={(n: number) => formatPct(n * 100)} />
+                    <VideoMetricCell label="Hold Rate" value={(ad as any)?.hold_rate != null ? formatPct(Number((ad as any).hold_rate) * 100) : "—"} series={series?.hold_rate} formatFn={(n: number) => formatPct(n * 100)} />
+                    <VideoMetricCell label="50% View" value={videoWatchedP50 != null ? `${videoWatchedP50}%` : "—"} series={series?.video_watched_p50} formatFn={(n: number) => `${Math.round(n)}%`} />
+                  </MetricSection>
+
+                  {/* Funil */}
+                  <MetricSection title="Funil">
+                    <VideoMetricCell label="CTR" value={<ValueWithDelta display={formatPct(Number(ad?.ctr * 100))} valueRaw={Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" />} series={series?.ctr} formatFn={(n: number) => formatPct(n * 100)} />
+                    <VideoMetricCell label="Link CTR" value={<ValueWithDelta display={formatPct(Number(websiteCtr * 100))} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" />} series={(series as any)?.website_ctr} formatFn={(n: number) => formatPct(n * 100)} />
+                    <VideoMetricCell label="Connect Rate" value={<ValueWithDelta display={formatPct(Number(ad?.connect_rate * 100))} valueRaw={Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" />} series={series?.connect_rate} formatFn={(n: number) => formatPct(n * 100)} />
+                    <VideoMetricCell label="Page Conv" value={<ValueWithDelta display={formatPct(Number(pageConv * 100))} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" />} series={(series as any)?.page_conv} formatFn={(n: number) => formatPct(n * 100)} />
+                  </MetricSection>
+
+                  {/* Métricas */}
+                  <MetricSection title="Métricas">
+                    <VideoMetricCell label="CPMQL" value={mqlMetrics.cpmql > 0 ? formatCurrency(mqlMetrics.cpmql) : "—"} subtitle={`${mqlMetrics.mqlCount} MQLs`} subtitleInLabelRow series={(series as any)?.cpmql} inverse formatFn={(n: number) => formatCurrency(n)} />
+                    <VideoMetricCell label="CPR" value={<ValueWithDelta display={hasCpr ? formatCurrency(cpr) : "—"} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" />} subtitle={`${resultsForActionType} results`} subtitleInLabelRow series={(series as any)?.cpr} inverse formatFn={(n: number) => formatCurrency(n)} />
+                    <VideoMetricCell label="CPM" value={<ValueWithDelta display={formatCurrency(cpm)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" />} series={(series as any)?.cpm} inverse formatFn={(n: number) => formatCurrency(n)} />
+                    <VideoMetricCell label="Spend" value={formatCurrency(Number(ad?.spend || 0))} series={series?.spend} formatFn={(n: number) => formatCurrency(n)} />
+                  </MetricSection>
+
+                  {/* Absolutas (sem sparklines) */}
+                  <MetricSection title="Absolutas">
+                    <VideoMetricCell label="Frequency" value={(ad as any)?.frequency != null ? Number((ad as any).frequency).toFixed(2) : "—"} />
+                    <VideoMetricCell label="Impressions" value={Number(ad?.impressions || 0).toLocaleString("pt-BR")} />
+                    <VideoMetricCell label="Reach" value={(ad as any)?.reach != null ? Number((ad as any).reach).toLocaleString("pt-BR") : "—"} />
+                    <VideoMetricCell label="Thruplays" value={(ad as any)?.video_total_thruplays != null ? Number((ad as any).video_total_thruplays).toLocaleString("pt-BR") : "—"} />
+                  </MetricSection>
                 </div>
               </div>
             )}
@@ -555,7 +646,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
               <div className="text-sm text-muted-foreground p-6 text-center">Sem dados históricos disponíveis para o período selecionado.</div>
             ) : (
               <div className="flex-1 min-h-0">
-                <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={actionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={setSelectedMetrics} />
+                <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={localActionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={setSelectedMetrics} />
               </div>
             )}
           </div>
@@ -616,7 +707,29 @@ function VideoPlayer({ src, autoplay, initialTime, onTimeSet, retentionCurve }: 
     const video = videoRef.current;
     if (!video) return;
 
+    // RAF loop para atualizações suaves (~60fps) durante a reprodução
+    let rafId: number | null = null;
+
+    const tick = () => {
+      setCurrentTime(video.currentTime);
+      rafId = requestAnimationFrame(tick);
+    };
+
+    const startRaf = () => {
+      if (rafId == null) rafId = requestAnimationFrame(tick);
+    };
+
+    const stopRaf = () => {
+      if (rafId != null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      setCurrentTime(video.currentTime);
+    };
+
+    // timeupdate apenas para seeks enquanto pausado
     const handleTimeUpdate = () => {
+      if (!video.paused) return;
       setCurrentTime(video.currentTime);
     };
 
@@ -630,14 +743,17 @@ function VideoPlayer({ src, autoplay, initialTime, onTimeSet, retentionCurve }: 
 
     const handlePlay = () => {
       setIsPlaying(true);
+      startRaf();
     };
 
     const handlePause = () => {
       setIsPlaying(false);
+      stopRaf();
     };
 
     const handleEnded = () => {
       setIsPlaying(false);
+      stopRaf();
     };
 
     video.addEventListener("timeupdate", handleTimeUpdate);
@@ -655,8 +771,10 @@ function VideoPlayer({ src, autoplay, initialTime, onTimeSet, retentionCurve }: 
 
     // Verificar se está reproduzindo inicialmente
     setIsPlaying(!video.paused && !video.ended);
+    if (!video.paused && !video.ended) startRaf();
 
     return () => {
+      stopRaf();
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("loadedmetadata", handleLoadedMetadata);
       video.removeEventListener("durationchange", handleDurationChange);

@@ -320,6 +320,9 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
     if S is None:
         S = {}
     hook_series: List[Optional[float]] = []
+    scroll_stop_series: List[Optional[float]] = []
+    hold_rate_series: List[Optional[float]] = []
+    video_watched_p50_series: List[Optional[float]] = []
     spend_series: List[Optional[float]] = []
     ctr_series: List[Optional[float]] = []
     connect_series: List[Optional[float]] = []
@@ -336,6 +339,15 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         hook_wsum = (S.get("hook_wsum") or {}).get(d, 0.0) or 0.0
         hook_day = _safe_div(hook_wsum, plays) if plays else None
 
+        scroll_stop_wsum = (S.get("scroll_stop_wsum") or {}).get(d, 0.0) or 0.0
+        scroll_stop_day = _safe_div(scroll_stop_wsum, plays) if plays else None
+
+        hold_rate_wsum = (S.get("hold_rate_wsum") or {}).get(d, 0.0) or 0.0
+        hold_rate_day = _safe_div(hold_rate_wsum, plays) if plays else None
+
+        video_watched_p50_wsum = (S.get("video_watched_p50_wsum") or {}).get(d, 0.0) or 0.0
+        video_watched_p50_day = _safe_div(video_watched_p50_wsum, plays) if plays else None
+
         spend_day = (S.get("spend") or {}).get(d, 0.0) or 0.0
         clicks_day = (S.get("clicks") or {}).get(d, 0) or 0
         impr_day = (S.get("impressions") or {}).get(d, 0) or 0
@@ -350,6 +362,9 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         conversions_day = ((S.get("conversions") or {}).get(d, {})) or {}
 
         hook_series.append(hook_day)
+        scroll_stop_series.append(scroll_stop_day)
+        hold_rate_series.append(hold_rate_day)
+        video_watched_p50_series.append(video_watched_p50_day)
         spend_series.append(spend_day if spend_day else None)
         ctr_series.append(ctr_day)
         connect_series.append(connect_day)
@@ -368,6 +383,9 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
     series: Dict[str, Any] = {
         "axis": axis,
         "hook": hook_series,
+        "scroll_stop": scroll_stop_series,
+        "hold_rate": hold_rate_series,
+        "video_watched_p50": video_watched_p50_series,
         "spend": spend_series,
         "ctr": ctr_series,
         "connect_rate": connect_series,
@@ -1291,6 +1309,9 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         "plays": {d: 0 for d in axis},
         "lpv": {d: 0 for d in axis},
         "hook_wsum": {d: 0.0 for d in axis},
+        "scroll_stop_wsum": {d: 0.0 for d in axis},
+        "hold_rate_wsum": {d: 0.0 for d in axis},
+        "video_watched_p50_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},  # conversions por dia: {date: {action_type: value}}
         "mql_count": {d: 0 for d in axis},  # MQLs por dia (a partir de leadscore_values)
     })
@@ -1357,8 +1378,9 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        # hold_rate já vem calculado do banco, mas podemos recalcular se necessário
         hold_rate = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
         reach = int(r.get("reach") or 0)
         frequency = float(r.get("frequency") or 0)
         leadscore_values = r.get("leadscore_values") or []
@@ -1497,12 +1519,15 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             S["lpv"][date] += lpv
             S["plays"][date] += plays
             S["hook_wsum"][date] += hook * plays
+            S["scroll_stop_wsum"][date] += scroll_stop * plays
+            S["hold_rate_wsum"][date] += hold_rate * plays
+            S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             # MQLs por dia
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
                 pass
-            
+
             # Agregar conversions e actions por dia
             try:
                 # Processar conversions
@@ -2070,12 +2095,12 @@ def get_rankings_children(
     select_with_lpv = (
         "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,leadscore_values,lpv"
+        "hold_rate,scroll_stop_rate,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,leadscore_values"
+        "hold_rate,scroll_stop_rate,leadscore_values"
     )
     try:
         data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -2098,6 +2123,9 @@ def get_rankings_children(
         "plays": {d: 0 for d in axis},
         "lpv": {d: 0 for d in axis},
         "hook_wsum": {d: 0.0 for d in axis},
+        "scroll_stop_wsum": {d: 0.0 for d in axis},
+        "hold_rate_wsum": {d: 0.0 for d in axis},
+        "video_watched_p50_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
     })
@@ -2118,6 +2146,8 @@ def get_rankings_children(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         hold_rate = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
 
         # landing_page_views (preferir coluna lpv quando disponível)
         lpv = _extract_lpv(r)
@@ -2173,6 +2203,9 @@ def get_rankings_children(
             S["lpv"][date] += lpv
             S["plays"][date] += plays
             S["hook_wsum"][date] += hook * plays
+            S["scroll_stop_wsum"][date] += scroll_stop * plays
+            S["hold_rate_wsum"][date] += hold_rate * plays
+            S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
@@ -2287,12 +2320,12 @@ def get_campaign_children(
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,leadscore_values,lpv"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,leadscore_values"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values"
     )
     try:
         data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -2316,6 +2349,9 @@ def get_campaign_children(
             "plays": {d: 0 for d in axis},
             "lpv": {d: 0 for d in axis},
             "hook_wsum": {d: 0.0 for d in axis},
+            "scroll_stop_wsum": {d: 0.0 for d in axis},
+            "hold_rate_wsum": {d: 0.0 for d in axis},
+            "video_watched_p50_wsum": {d: 0.0 for d in axis},
             "conversions": {d: {} for d in axis},
             "mql_count": {d: 0 for d in axis},
         }
@@ -2342,6 +2378,8 @@ def get_campaign_children(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         hold_rate = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
 
         # landing_page_views (preferir coluna lpv quando disponível)
         lpv = _extract_lpv(r)
@@ -2419,6 +2457,9 @@ def get_campaign_children(
             S["lpv"][date] += lpv
             S["plays"][date] += plays
             S["hook_wsum"][date] += hook * plays
+            S["scroll_stop_wsum"][date] += scroll_stop * plays
+            S["hold_rate_wsum"][date] += hold_rate * plays
+            S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
@@ -2511,12 +2552,12 @@ def get_adset_children(
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,leadscore_values,lpv"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,leadscore_values"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values"
     )
     try:
         data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -2540,6 +2581,9 @@ def get_adset_children(
             "plays": {d: 0 for d in axis},
             "lpv": {d: 0 for d in axis},
             "hook_wsum": {d: 0.0 for d in axis},
+            "scroll_stop_wsum": {d: 0.0 for d in axis},
+            "hold_rate_wsum": {d: 0.0 for d in axis},
+            "video_watched_p50_wsum": {d: 0.0 for d in axis},
             "conversions": {d: {} for d in axis},
             "mql_count": {d: 0 for d in axis},
         }
@@ -2563,6 +2607,8 @@ def get_adset_children(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         hold_rate = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
 
         # landing_page_views (preferir coluna lpv quando disponível)
         lpv = _extract_lpv(r)
@@ -2621,6 +2667,9 @@ def get_adset_children(
             S["plays"][date] += plays
             S["lpv"][date] += lpv
             S["hook_wsum"][date] += hook * plays
+            S["scroll_stop_wsum"][date] += scroll_stop * plays
+            S["hold_rate_wsum"][date] += hold_rate * plays
+            S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             _merge_row_conversions_actions(r, S["conversions"][date])
 
             # MQLs por dia

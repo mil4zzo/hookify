@@ -5,8 +5,8 @@ import { scaleLinear } from "@visx/scale";
 import { AreaClosed, LinePath } from "@visx/shape";
 import { curveMonotoneX } from "@visx/curve";
 import { LinearGradient } from "@visx/gradient";
-import { AxisLeft, AxisBottom } from "@visx/axis";
-import { GridRows, GridColumns } from "@visx/grid";
+import { AxisLeft } from "@visx/axis";
+import { GridRows } from "@visx/grid";
 import { ChartTooltip } from "@/components/common/ChartTooltip";
 
 interface RetentionChartOverlayProps {
@@ -25,6 +25,32 @@ const indexToSecond = (index: number): number => {
   }
   const seconds = [15, 20, 25, 30, 40, 50, 60];
   return seconds[index - 15] || 60;
+};
+
+// Função para converter índice fracionário para segundo real (interpolação linear entre buckets)
+const indexToSecondFractional = (index: number): number => {
+  if (index <= 0) return 0;
+  if (index < 15) return index; // índices 0–14.999 mapeiam 1:1 para segundos (inclui fração 14.x→14.xs)
+  const i = Math.floor(index);
+  const frac = index - i;
+  const seconds = [15, 20, 25, 30, 40, 50, 60];
+  const lower = seconds[i - 15] ?? 60;
+  const upper = seconds[i - 14] ?? 60;
+  return lower + frac * (upper - lower);
+};
+
+// Função para converter segundo real para índice fracionário (inverso de indexToSecond)
+const secondToIndex = (second: number): number => {
+  if (second <= 0) return 0;
+  if (second < 15) return second; // segundos 0–14.999 mapeiam 1:1 para índices (inclui fração 14.x→14.x)
+  const buckets = [15, 20, 25, 30, 40, 50, 60];
+  for (let i = 0; i < buckets.length - 1; i++) {
+    if (second <= buckets[i + 1]) {
+      const ratio = (second - buckets[i]) / (buckets[i + 1] - buckets[i]);
+      return 15 + i + ratio;
+    }
+  }
+  return 21;
 };
 
 // Função para obter o valor de retenção em um segundo específico (com interpolação)
@@ -68,6 +94,8 @@ const getRetentionAtSecond = (second: number, data: { x: number; y: number }[]):
 
 export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duration = 0, isPlaying = false, onTimeSeek, className = "" }: RetentionChartOverlayProps) {
   const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [isMouseOver, setIsMouseOver] = useState(false);
+  const lastHoverRef = useRef<{ left: string; top: string; title: string; value: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("#6b7280"); // fallback gray
 
@@ -119,10 +147,10 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
   const effectiveMaxTime = duration > 0 ? Math.min(duration, maxGraphTime) : maxTime;
 
   // Altura do overlay: ocupar toda a altura disponível, exceto a área dos controles
-  const controlsHeight = 48; // Altura aproximada dos controles do vídeo HTML5
+  const controlsHeight = 68; // Altura aproximada dos controles do vídeo HTML5
   // Margens: eixo Y fica à esquerda (fora), eixo X ocupa toda largura
   const axisYWidth = 32; // Largura do eixo Y (legenda lateral)
-  const margin = { top: 4, right: 4, bottom: 20, left: 0 }; // Eixo X começa na borda esquerda
+  const margin = { top: 4, right: 0, bottom: 0, left: 0 };
 
   const handleClick = (event: React.MouseEvent<SVGElement>) => {
     if (!onTimeSeek || !containerRef.current || !playerContainerRef.current) return;
@@ -132,10 +160,11 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
     const x = event.clientX - playerRect.left - margin.left;
     const playerWidth = playerContainerRef.current.offsetWidth;
     const width = playerWidth - margin.left - margin.right;
-    const percentage = Math.max(0, Math.min(1, x / width));
+    const clampedX = Math.max(0, Math.min(width, x));
 
-    // Converter porcentagem diretamente para segundo (linear)
-    const targetSecond = percentage * effectiveMaxTime;
+    // Converter pixel → índice fracionário → segundo (respeitando a escala não-linear do eixo X)
+    const fractionalIndex = (clampedX / Math.max(1, width)) * maxIndex;
+    const targetSecond = indexToSecondFractional(Math.min(fractionalIndex, maxIndex));
 
     onTimeSeek(targetSecond);
   };
@@ -148,15 +177,21 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
     const x = event.clientX - playerRect.left - margin.left;
     const playerWidth = playerContainerRef.current.offsetWidth;
     const width = playerWidth - margin.left - margin.right;
-    const percentage = Math.max(0, Math.min(1, x / width));
+    const clampedX = Math.max(0, Math.min(width, x));
 
-    // Converter porcentagem diretamente para segundo (linear)
-    const targetSecond = percentage * effectiveMaxTime;
+    // Converter pixel → índice fracionário → segundo (respeitando a escala não-linear do eixo X)
+    const fractionalIndex = (clampedX / Math.max(1, width)) * maxIndex;
+    const targetSecond = indexToSecondFractional(Math.min(fractionalIndex, maxIndex));
 
     setHoverTime(targetSecond);
   };
 
+  const handleMouseEnter = () => {
+    setIsMouseOver(true);
+  };
+
   const handleMouseLeave = () => {
+    setIsMouseOver(false);
     setHoverTime(null);
   };
 
@@ -237,19 +272,12 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
     range: [0, w],
   });
 
-  // Escala linear de tempo (para o indicador de tempo atual)
-  // Usar duration quando disponível, senão usar maxTime
-  const timeScale = scaleLinear<number>({
-    domain: [0, effectiveMaxTime],
-    range: [0, w],
-  });
+  // Calcular posição X do indicador de tempo atual usando a mesma escala da curva azul
+  // Converter segundos para índice fracionário para alinhar com xScale
+  const currentTimeX = duration > 0 && currentTime >= 0 && effectiveMaxTime > 0 && w > 0 ? xScale(Math.min(secondToIndex(Math.min(currentTime, effectiveMaxTime)), maxIndex)) : null;
 
-  // Calcular posição X do indicador de tempo atual (linear, de 1 em 1 segundo)
-  // Sempre mostrar quando currentTime e duration estiverem disponíveis
-  const currentTimeX = duration > 0 && currentTime >= 0 && effectiveMaxTime > 0 && w > 0 ? timeScale(Math.min(currentTime, effectiveMaxTime)) : null;
-
-  // Calcular posição X do hover (linear)
-  const hoverTimeX = hoverTime != null && effectiveMaxTime > 0 && w > 0 ? timeScale(Math.min(hoverTime, effectiveMaxTime)) : null;
+  // Calcular posição X do hover usando a mesma escala da curva azul
+  const hoverTimeX = hoverTime != null && effectiveMaxTime > 0 && w > 0 ? xScale(Math.min(secondToIndex(Math.min(hoverTime, effectiveMaxTime)), maxIndex)) : null;
 
   const yMax = Math.max(100, Math.max(...data.map((d) => d.y)));
   const yScale = scaleLinear<number>({
@@ -269,37 +297,13 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
   // Calcular posição Y do tooltip de hover (na curva do gráfico)
   const hoverTooltipY = hoverRetention != null ? yScale(hoverRetention) : null;
 
-  // Labels específicos do eixo X conforme RetentionChart
-  // Filtrar apenas pontos menores ou iguais à duração do vídeo
-  // 0, 1, 2, 3, 6, 9, 12, 15, 20, 25, 30, 40, 50, 60+
-  const desiredIndices = [0, 1, 2, 3, 6, 9, 12, 15, 16, 17, 18, 19, 20, 21];
-  const xTickValues: number[] = [];
-  for (const index of desiredIndices) {
-    if (index < data.length) {
-      const pointSecond = indexToSecond(index);
-      // Se duration > 0, mostrar apenas pontos <= duration
-      // Se duration === 0 ou não disponível, mostrar todos os pontos
-      if (duration > 0) {
-        if (pointSecond <= duration) {
-          xTickValues.push(index);
-        }
-      } else {
-        xTickValues.push(index);
-      }
-    }
-  }
-
-  // Linhas verticais do grid acompanhando os labels visíveis
-  const xGridPoints = xTickValues;
-
   if (containerWidth === 0 || containerHeight === 0) {
     return (
       <div
         ref={containerRef}
         className={`absolute inset-0 bg-black/70 backdrop-blur-sm transition-opacity pointer-events-none ${className}`}
         style={{
-          bottom: `${controlsHeight}px`,
-          height: `calc(100% - ${controlsHeight}px)`,
+          height: `100%`,
         }}
       />
     );
@@ -311,51 +315,50 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
       className={`absolute transition-opacity pointer-events-none ${className}`}
       style={{
         top: 0,
-        bottom: `${controlsHeight}px`, // Posicionado acima dos controles do vídeo HTML5
         left: `-${axisYWidth}px`, // Permite que o eixo Y ultrapasse a borda esquerda
         right: 0,
-        height: `calc(100% - ${controlsHeight}px)`, // Ocupa toda a altura menos os controles
+        height: `100%`,
         width: `calc(100% + ${axisYWidth}px)`, // Largura total incluindo o eixo Y à esquerda
         zIndex: 10, // Acima do vídeo, mas abaixo dos controles
       }}
     >
       <style>{`
-        .retention-chart-overlay-axis line {
-          stroke: transparent !important;
-          stroke-width: 0 !important;
-        }
         .retention-chart-overlay-axis path {
           stroke: transparent !important;
           stroke-width: 0 !important;
         }
       `}</style>
-      <svg width={containerWidth} height={overlayHeight} className="absolute inset-0 pointer-events-auto" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onClick={handleClick} style={{ cursor: onTimeSeek ? "pointer" : "default" }}>
-        <LinearGradient id="overlayRetentionGradient" from="var(--primary)" to="var(--primary)" fromOpacity={0.6} toOpacity={0.2} />
+      <svg width={containerWidth} height={overlayHeight} className="absolute inset-0 pointer-events-auto" onMouseEnter={handleMouseEnter} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onClick={handleClick} style={{ cursor: onTimeSeek ? "pointer" : "default" }}>
+        <LinearGradient id="overlayRetentionGradient" from="var(--primary)" to="var(--primary)" fromOpacity={0.9} toOpacity={0} />
 
         <g transform={`translate(${axisYWidth + margin.left},${margin.top})`}>
+          <defs>
+            {/* ClipPath limitando a linha de hover à área abaixo da curva de retenção */}
+            <clipPath id="overlayRetentionClip">
+              <AreaClosed data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} yScale={yScale} curve={curveMonotoneX} />
+            </clipPath>
+          </defs>
+
           {/* Grid lines - linhas de suporte pontilhadas */}
           <GridRows scale={yScale} tickValues={[20, 40, 60, 80, 100]} width={w} strokeDasharray="3 3" stroke={mutedForegroundColor} strokeOpacity={0.2} pointerEvents="none" />
-          <GridColumns scale={xScale} height={h} tickValues={xGridPoints} strokeDasharray="3 3" stroke={mutedForegroundColor} strokeOpacity={0.2} pointerEvents="none" />
 
           {/* Área preenchida */}
           <AreaClosed data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} yScale={yScale} curve={curveMonotoneX} fill="url(#overlayRetentionGradient)" stroke="none" />
 
           {/* Linha da curva */}
-          <LinePath data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} curve={curveMonotoneX} stroke="var(--primary)" strokeWidth={1.5} fill="none" />
+          <LinePath data={data} x={(d) => xScale(d.x)} y={(d) => yScale(d.y)} curve={curveMonotoneX} stroke="var(--primary)" strokeWidth={2} fill="none" />
 
           {/* Linha vertical do tempo atual (linear, de 1 em 1 segundo) */}
           {currentTimeX != null && currentTime >= 0 && duration > 0 && (
             <g>
-              <line x1={currentTimeX} x2={currentTimeX} y1={0} y2={h} stroke="var(--warning)" strokeWidth={2} strokeOpacity={0.9} />
-              <circle cx={currentTimeX} cy={yScale(getRetentionAtSecond(Math.min(currentTime, effectiveMaxTime), data))} r={3} fill="var(--warning)" stroke="var(--background)" strokeWidth={1} />
+              <line x1={currentTimeX} x2={currentTimeX} y1={0} y2={h} stroke="var(--muted-foreground)" strokeWidth={2} strokeOpacity={0.9} strokeDasharray="4 3" clipPath="url(#overlayRetentionClip)" />
+              <circle cx={currentTimeX} cy={yScale(getRetentionAtSecond(Math.min(currentTime, effectiveMaxTime), data))} r={4} fill="white" stroke="var(--primary)" strokeWidth={2} />
             </g>
           )}
 
-          {/* Linha vertical no hover (linear) */}
+          {/* Linha vertical no hover — pontilhada e clipada abaixo da curva de retenção */}
           {hoverTimeX != null && hoverTime !== currentTime && (
-            <g>
-              <line x1={hoverTimeX} x2={hoverTimeX} y1={0} y2={h} stroke="var(--chart-1)" strokeWidth={1} strokeOpacity={0.5} strokeDasharray="2 2" />
-            </g>
+            <line x1={hoverTimeX} x2={hoverTimeX} y1={0} y2={h} stroke="var(--muted-foreground)" strokeWidth={1} strokeOpacity={0.6} strokeDasharray="4 3" clipPath="url(#overlayRetentionClip)" />
           )}
 
           {/* Axis */}
@@ -376,50 +379,54 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
                 dy: "0.33em",
               })}
             />
-            <AxisBottom
-              top={h}
-              scale={xScale}
-              hideAxisLine={true}
-              hideTicks={true}
-              stroke="transparent"
-              strokeWidth={0}
-              tickStroke="transparent"
-              tickValues={xTickValues}
-              tickFormat={(v) => data[Math.round(Number(v))]?.label || ""}
-              tickLabelProps={() => ({
-                fill: mutedForegroundColor,
-                fontSize: 10,
-                textAnchor: "middle",
-              })}
-            />
           </g>
         </g>
       </svg>
 
       {/* Tooltip de retenção no hover */}
-      {hoverTime != null && hoverTimeX != null && hoverRetention != null && hoverTooltipY != null && (
-        <ChartTooltip
-          title={`Tempo: ${hoverTime.toFixed(1)}s`}
-          value={`Retenção: ${hoverRetention.toFixed(1)}%`}
-          style={{
+      {(() => {
+        if (hoverTimeX != null && hoverTooltipY != null && hoverRetention != null && hoverTime != null) {
+          lastHoverRef.current = {
             left: `${axisYWidth + margin.left + hoverTimeX}px`,
             top: `${margin.top + hoverTooltipY}px`,
-            transform: "translate(-50%, -100%)",
-            marginTop: "-8px",
-          }}
-        />
-      )}
+            title: `Tempo: ${hoverTime.toFixed(1)}s`,
+            value: `Retenção: ${hoverRetention.toFixed(1)}%`,
+          };
+        }
+        return lastHoverRef.current ? (
+          <ChartTooltip
+            title={lastHoverRef.current.title}
+            value={lastHoverRef.current.value}
+            className="bg-background-80 border border-primary"
+            titleClassName="text-[10px] text-muted-foreground font-normal"
+            valueClassName="text-sm text-white font-semibold"
+            style={{
+              left: lastHoverRef.current.left,
+              top: lastHoverRef.current.top,
+              transform: "translate(-50%, -100%)",
+              marginTop: "-8px",
+              opacity: isMouseOver && hoverTime != null ? 1 : 0,
+              transition: "opacity 0.2s ease-in-out",
+            }}
+          />
+        ) : null;
+      })()}
 
       {/* Tooltip de retenção durante a reprodução */}
-      {isPlaying && currentTimeX != null && tooltipY != null && currentRetention != null && duration > 0 && (
+      {currentTimeX != null && tooltipY != null && currentRetention != null && duration > 0 && (
         <ChartTooltip
-          title={`Tempo: ${currentTime.toFixed(1)}s`}
-          value={`Retenção: ${currentRetention.toFixed(1)}%`}
+          title={`${currentTime.toFixed(1)}s`}
+          value={`${currentRetention.toFixed(1)}%`}
+          className="bg-background-80 border border-primary"
+          titleClassName="text-[10px] text-muted-foreground font-normal"
+          valueClassName="text-sm text-white font-semibold"
           style={{
             left: `${axisYWidth + margin.left + currentTimeX}px`,
             top: `${margin.top + tooltipY}px`,
             transform: "translate(-50%, -100%)",
             marginTop: "-8px",
+            opacity: isPlaying ? 1 : 0,
+            transition: "opacity 0.2s ease-in-out",
           }}
         />
       )}
