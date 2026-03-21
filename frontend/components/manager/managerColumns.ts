@@ -19,6 +19,8 @@ export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   { id: "results", name: "Results", defaultVisible: true },
   { id: "mqls", name: "MQLs", defaultVisible: true },
   { id: "cpr", name: "CPR", defaultVisible: true },
+  { id: "cpc", name: "CPC", defaultVisible: true },
+  { id: "cplc", name: "CPLC", defaultVisible: true },
   { id: "cpmql", name: "CPMQL", defaultVisible: true },
   { id: "cpm", name: "CPM", defaultVisible: true },
   { id: "hook", name: "Hook", defaultVisible: true },

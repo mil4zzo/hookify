@@ -11,7 +11,7 @@ const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog")
 const VideoDialog = dynamic(() => import("@/components/ads/VideoDialog").then((m) => m.VideoDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconSearch, IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal } from "@tabler/icons-react";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
 import { buildDailySeries } from "@/lib/utils/metricsTimeSeries";
@@ -25,16 +25,16 @@ import { createManagerTableColumns } from "@/components/manager/managerTableColu
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ColumnFilter, FilterValue, FilterOperator, TextFilterValue, TextFilterOperator } from "@/components/common/ColumnFilter";
 import { Separator } from "@/components/common/Separator";
-import { Input } from "@/components/ui/input";
 import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDialog").then((m) => m.AdsetDetailsDialog), { ssr: false });
 import { MetricCell } from "@/components/manager/MetricCell";
 import { AdNameCell } from "@/components/manager/AdNameCell";
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import { DEFAULT_MANAGER_COLUMNS } from "@/components/manager/managerColumns";
+import { DEFAULT_MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
 import { MinimalTableContent } from "@/components/manager/MinimalTableContent";
 import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStorage";
@@ -71,12 +71,16 @@ interface ManagerTableProps {
   showTrends?: boolean;
   averagesOverride?: {
     hook: number | null;
+    hold_rate?: number | null;
+    video_watched_p50?: number | null;
     scroll_stop: number | null;
     ctr: number | null;
     website_ctr: number | null;
     connect_rate: number | null;
     cpm: number | null;
     cpr: number | null;
+    cpc?: number | null;
+    cplc?: number | null;
     page_conv: number | null;
   };
   /** Indica se há integração de planilha (Google Sheets) em pelo menos um dos packs selecionados */
@@ -101,10 +105,10 @@ const EMPTY_SERIES_MAP = new Map<string, any>();
 type ViewMode = "detailed" | "minimal";
 
 const MANAGER_TABS: TabItem[] = [
-  { value: "individual", label: "Individual", icon: IconDeviceTablet },
-  { value: "por-anuncio", label: "Por anúncio", icon: IconPlayCardA },
-  { value: "por-conjunto", label: "Por conjunto", icon: IconBorderAll },
+  { value: "por-anuncio", label: "Criativos", icon: IconPlayCardA },
   { value: "por-campanha", label: "Por campanha", icon: IconFolder },
+  { value: "por-conjunto", label: "Por conjunto", icon: IconBorderAll },
+  { value: "individual", label: "Por anúncio", icon: IconDeviceTablet },
 ];
 
 // SortIcon foi movido para `managerTableMetricColumns.tsx` junto do factory de colunas.
@@ -127,7 +131,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       if (!saved) return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
       const parsed = JSON.parse(saved);
       if (Array.isArray(parsed)) {
-        const valid = parsed.filter((col) => (DEFAULT_MANAGER_COLUMNS as readonly string[]).includes(col));
+        const valid = parsed.filter((col) => (MANAGER_COLUMN_RENDER_ORDER as readonly string[]).includes(col));
         if (valid.length === 0) return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
         return new Set<ManagerColumnType>(valid as ManagerColumnType[]);
       }
@@ -315,9 +319,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const getGlobalFilterStorageKey = (tab: ManagerTab) => `hookify-manager-global-filter:${tab}`;
 
   // Filtro padrão para aba individual: Status = Ativo (reduz lag em packs grandes)
-  const DEFAULT_INDIVIDUAL_FILTERS: ColumnFiltersState = [
-    { id: `status__default`, value: { selectedStatuses: ["ACTIVE"] } },
-  ];
+  const DEFAULT_INDIVIDUAL_FILTERS: ColumnFiltersState = [{ id: `status__default`, value: { selectedStatuses: ["ACTIVE"] } }];
 
   const loadColumnFilters = (tab: ManagerTab): ColumnFiltersState => {
     if (typeof window === "undefined") return [];
@@ -544,6 +546,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         plays: computedAverages.plays,
         results: computedAverages.results,
         hook: averagesOverride.hook,
+        hold_rate: averagesOverride.hold_rate ?? null,
+        video_watched_p50: averagesOverride.video_watched_p50 ?? null,
         scroll_stop: averagesOverride.scroll_stop,
         ctr: averagesOverride.ctr,
         website_ctr: averagesOverride.website_ctr ?? computedAverages.website_ctr,
@@ -552,6 +556,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         // CPR e page_conv dependem do actionType, usar computedAverages como fallback se null
         // Mas logar quando isso acontecer para identificar problemas
         cpr: averagesOverride.cpr ?? computedAverages.cpr,
+        cpc: computedAverages.cpc,
+        cplc: computedAverages.cplc,
         page_conv: averagesOverride.page_conv ?? computedAverages.page_conv,
         // CPMQL e MQLs são calculados localmente e não vêm do servidor
         cpmql: computedAverages.cpmql,
@@ -567,7 +573,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Refs para armazenar as médias filtradas e função de formatação (para evitar dependência circular)
   const filteredAveragesRef = useRef<any>(null);
   const formatFilteredAverageRef = useRef<(metricId: string) => string>(() => "");
-
 
   const getRowKey = useCallback(
     (row: { original?: RankingsItem } | RankingsItem) => {
@@ -630,6 +635,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         const metricMap: Record<string, keyof ManagerAverages> = {
           hook: "hook",
           cpr: "cpr",
+          cpc: "cpc",
+          cplc: "cplc",
           cpmql: "cpmql",
           spend: "spend",
           ctr: "ctr",
@@ -667,7 +674,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
           return formatPct(Number(avgValue) * 100);
         } else {
-          // Métricas monetárias (cpr, cpmql, cpm)
+          // Métricas monetárias (cpr, cpc, cplc, cpmql, cpm)
           return formatCurrency(Number(avgValue));
         }
       },
@@ -791,6 +798,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         const metricMap: Record<string, string> = {
           hook: "hook",
           cpr: "cpr",
+          cpc: "cpc",
+          cplc: "cplc",
           cpmql: "cpmql",
           spend: "spend",
           ctr: "ctr",
@@ -828,7 +837,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
           return formatPct(Number(avgValue) * 100);
         } else {
-          // Métricas monetárias (cpr, cpmql, cpm)
+          // Métricas monetárias (cpr, cpc, cplc, cpmql, cpm)
           return formatCurrency(Number(avgValue));
         }
       },
@@ -845,7 +854,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   formatAverageRef.current = formatAverage;
   formatCurrencyRef.current = formatCurrency;
   actionTypeRef.current = actionType;
-
 
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
@@ -881,6 +889,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     if (shouldShow("results")) cols.push({ id: "results", label: "Results", isPercentage: false });
     if (shouldShow("mqls")) cols.push({ id: "mqls", label: "MQLs", isPercentage: false });
     if (shouldShow("cpr")) cols.push({ id: "cpr", label: "CPR", isPercentage: false });
+    if (shouldShow("cpc")) cols.push({ id: "cpc", label: "CPC", isPercentage: false });
+    if (shouldShow("cplc")) cols.push({ id: "cplc", label: "CPLC", isPercentage: false });
     if (shouldShow("cpmql")) cols.push({ id: "cpmql", label: "CPMQL", isPercentage: false });
     if (shouldShow("cpm")) cols.push({ id: "cpm", label: "CPM", isPercentage: false });
     if (shouldShow("hook")) cols.push({ id: "hook", label: "Hook", isPercentage: true });
@@ -892,62 +902,75 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     return cols;
   }, [hasSheetIntegration, currentTab, activeColumns]);
 
-
-  const searchBar = useMemo(() => (
-    <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
-      <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-      <Input type="search" placeholder={currentTab === "por-conjunto" ? "Buscar por nome do conjunto..." : currentTab === "por-campanha" ? "Buscar por nome da campanha..." : "Buscar por nome do anúncio..."} value={globalFilter} onChange={(e) => { const v = e.target.value; startTransition(() => setGlobalFilter(v)); }} className="pl-9 h-10 w-full" />
-    </div>
-  ), [currentTab, globalFilter]);
+  const searchBar = useMemo(() => {
+    const placeholder =
+      currentTab === "por-conjunto"
+        ? "Buscar por nome do conjunto..."
+        : currentTab === "por-campanha"
+          ? "Buscar por nome da campanha..."
+          : "Buscar por nome do anúncio...";
+    return (
+      <SearchInputWithClear
+        value={globalFilter}
+        onChange={(v) => startTransition(() => setGlobalFilter(v))}
+        placeholder={placeholder}
+        wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
+        inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border h-10 w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
+      />
+    );
+  }, [currentTab, globalFilter]);
 
   const hasCustomColumnSizes = Object.keys(columnSizing).length > 0;
-  const controls = useMemo(() => (
-    <>
-      <div className="flex items-center gap-2">
-        {/* Toggle de visualização: dois botões alternantes */}
-        <TooltipProvider>
-          <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant={viewMode === "detailed" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("detailed")} className="h-9 px-3 rounded-md" aria-label="Visualização detalhada" aria-pressed={viewMode === "detailed"}>
-                  <IconListDetails className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Visualização detalhada</p>
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant={viewMode === "minimal" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("minimal")} className="h-9 px-3 rounded-md" aria-label="Visualização minimal" aria-pressed={viewMode === "minimal"}>
-                  <IconList className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Visualização minimal</p>
-              </TooltipContent>
-            </Tooltip>
+  const controls = useMemo(
+    () => (
+      <>
+        <div className="flex items-center gap-2">
+          {/* Toggle de visualização: dois botões alternantes */}
+          <TooltipProvider>
+            <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant={viewMode === "detailed" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("detailed")} className="h-9 px-3 rounded-md" aria-label="Visualização detalhada" aria-pressed={viewMode === "detailed"}>
+                    <IconListDetails className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Visualização detalhada</p>
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant={viewMode === "minimal" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("minimal")} className="h-9 px-3 rounded-md" aria-label="Visualização minimal" aria-pressed={viewMode === "minimal"}>
+                    <IconList className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p className="text-xs">Visualização minimal</p>
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+          <div className="flex-shrink-0 w-[190px]">
+            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
           </div>
-        </TooltipProvider>
-        <div className="flex-shrink-0 w-[190px]">
-          <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
+          {/* Botão para resetar tamanho das colunas */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" onClick={handleResetColumnSizes} className="h-10 px-3" aria-label="Resetar tamanho das colunas" disabled={!hasCustomColumnSizes}>
+                  <IconArrowsHorizontal className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Resetar tamanho das colunas</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
-        {/* Botão para resetar tamanho das colunas */}
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="sm" onClick={handleResetColumnSizes} className="h-10 px-3" aria-label="Resetar tamanho das colunas" disabled={!hasCustomColumnSizes}>
-                <IconArrowsHorizontal className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="text-xs">Resetar tamanho das colunas</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-    </>
-  ), [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration, handleResetColumnSizes, hasCustomColumnSizes]);
+      </>
+    ),
+    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration, handleResetColumnSizes, hasCustomColumnSizes],
+  );
 
   const tableContentProps = useMemo(
     () => ({
@@ -980,11 +1003,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }),
     [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, onVisibleGroupKeysChange],
   );
-  const slowLoadingHint = showSlowLoadingHint ? (
-    <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-      Carregamento demorando mais que o esperado nesta aba. Os dados continuam sendo processados.
-    </div>
-  ) : null;
+  const slowLoadingHint = showSlowLoadingHint ? <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Carregamento demorando mais que o esperado nesta aba. Os dados continuam sendo processados.</div> : null;
 
   return (
     <div className="w-full h-full flex-1 flex flex-col min-h-0">

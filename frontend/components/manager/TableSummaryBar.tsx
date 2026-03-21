@@ -30,7 +30,7 @@ export function TableSummaryBar({ filteredCount, totalCount, itemLabel, hasActiv
               </span>
             </div>
             {hasActiveFilters && (
-              <Button variant="outline" size="sm" onClick={onResetFilters} className="h-8 text-xs">
+              <Button variant="outline" size="sm" onClick={onResetFilters} className="h-8 text-xs text-text hover:text-destructive">
                 <IconX className="w-4 h-4 mr-1.5" />
                 Resetar filtros
               </Button>

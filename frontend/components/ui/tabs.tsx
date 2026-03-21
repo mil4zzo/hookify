@@ -50,7 +50,7 @@ interface TabsListProps {
 
 export function TabsList({ children, className }: TabsListProps) {
   return (
-    <div className={cn("flex bg-muted rounded-md p-1 w-fit gap-2 h-10 items-center", className)} role="tablist">
+    <div className={cn("flex w-fit items-center gap-1 rounded-lg border border-border bg-card p-1 shadow-sm", className)} role="tablist">
       {children}
     </div>
   );
@@ -72,7 +72,19 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(({ va
   };
 
   return (
-    <button ref={ref} type="button" role="tab" aria-selected={isActive} onClick={handleClick} className={cn("px-3 h-8 text-sm font-medium transition-colors rounded-md bg-muted flex items-center justify-center", isActive ? "text-foreground bg-background" : "text-muted-foreground hover:text-foreground hover:bg-card", className)} {...props}>
+    <button
+      ref={ref}
+      type="button"
+      role="tab"
+      aria-selected={isActive}
+      onClick={handleClick}
+      className={cn(
+        "flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium transition-[color,background-color,box-shadow] duration-200",
+        isActive ? "bg-primary text-primary-foreground shadow-sm" : "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
+        className
+      )}
+      {...props}
+    >
       {children}
     </button>
   );

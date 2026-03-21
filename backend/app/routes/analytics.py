@@ -324,11 +324,15 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
     hold_rate_series: List[Optional[float]] = []
     video_watched_p50_series: List[Optional[float]] = []
     spend_series: List[Optional[float]] = []
+    clicks_series: List[Optional[int]] = []
+    inline_link_clicks_series: List[Optional[int]] = []
     ctr_series: List[Optional[float]] = []
     connect_series: List[Optional[float]] = []
     lpv_series: List[Optional[int]] = []
     impressions_series: List[Optional[int]] = []
     cpm_series: List[Optional[float]] = []
+    cpc_series: List[Optional[float]] = []
+    cplc_series: List[Optional[float]] = []
     website_ctr_series: List[Optional[float]] = []
     conversions_series: List[Dict[str, int]] = []  # conversions por dia
     cpmql_series: List[Optional[float]] = []
@@ -357,6 +361,8 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         ctr_day = (clicks_day / impr_day) if impr_day else None
         connect_day = (lpv_day / inline_day) if inline_day else None
         cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
+        cpc_day = (spend_day / clicks_day) if clicks_day else None
+        cplc_day = (spend_day / inline_day) if inline_day else None
         website_ctr_day = (inline_day / impr_day) if impr_day else None
 
         conversions_day = ((S.get("conversions") or {}).get(d, {})) or {}
@@ -366,11 +372,15 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         hold_rate_series.append(hold_rate_day)
         video_watched_p50_series.append(video_watched_p50_day)
         spend_series.append(spend_day if spend_day else None)
+        clicks_series.append(clicks_day if clicks_day else None)
+        inline_link_clicks_series.append(inline_day if inline_day else None)
         ctr_series.append(ctr_day)
         connect_series.append(connect_day)
         lpv_series.append(lpv_day)
         impressions_series.append(impr_day if impr_day else None)
         cpm_series.append(cpm_day)
+        cpc_series.append(cpc_day)
+        cplc_series.append(cplc_day)
         website_ctr_series.append(website_ctr_day)
         conversions_series.append(conversions_day)
 
@@ -387,11 +397,15 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         "hold_rate": hold_rate_series,
         "video_watched_p50": video_watched_p50_series,
         "spend": spend_series,
+        "clicks": clicks_series,
+        "inline_link_clicks": inline_link_clicks_series,
         "ctr": ctr_series,
         "connect_rate": connect_series,
         "lpv": lpv_series,
         "impressions": impressions_series,
         "cpm": cpm_series,
+        "cpc": cpc_series,
+        "cplc": cplc_series,
         "website_ctr": website_ctr_series,
         "conversions": conversions_series,
     }
@@ -657,11 +671,15 @@ def _empty_series_for_axis(axis: List[str]) -> Dict[str, Any]:
         "axis": axis,
         "hook": [None] * n,
         "spend": [None] * n,
+        "clicks": [None] * n,
+        "inline_link_clicks": [None] * n,
         "ctr": [None] * n,
         "connect_rate": [None] * n,
         "lpv": [0] * n,
         "impressions": [None] * n,
         "cpm": [None] * n,
+        "cpc": [None] * n,
+        "cplc": [None] * n,
         "website_ctr": [None] * n,
         "conversions": [{} for _ in axis],
         "cpmql": [None] * n,
@@ -1076,7 +1094,7 @@ def search_global(
 
 
 _AB_COMPARE_EPSILON = 1e-6
-_AB_AVERAGE_KEYS = ("hook", "hold_rate", "scroll_stop", "ctr", "website_ctr", "connect_rate", "cpm")
+_AB_AVERAGE_KEYS = ("hook", "hold_rate", "scroll_stop", "ctr", "website_ctr", "connect_rate", "cpm", "cpc", "cplc")
 _AB_PER_ACTION_KEYS = ("results", "cpr", "page_conv")
 
 
@@ -1619,6 +1637,8 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
         video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
         cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
+        cpc = _safe_div(A["spend"], A["clicks"]) if A["clicks"] else None
+        cplc = _safe_div(A["spend"], A["inline_link_clicks"]) if A["inline_link_clicks"] else None
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
         # results, cpr e page_conv serão calculados no frontend baseado no action_type selecionado
 
@@ -1731,6 +1751,8 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             "ctr": ctr,
             "connect_rate": connect_rate,
             "cpm": cpm,
+            "cpc": cpc,
+            "cplc": cplc,
             "website_ctr": website_ctr,
             "reach": A["reach"],
             "frequency": frequency_agg,
@@ -1753,6 +1775,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
     total_plays = 0
     total_hook_wsum = 0.0
     total_hold_rate_wsum = 0.0  # Soma ponderada de hold_rate
+    total_video_watched_p50_wsum = 0.0  # Soma ponderada de video_watched_p50
     total_scroll_stop_wsum = 0.0  # Soma ponderada para índice 1 (scroll stop)
 
     # results por action_type
@@ -1767,7 +1790,8 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         total_plays += int(A.get("plays") or 0)
         total_hook_wsum += float(A.get("hook_wsum") or 0.0)
         total_hold_rate_wsum += float(A.get("hold_rate_wsum") or 0.0)
-        
+        total_video_watched_p50_wsum += float(A.get("video_watched_p50_wsum") or 0.0)
+
         # Calcular scroll stop (índice 1) ponderado por plays
         # Pegar a curva agregada do item para extrair o valor no índice 1
         # A curva vem em porcentagem (0-100), então normalizamos para decimal (0-1) como o hook
@@ -1792,11 +1816,14 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
     averages_base = {
         "hook": _safe_div(total_hook_wsum, total_plays) if total_plays else 0,
         "hold_rate": _safe_div(total_hold_rate_wsum, total_plays) if total_plays else 0,
+        "video_watched_p50": _safe_div(total_video_watched_p50_wsum, total_plays) if total_plays else 0,
         "scroll_stop": _safe_div(total_scroll_stop_wsum, total_plays) if total_plays else 0,
         "ctr": _safe_div(total_clicks, total_impr) if total_impr else 0,
         "website_ctr": _safe_div(total_inline, total_impr) if total_impr else 0,
         "connect_rate": _safe_div(total_lpv, total_inline) if total_inline else 0,
         "cpm": (_safe_div(total_spend, total_impr) * 1000.0) if total_impr else 0,
+        "cpc": _safe_div(total_spend, total_clicks) if total_clicks else 0,
+        "cplc": _safe_div(total_spend, total_inline) if total_inline else 0,
     }
 
     per_action_type: Dict[str, Dict[str, float]] = {}
@@ -1817,8 +1844,8 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
 
     # Ordenação opcional
     order = (req.order_by or "").lower()
-    if order in {"hook", "hold_rate", "cpr", "spend", "ctr", "connect_rate", "page_conv"}:
-        reverse = order not in {"cpr"}  # cpr menor é melhor; os demais maior é melhor
+    if order in {"hook", "hold_rate", "cpr", "cpc", "cplc", "spend", "ctr", "connect_rate", "page_conv"}:
+        reverse = order not in {"cpr", "cpc", "cplc"}  # custo menor é melhor; os demais maior é melhor
         items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
 
     return {
@@ -1970,7 +1997,7 @@ def get_rankings_series(req: RankingsSeriesRequest, user=Depends(get_current_use
             if not isinstance(series, dict):
                 return False
 
-            for metric in ("spend", "hook", "ctr", "connect_rate", "lpv", "impressions", "cpm", "website_ctr", "cpmql", "mqls"):
+            for metric in ("spend", "clicks", "inline_link_clicks", "hook", "ctr", "connect_rate", "lpv", "impressions", "cpm", "cpc", "cplc", "website_ctr", "cpmql", "mqls"):
                 values = series.get(metric)
                 if isinstance(values, list) and any(isinstance(v, (int, float)) and float(v) != 0.0 for v in values):
                     return True

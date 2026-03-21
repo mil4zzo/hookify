@@ -3,7 +3,6 @@
 import React from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Separator } from "@/components/common/Separator";
 import { cn } from "@/lib/utils/cn";
 
 export interface TabItem {
@@ -75,7 +74,7 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
         <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
     ) : (
-      <div className={cn(variant === "with-controls" ? "flex items-center gap-4 flex-nowrap min-w-0" : "", tabsContainerClassName)}>
+      <div className={cn(variant === "with-controls" ? "flex items-center gap-4 flex-nowrap min-w-0" : "", orientation === "horizontal" && separatorAfterTabs && "mb-8", tabsContainerClassName)}>
         {tabsContent}
         {variant === "with-controls" && controls && <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">{controls}</div>}
       </div>
@@ -87,7 +86,6 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
     <Wrapper>
       <Tabs value={value} onValueChange={onValueChange} className={cn("w-full h-full flex-1 flex", orientation === "vertical" ? "flex-row" : "flex-col min-h-0")}>
         {tabsWrapper}
-        {orientation === "horizontal" && separatorAfterTabs && <Separator vertical="md" />}
         {orientation === "horizontal" && children}
       </Tabs>
     </Wrapper>

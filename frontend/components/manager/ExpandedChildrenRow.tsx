@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { IconArrowsSort, IconLoader2, IconSearch } from "@tabler/icons-react";
+import { IconArrowsSort, IconLoader2 } from "@tabler/icons-react";
 import { useAdVariations, useAdsetChildren } from "@/lib/api/hooks";
 import { RankingsChildrenItem } from "@/lib/api/schemas";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { StatusCell } from "@/components/manager/StatusCell";
 import type { ColumnFiltersState } from "@tanstack/react-table";
-import { Input } from "@/components/ui/input";
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { MANAGER_COLUMN_OPTIONS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -103,6 +103,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({ adN
       const page_conv = lpv > 0 ? results / lpv : 0;
       // Calcular cpr: mesmo cálculo da linha principal
       const cpr = results > 0 ? spend / results : 0;
+      const clicks = Number(child.clicks || 0);
       // Usar cpm do backend se disponível, senão calcular
       // cpm sempre vem do backend
       const cpm = typeof child.cpm === "number" ? child.cpm : 0;
@@ -119,6 +120,8 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({ adN
       const cpmql = mqls > 0 ? spend / mqls : 0;
       // Calcular website_ctr (inline_link_clicks / impressions)
       const inline_link_clicks = Number(child.inline_link_clicks || 0);
+      const cpc = clicks > 0 ? spend / clicks : 0;
+      const cplc = inline_link_clicks > 0 ? spend / inline_link_clicks : 0;
       const website_ctr = impressions > 0 ? inline_link_clicks / impressions : 0;
       return {
         ...child,
@@ -130,8 +133,12 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({ adN
         lpv,
         spend,
         impressions,
+        clicks,
+        inline_link_clicks,
         mqls,
         cpmql,
+        cpc,
+        cplc,
         website_ctr,
         ad_count: 1, // Cada child é um anúncio individual
       };
@@ -181,6 +188,14 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({ adN
         case "cpr":
           aVal = a.cpr || 0;
           bVal = b.cpr || 0;
+          break;
+        case "cpc":
+          aVal = a.cpc || 0;
+          bVal = b.cpc || 0;
+          break;
+        case "cplc":
+          aVal = a.cplc || 0;
+          bVal = b.cplc || 0;
           break;
         case "cpmql":
           aVal = a.cpmql || 0;
@@ -288,6 +303,10 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({ adN
         return formatPct(Number(child.hook * 100));
       case "cpr":
         return child.results > 0 ? formatCurrency(child.cpr) : "—";
+      case "cpc":
+        return child.clicks > 0 ? formatCurrency(child.cpc) : "—";
+      case "cplc":
+        return child.inline_link_clicks > 0 ? formatCurrency(child.cplc) : "—";
       case "cpmql":
         return child.mqls > 0 ? formatCurrency(child.cpmql) : "—";
       case "spend":
@@ -376,10 +395,13 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({ adN
       {/* Busca e filtros - flex horizontal: search à esquerda, filterbar à direita */}
       <div className="px-4 py-3 bg-muted/50" role="region" aria-label="Busca e filtros da tabela expandida">
         <div className="flex items-center gap-3 flex-nowrap">
-          <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
-            <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input type="search" placeholder="Buscar por nome ou ID..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 h-9 text-xs w-full" />
-          </div>
+          <SearchInputWithClear
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Buscar por nome ou ID..."
+            wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
+            inputClassName="h-9 text-xs w-full"
+          />
           {(searchTerm.trim() || columnFilters.length > 0) && (
             <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
               {sortedData.length} de {childrenData?.length || 0} variações

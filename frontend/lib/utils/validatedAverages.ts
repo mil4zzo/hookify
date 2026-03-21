@@ -24,6 +24,7 @@ export function computeValidatedAveragesFromAdPerformance(
   let totalLpv = 0;
   let totalHookWsum = 0;
   let totalHoldRateWsum = 0;
+  let totalVideoWatchedP50Wsum = 0;
   let totalScrollStopWsum = 0;
   let totalPlays = 0;
 
@@ -46,7 +47,8 @@ export function computeValidatedAveragesFromAdPerformance(
 
     const hook = Number(ad.hook || 0);
     const holdRate = Number(ad.hold_rate || 0);
-    const scrollStop = Number(ad.video_watched_p50 || 0);
+    const videoWatchedP50 = Number(ad.video_watched_p50 || 0);
+    const scrollStop = Number((ad as any).scroll_stop_value ?? (ad as any).scroll_stop_rate ?? ad.video_watched_p50 ?? 0);
 
     const conversions = (ad.conversions || {}) as Record<string, number>;
 
@@ -60,6 +62,7 @@ export function computeValidatedAveragesFromAdPerformance(
     totalPlays += plays;
     totalHookWsum += hook * plays;
     totalHoldRateWsum += holdRate * plays;
+    totalVideoWatchedP50Wsum += videoWatchedP50 * plays;
     totalScrollStopWsum += scrollStop * plays;
 
     // Somar resultados para TODOS os action_types presentes
@@ -78,6 +81,7 @@ export function computeValidatedAveragesFromAdPerformance(
 
   const avgHook = safeDiv(totalHookWsum, totalPlays);
   const avgHoldRate = safeDiv(totalHoldRateWsum, totalPlays);
+  const avgVideoWatchedP50 = safeDiv(totalVideoWatchedP50Wsum, totalPlays);
   const avgScrollStop = safeDiv(totalScrollStopWsum, totalPlays);
   const avgCtr = safeDiv(totalClicks, totalImpr);
   const avgWebsiteCtr = safeDiv(totalInline, totalImpr);
@@ -87,6 +91,7 @@ export function computeValidatedAveragesFromAdPerformance(
   const averagesBase = {
     hook: avgHook,
     hold_rate: avgHoldRate,
+    video_watched_p50: avgVideoWatchedP50,
     scroll_stop: avgScrollStop,
     ctr: avgCtr,
     website_ctr: avgWebsiteCtr,

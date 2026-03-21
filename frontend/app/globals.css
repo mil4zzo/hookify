@@ -185,3 +185,9 @@ input:-moz-autofill {
   box-shadow: 0 0 0 30px var(--input) inset !important;
 }
 
+/* Esconde o botão nativo de limpar do input type="search" (webkit) - usamos botão custom com IconX + text-text/hover:text-destructive */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+

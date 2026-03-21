@@ -5,6 +5,7 @@ import { SparklineBars } from "@/components/common/SparklineBars";
 import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { getMetricQualityToneByAverage, getMetricValueTextClass, type MetricQualityTone } from "@/lib/utils/metricQuality";
 
 type ManagerAverages = {
   count: number;
@@ -22,6 +23,8 @@ type ManagerAverages = {
   connect_rate: number | null;
   cpm: number | null;
   cpr: number | null;
+  cpc: number | null;
+  cplc: number | null;
   page_conv: number | null;
   cpmql: number | null;
   mqls: number;
@@ -30,7 +33,7 @@ type ManagerAverages = {
 interface MetricCellProps {
   row: RankingsItem | { original?: RankingsItem };
   value: React.ReactNode;
-  metric: "hook" | "cpr" | "spend" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" | "results" | "mqls";
+  metric: "hook" | "cpr" | "cpc" | "cplc" | "spend" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" | "results" | "mqls";
   getRowKey: (row: any) => string;
   byKey: Map<string, any>;
   endDate?: string;
@@ -152,10 +155,12 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
   s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
 
   // Se não encontramos CPR, Page, Results ou MQLs nas séries, calcular a partir das séries disponíveis
-  if ((s === undefined || s === null) && (metric === "cpr" || metric === "page_conv" || metric === "results" || metric === "mqls")) {
+  if ((s === undefined || s === null) && (metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "page_conv" || metric === "results" || metric === "mqls")) {
     const seriesData = original.series ? (original.series as any) : endDate ? byKey.get(rowKey)?.series : undefined;
     if (seriesData) {
       const spendSeries = seriesData.spend || [];
+      const clicksSeries = seriesData.clicks || [];
+      const inlineLinkClicksSeries = seriesData.inline_link_clicks || [];
       const lpvSeries = seriesData.lpv || [];
       const conversionsSeries = seriesData.conversions || [];
       const leadscoreSeries = seriesData.leadscore_values || [];
@@ -168,6 +173,18 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
           if (!dayConversions || typeof dayConversions !== "object" || Array.isArray(dayConversions)) return null;
           const results = actionType && actionType.trim() ? Number(dayConversions[actionType] || 0) : 0;
           return results > 0 ? spend / results : null;
+        });
+      } else if (metric === "cpc") {
+        s = spendSeries.map((spend: number | null, idx: number) => {
+          if (spend == null || spend <= 0) return null;
+          const clicks = Number(clicksSeries[idx] || 0);
+          return clicks > 0 ? spend / clicks : null;
+        });
+      } else if (metric === "cplc") {
+        s = spendSeries.map((spend: number | null, idx: number) => {
+          if (spend == null || spend <= 0) return null;
+          const inlineLinkClicks = Number(inlineLinkClicksSeries[idx] || 0);
+          return inlineLinkClicks > 0 ? spend / inlineLinkClicks : null;
         });
       } else if (metric === "page_conv") {
         // Page conv = results / lpv
@@ -213,7 +230,12 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
   const normalizedSeries = s || (dates ? Array(dates.length).fill(null) : Array(5).fill(null));
 
   // Determinar se a métrica é "inversa" (menor é melhor: CPR, CPM e CPMQL)
-  const isInverseMetric = metric === "cpr" || metric === "cpm" || metric === "cpmql";
+  const isInverseMetric = metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "cpm" || metric === "cpmql";
+
+  const getDeltaTone = (current: number, average: number): MetricQualityTone | null => {
+    if (!Number.isFinite(current) || !Number.isFinite(average) || average <= 0) return null;
+    return getMetricQualityToneByAverage(current, average, isInverseMetric);
+  };
 
   // Se showTrends estiver ativo, mostrar sparklines
   if (showTrends) {
@@ -266,6 +288,26 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
           const spendForCpr = seriesData.spend || [];
           dataAvailability = spendForCpr.map((spend: number | null) => spend != null && spend > 0);
           zeroValueLabel = "Sem leads";
+          break;
+        case "cpc":
+          // CPC precisa de clicks; fallback para spend em payloads antigos
+          const clicksForCpc = seriesData.clicks || [];
+          const spendForCpc = seriesData.spend || [];
+          dataAvailability =
+            clicksForCpc.length > 0
+              ? clicksForCpc.map((clicks: number | null) => clicks != null && clicks > 0)
+              : spendForCpc.map((spend: number | null) => spend != null && spend > 0);
+          zeroValueLabel = "Sem cliques";
+          break;
+        case "cplc":
+          // CPLC precisa de link clicks; fallback para spend em payloads antigos
+          const inlineClicksForCplc = seriesData.inline_link_clicks || [];
+          const spendForCplc = seriesData.spend || [];
+          dataAvailability =
+            inlineClicksForCplc.length > 0
+              ? inlineClicksForCplc.map((clicks: number | null) => clicks != null && clicks > 0)
+              : spendForCplc.map((spend: number | null) => spend != null && spend > 0);
+          zeroValueLabel = "Sem link clicks";
           break;
         case "cpmql":
           // CPMQL precisa de spend (para saber se houve investimento)
@@ -338,7 +380,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
                 fadeInStaggerMs={STAGGER_MS}
                 fadeInStartDelayMs={SPARKLINE_START_DELAY_MS}
                 valueFormatter={(n: number) => {
-                  if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
+                  if (metric === "spend" || metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "cpm" || metric === "cpmql") {
                     return formatCurrency(n || 0);
                   }
                   if (metric === "results" || metric === "mqls") {
@@ -369,7 +411,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
             className={minimal ? "w-12 h-4" : undefined}
             lightweight={lightweight}
             valueFormatter={(n: number) => {
-              if (metric === "spend" || metric === "cpr" || metric === "cpm" || metric === "cpmql") {
+              if (metric === "spend" || metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "cpm" || metric === "cpmql") {
                 return formatCurrency(n || 0);
               }
               if (metric === "results" || metric === "mqls") {
@@ -416,6 +458,26 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
         currentValue = results > 0 ? Number((original as any).spend || 0) / results : null;
       }
       break;
+    case "cpc": {
+      const serverValue = (original as any).cpc;
+      if (serverValue != null && Number.isFinite(Number(serverValue))) {
+        currentValue = Number(serverValue);
+      } else {
+        const clicks = Number((original as any).clicks || 0);
+        currentValue = clicks > 0 ? Number((original as any).spend || 0) / clicks : null;
+      }
+      break;
+    }
+    case "cplc": {
+      const serverValue = (original as any).cplc;
+      if (serverValue != null && Number.isFinite(Number(serverValue))) {
+        currentValue = Number(serverValue);
+      } else {
+        const inlineLinkClicks = Number((original as any).inline_link_clicks || 0);
+        currentValue = inlineLinkClicks > 0 ? Number((original as any).spend || 0) / inlineLinkClicks : null;
+      }
+      break;
+    }
     case "spend":
       currentValue = Number((original as any).spend || 0);
       break;
@@ -518,7 +580,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       // Para métricas inversas: valor > 0 quando média é 0 = pior (acima da média) = vermelho com "+"
       return (
         <div className="flex flex-col items-center gap-3">
-          <span className="text-xs font-medium text-destructive">+∞</span>
+          <span className={`text-xs font-medium ${getMetricValueTextClass("destructive")}`}>+∞</span>
           <span className="text-base font-medium leading-none">{value}</span>
         </div>
       );
@@ -526,7 +588,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       // Para métricas normais: valor > 0 quando média é 0 = melhor (acima da média) = verde com "+"
       return (
         <div className="flex flex-col items-center gap-3">
-          <span className="text-xs font-medium text-success">+∞</span>
+          <span className={`text-xs font-medium ${getMetricValueTextClass("success")}`}>+∞</span>
           <span className="text-base font-medium leading-none">{value}</span>
         </div>
       );
@@ -546,11 +608,9 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     diffPercent = ((currentValue - avgValue) / avgValue) * 100;
   }
 
-  // Determinar cor baseado na diferença
-  // Para métricas normais: positivo (acima da média) = verde, negativo (abaixo) = vermelho
-  // Para métricas inversas: positivo (menor que média) = verde, negativo (maior que média) = vermelho
   const isPositive = diffPercent > 0;
-  const colorClass = isPositive ? "text-success" : "text-destructive";
+  const deltaTone = getDeltaTone(currentValue, avgValue);
+  const colorClass = deltaTone ? getMetricValueTextClass(deltaTone) : isPositive ? getMetricValueTextClass("success") : getMetricValueTextClass("destructive");
 
   // Para métricas inversas, inverter o sinal exibido: quando está melhor (positivo), mostrar "-" porque está abaixo da média numericamente
   // Para métricas normais, manter o sinal original

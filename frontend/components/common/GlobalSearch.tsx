@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { IconSearch, IconLoader2, IconDeviceTablet, IconPlayCardA, IconBorderAll, IconFolder } from "@tabler/icons-react";
-import { Input } from "@/components/ui/input";
+import { IconLoader2, IconDeviceTablet, IconPlayCardA, IconBorderAll, IconFolder } from "@tabler/icons-react";
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { useGlobalSearch } from "@/lib/hooks/useGlobalSearch";
@@ -175,10 +175,14 @@ export function GlobalSearch({ isCollapsed = false, className }: GlobalSearchPro
   return (
     <div ref={containerRef} className={cn("relative w-full", className)}>
       {/* Search Input */}
-      <div className="relative">
-        <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-        <Input ref={inputRef} type="search" placeholder="Buscar..." value={query} onChange={handleInputChange} onFocus={handleInputFocus} className="pl-9 h-9 bg-input-30 border-border text-text placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-info" />
-      </div>
+      <SearchInputWithClear
+        value={query}
+        onChange={(v) => setQuery(v)}
+        placeholder="Buscar..."
+        inputRef={inputRef}
+        onFocus={handleInputFocus}
+        inputClassName="h-9 bg-input-30 border-border text-text placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-info"
+      />
 
       {/* Dropdown de Resultados */}
       {isOpen && (

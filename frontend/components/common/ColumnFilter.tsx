@@ -220,7 +220,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
                   variant="ghost"
                   size="sm"
                   onClick={handleClear}
-                  className="h-8 text-xs"
+                  className="h-8 text-xs text-text hover:text-destructive"
                 >
                   <IconX className="w-3 h-3 mr-1" />
                   Limpar

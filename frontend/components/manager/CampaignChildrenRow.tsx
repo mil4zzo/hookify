@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { IconArrowsSort, IconLoader2, IconSearch } from "@tabler/icons-react";
+import { IconArrowsSort, IconLoader2 } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import { useCampaignChildren } from "@/lib/api/hooks";
 import type { RankingsItem } from "@/lib/api/schemas";
 import { StatusCell } from "@/components/manager/StatusCell";
-import { Input } from "@/components/ui/input";
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { MANAGER_COLUMN_OPTIONS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -92,8 +92,11 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
 
       const page_conv = lpv > 0 ? results / lpv : 0;
       const cpr = results > 0 ? spend / results : 0;
+      const clicks = Number((child as any).clicks || 0);
       const cpm = typeof (child as any).cpm === "number" ? (child as any).cpm : 0;
       const website_ctr = impressions > 0 ? inline_link_clicks / impressions : 0;
+      const cpc = clicks > 0 ? spend / clicks : 0;
+      const cplc = inline_link_clicks > 0 ? spend / inline_link_clicks : 0;
 
       const { mqlCount } = hasSheetIntegration
         ? computeMqlMetricsFromLeadscore({
@@ -116,8 +119,12 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
         lpv,
         spend,
         impressions,
+        clicks,
+        inline_link_clicks,
         mqls,
         cpmql,
+        cpc,
+        cplc,
         website_ctr,
       };
     });
@@ -163,6 +170,14 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
         case "cpr":
           aVal = (a as any).cpr || 0;
           bVal = (b as any).cpr || 0;
+          break;
+        case "cpc":
+          aVal = (a as any).cpc || 0;
+          bVal = (b as any).cpc || 0;
+          break;
+        case "cplc":
+          aVal = (a as any).cplc || 0;
+          bVal = (b as any).cplc || 0;
           break;
         case "cpmql":
           aVal = (a as any).cpmql || 0;
@@ -229,6 +244,10 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
         return formatPct(Number(child.hook * 100));
       case "cpr":
         return child.results > 0 ? formatCurrency(child.cpr) : "—";
+      case "cpc":
+        return child.clicks > 0 ? formatCurrency(child.cpc) : "—";
+      case "cplc":
+        return child.inline_link_clicks > 0 ? formatCurrency(child.cplc) : "—";
       case "cpmql":
         return child.mqls > 0 ? formatCurrency(child.cpmql) : "—";
       case "spend":
@@ -319,10 +338,13 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
       {/* Busca e filtros - flex horizontal: search à esquerda, filterbar à direita */}
       <div className="px-4 py-3 bg-muted/50" role="region" aria-label="Busca e filtros da tabela expandida">
         <div className="flex items-center gap-3 flex-nowrap">
-          <div className="relative flex-shrink-0 w-72 max-w-[min(18rem,100%)]">
-            <IconSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-            <Input type="search" placeholder="Buscar por nome ou ID..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-9 h-9 text-xs w-full" />
-          </div>
+          <SearchInputWithClear
+            value={searchTerm}
+            onChange={setSearchTerm}
+            placeholder="Buscar por nome ou ID..."
+            wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
+            inputClassName="h-9 text-xs w-full"
+          />
           {(searchTerm.trim() || columnFilters.length > 0) && (
             <span className="text-xs text-muted-foreground whitespace-nowrap flex-shrink-0">
               {sortedData.length} de {childrenData?.length || 0} conjuntos

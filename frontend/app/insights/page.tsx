@@ -1170,11 +1170,13 @@ export default function InsightsPage() {
             dateStop={dateRange.end}
             actionType={actionType}
             availableConversionTypes={uniqueConversionTypes}
-            initialTab={openInVideoTab ? "video" : "overview"}
+            initialTab="video"
             averages={
               averages
                 ? {
                     hook: averages.hook ?? null,
+                    hold_rate: averages.hold_rate ?? null,
+                    video_watched_p50: averages.video_watched_p50 ?? null,
                     scroll_stop: averages.scroll_stop ?? null,
                     ctr: averages.ctr ?? null,
                     website_ctr: averages.website_ctr ?? null,

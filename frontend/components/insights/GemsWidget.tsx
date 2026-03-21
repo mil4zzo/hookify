@@ -170,6 +170,8 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   const dialogAverages = averages
     ? {
         hook: averages.hook ?? null,
+        hold_rate: averages.hold_rate ?? null,
+        video_watched_p50: averages.video_watched_p50 ?? null,
         scroll_stop: averages.scroll_stop ?? null,
         ctr: averages.ctr ?? null,
         website_ctr: averages.website_ctr ?? null,

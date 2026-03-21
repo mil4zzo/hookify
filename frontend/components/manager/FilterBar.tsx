@@ -224,8 +224,8 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                       </div>
                     </PopoverContent>
                   </Popover>
-                  <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0" aria-label="Remover filtro Status">
-                    <IconX className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                  <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0 text-text hover:text-destructive" aria-label="Remover filtro Status">
+                    <IconX className="w-3 h-3" />
                   </button>
                 </Badge>
               );
@@ -386,8 +386,8 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                       <IconCheck className="w-3 h-3 text-success-foreground" />
                     </button>
                   ) : (
-                    <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0" aria-label={`Remover filtro ${column.label}`}>
-                      <IconX className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                    <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0 text-text hover:text-destructive" aria-label={`Remover filtro ${column.label}`}>
+                      <IconX className="w-3 h-3" />
                     </button>
                   )}
                 </Badge>
@@ -623,8 +623,8 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                     <IconCheck className="w-3 h-3 text-success-foreground" />
                   </button>
                 ) : (
-                  <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0" aria-label={`Remover filtro ${column.label}`}>
-                    <IconX className="w-3 h-3 text-muted-foreground hover:text-foreground" />
+                  <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0 text-text hover:text-destructive" aria-label={`Remover filtro ${column.label}`}>
+                    <IconX className="w-3 h-3" />
                   </button>
                 )}
               </Badge>

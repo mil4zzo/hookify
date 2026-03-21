@@ -89,6 +89,8 @@ export function useFilteredAverages({
 
     const hookAvg = hookWeight > 0 ? hookWeighted / hookWeight : null;
     const cpr = sumResults > 0 ? sumSpend / sumResults : null;
+    const cpc = sumClicks > 0 ? sumSpend / sumClicks : null;
+    const cplc = sumInlineLinkClicks > 0 ? sumSpend / sumInlineLinkClicks : null;
     const pageConv = sumLPV > 0 ? sumResults / sumLPV : null;
 
     const ctr = sumImpr > 0 ? sumClicks / sumImpr : null;
@@ -115,6 +117,8 @@ export function useFilteredAverages({
       connect_rate: connectAvg,
       cpm,
       cpr,
+      cpc,
+      cplc,
       page_conv: pageConv,
       cpmql: cpmqlAvg,
       mqls: n > 0 ? totalMql / n : 0,

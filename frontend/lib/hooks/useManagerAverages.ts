@@ -20,6 +20,8 @@ export type ManagerAverages = {
   connect_rate: number | null;
   cpm: number | null;
   cpr: number | null;
+  cpc: number | null;
+  cplc: number | null;
   page_conv: number | null;
   cpmql: number | null;
   mqls: number;
@@ -67,6 +69,8 @@ export function useManagerAverages({
         connect_rate: null,
         cpm: null,
         cpr: null,
+        cpc: null,
+        cplc: null,
         page_conv: null,
         cpmql: null,
         mqls: 0,
@@ -144,6 +148,8 @@ export function useManagerAverages({
     const hookAvg = hookWeight > 0 ? hookWeighted / hookWeight : null;
     const scrollStopAvg = scrollStopWeight > 0 ? scrollStopWeighted / scrollStopWeight : null;
     const cpr = sumResults > 0 ? sumSpend / sumResults : null;
+    const cpc = sumClicks > 0 ? sumSpend / sumClicks : null;
+    const cplc = sumInlineLinkClicks > 0 ? sumSpend / sumInlineLinkClicks : null;
     const pageConv = sumLPV > 0 ? sumResults / sumLPV : null;
 
     // Taxas como razão de somas (consistência global vs filtrada)
@@ -170,6 +176,8 @@ export function useManagerAverages({
       connect_rate: connectAvg,
       cpm,
       cpr,
+      cpc,
+      cplc,
       page_conv: pageConv,
       cpmql: cpmqlAvg,
       mqls: n > 0 ? totalMql / n : 0,

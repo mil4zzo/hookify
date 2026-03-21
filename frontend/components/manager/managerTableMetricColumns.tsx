@@ -217,6 +217,74 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     );
   }
 
+  // CPC
+  if (shouldShow("cpc")) {
+    cols.push(
+      columnHelper.accessor(
+        (row) => {
+          const ad = row as RankingsItem;
+          const clicks = Number(ad.clicks || 0);
+          return clicks > 0 ? Number(ad.spend || 0) / clicks : 0;
+        },
+        {
+          id: "cpc",
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return renderMetricHeader("cpc", "CPC", column, filterValue);
+          },
+          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
+            const ad = row.original as RankingsItem;
+            const clicks = Number(ad.clicks || 0);
+            const cpc = clicks > 0 ? Number(ad.spend || 0) / clicks : null;
+            return applyNumericFilterMaybeArray(cpc, filterValue, applyNumericFilter);
+          },
+          sortingFn: "auto",
+          cell: (info) => {
+            const ad = info.row.original as RankingsItem;
+            const clicks = Number(ad.clicks || 0);
+            const cpc = clicks > 0 ? Number(info.getValue() || 0) : 0;
+            const value = cpc > 0 && Number.isFinite(cpc) ? formatCurrencyRef.current(cpc) : "—";
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cpc" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
+          },
+        },
+      ) as any,
+    );
+  }
+
+  // CPLC
+  if (shouldShow("cplc")) {
+    cols.push(
+      columnHelper.accessor(
+        (row) => {
+          const ad = row as RankingsItem;
+          const inlineLinkClicks = Number(ad.inline_link_clicks || 0);
+          return inlineLinkClicks > 0 ? Number(ad.spend || 0) / inlineLinkClicks : 0;
+        },
+        {
+          id: "cplc",
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return renderMetricHeader("cplc", "CPLC", column, filterValue);
+          },
+          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
+            const ad = row.original as RankingsItem;
+            const inlineLinkClicks = Number(ad.inline_link_clicks || 0);
+            const cplc = inlineLinkClicks > 0 ? Number(ad.spend || 0) / inlineLinkClicks : null;
+            return applyNumericFilterMaybeArray(cplc, filterValue, applyNumericFilter);
+          },
+          sortingFn: "auto",
+          cell: (info) => {
+            const ad = info.row.original as RankingsItem;
+            const inlineLinkClicks = Number(ad.inline_link_clicks || 0);
+            const cplc = inlineLinkClicks > 0 ? Number(info.getValue() || 0) : 0;
+            const value = cplc > 0 && Number.isFinite(cplc) ? formatCurrencyRef.current(cplc) : "—";
+            return <MetricCell row={ad} value={<span className="text-center inline-block w-full">{value}</span>} metric="cplc" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
+          },
+        },
+      ) as any,
+    );
+  }
+
   // CPMQL
   if (hasSheetIntegration && shouldShow("cpmql")) {
     cols.push(

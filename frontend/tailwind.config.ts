@@ -5,6 +5,7 @@ export default {
   content: [
     './app/**/*.{ts,tsx}',
     './components/**/*.{ts,tsx}',
+    './lib/**/*.{ts,tsx}',
   ],
   theme: {
     extend: {
@@ -12,6 +13,7 @@ export default {
         // === BASE ===
         background: {
           DEFAULT: 'var(--background)',
+          5: 'color-mix(in oklab, var(--background) 5%, transparent)',
           10: 'color-mix(in oklab, var(--background) 10%, transparent)',
           20: 'color-mix(in oklab, var(--background) 20%, transparent)',
           30: 'color-mix(in oklab, var(--background) 30%, transparent)',
@@ -57,6 +59,7 @@ export default {
         // === SECUNDÁRIAS ===
         secondary: {
           DEFAULT: 'var(--secondary)',
+          5: 'color-mix(in oklab, var(--secondary) 5%, transparent)',
           10: 'color-mix(in oklab, var(--secondary) 10%, transparent)',
           20: 'color-mix(in oklab, var(--secondary) 20%, transparent)',
           30: 'color-mix(in oklab, var(--secondary) 30%, transparent)',
@@ -74,6 +77,7 @@ export default {
         // === ESTADOS ===
         muted: {
           DEFAULT: 'var(--muted)',
+          5: 'color-mix(in oklab, var(--muted) 5%, transparent)',
           10: 'color-mix(in oklab, var(--muted) 10%, transparent)',
           20: 'color-mix(in oklab, var(--muted) 20%, transparent)',
           30: 'color-mix(in oklab, var(--muted) 30%, transparent)',
@@ -89,6 +93,7 @@ export default {
         'muted-foreground': 'var(--muted-foreground)',
         accent: {
           DEFAULT: 'var(--accent)',
+          5: 'color-mix(in oklab, var(--accent) 5%, transparent)',
           10: 'color-mix(in oklab, var(--accent) 10%, transparent)',
           20: 'color-mix(in oklab, var(--accent) 20%, transparent)',
           30: 'color-mix(in oklab, var(--accent) 30%, transparent)',
@@ -122,6 +127,7 @@ export default {
         'destructive-foreground': 'var(--destructive-foreground)',
         success: {
           DEFAULT: 'var(--success)',
+          5: 'color-mix(in oklab, var(--success) 5%, transparent)',
           10: 'color-mix(in oklab, var(--success) 10%, transparent)',
           20: 'color-mix(in oklab, var(--success) 20%, transparent)',
           30: 'color-mix(in oklab, var(--success) 30%, transparent)',
@@ -135,6 +141,7 @@ export default {
         'success-foreground': 'var(--success-foreground)',
         warning: {
           DEFAULT: 'var(--warning)',
+          5: 'color-mix(in oklab, var(--warning) 5%, transparent)',
           10: 'color-mix(in oklab, var(--warning) 10%, transparent)',
           20: 'color-mix(in oklab, var(--warning) 20%, transparent)',
           30: 'color-mix(in oklab, var(--warning) 30%, transparent)',
@@ -148,6 +155,7 @@ export default {
         'warning-foreground': 'var(--warning-foreground)',
         info: {
           DEFAULT: 'var(--info)',
+          5: 'color-mix(in oklab, var(--info) 5%, transparent)',
           10: 'color-mix(in oklab, var(--info) 10%, transparent)',
           20: 'color-mix(in oklab, var(--info) 20%, transparent)',
           30: 'color-mix(in oklab, var(--info) 30%, transparent)',
@@ -161,6 +169,7 @@ export default {
         'info-foreground': 'var(--info-foreground)',
         attention: {
           DEFAULT: 'var(--attention)',
+          5: 'color-mix(in oklab, var(--attention) 5%, transparent)',
           10: 'color-mix(in oklab, var(--attention) 10%, transparent)',
           20: 'color-mix(in oklab, var(--attention) 20%, transparent)',
           30: 'color-mix(in oklab, var(--attention) 30%, transparent)',
@@ -176,16 +185,22 @@ export default {
         // === FORMULÁRIOS ===
         input: {
           DEFAULT: 'var(--input)',
+          5: 'color-mix(in oklab, var(--input) 5%, transparent)',
           10: 'color-mix(in oklab, var(--input) 10%, transparent)',
           20: 'color-mix(in oklab, var(--input) 20%, transparent)',
+          40: 'color-mix(in oklab, var(--input) 40%, transparent)',
           30: 'color-mix(in oklab, var(--input) 30%, transparent)',
           50: 'color-mix(in oklab, var(--input) 50%, transparent)',
+          60: 'color-mix(in oklab, var(--input) 60%, transparent)',
+          70: 'color-mix(in oklab, var(--input) 70%, transparent)',
           80: 'color-mix(in oklab, var(--input) 80%, transparent)',
+          90: 'color-mix(in oklab, var(--input) 90%, transparent)',
         },
         'input-foreground': 'var(--input-foreground)',
         border: 'var(--border)',
         ring: {
           DEFAULT: 'var(--ring)',
+          5: 'color-mix(in oklab, var(--ring) 5%, transparent)',
           10: 'color-mix(in oklab, var(--ring) 10%, transparent)',
           20: 'color-mix(in oklab, var(--ring) 20%, transparent)',
           30: 'color-mix(in oklab, var(--ring) 30%, transparent)',
@@ -225,15 +240,15 @@ export default {
         // === BRAND ===
         brand: {
           DEFAULT: 'var(--primary)',
-          20: 'color-mix(in oklab, var(--primary) 20%, transparent)',
+          5: 'color-mix(in oklab, var(--primary) 5%, transparent)',
+          10: 'color-mix(in oklab, var(--primary) 10%, transparent)',
+          30: 'color-mix(in oklab, var(--primary) 30%, transparent)',
+          40: 'color-mix(in oklab, var(--primary) 40%, transparent)',
           50: 'color-mix(in oklab, var(--primary) 50%, transparent)',
           60: 'color-mix(in oklab, var(--primary) 60%, transparent)',
           70: 'color-mix(in oklab, var(--primary) 70%, transparent)',
-          100: 'color-mix(in oklab, var(--primary) 60%, transparent)',
-          200: 'color-mix(in oklab, var(--primary) 70%, transparent)',
-          300: 'color-mix(in oklab, var(--primary) 80%, transparent)',
-          400: 'color-mix(in oklab, var(--primary) 90%, transparent)',
-          500: 'var(--primary)',
+          80: 'color-mix(in oklab, var(--primary) 80%, transparent)',
+          90: 'color-mix(in oklab, var(--primary) 90%, transparent)',
         },
       },
       borderRadius: {
@@ -269,5 +284,4 @@ export default {
   },
   plugins: [require('tailwindcss-animate')],
 } satisfies Config
-
 

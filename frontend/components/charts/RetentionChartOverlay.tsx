@@ -146,11 +146,9 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
   // Tempo máximo efetivo para cálculos (sempre usar duration quando disponível)
   const effectiveMaxTime = duration > 0 ? Math.min(duration, maxGraphTime) : maxTime;
 
-  // Altura do overlay: ocupar toda a altura disponível, exceto a área dos controles
-  const controlsHeight = 68; // Altura aproximada dos controles do vídeo HTML5
   // Margens: eixo Y fica à esquerda (fora), eixo X ocupa toda largura
   const axisYWidth = 32; // Largura do eixo Y (legenda lateral)
-  const margin = { top: 4, right: 0, bottom: 0, left: 0 };
+  const margin = { top: 4, right: 0, bottom: 4, left: 0 };
 
   const handleClick = (event: React.MouseEvent<SVGElement>) => {
     if (!onTimeSeek || !containerRef.current || !playerContainerRef.current) return;
@@ -242,6 +240,11 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
       return () => resizeObserver.disconnect();
     }
   }, [axisYWidth]);
+
+  // Altura do overlay: ocupar toda a altura disponivel, exceto a area dos controles.
+  // Em larguras de desktop, reservamos um pouco mais de espaco na base para casar melhor com o player.
+  const estimatedPlayerWidth = playerContainerRef.current?.offsetWidth || Math.max(0, containerWidth - axisYWidth);
+  const controlsHeight = estimatedPlayerWidth >= 280 ? 72 : 68;
 
   // Calcular altura do overlay: toda a altura do container menos os controles
   const overlayHeight = containerHeight > 0 ? containerHeight - controlsHeight : 60;
@@ -357,9 +360,7 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
           )}
 
           {/* Linha vertical no hover — pontilhada e clipada abaixo da curva de retenção */}
-          {hoverTimeX != null && hoverTime !== currentTime && (
-            <line x1={hoverTimeX} x2={hoverTimeX} y1={0} y2={h} stroke="var(--muted-foreground)" strokeWidth={1} strokeOpacity={0.6} strokeDasharray="4 3" clipPath="url(#overlayRetentionClip)" />
-          )}
+          {hoverTimeX != null && hoverTime !== currentTime && <line x1={hoverTimeX} x2={hoverTimeX} y1={0} y2={h} stroke="var(--muted-foreground)" strokeWidth={1} strokeOpacity={0.6} strokeDasharray="4 3" clipPath="url(#overlayRetentionClip)" />}
 
           {/* Axis */}
           <g className="retention-chart-overlay-axis">
@@ -367,7 +368,7 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
               scale={yScale}
               hideAxisLine={true}
               hideTicks={true}
-              tickValues={[20, 40, 60, 80, 100]}
+              tickValues={[0, 20, 40, 60, 80, 100]}
               tickFormat={(v) => `${v}%`}
               stroke="transparent"
               strokeWidth={0}

@@ -11,10 +11,14 @@ export type DailySeriesByKey = Map<
       hook: Array<number | null>;
       cpr: Array<number | null>;
       spend: Array<number | null>;
+      clicks?: Array<number | null>;
+      inline_link_clicks?: Array<number | null>;
       ctr: Array<number | null>;
       connect_rate: Array<number | null>;
       page_conv: Array<number | null>;
       cpm: Array<number | null>;
+      cpc?: Array<number | null>;
+      cplc?: Array<number | null>;
       website_ctr: Array<number | null>;
       // Opcional: em rankings usamos `series.cpmql` vinda do backend.
       // O fallback de `buildDailySeries` não calcula CPMQL por não ter leadscore por dia.
@@ -158,6 +162,8 @@ export function buildDailySeries(
     // Métricas que não dependem de actionType - devem vir do backend quando disponíveis
     // Como fallback, calculamos localmente, mas idealmente os dados já vêm do backend
     const spend = rows.map((r) => (r.spend > 0 ? r.spend : null));
+    const clicks = rows.map((r) => (r.clicks > 0 ? r.clicks : null));
+    const inline_link_clicks = rows.map((r) => (r.inline_link_clicks > 0 ? r.inline_link_clicks : null));
     const ctr = rows.map((r) => (r.impressions > 0 ? safeDivide(r.clicks, r.impressions) : null));
     const connect_rate = rows.map((r) => (r.inline_link_clicks > 0 ? safeDivide(r.lpv, r.inline_link_clicks) : null));
     
@@ -168,6 +174,8 @@ export function buildDailySeries(
       // Como fallback, calcular localmente
       return r.impressions > 0 ? (r.spend * 1000) / r.impressions : null;
     });
+    const cpc = rows.map((r) => (r.clicks > 0 ? r.spend / r.clicks : null));
+    const cplc = rows.map((r) => (r.inline_link_clicks > 0 ? r.spend / r.inline_link_clicks : null));
     const website_ctr = rows.map((r) => {
       // Se o ad tem website_ctr do backend, usar (mas neste contexto não temos acesso aos ads originais)
       // Como fallback, calcular localmente
@@ -176,11 +184,9 @@ export function buildDailySeries(
 
     byKey.set(key, {
       axis,
-      series: { hook, cpr, spend, ctr, connect_rate, page_conv, cpm, website_ctr },
+      series: { hook, cpr, spend, clicks, inline_link_clicks, ctr, connect_rate, page_conv, cpm, cpc, cplc, website_ctr },
     });
   }
 
   return { byKey, axis };
 }
-
-

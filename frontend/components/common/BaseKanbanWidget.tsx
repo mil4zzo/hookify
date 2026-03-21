@@ -140,6 +140,8 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
   const dialogAverages = modalProps?.averages
     ? {
         hook: modalProps.averages.hook ?? null,
+        hold_rate: modalProps.averages.hold_rate ?? null,
+        video_watched_p50: modalProps.averages.video_watched_p50 ?? null,
         scroll_stop: modalProps.averages.scroll_stop ?? null,
         ctr: modalProps.averages.ctr ?? null,
         website_ctr: modalProps.averages.website_ctr ?? null,
@@ -214,7 +216,7 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
           size="5xl"
           padding="md"
         >
-          {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={modalProps.dateStart} dateStop={modalProps.dateStop} actionType={modalProps.actionType} availableConversionTypes={modalProps.availableConversionTypes} initialTab={openInVideoTab ? "video" : "overview"} averages={dialogAverages} />}
+          {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={modalProps.dateStart} dateStop={modalProps.dateStop} actionType={modalProps.actionType} availableConversionTypes={modalProps.availableConversionTypes} initialTab="video" averages={dialogAverages} />}
         </Modal>
       )}
     </>

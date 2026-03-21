@@ -364,11 +364,15 @@ const RankingsSeriesSchema = z.object({
   hold_rate: z.array(z.number().nullable()).optional(),
   video_watched_p50: z.array(z.number().nullable()).optional(),
   spend: z.array(z.number().nullable()),
+  clicks: z.array(z.number().nullable()).optional(),
+  inline_link_clicks: z.array(z.number().nullable()).optional(),
   ctr: z.array(z.number().nullable()),
   connect_rate: z.array(z.number().nullable()),
   lpv: z.array(z.number().nullable()), // lpv por dia para calcular page_conv dinamicamente
   impressions: z.array(z.number().nullable()),
   cpm: z.array(z.number().nullable()),
+  cpc: z.array(z.number().nullable()).optional(),
+  cplc: z.array(z.number().nullable()).optional(),
   // CPMQL diário (calculado no backend usando leadscore_values por dia + mql_leadscore_min do usuário)
   // Opcional para manter compatibilidade com backends antigos.
   cpmql: z.array(z.number().nullable()).optional(),
@@ -401,6 +405,8 @@ export const RankingsItemSchema = z.object({
   ctr: z.number(),
   connect_rate: z.number(),
   cpm: z.number(),
+  cpc: z.number().nullable().optional(),
+  cplc: z.number().nullable().optional(),
   reach: z.number().optional(),
   frequency: z.number().optional(),
   leadscore_values: z.array(z.number()).optional(), // Array agregado de leadscore_values para calcular MQLs
@@ -422,11 +428,14 @@ export const RankingsResponseSchema = z.object({
     .object({
       hook: z.number(),
       hold_rate: z.number().optional(),
+      video_watched_p50: z.number().optional(),
       scroll_stop: z.number(),
       ctr: z.number(),
       website_ctr: z.number(),
       connect_rate: z.number(),
       cpm: z.number(),
+      cpc: z.number().optional(),
+      cplc: z.number().optional(),
       per_action_type: z.record(
         z.string(),
         z.object({
@@ -454,6 +463,8 @@ export const RankingsResponseSchema = z.object({
           website_ctr: z.number().optional(),
           connect_rate: z.number().optional(),
           cpm: z.number().optional(),
+          cpc: z.number().optional(),
+          cplc: z.number().optional(),
           page_conv: z.number().optional(),
         })
         .optional(),

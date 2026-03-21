@@ -198,6 +198,20 @@ def validate_rankings_item(item: Dict[str, Any]) -> List[str]:
             validate_ratio_consistency("cpm", item.get("cpm"), spend, impressions, multiplier=1000.0)
         except ContractValidationError as e:
             errors.append(str(e))
+
+    # CPC
+    if "cpc" in item and item.get("cpc") is not None:
+        try:
+            validate_ratio_consistency("cpc", item.get("cpc"), spend, clicks)
+        except ContractValidationError as e:
+            errors.append(str(e))
+
+    # CPLC
+    if "cplc" in item and item.get("cplc") is not None:
+        try:
+            validate_ratio_consistency("cplc", item.get("cplc"), spend, inline_link_clicks)
+        except ContractValidationError as e:
+            errors.append(str(e))
     
     # Page Conv (se houver results disponível)
     if "page_conv" in item and "results" in item:
@@ -272,7 +286,7 @@ def validate_averages(averages: Dict[str, Any]) -> List[str]:
         return errors
     
     # Validar que ratios são não-negativos (quando presentes)
-    ratio_fields = ["ctr", "website_ctr", "connect_rate", "cpm", "hook", "hold_rate", "scroll_stop"]
+    ratio_fields = ["ctr", "website_ctr", "connect_rate", "cpm", "cpc", "cplc", "hook", "hold_rate", "scroll_stop"]
     for ratio_field in ratio_fields:
         if ratio_field in averages:
             try:
@@ -531,4 +545,3 @@ def validate_dashboard_response(resp: Dict[str, Any]) -> List[str]:
             errors.append(str(e))
     
     return errors
-

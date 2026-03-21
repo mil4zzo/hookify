@@ -18,6 +18,9 @@ interface RetentionChartProps {
   videoWatchedP50?: number;
   showIcon?: boolean;
   withCard?: boolean;
+  showTitle?: boolean;
+  className?: string;
+  chartHeightClassName?: string;
   averagesHook?: number | null;
   averagesScrollStop?: number | null;
   hookValue?: number | null; // Valor do hook em decimal (0-1) para cálculo correto do delta
@@ -397,14 +400,16 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
   );
 }
 
-export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = false, averagesHook, averagesScrollStop, hookValue, onPointClick }: RetentionChartProps) {
+export function RetentionChart({ videoPlayCurve, videoWatchedP50, showIcon = false, showTitle = true, className = "", chartHeightClassName = "h-64", averagesHook, averagesScrollStop, hookValue, onPointClick }: RetentionChartProps) {
   return (
-    <div className="space-y-4">
-      <div className="text-lg font-semibold">
-        {showIcon && <IconEye className="w-5 h-5 text-brand inline-block mr-2" />}
-        Retenção
-      </div>
-      <div className="h-64">
+    <div className={className || (showTitle ? "space-y-4" : "")}>
+      {showTitle && (
+        <div className="text-lg font-semibold">
+          {showIcon && <IconEye className="w-5 h-5 text-brand inline-block mr-2" />}
+          Reten??o
+        </div>
+      )}
+      <div className={chartHeightClassName}>
         <RetentionChartInner videoPlayCurve={videoPlayCurve} averagesHook={averagesHook} averagesScrollStop={averagesScrollStop} hookValue={hookValue} onPointClick={onPointClick} />
       </div>
     </div>
