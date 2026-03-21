@@ -13,7 +13,7 @@ export interface SearchInputWithClearProps extends Omit<React.InputHTMLAttribute
   wrapperClassName?: string;
   /** Classes do input (ex: h-9, h-10, text-xs) - pl-9 pr-9 são sempre aplicados */
   inputClassName?: string;
-  inputRef?: React.RefObject<HTMLInputElement | null>;
+  inputRef?: React.Ref<HTMLInputElement>;
   /** Callback ao limpar - default: onChange("") */
   onClear?: () => void;
 }

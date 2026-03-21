@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { IconLoader2, IconDeviceTablet, IconPlayCardA, IconBorderAll, IconFolder } from "@tabler/icons-react";
+import { IconLoader2, IconDeviceTablet, IconPlayCardA, IconBorderAll, IconFolder, IconSearch } from "@tabler/icons-react";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
