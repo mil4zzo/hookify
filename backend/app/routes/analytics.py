@@ -2097,6 +2097,228 @@ def get_rankings_retention(req: RankingsRetentionRequest, user=Depends(get_curre
         raise HTTPException(status_code=500, detail="Erro ao consultar curva de retenção do Manager.")
 
 
+@router.get("/rankings/ad-name/{ad_name}/details")
+def get_ad_name_details(
+    ad_name: str,
+    date_start: str,
+    date_stop: str,
+    include_leadscore: bool = True,
+    user=Depends(get_current_user)
+):
+    """Retorna detalhes agregados de todos os ad_ids com o mesmo ad_name no período.
+    Equivalente a get_ad_details, mas agrupado por ad_name.
+    """
+    sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+
+    axis = _axis_5_days(date_stop)
+
+    def metrics_filters(q):
+        return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
+
+    select_with_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values,lpv"
+    )
+    select_without_lpv = (
+        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
+        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values"
+    )
+    try:
+        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+    except Exception as e:
+        msg = str(e or "")
+        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
+            logger.warning("[ad_name_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
+            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
+        else:
+            raise
+
+    if not data:
+        raise HTTPException(status_code=404, detail=f"Ad name '{ad_name}' não encontrado no período especificado")
+
+    # Agregar dados do período completo (todos os ad_ids com esse nome)
+    agg: Dict[str, Any] = {
+        "account_id": None,
+        "ad_name": ad_name,
+        "campaign_name": None,
+        "adset_name": None,
+        "impressions": 0,
+        "clicks": 0,
+        "inline_link_clicks": 0,
+        "spend": 0.0,
+        "lpv": 0,
+        "plays": 0,
+        "thruplays": 0,
+        "hook_wsum": 0.0,
+        "hold_rate_wsum": 0.0,
+        "video_watched_p50_wsum": 0.0,
+        "reach": 0,
+        "curve_weighted": {},
+        "conversions": {},
+        "leadscore_values": [],
+        "ad_ids": set(),
+    }
+
+    series_acc: Dict[str, Any] = {
+        "impressions": {d: 0 for d in axis},
+        "clicks": {d: 0 for d in axis},
+        "inline": {d: 0 for d in axis},
+        "spend": {d: 0.0 for d in axis},
+        "plays": {d: 0 for d in axis},
+        "lpv": {d: 0 for d in axis},
+        "hook_wsum": {d: 0.0 for d in axis},
+        "scroll_stop_wsum": {d: 0.0 for d in axis},
+        "hold_rate_wsum": {d: 0.0 for d in axis},
+        "video_watched_p50_wsum": {d: 0.0 for d in axis},
+        "conversions": {d: {} for d in axis},
+        "mql_count": {d: 0 for d in axis},
+    }
+
+    for r in data:
+        if not agg["account_id"]:
+            agg["account_id"] = r.get("account_id")
+            agg["campaign_name"] = r.get("campaign_name")
+            agg["adset_name"] = r.get("adset_name")
+
+        aid = str(r.get("ad_id") or "")
+        if aid:
+            agg["ad_ids"].add(aid)
+
+        date = str(r.get("date"))[:10]
+        clicks = int(r.get("clicks") or 0)
+        impressions = int(r.get("impressions") or 0)
+        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
+        spend = float(r.get("spend") or 0)
+        leadscore_values = r.get("leadscore_values") or []
+        plays = int(r.get("video_total_plays") or 0)
+        thruplays = int(r.get("video_total_thruplays") or 0)
+        curve = r.get("video_play_curve_actions") or []
+        hook = _hook_at_3_from_curve(curve)
+        hold_rate = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
+        video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        reach = int(r.get("reach") or 0)
+        lpv = _extract_lpv(r)
+
+        agg["impressions"] += impressions
+        agg["clicks"] += clicks
+        agg["inline_link_clicks"] += inline_link_clicks
+        agg["spend"] += spend
+        agg["lpv"] += lpv
+        agg["plays"] += plays
+        agg["thruplays"] += thruplays
+        agg["hook_wsum"] += hook * plays
+        agg["hold_rate_wsum"] += hold_rate * plays
+        agg["video_watched_p50_wsum"] += video_watched_p50 * plays
+        agg["reach"] += reach
+
+        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
+            try:
+                agg["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
+            except Exception:
+                pass
+
+        if isinstance(curve, list) and plays > 0:
+            try:
+                for i, val in enumerate(curve):
+                    val_num = int(val or 0)
+                    if i not in agg["curve_weighted"]:
+                        agg["curve_weighted"][i] = {"weighted_sum": 0.0, "plays_sum": 0}
+                    agg["curve_weighted"][i]["weighted_sum"] += val_num * plays
+                    agg["curve_weighted"][i]["plays_sum"] += plays
+            except Exception:
+                pass
+
+        _merge_row_conversions_actions(r, agg["conversions"])
+
+        if date in axis:
+            series_acc["impressions"][date] += impressions
+            series_acc["clicks"][date] += clicks
+            series_acc["inline"][date] += inline_link_clicks
+            series_acc["spend"][date] += spend
+            series_acc["lpv"][date] += lpv
+            series_acc["plays"][date] += plays
+            series_acc["hook_wsum"][date] += hook * plays
+            series_acc["scroll_stop_wsum"][date] += scroll_stop * plays
+            series_acc["hold_rate_wsum"][date] += hold_rate * plays
+            series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
+            try:
+                series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+            except Exception:
+                pass
+            _merge_row_conversions_actions(r, series_acc["conversions"][date])
+
+    # Buscar thumbnail do primeiro ad_id encontrado
+    thumbnail: Optional[str] = None
+    first_ad_id = next(iter(agg["ad_ids"]), None)
+    if first_ad_id:
+        try:
+            ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", first_ad_id).limit(1).execute()
+            if ads_res.data:
+                thumbnail = _get_storage_thumb_if_any(ads_res.data[0]) or _get_thumbnail_with_fallback(ads_res.data[0])
+        except Exception as e:
+            logger.warning(f"Erro ao buscar thumbnail (ad_name details): {e}")
+
+    # Calcular métricas derivadas
+    ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
+    hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
+    hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
+    video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
+    connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
+    cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
+    website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
+    frequency = round(agg["impressions"] / agg["reach"], 2) if agg["reach"] > 0 else None
+
+    # Calcular curva de retenção agregada
+    aggregated_curve: List[int] = []
+    if agg.get("curve_weighted"):
+        max_curve_len = max(agg["curve_weighted"].keys()) + 1 if agg["curve_weighted"] else 0
+        for i in range(max_curve_len):
+            if i in agg["curve_weighted"]:
+                w = agg["curve_weighted"][i]
+                if w["plays_sum"] > 0:
+                    aggregated_curve.append(int(round(w["weighted_sum"] / w["plays_sum"])))
+                else:
+                    aggregated_curve.append(0)
+            else:
+                aggregated_curve.append(0)
+
+    series = _build_rankings_series(axis, series_acc, include_cpmql=True)
+
+    return {
+        "account_id": agg["account_id"],
+        "ad_name": agg["ad_name"],
+        "campaign_name": agg["campaign_name"],
+        "adset_name": agg["adset_name"],
+        "impressions": agg["impressions"],
+        "clicks": agg["clicks"],
+        "inline_link_clicks": agg["inline_link_clicks"],
+        "spend": agg["spend"],
+        "lpv": agg["lpv"],
+        "plays": agg["plays"],
+        "video_total_thruplays": agg["thruplays"],
+        "hook": hook,
+        "hold_rate": hold_rate,
+        "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
+        "ctr": ctr,
+        "connect_rate": connect_rate,
+        "cpm": cpm,
+        "website_ctr": website_ctr,
+        "reach": agg["reach"],
+        "frequency": frequency,
+        "conversions": agg["conversions"],
+        "leadscore_values": (agg.get("leadscore_values") or []) if include_leadscore else [],
+        "thumbnail": thumbnail,
+        "video_play_curve_actions": aggregated_curve if aggregated_curve else None,
+        "ad_count": len(agg["ad_ids"]),
+        "series": series,
+    }
+
+
 @router.get("/rankings/ad-name/{ad_name}/children")
 def get_rankings_children(
     ad_name: str,
@@ -3005,11 +3227,13 @@ def get_ad_details(
     
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,leadscore_values,lpv"
+        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,leadscore_values"
+        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values"
     )
     try:
         data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -3020,7 +3244,7 @@ def get_ad_details(
             data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
         else:
             raise
-    
+
     if not data:
         raise HTTPException(status_code=404, detail=f"Ad ID {ad_id} não encontrado no período especificado")
 
@@ -3039,13 +3263,17 @@ def get_ad_details(
         "spend": 0.0,
         "lpv": 0,
         "plays": 0,
+        "thruplays": 0,
         "hook_wsum": 0.0,
-        "video_watched_p50_wsum": 0.0,  # Soma ponderada de video_watched_p50
+        "hold_rate_wsum": 0.0,
+        "video_watched_p50_wsum": 0.0,
+        "reach": 0,
         # Curva de retenção agregada (ponderada por plays, mesma lógica do hook)
         "curve_weighted": {},  # {segundo_index: {"weighted_sum": float, "plays_sum": int}}
         "conversions": {},
+        "leadscore_values": [],
     }
-    
+
     # Series accumulator (5 dias)
     series_acc: Dict[str, Any] = {
         "impressions": {d: 0 for d in axis},
@@ -3055,6 +3283,9 @@ def get_ad_details(
         "plays": {d: 0 for d in axis},
         "lpv": {d: 0 for d in axis},
         "hook_wsum": {d: 0.0 for d in axis},
+        "scroll_stop_wsum": {d: 0.0 for d in axis},
+        "hold_rate_wsum": {d: 0.0 for d in axis},
+        "video_watched_p50_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
     }
@@ -3074,9 +3305,14 @@ def get_ad_details(
         spend = float(r.get("spend") or 0)
         leadscore_values = r.get("leadscore_values") or []
         plays = int(r.get("video_total_plays") or 0)
+        thruplays = int(r.get("video_total_thruplays") or 0)
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
+        hold_rate = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        reach = int(r.get("reach") or 0)
 
         # landing_page_views (preferir coluna lpv quando disponível)
         lpv = _extract_lpv(r)
@@ -3088,8 +3324,17 @@ def get_ad_details(
         agg["spend"] += spend
         agg["lpv"] += lpv
         agg["plays"] += plays
+        agg["thruplays"] += thruplays
         agg["hook_wsum"] += hook * plays
-        agg["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
+        agg["hold_rate_wsum"] += hold_rate * plays
+        agg["video_watched_p50_wsum"] += video_watched_p50 * plays
+        agg["reach"] += reach
+
+        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
+            try:
+                agg["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
+            except Exception:
+                pass
 
         # Agregar curva de retenção ponderada por plays (mesma lógica do hook)
         if isinstance(curve, list) and plays > 0:
@@ -3104,28 +3349,7 @@ def get_ad_details(
                 pass
 
         # Agregar conversions e actions
-        try:
-            # Processar conversions
-            for c in (r.get("conversions") or []):
-                action_type = str(c.get("action_type") or "")
-                value = int(c.get("value") or 0)
-                if action_type:
-                    key = f"conversion:{action_type}"
-                    if key not in agg["conversions"]:
-                        agg["conversions"][key] = 0
-                    agg["conversions"][key] += value
-            
-            # Processar actions
-            for a in (r.get("actions") or []):
-                action_type = str(a.get("action_type") or "")
-                value = int(a.get("value") or 0)
-                if action_type:
-                    key = f"action:{action_type}"
-                    if key not in agg["conversions"]:
-                        agg["conversions"][key] = 0
-                    agg["conversions"][key] += value
-        except Exception:
-            pass
+        _merge_row_conversions_actions(r, agg["conversions"])
 
         # Séries 5 dias
         if date in axis:
@@ -3136,32 +3360,14 @@ def get_ad_details(
             series_acc["lpv"][date] += lpv
             series_acc["plays"][date] += plays
             series_acc["hook_wsum"][date] += hook * plays
+            series_acc["scroll_stop_wsum"][date] += scroll_stop * plays
+            series_acc["hold_rate_wsum"][date] += hold_rate * plays
+            series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             try:
                 series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
                 pass
-            try:
-                # Processar conversions
-                for c in (r.get("conversions") or []):
-                    action_type = str(c.get("action_type") or "")
-                    value = int(c.get("value") or 0)
-                    if action_type:
-                        key = f"conversion:{action_type}"
-                        if key not in series_acc["conversions"][date]:
-                            series_acc["conversions"][date][key] = 0
-                        series_acc["conversions"][date][key] += value
-                
-                # Processar actions
-                for a in (r.get("actions") or []):
-                    action_type = str(a.get("action_type") or "")
-                    value = int(a.get("value") or 0)
-                    if action_type:
-                        key = f"action:{action_type}"
-                        if key not in series_acc["conversions"][date]:
-                            series_acc["conversions"][date][key] = 0
-                        series_acc["conversions"][date][key] += value
-            except Exception:
-                pass
+            _merge_row_conversions_actions(r, series_acc["conversions"][date])
 
     # Buscar thumbnail e informações adicionais da tabela ads
     thumbnail: Optional[str] = None
@@ -3175,10 +3381,12 @@ def get_ad_details(
     # Calcular métricas derivadas
     ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
     hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
+    hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
     video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
     connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
     cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
     website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
+    frequency = round(agg["impressions"] / agg["reach"], 2) if agg["reach"] > 0 else None
 
     # Calcular curva de retenção agregada (média ponderada por plays)
     aggregated_curve: List[int] = []
@@ -3208,13 +3416,18 @@ def get_ad_details(
         "spend": agg["spend"],
         "lpv": agg["lpv"],
         "plays": agg["plays"],
+        "video_total_thruplays": agg["thruplays"],
         "hook": hook,
+        "hold_rate": hold_rate,
         "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
         "ctr": ctr,
         "connect_rate": connect_rate,
         "cpm": cpm,
         "website_ctr": website_ctr,
+        "reach": agg["reach"],
+        "frequency": frequency,
         "conversions": agg["conversions"],
+        "leadscore_values": agg.get("leadscore_values") or [],
         "thumbnail": thumbnail,
         "video_play_curve_actions": aggregated_curve if aggregated_curve else None,
         "series": series,

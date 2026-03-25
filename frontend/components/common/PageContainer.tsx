@@ -12,16 +12,19 @@ export interface PageContainerProps {
   icon?: ReactNode;
   actions?: ReactNode;
   headerClassName?: string;
+  actionsClassName?: string;
   titleClassName?: string;
   descriptionClassName?: string;
 
   // Props do container
   children: ReactNode;
   className?: string;
+  contentClassName?: string;
   /** Espaçamento vertical entre elementos (padrão: "md" = space-y-6) */
   spacing?: keyof typeof PAGE_SPACING_OPTIONS;
   /** Se true, o container ocupará toda a altura disponível com flex (use apenas quando necessário) */
   fullHeight?: boolean;
+  variant?: "standard" | "analytics";
 }
 
 /**
@@ -59,11 +62,11 @@ export interface PageContainerProps {
  *   <ManagerTable ... />
  * </PageContainer>
  */
-export function PageContainer({ title, description, icon, actions, headerClassName, titleClassName, descriptionClassName, children, className, spacing = PAGE_SPACING_DEFAULT, fullHeight = false }: PageContainerProps) {
+export function PageContainer({ title, description, icon, actions, headerClassName, actionsClassName, titleClassName, descriptionClassName, children, className, contentClassName, spacing = PAGE_SPACING_DEFAULT, fullHeight = false, variant = "standard" }: PageContainerProps) {
   return (
-    <div className={cn(!fullHeight && PAGE_SPACING_OPTIONS[spacing], fullHeight && "h-full flex-1 flex flex-col min-h-0", className)}>
-      <PageSectionHeader title={title} description={description} icon={icon} actions={actions} className={headerClassName} titleClassName={titleClassName} descriptionClassName={descriptionClassName} />
-      <div className={fullHeight ? "flex-1 flex flex-col min-h-0" : ""}>{children}</div>
+    <div className={cn(!fullHeight && PAGE_SPACING_OPTIONS[spacing], fullHeight && "h-full flex-1 flex flex-col min-h-0", variant === "analytics" && !fullHeight && "space-y-5", className)}>
+      <PageSectionHeader title={title} description={description} icon={icon} actions={actions} className={headerClassName} actionsClassName={actionsClassName} titleClassName={titleClassName} descriptionClassName={descriptionClassName} variant={variant} />
+      <div className={cn(fullHeight ? "flex-1 flex flex-col min-h-0" : "", variant === "analytics" && "min-w-0", contentClassName)}>{children}</div>
     </div>
   );
 }

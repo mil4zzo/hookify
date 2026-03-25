@@ -17,6 +17,7 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { PageContainer } from "@/components/common/PageContainer";
+import { PageActions } from "@/components/common/PageActions";
 import { FiltersDropdown } from "@/components/common/FiltersDropdown";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { PageIcon } from "@/lib/utils/pageIcon";
@@ -332,6 +333,11 @@ function ManagerPageContent() {
     });
   }, []);
 
+  const handleTabChange = useCallback((tab: ManagerTab) => {
+    setActiveManagerTab(tab);
+    window.scrollTo(0, 0);
+  }, []);
+
   const handleVisibleGroupKeysChange = useCallback(
     (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", keys: string[]) => {
       const normalized = Array.from(new Set((keys || []).map(String).filter(Boolean))).slice(0, MAX_SERIES_GROUP_KEYS);
@@ -455,12 +461,32 @@ function ManagerPageContent() {
   const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
   const { data: managerDataCampaign, isLoading: loadingCampaign } = useAdPerformance(managerRequestCampaign, shouldFetchCampaign);
 
+  // Request leve dedicada a available_conversion_types — independente de aba ativa
+  const managerConversionTypesRequest: RankingsRequest = useMemo(
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: "ad_name",
+      action_type: actionType || undefined,
+      limit: 1,
+      offset: 0,
+      filters: {},
+      pack_ids: Array.from(selectedPackIds),
+      include_series: false,
+      include_leadscore: false,
+      series_window: SERIES_WINDOW,
+      include_available_conversion_types: true,
+    }),
+    [dateRange.start, dateRange.end, selectedPackIds, actionType],
+  );
+  const { data: convTypesData } = useAdPerformance(managerConversionTypesRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
+
   // Extrair dados do response
   const serverData = managerData?.data || null;
   const serverDataIndividual = managerDataIndividual?.data || null;
   const serverDataAdset = managerDataAdset?.data || null;
   const serverDataCampaign = managerDataCampaign?.data || null;
-  const availableConversionTypes = managerData?.available_conversion_types || [];
+  const availableConversionTypes = convTypesData?.available_conversion_types || managerData?.available_conversion_types || [];
 
   const seriesKeysAdName = useMemo(() => visibleSeriesKeys["por-anuncio"], [visibleSeriesKeys]);
   const seriesKeysIndividual = useMemo(() => visibleSeriesKeys.individual, [visibleSeriesKeys]);
@@ -860,38 +886,26 @@ function ManagerPageContent() {
     }
   };
 
-  // Adaptar dados do servidor para a tabela existente (forma "ads" agregada)
-  // Calcula results, cpr e page_conv localmente baseado no action_type selecionado
-  // Backend já filtrou por pack_ids
-  const adsForTable = useMemo(() => {
-    // Processar apenas quando a aba "Por anúncio" estiver ativa
+  // ── Step 1: Métricas base (recomputa apenas quando dados ou actionType mudam) ──
+  // Separa o cálculo pesado de métricas (spread + Number()) do attach de séries,
+  // evitando remap completo de milhares de rows a cada batch de sparklines.
+
+  const baseMappedAdName = useMemo(() => {
     if (activeManagerTab !== "por-anuncio") return [] as any[];
     if (!serverData || serverData.length === 0) return [] as any[];
 
-    let mappedData = serverData.map((row: any): ManagerRow => {
-      const groupKey = String(row?.group_key || row?.ad_name || row?.ad_id || "");
-      const series = showTrends ? (seriesByGroupAdName[groupKey] || null) : null;
-      const seriesLoading = showTrends && !managerSeriesErrorAdName && (!series && (seriesPrimingByTab["por-anuncio"] || pendingSeriesKeysByTab["por-anuncio"].has(groupKey)));
-      // Calcular results baseado no action_type selecionado a partir de row.conversions
+    return serverData.map((row: any): ManagerRow => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-
-      // Calcular métricas derivadas localmente (apenas as que dependem de actionType)
       const lpv = Number(row.lpv || 0);
       const spend = Number(row.spend || 0);
       const page_conv = lpv > 0 ? results / lpv : 0;
       const cpr = results > 0 ? spend / results : 0;
-      // cpm e website_ctr sempre vêm do backend
       const cpm = typeof row.cpm === "number" ? row.cpm : 0;
-
-      // Calcular conversão geral (website_ctr * connect_rate * page_conv)
       const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
       const connect_rate = Number(row.connect_rate || 0);
       const overall_conversion = website_ctr * connect_rate * page_conv;
 
-      // Spread leve: herda todos os campos do original (series, leadscore_values, etc. compartilham referência)
-      // Apenas sobrescreve campos derivados que dependem de actionType
-      // Series derivadas (cpr, page_conv, overall_conversion) são calculadas sob demanda pelo MetricCell
       return {
         ...row,
         lpv,
@@ -904,25 +918,17 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
-        series,
-        series_loading: seriesLoading,
+        series: null,
+        series_loading: false,
         creative: {},
       };
     });
+  }, [serverData, actionType, activeManagerTab]);
 
-    // Retornar todos os anúncios (backend já filtrou por pack_ids)
-    return mappedData;
-  }, [serverData, actionType, activeManagerTab, showTrends, seriesByGroupAdName, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdName]);
-
-  const adsForIndividualTable = useMemo(() => {
-    // Processar apenas quando a aba "Individual" estiver ativa
+  const baseMappedIndividual = useMemo(() => {
     if (activeManagerTab !== "individual") return [] as any[];
     if (!serverDataIndividual || serverDataIndividual.length === 0) return [] as any[];
-
-    const mappedData = serverDataIndividual.map((row: any): ManagerRow => {
-      const groupKey = String(row?.group_key || row?.ad_id || "");
-      const series = showTrends ? (seriesByGroupIndividual[groupKey] || null) : null;
-      const seriesLoading = showTrends && !managerSeriesErrorIndividual && (!series && (seriesPrimingByTab.individual || pendingSeriesKeysByTab.individual.has(groupKey)));
+    const result = serverDataIndividual.map((row: any): ManagerRow => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
       const lpv = Number(row.lpv || 0);
@@ -945,24 +951,61 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
-        series,
-        series_loading: seriesLoading,
+        series: null,
+        series_loading: false,
         creative: {},
       };
     });
+    return result;
+  }, [serverDataIndividual, actionType, activeManagerTab]);
 
-    return mappedData;
-  }, [serverDataIndividual, actionType, activeManagerTab, showTrends, seriesByGroupIndividual, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorIndividual]);
+  // ── Step 2: Attach séries (leve — só atualiza rows com mudanças reais) ──
 
-  const adsForAdsetTable = useMemo(() => {
-    // Processar apenas quando a aba "Por conjunto" estiver ativa
+  const adsForTable = useMemo(() => {
+    if (baseMappedAdName.length === 0 || !showTrends) return baseMappedAdName;
+
+    const pending = pendingSeriesKeysByTab["por-anuncio"];
+    const priming = seriesPrimingByTab["por-anuncio"];
+
+    let changed = false;
+
+    const result = baseMappedAdName.map((row) => {
+      const groupKey = String(row?.group_key || row?.ad_name || row?.ad_id || "");
+      const series = seriesByGroupAdName[groupKey] || null;
+      const seriesLoading = !managerSeriesErrorAdName && !series && (priming || pending.has(groupKey));
+      if (row.series === series && row.series_loading === seriesLoading) return row;
+      changed = true;
+      return { ...row, series, series_loading: seriesLoading };
+    });
+
+    return changed ? result : baseMappedAdName;
+  }, [baseMappedAdName, showTrends, seriesByGroupAdName, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdName]);
+
+  const adsForIndividualTable = useMemo(() => {
+    if (baseMappedIndividual.length === 0 || !showTrends) return baseMappedIndividual;
+
+    const pending = pendingSeriesKeysByTab.individual;
+    const priming = seriesPrimingByTab.individual;
+
+    let changed = false;
+
+    const result = baseMappedIndividual.map((row) => {
+      const groupKey = String(row?.group_key || row?.ad_id || "");
+      const series = seriesByGroupIndividual[groupKey] || null;
+      const seriesLoading = !managerSeriesErrorIndividual && !series && (priming || pending.has(groupKey));
+      if (row.series === series && row.series_loading === seriesLoading) return row;
+      changed = true;
+      return { ...row, series, series_loading: seriesLoading };
+    });
+
+    return changed ? result : baseMappedIndividual;
+  }, [baseMappedIndividual, showTrends, seriesByGroupIndividual, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorIndividual]);
+
+  const baseMappedAdset = useMemo(() => {
     if (activeManagerTab !== "por-conjunto") return [] as any[];
     if (!serverDataAdset || serverDataAdset.length === 0) return [] as any[];
 
-    const mappedData = serverDataAdset.map((row: any): ManagerRow => {
-      const groupKey = String(row?.group_key || row?.adset_id || "");
-      const series = showTrends ? (seriesByGroupAdset[groupKey] || null) : null;
-      const seriesLoading = showTrends && !managerSeriesErrorAdset && (!series && (seriesPrimingByTab["por-conjunto"] || pendingSeriesKeysByTab["por-conjunto"].has(groupKey)));
+    return serverDataAdset.map((row: any): ManagerRow => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
       const lpv = Number(row.lpv || 0);
@@ -975,7 +1018,6 @@ function ManagerPageContent() {
 
       return {
         ...row,
-        // Fallback para ad_name usado em busca na aba Por conjunto
         ad_name: row.ad_name || row.adset_name || row.adset_id,
         lpv,
         spend,
@@ -987,24 +1029,18 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
-        series,
-        series_loading: seriesLoading,
+        series: null,
+        series_loading: false,
         creative: {},
       };
     });
+  }, [serverDataAdset, actionType, activeManagerTab]);
 
-    return mappedData;
-  }, [serverDataAdset, actionType, activeManagerTab, showTrends, seriesByGroupAdset, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdset]);
-
-  const adsForCampaignTable = useMemo(() => {
-    // Processar apenas quando a aba "Por campanha" estiver ativa
+  const baseMappedCampaign = useMemo(() => {
     if (activeManagerTab !== "por-campanha") return [] as any[];
     if (!serverDataCampaign || serverDataCampaign.length === 0) return [] as any[];
 
-    const mappedData = serverDataCampaign.map((row: any): ManagerRow => {
-      const groupKey = String(row?.group_key || row?.campaign_id || "");
-      const series = showTrends ? (seriesByGroupCampaign[groupKey] || null) : null;
-      const seriesLoading = showTrends && !managerSeriesErrorCampaign && (!series && (seriesPrimingByTab["por-campanha"] || pendingSeriesKeysByTab["por-campanha"].has(groupKey)));
+    return serverDataCampaign.map((row: any): ManagerRow => {
       const conversionsObj = row.conversions || {};
       const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
       const lpv = Number(row.lpv || 0);
@@ -1017,7 +1053,6 @@ function ManagerPageContent() {
 
       return {
         ...row,
-        // Fallback para ad_name na aba Por campanha
         ad_name: row.ad_name || row.campaign_name || row.campaign_id,
         lpv,
         spend,
@@ -1029,14 +1064,52 @@ function ManagerPageContent() {
         connect_rate,
         video_total_plays: Number(row.plays || 0),
         conversions: conversionsObj,
-        series,
-        series_loading: seriesLoading,
+        series: null,
+        series_loading: false,
         creative: {},
       };
     });
+  }, [serverDataCampaign, actionType, activeManagerTab]);
 
-    return mappedData;
-  }, [serverDataCampaign, actionType, activeManagerTab, showTrends, seriesByGroupCampaign, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorCampaign]);
+  const adsForAdsetTable = useMemo(() => {
+    if (baseMappedAdset.length === 0 || !showTrends) return baseMappedAdset;
+
+    const pending = pendingSeriesKeysByTab["por-conjunto"];
+    const priming = seriesPrimingByTab["por-conjunto"];
+
+    let changed = false;
+
+    const result = baseMappedAdset.map((row) => {
+      const groupKey = String(row?.group_key || row?.adset_id || "");
+      const series = seriesByGroupAdset[groupKey] || null;
+      const seriesLoading = !managerSeriesErrorAdset && !series && (priming || pending.has(groupKey));
+      if (row.series === series && row.series_loading === seriesLoading) return row;
+      changed = true;
+      return { ...row, series, series_loading: seriesLoading };
+    });
+
+    return changed ? result : baseMappedAdset;
+  }, [baseMappedAdset, showTrends, seriesByGroupAdset, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdset]);
+
+  const adsForCampaignTable = useMemo(() => {
+    if (baseMappedCampaign.length === 0 || !showTrends) return baseMappedCampaign;
+
+    const pending = pendingSeriesKeysByTab["por-campanha"];
+    const priming = seriesPrimingByTab["por-campanha"];
+
+    let changed = false;
+
+    const result = baseMappedCampaign.map((row) => {
+      const groupKey = String(row?.group_key || row?.campaign_id || "");
+      const series = seriesByGroupCampaign[groupKey] || null;
+      const seriesLoading = !managerSeriesErrorCampaign && !series && (priming || pending.has(groupKey));
+      if (row.series === series && row.series_loading === seriesLoading) return row;
+      changed = true;
+      return { ...row, series, series_loading: seriesLoading };
+    });
+
+    return changed ? result : baseMappedCampaign;
+  }, [baseMappedCampaign, showTrends, seriesByGroupCampaign, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorCampaign]);
 
   // Conjunto de anúncios que passam pelos critérios de validação globais
   // Usado apenas para cálculo de médias (baseline de anúncios "maduros")
@@ -1124,18 +1197,21 @@ function ManagerPageContent() {
     <PageContainer
       title="Otimize"
       description="Dados de performance dos seus anúncios"
+      variant="analytics"
+      fullHeight={true}
+      className="min-h-0"
       actions={
-        <>
+        <PageActions className="xl:flex-nowrap xl:items-center">
           <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
           <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} dateRangeRequireConfirmation={true} packDatesRange={calculateDateRangeFromPacks ?? null} singlePackSelect={false} />
-        </>
+        </PageActions>
       }
     >
       <ManagerTable
         ads={adsForTable}
         groupByAdName
         activeTab={activeManagerTab}
-        onTabChange={setActiveManagerTab}
+        onTabChange={handleTabChange}
         adsIndividual={adsForIndividualTable}
         isLoadingIndividual={loadingIndividual}
         adsAdset={adsForAdsetTable}

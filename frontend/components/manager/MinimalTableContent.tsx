@@ -246,7 +246,7 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
       )}
       {/* Linha vertical que acompanha o mouse durante resize */}
       {isResizing && resizePosition !== null && <div className="fixed top-0 bottom-0 w-[2px] bg-primary z-[60] pointer-events-none" style={{ left: `${resizePosition}px` }} />}
-      <div ref={tableContainerRef} className="flex-1 overflow-x-auto overflow-y-auto border-x border-border rounded-t-lg">
+      <div ref={tableContainerRef} className="flex-1 min-h-0 overflow-auto overscroll-contain border-x border-border rounded-t-lg">
         <table className="w-full text-xs border-collapse" style={{ tableLayout: "fixed" }}>
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (

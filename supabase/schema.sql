@@ -243,79 +243,79 @@ alter table public.ad_transcriptions enable row level security;
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'packs' and policyname = 'packs_select_own') then
-    create policy packs_select_own on public.packs for select using (user_id = auth.uid());
+    create policy packs_select_own on public.packs for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'packs' and policyname = 'packs_modify_own') then
-    create policy packs_modify_own on public.packs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy packs_modify_own on public.packs for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ads' and policyname = 'ads_select_own') then
-    create policy ads_select_own on public.ads for select using (user_id = auth.uid());
+    create policy ads_select_own on public.ads for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ads' and policyname = 'ads_modify_own') then
-    create policy ads_modify_own on public.ads for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy ads_modify_own on public.ads for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_metrics' and policyname = 'ad_metrics_select_own') then
-    create policy ad_metrics_select_own on public.ad_metrics for select using (user_id = auth.uid());
+    create policy ad_metrics_select_own on public.ad_metrics for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_metrics' and policyname = 'ad_metrics_modify_own') then
-    create policy ad_metrics_modify_own on public.ad_metrics for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy ad_metrics_modify_own on public.ad_metrics for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'profiles' and policyname = 'profiles_select_own') then
-    create policy profiles_select_own on public.profiles for select using (user_id = auth.uid());
+    create policy profiles_select_own on public.profiles for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'profiles' and policyname = 'profiles_modify_own') then
-    create policy profiles_modify_own on public.profiles for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy profiles_modify_own on public.profiles for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_accounts' and policyname = 'ad_accounts_select_own') then
-    create policy ad_accounts_select_own on public.ad_accounts for select using (user_id = auth.uid());
+    create policy ad_accounts_select_own on public.ad_accounts for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_accounts' and policyname = 'ad_accounts_modify_own') then
-    create policy ad_accounts_modify_own on public.ad_accounts for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy ad_accounts_modify_own on public.ad_accounts for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'user_preferences' and policyname = 'user_preferences_select_own') then
-    create policy user_preferences_select_own on public.user_preferences for select using (user_id = auth.uid());
+    create policy user_preferences_select_own on public.user_preferences for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'user_preferences' and policyname = 'user_preferences_modify_own') then
-    create policy user_preferences_modify_own on public.user_preferences for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy user_preferences_modify_own on public.user_preferences for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'jobs' and policyname = 'jobs_select_own') then
-    create policy jobs_select_own on public.jobs for select using (user_id = auth.uid());
+    create policy jobs_select_own on public.jobs for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'jobs' and policyname = 'jobs_modify_own') then
-    create policy jobs_modify_own on public.jobs for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy jobs_modify_own on public.jobs for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;
 
 do $$
 begin
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_transcriptions' and policyname = 'ad_transcriptions_select_own') then
-    create policy ad_transcriptions_select_own on public.ad_transcriptions for select using (user_id = auth.uid());
+    create policy ad_transcriptions_select_own on public.ad_transcriptions for select using (user_id = (select auth.uid()));
   end if;
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'ad_transcriptions' and policyname = 'ad_transcriptions_modify_own') then
-    create policy ad_transcriptions_modify_own on public.ad_transcriptions for all using (user_id = auth.uid()) with check (user_id = auth.uid());
+    create policy ad_transcriptions_modify_own on public.ad_transcriptions for all using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
   end if;
 end $$;

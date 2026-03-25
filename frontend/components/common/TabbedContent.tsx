@@ -60,7 +60,7 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
   };
 
   const tabsContent = (
-    <TabsList className={cn(orientation === "vertical" ? "flex-col w-full h-full bg-secondary rounded-none border-r border-border p-2 space-y-1" : variant === "with-controls" ? "flex-shrink-0" : "mb-6", tabsListClassName)}>
+    <TabsList className={cn(orientation === "vertical" ? "flex-col w-full h-full bg-secondary rounded-none border-r border-border p-2 space-y-1" : variant === "with-controls" ? "flex-shrink-0" : "mb-6", orientation === "horizontal" && "max-w-full", tabsListClassName)}>
       {tabs.map((tab) => (
         <React.Fragment key={tab.value}>{renderTabTrigger(tab)}</React.Fragment>
       ))}
@@ -74,9 +74,9 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
         <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
     ) : (
-      <div className={cn(variant === "with-controls" ? "flex items-center gap-4 flex-nowrap min-w-0" : "", orientation === "horizontal" && separatorAfterTabs && "mb-8", tabsContainerClassName)}>
-        {tabsContent}
-        {variant === "with-controls" && controls && <div className="flex items-center gap-2 flex-1 min-w-0 justify-end">{controls}</div>}
+      <div className={cn(variant === "with-controls" ? "flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:gap-4" : "", orientation === "horizontal" && separatorAfterTabs && "mb-8", tabsContainerClassName)}>
+        <div className={cn(orientation === "horizontal" && "max-w-full overflow-x-auto")}>{tabsContent}</div>
+        {variant === "with-controls" && controls && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:flex-1 md:justify-end">{controls}</div>}
       </div>
     );
 

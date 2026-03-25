@@ -27,7 +27,7 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     <div
       className={cn(
         "flex flex-col transition-all duration-300",
-        isAuthRoute ? "h-screen" : "min-h-screen",
+        "h-screen overflow-hidden",
         shouldShowSidebar && (isCollapsed ? "md:ml-16" : "md:ml-64")
       )}
     >
@@ -35,4 +35,3 @@ export default function LayoutContent({ children }: { children: React.ReactNode 
     </div>
   );
 }
-

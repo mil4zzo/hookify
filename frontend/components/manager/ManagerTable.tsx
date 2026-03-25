@@ -11,7 +11,8 @@ const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog")
 const VideoDialog = dynamic(() => import("@/components/ads/VideoDialog").then((m) => m.VideoDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal, IconLoader2 } from "@tabler/icons-react";
+import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { MetricCard } from "@/components/common/MetricCard";
 import { buildDailySeries } from "@/lib/utils/metricsTimeSeries";
@@ -301,6 +302,24 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     };
   }, [isLoadingEffective, currentTab]);
 
+  const SLOW_LOADING_TOAST_ID = "manager-slow-loading";
+  useEffect(() => {
+    if (showSlowLoadingHint) {
+      toast.loading(
+        <div className="flex items-center gap-3">
+          <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0 text-muted-foreground" />
+          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+            <span className="text-xs text-muted-foreground">Uau, muitos dados!</span>
+            <span className="text-sm text-foreground">O carregamento pode demorar alguns minutos devido ao alto volume. Isso é ótimo, continue escalando!</span>
+          </div>
+        </div>,
+        { id: SLOW_LOADING_TOAST_ID, duration: Infinity },
+      );
+    } else {
+      toast.dismiss(SLOW_LOADING_TOAST_ID);
+    }
+  }, [showSlowLoadingHint]);
+
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
   const [videoOpen, setVideoOpen] = useState(false);
@@ -348,7 +367,19 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
   };
 
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>(() => loadColumnFilters(initialTab));
+  const [columnFilters, setColumnFiltersRaw] = useState<ColumnFiltersState>(() => loadColumnFilters(initialTab));
+
+  // Wrapper com startTransition: mudanças de filtro (especialmente remoção de status)
+  // podem expor milhares de rows de uma vez. startTransition marca a atualização como
+  // não-urgente, permitindo que React mantenha a UI responsiva durante o recálculo.
+  const setColumnFilters: typeof setColumnFiltersRaw = useCallback(
+    (updater) => {
+      startTransition(() => {
+        setColumnFiltersRaw(updater);
+      });
+    },
+    [],
+  );
 
   const [sorting, setSorting] = useState<SortingState>([{ id: "spend", desc: true }]);
 
@@ -602,6 +633,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     setSelectedAdset(adset);
   }, []);
 
+  const handleVisibleRowKeysChange = useCallback(
+    (keys: string[]) => onVisibleGroupKeysChange?.(currentTab, keys),
+    [onVisibleGroupKeysChange, currentTab],
+  );
+
   const handleResetFilters = useCallback(() => {
     setColumnFilters([]);
   }, [setColumnFilters]);
@@ -613,12 +649,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // - Isso quebra a cascata: dados mudam → byKey estável → columns estáveis → table não reconstrói
   const { byKey } = useMemo(() => {
     if (!endDate) return { byKey: EMPTY_SERIES_MAP };
-    // Quando server envia series, MetricCell lê de original.series diretamente
-    const hasServerSeries = adsEffective.length > 0 && (adsEffective as any)[0]?.series;
-    if (hasServerSeries) {
+    if (adsEffective.length === 0) return { byKey: EMPTY_SERIES_MAP };
+    const firstRow = (adsEffective as any)[0];
+    if (firstRow && ('series_loading' in firstRow)) {
       return { byKey: EMPTY_SERIES_MAP };
     }
-    // Fallback: calcular séries client-side (apenas quando server não envia series)
     return buildDailySeries(adsEffective as any, {
       groupBy: groupByAdNameEffective ? "ad_name" : "ad_id",
       actionType,
@@ -914,7 +949,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         value={globalFilter}
         onChange={(v) => startTransition(() => setGlobalFilter(v))}
         placeholder={placeholder}
-        wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
+        wrapperClassName="w-full md:max-w-[min(20rem,100%)] md:flex-shrink-0"
         inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border h-10 w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
       />
     );
@@ -924,7 +959,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const controls = useMemo(
     () => (
       <>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
           {/* Toggle de visualização: dois botões alternantes */}
           <TooltipProvider>
             <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização">
@@ -950,7 +985,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </Tooltip>
             </div>
           </TooltipProvider>
-          <div className="flex-shrink-0 w-[190px]">
+          <div className="w-full sm:w-[190px]">
             <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
           </div>
           {/* Botão para resetar tamanho das colunas */}
@@ -999,63 +1034,66 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       showTrends,
       expandedTableColumnFilters: expandedTableFilters[currentTab] ?? [],
       setExpandedTableColumnFilters,
-      onVisibleRowKeysChange: (keys: string[]) => onVisibleGroupKeysChange?.(currentTab, keys),
+      onVisibleRowKeysChange: handleVisibleRowKeysChange,
     }),
-    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, onVisibleGroupKeysChange],
+    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
   );
-  const slowLoadingHint = showSlowLoadingHint ? <div className="mt-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">Carregamento demorando mais que o esperado nesta aba. Os dados continuam sendo processados.</div> : null;
-
   return (
-    <div className="w-full h-full flex-1 flex flex-col min-h-0">
-      <TabbedContent value={currentTab} onValueChange={handleTabChange} variant="with-controls" tabs={MANAGER_TABS} controls={controls} separatorAfterTabs={true}>
+    <div className="w-full h-full flex-1 flex flex-col min-h-0 overflow-hidden">
+      <TabbedContent
+        value={currentTab}
+        onValueChange={handleTabChange}
+        variant="with-controls"
+        tabs={MANAGER_TABS}
+        controls={controls}
+        separatorAfterTabs={true}
+        tabsContainerClassName="flex-col items-stretch gap-3 md:flex-row md:items-center md:gap-4"
+        tabsListClassName="w-full overflow-x-auto md:w-fit"
+      >
         <TabbedContentItem value="individual" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
-            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-anuncio" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
-            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-conjunto" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
-            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-campanha" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex items-center gap-6 flex-nowrap flex-shrink-0">
+          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
+            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
             </div>
-            {slowLoadingHint}
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
           </div>
         </TabbedContentItem>

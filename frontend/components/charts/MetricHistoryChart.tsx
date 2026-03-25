@@ -10,6 +10,8 @@ import { LinearGradient } from "@visx/gradient";
 import { ParentSize } from "@visx/responsive";
 import { localPoint } from "@visx/event";
 import { ChartTooltip } from "@/components/common/ChartTooltip";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface MetricHistoryChartProps {
   data: Array<{
@@ -81,7 +83,7 @@ function calculateMetricValue(item: any, metric: string, actionType?: string): n
 function MetricHistoryChartInner({ data, formatValue, actionType, availableMetrics, selectedMetrics, onMetricsChange }: MetricHistoryChartProps) {
   const [tooltipData, setTooltipData] = useState<{ point: DataPoint; x: number; y: number } | null>(null);
   const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("#6b7280");
-  const [isNormalized, setIsNormalized] = useState<boolean>(false);
+  const [isNormalized, setIsNormalized] = useState<boolean>(true);
   const [tooltipWidth, setTooltipWidth] = useState<number>(200);
 
   // Callback ref para medir a largura do tooltip quando ele for renderizado
@@ -231,37 +233,48 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
     <div className="flex gap-12 h-full min-h-0 w-full">
       {/* Seletor de métricas à esquerda */}
       <div className="flex-shrink-0 w-auto flex flex-col min-h-0">
-        <div className="text-xs font-medium text-foreground mb-2 flex-shrink-0">Métricas:</div>
         <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 min-h-0">
           {/* Toggle de normalização */}
-          <label className="flex items-center gap-2 p-1.5 rounded-md cursor-pointer transition-colors text-xs bg-background border border-border hover:bg-muted mb-2">
-            <input type="checkbox" checked={isNormalized} onChange={(e) => setIsNormalized(e.target.checked)} className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-2 focus:ring-primary focus:ring-offset-1" />
-            <span className="text-foreground text-[11px]">Normalizar (0-100%)</span>
-          </label>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div
+                  className={`flex items-center justify-between gap-2 py-1 px-1.5 rounded-md cursor-pointer transition-all text-xs bg-background border border-border hover:bg-muted mb-2 ${!isNormalized ? "opacity-50" : ""}`}
+                  onClick={() => setIsNormalized(!isNormalized)}
+                >
+                  <span className="text-foreground text-[11px]">Normalizar</span>
+                  <Switch checked={isNormalized} className="pointer-events-none" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                <p>Ative para encontrar correlações facilmente.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <div className="text-xs font-medium text-foreground mb-1 flex-shrink-0">Métricas:</div>
           {availableMetrics.map((metric) => {
             const isSelected = selectedMetrics.includes(metric.key);
             const requiresActionType = (metric.key === "cpr" || metric.key === "page_conv") && !actionType;
 
             return (
-              <label key={metric.key} className={`flex items-center gap-2 p-1.5 rounded-md cursor-pointer transition-colors text-xs ${isSelected ? "bg-primary-10 border border-primary" : "bg-background border border-border hover:bg-muted"} ${requiresActionType ? "opacity-50 cursor-not-allowed" : ""}`}>
-                <input
-                  type="checkbox"
-                  checked={isSelected}
-                  disabled={requiresActionType}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      onMetricsChange([...selectedMetrics, metric.key]);
-                    } else {
-                      onMetricsChange(selectedMetrics.filter((m) => m !== metric.key));
-                    }
-                  }}
-                  className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-2 focus:ring-primary focus:ring-offset-1"
-                />
+              <div
+                key={metric.key}
+                className={`flex items-center justify-between gap-2 py-1 px-1.5 rounded-md cursor-pointer transition-all text-xs border ${isSelected ? "bg-primary-10 border-primary" : "bg-background border-border hover:bg-muted"} ${!isSelected ? "opacity-50" : ""} ${requiresActionType ? "opacity-30 cursor-not-allowed" : ""}`}
+                onClick={() => {
+                  if (requiresActionType) return;
+                  if (isSelected) {
+                    onMetricsChange(selectedMetrics.filter((m) => m !== metric.key));
+                  } else {
+                    onMetricsChange([...selectedMetrics, metric.key]);
+                  }
+                }}
+              >
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                   <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: metric.color }} />
                   <span className="text-foreground truncate">{metric.label}</span>
                 </div>
-              </label>
+                <Switch checked={isSelected} disabled={requiresActionType} className="pointer-events-none" />
+              </div>
             );
           })}
         </div>

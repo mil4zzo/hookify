@@ -29,6 +29,7 @@ import { AdsPack } from "@/lib/types";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
+import { PageActions } from "@/components/common/PageActions";
 import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { subDays } from "date-fns";
@@ -1002,11 +1003,14 @@ export default function PacksPage() {
       <PageContainer
         title="Biblioteca"
         description="Gerencie seus Packs de anúncios."
+        variant="standard"
         actions={
-          <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
-            <IconPlus className="w-4 h-4" />
-            Carregar Pack
-          </Button>
+          <PageActions>
+            <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
+              <IconPlus className="w-4 h-4" />
+              Carregar Pack
+            </Button>
+          </PageActions>
         }
       >
         {/* Packs Grid */}

@@ -11,7 +11,7 @@
  * Cada processo tem seu próprio toast, cancelamento e cleanup.
  */
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useCallback, useRef, useEffect } from "react";
 import { api } from "@/lib/api/endpoints";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useInvalidatePackAds } from "@/lib/api/hooks";
@@ -112,16 +112,15 @@ interface ActiveRefresh {
   toggles: RefreshToggles;
 }
 
+const activeRefreshes = new Map<string, ActiveRefresh>();
+const BACKGROUND_JOB_IS_MOUNTED = () => true;
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-function updateActiveRefresh(
-  map: React.MutableRefObject<Map<string, ActiveRefresh>>,
-  packId: string,
-  updates: Partial<ActiveRefresh>
-) {
-  const ar = map.current.get(packId);
+function updateActiveRefresh(packId: string, updates: Partial<ActiveRefresh>) {
+  const ar = activeRefreshes.get(packId);
   if (ar) Object.assign(ar, updates);
 }
 
@@ -138,16 +137,13 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   // === HOOKS ===
   const { updatePack } = useClientPacks();
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
-  const { addUpdatingPack, removeUpdatingPack } = useUpdatingPacksStore();
+  const updatingPackIds = useUpdatingPacksStore((state) => state.updatingPackIds);
+  const refreshingPackIds = Array.from(updatingPackIds);
   const { addActiveJob, removeActiveJob } = useActiveJobsStore();
   const { pauseJob, clearJob } = usePausedSheetJobsStore();
   const { connect: connectGoogle } = useGoogleOAuthConnect();
 
-  // === STATE ===
-  const [refreshingPackIds, setRefreshingPackIds] = useState<string[]>([]);
-  const activeRefreshesRef = useRef<Map<string, ActiveRefresh>>(new Map());
-
-  // Fix #1: track mount state safely (StrictMode mounts/unmounts twice in dev)
+  // Track local mount only for optional UI callbacks; background polling survives route changes.
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -165,11 +161,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   const cleanupRefreshState = useCallback(
     (packId: string, jobId?: string | null) => {
       if (jobId) removeActiveJob(jobId);
-      activeRefreshesRef.current.delete(packId);
-      setRefreshingPackIds((prev) => prev.filter((id) => id !== packId));
-      removeUpdatingPack(packId);
+      activeRefreshes.delete(packId);
+      useUpdatingPacksStore.getState().removeUpdatingPack(packId);
     },
-    [removeActiveJob, removeUpdatingPack]
+    [removeActiveJob]
   );
 
   // ============================================================================
@@ -193,7 +188,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         packId,
         integrationId,
         getCancelled,
-        getMounted: () => mountedRef.current,
+        getMounted: BACKGROUND_JOB_IS_MOUNTED,
         onCancel,
         pauseJob,
         clearJob,
@@ -223,7 +218,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         label: `transcription-${transcriptionJobId.slice(0, 8)}`,
         maxAttempts: 300, // 10 min
         getCancelled,
-        getMounted: () => mountedRef.current,
+        getMounted: BACKGROUND_JOB_IS_MOUNTED,
 
         fetchProgress: () => api.facebook.getTranscriptionProgress(transcriptionJobId),
 
@@ -381,14 +376,14 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   // ============================================================================
 
   const cancelRefresh = useCallback(async (packId: string): Promise<void> => {
-    const activeRefresh = activeRefreshesRef.current.get(packId);
+    const activeRefresh = activeRefreshes.get(packId);
     if (!activeRefresh || activeRefresh.isCancelling) {
       return;
     }
 
     logger.debug(`[PACK_REFRESH] Cancelando todos os processos do pack ${packId}`);
 
-    updateActiveRefresh(activeRefreshesRef, packId, {
+    updateActiveRefresh(packId, {
       isCancelling: true,
       metaCancelled: true,
       sheetsCancelled: true,
@@ -408,7 +403,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         logger.error("Erro ao cancelar jobs:", error);
       }
     } else if (!activeRefresh.metaJobId) {
-      updateActiveRefresh(activeRefreshesRef, packId, { pendingCancellation: true });
+      updateActiveRefresh(packId, { pendingCancellation: true });
     }
 
     if (activeRefresh.sheetSyncToastId) {
@@ -446,9 +441,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       const startTime = Date.now();
 
       const handleCancelMeta = async () => {
-        const ar = activeRefreshesRef.current.get(packId);
+        const ar = activeRefreshes.get(packId);
         if (!ar || ar.metaCancelled) return;
-        updateActiveRefresh(activeRefreshesRef, packId, { metaCancelled: true });
+        updateActiveRefresh(packId, { metaCancelled: true });
         logger.debug(`[PACK_REFRESH] Cancelando Meta do pack ${packId}`);
         if (ar.metaJobId) {
           try {
@@ -461,7 +456,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             finishProgressToast(ar.toastId, false, "Erro ao cancelar atualização Meta");
           }
         } else {
-          updateActiveRefresh(activeRefreshesRef, packId, { pendingCancellation: true });
+          updateActiveRefresh(packId, { pendingCancellation: true });
           dismissToast(ar.toastId);
           showProcessCancelledWarning("meta", ar.packName);
         }
@@ -495,7 +490,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         return { completed: false, adsCount: 0 };
       }
 
-      updateActiveRefresh(activeRefreshesRef, packId, { metaJobId: jobId });
+      updateActiveRefresh(packId, { metaJobId: jobId });
 
       if (!addActiveJob(jobId)) {
         logger.warn(`[PACK_REFRESH] Polling já ativo para job ${jobId}. Ignorando...`);
@@ -521,7 +516,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         label: `meta-${jobId.slice(0, 8)}`,
         maxAttempts: 450, // 15 min
         getCancelled: () => activeRefresh.metaCancelled,
-        getMounted: () => mountedRef.current,
+        getMounted: BACKGROUND_JOB_IS_MOUNTED,
 
         fetchProgress: () => api.facebook.getJobProgress(jobId),
 
@@ -546,7 +541,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             const failError = new Error(`Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
             logger.error(failError);
             finishProgressToast(toastId, false, failError.message);
-            optionsRef.current?.onError?.(failError);
+            if (mountedRef.current) {
+              optionsRef.current?.onError?.(failError);
+            }
             return { done: true, result: { completed: false, adsCount: 0, error: progress.message } };
           }
 
@@ -573,14 +570,18 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
         onTimeout: () => {
           finishProgressToast(toastId, false, `Timeout ao atualizar "${packName}" (demorou mais de 15 minutos)`);
-          optionsRef.current?.onError?.(new Error("Timeout"));
+          if (mountedRef.current) {
+            optionsRef.current?.onError?.(new Error("Timeout"));
+          }
           return { completed: false, adsCount: 0, error: "Timeout" };
         },
         onCancelled: () => ({ completed: false, adsCount: 0, error: "Cancelado" }),
         onUnmounted: () => ({ completed: false, adsCount: 0, error: "Componente desmontado" }),
         onMaxConsecutiveErrors: () => {
           finishProgressToast(toastId, false, `Erro persistente ao atualizar "${packName}". Tente novamente.`);
-          optionsRef.current?.onError?.(new Error("Erros consecutivos"));
+          if (mountedRef.current) {
+            optionsRef.current?.onError?.(new Error("Erros consecutivos"));
+          }
           return { completed: false, adsCount: 0, error: "Erros consecutivos" };
         },
       });
@@ -619,11 +620,13 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           logger.error("Erro ao recarregar pack após refresh:", error);
         }
 
-        optionsRef.current?.onComplete?.({
-          packId,
-          packName,
-          adsCount: metaResult.adsCount,
-        });
+        if (mountedRef.current) {
+          optionsRef.current?.onComplete?.({
+            packId,
+            packName,
+            adsCount: metaResult.adsCount,
+          });
+        }
       }
 
       return metaResult;
@@ -643,12 +646,12 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       activeRefresh: ActiveRefresh,
     ): Promise<{ success: boolean; paused?: boolean; error?: string }> => {
       const toastId = `sync-sheet-${packId}`;
-      updateActiveRefresh(activeRefreshesRef, packId, { sheetSyncToastId: toastId });
+      updateActiveRefresh(packId, { sheetSyncToastId: toastId });
 
       const handleCancelSheets = async () => {
-        const ar = activeRefreshesRef.current.get(packId);
+        const ar = activeRefreshes.get(packId);
         if (!ar || ar.sheetsCancelled) return;
-        updateActiveRefresh(activeRefreshesRef, packId, { sheetsCancelled: true });
+        updateActiveRefresh(packId, { sheetsCancelled: true });
         logger.debug(`[PACK_REFRESH] Cancelando Sheets do pack ${packId}`);
         if (ar.sheetSyncJobId && ar.sheetSyncToastId) {
           try {
@@ -682,7 +685,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           return { success: false };
         }
 
-        updateActiveRefresh(activeRefreshesRef, packId, { sheetSyncJobId: syncJobId });
+        updateActiveRefresh(packId, { sheetSyncJobId: syncJobId });
 
         if (activeRefresh.sheetsCancelled) {
           try {
@@ -723,12 +726,12 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       activeRefresh: ActiveRefresh,
     ): Promise<{ success: boolean }> => {
       const toastId = `transcription-refresh-${packId}`;
-      updateActiveRefresh(activeRefreshesRef, packId, { transcriptionToastId: toastId });
+      updateActiveRefresh(packId, { transcriptionToastId: toastId });
 
       const handleCancelTranscription = async () => {
-        const ar = activeRefreshesRef.current.get(packId);
+        const ar = activeRefreshes.get(packId);
         if (!ar || ar.transcriptionCancelled) return;
-        updateActiveRefresh(activeRefreshesRef, packId, { transcriptionCancelled: true });
+        updateActiveRefresh(packId, { transcriptionCancelled: true });
         if (ar.transcriptionJobId) {
           try {
             await api.facebook.cancelJobsBatch([ar.transcriptionJobId], "Transcrição cancelada pelo usuário");
@@ -764,7 +767,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }
 
         if (res.transcription_job_id) {
-          updateActiveRefresh(activeRefreshesRef, packId, { transcriptionJobId: res.transcription_job_id });
+          updateActiveRefresh(packId, { transcriptionJobId: res.transcription_job_id });
 
           const result = await pollTranscriptionJob(
             res.transcription_job_id, toastId, packName,
@@ -805,7 +808,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         return;
       }
 
-      if (activeRefreshesRef.current.has(packId)) {
+      if (activeRefreshes.has(packId)) {
         logger.warn(`[PACK_REFRESH] Pack ${packId} já está em refresh, ignorando`);
         return;
       }
@@ -829,10 +832,8 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         isCancelling: false,
         toggles,
       };
-      activeRefreshesRef.current.set(packId, activeRefresh);
-
-      setRefreshingPackIds((prev) => [...prev, packId]);
-      addUpdatingPack(packId);
+      activeRefreshes.set(packId, activeRefresh);
+      useUpdatingPacksStore.getState().addUpdatingPack(packId);
 
       const promises: Promise<any>[] = [];
       let leadscoreStarted = false;
@@ -849,7 +850,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                   toastId, false,
                   `Erro ao atualizar "${packName}": ${error instanceof Error ? error.message : "Erro desconhecido"}`
                 );
-                optionsRef.current?.onError?.(error instanceof Error ? error : new Error(String(error)));
+                if (mountedRef.current) {
+                  optionsRef.current?.onError?.(error instanceof Error ? error : new Error(String(error)));
+                }
               }
             })
           );
@@ -861,7 +864,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             runLeadscoreSync(packId, packName, sheetIntegrationId, activeRefresh)
               .then((result) => {
                 leadscoreResult = result;
-                if (!result.success && !result.paused && !activeRefresh.sheetsCancelled) {
+                if (!result.success && !result.paused && !activeRefresh.sheetsCancelled && mountedRef.current) {
                   optionsRef.current?.onError?.(
                     new Error(result.error || `Falha na sincronização de Leadscore para "${packName}"`)
                   );
@@ -870,7 +873,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               .catch((error) => {
                 logger.error(`Erro no Leadscore do pack ${packId}:`, error);
                 leadscoreResult = { success: false, error: error instanceof Error ? error.message : String(error) };
-                if (!activeRefresh.sheetsCancelled) {
+                if (!activeRefresh.sheetsCancelled && mountedRef.current) {
                   optionsRef.current?.onError?.(
                     error instanceof Error ? error : new Error(String(error))
                   );
@@ -902,12 +905,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }
       } finally {
         logger.debug(`[PACK_REFRESH] Finalizando refresh do pack ${packId}`);
-        const ar = activeRefreshesRef.current.get(packId);
+        const ar = activeRefreshes.get(packId);
         cleanupRefreshState(packId, ar?.metaJobId);
       }
     },
     [
-      addUpdatingPack,
       runMetaRefresh,
       runLeadscoreSync,
       runTranscription,
@@ -920,8 +922,8 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   // ============================================================================
 
   const isRefreshing = useCallback(
-    (packId: string): boolean => refreshingPackIds.includes(packId),
-    [refreshingPackIds]
+    (packId: string): boolean => useUpdatingPacksStore.getState().isPackUpdating(packId),
+    []
   );
 
   return {

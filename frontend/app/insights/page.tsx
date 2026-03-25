@@ -23,6 +23,7 @@ import { Modal } from "@/components/common/Modal";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { PageContainer } from "@/components/common/PageContainer";
+import { PageActions } from "@/components/common/PageActions";
 import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -979,25 +980,28 @@ export default function InsightsPage() {
     <PageContainer
       title={headerConfig.title}
       description={headerConfig.description}
+      variant="analytics"
       actions={
-        <FiltersDropdown
-          expanded={true}
-          dateRange={dateRange}
-          onDateRangeChange={handleDateRangeChange}
-          actionType={actionType}
-          onActionTypeChange={handleActionTypeChange}
-          actionTypeOptions={uniqueConversionTypes}
-          packs={packs}
-          selectedPackIds={selectedPackIds}
-          onTogglePack={handleTogglePack}
-          onSetSinglePack={handleTogglePack}
-          packsClient={packsClient}
-          usePackDates={usePackDates}
-          onUsePackDatesChange={handleUsePackDatesChange}
-          packDatesRange={calculateDateRangeFromPacks ?? null}
-          groupByPacks={activeTab === "opportunities" ? groupByPacks : false}
-          onGroupByPacksChange={activeTab === "opportunities" ? handleToggleGroupByPacks : undefined}
-        />
+        <PageActions>
+          <FiltersDropdown
+            expanded={true}
+            dateRange={dateRange}
+            onDateRangeChange={handleDateRangeChange}
+            actionType={actionType}
+            onActionTypeChange={handleActionTypeChange}
+            actionTypeOptions={uniqueConversionTypes}
+            packs={packs}
+            selectedPackIds={selectedPackIds}
+            onTogglePack={handleTogglePack}
+            onSetSinglePack={handleTogglePack}
+            packsClient={packsClient}
+            usePackDates={usePackDates}
+            onUsePackDatesChange={handleUsePackDatesChange}
+            packDatesRange={calculateDateRangeFromPacks ?? null}
+            groupByPacks={activeTab === "opportunities" ? groupByPacks : false}
+            onGroupByPacksChange={activeTab === "opportunities" ? handleToggleGroupByPacks : undefined}
+          />
+        </PageActions>
       }
     >
       {/* Tabs */}

@@ -2,6 +2,7 @@
 
 import { ComponentType, ReactNode, useCallback } from "react";
 import { PageContainer } from "@/components/common/PageContainer";
+import { PageActions } from "@/components/common/PageActions";
 import { PageIcon } from "@/lib/utils/pageIcon";
 import { StandardCard } from "@/components/common/StandardCard";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
@@ -356,11 +357,14 @@ export default function DocsPage() {
       title="Documentação"
       description="Entenda como utilizar cada funcionalidade da plataforma Hookify"
       icon={<PageIcon icon={IconBook2} />}
+      variant="standard"
       actions={
-        <Button variant="outline" size="sm" onClick={handleCopyDocsMarkdown} className="gap-2">
-          <IconCopy className="w-4 h-4" />
-          Copiar em Markdown
-        </Button>
+        <PageActions>
+          <Button variant="outline" size="sm" onClick={handleCopyDocsMarkdown} className="gap-2">
+            <IconCopy className="w-4 h-4" />
+            Copiar em Markdown
+          </Button>
+        </PageActions>
       }
     >
       {/* Hero */}

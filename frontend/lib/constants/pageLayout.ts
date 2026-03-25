@@ -22,3 +22,10 @@ export const PAGE_SPACING_OPTIONS = {
   lg: "space-y-8",
 } as const;
 
+/** Insets padronizados do shell para páginas autenticadas */
+export const APP_PAGE_SHELL_X = "px-4 md:px-6 lg:px-8";
+export const APP_PAGE_SHELL_Y = "py-6 md:py-8";
+
+/** Bottom padding padrão para páginas longas com scroll no documento */
+export const APP_PAGE_SHELL_BOTTOM_SCROLL = "pb-20 md:pb-8";
+

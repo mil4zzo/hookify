@@ -11,6 +11,7 @@ import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateA
 import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { formatDateLocal } from "@/lib/utils/dateFilters";
 import { PageContainer } from "@/components/common/PageContainer";
+import { PageActions } from "@/components/common/PageActions";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { GoldKanbanWidget } from "@/components/gold/GoldKanbanWidget";
 import { GoldTable } from "@/components/gold/GoldTable";
@@ -455,9 +456,15 @@ export default function GoldPage() {
     return [validated, averagesFromValidated] as [any[], any];
   }, [filteredRankings, validationCriteria, actionType, uniqueConversionTypes]);
 
+  const pageFilters = (
+    <PageActions>
+      <FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} onSetSinglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />
+    </PageActions>
+  );
+
   if (!isClient || !isAuthorized) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance">
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" variant="analytics">
         <LoadingState />
       </PageContainer>
     );
@@ -465,7 +472,7 @@ export default function GoldPage() {
 
   if (loading || isLoadingCriteria) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} onSetSinglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" variant="analytics" actions={pageFilters}>
         <LoadingState />
       </PageContainer>
     );
@@ -473,14 +480,14 @@ export default function GoldPage() {
 
   if (!validatedRankings || validatedRankings.length === 0) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} onSetSinglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" variant="analytics" actions={pageFilters}>
         <EmptyState message="Nenhum anúncio encontrado para os filtros selecionados." />
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" actions={<FiltersDropdown expanded={true} dateRange={dateRange} onDateRangeChange={handleDateRangeChange} actionType={actionType} onActionTypeChange={handleActionTypeChange} actionTypeOptions={uniqueConversionTypes} packs={packs} selectedPackIds={selectedPackIds} onTogglePack={handleTogglePack} onSetSinglePack={handleTogglePack} packsClient={packsClient} usePackDates={usePackDates} onUsePackDatesChange={handleUsePackDatesChange} packDatesRange={calculateDateRangeFromPacks ?? null} />}>
+    <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance" variant="analytics" actions={pageFilters}>
       {actionType && validatedAverages && (
         <>
           <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria || []} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={uniqueConversionTypes} />

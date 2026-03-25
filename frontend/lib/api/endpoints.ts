@@ -149,6 +149,11 @@ export const api = {
       params: { date_start: string; date_stop: string }
     ): Promise<{ data: any[] }> =>
       apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/history`, { params }),
+    getAdNameDetails: (
+      adName: string,
+      params: { date_start: string; date_stop: string }
+    ): Promise<RankingsChildrenItem> =>
+      apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details`, { params }),
     getAdNameHistory: (
       adName: string,
       params: { date_start: string; date_stop: string }

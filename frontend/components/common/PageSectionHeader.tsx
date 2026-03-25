@@ -9,8 +9,10 @@ export interface PageSectionHeaderProps {
   icon?: ReactNode;
   actions?: ReactNode;
   className?: string;
+  actionsClassName?: string;
   titleClassName?: string;
   descriptionClassName?: string;
+  variant?: "standard" | "analytics";
 }
 
 /**
@@ -24,17 +26,17 @@ export interface PageSectionHeaderProps {
  *   actions={<FiltersDropdown ... />}
  * />
  */
-export function PageSectionHeader({ title, description, icon, actions, className, titleClassName, descriptionClassName }: PageSectionHeaderProps) {
+export function PageSectionHeader({ title, description, icon, actions, className, actionsClassName, titleClassName, descriptionClassName, variant = "standard" }: PageSectionHeaderProps) {
   return (
-    <div className={cn("flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4", className)}>
+    <div className={cn("mb-4 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between", variant === "analytics" && "mb-5 gap-5", className)}>
       <div>
         <div className={cn("flex items-center", icon && "gap-2")}>
           {icon && <div>{icon}</div>}
-          <h1 className={cn("text-3xl font-semibold", titleClassName)}>{title}</h1>
+          <h1 className={cn("text-3xl font-semibold tracking-tight", variant === "analytics" && "text-3xl xl:text-[2rem]", titleClassName)}>{title}</h1>
         </div>
-        {description && <p className={cn("text-muted-foreground", descriptionClassName)}>{description}</p>}
+        {description && <p className={cn("text-muted-foreground", variant === "analytics" && "max-w-3xl", descriptionClassName)}>{description}</p>}
       </div>
-      {actions && <div className="flex items-center gap-4 flex-shrink-0">{actions}</div>}
+      {actions && <div className={cn("flex w-full min-w-0 flex-col gap-3 lg:w-auto lg:flex-shrink-0 lg:items-end", actionsClassName)}>{actions}</div>}
     </div>
   );
 }

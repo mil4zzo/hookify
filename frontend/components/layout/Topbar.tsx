@@ -1,6 +1,5 @@
 "use client";
 
-import * as Sentry from "@sentry/nextjs";
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
@@ -862,7 +861,7 @@ export default function Topbar() {
     return (
       <>
         <ServerStatusBanner />
-        <header className="z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <header className="z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="container mx-auto flex h-16 items-center justify-between px-4">
             <div className="flex items-center gap-3">
               <h1 className="text-xl font-bold text-text">Hookify</h1>
@@ -916,7 +915,7 @@ export default function Topbar() {
   return (
     <>
       <ServerStatusBanner />
-      <header className="z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
         <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4 md:px-8">
           {/* Left: Título (desktop) ou Logo (mobile) */}
@@ -932,20 +931,6 @@ export default function Topbar() {
 
           {/* Right: seção única com update/reset/profile (profile menu renderizado apenas 1x) */}
           <div className="flex items-center gap-3">
-            {process.env.NODE_ENV === "development" && (
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => {
-                  const mockResponse = { success: false, error: "mock_error", message: "Simulação de success:false para teste do Sentry" };
-                  Sentry.captureException(new Error("Teste Sentry: success:false simulado"), {
-                    extra: { response: mockResponse, url: "/api/analytics/packs", method: "GET" },
-                  });
-                }}
-              >
-                Sentry Test
-              </Button>
-            )}
             {/* Conectar Facebook ou Atualizar Dados Button - only show when authenticated */}
             {isAuthenticated && (
               <>

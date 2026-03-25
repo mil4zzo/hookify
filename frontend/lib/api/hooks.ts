@@ -34,6 +34,7 @@ export const queryKeys = {
   adDetails: (adId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-details', adId, dateStart, dateStop] as const,
   adCreative: (adId: string) => ['analytics', 'rankings', 'ad-creative', adId] as const,
   adHistory: (adId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-history', adId, dateStart, dateStop] as const,
+  adNameDetails: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-details', adName, dateStart, dateStop] as const,
   adNameHistory: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop] as const,
   campaignChildren: (campaignId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop] as const,
   adsetChildren: (adsetId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop] as const,
@@ -324,6 +325,28 @@ export const useAdHistory = (
     }),
     enabled: enabled && !!adId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
+    retry: 2,
+  });
+};
+
+/**
+ * Detalhes agregados por ad_name: métricas de todos os ad_ids que compartilham o mesmo ad_name no período.
+ * Equivalente a useAdDetails mas agrupado por ad_name.
+ */
+export const useAdNameDetails = (
+  adName: string,
+  dateStart: string,
+  dateStop: string,
+  enabled: boolean = false
+) => {
+  return useQuery({
+    queryKey: queryKeys.adNameDetails(adName, dateStart, dateStop),
+    queryFn: () => api.analytics.getAdNameDetails(adName, {
+      date_start: dateStart,
+      date_stop: dateStop,
+    }),
+    enabled: enabled && !!adName && !!dateStart && !!dateStop,
+    staleTime: 5 * 60 * 1000,
     retry: 2,
   });
 };

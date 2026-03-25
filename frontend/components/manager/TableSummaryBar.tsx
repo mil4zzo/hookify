@@ -20,10 +20,10 @@ export interface TableSummaryBarProps {
  */
 export function TableSummaryBar({ filteredCount, totalCount, itemLabel, hasActiveFilters, onResetFilters }: TableSummaryBarProps) {
   return (
-    <div className="sticky bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none mt-4">
-      <div className="w-full bg-card border border-border shadow-lg pointer-events-auto rounded-lg">
+    <div className="mt-4 flex justify-center">
+      <div className="w-full rounded-lg border border-border bg-card shadow-lg">
         <div className="px-4 py-3">
-          <div className="flex items-center justify-end gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
             <div className="flex items-center text-sm text-muted-foreground">
               <span>
                 Exibindo {filteredCount} de {totalCount} {itemLabel}

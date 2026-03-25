@@ -50,7 +50,7 @@ interface TabsListProps {
 
 export function TabsList({ children, className }: TabsListProps) {
   return (
-    <div className={cn("flex w-fit items-center gap-1 rounded-lg border border-border bg-card p-1 shadow-sm", className)} role="tablist">
+    <div className={cn("flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1 shadow-sm", className)} role="tablist">
       {children}
     </div>
   );
@@ -79,7 +79,7 @@ export const TabsTrigger = forwardRef<HTMLButtonElement, TabsTriggerProps>(({ va
       aria-selected={isActive}
       onClick={handleClick}
       className={cn(
-        "flex h-8 items-center justify-center rounded-md px-3 text-sm font-medium transition-[color,background-color,box-shadow] duration-200",
+        "flex h-8 shrink-0 items-center justify-center rounded-md px-3 text-sm font-medium whitespace-nowrap transition-[color,background-color,box-shadow] duration-200",
         isActive ? "bg-primary text-primary-foreground shadow-sm" : "bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground",
         className
       )}

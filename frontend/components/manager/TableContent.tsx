@@ -220,7 +220,8 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
       .map((row) => getSeriesGroupKey(row))
       .filter(Boolean);
     if (keys.length === 0) return;
-    onVisibleRowKeysChange(Array.from(new Set(keys)));
+    const uniqueKeys = Array.from(new Set(keys));
+    onVisibleRowKeysChange(uniqueKeys);
   }, [virtualRows, rows, getSeriesGroupKey, onVisibleRowKeysChange, isLoadingEffective]);
 
   // Calculate padding for virtualization
@@ -247,7 +248,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
       )}
       {/* Linha vertical que acompanha o mouse durante resize */}
       {isResizing && resizePosition !== null && <div className="fixed top-0 bottom-0 w-[2px] bg-primary z-[60] pointer-events-none" style={{ left: `${resizePosition}px` }} />}
-      <div ref={tableContainerRef} className="flex-1 overflow-x-auto overflow-y-auto">
+      <div ref={tableContainerRef} className="flex-1 min-h-0 overflow-auto overscroll-contain">
         <table className="w-full text-sm border-separate border-spacing-y-4" style={{ tableLayout: "fixed" }}>
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
