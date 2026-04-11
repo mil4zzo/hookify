@@ -238,7 +238,8 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
                 stageTitle: "Verificando...",
                 dynamicLine: `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`,
               },
-              lastPercent
+              lastPercent,
+              true,
             );
           },
 

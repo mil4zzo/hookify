@@ -208,6 +208,35 @@ class ApiClient {
     return response.data
   }
 
+  async postMultipart<T>(url: string, formData: FormData, config?: AxiosRequestConfig): Promise<T> {
+    // The Axios instance default Content-Type is 'application/json'. In Axios 1.x,
+    // the default transformRequest converts FormData to JSON when Content-Type is
+    // 'application/json', which destroys file uploads. We bypass this by:
+    // 1) Providing a custom transformRequest that returns FormData as-is
+    // 2) Explicitly stripping Content-Type from the headers so the browser XHR
+    //    sets 'multipart/form-data; boundary=...' automatically
+    const response = await this.client.post<T>(url, formData, {
+      ...config,
+      timeout: 600000,
+      headers: {
+        ...(config?.headers || {}),
+      },
+      transformRequest: [(data, headers) => {
+        if (headers && typeof headers === 'object') {
+          const h = headers as { delete?: (name: string) => void } & Record<string, unknown>
+          if (typeof h.delete === 'function') {
+            h.delete('Content-Type')
+          } else {
+            delete h['Content-Type']
+            delete h['content-type']
+          }
+        }
+        return data
+      }],
+    })
+    return response.data
+  }
+
   // Método específico para requisições de ads que podem demorar mais
   async postAds<T>(url: string, data?: any, config?: AxiosRequestConfig): Promise<T> {
     const adsConfig = {

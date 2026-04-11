@@ -594,3 +594,213 @@ export type AdPerformanceRequest = RankingsRequest;
 export type AdPerformanceItem = RankingsItem;
 export type AdPerformanceResponse = RankingsResponse;
 export type AdDetailItem = RankingsChildrenItem;
+
+// ========== Bulk Ads Upload ==========
+export const AdsTreeAdSchema = z.object({
+  ad_id: z.string(),
+  ad_name: z.string().nullable().optional(),
+  account_id: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  thumbnail_url: z.string().nullable().optional(),
+})
+
+export const AdsTreeAdsetSchema = z.object({
+  adset_id: z.string(),
+  adset_name: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  ads: z.array(AdsTreeAdSchema),
+})
+
+export const AdsTreeCampaignSchema = z.object({
+  campaign_id: z.string(),
+  campaign_name: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  adsets: z.array(AdsTreeAdsetSchema),
+})
+
+export const AdsTreeResponseSchema = z.array(AdsTreeCampaignSchema)
+
+export const AdCreativeDetailResponseSchema = z.object({
+  creative: z.record(z.any()),
+  body: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  call_to_action: z.string().nullable().optional(),
+  link_url: z.string().nullable().optional(),
+  thumbnail_url: z.string().nullable().optional(),
+  format: z.string().nullable().optional(),
+  family: z.string(),
+  supports_bulk_clone: z.boolean(),
+  supports_media_swap: z.boolean().optional().default(false),
+  warnings: z.array(z.string()).default([]),
+  media_slots: z.array(
+    z.object({
+      slot_key: z.string(),
+      display_name: z.string(),
+      media_type: z.enum(["image", "video"]),
+      source: z.string(),
+      label_name: z.string().nullable().optional(),
+      rules_count: z.number().int(),
+      placements_summary: z.array(z.string()).default([]),
+      required: z.boolean().default(true),
+    }),
+  ).default([]),
+  is_multi_slot: z.boolean().default(false),
+  slot_count: z.number().int().default(0),
+})
+
+export const BulkAdItemConfigSchema = z.object({
+  file_index: z.number().int().min(0).optional(),
+  bundle_id: z.string().optional(),
+  bundle_name: z.string().nullable().optional(),
+  slot_files: z.record(z.string(), z.number().int().min(0)).optional(),
+  adset_id: z.string(),
+  adset_name: z.string().nullable().optional(),
+  ad_name: z.string(),
+}).superRefine((value, ctx) => {
+  const hasFileIndex = value.file_index !== undefined
+  const hasSlotFiles = !!value.slot_files && Object.keys(value.slot_files).length > 0
+  if (!hasFileIndex && !hasSlotFiles) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "file_index ou slot_files e obrigatorio" })
+  }
+  if (hasFileIndex && hasSlotFiles) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "file_index e slot_files sao mutuamente exclusivos" })
+  }
+  if (hasSlotFiles && !value.bundle_id) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "bundle_id e obrigatorio quando slot_files e enviado" })
+  }
+})
+
+export const BulkAdConfigSchema = z.object({
+  template_ad_id: z.string(),
+  account_id: z.string(),
+  status: z.enum(["ACTIVE", "PAUSED"]),
+  bundle_strategy: z.enum(["legacy_single_file", "explicit_bundles"]).optional(),
+  items: z.array(BulkAdItemConfigSchema).min(1).max(500),
+})
+
+export const BulkAdItemProgressSchema = z.object({
+  id: z.string(),
+  file_name: z.string(),
+  file_index: z.number().int(),
+  bundle_id: z.string().nullable().optional(),
+  bundle_name: z.string().nullable().optional(),
+  slot_files: z.record(z.string(), z.number().int()).nullable().optional(),
+  is_multi_slot: z.boolean().nullable().optional(),
+  adset_id: z.string().nullable().optional(),
+  adset_name: z.string().nullable().optional(),
+  ad_name: z.string(),
+  status: z.string(),
+  meta_ad_id: z.string().nullable().optional(),
+  meta_creative_id: z.string().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+  error_code: z.string().nullable().optional(),
+})
+
+export const BulkAdProgressResponseSchema = z.object({
+  job_id: z.string(),
+  status: z.string(),
+  progress: z.number(),
+  message: z.string(),
+  items: z.array(BulkAdItemProgressSchema),
+  summary: z.object({
+    total: z.number(),
+    success: z.number(),
+    error: z.number(),
+    pending: z.number(),
+  }),
+})
+
+export type AdsTreeAd = z.infer<typeof AdsTreeAdSchema>
+export type AdsTreeAdset = z.infer<typeof AdsTreeAdsetSchema>
+export type AdsTreeCampaign = z.infer<typeof AdsTreeCampaignSchema>
+export type AdsTreeResponse = z.infer<typeof AdsTreeResponseSchema>
+export type AdCreativeDetailResponse = z.infer<typeof AdCreativeDetailResponseSchema>
+export type BulkAdItemConfig = z.infer<typeof BulkAdItemConfigSchema>
+export type BulkAdConfig = z.infer<typeof BulkAdConfigSchema>
+export type BulkAdItemProgress = z.infer<typeof BulkAdItemProgressSchema>
+export type BulkAdProgressResponse = z.infer<typeof BulkAdProgressResponseSchema>
+
+// ========== Campaign Bulk (Duplicar Campanha) ==========
+
+export const CampaignAdsetConfigSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string().nullable().optional(),
+  targeting: z.record(z.any()).nullable().optional(),
+  optimization_goal: z.string().nullable().optional(),
+  billing_event: z.string().nullable().optional(),
+  bid_amount: z.number().nullable().optional(),
+  daily_budget: z.number().nullable().optional(),
+  lifetime_budget: z.number().nullable().optional(),
+  promoted_object: z.record(z.any()).nullable().optional(),
+  attribution_spec: z.array(z.any()).nullable().optional(),
+  destination_type: z.string().nullable().optional(),
+  pacing_type: z.array(z.string()).nullable().optional(),
+})
+
+export const CampaignTemplateResponseSchema = z.object({
+  campaign_id: z.string(),
+  campaign_name: z.string(),
+  campaign_objective: z.string().nullable().optional(),
+  campaign_bid_strategy: z.string().nullable().optional(),
+  campaign_daily_budget: z.number().nullable().optional(),
+  campaign_lifetime_budget: z.number().nullable().optional(),
+  campaign_budget_optimization: z.boolean().nullable().optional(),
+  adsets: z.array(CampaignAdsetConfigSchema),
+  ad_id: z.string(),
+  ad_name: z.string(),
+})
+
+export const CampaignBulkItemConfigSchema = z.object({
+  ad_name: z.string().min(1),
+  feed_file_index: z.number().int().min(0).optional(),
+  story_file_index: z.number().int().min(0).optional(),
+}).refine(
+  (v) => v.feed_file_index !== undefined || v.story_file_index !== undefined,
+  { message: "feed_file_index ou story_file_index e obrigatorio" }
+)
+
+export const CampaignBulkConfigSchema = z.object({
+  template_ad_id: z.string(),
+  account_id: z.string(),
+  status: z.enum(["ACTIVE", "PAUSED"]),
+  adset_ids: z.array(z.string()).min(1),
+  campaign_name_template: z.string(),
+  adset_name_template: z.string(),
+  campaign_budget_override: z.number().int().optional(),
+  items: z.array(CampaignBulkItemConfigSchema).min(1).max(100),
+})
+
+export const CampaignBulkItemProgressSchema = z.object({
+  id: z.string(),
+  ad_name: z.string(),
+  feed_file_index: z.number().nullable().optional(),
+  story_file_index: z.number().nullable().optional(),
+  campaign_name_template: z.string().nullable().optional(),
+  adset_name_template: z.string().nullable().optional(),
+  status: z.string(),
+  meta_creative_id: z.string().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+  error_code: z.string().nullable().optional(),
+})
+
+export const CampaignBulkProgressResponseSchema = z.object({
+  job_id: z.string(),
+  status: z.string(),
+  progress: z.number(),
+  message: z.string(),
+  items: z.array(CampaignBulkItemProgressSchema),
+  summary: z.object({
+    total: z.number(),
+    success: z.number(),
+    error: z.number(),
+    pending: z.number(),
+  }),
+})
+
+export type CampaignAdsetConfig = z.infer<typeof CampaignAdsetConfigSchema>
+export type CampaignTemplateResponse = z.infer<typeof CampaignTemplateResponseSchema>
+export type CampaignBulkItemConfig = z.infer<typeof CampaignBulkItemConfigSchema>
+export type CampaignBulkConfig = z.infer<typeof CampaignBulkConfigSchema>
+export type CampaignBulkItemProgress = z.infer<typeof CampaignBulkItemProgressSchema>
+export type CampaignBulkProgressResponse = z.infer<typeof CampaignBulkProgressResponseSchema>

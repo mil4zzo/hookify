@@ -1,5 +1,58 @@
 import type { Config } from 'tailwindcss'
 
+/**
+ * Mistura uma cor semântica com a superfície da página.
+ * Evita `transparent` em color-mix (OKLab trata transparent como preto sem alpha e pode virar branco).
+ */
+const colorMixOnCanvas = (cssVar: string, percent: number) =>
+  `color-mix(in oklab, var(${cssVar}) ${percent}%, var(--background))`
+
+const alphaSteps = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90] as const
+
+/** Opacidade da própria `--background` (overlay) — usa alpha real, não mix com transparent. */
+const backgroundAlphaScale = () => {
+  const entries = Object.fromEntries(
+    alphaSteps.map((step) => [
+      step,
+      `oklch(from var(--background) l c h / ${step / 100})`,
+    ]),
+  ) as Record<(typeof alphaSteps)[number], string>
+  return {
+    DEFAULT: 'var(--background)',
+    ...entries,
+  }
+}
+
+const alphaScale = (cssVar: string) => {
+  if (cssVar === '--background') {
+    return backgroundAlphaScale()
+  }
+  return {
+    DEFAULT: `var(${cssVar})`,
+    ...Object.fromEntries(
+      alphaSteps.map((step) => [step, colorMixOnCanvas(cssVar, step)]),
+    ),
+  }
+}
+
+const semanticToneScale = (family: 'primary' | 'destructive' | 'success') => ({
+  950: `var(--${family}-950)`,
+  800: `var(--${family}-800)`,
+  600: `var(--${family}-600)`,
+  400: `var(--${family}-400)`,
+  300: `var(--${family}-300)`,
+  label: `var(--${family}-label)`,
+})
+
+const semanticScale = (
+  family: 'primary' | 'destructive' | 'success',
+  options?: { hover?: string },
+) => ({
+  ...alphaScale(`--${family}`),
+  ...semanticToneScale(family),
+  ...(options?.hover ? { hover: options.hover } : {}),
+})
+
 export default {
   darkMode: ['class', '[data-theme="dark"]'],
   content: [
@@ -11,21 +64,16 @@ export default {
     extend: {
       colors: {
         // === BASE ===
-        background: {
-          DEFAULT: 'var(--background)',
-          5: 'color-mix(in oklab, var(--background) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--background) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--background) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--background) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--background) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--background) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--background) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--background) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--background) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--background) 90%, transparent)',
-        },
+        background: alphaScale('--background'),
         foreground: 'var(--foreground)',
-        
+        neutral: {
+          DEFAULT: 'var(--neutral-600)',
+          950: 'var(--neutral-950)',
+          800: 'var(--neutral-800)',
+          600: 'var(--neutral-600)',
+          400: 'var(--neutral-400)',
+        },
+
         // === COMPONENTES ===
         card: {
           DEFAULT: 'var(--card)',
@@ -37,197 +85,73 @@ export default {
           hover: 'color-mix(in oklab, var(--popover) 85%, var(--accent) 15%)',
         },
         'popover-foreground': 'var(--popover-foreground)',
-        
+
         // === PRIMÁRIAS ===
-        primary: {
-          DEFAULT: 'var(--primary)',
-          5: 'color-mix(in oklab, var(--primary) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--primary) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--primary) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--primary) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--primary) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--primary) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--primary) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--primary) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--primary) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--primary) 90%, transparent)',
-          // Hover sólido: versão ligeiramente mais clara do primary (mistura com branco)
+        primary: semanticScale('primary', {
           hover: 'color-mix(in oklab, var(--primary) 90%, oklch(1 0 0) 10%)',
-        },
+        }),
         'primary-foreground': 'var(--primary-foreground)',
-        
+
         // === SECUNDÁRIAS ===
         secondary: {
-          DEFAULT: 'var(--secondary)',
-          5: 'color-mix(in oklab, var(--secondary) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--secondary) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--secondary) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--secondary) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--secondary) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--secondary) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--secondary) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--secondary) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--secondary) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--secondary) 90%, transparent)',
-          // Hover sólido: mistura secondary com accent para criar cor sólida intermediária
+          ...alphaScale('--secondary'),
           hover: 'color-mix(in oklab, var(--secondary) 85%, var(--accent) 15%)',
         },
         'secondary-foreground': 'var(--secondary-foreground)',
-        
+
         // === ESTADOS ===
         muted: {
-          DEFAULT: 'var(--muted)',
-          5: 'color-mix(in oklab, var(--muted) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--muted) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--muted) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--muted) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--muted) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--muted) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--muted) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--muted) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--muted) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--muted) 90%, transparent)',
-          // Hover sólido: mistura muted com accent para criar cor sólida intermediária
+          ...alphaScale('--muted'),
           hover: 'color-mix(in oklab, var(--muted) 85%, var(--accent) 15%)',
         },
         'muted-foreground': 'var(--muted-foreground)',
         accent: {
-          DEFAULT: 'var(--accent)',
-          5: 'color-mix(in oklab, var(--accent) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--accent) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--accent) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--accent) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--accent) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--accent) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--accent) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--accent) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--accent) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--accent) 90%, transparent)',
-          // Hover sólido: mistura accent com card para criar cor sólida intermediária
+          ...alphaScale('--accent'),
           hover: 'color-mix(in oklab, var(--card) 80%, var(--accent) 20%)',
         },
         'accent-foreground': 'var(--accent-foreground)',
-        
+
         // === FEEDBACK ===
-        destructive: {
-          DEFAULT: 'var(--destructive)',
-          5: 'color-mix(in oklab, var(--destructive) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--destructive) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--destructive) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--destructive) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--destructive) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--destructive) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--destructive) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--destructive) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--destructive) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--destructive) 90%, transparent)',
-          // Hover sólido: versão ligeiramente mais clara do destructive (mistura com branco)
+        destructive: semanticScale('destructive', {
           hover: 'color-mix(in oklab, var(--destructive) 90%, oklch(1 0 0) 10%)',
-        },
+        }),
         'destructive-foreground': 'var(--destructive-foreground)',
-        success: {
-          DEFAULT: 'var(--success)',
-          5: 'color-mix(in oklab, var(--success) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--success) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--success) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--success) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--success) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--success) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--success) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--success) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--success) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--success) 90%, transparent)',
-        },
+        success: semanticScale('success'),
         'success-foreground': 'var(--success-foreground)',
-        warning: {
-          DEFAULT: 'var(--warning)',
-          5: 'color-mix(in oklab, var(--warning) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--warning) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--warning) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--warning) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--warning) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--warning) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--warning) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--warning) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--warning) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--warning) 90%, transparent)',
-        },
+        warning: alphaScale('--warning'),
         'warning-foreground': 'var(--warning-foreground)',
-        info: {
-          DEFAULT: 'var(--info)',
-          5: 'color-mix(in oklab, var(--info) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--info) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--info) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--info) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--info) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--info) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--info) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--info) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--info) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--info) 90%, transparent)',
-        },
+        info: alphaScale('--info'),
         'info-foreground': 'var(--info-foreground)',
-        attention: {
-          DEFAULT: 'var(--attention)',
-          5: 'color-mix(in oklab, var(--attention) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--attention) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--attention) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--attention) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--attention) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--attention) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--attention) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--attention) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--attention) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--attention) 90%, transparent)',
-        },
+        attention: alphaScale('--attention'),
         'attention-foreground': 'var(--attention-foreground)',
-        
+
         // === FORMULÁRIOS ===
-        input: {
-          DEFAULT: 'var(--input)',
-          5: 'color-mix(in oklab, var(--input) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--input) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--input) 20%, transparent)',
-          40: 'color-mix(in oklab, var(--input) 40%, transparent)',
-          30: 'color-mix(in oklab, var(--input) 30%, transparent)',
-          50: 'color-mix(in oklab, var(--input) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--input) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--input) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--input) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--input) 90%, transparent)',
-        },
+        input: alphaScale('--input'),
         'input-foreground': 'var(--input-foreground)',
         border: 'var(--border)',
-        ring: {
-          DEFAULT: 'var(--ring)',
-          5: 'color-mix(in oklab, var(--ring) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--ring) 10%, transparent)',
-          20: 'color-mix(in oklab, var(--ring) 20%, transparent)',
-          30: 'color-mix(in oklab, var(--ring) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--ring) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--ring) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--ring) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--ring) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--ring) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--ring) 90%, transparent)',
-        },
+        ring: alphaScale('--ring'),
         'ring-foreground': 'var(--ring-foreground)',
-        
+
         // === COMPONENTES ESPECÍFICOS ===
         sidebar: 'var(--sidebar)',
         'sidebar-foreground': 'rgba(var(--sidebar-foreground-rgb) / <alpha-value>)',
         'sidebar-primary': 'var(--sidebar-primary)',
         'sidebar-primary-foreground': 'var(--sidebar-primary-foreground)',
-        
+
         // === SUPERFÍCIES ===
-        surface: 'var(--surface)',
+        surface: {
+          DEFAULT: 'var(--surface)',
+          fill: 'var(--surface-fill)',
+          2: 'var(--surface-2)',
+          3: 'var(--surface-3)',
+        },
         'surface-2': 'var(--surface-2)',
         surface3: 'var(--surface-3)',
         overlay: 'var(--overlay)',
-        
+
         // === TEXTO ===
         text: 'rgb(var(--text-rgb) / <alpha-value>)',
-        
+
         // === GRÁFICOS ===
         chart: {
           1: 'var(--chart-1)',
@@ -236,19 +160,11 @@ export default {
           4: 'var(--chart-4)',
           5: 'var(--chart-5)',
         },
-        
+
         // === BRAND ===
         brand: {
-          DEFAULT: 'var(--primary)',
-          5: 'color-mix(in oklab, var(--primary) 5%, transparent)',
-          10: 'color-mix(in oklab, var(--primary) 10%, transparent)',
-          30: 'color-mix(in oklab, var(--primary) 30%, transparent)',
-          40: 'color-mix(in oklab, var(--primary) 40%, transparent)',
-          50: 'color-mix(in oklab, var(--primary) 50%, transparent)',
-          60: 'color-mix(in oklab, var(--primary) 60%, transparent)',
-          70: 'color-mix(in oklab, var(--primary) 70%, transparent)',
-          80: 'color-mix(in oklab, var(--primary) 80%, transparent)',
-          90: 'color-mix(in oklab, var(--primary) 90%, transparent)',
+          ...alphaScale('--primary'),
+          ...semanticToneScale('primary'),
         },
       },
       borderRadius: {

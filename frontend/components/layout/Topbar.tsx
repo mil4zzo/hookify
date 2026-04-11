@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
+import { TopbarFilters } from "@/components/layout/TopbarFilters";
 import { Button } from "@/components/ui/button";
 import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useAuthManager } from "@/lib/hooks/useAuthManager";
@@ -13,7 +14,7 @@ import { FacebookConnectionCard } from "@/components/facebook/FacebookConnection
 import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import { AuthPopupError } from "@/lib/utils/authPopup";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
-import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTarget, IconDotsVertical, IconTrash, IconRefresh } from "@tabler/icons-react";
+import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTarget, IconTrash, IconRefresh } from "@tabler/icons-react";
 import { Modal } from "@/components/common/Modal";
 import { AppDialog } from "@/components/common/AppDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -37,7 +38,6 @@ import { useLanguage } from "@/lib/hooks/useLanguage";
 import { useNiche } from "@/lib/hooks/useNiche";
 import { api } from "@/lib/api/endpoints";
 import { clearAllPacks } from "@/lib/storage/indexedDB";
-import { useInvalidatePackAds } from "@/lib/api/hooks";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
 import { useQueryClient } from "@tanstack/react-query";
@@ -58,18 +58,15 @@ export default function Topbar() {
   const { language: userLanguage, isLoading: isLoadingLanguage, isSaving: isSavingLanguage, saveLanguage } = useLanguage();
   const { niche: userNiche, isLoading: isLoadingNiche, isSaving: isSavingNiche, updateNiche, saveNiche } = useNiche();
   const { isAuthenticated, user, isClient } = useClientAuth();
-  const { packs, removePack } = useClientPacks();
+  const { packs } = useClientPacks();
   const { handleLogout } = useAuthManager();
   const { settings, setLanguage, setNiche, updateSettings } = useSettings();
   const { connections, connect, disconnect, refreshPicture, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
-  const { invalidateAllPacksAds, invalidateAdPerformance, invalidatePackAds } = useInvalidatePackAds();
   const { user: supabaseUser } = useSupabaseAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
-  const [isClearingPacks, setIsClearingPacks] = useState(false);
-  const [isResettingPreferences, setIsResettingPreferences] = useState(false);
   const [isDeletingData, setIsDeletingData] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [showDeleteDataConfirm, setShowDeleteDataConfirm] = useState(false);
@@ -217,124 +214,6 @@ export default function Topbar() {
     } finally {
       setIsDeletingAccount(false);
     }
-  };
-
-  // Função para limpar todos os packs
-  const handleClearAllPacks = async () => {
-    if (packs.length === 0) {
-      showSuccess("Não há packs para limpar");
-      return;
-    }
-
-    if (!confirm(`Tem certeza que deseja limpar todos os ${packs.length} pack(s)? Esta ação não pode ser desfeita.`)) {
-      return;
-    }
-
-    setIsClearingPacks(true);
-    try {
-      // Deletar todos os packs do backend
-      const deletePromises = packs.map((pack) =>
-        api.analytics.deletePack(pack.id, []).catch((error) => {
-          console.error(`Erro ao deletar pack ${pack.id}:`, error);
-          // Continuar mesmo se algum falhar
-          return null;
-        }),
-      );
-      await Promise.all(deletePromises);
-
-      // Remover do estado local
-      packs.forEach((pack) => {
-        removePack(pack.id);
-      });
-
-      // Limpar IndexedDB
-      const clearResult = await clearAllPacks();
-      if (!clearResult.success) {
-        console.warn("Erro ao limpar IndexedDB:", clearResult.error);
-      }
-
-      // Limpar cache de ads
-      await invalidateAllPacksAds();
-
-      // Invalidar dados agregados
-      invalidateAdPerformance();
-
-      // Limpar cache de ads do IndexedDB também
-      const { clearAllAdsCache } = await import("@/lib/storage/adsCache");
-      await clearAllAdsCache();
-
-      showSuccess("Todos os packs foram limpos com sucesso!");
-    } catch (error) {
-      console.error("Erro ao limpar packs:", error);
-      showError({ message: `Erro ao limpar packs: ${error}` });
-    } finally {
-      setIsClearingPacks(false);
-    }
-  };
-
-  // Função para resetar preferências
-  const handleResetPreferences = async () => {
-    if (!confirm("Tem certeza que deseja resetar todas as preferências? Esta ação não pode ser desfeita.")) {
-      return;
-    }
-
-    setIsResettingPreferences(true);
-    try {
-      // Resetar settings store
-      const defaultSettings = {
-        language: "pt-BR",
-        niche: "",
-        currency: "BRL",
-      };
-      updateSettings(defaultSettings);
-
-      // Limpar preferências de packs do localStorage
-      const packPreferenceKeys = ["hookify-selected-packs", "hookify-insights-selected-packs", "hookify-manager-selected-packs", "hookify-insights-date-range", "hookify-manager-date-range", "hookify-packs-date-range", "hookify-insights-gems-columns", "hookify-insights-action-type", "hookify-insights-group-by-packs", "hookify-insights-use-pack-dates", "hookify-insights-pack-action-types", "hookify-insights-active-tab", "hookify-manager-action-type", "hookify-manager-show-trends", "hookify-manager-use-pack-dates"];
-
-      packPreferenceKeys.forEach((key) => {
-        localStorage.removeItem(key);
-      });
-
-      // Resetar estado do onboarding via API
-      try {
-        await api.onboarding.reset();
-        queryClient.invalidateQueries({ queryKey: ["onboarding", "status"] });
-      } catch (error) {
-        console.warn("Erro ao resetar onboarding:", error);
-      }
-
-      showSuccess("Preferências resetadas com sucesso!");
-    } catch (error) {
-      console.error("Erro ao resetar preferências:", error);
-      showError({ message: `Erro ao resetar preferências: ${error}` });
-    } finally {
-      setIsResettingPreferences(false);
-    }
-  };
-
-  // Função para renderizar o menu de reset
-  const renderResetMenu = () => {
-    if (!isAuthenticated) return null;
-
-    return (
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="relative flex items-center justify-center w-10 h-10 rounded-full hover:bg-accent transition-all focus:outline-none focus:ring-2 focus:ring-info" aria-label="Menu de reset">
-            <IconDotsVertical className="h-5 w-5 text-text" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem onClick={handleClearAllPacks} disabled={isClearingPacks || packs.length === 0} className="flex items-center gap-2 text-destructive focus:text-destructive">
-            {isClearingPacks ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconTrash className="h-4 w-4" />}
-            <span>Limpar todos os packs</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleResetPreferences} disabled={isResettingPreferences} className="flex items-center gap-2 text-destructive focus:text-destructive">
-            {isResettingPreferences ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconRefresh className="h-4 w-4" />}
-            <span>Resetar preferências</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    );
   };
 
   // Função para extrair iniciais do nome do usuário
@@ -514,9 +393,8 @@ export default function Topbar() {
     // Se está atualizando, mostra botão desabilitado
     if (refreshingPackIds.length > 0) {
       return (
-        <Button variant="outline" size="sm" className="flex items-center gap-2" disabled>
+        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" disabled aria-label="Atualizando dados">
           <IconLoader2 className="h-4 w-4 animate-spin" />
-          Atualizando...
         </Button>
       );
     }
@@ -524,9 +402,8 @@ export default function Topbar() {
     // Se há apenas um pack, vai direto para confirmação ao clicar
     if (packs.length === 1) {
       return (
-        <Button variant="outline" size="sm" className="flex items-center gap-2" onClick={() => handleSelectPack(packs[0].id)}>
+        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => handleSelectPack(packs[0].id)} aria-label="Atualizar dados">
           <IconRefresh className="h-4 w-4" />
-          Atualizar dados
         </Button>
       );
     }
@@ -535,9 +412,8 @@ export default function Topbar() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="flex items-center gap-2">
+          <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" aria-label="Atualizar dados">
             <IconRefresh className="h-4 w-4" />
-            Atualizar dados
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
@@ -863,9 +739,11 @@ export default function Topbar() {
         <ServerStatusBanner />
         <header className="z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
           <div className="container mx-auto flex h-16 items-center justify-between px-4">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-shrink-0">
               <h1 className="text-xl font-bold text-text">Hookify</h1>
             </div>
+            {/* Center placeholder — keeps layout stable during SSR */}
+            <div className="flex-1" />
             <div className="flex items-center gap-4">
               {isAuthenticated && (
                 <>
@@ -892,9 +770,6 @@ export default function Topbar() {
                     renderUpdateDataButton()
                   ) : null}
 
-                  {/* Reset Menu - only show when authenticated */}
-                  {renderResetMenu()}
-
                   {/* Profile Avatar - apenas visual no SSR */}
                   {user ? (
                     renderProfileMenu()
@@ -919,7 +794,7 @@ export default function Topbar() {
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
         <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4 md:px-8">
           {/* Left: Título (desktop) ou Logo (mobile) */}
-          <div className="flex min-w-0 items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3 flex-shrink-0">
             <div className="hidden md:flex md:items-center md:gap-3">
               {Icon && <Icon className="h-6 w-6 text-brand" />}
               <h1 className="text-2xl font-bold text-text">{title}</h1>
@@ -929,8 +804,13 @@ export default function Topbar() {
             </Link>
           </div>
 
+          {/* Center: global filters (desktop only) */}
+          <div className="flex-1 flex items-center justify-center min-w-0">
+            <TopbarFilters />
+          </div>
+
           {/* Right: seção única com update/reset/profile (profile menu renderizado apenas 1x) */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-shrink-0">
             {/* Conectar Facebook ou Atualizar Dados Button - only show when authenticated */}
             {isAuthenticated && (
               <>
@@ -958,9 +838,6 @@ export default function Topbar() {
                 ) : null}
               </>
             )}
-
-            {/* Reset Menu - only show when authenticated */}
-            {isAuthenticated && renderResetMenu()}
 
             {/* Profile Avatar - única instância (evita 2 popups ao abrir) */}
             {isAuthenticated && user ? (

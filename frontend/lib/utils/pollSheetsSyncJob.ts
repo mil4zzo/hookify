@@ -204,7 +204,8 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
         onCancel,
         sheetsToastIcon,
         buildSheetsToastContent("processing", {}, `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`),
-        lastPercent
+        lastPercent,
+        true,
       );
     },
 

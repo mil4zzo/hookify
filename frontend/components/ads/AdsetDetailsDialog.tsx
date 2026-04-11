@@ -6,6 +6,7 @@ import { RankingsItem } from "@/lib/api/schemas";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
+import { formatMetricValue, getManagerMetricLabel, getMetricNumericValueOrNull } from "@/lib/metrics";
 
 interface AdsetDetailsDialogProps {
   adsetId: string;
@@ -62,12 +63,11 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
   }, [adsetId, adsetName, details?.adset_name]);
 
   const summary = useMemo(() => {
-    const spend = Number(details?.spend || 0);
-    const impressions = Number(details?.impressions || 0);
-    const clicks = Number(details?.clicks || 0);
-    const conversionsObj = details?.conversions || {};
-    const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-    const cpr = results > 0 ? spend / results : null;
+    const spend = getMetricNumericValueOrNull(details || {}, "spend", { actionType }) ?? 0;
+    const impressions = getMetricNumericValueOrNull(details || {}, "impressions", { actionType }) ?? 0;
+    const clicks = getMetricNumericValueOrNull(details || {}, "clicks", { actionType }) ?? 0;
+    const results = getMetricNumericValueOrNull(details || {}, "results", { actionType }) ?? 0;
+    const cpr = getMetricNumericValueOrNull(details || {}, "cpr", { actionType });
     return { spend, impressions, clicks, results, cpr };
   }, [details, actionType]);
 
@@ -91,8 +91,8 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
         <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <div className="rounded-md border border-border p-3">
-              <div className="text-xs text-muted-foreground">Spend</div>
-              <div className="text-sm font-medium">{formatCurrency(summary.spend)}</div>
+              <div className="text-xs text-muted-foreground">{getManagerMetricLabel("spend")}</div>
+              <div className="text-sm font-medium">{formatMetricValue("spend", summary.spend, { currencyFormatter: formatCurrency })}</div>
             </div>
             <div className="rounded-md border border-border p-3">
               <div className="text-xs text-muted-foreground">Impressões</div>
@@ -103,8 +103,8 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
               <div className="text-sm font-medium">{summary.clicks.toLocaleString("pt-BR")}</div>
             </div>
             <div className="rounded-md border border-border p-3">
-              <div className="text-xs text-muted-foreground">CPR</div>
-              <div className="text-sm font-medium">{summary.cpr != null ? formatCurrency(summary.cpr) : "—"}</div>
+              <div className="text-xs text-muted-foreground">{getManagerMetricLabel("cpr")}</div>
+              <div className="text-sm font-medium">{summary.cpr != null ? formatMetricValue("cpr", summary.cpr, { currencyFormatter: formatCurrency }) : "—"}</div>
             </div>
           </div>
 
@@ -129,13 +129,13 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
                     </tr>
                   ) : (
                     children.map((row: any) => {
-                      const ctr = Number(row.ctr || 0);
+                      const ctr = getMetricNumericValueOrNull(row, "ctr") ?? 0;
                       return (
                         <tr key={row.ad_id} className="border-t border-border">
                           <td className="px-4 py-2">{row.ad_name || row.ad_id}</td>
-                          <td className="px-4 py-2 text-right">{formatCurrency(Number(row.spend || 0))}</td>
-                          <td className="px-4 py-2 text-right">{Number(row.impressions || 0).toLocaleString("pt-BR")}</td>
-                          <td className="px-4 py-2 text-right">{(ctr * 100).toFixed(2)}%</td>
+                          <td className="px-4 py-2 text-right">{formatMetricValue("spend", Number(row.spend || 0), { currencyFormatter: formatCurrency })}</td>
+                          <td className="px-4 py-2 text-right">{formatMetricValue("impressions", Number(row.impressions || 0))}</td>
+                          <td className="px-4 py-2 text-right">{formatMetricValue("ctr", ctr)}</td>
                         </tr>
                       );
                     })

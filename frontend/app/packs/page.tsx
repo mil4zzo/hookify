@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
+import { PacksOverflowMenu } from "@/components/packs/PacksOverflowMenu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Modal } from "@/components/common/Modal";
@@ -1003,13 +1004,13 @@ export default function PacksPage() {
       <PageContainer
         title="Biblioteca"
         description="Gerencie seus Packs de anúncios."
-        variant="standard"
         actions={
-          <PageActions>
+          <PageActions className="sm:flex-nowrap">
             <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
               <IconPlus className="w-4 h-4" />
               Carregar Pack
             </Button>
+            <PacksOverflowMenu />
           </PageActions>
         }
       >

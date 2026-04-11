@@ -1,5 +1,9 @@
 /**
  * Utilitário para avaliar se um anúncio atende aos critérios de validação
+ *
+ * Nesta etapa, o fluxo do Manager consome o registry central apenas para labels,
+ * accessors e agregações de tabela. A avaliação de critérios continua isolada aqui
+ * para evitar uma migração parcial implícita do pipeline de validação.
  */
 
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";

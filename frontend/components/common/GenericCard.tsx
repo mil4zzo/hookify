@@ -1,24 +1,25 @@
 "use client";
 
 import React from "react";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils/cn";
 import { IconArrowBigDownLinesFilled, IconArrowBigUpLinesFilled, IconEye } from "@tabler/icons-react";
 import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { normalizeLeadscoreValues, computeLeadscoreAverage } from "@/lib/utils/mqlMetrics";
-import { isLowerBetterMetric } from "@/lib/constants/metrics";
+import { formatMetricValue, getMetricDisplayLabel, getMetricNumericValue, isLowerBetterMetric, type MetricKey } from "@/lib/metrics";
 import { getTopBadgeStyleConfig, getTopBadgeStyles, getTopBadgeVariantFromRank } from "@/lib/utils/topBadgeStyles";
 import { AdPlayArea } from "@/components/common/AdPlayArea";
 import { StandardCard } from "@/components/common/StandardCard";
+
+type GenericCardMetricKey = Extract<MetricKey, "score" | "spend" | "scroll_stop" | "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "video_watched_p50" | "cpm" | "cpc" | "cpr" | "cpmql" | "connect_rate">;
 
 interface GenericCardProps {
   ad: {
     ad_id?: string | null;
     ad_name?: string | null;
     thumbnail?: string | null;
-    metricValue: number;
+    metricValue: number | null;
     metricFormatted: string;
     [key: string]: any;
   };
@@ -26,7 +27,7 @@ interface GenericCardProps {
   metricLabel: string;
   rank: number;
   /** Identificador da métrica – usado para ajustar badges/cores conforme o print */
-  metricKey: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "cpmql";
+  metricKey: GenericCardMetricKey;
   averageValue?: number | null;
   metricColor?: {
     border: string;
@@ -64,9 +65,10 @@ interface GenericCardProps {
       };
     };
   };
+  selected?: boolean;
 }
 
-export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, metricColor, onClick, topMetrics, actionType, averages }: GenericCardProps) {
+export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, metricColor, onClick, topMetrics, actionType, averages, selected = false }: GenericCardProps) {
   const formatCurrency = useFormatCurrency();
 
   // Estilos padrão para gems (amarelo/dourado sutil)
@@ -81,28 +83,6 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   const gemStyles = metricColor || defaultGemStyles;
 
   // Obter label da métrica baseado no metricKey
-  const metricLabelText = (() => {
-    switch (metricKey) {
-      case "hook":
-        return "Hook";
-      case "website_ctr":
-        return "Link CTR";
-      case "page_conv":
-        return "Page";
-      case "hold_rate":
-        return "Hold Rate";
-      case "cpm":
-        return "CPM";
-      case "cpr":
-        return "CPR";
-      case "cpmql":
-        return "CPMQL";
-      case "ctr":
-      default:
-        return "CTR";
-    }
-  })();
-
   // Função helper para obter estilos do badge baseado no variant (fonte única: topBadgeStyles)
   const getBadgeStyles = (variant: "gold" | "silver" | "copper" | null): React.CSSProperties | null => {
     const config = getTopBadgeStyleConfig(variant);
@@ -112,12 +92,14 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
 
   // Determinar se a métrica é "lower is better" (CPM, CPR) ou "higher is better" (outras)
   const isLowerBetter = isLowerBetterMetric(metricKey);
+  const metricValue = ad.metricValue != null && Number.isFinite(ad.metricValue) ? ad.metricValue : null;
+  const hasMetricValue = metricValue != null;
 
   // Calcular se está acima da média
-  const isAboveAverage = averageValue != null && ad.metricValue > averageValue;
+  const isAboveAverage = averageValue != null && hasMetricValue ? metricValue > averageValue : false;
 
   // Para métricas onde menor é melhor, inverter a lógica: acima da média = ruim (vermelho)
-  const isBetter = isLowerBetter ? averageValue != null && ad.metricValue < averageValue : isAboveAverage;
+  const isBetter = averageValue != null && hasMetricValue ? (isLowerBetter ? metricValue < averageValue : metricValue > averageValue) : false;
 
   // Calcular diff percentual (sempre positivo quando melhor)
   const diffFromAverage = (() => {
@@ -162,47 +144,15 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   // Métricas adicionais para o tooltip e exibição
   const impressions = Number(ad.impressions || 0);
   const spend = Number(ad.spend || 0);
-  const clicks = Number(ad.clicks || 0);
-  const inlineLinkClicks = Number(ad.inline_link_clicks || 0);
   const plays = Number(ad.plays || 0);
-  const lpv = Number(ad.lpv || 0);
-  // CPM: priorizar valor do backend, senão calcular
-  const cpm = typeof ad.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm) ? ad.cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
-  // CTR: priorizar valor do backend, senão calcular
-  const ctr = typeof ad.ctr === "number" && !Number.isNaN(ad.ctr) && isFinite(ad.ctr) ? ad.ctr : impressions > 0 ? clicks / impressions : 0;
-  // Website CTR: priorizar valor do backend, senão calcular
-  const websiteCtr = typeof (ad as any).website_ctr === "number" && !Number.isNaN((ad as any).website_ctr) && isFinite((ad as any).website_ctr) ? (ad as any).website_ctr : impressions > 0 ? inlineLinkClicks / impressions : 0;
-  // Connect Rate: priorizar valor do backend, senão calcular
-  const connectRate = typeof ad.connect_rate === "number" && !Number.isNaN(ad.connect_rate) && isFinite(ad.connect_rate) ? ad.connect_rate : inlineLinkClicks > 0 ? lpv / inlineLinkClicks : 0;
-  // Hook: sempre do backend
-  const hook = Number(ad.hook || 0);
-  // Hold Rate: sempre do backend
-  const holdRate = Number((ad as any).hold_rate || 0);
-
-  // Calcular CPR
-  const cpr = (() => {
-    // Se o ad já tem CPR calculado (vem do ranking), usar esse valor
-    if ("cpr" in ad && typeof (ad as any).cpr === "number" && (ad as any).cpr > 0) {
-      return (ad as any).cpr;
-    }
-    // Caso contrário, calcular baseado no actionType
-    if (!actionType) return 0;
-    const results = Number((ad as any).conversions?.[actionType] || 0);
-    if (!results) return 0;
-    return spend / results;
-  })();
-
-  // Calcular Page Conv
-  const pageConv = (() => {
-    // Se o ad já tem page_conv calculado (vem do ranking), usar esse valor
-    if ("page_conv" in ad && typeof (ad as any).page_conv === "number" && !Number.isNaN((ad as any).page_conv) && isFinite((ad as any).page_conv)) {
-      return (ad as any).page_conv;
-    }
-    // Caso contrário, calcular baseado no actionType
-    if (!lpv || !actionType) return 0;
-    const results = Number((ad as any).conversions?.[actionType] || 0);
-    return results / lpv;
-  })();
+  const cpm = getMetricNumericValue(ad as any, "cpm");
+  const ctr = getMetricNumericValue(ad as any, "ctr");
+  const websiteCtr = getMetricNumericValue(ad as any, "website_ctr");
+  const connectRate = getMetricNumericValue(ad as any, "connect_rate");
+  const hook = getMetricNumericValue(ad as any, "hook");
+  const holdRate = getMetricNumericValue(ad as any, "hold_rate");
+  const cpr = getMetricNumericValue(ad as any, "cpr", { actionType });
+  const pageConv = getMetricNumericValue(ad as any, "page_conv", { actionType });
 
   // Função helper para formatar métricas
   const formatPct = (value: number): string => {
@@ -238,89 +188,81 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   const leadscoreValues = normalizeLeadscoreValues((ad as any).leadscore_values);
   const leadscoreAvg = computeLeadscoreAverage(leadscoreValues);
   const mqlCount = Number((ad as any).mql_count || 0);
-  const cpmql = mqlCount > 0 ? spend / mqlCount : Number((ad as any).cpmql || 0);
+  const cpmql = getMetricNumericValue(ad as any, "cpmql");
 
   // Função helper para obter o rank de uma métrica específica
-  const getMetricRank = (label: string): number | null => {
-    switch (label) {
-      case "Hook":
-        return topMetrics?.hookRank ?? null;
-      case "CTR (website)":
-        return topMetrics?.websiteCtrRank ?? null;
-      case "CTR":
-        return topMetrics?.ctrRank ?? null;
-      case "Page":
-        return topMetrics?.pageConvRank ?? null;
-      case "Hold Rate":
-        return topMetrics?.holdRateRank ?? null;
-      case "CPR":
-        return topMetrics?.cprRank ?? null;
-      case "CPMQL":
-        return topMetrics?.cpmqlRank ?? null;
-      default:
-        return null;
-    }
-  };
-
   // Definir todas as métricas na ordem solicitada: CPR, Hook, Hold Rate, CTR (website), CTR, Connect, Page, CPM, CPMQL
   // Para a métrica destacada, usar o valor já formatado que vem do ranking
   const metricsList = [
-    { label: "CPR", value: cpr, formatted: cpr > 0 ? formatCurrency(cpr) : "—", isHighlighted: false },
+    ...(metricKey === "score"
+      ? [
+          {
+            label: metricLabel,
+            value: Number(ad.metricValue || 0),
+            formatted: ad.metricFormatted,
+            isHighlighted: true,
+          },
+        ]
+      : []),
+    { label: getMetricDisplayLabel("cpr"), value: cpr, formatted: cpr > 0 ? formatMetricValue("cpr", cpr, { currencyFormatter: formatCurrency }) : "—", isHighlighted: false },
     {
-      label: "Hook",
+      label: getMetricDisplayLabel("hook"),
       value: hook,
       formatted: metricKey === "hook" ? ad.metricFormatted : formatPct(hook),
       isHighlighted: metricKey === "hook",
     },
     {
-      label: "Hold Rate",
+      label: getMetricDisplayLabel("hold_rate"),
       value: holdRate,
       formatted: metricKey === "hold_rate" ? ad.metricFormatted : formatPct(holdRate),
       isHighlighted: metricKey === "hold_rate",
     },
     {
-      label: "Link CTR",
+      label: getMetricDisplayLabel("website_ctr"),
       value: websiteCtr,
       formatted: metricKey === "website_ctr" ? ad.metricFormatted : formatPct(websiteCtr),
       isHighlighted: metricKey === "website_ctr",
     },
-    { label: "CTR", value: ctr, formatted: metricKey === "ctr" ? ad.metricFormatted : formatPct(ctr), isHighlighted: metricKey === "ctr" },
-    { label: "Connect", value: connectRate, formatted: formatPct(connectRate), isHighlighted: false },
+    { label: getMetricDisplayLabel("ctr"), value: ctr, formatted: metricKey === "ctr" ? ad.metricFormatted : formatPct(ctr), isHighlighted: metricKey === "ctr" },
+    { label: getMetricDisplayLabel("connect_rate"), value: connectRate, formatted: formatPct(connectRate), isHighlighted: false },
     {
-      label: "Page",
+      label: getMetricDisplayLabel("page_conv", { preferShortLabel: true }),
       value: pageConv,
       formatted: metricKey === "page_conv" ? ad.metricFormatted : formatPct(pageConv),
       isHighlighted: metricKey === "page_conv",
     },
     {
-      label: "CPM",
+      label: getMetricDisplayLabel("cpm"),
       value: cpm,
-      formatted: metricKey === "cpm" ? ad.metricFormatted : formatCurrency(cpm),
+      formatted: metricKey === "cpm" ? ad.metricFormatted : formatMetricValue("cpm", cpm, { currencyFormatter: formatCurrency }),
       isHighlighted: metricKey === "cpm",
     },
     {
-      label: "CPR",
+      label: getMetricDisplayLabel("cpr"),
       value: cpr,
-      formatted: metricKey === "cpr" ? ad.metricFormatted : formatCurrency(cpr),
+      formatted: metricKey === "cpr" ? ad.metricFormatted : formatMetricValue("cpr", cpr, { currencyFormatter: formatCurrency }),
       isHighlighted: metricKey === "cpr",
     },
     {
-      label: "CPMQL",
+      label: getMetricDisplayLabel("cpmql"),
       value: cpmql,
-      formatted: metricKey === "cpmql" ? ad.metricFormatted : formatCurrency(cpmql),
+      formatted: metricKey === "cpmql" ? ad.metricFormatted : formatMetricValue("cpmql", cpmql, { currencyFormatter: formatCurrency }),
       isHighlighted: metricKey === "cpmql",
     },
   ];
 
   // Métrica destacada (para exibir no topo)
-  const highlightedMetric = metricsList.find((m) => m.isHighlighted);
+  const highlightedMetric = {
+    label: metricLabel,
+    formatted: ad.metricFormatted,
+  };
 
   // No modo expandido, mostrar todas as métricas na ordem: CPR, Hook, CTR (website), CTR, Connect, Page
   // A métrica destacada aparece tanto no topo quanto na lista completa
   const allMetrics = metricsList;
 
   // Determinar opacidade: 35% se abaixo da média, 100% se acima da média
-  const isBelowAverage = averageValue != null && ad.metricValue <= averageValue;
+  const isBelowAverage = averageValue != null && hasMetricValue ? metricValue <= averageValue : false;
 
   // Determinar variant do badge para o rank (1=gold, 2=silver, 3=copper)
   const rankBadgeVariant = getTopBadgeVariantFromRank(rank);
@@ -337,7 +279,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
       <Tooltip>
         <TooltipTrigger asChild>
           {/* Card */}
-          <StandardCard variant="default" padding="md" interactive={true} onClick={handleCardClick} className="group relative opacity-100">
+          <StandardCard variant="default" padding="md" interactive={true} onClick={handleCardClick} className={cn("group relative w-full min-w-0 max-w-full overflow-hidden opacity-100", selected && "border-primary bg-card-hover ring-2 ring-primary/20")}>
             <div className="relative flex items-stretch gap-3 sm:gap-4">
               {/* Thumbnail com botão de play centralizado */}
               <AdPlayArea

@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Header, Body, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Header, Body, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
-from typing import Dict, Any
+from typing import Dict, Any, List, Optional, Set
 from datetime import datetime, timezone, timedelta, date
 import logging
 import requests
@@ -8,6 +8,8 @@ import json
 import asyncio
 import threading
 import uuid
+import tempfile
+import os
 from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
 from app.core.supabase_client import get_supabase_for_user
@@ -22,7 +24,8 @@ from app.services.facebook_connections_repo import (
 )
 from app.core.auth import get_current_user
 from pydantic import BaseModel
-from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest
+from pydantic import ValidationError
+from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
 from app.core.config import (
     FACEBOOK_CLIENT_ID,
     FACEBOOK_CLIENT_SECRET,
@@ -46,10 +49,249 @@ from app.services.job_tracker import (
 from app.services.meta_job_client import get_meta_job_client
 from app.services.job_processor import process_job_async
 from app.services.background_tasks import get_background_status
+from app.services.bulk_ad_service import BulkAdJobContext, BulkAdProcessor
+from app.services.campaign_bulk_service import CampaignBulkProcessor
+from app.services.meta_campaign_clone import (
+    merge_page_id_from_promoted_object,
+    object_story_actor_from_creative,
+)
+from app.services.creative_template import (
+    CreativeTemplateError,
+    get_template_media_type,
+    parse_creative_template,
+    validate_template_for_bulk_clone,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/facebook", tags=["facebook"])
+ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png"}
+ALLOWED_VIDEO_CONTENT_TYPES = {"video/mp4", "video/quicktime"}
+LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024
+
+
+def _normalize_account_id(account_id: str) -> str:
+    value = str(account_id or "").strip()
+    return value[4:] if value.startswith("act_") else value
+
+
+def _meta_act_id(account_id: str) -> str:
+    normalized = _normalize_account_id(account_id)
+    return f"act_{normalized}"
+
+
+def _validation_error(message: str, *, field: str | None = None) -> HTTPException:
+    detail = {
+        "error": "validation_error",
+        "message": message,
+        "details": {"errors": []},
+    }
+    if field:
+        detail["details"]["errors"].append({"field": field, "message": message})
+    return HTTPException(status_code=422, detail=detail)
+
+
+def _build_bulk_summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
+    summary = {"total": len(items), "success": 0, "error": 0, "pending": 0}
+    for item in items:
+        status = str(item.get("status") or "")
+        if status == "success":
+            summary["success"] += 1
+        elif status == "error":
+            summary["error"] += 1
+        else:
+            summary["pending"] += 1
+    return summary
+
+
+def _cleanup_uploaded_temp_files(file_metas: List[Dict[str, Any]]) -> None:
+    for meta in file_metas:
+        temp_path = meta.get("temp_path")
+        if not temp_path:
+            continue
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except Exception:
+            logger.warning("[BULK_ADS] Falha ao limpar arquivo temporario %s", temp_path, exc_info=True)
+
+
+def _item_file_indexes(item: BulkAdItem) -> Set[int]:
+    if item.slot_files:
+        return {int(file_index) for file_index in item.slot_files.values()}
+    if item.file_index is None:
+        return set()
+    return {int(item.file_index)}
+
+
+def _primary_item_file_meta(item: BulkAdItem, file_metas: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if item.slot_files:
+        sorted_slots = sorted(item.slot_files.items(), key=lambda entry: entry[0])
+        return file_metas[int(sorted_slots[0][1])]
+    return file_metas[int(item.file_index or 0)]
+
+
+def _validate_bulk_items_against_template(
+    *,
+    parsed_config: BulkAdConfig,
+    creative_template,
+    file_metas: List[Dict[str, Any]],
+) -> None:
+    slot_map = {slot.slot_key: slot for slot in creative_template.media_slots}
+    required_slot_keys = {slot.slot_key for slot in creative_template.media_slots if slot.required}
+    is_multi_slot = len(creative_template.media_slots) > 1
+
+    for item in parsed_config.items:
+        if is_multi_slot:
+            if not item.slot_files:
+                raise _validation_error(
+                    "Templates com multiplos slots exigem slot_files em cada item",
+                    field="config.items",
+                )
+            provided_slot_keys = set(item.slot_files.keys())
+            missing_slots = sorted(required_slot_keys - provided_slot_keys)
+            if missing_slots:
+                raise _validation_error(
+                    f"Bundle incompleto. Slots obrigatorios ausentes: {', '.join(missing_slots)}",
+                    field="config.items",
+                )
+            unknown_slots = sorted(provided_slot_keys - set(slot_map.keys()))
+            if unknown_slots:
+                raise _validation_error(
+                    f"slot_files contem slots invalidos: {', '.join(unknown_slots)}",
+                    field="config.items",
+                )
+            for slot_key, file_index in item.slot_files.items():
+                slot = slot_map[slot_key]
+                file_meta = file_metas[int(file_index)]
+                if file_meta["media_type"] != slot.media_type:
+                    raise _validation_error(
+                        f"O slot {slot_key} aceita apenas midia do tipo {slot.media_type}",
+                        field=f"files[{file_index}]",
+                    )
+        else:
+            if item.file_index is None:
+                raise _validation_error(
+                    "Templates simples exigem file_index em cada item",
+                    field="config.items",
+                )
+            file_meta = file_metas[int(item.file_index)]
+            if creative_template.media_kind and file_meta["media_type"] != creative_template.media_kind:
+                raise _validation_error(
+                    f"O template selecionado aceita apenas midia do tipo {creative_template.media_kind}",
+                    field=f"files[{item.file_index}]",
+                )
+
+def _raise_meta_error(result: Dict[str, Any], *, user: Dict[str, Any], default_not_found_error: str) -> None:
+    if result.get("status") == "auth_error":
+        mark_connection_as_expired(user["token"], user["user_id"])
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+
+    status = result.get("status")
+    if status == "http_error":
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "message": result.get("message") or "Falha ao consultar a Meta API",
+                "details": result.get("error"),
+            },
+        )
+
+    raise HTTPException(
+        status_code=404 if status == "not_found" else 422,
+        detail={
+            "error": default_not_found_error,
+            "message": result.get("message") or "Creative nao encontrado",
+            "details": result.get("error"),
+        },
+    )
+
+
+def _load_creative_template_or_raise(
+    *,
+    api: GraphAPI,
+    user: Dict[str, Any],
+    ad_id: str,
+    require_supported: bool,
+) -> tuple[Dict[str, Any], Any]:
+    result = api.get_ad_creative_details(ad_id)
+    if result.get("status") != "success":
+        _raise_meta_error(result, user=user, default_not_found_error="creative_not_found")
+
+    data = result.get("data") or {}
+    template = parse_creative_template(data)
+    if require_supported:
+        try:
+            validate_template_for_bulk_clone(template)
+        except CreativeTemplateError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error": "unsupported_template",
+                    "message": exc.message,
+                    "details": {
+                        "family": template.family,
+                        "warnings": template.capabilities.warnings,
+                    },
+                },
+            ) from exc
+    return data, template
+
+
+def _build_ads_tree(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    campaigns: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        campaign_id = str(row.get("campaign_id") or "")
+        adset_id = str(row.get("adset_id") or "")
+        ad_id = str(row.get("ad_id") or "")
+        if not campaign_id or not adset_id or not ad_id:
+            continue
+
+        campaign = campaigns.setdefault(
+            campaign_id,
+            {
+                "campaign_id": campaign_id,
+                "campaign_name": row.get("campaign_name"),
+                "status": row.get("effective_status"),
+                "adsets": {},
+            },
+        )
+        adset = campaign["adsets"].setdefault(
+            adset_id,
+            {
+                "adset_id": adset_id,
+                "adset_name": row.get("adset_name"),
+                "status": row.get("effective_status"),
+                "ads": [],
+            },
+        )
+        adset["ads"].append(
+            {
+                "ad_id": ad_id,
+                "ad_name": row.get("ad_name"),
+                "account_id": row.get("account_id"),
+                "status": row.get("effective_status"),
+                "thumbnail_url": row.get("thumbnail_url"),
+            }
+        )
+
+    return [
+        {
+            "campaign_id": campaign["campaign_id"],
+            "campaign_name": campaign["campaign_name"],
+            "status": campaign["status"],
+            "adsets": list(campaign["adsets"].values()),
+        }
+        for campaign in campaigns.values()
+    ]
 @router.get("/auth/url")
 def get_auth_url(redirect_uri: str = Query(..., description="Frontend OAuth redirect URI")):
     """Generate Facebook OAuth authorization URL."""
@@ -429,6 +671,788 @@ def update_campaign_status(
 
     _update_local_effective_status(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id, new_status=request.status)
     return {"success": True, "entity_id": campaign_id, "entity_type": "campaign", "status": request.status}
+
+
+@router.get("/ads/tree")
+def get_ads_tree(user: Dict[str, Any] = Depends(get_current_user)):
+    try:
+        sb = get_supabase_for_user(user["token"])
+        _SELECT = "account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,effective_status,thumbnail_url"
+        _PAGE_SIZE = 1000
+        all_rows: List[Dict[str, Any]] = []
+        offset = 0
+        while True:
+            page = (
+                sb.table("ads")
+                .select(_SELECT)
+                .eq("user_id", user["user_id"])
+                .order("campaign_name")
+                .order("adset_name")
+                .order("ad_name")
+                .range(offset, offset + _PAGE_SIZE - 1)
+                .execute()
+            )
+            page_data = page.data or []
+            all_rows.extend(page_data)
+            if len(page_data) < _PAGE_SIZE:
+                break
+            offset += _PAGE_SIZE
+        logger.info("[ads/tree] %d linhas carregadas para user %s", len(all_rows), user["user_id"][:8])
+        return _build_ads_tree(all_rows)
+    except Exception as e:
+        logger.exception("Error in /ads/tree endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/ads/{ad_id}/creative")
+def get_ad_creative(
+    ad_id: str,
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    _assert_entity_belongs_to_user(
+        user_jwt=user["token"],
+        user_id=user["user_id"],
+        entity_type="ad",
+        entity_id=ad_id,
+    )
+    data, template = _load_creative_template_or_raise(
+        api=api,
+        user=user,
+        ad_id=ad_id,
+        require_supported=False,
+    )
+    return template.to_preview_response(data.get("creative") or {})
+
+
+@router.post("/bulk-ads", status_code=202)
+async def start_bulk_ads(
+    files: List[UploadFile] = File(...),
+    config: str = Form(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    try:
+        parsed_config = BulkAdConfig.model_validate(json.loads(config))
+    except ValidationError as exc:
+        raise _validation_error("Configuracao invalida", field="config") from exc
+    except json.JSONDecodeError as exc:
+        raise _validation_error("config precisa ser um JSON valido", field="config") from exc
+
+    if not files:
+        raise _validation_error("Envie pelo menos um arquivo", field="files")
+
+    sb = get_supabase_for_user(user["token"])
+    _assert_entity_belongs_to_user(
+        user_jwt=user["token"],
+        user_id=user["user_id"],
+        entity_type="ad",
+        entity_id=parsed_config.template_ad_id,
+    )
+
+    if not supabase_repo.validate_adsets_ownership(
+        sb,
+        user["user_id"],
+        [item.adset_id for item in parsed_config.items],
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "adset_not_found", "message": "Um ou mais adsets nao pertencem ao usuario"},
+        )
+
+    available_accounts = {
+        _normalize_account_id(str(account.get("id") or ""))
+        for account in supabase_repo.list_ad_accounts(user["token"], user["user_id"])
+    }
+    if _normalize_account_id(parsed_config.account_id) not in available_accounts:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "account_forbidden", "message": "account_id nao pertence ao usuario"},
+        )
+
+    referenced_indexes = {
+        file_index
+        for item in parsed_config.items
+        for file_index in _item_file_indexes(item)
+    }
+    if any(file_index >= len(files) for file_index in referenced_indexes):
+        raise _validation_error(
+            "Um ou mais arquivos referenciados nao foram enviados",
+            field="config.items",
+        )
+
+    files_data: List[Dict[str, Any]] = []
+    file_metas: List[Dict[str, Any]] = []
+    try:
+        for index, upload in enumerate(files):
+            content_type = str(upload.content_type or "").lower()
+            if content_type not in ALLOWED_IMAGE_CONTENT_TYPES | ALLOWED_VIDEO_CONTENT_TYPES:
+                raise _validation_error(
+                    "Formato nao suportado",
+                    field=f"files[{index}]",
+                )
+
+            upload.file.seek(0, os.SEEK_END)
+            file_size = upload.file.tell()
+            upload.file.seek(0)
+            if content_type in ALLOWED_IMAGE_CONTENT_TYPES and file_size > 30 * 1024 * 1024:
+                raise _validation_error("Imagem excede o limite de 30MB", field=f"files[{index}]")
+            if content_type in ALLOWED_VIDEO_CONTENT_TYPES and file_size > 4 * 1024 * 1024 * 1024:
+                raise _validation_error("Video excede o limite de 4GB", field=f"files[{index}]")
+
+            if file_size > LARGE_FILE_THRESHOLD_BYTES:
+                temp_file = tempfile.NamedTemporaryFile(delete=False)
+                try:
+                    while True:
+                        chunk = upload.file.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        temp_file.write(chunk)
+                    temp_file.flush()
+                finally:
+                    temp_file.close()
+                files_data.append({"temp_path": temp_file.name})
+                temp_path = temp_file.name
+            else:
+                content = await upload.read()
+                files_data.append({"content": content})
+                temp_path = None
+
+            file_metas.append(
+                {
+                    "file_index": index,
+                    "file_name": upload.filename or f"arquivo-{index}",
+                    "content_type": content_type,
+                    "media_type": get_template_media_type(content_type),
+                    "size": file_size,
+                    "temp_path": temp_path,
+                }
+            )
+
+        template_data, creative_template = _load_creative_template_or_raise(
+            api=api,
+            user=user,
+            ad_id=parsed_config.template_ad_id,
+            require_supported=True,
+        )
+        _validate_bulk_items_against_template(
+            parsed_config=parsed_config,
+            creative_template=creative_template,
+            file_metas=file_metas,
+        )
+    except Exception:
+        _cleanup_uploaded_temp_files(file_metas)
+        raise
+
+    job_id = str(uuid.uuid4())
+    tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
+    try:
+        tracker.create_job(
+            job_id=job_id,
+            status="processing",
+            message=f"Criacao de {len(parsed_config.items)} anuncios iniciada",
+            payload={
+                "type": "bulk_ads",
+                "template_ad_id": parsed_config.template_ad_id,
+                "account_id": _normalize_account_id(parsed_config.account_id),
+                "status": parsed_config.status,
+                "media_refs": {},
+                "template_creative_data": template_data,
+                "creative_template": creative_template.to_payload(),
+                "creative_family": creative_template.family,
+                "media_slots": [slot.to_payload() for slot in creative_template.media_slots],
+                "bundle_strategy": parsed_config.bundle_strategy or ("explicit_bundles" if len(creative_template.media_slots) > 1 else "legacy_single_file"),
+                "template_validation": creative_template.capabilities.to_payload(),
+            },
+        )
+
+        supabase_repo.insert_bulk_ad_items(
+            tracker.sb,
+            [
+                {
+                    "job_id": job_id,
+                    "user_id": user["user_id"],
+                    "file_name": _primary_item_file_meta(item, file_metas)["file_name"],
+                    "file_index": _primary_item_file_meta(item, file_metas)["file_index"],
+                    "bundle_id": item.bundle_id,
+                    "bundle_name": item.bundle_name,
+                    "slot_files": item.slot_files,
+                    "is_multi_slot": bool(item.slot_files),
+                    "adset_id": item.adset_id,
+                    "adset_name": item.adset_name,
+                    "ad_name": item.ad_name,
+                    "status": "pending",
+                }
+                for item in parsed_config.items
+            ],
+        )
+
+        def run_bulk_job() -> None:
+            try:
+                processor = BulkAdProcessor(
+                    BulkAdJobContext(
+                        user_jwt=user["token"],
+                        user_id=user["user_id"],
+                        access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                        job_id=job_id,
+                        account_id=_normalize_account_id(parsed_config.account_id),
+                    )
+                )
+                processor.process(files_data, file_metas)
+            except Exception as exc:
+                _cleanup_uploaded_temp_files(file_metas)
+                logger.exception("[BULK_ADS] Falha ao inicializar job %s", job_id)
+                tracker.mark_failed(job_id, str(exc), error_code="bulk_ads_bootstrap_failed")
+
+        threading.Thread(target=run_bulk_job, daemon=True).start()
+    except Exception:
+        _cleanup_uploaded_temp_files(file_metas)
+        raise
+
+    return {
+        "job_id": job_id,
+        "status": "accepted",
+        "message": f"Criacao de {len(parsed_config.items)} anuncios iniciada",
+        "total_items": len(parsed_config.items),
+    }
+
+
+@router.get("/bulk-ads/{job_id}")
+def get_bulk_ads_progress(
+    job_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
+    job = tracker.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail={"error": "job_not_found", "message": "Job nao encontrado"})
+
+    items = supabase_repo.fetch_bulk_ad_items_for_job(tracker.sb, job_id)
+    progress = tracker.get_public_progress(job_id)
+    summary = _build_bulk_summary(items)
+
+    return {
+        "job_id": job_id,
+        "status": progress.get("status"),
+        "progress": progress.get("progress", 0),
+        "message": progress.get("message", ""),
+        "items": [
+            {
+                "id": item.get("id"),
+                "file_name": item.get("file_name"),
+                "file_index": item.get("file_index"),
+                "bundle_id": item.get("bundle_id"),
+                "bundle_name": item.get("bundle_name"),
+                "slot_files": item.get("slot_files"),
+                "is_multi_slot": item.get("is_multi_slot"),
+                "adset_id": item.get("adset_id"),
+                "adset_name": item.get("adset_name"),
+                "ad_name": item.get("ad_name"),
+                "status": item.get("status"),
+                "meta_ad_id": item.get("meta_ad_id"),
+                "meta_creative_id": item.get("meta_creative_id"),
+                "error_message": item.get("error_message"),
+                "error_code": item.get("error_code"),
+            }
+            for item in items
+        ],
+        "summary": summary,
+    }
+
+
+@router.post("/bulk-ads/{job_id}/retry", status_code=202)
+def retry_bulk_ads(
+    job_id: str,
+    request: BulkAdRetryRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    if request.job_id != job_id:
+        raise _validation_error("job_id do body deve coincidir com o path", field="job_id")
+
+    tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
+    original_job = tracker.get_job(job_id)
+    if not original_job:
+        raise HTTPException(status_code=404, detail={"error": "job_not_found", "message": "Job nao encontrado"})
+
+    job_payload = original_job.get("payload") or {}
+    active_retry = (
+        tracker.sb.table("jobs")
+        .select("id,status")
+        .eq("user_id", user["user_id"])
+        .contains("payload", {"retry_of_job_id": job_id, "type": "bulk_ads_retry"})
+        .in_("status", ["processing"])
+        .limit(1)
+        .execute()
+    )
+    if active_retry.data:
+        existing = active_retry.data[0]
+        items = supabase_repo.fetch_bulk_ad_items_for_job(tracker.sb, existing["id"])
+        return {
+            "job_id": existing["id"],
+            "status": "accepted",
+            "message": "Retry ja estava em andamento",
+            "total_items": len(items),
+        }
+
+    original_items = {
+        str(item["id"]): item
+        for item in supabase_repo.fetch_bulk_ad_items_for_job(tracker.sb, job_id)
+    }
+    retry_items = []
+    for item_id in request.item_ids:
+        item = original_items.get(item_id)
+        if item and item.get("status") == "error":
+            retry_items.append(item)
+
+    if not retry_items:
+        raise _validation_error("Nenhum item falho valido foi selecionado", field="item_ids")
+
+    cached_media_refs = (job_payload.get("media_refs") or {})
+    required_file_indexes: Set[str] = set()
+    for item in retry_items:
+        slot_files = item.get("slot_files") or {}
+        if slot_files:
+            required_file_indexes.update(str(file_index) for file_index in slot_files.values())
+        else:
+            required_file_indexes.add(str(item["file_index"]))
+    missing_cached_refs = [file_index for file_index in required_file_indexes if file_index not in cached_media_refs]
+    if missing_cached_refs:
+        raise _validation_error(
+            "Nao foi possivel reutilizar a midia destes itens. Inicie um novo upload.",
+            field="item_ids",
+        )
+    retry_job_id = str(uuid.uuid4())
+    tracker.create_job(
+        job_id=retry_job_id,
+        status="processing",
+        message=f"Retry de {len(retry_items)} anuncio(s) iniciado",
+        payload={
+            **job_payload,
+            "type": "bulk_ads_retry",
+            "retry_of_job_id": job_id,
+        },
+    )
+    supabase_repo.insert_bulk_ad_items(
+        tracker.sb,
+        [
+            {
+                "job_id": retry_job_id,
+                "user_id": user["user_id"],
+                "file_name": item["file_name"],
+                "file_index": item["file_index"],
+                "bundle_id": item.get("bundle_id"),
+                "bundle_name": item.get("bundle_name"),
+                "slot_files": item.get("slot_files"),
+                "is_multi_slot": item.get("is_multi_slot") or False,
+                "adset_id": item["adset_id"],
+                "adset_name": item.get("adset_name"),
+                "ad_name": item["ad_name"],
+                "status": "pending",
+            }
+            for item in retry_items
+        ],
+    )
+
+    retry_file_metas = []
+    seen_retry_indexes: Set[int] = set()
+    for file_index in sorted(int(value) for value in required_file_indexes):
+        if file_index in seen_retry_indexes:
+            continue
+        seen_retry_indexes.add(file_index)
+        cached_ref = cached_media_refs.get(str(file_index)) or {}
+        media_type = str(cached_ref.get("media_type") or "image")
+        retry_file_metas.append(
+            {
+                "file_index": file_index,
+                "file_name": str(cached_ref.get("file_name") or f"arquivo-{file_index}"),
+                "content_type": "application/octet-stream",
+                "media_type": media_type,
+                "temp_path": None,
+            }
+        )
+
+    def run_retry_job() -> None:
+        try:
+            processor = BulkAdProcessor(
+                BulkAdJobContext(
+                    user_jwt=user["token"],
+                    user_id=user["user_id"],
+                    access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                    job_id=retry_job_id,
+                    account_id=_normalize_account_id(str(job_payload.get("account_id") or "")),
+                )
+            )
+            processor.process([], retry_file_metas)
+        except Exception as exc:
+            logger.exception("[BULK_ADS] Falha ao inicializar retry %s", retry_job_id)
+            tracker.mark_failed(retry_job_id, str(exc), error_code="bulk_ads_retry_bootstrap_failed")
+
+    threading.Thread(target=run_retry_job, daemon=True).start()
+
+    return {
+        "job_id": retry_job_id,
+        "status": "accepted",
+        "message": f"Retry de {len(retry_items)} anuncio(s) iniciado",
+        "total_items": len(retry_items),
+    }
+
+
+@router.get("/campaign-template/{ad_id}")
+def get_campaign_template(
+    ad_id: str,
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Retorna a estrutura completa de campanha a partir de um anuncio modelo."""
+    _assert_entity_belongs_to_user(
+        user_jwt=user["token"],
+        user_id=user["user_id"],
+        entity_type="ad",
+        entity_id=ad_id,
+    )
+
+    # Buscar campaign_id e adset_id do anuncio
+    parent_result = api.get_ad_parent_info(ad_id)
+    if parent_result.get("status") != "success":
+        _raise_meta_error(parent_result, user=user, default_not_found_error="ad_not_found")
+    parent_data = parent_result.get("data") or {}
+    campaign_id = str(parent_data.get("campaign_id") or "")
+    ad_name = str(parent_data.get("name") or "")
+    if not campaign_id:
+        raise HTTPException(status_code=404, detail={"error": "campaign_not_found", "message": "Campanha nao encontrada para este anuncio"})
+
+    # Buscar config da campanha
+    campaign_result = api.get_campaign_config(campaign_id)
+    if campaign_result.get("status") != "success":
+        logger.error("[campaign-template] get_campaign_config failed: %s", campaign_result)
+        _raise_meta_error(campaign_result, user=user, default_not_found_error="campaign_not_found")
+    campaign_data = campaign_result.get("data") or {}
+
+    # Buscar adsets da campanha
+    adsets_result = api.get_adsets_for_campaign(campaign_id)
+    if adsets_result.get("status") != "success":
+        logger.error("[campaign-template] get_adsets_for_campaign failed: %s", adsets_result)
+        _raise_meta_error(adsets_result, user=user, default_not_found_error="adsets_not_found")
+    adsets_raw = (adsets_result.get("data") or {}).get("data") or []
+
+    adsets = [
+        CampaignAdsetConfig(
+            id=str(a.get("id") or ""),
+            name=str(a.get("name") or ""),
+            status=a.get("status"),
+            targeting=a.get("targeting"),
+            optimization_goal=a.get("optimization_goal"),
+            billing_event=a.get("billing_event"),
+            bid_amount=a.get("bid_amount"),
+            daily_budget=int(a["daily_budget"]) if a.get("daily_budget") else None,
+            lifetime_budget=int(a["lifetime_budget"]) if a.get("lifetime_budget") else None,
+            promoted_object=a.get("promoted_object"),
+            attribution_spec=a.get("attribution_spec"),
+            destination_type=a.get("destination_type"),
+            pacing_type=a.get("pacing_type"),
+        )
+        for a in adsets_raw
+        if a.get("id")
+    ]
+
+    return CampaignTemplateResponse(
+        campaign_id=campaign_id,
+        campaign_name=str(campaign_data.get("name") or ""),
+        campaign_objective=campaign_data.get("objective"),
+        campaign_bid_strategy=campaign_data.get("bid_strategy"),
+        campaign_daily_budget=int(campaign_data["daily_budget"]) if campaign_data.get("daily_budget") else None,
+        campaign_lifetime_budget=int(campaign_data["lifetime_budget"]) if campaign_data.get("lifetime_budget") else None,
+        campaign_budget_optimization=None,
+        adsets=adsets,
+        ad_id=ad_id,
+        ad_name=ad_name,
+    )
+
+
+@router.post("/campaign-bulk", status_code=202)
+async def start_campaign_bulk(
+    files: List[UploadFile] = File(...),
+    config: str = Form(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Inicia criacao em massa de campanhas duplicando estrutura de um modelo."""
+    try:
+        parsed_config = CampaignBulkConfig.model_validate(json.loads(config))
+    except ValidationError as exc:
+        raise _validation_error("Configuracao invalida", field="config") from exc
+    except json.JSONDecodeError as exc:
+        raise _validation_error("config precisa ser um JSON valido", field="config") from exc
+
+    if not files:
+        raise _validation_error("Envie pelo menos um arquivo", field="files")
+
+    _assert_entity_belongs_to_user(
+        user_jwt=user["token"],
+        user_id=user["user_id"],
+        entity_type="ad",
+        entity_id=parsed_config.template_ad_id,
+    )
+
+    available_accounts = {
+        _normalize_account_id(str(account.get("id") or ""))
+        for account in supabase_repo.list_ad_accounts(user["token"], user["user_id"])
+    }
+    if _normalize_account_id(parsed_config.account_id) not in available_accounts:
+        raise HTTPException(
+            status_code=403,
+            detail={"error": "account_forbidden", "message": "account_id nao pertence ao usuario"},
+        )
+
+    # Validar file indexes referenciados
+    referenced_indexes: Set[int] = set()
+    for item in parsed_config.items:
+        if item.feed_file_index is not None:
+            referenced_indexes.add(item.feed_file_index)
+        if item.story_file_index is not None:
+            referenced_indexes.add(item.story_file_index)
+    if any(file_index >= len(files) for file_index in referenced_indexes):
+        raise _validation_error("Um ou mais arquivos referenciados nao foram enviados", field="config.items")
+
+    # Ler arquivos
+    files_data: List[Dict[str, Any]] = []
+    file_metas: List[Dict[str, Any]] = []
+    try:
+        for index, upload in enumerate(files):
+            content_type = str(upload.content_type or "").lower()
+            if content_type not in ALLOWED_IMAGE_CONTENT_TYPES | ALLOWED_VIDEO_CONTENT_TYPES:
+                raise _validation_error("Formato nao suportado", field=f"files[{index}]")
+
+            upload.file.seek(0, os.SEEK_END)
+            file_size = upload.file.tell()
+            upload.file.seek(0)
+            if content_type in ALLOWED_IMAGE_CONTENT_TYPES and file_size > 30 * 1024 * 1024:
+                raise _validation_error("Imagem excede o limite de 30MB", field=f"files[{index}]")
+            if content_type in ALLOWED_VIDEO_CONTENT_TYPES and file_size > 4 * 1024 * 1024 * 1024:
+                raise _validation_error("Video excede o limite de 4GB", field=f"files[{index}]")
+
+            if file_size > LARGE_FILE_THRESHOLD_BYTES:
+                temp_file = tempfile.NamedTemporaryFile(delete=False)
+                try:
+                    while True:
+                        chunk = upload.file.read(1024 * 1024)
+                        if not chunk:
+                            break
+                        temp_file.write(chunk)
+                    temp_file.flush()
+                finally:
+                    temp_file.close()
+                files_data.append({"temp_path": temp_file.name})
+                temp_path = temp_file.name
+            else:
+                content = await upload.read()
+                files_data.append({"content": content})
+                temp_path = None
+
+            file_metas.append({
+                "file_index": index,
+                "file_name": upload.filename or f"arquivo-{index}",
+                "content_type": content_type,
+                "media_type": get_template_media_type(content_type),
+                "size": file_size,
+                "temp_path": temp_path,
+            })
+    except Exception:
+        _cleanup_uploaded_temp_files(file_metas)
+        raise
+
+    # Carregar template da campanha
+    parent_result = api.get_ad_parent_info(parsed_config.template_ad_id)
+    if parent_result.get("status") != "success":
+        _cleanup_uploaded_temp_files(file_metas)
+        _raise_meta_error(parent_result, user=user, default_not_found_error="ad_not_found")
+    parent_data = parent_result.get("data") or {}
+    campaign_id = str(parent_data.get("campaign_id") or "")
+
+    campaign_result = api.get_campaign_config(campaign_id)
+    if campaign_result.get("status") != "success":
+        _cleanup_uploaded_temp_files(file_metas)
+        _raise_meta_error(campaign_result, user=user, default_not_found_error="campaign_not_found")
+    campaign_config = campaign_result.get("data") or {}
+
+    adsets_result = api.get_adsets_for_campaign(campaign_id)
+    if adsets_result.get("status") != "success":
+        _cleanup_uploaded_temp_files(file_metas)
+        _raise_meta_error(adsets_result, user=user, default_not_found_error="adsets_not_found")
+    adsets_raw = (adsets_result.get("data") or {}).get("data") or []
+
+    try:
+        creative_data, creative_template = _load_creative_template_or_raise(
+            api=api,
+            user=user,
+            ad_id=parsed_config.template_ad_id,
+            require_supported=True,
+        )
+        if len(creative_template.media_slots) > 2:
+            raise _validation_error(
+                "Template com mais de 2 slots nao e suportado em duplicacao de campanhas",
+                field="config.template_ad_id",
+            )
+        creative_raw = creative_data.get("creative") or {}
+        object_story_actor = object_story_actor_from_creative(creative_raw)
+        template_adset_id = str(parent_data.get("adset_id") or "")
+        if template_adset_id and not object_story_actor.get("page_id"):
+            for row in adsets_raw:
+                if str(row.get("id") or "") == template_adset_id:
+                    merge_page_id_from_promoted_object(object_story_actor, row.get("promoted_object"))
+                    break
+            if not object_story_actor.get("page_id"):
+                po_result = api.get_adset_fields(template_adset_id, "promoted_object")
+                if po_result.get("status") == "success":
+                    merge_page_id_from_promoted_object(
+                        object_story_actor,
+                        (po_result.get("data") or {}).get("promoted_object"),
+                    )
+
+        if object_story_actor.get("page_id") and not creative_template.story_spec_base.get("page_id"):
+            creative_template.story_spec_base["page_id"] = str(object_story_actor["page_id"])
+        for actor_key in ("instagram_user_id", "instagram_actor_id", "actor_id"):
+            actor_value = object_story_actor.get(actor_key)
+            if actor_value and not creative_template.story_spec_base.get(actor_key):
+                creative_template.story_spec_base[actor_key] = str(actor_value)
+    except HTTPException:
+        _cleanup_uploaded_temp_files(file_metas)
+        raise
+
+    job_id = str(uuid.uuid4())
+    tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
+    try:
+        tracker.create_job(
+            job_id=job_id,
+            status="processing",
+            message=f"Criacao de {len(parsed_config.items)} campanha(s) iniciada",
+            payload={
+                "type": "campaign_bulk",
+                "template_ad_id": parsed_config.template_ad_id,
+                "account_id": _normalize_account_id(parsed_config.account_id),
+                "status": parsed_config.status,
+                "adset_ids": parsed_config.adset_ids,
+                "campaign_name_template": parsed_config.campaign_name_template,
+                "adset_name_template": parsed_config.adset_name_template,
+                "campaign_budget_override": parsed_config.campaign_budget_override,
+                "campaign_config": campaign_config,
+                "adset_configs": adsets_raw,
+                "creative_template": creative_template.to_payload(),
+                "creative_family": creative_template.family,
+                "media_refs": {},
+            },
+        )
+
+        supabase_repo.insert_bulk_ad_items(
+            tracker.sb,
+            [
+                {
+                    "job_id": job_id,
+                    "user_id": user["user_id"],
+                    "file_name": item.ad_name,
+                    "file_index": item.feed_file_index if item.feed_file_index is not None else (item.story_file_index or 0),
+                    "bundle_id": None,
+                    "bundle_name": None,
+                    # slot_files encodes feed/story indexes: {"feed": N, "story": M}
+                    "slot_files": {
+                        k: v for k, v in {
+                            "feed": item.feed_file_index,
+                            "story": item.story_file_index,
+                        }.items() if v is not None
+                    },
+                    "is_multi_slot": True,
+                    "adset_id": "",
+                    "adset_name": None,
+                    "ad_name": item.ad_name,
+                    "status": "pending",
+                }
+                for item in parsed_config.items
+            ],
+        )
+
+        logger.info(
+            "[CAMPAIGN_BULK] job_persisted job_id=%s user_id=%s items=%s template_ad_id=%s "
+            "source_campaign_id=%s adsets_in_template=%s",
+            job_id,
+            user["user_id"],
+            len(parsed_config.items),
+            parsed_config.template_ad_id,
+            campaign_id,
+            len(adsets_raw),
+        )
+
+        def run_campaign_bulk_job() -> None:
+            try:
+                processor = CampaignBulkProcessor(
+                    BulkAdJobContext(
+                        user_jwt=user["token"],
+                        user_id=user["user_id"],
+                        access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                        job_id=job_id,
+                        account_id=_normalize_account_id(parsed_config.account_id),
+                    )
+                )
+                processor.process(files_data, file_metas)
+            except Exception as exc:
+                _cleanup_uploaded_temp_files(file_metas)
+                logger.exception(
+                    "[CAMPAIGN_BULK] worker_failed job_id=%s err_type=%s",
+                    job_id,
+                    type(exc).__name__,
+                )
+                tracker.mark_failed(job_id, str(exc), error_code="campaign_bulk_bootstrap_failed")
+
+        threading.Thread(target=run_campaign_bulk_job, daemon=True).start()
+        logger.info("[CAMPAIGN_BULK] worker_thread_started job_id=%s", job_id)
+    except Exception:
+        _cleanup_uploaded_temp_files(file_metas)
+        raise
+
+    return {
+        "job_id": job_id,
+        "status": "accepted",
+        "message": f"Criacao de {len(parsed_config.items)} campanha(s) iniciada",
+        "total_items": len(parsed_config.items),
+    }
+
+
+@router.get("/campaign-bulk/{job_id}")
+def get_campaign_bulk_progress(
+    job_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Retorna progresso de um job de criacao de campanhas em massa."""
+    tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
+    job = tracker.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail={"error": "job_not_found", "message": "Job nao encontrado"})
+
+    items = supabase_repo.fetch_bulk_ad_items_for_job(tracker.sb, job_id)
+    progress = tracker.get_public_progress(job_id)
+    summary = _build_bulk_summary(items)
+
+    return {
+        "job_id": job_id,
+        "status": progress.get("status"),
+        "progress": progress.get("progress", 0),
+        "message": progress.get("message", ""),
+        "items": [
+            {
+                "id": item.get("id"),
+                "ad_name": item.get("ad_name"),
+                "feed_file_index": item.get("feed_file_index"),
+                "story_file_index": item.get("story_file_index"),
+                "campaign_name_template": item.get("campaign_name_template"),
+                "adset_name_template": item.get("adset_name_template"),
+                "status": item.get("status"),
+                "meta_creative_id": item.get("meta_creative_id"),
+                "error_message": item.get("error_message"),
+                "error_code": item.get("error_code"),
+            }
+            for item in items
+        ],
+        "summary": summary,
+    }
 
 @router.post("/ads-progress")
 def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any] = Depends(get_current_user), x_supabase_user_id: str | None = Header(default=None, alias="X-Supabase-User-Id")):

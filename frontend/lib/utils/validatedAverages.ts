@@ -5,8 +5,9 @@ import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
  * a partir de um conjunto de RankingsItem / AdPerformanceItem, replicando a lógica
  * do backend em backend/app/routes/analytics.py (averages_base + per_action_type[actionType]).
  *
- * Esta função deve ser a FONTE ÚNICA de verdade para médias no frontend.
- * Qualquer widget que dependa de médias deve reusar o resultado desta função.
+ * No fluxo do Manager, este resultado representa a camada "validada/alinhada ao backend"
+ * usada para headers quando `averagesOverride` está disponível. Já as médias filtradas e
+ * agregações locais da tabela continuam vindo de `frontend/lib/metrics/manager.ts`.
  */
 export function computeValidatedAveragesFromAdPerformance(
   ads: RankingsItem[],

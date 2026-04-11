@@ -4,36 +4,22 @@ import React from "react";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
 import { RankingsItem } from "@/lib/api/schemas";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
-import { getMetricQualityToneByAverage, getMetricValueTextClass, type MetricQualityTone } from "@/lib/utils/metricQuality";
-
-type ManagerAverages = {
-  count: number;
-  spend: number;
-  impressions: number;
-  clicks: number;
-  inline_link_clicks: number;
-  lpv: number;
-  plays: number;
-  results: number;
-  hook: number | null;
-  scroll_stop: number | null;
-  ctr: number | null;
-  website_ctr: number | null;
-  connect_rate: number | null;
-  cpm: number | null;
-  cpr: number | null;
-  cpc: number | null;
-  cplc: number | null;
-  page_conv: number | null;
-  cpmql: number | null;
-  mqls: number;
-};
+import {
+  buildMetricSeriesFromSourceSeries,
+  formatMetricValue,
+  getManagerMetricCurrentValue,
+  getManagerMetricDeltaPresentation,
+  getManagerMetricTrendPresentation,
+  getMetricSeriesAvailability,
+  type ManagerAverages,
+  type ManagerMetricKey,
+} from "@/lib/metrics";
+import { getMetricValueTextClass } from "@/lib/utils/metricQuality";
 
 interface MetricCellProps {
   row: RankingsItem | { original?: RankingsItem };
   value: React.ReactNode;
-  metric: "hook" | "cpr" | "cpc" | "cplc" | "spend" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" | "results" | "mqls";
+  metric: ManagerMetricKey;
   getRowKey: (row: any) => string;
   byKey: Map<string, any>;
   endDate?: string;
@@ -97,7 +83,10 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       ? Math.min(BAR_COUNT, (original as any).series.axis.length)
       : BAR_COUNT;
   const TOTAL_STAGGERED_TRANSITION_MS = SPARKLINE_START_DELAY_MS + (Math.max(loadedBarsCount, 1) - 1) * STAGGER_MS + FADE_DURATION_MS;
-  const [sparklinePhase, setSparklinePhase] = React.useState<"skeleton" | "transition" | "sparkline">(seriesLoading ? "skeleton" : "sparkline");
+  // "skeleton": apenas skeleton visível
+  // "transition": skeleton saindo + sparkline entrando (sobrepostos)
+  // "done": apenas sparkline visível (skeleton desmontado)
+  const [sparklinePhase, setSparklinePhase] = React.useState<"skeleton" | "transition" | "done">(seriesLoading ? "skeleton" : "done");
   const fadeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(() => {
@@ -107,7 +96,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     }
 
     if (!showTrends) {
-      setSparklinePhase("sparkline");
+      setSparklinePhase("done");
       return;
     }
 
@@ -118,13 +107,15 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
 
     setSparklinePhase((prev) => {
       if (prev === "skeleton") {
+        // Após a transição completa, remove o skeleton do DOM sem trocar o SparklineBars
         fadeTimerRef.current = setTimeout(() => {
-          setSparklinePhase("sparkline");
+          setSparklinePhase("done");
           fadeTimerRef.current = null;
         }, TOTAL_STAGGERED_TRANSITION_MS);
         return "transition";
       }
-      return "sparkline";
+      // Se já estava em "done" (dados carregados sem passar pelo skeleton), mantém
+      return "done";
     });
 
     return () => {
@@ -138,7 +129,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
   if (showTrends && sparklinePhase === "skeleton") {
     return (
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
-        <SparklineSkeleton minimal={minimal} barCount={loadedBarsCount} />
+        <SparklineSkeleton minimal={minimal} barCount={loadedBarsCount} staggeredFadeOut={false} />
         <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
       </div>
     );
@@ -147,214 +138,46 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
   const rowKey = getRowKey(row);
   const dates = original.series?.axis || (endDate ? byKey.get(rowKey)?.axis : null);
 
-  // Para CPR e Page, calcular a partir das séries disponíveis se não vierem do backend
-  let s: Array<number | null> | undefined = undefined;
-
-  // Primeiro, tentar obter do backend ou do byKey
-  const serverSeries = original.series ? (original.series as any)[metric] : undefined;
-  s = serverSeries || (endDate ? (byKey.get(rowKey)?.series as any)?.[metric] : null);
-
-  // Se não encontramos CPR, Page, Results ou MQLs nas séries, calcular a partir das séries disponíveis
-  if ((s === undefined || s === null) && (metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "page_conv" || metric === "results" || metric === "mqls")) {
-    const seriesData = original.series ? (original.series as any) : endDate ? byKey.get(rowKey)?.series : undefined;
-    if (seriesData) {
-      const spendSeries = seriesData.spend || [];
-      const clicksSeries = seriesData.clicks || [];
-      const inlineLinkClicksSeries = seriesData.inline_link_clicks || [];
-      const lpvSeries = seriesData.lpv || [];
-      const conversionsSeries = seriesData.conversions || [];
-      const leadscoreSeries = seriesData.leadscore_values || [];
-
-      if (metric === "cpr") {
-        // CPR = spend / results (onde results vem de conversions[actionType])
-        s = spendSeries.map((spend: number | null, idx: number) => {
-          if (spend == null || spend <= 0) return null;
-          const dayConversions = conversionsSeries[idx];
-          if (!dayConversions || typeof dayConversions !== "object" || Array.isArray(dayConversions)) return null;
-          const results = actionType && actionType.trim() ? Number(dayConversions[actionType] || 0) : 0;
-          return results > 0 ? spend / results : null;
-        });
-      } else if (metric === "cpc") {
-        s = spendSeries.map((spend: number | null, idx: number) => {
-          if (spend == null || spend <= 0) return null;
-          const clicks = Number(clicksSeries[idx] || 0);
-          return clicks > 0 ? spend / clicks : null;
-        });
-      } else if (metric === "cplc") {
-        s = spendSeries.map((spend: number | null, idx: number) => {
-          if (spend == null || spend <= 0) return null;
-          const inlineLinkClicks = Number(inlineLinkClicksSeries[idx] || 0);
-          return inlineLinkClicks > 0 ? spend / inlineLinkClicks : null;
-        });
-      } else if (metric === "page_conv") {
-        // Page conv = results / lpv
-        s = lpvSeries.map((lpv: number | null, idx: number) => {
-          if (lpv == null || lpv <= 0) return null;
-          const dayConversions = conversionsSeries[idx];
-          if (!dayConversions || typeof dayConversions !== "object" || Array.isArray(dayConversions)) return null;
-          const results = actionType && actionType.trim() ? Number(dayConversions[actionType] || 0) : 0;
-          return results > 0 ? results / lpv : null;
-        });
-      } else if (metric === "results") {
-        // Results = conversions[actionType]
-        s = conversionsSeries.map((dayConversions: any) => {
-          if (!dayConversions || typeof dayConversions !== "object" || Array.isArray(dayConversions)) return null;
-          const results = actionType && actionType.trim() ? Number(dayConversions[actionType] || 0) : 0;
-          return results > 0 ? results : null;
-        });
-      } else if (metric === "mqls") {
-        // MQLs vem diretamente do backend via seriesData.mqls
-        // Fallback: calcular a partir de leadscore_values (para dados antigos)
-        const mqlsSeries = seriesData.mqls || [];
-        if (mqlsSeries.length > 0) {
-          s = mqlsSeries;
-        } else if (leadscoreSeries.length > 0) {
-          // Fallback: calcular a partir de leadscore_values
-          s = leadscoreSeries.map((leadscoreValues: any, idx: number) => {
-            if (!leadscoreValues) return null;
-            const spend = spendSeries[idx];
-            const { mqlCount } = computeMqlMetricsFromLeadscore({
-              spend: Number(spend || 0),
-              leadscoreRaw: leadscoreValues,
-              mqlLeadscoreMin: mqlLeadscoreMin || 0,
-            });
-            return mqlCount > 0 ? mqlCount : null;
-          });
-        }
-      }
-    }
-  }
+  const seriesData = original.series ? (original.series as any) : endDate ? byKey.get(rowKey)?.series : undefined;
+  const s = buildMetricSeriesFromSourceSeries(seriesData, metric, { actionType, mqlLeadscoreMin });
 
   // Normalizar s para sempre ser um array (padronizar undefined → array de nulls)
   // Isso garante que sempre renderizamos o sparkline, mesmo quando não há dados
   const normalizedSeries = s || (dates ? Array(dates.length).fill(null) : Array(5).fill(null));
 
-  // Determinar se a métrica é "inversa" (menor é melhor: CPR, CPM e CPMQL)
-  const isInverseMetric = metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "cpm" || metric === "cpmql";
-
-  const getDeltaTone = (current: number, average: number): MetricQualityTone | null => {
-    if (!Number.isFinite(current) || !Number.isFinite(average) || average <= 0) return null;
-    return getMetricQualityToneByAverage(current, average, isInverseMetric);
-  };
-
   // Se showTrends estiver ativo, mostrar sparklines
   if (showTrends) {
-    // Obter média do pack para esta métrica
-    const avgValue = metric === "cpmql" ? (averages as any).cpmql : averages[metric];
-
-    // Para spend, usar modo de tendência (byTrend) em vez de comparação com média
-    const useTrendMode = metric === "spend";
-    const packAverageForMetric = useTrendMode ? null : avgValue != null && Number.isFinite(avgValue) ? avgValue : null;
+    const trendPresentation = getManagerMetricTrendPresentation(metric, averages);
 
     // Obter série apropriada para determinar disponibilidade de dados baseada na métrica
     const seriesData = original.series ? (original.series as any) : undefined;
-    let dataAvailability: boolean[] = [];
-    let zeroValueLabel: string | undefined;
+    const { dataAvailability, zeroValueLabel } = getMetricSeriesAvailability(seriesData, metric, {
+      actionType,
+      mqlLeadscoreMin,
+    });
 
-    if (seriesData) {
-      switch (metric) {
-        case "hook":
-          // Hook precisa de plays, mas podemos usar impressions como proxy (se há impressões, pode haver plays)
-          const impressionsForHook = seriesData.impressions || [];
-          dataAvailability = impressionsForHook.map((imp: number | null) => imp != null && imp > 0);
-          zeroValueLabel = "Sem hook";
-          break;
-        case "ctr":
-          // CTR precisa de impressions
-          const impressionsForCtr = seriesData.impressions || [];
-          dataAvailability = impressionsForCtr.map((imp: number | null) => imp != null && imp > 0);
-          zeroValueLabel = "Sem cliques";
-          break;
-        case "website_ctr":
-          // Website CTR precisa de impressions
-          const impressionsForWebsiteCtr = seriesData.impressions || [];
-          dataAvailability = impressionsForWebsiteCtr.map((imp: number | null) => imp != null && imp > 0);
-          zeroValueLabel = "Sem cliques";
-          break;
-        case "connect_rate":
-          // Connect rate precisa de inline_link_clicks, mas podemos usar impressions como proxy
-          const impressionsForConnect = seriesData.impressions || [];
-          dataAvailability = impressionsForConnect.map((imp: number | null) => imp != null && imp > 0);
-          zeroValueLabel = "Sem conexões";
-          break;
-        case "page_conv":
-          // Page conv precisa de lpv
-          const lpvSeries = seriesData.lpv || [];
-          dataAvailability = lpvSeries.map((lpv: number | null) => lpv != null && lpv > 0);
-          zeroValueLabel = "Sem leads";
-          break;
-        case "cpr":
-          // CPR precisa de spend (para saber se houve investimento)
-          const spendForCpr = seriesData.spend || [];
-          dataAvailability = spendForCpr.map((spend: number | null) => spend != null && spend > 0);
-          zeroValueLabel = "Sem leads";
-          break;
-        case "cpc":
-          // CPC precisa de clicks; fallback para spend em payloads antigos
-          const clicksForCpc = seriesData.clicks || [];
-          const spendForCpc = seriesData.spend || [];
-          dataAvailability =
-            clicksForCpc.length > 0
-              ? clicksForCpc.map((clicks: number | null) => clicks != null && clicks > 0)
-              : spendForCpc.map((spend: number | null) => spend != null && spend > 0);
-          zeroValueLabel = "Sem cliques";
-          break;
-        case "cplc":
-          // CPLC precisa de link clicks; fallback para spend em payloads antigos
-          const inlineClicksForCplc = seriesData.inline_link_clicks || [];
-          const spendForCplc = seriesData.spend || [];
-          dataAvailability =
-            inlineClicksForCplc.length > 0
-              ? inlineClicksForCplc.map((clicks: number | null) => clicks != null && clicks > 0)
-              : spendForCplc.map((spend: number | null) => spend != null && spend > 0);
-          zeroValueLabel = "Sem link clicks";
-          break;
-        case "cpmql":
-          // CPMQL precisa de spend (para saber se houve investimento)
-          const spendForCpmql = seriesData.spend || [];
-          dataAvailability = spendForCpmql.map((spend: number | null) => spend != null && spend > 0);
-          zeroValueLabel = "Sem MQLs";
-          break;
-        case "results":
-          // Results precisa de conversions
-          const conversionsForResults = seriesData.conversions || [];
-          dataAvailability = conversionsForResults.map((dayConv: any) => {
-            if (!dayConv || typeof dayConv !== "object" || Array.isArray(dayConv)) return false;
-            const results = actionType && actionType.trim() ? Number(dayConv[actionType] || 0) : 0;
-            return results > 0;
-          });
-          zeroValueLabel = "Sem leads";
-          break;
-        case "mqls":
-          // MQLs: usar mqls series do backend se disponível
-          const mqlsForAvail = seriesData.mqls || [];
-          const leadscoreForMqls = seriesData.leadscore_values || [];
-          if (mqlsForAvail.length > 0) {
-            // Dados vêm diretamente do backend
-            dataAvailability = mqlsForAvail.map((mqls: number | null) => mqls != null && mqls > 0);
-          } else if (leadscoreForMqls.length > 0) {
-            // Fallback: usar leadscore_values
-            dataAvailability = leadscoreForMqls.map((ls: any) => ls != null);
-          }
-          zeroValueLabel = "Sem MQLs";
-          break;
-        case "cpm":
-          // CPM precisa de impressions
-          const impressionsForCpm = seriesData.impressions || [];
-          dataAvailability = impressionsForCpm.map((imp: number | null) => imp != null && imp > 0);
-          // CPM não precisa de label especial, 0 é um valor válido
-          break;
-        case "spend":
-          // Spend sempre tem dados se existe (não precisa de label especial)
-          const spendSeries = seriesData.spend || [];
-          dataAvailability = spendSeries.map((spend: number | null) => spend != null && spend > 0);
-          break;
-        default:
-          // Para outras métricas, usar spend como fallback
-          const fallbackSpend = seriesData.spend || [];
-          dataAvailability = fallbackSpend.map((spend: number | null) => spend != null && spend > 0);
-      }
-    }
+    // "transition": skeleton saindo + sparkline entrando sobrepostos.
+    // "done": apenas sparkline, sem troca de nó (evita o piscar).
+    // Em ambos os casos, o SparklineBars fica no DOM — só o skeleton é desmontado.
+    const sparklineBars = (
+      <SparklineBars
+        series={normalizedSeries}
+        size="small"
+        className={minimal ? "w-12 h-4" : "w-16 h-6"}
+        lightweight={lightweight}
+        staggeredFadeIn={sparklinePhase === "transition"}
+        fadeInDurationMs={FADE_DURATION_MS}
+        fadeInStaggerMs={STAGGER_MS}
+        fadeInStartDelayMs={sparklinePhase === "transition" ? SPARKLINE_START_DELAY_MS : 0}
+        valueFormatter={(n: number) => formatMetricValue(metric, n, { currencyFormatter: formatCurrency })}
+        inverseColors={trendPresentation.inverseColors}
+        packAverage={trendPresentation.packAverage}
+        colorMode={trendPresentation.useTrendMode ? "series" : undefined}
+        dataAvailability={dataAvailability}
+        zeroValueLabel={zeroValueLabel}
+        dates={dates}
+      />
+    );
 
     if (sparklinePhase === "transition") {
       return (
@@ -370,31 +193,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
               />
             </div>
             <div className="absolute inset-0">
-              <SparklineBars
-                series={normalizedSeries}
-                size="small"
-                className="w-full h-full"
-                lightweight
-                staggeredFadeIn
-                fadeInDurationMs={FADE_DURATION_MS}
-                fadeInStaggerMs={STAGGER_MS}
-                fadeInStartDelayMs={SPARKLINE_START_DELAY_MS}
-                valueFormatter={(n: number) => {
-                  if (metric === "spend" || metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "cpm" || metric === "cpmql") {
-                    return formatCurrency(n || 0);
-                  }
-                  if (metric === "results" || metric === "mqls") {
-                    return Math.round(n || 0).toString();
-                  }
-                  return `${(n * 100).toFixed(2)}%`;
-                }}
-                inverseColors={isInverseMetric}
-                packAverage={packAverageForMetric}
-                colorMode={useTrendMode ? "series" : undefined}
-                dataAvailability={dataAvailability}
-                zeroValueLabel={zeroValueLabel}
-                dates={dates}
-              />
+              {sparklineBars}
             </div>
           </div>
           <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
@@ -402,150 +201,27 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       );
     }
 
+    // "done": skeleton desmontado, SparklineBars sem animação de entrada (já estava visível)
     return (
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
-        <div className="motion-safe:animate-in motion-safe:fade-in motion-safe:duration-[500ms]">
-          <SparklineBars
-            series={normalizedSeries}
-            size="small"
-            className={minimal ? "w-12 h-4" : undefined}
-            lightweight={lightweight}
-            valueFormatter={(n: number) => {
-              if (metric === "spend" || metric === "cpr" || metric === "cpc" || metric === "cplc" || metric === "cpm" || metric === "cpmql") {
-                return formatCurrency(n || 0);
-              }
-              if (metric === "results" || metric === "mqls") {
-                return Math.round(n || 0).toString();
-              }
-              // percent-based metrics
-              return `${(n * 100).toFixed(2)}%`;
-            }}
-            inverseColors={isInverseMetric}
-            packAverage={packAverageForMetric}
-            colorMode={useTrendMode ? "series" : undefined}
-            dataAvailability={dataAvailability}
-            zeroValueLabel={zeroValueLabel}
-            dates={dates}
-          />
-        </div>
+        {sparklineBars}
         <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
       </div>
     );
   }
 
-  // Modo Performance: mostrar diferença percentual em relação à média
-  // Para CPMQL, acessar explicitamente para evitar problemas de tipagem
-  const avgValue = metric === "cpmql" ? (averages as any).cpmql : averages[metric];
-  if (avgValue === null || avgValue === undefined) {
-    // Se não há média disponível, mostrar apenas o valor
-    return (
-      <div className="flex flex-col items-center gap-3">
-        <span className="text-base font-medium leading-none">{value}</span>
-      </div>
-    );
-  }
+  const currentValue = getManagerMetricCurrentValue(original as any, metric, {
+    actionType,
+    mqlLeadscoreMin,
+    hasSheetIntegration,
+  });
+  const deltaPresentation = getManagerMetricDeltaPresentation(original as any, metric, averages, {
+    actionType,
+    mqlLeadscoreMin,
+    hasSheetIntegration,
+  });
 
-  // Extrair valor numérico diretamente do original (mais confiável)
-  let currentValue: number | null = null;
-  switch (metric) {
-    case "hook":
-      currentValue = (original as any).hook != null ? Number((original as any).hook) : null;
-      // hook vem em decimal (0-1), média também vem em decimal
-      break;
-    case "cpr":
-      if (actionType) {
-        const results = (original as any).conversions?.[actionType] || 0;
-        currentValue = results > 0 ? Number((original as any).spend || 0) / results : null;
-      }
-      break;
-    case "cpc": {
-      const serverValue = (original as any).cpc;
-      if (serverValue != null && Number.isFinite(Number(serverValue))) {
-        currentValue = Number(serverValue);
-      } else {
-        const clicks = Number((original as any).clicks || 0);
-        currentValue = clicks > 0 ? Number((original as any).spend || 0) / clicks : null;
-      }
-      break;
-    }
-    case "cplc": {
-      const serverValue = (original as any).cplc;
-      if (serverValue != null && Number.isFinite(Number(serverValue))) {
-        currentValue = Number(serverValue);
-      } else {
-        const inlineLinkClicks = Number((original as any).inline_link_clicks || 0);
-        currentValue = inlineLinkClicks > 0 ? Number((original as any).spend || 0) / inlineLinkClicks : null;
-      }
-      break;
-    }
-    case "spend":
-      currentValue = Number((original as any).spend || 0);
-      break;
-    case "ctr":
-      currentValue = (original as any).ctr != null ? Number((original as any).ctr) : null;
-      // ctr vem em decimal (0-1), média também vem em decimal
-      break;
-    case "website_ctr":
-      currentValue = (original as any).website_ctr != null ? Number((original as any).website_ctr) : null;
-      // website_ctr vem em decimal (0-1), média também vem em decimal
-      break;
-    case "connect_rate":
-      currentValue = (original as any).connect_rate != null ? Number((original as any).connect_rate) : null;
-      // connect_rate vem em decimal (0-1), média também vem em decimal
-      break;
-    case "page_conv":
-      // Se o ad já tem page_conv calculado (vem do manager), usar esse valor
-      if ("page_conv" in original && typeof (original as any).page_conv === "number" && !Number.isNaN((original as any).page_conv) && isFinite((original as any).page_conv)) {
-        currentValue = (original as any).page_conv;
-      } else if (actionType) {
-        // Caso contrário, calcular baseado no actionType
-        const results = (original as any).conversions?.[actionType] || 0;
-        const lpv = Number((original as any).lpv || 0);
-        currentValue = lpv > 0 ? results / lpv : null;
-      }
-      break;
-    case "cpm":
-      currentValue = typeof (original as any).cpm === "number" ? (original as any).cpm : null;
-      break;
-    case "cpmql":
-      // CPMQL só é calculado quando há integração de planilha
-      if (hasSheetIntegration) {
-        const { cpmql: computedCpmql } = computeMqlMetricsFromLeadscore({
-          spend: Number((original as any).spend || 0),
-          leadscoreRaw: (original as any).leadscore_values,
-          mqlLeadscoreMin: mqlLeadscoreMin || 0,
-        });
-        // Aceitar qualquer valor finito, mesmo que seja 0 (pode ser válido)
-        currentValue = Number.isFinite(computedCpmql) ? computedCpmql : null;
-      } else {
-        currentValue = null;
-      }
-      break;
-    case "results":
-      // Results = conversions[actionType]
-      if (actionType) {
-        const results = (original as any).conversions?.[actionType] || 0;
-        currentValue = Number(results);
-      } else {
-        currentValue = null;
-      }
-      break;
-    case "mqls":
-      // MQLs = calcular a partir de leadscore_values
-      if (hasSheetIntegration) {
-        const { mqlCount } = computeMqlMetricsFromLeadscore({
-          spend: Number((original as any).spend || 0),
-          leadscoreRaw: (original as any).leadscore_values,
-          mqlLeadscoreMin: mqlLeadscoreMin || 0,
-        });
-        currentValue = mqlCount;
-      } else {
-        currentValue = null;
-      }
-      break;
-  }
-
-  if (currentValue === null || isNaN(currentValue) || !isFinite(currentValue)) {
+  if (currentValue === null || isNaN(currentValue) || !isFinite(currentValue) || deltaPresentation.kind === "hidden") {
     // Se não conseguimos extrair o valor, mostrar apenas o valor original
     return (
       <div className="flex flex-col items-center gap-3">
@@ -554,82 +230,12 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     );
   }
 
-  // Verificar se a média é válida
-  // Para page_conv, avgValue pode ser 0 (nenhuma conversão), o que é válido
-  if (isNaN(avgValue) || !isFinite(avgValue)) {
-    return (
-      <div className="flex flex-col items-center gap-3">
-        <span className="text-base font-medium leading-none">{value}</span>
-      </div>
-    );
-  }
-
-  // Se a média for 0 e o valor atual também for 0, não há diferença para mostrar
-  if (avgValue === 0 && currentValue === 0) {
-    return (
-      <div className="flex flex-col items-center gap-3">
-        <span className="text-xs font-medium text-muted-foreground">0%</span>
-        <span className="text-base font-medium leading-none">{value}</span>
-      </div>
-    );
-  }
-
-  // Se a média for 0 mas o valor atual não for 0
-  if (avgValue === 0 && currentValue !== 0) {
-    if (isInverseMetric) {
-      // Para métricas inversas: valor > 0 quando média é 0 = pior (acima da média) = vermelho com "+"
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <span className={`text-xs font-medium ${getMetricValueTextClass("destructive")}`}>+∞</span>
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
-    } else {
-      // Para métricas normais: valor > 0 quando média é 0 = melhor (acima da média) = verde com "+"
-      return (
-        <div className="flex flex-col items-center gap-3">
-          <span className={`text-xs font-medium ${getMetricValueTextClass("success")}`}>+∞</span>
-          <span className="text-base font-medium leading-none">{value}</span>
-        </div>
-      );
-    }
-  }
-
-  // Calcular diferença percentual
-  // Para métricas inversas (CPR, CPM), a lógica é invertida: menor que a média é melhor
-  let diffPercent: number;
-  if (isInverseMetric) {
-    // Para métricas inversas: se currentValue < avgValue, isso é melhor (positivo)
-    // diffPercent = ((avgValue - currentValue) / avgValue) * 100
-    diffPercent = ((avgValue - currentValue) / avgValue) * 100;
-  } else {
-    // Para métricas normais: se currentValue > avgValue, isso é melhor (positivo)
-    // diffPercent = ((currentValue - avgValue) / avgValue) * 100
-    diffPercent = ((currentValue - avgValue) / avgValue) * 100;
-  }
-
-  const isPositive = diffPercent > 0;
-  const deltaTone = getDeltaTone(currentValue, avgValue);
-  const colorClass = deltaTone ? getMetricValueTextClass(deltaTone) : isPositive ? getMetricValueTextClass("success") : getMetricValueTextClass("destructive");
-
-  // Para métricas inversas, inverter o sinal exibido: quando está melhor (positivo), mostrar "-" porque está abaixo da média numericamente
-  // Para métricas normais, manter o sinal original
-  let sign: string;
-  if (isInverseMetric) {
-    // Métricas inversas: diffPercent positivo = melhor = abaixo da média numericamente = mostrar "-"
-    // diffPercent negativo = pior = acima da média numericamente = mostrar "+"
-    sign = isPositive ? "-" : "+";
-  } else {
-    // Métricas normais: diffPercent positivo = melhor = acima da média = mostrar "+"
-    // diffPercent negativo = pior = abaixo da média = mostrar "-"
-    sign = isPositive ? "+" : "-";
-  }
+  const colorClass = getMetricValueTextClass(deltaPresentation.tone ?? "muted-foreground");
 
   return (
     <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
       <span className={`text-xs font-medium ${colorClass}`}>
-        {sign}
-        {Math.abs(diffPercent).toFixed(1)}%
+        {deltaPresentation.text}
       </span>
       <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
     </div>

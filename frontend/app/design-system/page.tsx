@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Modal } from "@/components/common/Modal";
 import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
 import ThemeToggle from "@/components/layout/ThemeToggle";
+import { PageContainer } from "@/components/common/PageContainer";
 import { env } from "@/lib/config/env";
 import { colorTokenDefinitions, colorCategoriesOrder, type ColorTokenDef } from "@/lib/design-system/colorTokens";
 import { IconPalette, IconCopy } from "@tabler/icons-react";
@@ -72,14 +73,16 @@ export default function DesignSystemPage() {
 
   if (!env.IS_DEV) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <Card className="max-w-md">
-          <CardHeader>
-            <CardTitle>Acesso restrito</CardTitle>
-            <CardDescription>Esta página está disponível apenas em development.</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
+      <PageContainer title="Design System" description="Cores, tokens e componentes de referência (dev)." icon={<IconPalette className="w-6 h-6 text-attention" />}>
+        <div className="flex items-center justify-center py-16">
+          <Card className="max-w-md">
+            <CardHeader>
+              <CardTitle>Acesso restrito</CardTitle>
+              <CardDescription>Esta página está disponível apenas em development.</CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+      </PageContainer>
     );
   }
 
@@ -92,20 +95,12 @@ export default function DesignSystemPage() {
   );
 
   return (
-    <div className="min-h-screen bg-background p-6 pb-12">
-      <div className="mx-auto max-w-6xl space-y-10">
-        {/* Header */}
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <IconPalette className="h-8 w-8 text-primary" />
-              <h1 className="text-3xl font-bold tracking-tight">Design System</h1>
-            </div>
-            <p className="text-muted-foreground">Cores, tokens e componentes de referência (dev).</p>
-          </div>
-          <ThemeToggle />
-        </div>
-
+    <PageContainer
+      title="Design System"
+      description="Cores, tokens e componentes de referência (dev)."
+      icon={<IconPalette className="w-6 h-6 text-attention" />}
+      actions={<ThemeToggle />}
+    >
         {/* Cores */}
         <section>
           <h2 className="text-xl font-semibold mb-4">Paleta de cores</h2>
@@ -333,7 +328,6 @@ export default function DesignSystemPage() {
         <p className="text-sm text-muted-foreground">
           Documentação: <code className="rounded bg-muted px-1 py-0.5">frontend/docs/DESIGN_SYSTEM.md</code>
         </p>
-      </div>
-    </div>
+    </PageContainer>
   );
 }

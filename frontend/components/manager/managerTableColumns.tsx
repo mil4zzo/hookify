@@ -5,8 +5,7 @@ import type { ColumnDef, ColumnHelper } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import type { FilterValue, TextFilterValue, StatusFilterValue } from "@/components/common/ColumnFilter";
-import type { DailySeriesByKey } from "@/lib/utils/metricsTimeSeries";
-import type { ManagerAverages } from "@/lib/hooks/useManagerAverages";
+import type { GroupedMetricSeriesByKey, ManagerAverages } from "@/lib/metrics";
 import type { SettingsTab } from "@/lib/store/settingsModal";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
@@ -19,7 +18,7 @@ export type CreateManagerTableColumnsParams = {
   columnHelper: ColumnHelper<RankingsItem>;
   activeColumns: Set<ManagerColumnType>;
   groupByAdNameEffective: boolean;
-  byKey: DailySeriesByKey;
+  byKey: GroupedMetricSeriesByKey;
   expandedRef: React.MutableRefObject<Record<string, boolean>>;
   setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
 

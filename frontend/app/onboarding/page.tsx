@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
 import { LoadingState } from "@/components/common/States";
+import { PageContainer } from "@/components/common/PageContainer";
 import { InitialSettingsStep } from "./steps/InitialSettingsStep";
 import { FacebookStep } from "./steps/FacebookStep";
 import { ValidationStep } from "./steps/ValidationStep";
@@ -54,12 +55,10 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-8">
-      <div className="space-y-2">
-        <h1 className="text-2xl font-bold">Configuração inicial</h1>
-        <p className="text-sm text-muted-foreground">Vamos deixar tudo pronto para o Hookify analisar seus anúncios.</p>
-      </div>
-
+    <PageContainer
+      title="Configuração inicial"
+      description="Vamos deixar tudo pronto para o Hookify analisar seus anúncios."
+    >
       <MultiStepBreadcrumb
         steps={[
           { id: 1, label: "Preferências" },
@@ -76,6 +75,6 @@ export default function OnboardingPage() {
       {step === 2 && <FacebookStep onContinue={() => setStep(3)} onBack={() => setStep(1)} />}
       {step === 3 && <ValidationStep onContinue={() => setStep(4)} onBack={() => setStep(2)} />}
       {step === 4 && <SuccessStep onBack={() => setStep(3)} />}
-    </div>
+    </PageContainer>
   );
 }

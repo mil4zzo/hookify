@@ -18,29 +18,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const isPublicRoute = pathname?.startsWith("/politica-de-privacidade") ||
                        pathname?.startsWith("/termos-de-uso") ||
                        pathname?.startsWith("/exclusao-de-dados") ||
-                       pathname?.startsWith("/docs") ||
                        pathname?.startsWith("/pv");
-  const isOnboardingRoute = pathname?.startsWith("/onboarding");
   
-  // Se for rota de autenticação, renderiza apenas o conteúdo
+  // Se for rota de autenticação ou pública, renderiza apenas o conteúdo
   if (isAuthRoute || isPublicRoute) {
     return <>{children}</>;
   }
   
-  // Se for rota de onboarding, renderiza com Topbar mas sem Sidebar
-  if (isOnboardingRoute) {
-    return (
-      <PacksLoader>
-        <LayoutContent>
-          <Topbar />
-          <main className="flex-1 container mx-auto px-4 md:px-6 lg:px-8 py-8 pb-20 md:pb-8">{children}</main>
-        </LayoutContent>
-        <BottomNavigationBar />
-      </PacksLoader>
-    );
-  }
-  
-  // Para rotas normais, renderiza o layout completo
+  // Para todas as rotas autenticadas, renderiza o layout completo
   return (
     <PacksLoader>
       <Sidebar />

@@ -1,15 +1,13 @@
 "use client";
 
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect } from "react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import { useFormatCurrency } from "@/lib/utils/currency";
-import { MetricCard } from "@/components/common/MetricCard";
+import { VideoMetricCell } from "@/components/common/VideoMetricCell";
 import { RetentionChart } from "@/components/charts/RetentionChart";
-import { RetentionChartOverlay } from "@/components/charts/RetentionChartOverlay";
-import { SparklineBars } from "@/components/common/SparklineBars";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAdVariations, useAdDetails, useAdNameDetails, useAdCreative, useVideoSource, useAdHistory, useAdNameHistory } from "@/lib/api/hooks";
+import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useAdHistory, useAdNameHistory } from "@/lib/api/hooks";
 import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
@@ -18,13 +16,14 @@ import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/com
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
-import { getMetricCardSurfaceClass, getMetricQualityToneByAverage, getMetricSeriesTrendPct, getMetricTrendTone, getMetricValueTextClass } from "@/lib/utils/metricQuality";
+import { buildMetricSeriesFromSourceSeries, getMetricAverageTooltip, getMetricBetterDirection, getMetricDisplayLabel, getMetricNumericValue, getMetricNumericValueOrNull } from "@/lib/metrics";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
 import { loadManagerColumnsPreference } from "@/components/manager/managerColumnPreferences";
-import { Play } from "lucide-react";
 import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCurrencyDollar, IconLayoutGrid, IconWorld } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
+import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
 
 interface AdDetailsDialogProps {
   ad: RankingsItem;
@@ -33,7 +32,7 @@ interface AdDetailsDialogProps {
   dateStop?: string;
   actionType?: string;
   availableConversionTypes?: string[]; // Tipos de conversão disponíveis (mesmos do seletor)
-  initialTab?: "conversions" | "variations" | "video" | "history"; // Aba inicial
+  initialTab?: "variations" | "video" | "history"; // Aba inicial
   averages?: {
     hook: number | null;
     hold_rate?: number | null;
@@ -52,7 +51,7 @@ interface AdDetailsDialogProps {
 }
 
 export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, availableConversionTypes = [], initialTab = "video", averages }: AdDetailsDialogProps) {
-  const [activeTab, setActiveTab] = useState<"conversions" | "variations" | "video" | "history">(initialTab);
+  const [activeTab, setActiveTab] = useState<"variations" | "video" | "history">(initialTab);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
   const [retentionViewMode, setRetentionViewMode] = useState<"chart" | "metrics">("metrics");
@@ -75,7 +74,20 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     setLocalActionType(actionType || "");
   }, [actionType, ad?.ad_id]);
 
-  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(["spend"]);
+  const [selectedMetrics, setSelectedMetrics] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem("history_selected_metrics");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return ["spend"];
+  });
+  const handleMetricsChange = (metrics: string[]) => {
+    setSelectedMetrics(metrics);
+    try { localStorage.setItem("history_selected_metrics", JSON.stringify(metrics)); } catch {}
+  };
   // Date range específico para o histórico (inicializa com o date range principal ou vazio para mostrar todos)
   const [historyDateRange, setHistoryDateRange] = useState<DateRangeValue>(() => ({
     start: dateStart,
@@ -94,11 +106,21 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const activeVariations = Number(ad?.active_count ?? totalVariations);
   const adStatus = String(ad?.effective_status || "—");
   const isAdActive = adStatus.toUpperCase() === "ACTIVE";
+  const detailDateStart = historyDateRange.start || dateStart || "";
+  const detailDateStop = historyDateRange.end || dateStop || "";
   const shouldLoadVariations = groupByAdName && activeTab === "variations" && !!adName && !!dateStart && !!dateStop;
-  const shouldLoadDetails = activeTab === "video" && !!adId && !!dateStart && !!dateStop;
-  const shouldLoadCreative = activeTab === "video" && !!adId;
+  const shouldLoadDetails = !groupByAdName && activeTab === "video" && !!adId && !!dateStart && !!dateStop;
+  const shouldLoadCreative = !groupByAdName && activeTab === "video" && !!adId;
   const shouldLoadHistoryById = activeTab === "history" && !groupByAdName && !!adId && !!dateStart && !!dateStop;
   const shouldLoadHistoryByName = activeTab === "history" && groupByAdName && !!adName && !!dateStart && !!dateStop;
+
+  const groupedSharedDetail = useSharedAdNameDetail({
+    ad: groupByAdName ? ad : null,
+    dateStart: detailDateStart,
+    dateStop: detailDateStop,
+    actionType: localActionType,
+    enabled: groupByAdName && !!detailDateStart && !!detailDateStop,
+  });
 
   const { data: childrenData, isLoading: loadingChildren } = useAdVariations(adName, dateStart || "", dateStop || "", shouldLoadVariations);
 
@@ -112,15 +134,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   // Override de métricas: buscar dados frescos quando date range diferente do pai
   const shouldLoadOverriddenById = isDateRangeOverridden && !groupByAdName && !!adId;
-  const shouldLoadOverriddenByName = isDateRangeOverridden && groupByAdName && !!adName;
   const { data: overriddenById, isLoading: loadingOverriddenById } = useAdDetails(
     adId, historyDateRange.start || "", historyDateRange.end || "", shouldLoadOverriddenById
   );
-  const { data: overriddenByName, isLoading: loadingOverriddenByName } = useAdNameDetails(
-    adName, historyDateRange.start || "", historyDateRange.end || "", shouldLoadOverriddenByName
-  );
-  const overriddenDetails = groupByAdName ? overriddenByName : overriddenById;
-  const loadingOverridden = isDateRangeOverridden && (groupByAdName ? loadingOverriddenByName : loadingOverriddenById);
+  const overriddenDetails = overriddenById;
+  const loadingOverridden = isDateRangeOverridden && loadingOverriddenById;
 
   // Métricas efetivas: override quando date range alterado, senão usar ad original
   const effectiveAd = useMemo(() => {
@@ -219,6 +237,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     if (v == null || Number.isNaN(v)) return "—";
     return `${Number(v).toFixed(2)}%`;
   };
+  const getMetricLabel = (metricKey: string, preferShortLabel = false) => getMetricDisplayLabel(metricKey, { preferShortLabel });
 
   function getDeltaDisplay({ valueRaw, avgRaw }: { valueRaw?: number | null; avgRaw?: number | null }) {
     if (valueRaw == null || avgRaw == null || Number.isNaN(valueRaw as number) || Number.isNaN(avgRaw as number) || !isFinite(valueRaw as number) || !isFinite(avgRaw as number) || (avgRaw as number) === 0) {
@@ -229,110 +248,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     return `${sign}${(diff * 100).toFixed(1)}%`;
   }
 
-  function getMetricValueTone({ valueRaw, avgRaw, better, series, inverse, colorMode, disableSeriesFallback = false }: { valueRaw?: number | null; avgRaw?: number | null; better?: "higher" | "lower"; series?: Array<number | null | undefined>; inverse?: boolean; colorMode?: "series" | "per-bar"; disableSeriesFallback?: boolean }) {
-    if (valueRaw != null && avgRaw != null && better && !Number.isNaN(valueRaw) && !Number.isNaN(avgRaw) && isFinite(valueRaw) && isFinite(avgRaw) && avgRaw !== 0) {
-      return getMetricQualityToneByAverage(valueRaw, avgRaw, better === "lower");
-    }
-
-    if (!disableSeriesFallback && series && series.length > 0) {
-      return getMetricTrendTone(getMetricSeriesTrendPct(series), inverse ?? false);
-    }
-
-    return null;
-  }
-
-  function getMetricQualitySurfaceClass({ valueRaw, avgRaw, better, series, inverse, colorMode, disableSeriesFallback = false }: { valueRaw?: number | null; avgRaw?: number | null; better?: "higher" | "lower"; series?: Array<number | null | undefined>; inverse?: boolean; colorMode?: "series" | "per-bar"; disableSeriesFallback?: boolean }) {
-    const tone = getMetricValueTone({ valueRaw, avgRaw, better, series, inverse, colorMode, disableSeriesFallback });
-    return getMetricCardSurfaceClass(tone ?? "muted-foreground");
-  }
-
-  function getMetricQualityValueClass({ valueRaw, avgRaw, better, series, inverse, colorMode, disableSeriesFallback = false }: { valueRaw?: number | null; avgRaw?: number | null; better?: "higher" | "lower"; series?: Array<number | null | undefined>; inverse?: boolean; colorMode?: "series" | "per-bar"; disableSeriesFallback?: boolean }) {
-    const tone = getMetricValueTone({ valueRaw, avgRaw, better, series, inverse, colorMode, disableSeriesFallback });
-    return tone ? getMetricValueTextClass(tone) : "";
-  }
-
-  function VideoMetricCell({
-    label,
-    value,
-    deltaDisplay,
-    subtitle,
-    subtitleInLabelRow = false,
-    averageDisplay,
-    averageTooltip,
-    series: cellSeries,
-    inverse,
-    formatFn,
-    valueRaw,
-    avgRaw,
-    better,
-    packAverage,
-    colorMode,
-    disableSeriesFallback = false,
-  }: {
-    label: string;
-    value: React.ReactNode;
-    deltaDisplay?: React.ReactNode;
-    subtitle?: React.ReactNode;
-    /** Se true, renderiza o subtitle na mesma linha do label (lado direito) */
-    subtitleInLabelRow?: boolean;
-    averageDisplay?: React.ReactNode;
-    averageTooltip?: string;
-    series?: Array<number | null | undefined>;
-    inverse?: boolean;
-    formatFn?: (n: number) => string;
-    valueRaw?: number | null;
-    avgRaw?: number | null;
-    better?: "higher" | "lower";
-    packAverage?: number | null;
-    colorMode?: "series" | "per-bar";
-    disableSeriesFallback?: boolean;
-  }) {
-    const hasSeries = cellSeries && cellSeries.length > 0 && cellSeries.some((v) => v != null && !Number.isNaN(v as number));
-    const qualitySurfaceClass = getMetricQualitySurfaceClass({ valueRaw, avgRaw, better, series: cellSeries, inverse, colorMode, disableSeriesFallback });
-    const qualityValueClass = getMetricQualityValueClass({ valueRaw, avgRaw, better, series: cellSeries, inverse, colorMode, disableSeriesFallback });
-    const hasHeaderMeta = Boolean(subtitleInLabelRow && subtitle);
-
-    return (
-      <div className={`rounded border pb-2 transition-colors transition-shadow ${qualitySurfaceClass}`}>
-        <div className={`p-2 mb-2 border-b border-border flex gap-2 text-[10px] text-muted-foreground ${hasHeaderMeta ? "items-center justify-between" : "flex-col"}`}>
-          <span className={hasHeaderMeta ? "min-w-0 truncate" : ""}>{label}</span>
-          {hasHeaderMeta ? <div className="min-w-0 flex flex-col items-end text-right leading-tight">{subtitleInLabelRow && subtitle ? <span className="truncate">{subtitle}</span> : null}</div> : null}
-          {!subtitleInLabelRow && subtitle ? <span className="mt-0.5">{subtitle}</span> : null}
-        </div>
-        <div className="px-2 flex items-center justify-between gap-3">
-          <div className="min-w-0 flex flex-col items-start text-left">
-            <div className={`text-md font-semibold leading-tight ${qualityValueClass}`.trim()}>{value}</div>
-            {averageDisplay ? (
-              <div className="mt-0.5 text-left text-[10px] leading-tight text-muted-foreground">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-block cursor-help text-muted-foreground">{`vs. ${averageDisplay}`}</span>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{averageTooltip ?? `${label} medio`}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            ) : null}
-          </div>
-          {deltaDisplay ? <div className="shrink-0 text-xs text-muted-foreground">{deltaDisplay}</div> : null}
-        </div>
-        {hasSeries && (
-          <div className="w-full mt-2 px-2">
-            <SparklineBars series={cellSeries} size="small" className="w-full h-5" valueFormatter={formatFn} inverseColors={inverse} packAverage={packAverage} colorMode={colorMode} />
-          </div>
-        )}
-      </div>
-    );
-  }
-
   function MetricSection({ title, children, contentBeforeChildren, headerAction }: { title: string; children: React.ReactNode; contentBeforeChildren?: React.ReactNode; headerAction?: React.ReactNode }) {
     const sectionIconMap = {
       Retenção: IconBrandParsinta,
       Funil: IconChartFunnel,
-      Custos: IconCurrencyDollar,
+      Resultados: IconCurrencyDollar,
       Visibilidade: IconWorld,
     } as const;
 
@@ -389,8 +309,10 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   function VideoTabSkeleton({ showConversionFilter }: { showConversionFilter: boolean }) {
     return (
-      <div className="flex flex-col md:flex-row gap-4 md:gap-8">
-        <VideoPlayerSkeleton className="ml-8" />
+      <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
+        <div className="relative flex-shrink-0 ml-8" style={{ aspectRatio: "9/16" }}>
+          <RetentionVideoPlayerSkeleton />
+        </div>
 
         <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-between">
           {showConversionFilter && (
@@ -409,63 +331,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     );
   }
 
-  function VideoPlayerSkeleton({ className = "" }: { className?: string }) {
-    const axisTicks = [
-      { label: "100%", value: 100 },
-      { label: "80%", value: 80 },
-      { label: "60%", value: 60 },
-      { label: "40%", value: 40 },
-      { label: "20%", value: 20 },
-      { label: "0%", value: 0 },
-    ];
-
-    return (
-      <div className={`relative w-full md:max-w-[20rem] max-w-full overflow-visible ${className}`.trim()} style={{ aspectRatio: "9/16" }}>
-        <div className="absolute left-[-2rem] top-0 bottom-[48px] pr-2 md:bottom-[80px] z-10 w-6 pointer-events-none">
-          {axisTicks.map(({ label, value }) => (
-            <span
-              key={label}
-              className="absolute right-0 block text-right text-[10px] font-normal leading-none"
-              style={{
-                top: `${100 - value}%`,
-                transform: "translateY(0.33em);translateX(0.1rem)",
-                color: "oklch(0.705 0.015 286.067)",
-              }}
-            >
-              {label}
-            </span>
-          ))}
-        </div>
-
-        <div className="relative h-full w-full overflow-hidden rounded-lg">
-          <Skeleton className="h-full w-full rounded-lg" />
-        </div>
-
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="flex items-center justify-center rounded-full bg-muted p-4">
-            <Play className="h-9 w-9 fill-border text-border" strokeWidth={1.4} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Mapa de conversões do ad (objeto original do servidor contendo todos os tipos)
-  const conversionsMap: Record<string, number> = useMemo(() => {
-    const c = effectiveAd?.conversions ?? ad?.conversions;
-    if (!c || typeof c !== "object" || Array.isArray(c)) {
-      return {};
-    }
-    // Retornar todos os valores do objeto original (podem ser 0)
-    const result: Record<string, number> = {};
-    for (const [key, value] of Object.entries(c)) {
-      const numValue = Number(value);
-      if (key && !Number.isNaN(numValue) && isFinite(numValue)) {
-        result[key] = numValue;
-      }
-    }
-    return result;
-  }, [ad, effectiveAd]);
 
   // Obter todos os tipos de conversão disponíveis (priorizar availableConversionTypes, senão usar os do ad)
   const allConversionTypes = useMemo(() => {
@@ -495,56 +360,37 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   const resultsForActionType = useMemo(() => {
     if (!localActionType) return 0;
-    return Number(conversionsMap[localActionType] || 0);
-  }, [conversionsMap, localActionType]);
+    const c = effectiveAd?.conversions ?? ad?.conversions;
+    if (!c || typeof c !== "object" || Array.isArray(c)) return 0;
+    const numValue = Number((c as Record<string, unknown>)[localActionType]);
+    if (Number.isNaN(numValue) || !isFinite(numValue)) return 0;
+    return numValue;
+  }, [effectiveAd, ad, localActionType]);
 
   // CPR: usar o valor já calculado do ranking se disponível, senão calcular
   const _spend = effectiveAd?.spend ?? Number(ad?.spend || 0);
   const _clicks = effectiveAd?.clicks ?? Number(ad?.clicks || 0);
   const _inlineLinkClicks = effectiveAd?.inline_link_clicks ?? Number((ad as any)?.inline_link_clicks || 0);
 
-  const cpr = useMemo(() => {
-    if (!effectiveAd && "cpr" in ad && typeof (ad as any).cpr === "number" && (ad as any).cpr > 0) {
-      return (ad as any).cpr;
-    }
-    if (!resultsForActionType) return 0;
-    return _spend / resultsForActionType;
-  }, [ad, effectiveAd, _spend, resultsForActionType]);
+  const cpr = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "cpr", { actionType: localActionType }), [ad, effectiveAd, localActionType]);
 
   const hasCpr = useMemo(() => {
-    return (!effectiveAd && "cpr" in ad && typeof (ad as any).cpr === "number" && (ad as any).cpr > 0) || resultsForActionType > 0;
-  }, [ad, effectiveAd, resultsForActionType]);
+    return getMetricNumericValueOrNull({ ...(ad as any), ...(effectiveAd as any) }, "cpr", { actionType: localActionType }) != null;
+  }, [ad, effectiveAd, localActionType]);
 
-  const lpv = effectiveAd?.lpv ?? Number(ad?.lpv || 0);
-  const pageConv = useMemo(() => {
-    if (!effectiveAd && "page_conv" in ad && typeof (ad as any).page_conv === "number" && !Number.isNaN((ad as any).page_conv) && isFinite((ad as any).page_conv)) {
-      return (ad as any).page_conv;
-    }
-    if (!lpv || !resultsForActionType) return 0;
-    return resultsForActionType / lpv;
-  }, [ad, effectiveAd, lpv, resultsForActionType]);
+  const pageConv = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "page_conv", { actionType: localActionType }), [ad, effectiveAd, localActionType]);
 
-  const cpm = useMemo(() => {
-    const v = effectiveAd?.cpm ?? ad?.cpm;
-    return typeof v === "number" && !Number.isNaN(v) && isFinite(v) ? v : 0;
-  }, [ad?.cpm, effectiveAd?.cpm]);
+  const cpm = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "cpm"), [ad, effectiveAd]);
 
-  const cpc = useMemo(() => {
-    return _clicks > 0 ? _spend / _clicks : 0;
-  }, [_spend, _clicks]);
+  const cpc = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "cpc"), [ad, effectiveAd]);
 
   const hasCpc = useMemo(() => _clicks > 0, [_clicks]);
 
-  const cplc = useMemo(() => {
-    return _inlineLinkClicks > 0 ? _spend / _inlineLinkClicks : 0;
-  }, [_spend, _inlineLinkClicks]);
+  const cplc = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "cplc"), [ad, effectiveAd]);
 
   const hasCplc = useMemo(() => _inlineLinkClicks > 0, [_inlineLinkClicks]);
 
-  const websiteCtr = useMemo(() => {
-    const v = effectiveAd?.website_ctr ?? (ad as any)?.website_ctr;
-    return typeof v === "number" && !Number.isNaN(v) && isFinite(v) ? v : 0;
-  }, [ad, effectiveAd]);
+  const websiteCtr = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "website_ctr"), [ad, effectiveAd]);
 
   // MQL / CPMQL
   const { mqlLeadscoreMin } = useMqlLeadscore();
@@ -569,51 +415,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     const baseSeries = effectiveAd?.series ?? ad?.series;
     if (!baseSeries) return baseSeries;
 
-    const spendSeries = baseSeries.spend || [];
-    const clicksSeries = (baseSeries as any).clicks || [];
-    const inlineLinkClicksSeries = (baseSeries as any).inline_link_clicks || [];
-    const lpvSeries = baseSeries.lpv || [];
-    const cpc_series = spendSeries.map((spendDay: number | null, idx: number) => {
-      const spend = Number(spendDay || 0);
-      const clicksDay = Number(clicksSeries[idx] || 0);
-      return clicksDay > 0 ? spend / clicksDay : null;
-    });
-    const cplc_series = spendSeries.map((spendDay: number | null, idx: number) => {
-      const spend = Number(spendDay || 0);
-      const inlineLinkClicksDay = Number(inlineLinkClicksSeries[idx] || 0);
-      return inlineLinkClicksDay > 0 ? spend / inlineLinkClicksDay : null;
-    });
-
-    // Se não há actionType ou não há conversions, retornar série base com CPC/CPLC calculados
-    if (!localActionType || !baseSeries.conversions) {
-      return {
-        ...baseSeries,
-        cpc: cpc_series,
-        cplc: cplc_series,
-      } as any;
-    }
-
-    // Calcular results por dia para o action_type selecionado
-    const resultsSeries = baseSeries.conversions.map((dayConversions: Record<string, number>) => {
-      return dayConversions[localActionType] || 0;
-    });
-
-    const page_conv_series = resultsSeries.map((resultsDay: number, idx: number) => {
-      const lpvDay = lpvSeries[idx] || 0;
-      return lpvDay > 0 ? resultsDay / lpvDay : null;
-    });
-
-    const cpr_series = resultsSeries.map((resultsDay: number, idx: number) => {
-      const spendDay = spendSeries[idx] || 0;
-      return resultsDay > 0 ? spendDay / resultsDay : null;
-    });
-
     return {
       ...baseSeries,
-      cpc: cpc_series,
-      cplc: cplc_series,
-      cpr: cpr_series,
-      page_conv: page_conv_series,
+      cpc: buildMetricSeriesFromSourceSeries(baseSeries as any, "cpc"),
+      cplc: buildMetricSeriesFromSourceSeries(baseSeries as any, "cplc"),
+      results: buildMetricSeriesFromSourceSeries(baseSeries as any, "results", { actionType: localActionType }),
+      cpr: buildMetricSeriesFromSourceSeries(baseSeries as any, "cpr", { actionType: localActionType }),
+      page_conv: buildMetricSeriesFromSourceSeries(baseSeries as any, "page_conv", { actionType: localActionType }),
+      website_ctr: buildMetricSeriesFromSourceSeries(baseSeries as any, "website_ctr"),
     } as any;
   }, [ad?.series, effectiveAd?.series, localActionType]);
 
@@ -667,6 +476,60 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   const isRetentionLoadingForVideo = activeTab === "video" && loadingAdDetails && retentionSeries.length === 0;
 
+  const resolvedDetailModel = groupByAdName ? groupedSharedDetail.model : null;
+  const resolvedThumbnail = groupByAdName ? resolvedDetailModel?.thumbnailUrl ?? getAdThumbnail(ad) : getAdThumbnail(ad);
+  const resolvedVideoId = groupByAdName ? resolvedDetailModel?.videoId ?? null : videoId || null;
+  const resolvedActorId = groupByAdName ? resolvedDetailModel?.actorId ?? null : actorId || null;
+  const resolvedLoadingVideo = groupByAdName ? groupedSharedDetail.isLoadingMedia : loadingVideo;
+  const resolvedVideoError = groupByAdName ? groupedSharedDetail.error : videoError;
+  const resolvedVideoSourceUrl = groupByAdName ? resolvedDetailModel?.videoSourceUrl ?? null : (videoData as any)?.source_url ?? null;
+  const resolvedRetentionSeries = groupByAdName ? resolvedDetailModel?.retentionSeries ?? [] : retentionSeries;
+  const resolvedScrollStop = groupByAdName ? resolvedDetailModel?.scrollStop ?? 0 : scrollStop;
+  const resolvedVideoWatchedP50 = groupByAdName ? resolvedDetailModel?.videoWatchedP50 : videoWatchedP50;
+  const resolvedHookValue = groupByAdName ? resolvedDetailModel?.hook ?? Number(ad?.hook ?? 0) : effectiveAd?.hook ?? Number(ad?.hook ?? 0);
+  const resolvedHoldRateValue = groupByAdName ? resolvedDetailModel?.holdRate ?? null : (() => { const hr = effectiveAd?.hold_rate ?? (ad as any)?.hold_rate; return hr != null ? Number(hr) : null; })();
+  const resolvedCtrValue = groupByAdName ? resolvedDetailModel?.ctr ?? Number(ad?.ctr ?? 0) : effectiveAd?.ctr ?? Number(ad?.ctr ?? 0);
+  const resolvedWebsiteCtr = groupByAdName ? resolvedDetailModel?.websiteCtr ?? 0 : websiteCtr;
+  const resolvedConnectRate = groupByAdName ? resolvedDetailModel?.connectRate ?? Number(ad?.connect_rate ?? 0) : effectiveAd?.connect_rate ?? Number(ad?.connect_rate ?? 0);
+  const resolvedPageConv = groupByAdName ? resolvedDetailModel?.pageConv ?? 0 : pageConv;
+  const resolvedCpm = groupByAdName ? resolvedDetailModel?.cpm ?? 0 : cpm;
+  const resolvedCpc = groupByAdName ? resolvedDetailModel?.cpc ?? 0 : cpc;
+  const resolvedHasCpc = groupByAdName ? resolvedDetailModel?.hasCpc ?? false : hasCpc;
+  const resolvedCpr = groupByAdName ? resolvedDetailModel?.cpr ?? 0 : cpr;
+  const resolvedHasCpr = groupByAdName ? resolvedDetailModel?.hasCpr ?? false : hasCpr;
+  const resolvedResultsForActionType = groupByAdName ? Number(resolvedDetailModel?.results ?? 0) : resultsForActionType;
+  const resolvedMqlMetrics = groupByAdName
+    ? { cpmql: Number(resolvedDetailModel?.cpmql ?? 0), mqlCount: Number(resolvedDetailModel?.mqlCount ?? 0) }
+    : mqlMetrics;
+  const resolvedSeries = groupByAdName ? (resolvedDetailModel?.series as any) ?? null : series;
+  const resolvedSpend = groupByAdName ? Number((resolvedDetailModel?.source?.spend ?? ad?.spend) || 0) : _spend;
+  const resolvedClicks = groupByAdName ? Number((resolvedDetailModel?.source?.clicks ?? ad?.clicks) || 0) : _clicks;
+  const resolvedFrequency = groupByAdName
+    ? (() => {
+        const value = resolvedDetailModel?.source?.frequency;
+        return value != null ? Number(value) : null;
+      })()
+    : (() => {
+        const value = effectiveAd?.frequency ?? (ad as any)?.frequency;
+        return value != null ? Number(value) : null;
+      })();
+  const resolvedImpressions = groupByAdName ? Number((resolvedDetailModel?.source?.impressions ?? ad?.impressions) || 0) : effectiveAd?.impressions ?? Number(ad?.impressions || 0);
+  const resolvedReach = groupByAdName
+    ? (() => {
+        const value = resolvedDetailModel?.source?.reach;
+        return value != null ? Number(value) : null;
+      })()
+    : (() => {
+        const value = effectiveAd?.reach ?? (ad as any)?.reach;
+        return value != null ? Number(value) : null;
+      })();
+  const resolvedHasSheetIntegration = groupByAdName ? resolvedDetailModel?.hasSheetIntegration ?? false : hasSheetIntegration;
+  const isRetentionLoadingForResolvedVideo = activeTab === "video" && (
+    groupByAdName
+      ? groupedSharedDetail.isLoadingDetail && resolvedRetentionSeries.length === 0
+      : loadingAdDetails && resolvedRetentionSeries.length === 0
+  );
+
 
   // Handler para quando um ponto do gráfico de retenção é clicado
   const handleRetentionPointClick = (second: number) => {
@@ -676,14 +539,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   };
 
   const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-muted") : (isAdActive ? "bg-success" : "bg-muted");
+  const detailsTabContentGapClassName = "gap-4 md:gap-8";
 
   return (
-    <div className="space-y-4">
+    <div className="h-full flex flex-col gap-4">
       {/* Header */}
-      <div className="flex items-start gap-4 pr-8">
+      <div className="flex items-start gap-4 pr-8 flex-shrink-0">
         {(() => {
-          const thumbnail = getAdThumbnail(ad);
-          return thumbnail ? <img src={thumbnail} alt="thumb" className="w-20 h-20 rounded object-cover" /> : <div className="w-20 h-20 rounded bg-border" />;
+          return resolvedThumbnail ? <img src={resolvedThumbnail} alt="thumb" className="w-20 h-20 rounded object-cover" /> : <div className="w-20 h-20 rounded bg-border" />;
         })()}
         <div className="flex-1 min-w-0">
           <h2 className="text-lg font-semibold truncate">{ad?.ad_name || "—"}</h2>
@@ -713,7 +576,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as typeof activeTab)}
         variant="with-controls"
-        tabs={[{ value: "video", label: "Geral" }, { value: "history", label: "Histórico" }, { value: "conversions", label: "Conversões" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : [])]}
+        tabs={[{ value: "video", label: "Geral" }, { value: "history", label: "Histórico" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : [])]}
         tabsContainerClassName="mb-6"
         controls={
           allConversionTypes.length > 0 ? (
@@ -726,39 +589,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           ) : null
         }
       >
-        <TabbedContentItem value="conversions" variant="simple">
-          <div className="space-y-2">
-            {allConversionTypes.length === 0 ? (
-              <div className="text-sm text-muted-foreground">Sem dados de conversão.</div>
-            ) : (
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="text-left text-muted-foreground">
-                    <th className="py-2">Tipo</th>
-                    <th className="py-2 text-right">Conversões</th>
-                    <th className="py-2 text-right">CPR</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allConversionTypes.map((type) => {
-                    const v = Number(conversionsMap[type] || 0);
-                    const spend = Number(ad?.spend || 0);
-                    const cprType = v > 0 && spend > 0 && !Number.isNaN(spend) ? spend / v : null;
-                    const isSelected = localActionType && type === localActionType;
-                    return (
-                      <tr key={type} className={isSelected ? "bg-muted" : ""}>
-                        <td className="py-2 pr-2">{type}</td>
-                        <td className="py-2 pr-2 text-right">{v.toLocaleString("pt-BR")}</td>
-                        <td className="py-2 pr-2 text-right">{cprType && cprType > 0 && !Number.isNaN(cprType) && isFinite(cprType) ? formatCurrency(cprType) : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </TabbedContentItem>
-
         {groupByAdName && (
           <TabbedContentItem value="variations" variant="simple">
             <ManagerChildrenTable
@@ -768,7 +598,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
               formatCurrency={formatCurrency}
               formatPct={formatPct}
               activeColumns={variationActiveColumns}
-              hasSheetIntegration={hasSheetIntegration}
+              hasSheetIntegration={resolvedHasSheetIntegration}
               mqlLeadscoreMin={mqlLeadscoreMin}
               columnFilters={variationColumnFilters}
               setColumnFilters={setVariationColumnFilters}
@@ -777,20 +607,20 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           </TabbedContentItem>
         )}
 
-        <TabbedContentItem value="video" variant="simple">
-          <div className="space-y-4">
-            {loadingCreative ? (
+        <TabbedContentItem value="video" variant="simple" className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col min-h-0">
+            {(!groupByAdName && loadingCreative) ? (
               <VideoTabSkeleton showConversionFilter={allConversionTypes.length > 0} />
-            ) : !videoId || !actorId ? (
+            ) : !resolvedVideoId || !resolvedActorId ? (
               <div className="text-sm text-muted-foreground p-6 text-center">Vídeo não disponível para este anúncio.</div>
             ) : (
-              <div className="flex flex-col md:flex-row gap-4 md:gap-8">
+              <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
                 {/* Player de vídeo */}
-                <div className="w-full rounded-lg flex items-center justify-center md:max-w-[20rem] max-w-full ml-8" style={{ aspectRatio: "9/16" }}>
-                  {loadingVideo && <VideoPlayerSkeleton />}
-                  {videoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
-                  {!loadingVideo && !videoError && (videoData as any)?.source_url && <VideoPlayer src={(videoData as any).source_url} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={retentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForVideo} />}
-                  {!loadingVideo && !videoError && !(videoData as any)?.source_url && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+                <div className="flex-shrink-0 rounded-lg flex items-center justify-center ml-8" style={{ aspectRatio: "9/16" }}>
+                  {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
+                  {resolvedVideoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
+                  {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
+                  {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
                 </div>
 
                 {/* Métricas em seções */}
@@ -824,40 +654,40 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                         </div>
                       </TooltipProvider>
                     }
-                    contentBeforeChildren={retentionViewMode === "chart" && retentionSeries && retentionSeries.length > 0 ? <RetentionChart videoPlayCurve={retentionSeries} videoWatchedP50={videoWatchedP50} showTitle={false} chartHeightClassName="h-52" averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={effectiveAd?.hook ?? (ad?.hook != null ? Number(ad.hook) : null)} onPointClick={handleRetentionPointClick} /> : null}
+                    contentBeforeChildren={retentionViewMode === "chart" && resolvedRetentionSeries && resolvedRetentionSeries.length > 0 ? <RetentionChart videoPlayCurve={resolvedRetentionSeries} videoWatchedP50={resolvedVideoWatchedP50} showTitle={false} chartHeightClassName="h-52" averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={resolvedHookValue} onPointClick={handleRetentionPointClick} /> : null}
                   >
                     {retentionViewMode === "metrics" && (
                       <>
-                        <VideoMetricCell label="Scroll Stop" value={formatPct(scrollStop * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: scrollStop, avgRaw: averages?.scroll_stop ?? null })} averageDisplay={averages?.scroll_stop != null ? formatPct(averages.scroll_stop * 100) : undefined} averageTooltip="Scroll Stop medio" series={series?.scroll_stop} formatFn={(n: number) => formatPct(n * 100)} valueRaw={scrollStop} avgRaw={averages?.scroll_stop ?? null} better="higher" packAverage={averages?.scroll_stop ?? null} />
-                        <VideoMetricCell label="Hook" value={formatPct((effectiveAd?.hook ?? Number(ad?.hook ?? 0)) * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: effectiveAd?.hook ?? Number(ad?.hook ?? 0), avgRaw: averages?.hook ?? null })} averageDisplay={averages?.hook != null ? formatPct(averages.hook * 100) : undefined} averageTooltip="Hook medio" series={series?.hook} formatFn={(n: number) => formatPct(n * 100)} valueRaw={effectiveAd?.hook ?? Number(ad?.hook ?? 0)} avgRaw={averages?.hook ?? null} better="higher" packAverage={averages?.hook ?? null} />
-                        <VideoMetricCell label="Hold Rate" value={(() => { const hr = effectiveAd?.hold_rate ?? (ad as any)?.hold_rate; return hr != null ? formatPct(Number(hr) * 100) : "—"; })()} deltaDisplay={getDeltaDisplay({ valueRaw: (() => { const hr = effectiveAd?.hold_rate ?? (ad as any)?.hold_rate; return hr != null ? Number(hr) : null; })(), avgRaw: averages?.hold_rate ?? null })} averageDisplay={averages?.hold_rate != null ? formatPct(averages.hold_rate * 100) : undefined} averageTooltip="Hold Rate medio" series={series?.hold_rate} formatFn={(n: number) => formatPct(n * 100)} valueRaw={(() => { const hr = effectiveAd?.hold_rate ?? (ad as any)?.hold_rate; return hr != null ? Number(hr) : null; })()} avgRaw={averages?.hold_rate ?? null} better="higher" packAverage={averages?.hold_rate ?? null} />
-                        <VideoMetricCell label="50% View" value={videoWatchedP50 != null ? `${videoWatchedP50}%` : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: videoWatchedP50 ?? null, avgRaw: averages?.video_watched_p50 ?? null })} averageDisplay={averages?.video_watched_p50 != null ? `${Math.round(averages.video_watched_p50)}%` : undefined} averageTooltip="50% View medio" series={series?.video_watched_p50} formatFn={(n: number) => `${Math.round(n)}%`} valueRaw={videoWatchedP50 ?? null} avgRaw={averages?.video_watched_p50 ?? null} better="higher" packAverage={averages?.video_watched_p50 ?? null} />
+                        <VideoMetricCell label={getMetricLabel("scroll_stop")} value={formatPct(resolvedScrollStop * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedScrollStop, avgRaw: averages?.scroll_stop ?? null })} averageDisplay={averages?.scroll_stop != null ? formatPct(averages.scroll_stop * 100) : undefined} averageTooltip={getMetricAverageTooltip("scroll_stop")} series={resolvedSeries?.scroll_stop} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedScrollStop} avgRaw={averages?.scroll_stop ?? null} better={getMetricBetterDirection("scroll_stop")} packAverage={averages?.scroll_stop ?? null} />
+                        <VideoMetricCell label={getMetricLabel("hook")} value={formatPct(resolvedHookValue * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHookValue, avgRaw: averages?.hook ?? null })} averageDisplay={averages?.hook != null ? formatPct(averages.hook * 100) : undefined} averageTooltip={getMetricAverageTooltip("hook")} series={resolvedSeries?.hook} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedHookValue} avgRaw={averages?.hook ?? null} better={getMetricBetterDirection("hook")} packAverage={averages?.hook ?? null} />
+                        <VideoMetricCell label={getMetricLabel("hold_rate")} value={resolvedHoldRateValue != null ? formatPct(Number(resolvedHoldRateValue) * 100) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHoldRateValue, avgRaw: averages?.hold_rate ?? null })} averageDisplay={averages?.hold_rate != null ? formatPct(averages.hold_rate * 100) : undefined} averageTooltip={getMetricAverageTooltip("hold_rate")} series={resolvedSeries?.hold_rate} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedHoldRateValue} avgRaw={averages?.hold_rate ?? null} better={getMetricBetterDirection("hold_rate")} packAverage={averages?.hold_rate ?? null} />
+                        <VideoMetricCell label={getMetricLabel("video_watched_p50")} value={resolvedVideoWatchedP50 != null ? `${resolvedVideoWatchedP50}%` : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedVideoWatchedP50 ?? null, avgRaw: averages?.video_watched_p50 ?? null })} averageDisplay={averages?.video_watched_p50 != null ? `${Math.round(averages.video_watched_p50)}%` : undefined} averageTooltip={getMetricAverageTooltip("video_watched_p50")} series={resolvedSeries?.video_watched_p50} formatFn={(n: number) => `${Math.round(n)}%`} valueRaw={resolvedVideoWatchedP50 ?? null} avgRaw={averages?.video_watched_p50 ?? null} better={getMetricBetterDirection("video_watched_p50")} packAverage={averages?.video_watched_p50 ?? null} />
                       </>
                     )}
                   </MetricSection>
 
                   {/* Funil */}
                   <MetricSection title="Funil">
-                    <VideoMetricCell label="CTR" value={formatPct((effectiveAd?.ctr ?? Number(ad?.ctr ?? 0)) * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: effectiveAd?.ctr ?? Number(ad?.ctr ?? 0), avgRaw: averages?.ctr ?? null })} averageDisplay={averages?.ctr != null ? formatPct(averages.ctr * 100) : undefined} averageTooltip="CTR medio" series={series?.ctr} formatFn={(n: number) => formatPct(n * 100)} valueRaw={effectiveAd?.ctr ?? Number(ad?.ctr ?? 0)} avgRaw={averages?.ctr ?? null} better="higher" packAverage={averages?.ctr ?? null} />
-                    <VideoMetricCell label="Link CTR" value={formatPct(Number(websiteCtr * 100))} deltaDisplay={getDeltaDisplay({ valueRaw: websiteCtr, avgRaw: averages?.website_ctr ?? null })} averageDisplay={averages?.website_ctr != null ? formatPct(averages.website_ctr * 100) : undefined} averageTooltip="Link CTR medio" series={(series as any)?.website_ctr} formatFn={(n: number) => formatPct(n * 100)} valueRaw={websiteCtr} avgRaw={averages?.website_ctr ?? null} better="higher" packAverage={averages?.website_ctr ?? null} />
-                    <VideoMetricCell label="Connect Rate" value={formatPct((effectiveAd?.connect_rate ?? Number(ad?.connect_rate ?? 0)) * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: effectiveAd?.connect_rate ?? Number(ad?.connect_rate ?? 0), avgRaw: averages?.connect_rate ?? null })} averageDisplay={averages?.connect_rate != null ? formatPct(averages.connect_rate * 100) : undefined} averageTooltip="Connect Rate medio" series={series?.connect_rate} formatFn={(n: number) => formatPct(n * 100)} valueRaw={effectiveAd?.connect_rate ?? Number(ad?.connect_rate ?? 0)} avgRaw={averages?.connect_rate ?? null} better="higher" packAverage={averages?.connect_rate ?? null} />
-                    <VideoMetricCell label="Page Conv" value={formatPct(Number(pageConv * 100))} deltaDisplay={getDeltaDisplay({ valueRaw: Number(pageConv ?? 0), avgRaw: averages?.page_conv ?? null })} averageDisplay={averages?.page_conv != null ? formatPct(averages.page_conv * 100) : undefined} averageTooltip="Page Conv medio" series={(series as any)?.page_conv} formatFn={(n: number) => formatPct(n * 100)} valueRaw={Number(pageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better="higher" packAverage={averages?.page_conv ?? null} />
+                    <VideoMetricCell label={getMetricLabel("ctr")} value={formatPct(resolvedCtrValue * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedCtrValue, avgRaw: averages?.ctr ?? null })} averageDisplay={averages?.ctr != null ? formatPct(averages.ctr * 100) : undefined} averageTooltip={getMetricAverageTooltip("ctr")} series={resolvedSeries?.ctr} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedCtrValue} avgRaw={averages?.ctr ?? null} better={getMetricBetterDirection("ctr")} packAverage={averages?.ctr ?? null} />
+                    <VideoMetricCell label={getMetricLabel("website_ctr")} value={formatPct(Number(resolvedWebsiteCtr * 100))} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedWebsiteCtr, avgRaw: averages?.website_ctr ?? null })} averageDisplay={averages?.website_ctr != null ? formatPct(averages.website_ctr * 100) : undefined} averageTooltip={getMetricAverageTooltip("website_ctr")} series={resolvedSeries?.website_ctr} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedWebsiteCtr} avgRaw={averages?.website_ctr ?? null} better={getMetricBetterDirection("website_ctr")} packAverage={averages?.website_ctr ?? null} />
+                    <VideoMetricCell label={getMetricLabel("connect_rate")} value={formatPct(resolvedConnectRate * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedConnectRate, avgRaw: averages?.connect_rate ?? null })} averageDisplay={averages?.connect_rate != null ? formatPct(averages.connect_rate * 100) : undefined} averageTooltip={getMetricAverageTooltip("connect_rate")} series={resolvedSeries?.connect_rate} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedConnectRate} avgRaw={averages?.connect_rate ?? null} better={getMetricBetterDirection("connect_rate")} packAverage={averages?.connect_rate ?? null} />
+                    <VideoMetricCell label={getMetricLabel("page_conv")} value={formatPct(Number(resolvedPageConv * 100))} deltaDisplay={getDeltaDisplay({ valueRaw: Number(resolvedPageConv ?? 0), avgRaw: averages?.page_conv ?? null })} averageDisplay={averages?.page_conv != null ? formatPct(averages.page_conv * 100) : undefined} averageTooltip={getMetricAverageTooltip("page_conv")} series={resolvedSeries?.page_conv} formatFn={(n: number) => formatPct(n * 100)} valueRaw={Number(resolvedPageConv ?? 0)} avgRaw={averages?.page_conv ?? null} better={getMetricBetterDirection("page_conv")} packAverage={averages?.page_conv ?? null} />
                   </MetricSection>
 
-                  {/* Métricas */}
-                  <MetricSection title="Custos">
-                    <VideoMetricCell label="CPMQL" value={mqlMetrics.cpmql > 0 ? formatCurrency(mqlMetrics.cpmql) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: mqlMetrics.cpmql > 0 ? mqlMetrics.cpmql : null, avgRaw: averages?.cpmql ?? null })} subtitle={`${mqlMetrics.mqlCount} MQLs`} subtitleInLabelRow averageDisplay={averages?.cpmql != null ? formatCurrency(averages.cpmql) : undefined} averageTooltip="CPMQL medio" series={(series as any)?.cpmql} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={mqlMetrics.cpmql > 0 ? mqlMetrics.cpmql : null} avgRaw={averages?.cpmql ?? null} better="lower" packAverage={averages?.cpmql ?? null} />
-                    <VideoMetricCell label="CPR" value={hasCpr ? formatCurrency(cpr) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: hasCpr ? cpr : null, avgRaw: averages?.cpr ?? null })} subtitle={`${resultsForActionType} results`} subtitleInLabelRow averageDisplay={averages?.cpr != null ? formatCurrency(averages.cpr) : undefined} averageTooltip="CPR medio" series={(series as any)?.cpr} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={hasCpr ? cpr : null} avgRaw={averages?.cpr ?? null} better="lower" packAverage={averages?.cpr ?? null} />
-                    <VideoMetricCell label="CPC" value={hasCpc ? formatCurrency(cpc) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: hasCpc ? cpc : null, avgRaw: averages?.cpc ?? null })} subtitle={`${_clicks.toLocaleString("pt-BR")} clicks`} subtitleInLabelRow averageDisplay={averages?.cpc != null ? formatCurrency(averages.cpc) : undefined} averageTooltip="CPC medio" series={(series as any)?.cpc} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={hasCpc ? cpc : null} avgRaw={averages?.cpc ?? null} better="lower" packAverage={averages?.cpc ?? null} />
-                    <VideoMetricCell label="CPM" value={formatCurrency(cpm)} deltaDisplay={getDeltaDisplay({ valueRaw: cpm, avgRaw: averages?.cpm ?? null })} averageDisplay={averages?.cpm != null ? formatCurrency(averages.cpm) : undefined} averageTooltip="CPM medio" series={(series as any)?.cpm} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={cpm} avgRaw={averages?.cpm ?? null} better="lower" packAverage={averages?.cpm ?? null} />
+                  {/* Resultados */}
+                  <MetricSection title="Resultados">
+                    <VideoMetricCell label={getMetricLabel("cpmql")} value={resolvedMqlMetrics.cpmql > 0 ? formatCurrency(resolvedMqlMetrics.cpmql) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedMqlMetrics.cpmql > 0 ? resolvedMqlMetrics.cpmql : null, avgRaw: averages?.cpmql ?? null })} subtitle={`${resolvedMqlMetrics.mqlCount} MQLs`} subtitleInLabelRow averageDisplay={averages?.cpmql != null ? formatCurrency(averages.cpmql) : undefined} averageTooltip={getMetricAverageTooltip("cpmql")} series={resolvedSeries?.cpmql} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedMqlMetrics.cpmql > 0 ? resolvedMqlMetrics.cpmql : null} avgRaw={averages?.cpmql ?? null} better={getMetricBetterDirection("cpmql")} packAverage={averages?.cpmql ?? null} />
+                    <VideoMetricCell label={getMetricLabel("cpr")} value={resolvedHasCpr ? formatCurrency(resolvedCpr) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpr ? resolvedCpr : null, avgRaw: averages?.cpr ?? null })} subtitle={`${resolvedResultsForActionType} results`} subtitleInLabelRow averageDisplay={averages?.cpr != null ? formatCurrency(averages.cpr) : undefined} averageTooltip={getMetricAverageTooltip("cpr")} series={resolvedSeries?.cpr} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpr ? resolvedCpr : null} avgRaw={averages?.cpr ?? null} better={getMetricBetterDirection("cpr")} packAverage={averages?.cpr ?? null} />
+                    <VideoMetricCell label={getMetricLabel("cpc")} value={resolvedHasCpc ? formatCurrency(resolvedCpc) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpc ? resolvedCpc : null, avgRaw: averages?.cpc ?? null })} subtitle={`${resolvedClicks.toLocaleString("pt-BR")} clicks`} subtitleInLabelRow averageDisplay={averages?.cpc != null ? formatCurrency(averages.cpc) : undefined} averageTooltip={getMetricAverageTooltip("cpc")} series={resolvedSeries?.cpc} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpc ? resolvedCpc : null} avgRaw={averages?.cpc ?? null} better={getMetricBetterDirection("cpc")} packAverage={averages?.cpc ?? null} />
+                    <VideoMetricCell label={getMetricLabel("cpm")} value={formatCurrency(resolvedCpm)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedCpm, avgRaw: averages?.cpm ?? null })} averageDisplay={averages?.cpm != null ? formatCurrency(averages.cpm) : undefined} averageTooltip={getMetricAverageTooltip("cpm")} series={resolvedSeries?.cpm} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedCpm} avgRaw={averages?.cpm ?? null} better={getMetricBetterDirection("cpm")} packAverage={averages?.cpm ?? null} />
                   </MetricSection>
 
                   {/* Absolutas (sem sparklines) */}
                   <MetricSection title="Visibilidade">
-                    <VideoMetricCell label="Spend" value={formatCurrency(_spend)} series={series?.spend} formatFn={(n: number) => formatCurrency(n)} colorMode="series" disableSeriesFallback />
-                    <VideoMetricCell label="Frequency" value={(() => { const f = effectiveAd?.frequency ?? (ad as any)?.frequency; return f != null ? Number(f).toFixed(2) : "—"; })()} />
-                    <VideoMetricCell label="Impressions" value={(effectiveAd?.impressions ?? Number(ad?.impressions || 0)).toLocaleString("pt-BR")} />
-                    <VideoMetricCell label="Reach" value={(() => { const r = effectiveAd?.reach ?? (ad as any)?.reach; return r != null ? Number(r).toLocaleString("pt-BR") : "—"; })()} />
+                    <VideoMetricCell label="Spend" value={formatCurrency(resolvedSpend)} series={resolvedSeries?.spend} formatFn={(n: number) => formatCurrency(n)} colorMode="series" disableSeriesFallback />
+                    <VideoMetricCell label="Frequency" value={resolvedFrequency != null ? resolvedFrequency.toFixed(2) : "—"} />
+                    <VideoMetricCell label="Impressions" value={resolvedImpressions.toLocaleString("pt-BR")} />
+                    <VideoMetricCell label="Reach" value={resolvedReach != null ? resolvedReach.toLocaleString("pt-BR") : "—"} />
                   </MetricSection>
                 </div>
               </div>
@@ -865,12 +695,12 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           </div>
         </TabbedContentItem>
 
-        <TabbedContentItem value="history" variant="simple">
-          <div className="flex flex-col h-full min-h-0">
+        <TabbedContentItem value="history" variant="simple" className="flex-1 flex flex-col min-h-0">
+          <div className="flex-1 flex flex-col min-h-0">
             {loadingHistory ? (
-              <div className="flex-1 min-h-0 flex gap-12">
+              <div className={`flex-1 min-h-0 flex ${detailsTabContentGapClassName}`}>
                 {/* Skeleton do seletor de métricas */}
-                <div className="flex-shrink-0 w-48 flex flex-col gap-4">
+                <div className="flex-shrink-0 w-56 flex flex-col gap-4">
                   <Skeleton className="h-4 w-20" />
                   <div className="flex flex-col gap-2">
                     <Skeleton className="h-8 w-full rounded-md" />
@@ -890,176 +720,12 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
               <div className="text-sm text-muted-foreground p-6 text-center">Sem dados históricos disponíveis para o período selecionado.</div>
             ) : (
               <div className="flex-1 min-h-0">
-                <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={localActionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={setSelectedMetrics} />
+                <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={localActionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={handleMetricsChange} layoutGapClassName={detailsTabContentGapClassName} />
               </div>
             )}
           </div>
         </TabbedContentItem>
       </TabbedContent>
-    </div>
-  );
-}
-
-// Componente para o player de vídeo com suporte a autoplay, tempo inicial e overlay
-function VideoPlayer({ src, autoplay, initialTime, onTimeSet, retentionCurve, showRetentionLoadingOverlay = false }: { src: string; autoplay: boolean; initialTime?: number | null; onTimeSet?: () => void; retentionCurve?: number[]; showRetentionLoadingOverlay?: boolean }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isPlaying, setIsPlaying] = useState(false);
-
-  useEffect(() => {
-    if (autoplay && videoRef.current) {
-      // Tentar reproduzir quando o vídeo estiver pronto
-      const playPromise = videoRef.current.play();
-      if (playPromise !== undefined) {
-        playPromise.catch((error) => {
-          // Autoplay pode ser bloqueado pelo navegador
-          console.log("Autoplay bloqueado:", error);
-        });
-      }
-    }
-  }, [autoplay, src]);
-
-  // Definir tempo inicial quando o vídeo estiver pronto
-  useEffect(() => {
-    if (initialTime != null && videoRef.current) {
-      const video = videoRef.current;
-
-      const handleLoadedMetadata = () => {
-        if (video.duration >= initialTime) {
-          video.currentTime = initialTime;
-          if (onTimeSet) {
-            onTimeSet();
-          }
-        }
-      };
-
-      // Se os metadados já foram carregados, definir o tempo imediatamente
-      if (video.readyState >= 1) {
-        handleLoadedMetadata();
-      } else {
-        video.addEventListener("loadedmetadata", handleLoadedMetadata);
-        return () => {
-          video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-        };
-      }
-    }
-  }, [initialTime, src, onTimeSet]);
-
-  // Atualizar tempo e duração do vídeo
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    // RAF loop para atualizações suaves (~60fps) durante a reprodução
-    let rafId: number | null = null;
-
-    const tick = () => {
-      setCurrentTime(video.currentTime);
-      rafId = requestAnimationFrame(tick);
-    };
-
-    const startRaf = () => {
-      if (rafId == null) rafId = requestAnimationFrame(tick);
-    };
-
-    const stopRaf = () => {
-      if (rafId != null) {
-        cancelAnimationFrame(rafId);
-        rafId = null;
-      }
-      setCurrentTime(video.currentTime);
-    };
-
-    // timeupdate apenas para seeks enquanto pausado
-    const handleTimeUpdate = () => {
-      if (!video.paused) return;
-      setCurrentTime(video.currentTime);
-    };
-
-    const handleLoadedMetadata = () => {
-      setDuration(video.duration);
-    };
-
-    const handleDurationChange = () => {
-      setDuration(video.duration);
-    };
-
-    const handlePlay = () => {
-      setIsPlaying(true);
-      startRaf();
-    };
-
-    const handlePause = () => {
-      setIsPlaying(false);
-      stopRaf();
-    };
-
-    const handleEnded = () => {
-      setIsPlaying(false);
-      stopRaf();
-    };
-
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("loadedmetadata", handleLoadedMetadata);
-    video.addEventListener("durationchange", handleDurationChange);
-    video.addEventListener("play", handlePlay);
-    video.addEventListener("pause", handlePause);
-    video.addEventListener("ended", handleEnded);
-
-    // Inicializar valores se já estiverem disponíveis
-    if (video.readyState >= 1) {
-      setDuration(video.duration);
-      setCurrentTime(video.currentTime);
-    }
-
-    // Verificar se está reproduzindo inicialmente
-    setIsPlaying(!video.paused && !video.ended);
-    if (!video.paused && !video.ended) startRaf();
-
-    return () => {
-      stopRaf();
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      video.removeEventListener("durationchange", handleDurationChange);
-      video.removeEventListener("play", handlePlay);
-      video.removeEventListener("pause", handlePause);
-      video.removeEventListener("ended", handleEnded);
-    };
-  }, [src]);
-
-  // Handler para quando o usuário clica no overlay
-  const handleTimeSeek = (second: number) => {
-    if (videoRef.current) {
-      videoRef.current.currentTime = second;
-      setCurrentTime(second);
-    }
-  };
-
-  return (
-    <div className="relative w-full h-full flex justify-center overflow-visible">
-      {/* Container com proporção 9:16 (vertical) */}
-      <div className="relative w-full h-full overflow-visible">
-        <div className="absolute inset-0 rounded-lg overflow-hidden bg-black">
-          <video ref={videoRef} src={src} controls className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay={autoplay} />
-        </div>
-        {showRetentionLoadingOverlay && (
-          <div className="absolute inset-0 z-10 flex flex-col justify-between rounded-lg bg-black/24 p-4 pointer-events-none">
-            <div className="self-start rounded-md bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur-sm">
-              <div className="text-[11px] font-medium text-foreground">Carregando retenção...</div>
-            </div>
-            <div className="space-y-2">
-              <Skeleton className="h-24 w-full rounded-md bg-background/40" />
-              <div className="grid grid-cols-3 gap-2">
-                <Skeleton className="h-8 rounded-md bg-background/40" />
-                <Skeleton className="h-8 rounded-md bg-background/40" />
-                <Skeleton className="h-8 rounded-md bg-background/40" />
-              </div>
-            </div>
-          </div>
-        )}
-        {retentionCurve && retentionCurve.length > 0 && <RetentionChartOverlay videoPlayCurve={retentionCurve} currentTime={currentTime} duration={duration} isPlaying={isPlaying} onTimeSeek={handleTimeSeek} />}
-      </div>
     </div>
   );
 }

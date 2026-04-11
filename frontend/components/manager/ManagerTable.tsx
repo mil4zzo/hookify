@@ -14,13 +14,11 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal, IconLoader2 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
-import { MetricCard } from "@/components/common/MetricCard";
-import { buildDailySeries } from "@/lib/utils/metricsTimeSeries";
 import { api } from "@/lib/api/endpoints";
 import { RankingsItem } from "@/lib/api/schemas";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
-import { useManagerAverages, type ManagerAverages } from "@/lib/hooks/useManagerAverages";
+import { useManagerAverages } from "@/lib/hooks/useManagerAverages";
 import { useFilteredAverages } from "@/lib/hooks/useFilteredAverages";
 import { createManagerTableColumns } from "@/components/manager/managerTableColumns";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -41,6 +39,8 @@ import { MinimalTableContent } from "@/components/manager/MinimalTableContent";
 import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStorage";
 import { logger } from "@/lib/utils/logger";
 import { getColumnId } from "@/lib/utils/columnFilters";
+import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
+import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 
 type Ad = RankingsItem;
 
@@ -292,7 +292,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     slowLoadingTimerRef.current = setTimeout(() => {
       setShowSlowLoadingHint(true);
       slowLoadingTimerRef.current = null;
-    }, 12000);
+    }, 20000);
 
     return () => {
       if (slowLoadingTimerRef.current) {
@@ -547,6 +547,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
   }, []);
 
+  // `computedAverages` representa a agregação local da tabela atual.
+  // Quando `averagesOverride` existe, ele injeta a camada validada/alinhada ao backend
+  // apenas para os headers globais, enquanto filtros continuam usando a agregação local.
   const computedAverages = useManagerAverages({
     ads: adsEffective,
     actionType,
@@ -654,7 +657,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     if (firstRow && ('series_loading' in firstRow)) {
       return { byKey: EMPTY_SERIES_MAP };
     }
-    return buildDailySeries(adsEffective as any, {
+    return buildGroupedMetricBaseSeries(adsEffective as any, {
       groupBy: groupByAdNameEffective ? "ad_name" : "ad_id",
       actionType,
       endDate,
@@ -667,53 +670,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const formatAverage = useMemo(
     () =>
       (metricId: string): string => {
-        const metricMap: Record<string, keyof ManagerAverages> = {
-          hook: "hook",
-          cpr: "cpr",
-          cpc: "cpc",
-          cplc: "cplc",
-          cpmql: "cpmql",
-          spend: "spend",
-          ctr: "ctr",
-          website_ctr: "website_ctr",
-          cpm: "cpm",
-          connect_rate: "connect_rate",
-          page_conv: "page_conv",
-          results: "results",
-          mqls: "mqls",
-        };
-
-        const metricKey = metricMap[metricId];
-        if (!metricKey) return "";
-
-        // Spend, Results e MQLs exibem soma total em vez de média
-        if (metricId === "spend") {
-          const v = averages.sumSpend;
-          return Number.isFinite(v) ? formatCurrency(v) : "";
-        }
-        if (metricId === "results") {
-          const v = averages.sumResults;
-          return Number.isFinite(v) ? Math.round(v).toString() : "";
-        }
-        if (metricId === "mqls") {
-          const v = averages.sumMqls;
-          return Number.isFinite(v) ? Math.round(v).toString() : "";
-        }
-
-        const avgValue = averages[metricKey];
-        if (avgValue === null || avgValue === undefined || !Number.isFinite(avgValue)) {
-          return "";
-        }
-
-        // Formatar baseado no tipo de métrica
-        if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
-          return formatPct(Number(avgValue) * 100);
-        } else {
-          // Métricas monetárias (cpr, cpc, cplc, cpmql, cpm)
-          return formatCurrency(Number(avgValue));
-        }
+        return formatManagerAverageValue(metricId as any, averages, { currencyFormatter: formatCurrency });
       },
-    [averages, formatPct, formatCurrency],
+    [averages, formatCurrency],
   );
 
   const { openSettings } = useSettingsModalStore();
@@ -828,55 +787,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const formatFilteredAverage = useMemo(
     () =>
       (metricId: string): string => {
-        if (!filteredAverages) return "";
-
-        const metricMap: Record<string, string> = {
-          hook: "hook",
-          cpr: "cpr",
-          cpc: "cpc",
-          cplc: "cplc",
-          cpmql: "cpmql",
-          spend: "spend",
-          ctr: "ctr",
-          website_ctr: "website_ctr",
-          cpm: "cpm",
-          connect_rate: "connect_rate",
-          page_conv: "page_conv",
-          results: "results",
-          mqls: "mqls",
-        };
-
-        const metricKey = metricMap[metricId];
-        if (!metricKey) return "";
-
-        // Spend, Results e MQLs exibem soma total em vez de média
-        if (metricId === "spend") {
-          const v = (filteredAverages as any)?.sumSpend;
-          return Number.isFinite(v) ? formatCurrency(v) : "";
-        }
-        if (metricId === "results") {
-          const v = (filteredAverages as any)?.sumResults;
-          return Number.isFinite(v) ? Math.round(v).toString() : "";
-        }
-        if (metricId === "mqls") {
-          const v = (filteredAverages as any)?.sumMqls;
-          return Number.isFinite(v) ? Math.round(v).toString() : "";
-        }
-
-        const avgValue = (filteredAverages as any)[metricKey];
-        if (avgValue === null || avgValue === undefined || !Number.isFinite(avgValue)) {
-          return "";
-        }
-
-        // Formatar baseado no tipo de métrica
-        if (metricId === "hook" || metricId === "ctr" || metricId === "website_ctr" || metricId === "connect_rate" || metricId === "page_conv") {
-          return formatPct(Number(avgValue) * 100);
-        } else {
-          // Métricas monetárias (cpr, cpc, cplc, cpmql, cpm)
-          return formatCurrency(Number(avgValue));
-        }
+        return formatManagerAverageValue(metricId as any, filteredAverages, { currencyFormatter: formatCurrency });
       },
-    [filteredAverages, formatPct, formatCurrency],
+    [filteredAverages, formatCurrency],
   );
 
   // Atualizar refs sincronamente (antes do render) para que os headers leiam valores atualizados
@@ -892,49 +805,26 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
-    // Coluna de nome (texto) baseada na aba atual
-    const nameColumn = currentTab === "por-conjunto" ? { id: "ad_name", label: "Conjunto", isText: true } : currentTab === "por-campanha" ? { id: "ad_name", label: "Campanha", isText: true } : { id: "ad_name", label: "Anúncio", isText: true };
+    const visibleColumns = getVisibleManagerColumns({ activeColumns, hasSheetIntegration });
+    const nameColumn =
+      currentTab === "por-conjunto"
+        ? { id: "ad_name", label: "Conjunto", isText: true }
+        : currentTab === "por-campanha"
+          ? { id: "ad_name", label: "Campanha", isText: true }
+          : { id: "ad_name", label: "Anúncio", isText: true };
 
-    const isEnabled = (id: ManagerColumnType) => {
-      if (id === "cpmql" || id === "mqls") return hasSheetIntegration;
-      return true;
-    };
-    const shouldShow = (id: ManagerColumnType) => activeColumns.has(id) && isEnabled(id);
+    const textColumns =
+      currentTab === "individual" || currentTab === "por-anuncio"
+        ? [nameColumn, { id: "adset_name_filter", label: "Conjunto", isText: true }, { id: "campaign_name_filter", label: "Campanha", isText: true }]
+        : currentTab === "por-conjunto"
+          ? [nameColumn, { id: "campaign_name_filter", label: "Campanha", isText: true }]
+          : [nameColumn];
 
-    const cols: Array<{ id: string; label: string; isPercentage?: boolean; isText?: boolean; isStatus?: boolean }> = [];
-
-    // Filtro de status disponível em todas as abas exceto "por-anuncio"
-    if (currentTab !== "por-anuncio") {
-      cols.push({ id: "status", label: "Status", isStatus: true });
-    }
-
-    cols.push(nameColumn);
-
-    // Filtros de nome cruzados (adset_name e campaign_name) por aba
-    if (currentTab === "individual" || currentTab === "por-anuncio") {
-      cols.push({ id: "adset_name_filter", label: "Conjunto", isText: true });
-      cols.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
-    } else if (currentTab === "por-conjunto") {
-      cols.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
-    }
-    // por-campanha: adset_name é null nessa aba, não adicionar filtro de conjunto
-
-    // Ordem dos filtros de métricas segue a mesma ordem das colunas da tabela
-    if (shouldShow("spend")) cols.push({ id: "spend", label: "Spend", isPercentage: false });
-    if (shouldShow("results")) cols.push({ id: "results", label: "Results", isPercentage: false });
-    if (shouldShow("mqls")) cols.push({ id: "mqls", label: "MQLs", isPercentage: false });
-    if (shouldShow("cpr")) cols.push({ id: "cpr", label: "CPR", isPercentage: false });
-    if (shouldShow("cpc")) cols.push({ id: "cpc", label: "CPC", isPercentage: false });
-    if (shouldShow("cplc")) cols.push({ id: "cplc", label: "CPLC", isPercentage: false });
-    if (shouldShow("cpmql")) cols.push({ id: "cpmql", label: "CPMQL", isPercentage: false });
-    if (shouldShow("cpm")) cols.push({ id: "cpm", label: "CPM", isPercentage: false });
-    if (shouldShow("hook")) cols.push({ id: "hook", label: "Hook", isPercentage: true });
-    if (shouldShow("ctr")) cols.push({ id: "ctr", label: "CTR", isPercentage: true });
-    if (shouldShow("website_ctr")) cols.push({ id: "website_ctr", label: "Link CTR", isPercentage: true });
-    if (shouldShow("connect_rate")) cols.push({ id: "connect_rate", label: "Connect", isPercentage: true });
-    if (shouldShow("page_conv")) cols.push({ id: "page_conv", label: "Page", isPercentage: true });
-
-    return cols;
+    return getManagerFilterableColumns({
+      visibleColumns,
+      includeStatus: currentTab !== "por-anuncio",
+      textColumns,
+    });
   }, [hasSheetIntegration, currentTab, activeColumns]);
 
   const searchBar = useMemo(() => {
@@ -1100,7 +990,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       </TabbedContent>
 
       {/* Details Dialog */}
-      <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="5xl" padding="md">
+      <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="5xl" padding="md" className="h-[90dvh] min-h-0">
         {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdNameEffective} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} averages={averages} />}
       </Modal>
 

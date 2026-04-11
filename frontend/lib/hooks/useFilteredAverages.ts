@@ -4,8 +4,7 @@ import { useMemo } from "react";
 import type { Table } from "@tanstack/react-table";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import { RankingsItem } from "@/lib/api/schemas";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
-import type { ManagerAverages } from "@/lib/hooks/useManagerAverages";
+import { computeManagerAverages, type ManagerAverages } from "@/lib/metrics";
 
 interface UseFilteredAveragesOptions {
   table: Table<RankingsItem>;
@@ -37,96 +36,11 @@ export function useFilteredAverages({
 
     if (n === 0 || n === dataLength) return null;
 
-    let sumSpend = 0;
-    let sumImpr = 0;
-    let sumClicks = 0;
-    let sumInlineLinkClicks = 0;
-    let sumLPV = 0;
-    let sumPlays = 0;
-    let sumResults = 0;
-
-    let hookWeighted = 0;
-    let hookWeight = 0;
-
-    let totalSpendForMql = 0;
-    let totalMql = 0;
-
-    for (const ad of filteredAds) {
-      const spend = Number((ad as any).spend || 0);
-      const impressions = Number((ad as any).impressions || 0);
-      const clicks = Number((ad as any).clicks || 0);
-      const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
-      const lpv = Number((ad as any).lpv || 0);
-      const plays = Number((ad as any).plays ?? (ad as any).video_total_plays ?? 0);
-      const hook = Number((ad as any).hook ?? 0);
-      const convs = (ad as any).conversions || {};
-      const res = actionType ? Number(convs[actionType] || 0) : 0;
-
-      sumSpend += spend;
-      sumImpr += impressions;
-      sumClicks += clicks;
-      sumInlineLinkClicks += inlineLinkClicks;
-      sumLPV += lpv;
-      sumPlays += plays;
-      sumResults += res;
-
-      const w = plays > 0 ? plays : 1;
-      if (!Number.isNaN(hook)) {
-        hookWeighted += hook * w;
-        hookWeight += w;
-      }
-
-      if (hasSheetIntegration) {
-        const { mqlCount } = computeMqlMetricsFromLeadscore({
-          spend,
-          leadscoreRaw: (ad as any).leadscore_values,
-          mqlLeadscoreMin,
-        });
-        totalSpendForMql += spend;
-        totalMql += mqlCount;
-      }
-    }
-
-    const hookAvg = hookWeight > 0 ? hookWeighted / hookWeight : null;
-    const cpr = sumResults > 0 ? sumSpend / sumResults : null;
-    const cpc = sumClicks > 0 ? sumSpend / sumClicks : null;
-    const cplc = sumInlineLinkClicks > 0 ? sumSpend / sumInlineLinkClicks : null;
-    const pageConv = sumLPV > 0 ? sumResults / sumLPV : null;
-
-    const ctr = sumImpr > 0 ? sumClicks / sumImpr : null;
-    const websiteCtr = sumImpr > 0 ? sumInlineLinkClicks / sumImpr : null;
-    const cpm = sumImpr > 0 ? (sumSpend * 1000) / sumImpr : null;
-    const connectAvg = sumInlineLinkClicks > 0 ? sumLPV / sumInlineLinkClicks : null;
-
-    const cpmqlAvg = totalMql > 0 && totalSpendForMql > 0 ? totalSpendForMql / totalMql : null;
-
-    return {
-      count: n,
-      spend: n > 0 ? sumSpend / n : 0,
-      impressions: n > 0 ? sumImpr / n : 0,
-      clicks: n > 0 ? sumClicks / n : 0,
-      inline_link_clicks: n > 0 ? sumInlineLinkClicks / n : 0,
-      lpv: n > 0 ? sumLPV / n : 0,
-      plays: n > 0 ? sumPlays / n : 0,
-      results: n > 0 ? sumResults / n : 0,
-      hook: hookAvg,
-      // filtrado não calcula scroll_stop hoje; manter null para evitar semântica diferente
-      scroll_stop: null,
-      ctr,
-      website_ctr: websiteCtr,
-      connect_rate: connectAvg,
-      cpm,
-      cpr,
-      cpc,
-      cplc,
-      page_conv: pageConv,
-      cpmql: cpmqlAvg,
-      mqls: n > 0 ? totalMql / n : 0,
-      sumSpend: sumSpend,
-      sumResults: sumResults,
-      sumMqls: totalMql,
-    };
+    return computeManagerAverages(filteredAds, {
+      actionType,
+      hasSheetIntegration,
+      includeScrollStop: false,
+      mqlLeadscoreMin,
+    });
   }, [table, dataLength, columnFilters, globalFilter, actionType, hasSheetIntegration, mqlLeadscoreMin]);
 }
-
-

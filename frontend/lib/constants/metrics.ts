@@ -1,28 +1,6 @@
-/**
- * Constantes e tipos relacionados a métricas de anúncios.
- * Centraliza definições para facilitar manutenção e evitar duplicação.
- */
+export type { MetricKey } from "@/lib/metrics";
+export { isLowerBetterMetric } from "@/lib/metrics";
 
-/**
- * Tipo para todas as métricas disponíveis no sistema.
- */
-export type MetricKey = "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpm" | "cpr" | "cpc" | "cplc" | "cpmql" | "connect_rate";
+import { METRIC_DEFINITION_LIST } from "@/lib/metrics";
 
-/**
- * Métricas onde menor valor é melhor (ex: CPM, CPR, CPMQL).
- * Quando o valor está acima da média, isso é ruim e deve mostrar seta para cima em vermelho.
- * 
- * Para essas métricas:
- * - Valor < média = bom (verde, seta para baixo)
- * - Valor > média = ruim (vermelho, seta para cima)
- */
-export const LOWER_IS_BETTER_METRICS: readonly MetricKey[] = ["cpm", "cpr", "cpc", "cplc", "cpmql"] as const;
-
-/**
- * Verifica se uma métrica é do tipo "lower is better".
- * @param metricKey - A chave da métrica a verificar
- * @returns true se a métrica é "lower is better", false caso contrário
- */
-export function isLowerBetterMetric(metricKey: MetricKey): boolean {
-  return LOWER_IS_BETTER_METRICS.includes(metricKey);
-}
+export const LOWER_IS_BETTER_METRICS = METRIC_DEFINITION_LIST.filter((metric) => metric.polarity === "lower").map((metric) => metric.key);

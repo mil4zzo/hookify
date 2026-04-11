@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta, date, timezone
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.core.supabase_retry import with_postgrest_retry
 from app.services.thumbnail_cache import CachedThumb, normalize_ad_name
 
 try:
@@ -1616,6 +1617,113 @@ def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], 
             data["user_id"] = user_id
             data["payload"] = None
             sb.table("jobs").insert(data).execute()
+
+
+def insert_bulk_ad_items(
+    sb,
+    items_list: List[Dict[str, Any]],
+) -> None:
+    if not items_list:
+        return
+    job_id = str((items_list[0] or {}).get("job_id") or "")
+    logger.info(
+        "[BULK_AD_ITEMS] insert begin rows=%s job_id=%s",
+        len(items_list),
+        job_id or "?",
+    )
+    with_postgrest_retry(
+        "insert_bulk_ad_items",
+        lambda: sb.table("bulk_ad_items").insert(items_list).execute(),
+    )
+    logger.info("[BULK_AD_ITEMS] insert ok job_id=%s", job_id or "?")
+
+
+def update_bulk_ad_item_status(
+    sb,
+    item_id: str,
+    status: str,
+    error_message: Optional[str] = None,
+    meta_ad_id: Optional[str] = None,
+    meta_creative_id: Optional[str] = None,
+    error_code: Optional[str] = None,
+) -> None:
+    update_data: Dict[str, Any] = {
+        "status": status,
+        "updated_at": _now_iso(),
+    }
+    if error_message is not None:
+        update_data["error_message"] = error_message
+    if meta_ad_id is not None:
+        update_data["meta_ad_id"] = meta_ad_id
+    if meta_creative_id is not None:
+        update_data["meta_creative_id"] = meta_creative_id
+    if error_code is not None:
+        update_data["error_code"] = error_code
+    logger.debug(
+        "[BULK_AD_ITEMS] update item_id=%s status=%s error_code=%s",
+        item_id,
+        status,
+        error_code,
+    )
+    with_postgrest_retry(
+        "update_bulk_ad_item_status",
+        lambda: sb.table("bulk_ad_items").update(update_data).eq("id", item_id).execute(),
+    )
+
+
+def fetch_bulk_ad_items_for_job(
+    sb,
+    job_id: str,
+) -> List[Dict[str, Any]]:
+    result = with_postgrest_retry(
+        "fetch_bulk_ad_items_for_job",
+        lambda: sb.table("bulk_ad_items")
+        .select("*")
+        .eq("job_id", job_id)
+        .order("file_index")
+        .order("created_at")
+        .execute(),
+    )
+    rows = result.data or []
+    logger.debug("[BULK_AD_ITEMS] fetch job_id=%s rows=%s", job_id, len(rows))
+    return rows
+
+
+def validate_adsets_ownership(
+    sb,
+    user_id: str,
+    adset_ids: List[str],
+) -> bool:
+    if not adset_ids:
+        return False
+    unique_ids = sorted({str(adset_id).strip() for adset_id in adset_ids if str(adset_id).strip()})
+    if not unique_ids:
+        return False
+    result = (
+        sb.table("ads")
+        .select("adset_id")
+        .eq("user_id", user_id)
+        .in_("adset_id", unique_ids)
+        .execute()
+    )
+    found_ids = {str(row.get("adset_id")).strip() for row in (result.data or []) if row.get("adset_id")}
+    return found_ids == set(unique_ids)
+
+
+def validate_ad_account_ownership(
+    sb,
+    user_id: str,
+    account_id: str,
+) -> bool:
+    result = (
+        sb.table("ad_accounts")
+        .select("id")
+        .eq("user_id", user_id)
+        .eq("id", account_id)
+        .limit(1)
+        .execute()
+    )
+    return bool(result.data)
 
 
 def delete_pack(

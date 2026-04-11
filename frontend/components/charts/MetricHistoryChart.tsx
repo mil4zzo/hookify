@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, type ReactNode } from "react";
 import { scaleLinear } from "@visx/scale";
 import { AreaClosed, LinePath } from "@visx/shape";
 import { curveMonotoneX } from "@visx/curve";
@@ -9,9 +9,12 @@ import { GridRows, GridColumns } from "@visx/grid";
 import { LinearGradient } from "@visx/gradient";
 import { ParentSize } from "@visx/responsive";
 import { localPoint } from "@visx/event";
-import { ChartTooltip } from "@/components/common/ChartTooltip";
+import { AccentCard } from "@/components/common/AccentCard";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Plus, X } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { formatMetricValue, getMetricDefinition, getMetricDisplayLabel, getMetricNumericValue, getMetricTooltipContent } from "@/lib/metrics";
 
 interface MetricHistoryChartProps {
   data: Array<{
@@ -25,27 +28,87 @@ interface MetricHistoryChartProps {
   dateStop: string;
   actionType?: string;
   formatValue?: (value: number) => string;
-  availableMetrics: typeof AVAILABLE_METRICS;
+  availableMetrics: readonly MetricDefinition[];
   selectedMetrics: string[];
   onMetricsChange: (metrics: string[]) => void;
+  layoutGapClassName?: string;
 }
 
 type DataPoint = { x: number; y: number; originalY?: number; date: string; label: string; metricKey: string };
 
 // Métricas disponíveis e suas configurações (cores do design system: chart-1..5, success, warning, info, destructive)
-export const AVAILABLE_METRICS = [
-  { key: "spend", label: "Spend", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "var(--chart-1)" },
-  { key: "impressions", label: "Impressions", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--chart-2)" },
-  { key: "clicks", label: "Clicks", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--chart-3)" },
-  { key: "hook", label: "Hook", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--success)" },
-  { key: "ctr", label: "CTR", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--warning)" },
-  { key: "connect_rate", label: "Connect Rate", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--destructive)" },
-  { key: "cpm", label: "CPM", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "var(--chart-4)" },
-  { key: "lpv", label: "Landing Page Views", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--chart-5)" },
-  { key: "plays", label: "Plays", format: (v: number) => v.toLocaleString("pt-BR"), color: "var(--info)" },
-  { key: "cpr", label: "CPR", format: (v: number) => `R$ ${v.toFixed(2)}`, color: "var(--primary)" },
-  { key: "page_conv", label: "Page Conv", format: (v: number) => `${(v * 100).toFixed(2)}%`, color: "var(--chart-4)" },
+export const METRIC_SECTIONS = [
+  { key: "metrics", label: "Métricas" },
+  { key: "retention", label: "Retenção" },
+  { key: "funnel", label: "Funil" },
+  { key: "results", label: "Resultados" },
+  { key: "other", label: "Outras" },
 ] as const;
+
+export type MetricSectionKey = (typeof METRIC_SECTIONS)[number]["key"];
+
+export interface MetricDefinition {
+  key: string;
+  label: string;
+  tooltip?: ReactNode;
+  subtitle?: string;
+  icon?: ReactNode;
+  format: (v: number) => string;
+  color: string;
+  section: MetricSectionKey;
+}
+
+function createMetricTooltip(metricKey: string): ReactNode {
+  const tooltip = getMetricTooltipContent(metricKey);
+  if (!tooltip) return null;
+
+  return (
+    <div className="space-y-1.5 text-xs leading-relaxed">
+      <p className="text-sm font-semibold leading-snug text-foreground">{tooltip.title}</p>
+      {tooltip.description ? <p>{tooltip.description}</p> : null}
+      {tooltip.technicalDescription ? <p className="text-muted-foreground italic">{tooltip.technicalDescription}</p> : null}
+    </div>
+  );
+}
+
+function createAvailableMetric(key: string, color: string, section: MetricSectionKey): MetricDefinition {
+  return {
+    key,
+    label: getMetricDisplayLabel(key),
+    tooltip: createMetricTooltip(key),
+    format: (value: number) => formatMetricValue(key, value),
+    color,
+    section,
+  };
+}
+
+export const AVAILABLE_METRICS = [
+  // Métricas
+  createAvailableMetric("spend", "var(--chart-1)", "metrics"),
+  createAvailableMetric("cpm", "var(--chart-4)", "metrics"),
+  createAvailableMetric("frequency", "var(--chart-1)", "metrics"),
+  // Retenção
+  createAvailableMetric("scroll_stop", "var(--chart-3)", "retention"),
+  createAvailableMetric("hook", "var(--success)", "retention"),
+  createAvailableMetric("hold_rate", "var(--chart-2)", "retention"),
+  createAvailableMetric("video_watched_p50", "var(--info)", "retention"),
+  // Funil
+  createAvailableMetric("ctr", "var(--warning)", "funnel"),
+  createAvailableMetric("link_ctr", "var(--chart-5)", "funnel"),
+  createAvailableMetric("connect_rate", "var(--destructive)", "funnel"),
+  createAvailableMetric("page_conv", "var(--chart-4)", "funnel"),
+  // Resultados
+  createAvailableMetric("cpmql", "var(--warning)", "results"),
+  createAvailableMetric("cpr", "var(--primary)", "results"),
+  createAvailableMetric("cpc", "var(--chart-4)", "results"),
+  createAvailableMetric("mqls", "var(--success)", "results"),
+  createAvailableMetric("results", "var(--chart-5)", "results"),
+  // Outras
+  createAvailableMetric("impressions", "var(--chart-2)", "other"),
+  createAvailableMetric("clicks", "var(--chart-3)", "other"),
+  createAvailableMetric("lpv", "var(--chart-5)", "other"),
+  createAvailableMetric("plays", "var(--info)", "other"),
+] satisfies readonly MetricDefinition[];
 
 // Função helper para parsear data sem problemas de timezone
 function parseDate(dateStr: string): Date {
@@ -63,24 +126,11 @@ function parseDate(dateStr: string): Date {
 
 // Função para calcular valor de uma métrica
 function calculateMetricValue(item: any, metric: string, actionType?: string): number {
-  if (metric === "cpr") {
-    const spend = Number(item.spend || 0);
-    const conversions = item.conversions || {};
-    const results = actionType ? Number(conversions[actionType] || 0) : 0;
-    return results > 0 && spend > 0 ? spend / results : 0;
-  } else if (metric === "page_conv") {
-    const lpv = Number(item.lpv || 0);
-    const conversions = item.conversions || {};
-    const results = actionType ? Number(conversions[actionType] || 0) : 0;
-    return lpv > 0 && results > 0 ? results / lpv : 0;
-  } else if (metric === "hook" || metric === "ctr" || metric === "connect_rate") {
-    return Number(item[metric] || 0);
-  } else {
-    return Number(item[metric] || 0);
-  }
+  return getMetricNumericValue(item, metric, { actionType });
 }
 
-function MetricHistoryChartInner({ data, formatValue, actionType, availableMetrics, selectedMetrics, onMetricsChange }: MetricHistoryChartProps) {
+function MetricHistoryChartInner({ data, formatValue, actionType, availableMetrics, selectedMetrics, onMetricsChange, layoutGapClassName = "gap-4 md:gap-8" }: MetricHistoryChartProps) {
+  const [metricsPopoverOpen, setMetricsPopoverOpen] = useState(false);
   const [tooltipData, setTooltipData] = useState<{ point: DataPoint; x: number; y: number } | null>(null);
   const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("#6b7280");
   const [isNormalized, setIsNormalized] = useState<boolean>(true);
@@ -168,7 +218,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
 
   // Encontrar configurações das métricas selecionadas
   const selectedMetricsConfig = useMemo(() => {
-    return selectedMetrics.map((key) => availableMetrics.find((m) => m.key === key)).filter((m): m is (typeof availableMetrics)[number] => m !== undefined);
+    return selectedMetrics.map((key) => availableMetrics.find((m) => m.key === key)).filter((m): m is MetricDefinition => m !== undefined);
   }, [selectedMetrics, availableMetrics]);
 
   // Calcular domínio Y unificado (considerando todas as métricas)
@@ -204,8 +254,8 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
       return (v: number) => `${v.toFixed(0)}%`;
     }
 
-    const hasPercentage = selectedMetricsConfig.some((m) => m.key === "hook" || m.key === "ctr" || m.key === "connect_rate" || m.key === "page_conv");
-    const hasCurrency = selectedMetricsConfig.some((m) => m.key === "spend" || m.key === "cpm" || m.key === "cpr");
+    const hasPercentage = selectedMetricsConfig.some((m) => m.key === "hook" || m.key === "ctr" || m.key === "link_ctr" || m.key === "connect_rate" || m.key === "page_conv" || m.key === "hold_rate" || m.key === "scroll_stop");
+    const hasCurrency = selectedMetricsConfig.some((m) => m.key === "spend" || m.key === "cpm" || m.key === "cpr" || m.key === "cpmql" || m.key === "cpc");
 
     if (hasPercentage && !hasCurrency) {
       return (v: number) => `${(v * 100).toFixed(1)}%`;
@@ -230,18 +280,90 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
   }, [tooltipData, chartDataByMetric, selectedMetricsConfig]);
 
   return (
-    <div className="flex gap-12 h-full min-h-0 w-full">
+    <div className={`flex h-full min-h-0 w-full ${layoutGapClassName}`}>
       {/* Seletor de métricas à esquerda */}
-      <div className="flex-shrink-0 w-auto flex flex-col min-h-0">
-        <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto pr-1 min-h-0">
-          {/* Toggle de normalização */}
+      <div className="flex-shrink-0 w-56 flex flex-col min-h-0">
+        <div className="flex items-center justify-between mb-2.5 flex-shrink-0">
+          <span className="text-xs font-medium text-foreground">Métricas:</span>
+          <Popover open={metricsPopoverOpen} onOpenChange={setMetricsPopoverOpen}>
+            <PopoverTrigger asChild>
+              <button className="flex items-center justify-center w-5 h-5 rounded hover:bg-muted border border-border text-muted-foreground hover:text-foreground transition-colors">
+                <Plus className="w-3 h-3" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent side="right" align="start" className="p-2 w-64 max-h-[70vh] overflow-y-auto" onInteractOutside={() => setMetricsPopoverOpen(false)}>
+              <div className="flex flex-col gap-3">
+                {METRIC_SECTIONS.map((section) => {
+                  const sectionMetrics = availableMetrics.filter((m) => m.section === section.key);
+                  return (
+                    <div key={section.key}>
+                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-1.5 mb-1">{section.label}</div>
+                      <div className="flex flex-col gap-0.5">
+                        {sectionMetrics.map((metric) => {
+                          const isSelected = selectedMetrics.includes(metric.key);
+                          const requiresActionType = Boolean(getMetricDefinition(metric.key)?.requiresActionType) && !actionType;
+                          return (
+                            <AccentCard
+                              key={metric.key}
+                              accentColor={metric.color}
+                              title={metric.label}
+                              titleTooltip={metric.tooltip}
+                              icon={metric.icon}
+                              trailing={<Switch checked={isSelected} disabled={requiresActionType} className="pointer-events-none" />}
+                              selected={isSelected}
+                              disabled={requiresActionType}
+                              interactive
+                              contentClassName="py-1 px-1.5"
+                              onClick={() => {
+                                if (requiresActionType) return;
+                                if (isSelected) {
+                                  onMetricsChange(selectedMetrics.filter((m) => m !== metric.key));
+                                } else {
+                                  onMetricsChange([...selectedMetrics, metric.key]);
+                                }
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+        <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto min-h-0">
+          {selectedMetrics.map((key) => {
+            const metric = availableMetrics.find((m) => m.key === key);
+            if (!metric) return null;
+            return (
+              <AccentCard
+                key={metric.key}
+                accentColor={metric.color}
+                title={metric.label}
+                titleTooltip={metric.tooltip}
+                icon={metric.icon}
+                selected
+                contentClassName="p-2"
+                trailing={
+                  <button
+                    className="text-muted-foreground transition-colors hover:text-foreground"
+                    aria-label={`Remover ${metric.label}`}
+                    onClick={() => onMetricsChange(selectedMetrics.filter((m) => m !== key))}
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                }
+              />
+            );
+          })}
+        </div>
+        <div className="mt-2 flex-shrink-0 space-y-2">
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <div
-                  className={`flex items-center justify-between gap-2 py-1 px-1.5 rounded-md cursor-pointer transition-all text-xs bg-background border border-border hover:bg-muted mb-2 ${!isNormalized ? "opacity-50" : ""}`}
-                  onClick={() => setIsNormalized(!isNormalized)}
-                >
+                <div className={`flex items-center justify-between gap-2 py-1 px-1.5 rounded-md cursor-pointer transition-all text-xs bg-background border border-border hover:bg-muted ${!isNormalized ? "opacity-50" : ""}`} onClick={() => setIsNormalized(!isNormalized)}>
                   <span className="text-foreground text-[11px]">Normalizar</span>
                   <Switch checked={isNormalized} className="pointer-events-none" />
                 </div>
@@ -251,34 +373,8 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          <div className="text-xs font-medium text-foreground mb-1 flex-shrink-0">Métricas:</div>
-          {availableMetrics.map((metric) => {
-            const isSelected = selectedMetrics.includes(metric.key);
-            const requiresActionType = (metric.key === "cpr" || metric.key === "page_conv") && !actionType;
-
-            return (
-              <div
-                key={metric.key}
-                className={`flex items-center justify-between gap-2 py-1 px-1.5 rounded-md cursor-pointer transition-all text-xs border ${isSelected ? "bg-primary-10 border-primary" : "bg-background border-border hover:bg-muted"} ${!isSelected ? "opacity-50" : ""} ${requiresActionType ? "opacity-30 cursor-not-allowed" : ""}`}
-                onClick={() => {
-                  if (requiresActionType) return;
-                  if (isSelected) {
-                    onMetricsChange(selectedMetrics.filter((m) => m !== metric.key));
-                  } else {
-                    onMetricsChange([...selectedMetrics, metric.key]);
-                  }
-                }}
-              >
-                <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                  <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: metric.color }} />
-                  <span className="text-foreground truncate">{metric.label}</span>
-                </div>
-                <Switch checked={isSelected} disabled={requiresActionType} className="pointer-events-none" />
-              </div>
-            );
-          })}
+          {(selectedMetrics.includes("cpr") || selectedMetrics.includes("page_conv") || selectedMetrics.includes("results")) && !actionType && <div className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-1.5 rounded text-[10px]">⚠️ CPR, Page Conv e Results requerem tipo de conversão selecionado.</div>}
         </div>
-        {(selectedMetrics.includes("cpr") || selectedMetrics.includes("page_conv")) && !actionType && <div className="mt-2 text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-1.5 rounded text-[10px]">⚠️ CPR e Page Conv requerem tipo de conversão selecionado.</div>}
       </div>
 
       {/* Gráfico */}
@@ -586,7 +682,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
                       const displayValue = point.originalY !== undefined ? point.originalY : point.y;
                       return (
                         <div key={point.metricKey} className="flex items-center gap-2 text-xs">
-                          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: config.color }} />
+                          <div className="w-0.5 h-3.5 shrink-0 rounded-full self-center" style={{ backgroundColor: config.color }} aria-hidden />
                           <span className="text-foreground font-medium">{config.label}:</span>
                           <span className="text-foreground">{format(displayValue)}</span>
                           {isNormalized && point.originalY !== undefined && <span className="text-muted-foreground text-[10px]">({point.y.toFixed(1)}%)</span>}
@@ -604,10 +700,10 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
   );
 }
 
-export function MetricHistoryChart({ data, dateStart, dateStop, actionType, formatValue, availableMetrics, selectedMetrics, onMetricsChange }: MetricHistoryChartProps) {
+export function MetricHistoryChart({ data, dateStart, dateStop, actionType, formatValue, availableMetrics, selectedMetrics, onMetricsChange, layoutGapClassName }: MetricHistoryChartProps) {
   return (
     <div className="h-full flex min-h-0">
-      <MetricHistoryChartInner data={data} dateStart={dateStart} dateStop={dateStop} actionType={actionType} formatValue={formatValue} availableMetrics={availableMetrics} selectedMetrics={selectedMetrics} onMetricsChange={onMetricsChange} />
+      <MetricHistoryChartInner data={data} dateStart={dateStart} dateStop={dateStop} actionType={actionType} formatValue={formatValue} availableMetrics={availableMetrics} selectedMetrics={selectedMetrics} onMetricsChange={onMetricsChange} layoutGapClassName={layoutGapClassName} />
     </div>
   );
 }

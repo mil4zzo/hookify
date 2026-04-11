@@ -1583,6 +1583,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             ad_ids_in_results.add(str(ad_id_in_group))
     
     thumbnails_map: Dict[str, Optional[str]] = {}
+    storage_thumbnails_map: Dict[str, str] = {}  # ad_id -> Storage URL (apenas quando thumb_storage_path existe)
     adcreatives_map: Dict[str, Optional[List[str]]] = {}  # Map para adcreatives_videos_thumbs
     effective_status_map: Dict[str, Optional[str]] = {}  # Map para effective_status
     if ad_ids_in_results:
@@ -1610,11 +1611,14 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             
             for ad_row in all_ads_rows:
                 ad_id_val = str(ad_row.get("ad_id") or "")
-                thumb = _get_storage_thumb_if_any(ad_row) or _get_thumbnail_with_fallback(ad_row)
+                storage_thumb = _get_storage_thumb_if_any(ad_row)
+                thumb = storage_thumb or _get_thumbnail_with_fallback(ad_row)
                 adcreatives = ad_row.get("adcreatives_videos_thumbs")
                 effective_status = ad_row.get("effective_status")
                 if ad_id_val:
                     thumbnails_map[ad_id_val] = thumb
+                    if storage_thumb:
+                        storage_thumbnails_map[ad_id_val] = storage_thumb
                     effective_status_map[ad_id_val] = effective_status
                     # Armazenar array completo de adcreatives_videos_thumbs
                     if isinstance(adcreatives, list) and len(adcreatives) > 0:
@@ -1645,8 +1649,25 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         # Buscar thumbnail, adcreatives_videos_thumbs e effective_status do map usando rep_ad_id
         ad_id_for_thumb = A.get("rep_ad_id")
         ad_id_str = str(ad_id_for_thumb or "") if ad_id_for_thumb else ""
-        thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
+
+        # Prioridade 1: Storage URL do rep_ad_id (já cacheado no Supabase Storage)
+        thumbnail = storage_thumbnails_map.get(ad_id_str) if ad_id_str else None
         adcreatives_thumbs = adcreatives_map.get(ad_id_str) if ad_id_str else None
+
+        # Prioridade 2: se rep_ad_id não tem Storage URL, varrer todos os ad_ids do grupo
+        # (evita cair em URL Meta CDN quando outro membro do grupo já tem cache)
+        if not thumbnail:
+            for _aid in (A.get("ad_ids") or set()):
+                _aid_str = str(_aid)
+                _candidate = storage_thumbnails_map.get(_aid_str)
+                if _candidate:
+                    thumbnail = _candidate
+                    adcreatives_thumbs = adcreatives_map.get(_aid_str) or adcreatives_thumbs
+                    break
+
+        # Prioridade 3: fallback para URL Meta CDN do rep_ad_id (nenhum membro do grupo tem Storage)
+        if not thumbnail:
+            thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
         
         # NOVA LÓGICA: Verificar se há pelo menos um ad_id com effective_status = 'ACTIVE' no grupo
         # Se houver, usar 'ACTIVE' como status do grupo (indica que pelo menos um anúncio está rodando)
@@ -3469,21 +3490,24 @@ def get_ad_history(
     Retorna um array de objetos, um para cada dia do período, contendo todas as métricas diárias.
     """
     sb = get_supabase_for_user(user["token"])
-    
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+
     # Gerar array de datas do período
     axis = _axis_date_range(date_start, date_stop)
-    
+
     # Buscar dados diários do período
     def metrics_filters(q):
         return q.eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
-    
+
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,lpv"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,leadscore_values"
     )
     try:
         data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -3494,7 +3518,7 @@ def get_ad_history(
             data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
         else:
             raise
-    
+
     # Criar mapa de dados por data
     data_by_date: Dict[str, Dict[str, Any]] = {}
     for r in data:
@@ -3510,9 +3534,13 @@ def get_ad_history(
                 "plays": 0,
                 "hook_wsum": 0.0,
                 "video_watched_p50_wsum": 0.0,
+                "hold_rate_wsum": 0.0,
+                "scroll_stop_wsum": 0.0,
+                "reach": 0,
+                "mql_count": 0,
                 "conversions": {},
             }
-        
+
         clicks = int(r.get("clicks") or 0)
         impressions = int(r.get("impressions") or 0)
         inline_link_clicks = int(r.get("inline_link_clicks") or 0)
@@ -3521,10 +3549,15 @@ def get_ad_history(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        
+        hold_rate_val = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop_val = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
+        reach = int(r.get("reach") or 0)
+        leadscore_values = r.get("leadscore_values") or []
+
         # landing_page_views (preferir coluna lpv quando disponível)
         lpv = _extract_lpv(r)
-        
+
         # Conversões e actions
         conversions = r.get("conversions") or {}
         if isinstance(conversions, list):
@@ -3535,7 +3568,7 @@ def get_ad_history(
                     if action_type:
                         key = f"conversion:{action_type}"
                         data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
-        
+
         actions = r.get("actions") or {}
         if isinstance(actions, list):
             for action in actions:
@@ -3545,7 +3578,7 @@ def get_ad_history(
                     if action_type:
                         key = f"action:{action_type}"
                         data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
-        
+
         data_by_date[date]["impressions"] += impressions
         data_by_date[date]["clicks"] += clicks
         data_by_date[date]["inline_link_clicks"] += inline_link_clicks
@@ -3554,7 +3587,11 @@ def get_ad_history(
         data_by_date[date]["plays"] += plays
         data_by_date[date]["hook_wsum"] += hook * plays
         data_by_date[date]["video_watched_p50_wsum"] += video_watched_p50 * plays
-    
+        data_by_date[date]["hold_rate_wsum"] += hold_rate_val * plays
+        data_by_date[date]["scroll_stop_wsum"] += scroll_stop_val * plays
+        data_by_date[date]["reach"] += reach
+        data_by_date[date]["mql_count"] += _count_mql(leadscore_values, mql_leadscore_min)
+
     # Construir array de resultados com todas as datas do período
     result = []
     for date in axis:
@@ -3568,16 +3605,25 @@ def get_ad_history(
             "plays": 0,
             "hook_wsum": 0.0,
             "video_watched_p50_wsum": 0.0,
+            "hold_rate_wsum": 0.0,
+            "scroll_stop_wsum": 0.0,
+            "reach": 0,
+            "mql_count": 0,
             "conversions": {},
         })
-        
+
         # Calcular métricas derivadas
         ctr = _safe_div(day_data["clicks"], day_data["impressions"])
         hook = _safe_div(day_data["hook_wsum"], day_data["plays"]) if day_data["plays"] else 0
         video_watched_p50 = _safe_div(day_data["video_watched_p50_wsum"], day_data["plays"]) if day_data["plays"] else 0
         connect_rate = _safe_div(day_data["lpv"], day_data["inline_link_clicks"]) if day_data["inline_link_clicks"] else 0
         cpm = (_safe_div(day_data["spend"], day_data["impressions"]) * 1000.0) if day_data["impressions"] else 0
-        
+        hold_rate = _safe_div(day_data["hold_rate_wsum"], day_data["plays"]) if day_data["plays"] else 0
+        scroll_stop = _safe_div(day_data["scroll_stop_wsum"], day_data["plays"]) if day_data["plays"] else 0
+        frequency = _safe_div(day_data["impressions"], day_data["reach"]) if day_data["reach"] else 0
+        mqls = day_data["mql_count"]
+        cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
+
         result.append({
             "date": date,
             "impressions": day_data["impressions"],
@@ -3591,9 +3637,14 @@ def get_ad_history(
             "ctr": ctr,
             "connect_rate": connect_rate,
             "cpm": cpm,
+            "hold_rate": hold_rate,
+            "scroll_stop": scroll_stop,
+            "frequency": frequency,
+            "mqls": mqls,
+            "cpmql": cpmql,
             "conversions": day_data["conversions"],
         })
-    
+
     return {"data": result}
 
 
@@ -3609,6 +3660,7 @@ def get_ad_name_history(
     Soma métricas de todos os `ad_metrics` que possuem o mesmo `ad_name`, agrupando por `date`.
     """
     sb = get_supabase_for_user(user["token"])
+    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
     # Gerar array de datas do período (inclusive)
     axis = _axis_date_range(date_start, date_stop)
@@ -3619,11 +3671,13 @@ def get_ad_name_history(
 
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,lpv"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions"
+        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
+        "hold_rate,scroll_stop_rate,reach,leadscore_values"
     )
     try:
         data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -3650,6 +3704,10 @@ def get_ad_name_history(
                 "plays": 0,
                 "hook_wsum": 0.0,
                 "video_watched_p50_wsum": 0.0,
+                "hold_rate_wsum": 0.0,
+                "scroll_stop_wsum": 0.0,
+                "reach": 0,
+                "mql_count": 0,
                 "conversions": {},
             }
 
@@ -3661,6 +3719,11 @@ def get_ad_name_history(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        hold_rate_val = float(r.get("hold_rate") or 0)
+        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
+        scroll_stop_val = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
+        reach = int(r.get("reach") or 0)
+        leadscore_values = r.get("leadscore_values") or []
 
         # landing_page_views (preferir coluna lpv quando disponível)
         lpv = _extract_lpv(r)
@@ -3675,7 +3738,7 @@ def get_ad_name_history(
                     if action_type:
                         key = f"conversion:{action_type}"
                         data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
-        
+
         actions = r.get("actions") or {}
         if isinstance(actions, list):
             for action in actions:
@@ -3694,6 +3757,10 @@ def get_ad_name_history(
         data_by_date[date]["plays"] += plays
         data_by_date[date]["hook_wsum"] += hook * plays
         data_by_date[date]["video_watched_p50_wsum"] += video_watched_p50 * plays
+        data_by_date[date]["hold_rate_wsum"] += hold_rate_val * plays
+        data_by_date[date]["scroll_stop_wsum"] += scroll_stop_val * plays
+        data_by_date[date]["reach"] += reach
+        data_by_date[date]["mql_count"] += _count_mql(leadscore_values, mql_leadscore_min)
 
     # Construir array de resultados com todas as datas do período
     result: List[Dict[str, Any]] = []
@@ -3708,6 +3775,10 @@ def get_ad_name_history(
             "plays": 0,
             "hook_wsum": 0.0,
             "video_watched_p50_wsum": 0.0,
+            "hold_rate_wsum": 0.0,
+            "scroll_stop_wsum": 0.0,
+            "reach": 0,
+            "mql_count": 0,
             "conversions": {},
         })
 
@@ -3716,6 +3787,11 @@ def get_ad_name_history(
         video_watched_p50_val = _safe_div(day_data["video_watched_p50_wsum"], day_data["plays"]) if day_data["plays"] else 0
         connect_rate = _safe_div(day_data["lpv"], day_data["inline_link_clicks"]) if day_data["inline_link_clicks"] else 0
         cpm = (_safe_div(day_data["spend"], day_data["impressions"]) * 1000.0) if day_data["impressions"] else 0
+        hold_rate = _safe_div(day_data["hold_rate_wsum"], day_data["plays"]) if day_data["plays"] else 0
+        scroll_stop = _safe_div(day_data["scroll_stop_wsum"], day_data["plays"]) if day_data["plays"] else 0
+        frequency = _safe_div(day_data["impressions"], day_data["reach"]) if day_data["reach"] else 0
+        mqls = day_data["mql_count"]
+        cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
 
         result.append({
             "date": date,
@@ -3730,6 +3806,11 @@ def get_ad_name_history(
             "ctr": ctr,
             "connect_rate": connect_rate,
             "cpm": cpm,
+            "hold_rate": hold_rate,
+            "scroll_stop": scroll_stop,
+            "frequency": frequency,
+            "mqls": mqls,
+            "cpmql": cpmql,
             "conversions": day_data["conversions"],
         })
 

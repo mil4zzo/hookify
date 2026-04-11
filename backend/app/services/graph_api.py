@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 import requests
 from app.core.config import META_GRAPH_BASE_URL
 from app.services.facebook_page_token_service import get_page_access_token_for_page_id
+from app.services.meta_api_errors import sanitize_error_dict_for_log
 from app.services.meta_usage_logger import log_meta_usage
 
 logger = logging.getLogger(__name__)
@@ -279,6 +280,52 @@ class GraphAPI:
             logger.exception("_update_entity_status error: %s", err)
             return {"status": "error", "message": str(err)}
 
+    def _handle_graph_request(
+        self,
+        *,
+        method: str,
+        path: str,
+        operation_name: str,
+        params: Optional[Dict[str, Any]] = None,
+        json_payload: Optional[Dict[str, Any]] = None,
+        files: Optional[Dict[str, Any]] = None,
+        timeout: int = 60,
+    ) -> Dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        request_params = {"access_token": self.access_token}
+        if params:
+            request_params.update(params)
+
+        try:
+            response = requests.request(
+                method=method,
+                url=url,
+                params=request_params,
+                json=json_payload,
+                files=files,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            log_meta_usage(response, operation_name)
+            return {"status": "success", "data": response.json() if response.content else {}}
+        except requests.exceptions.HTTPError as http_err:
+            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+            error_code = error_obj.get("code")
+            error_message = error_obj.get("message") or str(http_err)
+            if isinstance(error_obj, dict) and error_obj:
+                logger.warning(
+                    "%s Meta API HTTP error: %s",
+                    operation_name,
+                    sanitize_error_dict_for_log(dict(error_obj)),
+                )
+            if error_code == 190:
+                return {"status": "auth_error", "message": error_message, "error": error_obj}
+            return {"status": "http_error", "message": error_message, "error": error_obj}
+        except Exception as err:
+            logger.exception("%s error: %s", operation_name, err)
+            return {"status": "error", "message": str(err)}
+
     def update_ad_status(self, ad_id: str, status: str) -> Dict[str, Any]:
         """Atualiza status de um anúncio (PAUSED/ACTIVE) via Meta Graph API."""
         return self._update_entity_status(ad_id, status)
@@ -290,6 +337,138 @@ class GraphAPI:
     def update_campaign_status(self, campaign_id: str, status: str) -> Dict[str, Any]:
         """Atualiza status de uma campanha (PAUSED/ACTIVE) via Meta Graph API."""
         return self._update_entity_status(campaign_id, status)
+
+    def get_ad_parent_info(self, ad_id: str) -> Dict[str, Any]:
+        """Retorna campaign_id, adset_id e account_id de um anuncio."""
+        return self._handle_graph_request(
+            method="GET",
+            path=ad_id,
+            operation_name="GraphAPI.get_ad_parent_info",
+            params={"fields": "id,name,campaign_id,adset_id,account_id"},
+            timeout=30,
+        )
+
+    def get_campaign_config(self, campaign_id: str) -> Dict[str, Any]:
+        """Retorna configuracoes da campanha para duplicacao."""
+        # Apenas campos do no Campaign (ex.: start_time/end_time/pacing_type sao do AdSet).
+        fields = (
+            "id,name,objective,status,buying_type,bid_strategy,"
+            "daily_budget,lifetime_budget,special_ad_categories,special_ad_category_country,"
+            "spend_cap"
+        )
+        return self._handle_graph_request(
+            method="GET",
+            path=campaign_id,
+            operation_name="GraphAPI.get_campaign_config",
+            params={"fields": fields},
+            timeout=30,
+        )
+
+    def get_adset_fields(self, adset_id: str, fields: str) -> Dict[str, Any]:
+        """GET em um ad set por id (ex.: promoted_object para resolver page_id)."""
+        return self._handle_graph_request(
+            method="GET",
+            path=adset_id,
+            operation_name="GraphAPI.get_adset_fields",
+            params={"fields": fields},
+            timeout=30,
+        )
+
+    def get_adsets_for_campaign(self, campaign_id: str) -> Dict[str, Any]:
+        """Retorna todos os adsets de uma campanha com suas configuracoes."""
+        fields = (
+            "id,name,status,targeting,optimization_goal,billing_event,"
+            "bid_amount,daily_budget,lifetime_budget,promoted_object,"
+            "attribution_spec,destination_type,frequency_control_specs,bid_constraints,"
+            "pacing_type,start_time,end_time,bid_strategy"
+        )
+        return self._handle_graph_request(
+            method="GET",
+            path=f"{campaign_id}/adsets",
+            operation_name="GraphAPI.get_adsets_for_campaign",
+            params={"fields": fields, "limit": 50},
+            timeout=30,
+        )
+
+    def create_campaign(self, act_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Cria uma nova campanha na conta de anuncios."""
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/campaigns",
+            operation_name="GraphAPI.create_campaign",
+            json_payload=params,
+            timeout=60,
+        )
+
+    def create_adset(self, act_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Cria um novo conjunto de anuncios na conta."""
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/adsets",
+            operation_name="GraphAPI.create_adset",
+            json_payload=params,
+            timeout=60,
+        )
+
+    def get_ad_creative_details(self, ad_id: str) -> Dict[str, Any]:
+        # dsa_* nao sao campos do no AdCreative na Graph API (usar nivel de anuncio/conta se necessario).
+        fields = (
+            "id,name,creative{body,title,call_to_action,call_to_action_type,"
+            "link_url,url_tags,object_type,asset_feed_spec,image_hash,"
+            "video_id,thumbnail_url,object_story_spec}"
+        )
+        return self._handle_graph_request(
+            method="GET",
+            path=ad_id,
+            operation_name="GraphAPI.get_ad_creative_details",
+            params={"fields": fields},
+            timeout=30,
+        )
+
+    def upload_ad_image(self, act_id: str, filename: str, file_bytes: bytes) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/adimages",
+            operation_name="GraphAPI.upload_ad_image",
+            files={"filename": (filename, file_bytes)},
+            timeout=300,
+        )
+
+    def upload_ad_video(self, act_id: str, filename: str, file_bytes: bytes) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/advideos",
+            operation_name="GraphAPI.upload_ad_video",
+            files={"source": (filename, file_bytes)},
+            timeout=900,
+        )
+
+    def create_ad_creative(self, act_id: str, creative_params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/adcreatives",
+            operation_name="GraphAPI.create_ad_creative",
+            json_payload=creative_params,
+            timeout=60,
+        )
+
+    def create_ad(self, act_id: str, ad_params: Dict[str, Any]) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/ads",
+            operation_name="GraphAPI.create_ad",
+            json_payload=ad_params,
+            timeout=60,
+        )
+
+    def get_video_status(self, video_id: Union[str, int]) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="GET",
+            path=str(video_id),
+            operation_name="GraphAPI.get_video_status",
+            params={"fields": "status"},
+            timeout=30,
+        )
 
     def get_video_owner_page_id(self, video_id: Union[str, int]) -> Optional[str]:
         """Resolve o page_id do dono real do vídeo via GET /{video_id}?fields=from."""

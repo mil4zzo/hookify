@@ -138,7 +138,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
       setTempDateRange(packDatesRange);
       setTempDateRangePopover(packDatesRange);
       // Atualizar mês do calendário para acompanhar datas dos packs
-      const targetMonth = isMobile ? packDatesRange.from : new Date(packDatesRange.from.getFullYear(), packDatesRange.from.getMonth() - 1);
+      const targetMonth = packDatesRange.from;
       setCalendarMonth(targetMonth);
       setCalendarMonthModal(targetMonth);
     } else if (!usePackDates) {
@@ -191,7 +191,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
       } else {
         setTempDateRangePopover(date || getDefaultDateRange());
       }
-      setCalendarMonth(getDefaultMonth(false));
+      setCalendarMonth(usePackDates && packDatesRange?.from ? packDatesRange.from : getDefaultMonth(false));
     }
   };
 

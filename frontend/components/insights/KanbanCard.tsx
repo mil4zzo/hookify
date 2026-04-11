@@ -18,9 +18,12 @@ interface KanbanCardProps {
   metricLabel: string;
   variant?: "success" | "destructive";
   rank: number;
+  secondaryText?: string;
+  selected?: boolean;
+  onClick?: () => void;
 }
 
-export function KanbanCard({ ad, metricLabel, variant = "success", rank }: KanbanCardProps) {
+export function KanbanCard({ ad, metricLabel, variant = "success", rank, secondaryText, selected = false, onClick }: KanbanCardProps) {
   const variantStyles = {
     success: {
       border: "border-success-30",
@@ -43,7 +46,8 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank }: Kanba
       variant="default"
       padding="none"
       interactive={true}
-      className={cn(styles.border, styles.bg)}
+      onClick={onClick}
+      className={cn(styles.border, styles.bg, selected && "ring-2 ring-primary/20 border-primary bg-primary/5")}
     >
       <CardContent className="p-1">
         <div className="flex items-start gap-3">
@@ -70,7 +74,7 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank }: Kanba
               <p className="font-medium text-sm truncate" title={ad.ad_name}>
                 {ad.ad_name || "Sem nome"}
               </p>
-              <p className="text-xs text-muted-foreground font-mono truncate">{ad.ad_id}</p>
+              <p className="text-xs text-muted-foreground font-mono truncate">{secondaryText ?? ad.ad_id}</p>
             </div>
 
             {/* Metric value */}

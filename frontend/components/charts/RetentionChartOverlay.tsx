@@ -16,6 +16,7 @@ interface RetentionChartOverlayProps {
   isPlaying?: boolean;
   onTimeSeek?: (second: number) => void;
   className?: string;
+  showYAxisLabels?: boolean;
 }
 
 // Função para converter índice do ponto para segundo do vídeo
@@ -31,12 +32,16 @@ const indexToSecond = (index: number): number => {
 const indexToSecondFractional = (index: number): number => {
   if (index <= 0) return 0;
   if (index < 15) return index; // índices 0–14.999 mapeiam 1:1 para segundos (inclui fração 14.x→14.xs)
+  const seconds = [15, 20, 25, 30, 40, 50, 60];
   const i = Math.floor(index);
   const frac = index - i;
-  const seconds = [15, 20, 25, 30, 40, 50, 60];
-  const lower = seconds[i - 15] ?? 60;
-  const upper = seconds[i - 14] ?? 60;
-  return lower + frac * (upper - lower);
+  if (i - 15 < seconds.length - 1) {
+    const lower = seconds[i - 15] ?? 60;
+    const upper = seconds[i - 14] ?? 60;
+    return lower + frac * (upper - lower);
+  }
+  // Além do índice 21: extrapolar a 10s por índice (mesma taxa do último bucket 50→60)
+  return 60 + (index - 21) * 10;
 };
 
 // Função para converter segundo real para índice fracionário (inverso de indexToSecond)
@@ -50,7 +55,8 @@ const secondToIndex = (second: number): number => {
       return 15 + i + ratio;
     }
   }
-  return 21;
+  // Além de 60s: extrapolar a 10s por índice (mesma taxa do último bucket 50→60)
+  return 21 + (second - 60) / 10;
 };
 
 // Função para obter o valor de retenção em um segundo específico (com interpolação)
@@ -92,10 +98,8 @@ const getRetentionAtSecond = (second: number, data: { x: number; y: number }[]):
   return lowerY + (upperY - lowerY) * ratio;
 };
 
-export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duration = 0, isPlaying = false, onTimeSeek, className = "" }: RetentionChartOverlayProps) {
+export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duration = 0, isPlaying = false, onTimeSeek, className = "", showYAxisLabels = true }: RetentionChartOverlayProps) {
   const [hoverTime, setHoverTime] = useState<number | null>(null);
-  const [isMouseOver, setIsMouseOver] = useState(false);
-  const lastHoverRef = useRef<{ left: string; top: string; title: string; value: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("#6b7280"); // fallback gray
 
@@ -140,11 +144,8 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
     return indexToSecond(data.length - 1);
   }, [data]);
 
-  // Tempo máximo para usar (duração do vídeo ou tempo máximo do gráfico)
-  const maxTime = duration > 0 ? Math.min(duration, maxGraphTime) : maxGraphTime;
-
-  // Tempo máximo efetivo para cálculos (sempre usar duration quando disponível)
-  const effectiveMaxTime = duration > 0 ? Math.min(duration, maxGraphTime) : maxTime;
+  // Tempo máximo efetivo para cálculos (usar duration real do vídeo quando disponível)
+  const effectiveMaxTime = duration > 0 ? duration : maxGraphTime;
 
   // Margens: eixo Y fica à esquerda (fora), eixo X ocupa toda largura
   const axisYWidth = 32; // Largura do eixo Y (legenda lateral)
@@ -184,12 +185,7 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
     setHoverTime(targetSecond);
   };
 
-  const handleMouseEnter = () => {
-    setIsMouseOver(true);
-  };
-
   const handleMouseLeave = () => {
-    setIsMouseOver(false);
     setHoverTime(null);
   };
 
@@ -255,20 +251,13 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
   const h = overlayHeight - margin.top - margin.bottom;
 
   // Escala baseada nos índices (para os dados e eixos)
-  // Se duration > 0, limitar o domínio aos índices que correspondem a segundos <= duration
+  // Usar secondToIndex(duration) para mapear a duração real do vídeo para o domínio de índices
   const maxIndex = useMemo(() => {
-    if (duration > 0 && duration < maxGraphTime) {
-      // Encontrar o maior índice cujo segundo correspondente seja <= duration
-      for (let i = data.length - 1; i >= 0; i--) {
-        const pointSecond = indexToSecond(i);
-        if (pointSecond <= duration) {
-          return i;
-        }
-      }
-      return 0;
+    if (duration > 0) {
+      return secondToIndex(duration);
     }
     return Math.max(1, data.length - 1);
-  }, [data, duration, maxGraphTime]);
+  }, [data, duration]);
 
   const xScale = scaleLinear<number>({
     domain: [0, maxIndex],
@@ -331,7 +320,7 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
           stroke-width: 0 !important;
         }
       `}</style>
-      <svg width={containerWidth} height={overlayHeight} className="absolute inset-0 pointer-events-auto" onMouseEnter={handleMouseEnter} onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onClick={handleClick} style={{ cursor: onTimeSeek ? "pointer" : "default" }}>
+      <svg width={containerWidth} height={overlayHeight} className="absolute inset-0 pointer-events-auto" onMouseMove={handleMouseMove} onMouseLeave={handleMouseLeave} onClick={handleClick} style={{ cursor: onTimeSeek ? "pointer" : "default" }}>
         <LinearGradient id="overlayRetentionGradient" from="var(--primary)" to="var(--primary)" fromOpacity={0.9} toOpacity={0} />
 
         <g transform={`translate(${axisYWidth + margin.left},${margin.top})`}>
@@ -363,55 +352,45 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
           {hoverTimeX != null && hoverTime !== currentTime && <line x1={hoverTimeX} x2={hoverTimeX} y1={0} y2={h} stroke="var(--muted-foreground)" strokeWidth={1} strokeOpacity={0.6} strokeDasharray="4 3" clipPath="url(#overlayRetentionClip)" />}
 
           {/* Axis */}
-          <g className="retention-chart-overlay-axis">
-            <AxisLeft
-              scale={yScale}
-              hideAxisLine={true}
-              hideTicks={true}
-              tickValues={[0, 20, 40, 60, 80, 100]}
-              tickFormat={(v) => `${v}%`}
-              stroke="transparent"
-              strokeWidth={0}
-              tickStroke="transparent"
-              tickLabelProps={() => ({
-                fill: mutedForegroundColor,
-                fontSize: 10,
-                textAnchor: "end",
-                dy: "0.33em",
-              })}
-            />
-          </g>
+          {showYAxisLabels ? (
+            <g className="retention-chart-overlay-axis">
+              <AxisLeft
+                scale={yScale}
+                hideAxisLine={true}
+                hideTicks={true}
+                tickValues={[0, 20, 40, 60, 80, 100]}
+                tickFormat={(v) => `${v}%`}
+                stroke="transparent"
+                strokeWidth={0}
+                tickStroke="transparent"
+                tickLabelProps={() => ({
+                  fill: mutedForegroundColor,
+                  fontSize: 10,
+                  textAnchor: "end",
+                  dy: "0.33em",
+                })}
+              />
+            </g>
+          ) : null}
         </g>
       </svg>
 
       {/* Tooltip de retenção no hover */}
-      {(() => {
-        if (hoverTimeX != null && hoverTooltipY != null && hoverRetention != null && hoverTime != null) {
-          lastHoverRef.current = {
+      {hoverTimeX != null && hoverTooltipY != null && hoverRetention != null && hoverTime != null && (
+        <ChartTooltip
+          title={`Tempo: ${hoverTime.toFixed(1)}s`}
+          value={`Retenção: ${hoverRetention.toFixed(1)}%`}
+          className="bg-background-80 border border-primary"
+          titleClassName="text-[10px] text-muted-foreground font-normal"
+          valueClassName="text-sm text-white font-semibold"
+          style={{
             left: `${axisYWidth + margin.left + hoverTimeX}px`,
             top: `${margin.top + hoverTooltipY}px`,
-            title: `Tempo: ${hoverTime.toFixed(1)}s`,
-            value: `Retenção: ${hoverRetention.toFixed(1)}%`,
-          };
-        }
-        return lastHoverRef.current ? (
-          <ChartTooltip
-            title={lastHoverRef.current.title}
-            value={lastHoverRef.current.value}
-            className="bg-background-80 border border-primary"
-            titleClassName="text-[10px] text-muted-foreground font-normal"
-            valueClassName="text-sm text-white font-semibold"
-            style={{
-              left: lastHoverRef.current.left,
-              top: lastHoverRef.current.top,
-              transform: "translate(-50%, -100%)",
-              marginTop: "-8px",
-              opacity: isMouseOver && hoverTime != null ? 1 : 0,
-              transition: "opacity 0.2s ease-in-out",
-            }}
-          />
-        ) : null;
-      })()}
+            transform: "translate(-50%, -100%)",
+            marginTop: "-8px",
+          }}
+        />
+      )}
 
       {/* Tooltip de retenção durante a reprodução */}
       {currentTimeX != null && tooltipY != null && currentRetention != null && duration > 0 && (

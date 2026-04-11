@@ -1,22 +1,24 @@
 import {
+  IconBook2,
   IconCardsFilled,
+  IconCompass,
+  IconDiamond,
   IconFlask,
+  IconPalette,
   IconSitemapFilled,
   IconSunFilled,
-  IconPalette,
-  IconDiamond,
-  IconBook2
+  IconUpload,
 } from "@tabler/icons-react";
 import { ComponentType } from "react";
 
 export interface PageConfig {
   path: string;
   title: string;
-  label: string; // Para usar no Sidebar
+  label: string;
   icon: ComponentType<{ className?: string }>;
   description?: string;
-  isDevelopment?: boolean; // Para separar páginas de desenvolvimento
-  showInMenu?: boolean; // Para controlar se aparece no menu
+  isDevelopment?: boolean;
+  showInMenu?: boolean;
 }
 
 export const pageConfigs: PageConfig[] = [
@@ -25,7 +27,7 @@ export const pageConfigs: PageConfig[] = [
     title: "Packs",
     label: "Packs",
     icon: IconCardsFilled,
-    description: "Carregue seus packs de anúncios e combine-os para análise",
+    description: "Carregue seus packs de anuncios e combine-os para analise",
     showInMenu: true,
   },
   {
@@ -33,7 +35,7 @@ export const pageConfigs: PageConfig[] = [
     title: "Manager",
     label: "Manager",
     icon: IconSitemapFilled,
-    description: "Gerencie e visualize performance dos seus anúncios",
+    description: "Gerencie e visualize performance dos seus anuncios",
     showInMenu: true,
   },
   {
@@ -41,7 +43,15 @@ export const pageConfigs: PageConfig[] = [
     title: "Insights",
     label: "Insights",
     icon: IconSunFilled,
-    description: "Análises e insights sobre seus anúncios",
+    description: "Analises e insights sobre seus anuncios",
+    showInMenu: true,
+  },
+  {
+    path: "/explorer",
+    title: "Explorer",
+    label: "Explorer",
+    icon: IconCompass,
+    description: "Analise profunda de criativos e seus gargalos",
     showInMenu: true,
   },
   {
@@ -53,8 +63,16 @@ export const pageConfigs: PageConfig[] = [
     showInMenu: true,
   },
   {
+    path: "/upload",
+    title: "Upload",
+    label: "Upload",
+    icon: IconUpload,
+    description: "Crie anuncios em massa a partir de um modelo",
+    showInMenu: true,
+  },
+  {
     path: "/docs",
-    title: "Documentação",
+    title: "Documentacao",
     label: "Docs",
     icon: IconBook2,
     description: "Guia de uso da plataforma",
@@ -78,7 +96,6 @@ export const pageConfigs: PageConfig[] = [
   },
 ];
 
-// Helper functions
 export function getPageConfig(path: string): PageConfig | undefined {
   return pageConfigs.find((config) => config.path === path);
 }
@@ -91,11 +108,10 @@ export function getDevelopmentItems(): PageConfig[] {
   return pageConfigs.filter((config) => config.showInMenu && config.isDevelopment);
 }
 
-// Para usar no Topbar - compatível com o formato atual
-export const pageTitles: Record<string, { title: string; icon?: ComponentType<{ className?: string }> }> = 
-  pageConfigs.reduce((acc, config) => {
-    acc[config.path] = { title: config.title, icon: config.icon };
-    return acc;
-  }, {} as Record<string, { title: string; icon?: ComponentType<{ className?: string }> }>);
-
-
+export const pageTitles: Record<
+  string,
+  { title: string; icon?: ComponentType<{ className?: string }> }
+> = pageConfigs.reduce((acc, config) => {
+  acc[config.path] = { title: config.title, icon: config.icon };
+  return acc;
+}, {} as Record<string, { title: string; icon?: ComponentType<{ className?: string }> }>);

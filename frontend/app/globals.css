@@ -4,6 +4,121 @@
 
 @import "./theme-generated.css";
 
+/* Receitas de gradiente compartilhadas entre botões e cards */
+.neutral-gradient {
+  --gradient-fill: radial-gradient(
+    circle at 50% 100%,
+    color-mix(in oklab, var(--neutral-400) 35%, transparent),
+    color-mix(in oklab, var(--neutral-600) 52%, transparent) 34%,
+    color-mix(in oklab, var(--neutral-800) 98%, transparent) 72%,
+    var(--neutral-950) 100%
+  );
+  --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--neutral-600) 10%, transparent);
+  --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--neutral-600) 28%, transparent);
+  background-color: var(--neutral-800);
+  background-image:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--surface-fill) 16%, transparent),
+      color-mix(in oklab, var(--surface-fill) 5%, transparent) 38%,
+      transparent 100%
+    ),
+    var(--gradient-fill);
+}
+
+/* Primary radial gradient */
+.primary-gradient {
+  --gradient-fill: radial-gradient(
+    circle at 50% 100%,
+    color-mix(in oklab, var(--primary-400) 95%, transparent),
+    color-mix(in oklab, var(--primary) 92%, transparent) 34%,
+    color-mix(in oklab, var(--primary-800) 98%, transparent) 72%,
+    var(--primary-900) 100%
+  );
+  --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--primary-600) 10%, transparent);
+  --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--primary-600) 42%, transparent);
+  background-color: var(--primary-800);
+  background-image:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--surface-fill) 16%, transparent),
+      color-mix(in oklab, var(--surface-fill) 5%, transparent) 38%,
+      transparent 100%
+    ),
+    var(--gradient-fill);
+}
+
+/* Success radial gradient */
+.success-gradient {
+  --gradient-fill: radial-gradient(
+    circle at 50% 100%,
+    color-mix(in oklab, var(--success-400) 95%, transparent),
+    color-mix(in oklab, var(--success-600) 92%, transparent) 34%,
+    color-mix(in oklab, var(--success-800) 98%, transparent) 72%,
+    var(--success-900) 100%
+  );
+  --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--success-600) 10%, transparent);
+  --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--success-600) 25%, transparent);
+  background-color: var(--success-800);
+  background-image:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--surface-fill) 16%, transparent),
+      color-mix(in oklab, var(--surface-fill) 5%, transparent) 38%,
+      transparent 100%
+    ),
+    var(--gradient-fill);
+}
+
+/* Destructive radial gradient */
+.destructive-gradient {
+  --gradient-fill: radial-gradient(
+    circle at 50% 90%,
+    color-mix(in oklab, var(--destructive-400) 75%, transparent),
+    color-mix(in oklab, var(--destructive) 82%, transparent) 34%,
+    color-mix(in oklab, var(--destructive-800) 98%, transparent) 72%,
+    var(--destructive-950) 100%
+  );
+  --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--destructive-600) 10%, transparent);
+  --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--destructive-600) 25%, transparent);
+  background-color: var(--destructive-800);
+  background-image:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--surface-fill) 16%, transparent),
+      color-mix(in oklab, var(--surface-fill) 5%, transparent) 38%,
+      transparent 100%
+    ),
+    var(--gradient-fill);
+}
+
+/* Comportamento interativo específico para botões com gradiente */
+[data-slot="button"].neutral-gradient,
+[data-slot="button"].primary-gradient,
+[data-slot="button"].success-gradient,
+[data-slot="button"].destructive-gradient {
+  position: relative;
+  overflow: hidden;
+  text-shadow: 0px 1px 3px rgba(0, 0, 0, .72);
+  transition: box-shadow .75s cubic-bezier(0.165, 0.84, 0.44, 1), filter .2s ease, border-color .2s ease;
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--surface-fill) 18%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--neutral-950) 10%, transparent),
+    var(--gradient-glow);
+}
+
+[data-slot="button"].neutral-gradient:hover,
+[data-slot="button"].primary-gradient:hover,
+[data-slot="button"].success-gradient:hover,
+[data-slot="button"].destructive-gradient:hover {
+  filter: brightness(1.1);
+  border-color: rgb(255 255 255 / 0.12);
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklab, var(--surface-fill) 18%, transparent),
+    inset 0 -1px 0 color-mix(in oklab, var(--neutral-950) 10%, transparent),
+    var(--gradient-glow-hover);
+}
+
 html, body { height: 100%; }
 
 /* Previne flick horizontal quando scrollbar aparece/desaparece */
@@ -41,6 +156,10 @@ html body[data-scroll-locked] {
   background-color: var(--card);
 }
 
+*::-webkit-scrollbar-corner {
+  background-color: transparent;
+}
+
 *::-webkit-scrollbar-thumb {
   border-radius: 10px;
   background-color: var(--secondary);
@@ -57,6 +176,14 @@ html body[data-scroll-locked] {
 [data-sonner-toast] {
   background-color: var(--card) !important;
   border-color: var(--border) !important;
+}
+
+[data-sonner-toast].toast-card-shell {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  width: auto !important;
 }
 
 [data-sonner-toast] [data-title] {
@@ -104,6 +231,96 @@ html body[data-scroll-locked] {
   width: 100%;
   max-width: none;
   min-width: 0;
+}
+
+/* ── Sparkline animations ─────────────────────────────────────── */
+
+/* Skeleton wave (loop infinito enquanto loading) */
+.sparkline-wave-bar {
+  transform-origin: bottom center;
+  animation: sparklineWave 900ms cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation-delay: var(--skeleton-wave-delay, 0ms);
+  will-change: transform, opacity;
+}
+
+/* Skeleton fade-out escalonado (ao receber dados) */
+.sparkline-exit-bar {
+  transform-origin: bottom center;
+  animation: sparklineExitBar var(--skeleton-fade-out-duration, 500ms) cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation-delay: var(--skeleton-fade-out-delay, 0ms);
+  will-change: transform, opacity;
+}
+
+/* Sparkline fade-in escalonado (ao entrar após skeleton) */
+.sparkline-fade-in-bar {
+  opacity: 0;
+  transform: scaleY(0.2);
+  transform-origin: bottom center;
+  animation: sparklineFadeInBar var(--sparkline-fade-in-duration, 500ms) cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation-delay: var(--sparkline-fade-in-delay, 0ms);
+  will-change: transform, opacity;
+}
+
+@keyframes sparklineWave {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+    opacity: 0.35;
+  }
+  25% {
+    transform: scaleY(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: scaleY(0.55);
+    opacity: 0.55;
+  }
+  75% {
+    transform: scaleY(0.85);
+    opacity: 0.8;
+  }
+}
+
+@keyframes sparklineExitBar {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+}
+
+@keyframes sparklineFadeInBar {
+  from {
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sparkline-wave-bar {
+    animation: none;
+    opacity: 0.6;
+    transform: scaleY(0.6);
+  }
+
+  .sparkline-exit-bar {
+    animation: none;
+    opacity: 0;
+    transform: scaleY(0.2);
+  }
+
+  .sparkline-fade-in-bar {
+    animation: none;
+    opacity: 1;
+    transform: scaleY(1);
+  }
 }
 
 /* Animação de gradiente em movimento para a linha do CPR */

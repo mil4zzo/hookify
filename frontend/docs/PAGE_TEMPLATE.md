@@ -1,26 +1,23 @@
 # Template para Novas Páginas
 
-Este documento descreve o padrão estabelecido para criação de novas páginas na aplicação, garantindo consistência visual e facilidade de manutenção.
+Guia para criar páginas novas. O objetivo é que você tome **o mínimo de decisões de layout**: o
+`PageContainer` cuida do header, do spacing e do rhythm. Você só fornece título, descrição,
+ações e conteúdo.
 
-## Estrutura Padrão
-
-Todas as páginas devem seguir esta estrutura básica:
+## Estrutura padrão
 
 ```tsx
 "use client";
 
 import { PageContainer } from "@/components/common/PageContainer";
-import { PageIcon } from "@/lib/utils/pageIcon";
-import { IconExample } from "@tabler/icons-react";
 
 export default function NewPage() {
   return (
     <PageContainer
       title="Título da Página"
-      description="Descrição opcional da página"
-      icon={<PageIcon icon={IconExample} />}
+      description="Descrição curta da página"
       actions={
-        // Botões, filtros, etc. opcionais
+        // Botões, filtros, toggles etc — opcional
       }
     >
       {/* Conteúdo da página */}
@@ -29,207 +26,121 @@ export default function NewPage() {
 }
 ```
 
-## Padrões Obrigatórios
+Isso é tudo que a maioria das páginas precisa. Não há prop de `variant`, `spacing` ou
+customização de classes de header — todas as páginas compartilham o mesmo visual.
 
-### 1. Ícones
+## Props aceitas
 
-**Sempre use o helper `PageIcon`:**
+### Comuns (use sempre que aplicável)
 
-```tsx
-// ✅ CORRETO
-import { PageIcon } from "@/lib/utils/pageIcon";
-import { IconCompass } from "@tabler/icons-react";
+| Prop          | Tipo        | Obrigatório | Descrição                                    |
+|---------------|-------------|-------------|----------------------------------------------|
+| `title`       | `string`    | ✅          | Título grande no topo da página              |
+| `description` | `ReactNode` | —           | Texto curto abaixo do título                 |
+| `actions`     | `ReactNode` | —           | Botões/filtros alinhados à direita do header |
+| `icon`        | `ReactNode` | —           | Ícone ao lado do título (use `PageIcon`)     |
+| `children`    | `ReactNode` | ✅          | Conteúdo da página                           |
+| `className`   | `string`    | —           | Classe extra no wrapper raiz (use com cautela) |
 
-<PageContainer
-  icon={<PageIcon icon={IconCompass} />}
-  ...
-/>
+### `fullHeight`
 
-// ❌ ERRADO - Não use classes diretamente
-<PageContainer
-  icon={<IconCompass className="w-6 h-6 text-yellow-500" />}
-  ...
-/>
-```
-
-**Benefícios:**
-- Garante tamanho e cor consistentes (`w-6 h-6 text-yellow-500`)
-- Facilita manutenção (mudanças centralizadas)
-- Type-safe com TypeScript
-
-### 2. Espaçamento
-
-**Use o padrão (`md`) a menos que necessário outro:**
+Use quando o conteúdo precisa ocupar toda a altura do viewport e ter scroll interno próprio.
+Caso de uso real: tabelas grandes onde o header da tabela fica fixo enquanto as linhas
+scrollam. Exemplo: `/manager`.
 
 ```tsx
-// ✅ Padrão (recomendado)
-<PageContainer spacing="md" ... />
-
-// ✅ Apenas quando necessário
-<PageContainer spacing="sm" ... />  // Menos espaço
-<PageContainer spacing="lg" ... />  // Mais espaço
-```
-
-**Espaçamentos disponíveis:**
-- `sm`: `space-y-4` (16px)
-- `md`: `space-y-6` (24px) - **padrão**
-- `lg`: `space-y-8` (32px)
-
-### 3. FullHeight
-
-**Use apenas quando o conteúdo precisa ocupar toda a altura:**
-
-```tsx
-// ✅ Apenas quando necessário (ex: tabelas com scroll interno)
-<PageContainer fullHeight={true} ... >
+<PageContainer title="Otimize" description="..." fullHeight={true}>
   <ManagerTable ... />
 </PageContainer>
+```
 
-// ✅ Padrão (recomendado)
-<PageContainer ... >
-  <div>Conteúdo normal</div>
+⚠️ `fullHeight={true}` altera o fluxo de layout — só use se a página precisa mesmo.
+
+### Props de uso restrito (Explorer)
+
+Existem props que **só o Explorer usa** e não devem aparecer em páginas novas:
+
+- `hideHeader` — remove o header da página
+- `fullWidth` — faz o shell ocupar largura total (sem `max-w-*`)
+- `pageSidebar`, `pageSidebarClassName`, `pageSidebarMobileBehavior` — adiciona sidebar
+  lateral grudada no conteúdo
+- `contentClassName` — classe extra no wrapper do content (ex: `min-w-0`)
+
+Se você sentir necessidade dessas props em uma página nova, antes verifique se o padrão
+comum não resolve.
+
+## Páginas com abas
+
+Use `TabbedContent` + `TabbedContentItem` e **sempre** passe `separatorAfterTabs={true}` para
+manter o mesmo respiro entre a barra de abas e o conteúdo em todas as páginas:
+
+```tsx
+import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+
+const tabs: TabItem[] = [
+  { value: "a", label: "Aba A" },
+  { value: "b", label: "Aba B" },
+];
+
+<PageContainer title="Página com abas" description="...">
+  <TabbedContent
+    value={activeTab}
+    onValueChange={setActiveTab}
+    tabs={tabs}
+    separatorAfterTabs={true}
+  >
+    <TabbedContentItem value="a">{/* ... */}</TabbedContentItem>
+    <TabbedContentItem value="b">{/* ... */}</TabbedContentItem>
+  </TabbedContent>
 </PageContainer>
 ```
 
-**⚠️ Atenção:** `fullHeight` remove o espaçamento padrão entre header e conteúdo. Use apenas quando realmente necessário.
-
-### 4. Título e Descrição
-
-**Sempre forneça um título descritivo:**
+Se a página tiver controles que ficam ao lado das abas (ex: `StepIndicator`, toggles de
+visualização), use também `variant="with-controls"` e passe `controls={<…/>}`:
 
 ```tsx
-<PageContainer
-  title="Biblioteca"  // ✅ Sempre forneça
-  description="Gerencie seus Packs de anúncios"  // ✅ Opcional mas recomendado
-  ...
-/>
+<TabbedContent
+  value={mode}
+  onValueChange={setMode}
+  tabs={tabs}
+  variant="with-controls"
+  separatorAfterTabs={true}
+  controls={<ViewModeToggle ... />}
+  tabsContainerClassName="flex-col items-stretch gap-3 md:flex-row md:items-center md:gap-4"
+  tabsListClassName="w-full overflow-x-auto md:w-fit"
+>
+  <TabbedContentItem value="a" variant="with-controls">{/* ... */}</TabbedContentItem>
+</TabbedContent>
 ```
 
-## Exemplos Completos
+## O que mudou nesta padronização
 
-### Página Simples
+Antes, `PageContainer` aceitava props como `variant="analytics" | "standard"`, `spacing`,
+`titleClassName`, `descriptionClassName` etc. Isso permitia cada página ter um spacing
+diferente — o que gerava inconsistência. Essas props foram **removidas**:
 
-```tsx
-"use client";
+- `variant` — todas as páginas usam o mesmo look (o antigo `analytics`).
+- `spacing` — o wrapper tem `space-y-5` hard-coded.
+- `*ClassName` granulares (title, description, header, actions) — removidos.
 
-import { PageContainer } from "@/components/common/PageContainer";
-import { PageIcon } from "@/lib/utils/pageIcon";
-import { IconStack2Filled } from "@tabler/icons-react";
-import { Button } from "@/components/ui/button";
+Para alterar o visual, edite os componentes base:
+- `frontend/components/common/PageContainer.tsx`
+- `frontend/components/common/PageSectionHeader.tsx`
 
-export default function PacksPage() {
-  return (
-    <PageContainer
-      title="Biblioteca"
-      description="Gerencie seus Packs de anúncios"
-      icon={<PageIcon icon={IconStack2Filled} />}
-      actions={
-        <Button>Carregar Pack</Button>
-      }
-    >
-      <div>Conteúdo da página</div>
-    </PageContainer>
-  );
-}
-```
+Mudar o spacing lá afeta todas as páginas automaticamente — é o ponto.
 
-### Página com FullHeight
+## Checklist para novas páginas
 
-```tsx
-"use client";
-
-import { PageContainer } from "@/components/common/PageContainer";
-import { PageIcon } from "@/lib/utils/pageIcon";
-import { IconCompass } from "@tabler/icons-react";
-import { ManagerTable } from "@/components/manager/ManagerTable";
-
-export default function ManagerPage() {
-  return (
-    <PageContainer
-      title="Explore"
-      description="Dados de performance dos seus anúncios"
-      icon={<PageIcon icon={IconCompass} />}
-      fullHeight={true}  // Necessário para tabela com scroll interno
-    >
-      <ManagerTable ... />
-    </PageContainer>
-  );
-}
-```
-
-### Página com Filtros
-
-```tsx
-"use client";
-
-import { PageContainer } from "@/components/common/PageContainer";
-import { PageIcon } from "@/lib/utils/pageIcon";
-import { IconTrophy } from "@tabler/icons-react";
-import { FiltersDropdown } from "@/components/common/FiltersDropdown";
-
-export default function GoldPage() {
-  return (
-    <PageContainer
-      title="G.O.L.D."
-      description="Classificação de anúncios por performance"
-      icon={<PageIcon icon={IconTrophy} />}
-      actions={
-        <FiltersDropdown
-          expanded={true}
-          dateRange={dateRange}
-          onDateRangeChange={handleDateRangeChange}
-          ...
-        />
-      }
-    >
-      <GoldTable ... />
-    </PageContainer>
-  );
-}
-```
-
-## Manutenção Centralizada
-
-### Alterar Tamanho dos Ícones
-
-Edite `frontend/lib/constants/pageLayout.ts`:
-
-```typescript
-export const PAGE_ICON_SIZE = "w-6 h-6";  // Altere aqui
-```
-
-### Alterar Cor dos Ícones
-
-Edite `frontend/lib/constants/pageLayout.ts`:
-
-```typescript
-export const PAGE_ICON_COLOR = "text-yellow-500";  // Altere aqui
-```
-
-### Alterar Espaçamento Padrão
-
-Edite `frontend/lib/constants/pageLayout.ts`:
-
-```typescript
-export const PAGE_SPACING_DEFAULT = "md" as const;  // Altere aqui
-```
-
-Todas as páginas que usam `PageIcon` e `PageContainer` serão atualizadas automaticamente!
-
-## Checklist para Novas Páginas
-
-- [ ] Importar `PageContainer` de `@/components/common/PageContainer`
-- [ ] Importar `PageIcon` de `@/lib/utils/pageIcon`
-- [ ] Usar `<PageIcon icon={IconComponent} />` para o ícone
-- [ ] Fornecer título descritivo
-- [ ] Usar espaçamento padrão (`md`) a menos que necessário outro
-- [ ] Usar `fullHeight` apenas quando necessário
-- [ ] Testar responsividade em diferentes tamanhos de tela
+- [ ] Importou `PageContainer` de `@/components/common/PageContainer`
+- [ ] Forneceu `title` descritivo e `description` curta
+- [ ] Se a página tem abas, usou `TabbedContent` com `separatorAfterTabs={true}`
+- [ ] Não passou `variant`, `spacing`, `titleClassName`, etc — essas props não existem mais
+- [ ] Usou `fullHeight={true}` apenas se realmente precisa de scroll interno
+- [ ] Testou em mobile e desktop
 
 ## Referências
 
 - **Componente:** `frontend/components/common/PageContainer.tsx`
-- **Helper:** `frontend/lib/utils/pageIcon.tsx`
-- **Constantes:** `frontend/lib/constants/pageLayout.ts`
 - **Header:** `frontend/components/common/PageSectionHeader.tsx`
-
+- **Tabs:** `frontend/components/common/TabbedContent.tsx`
+- **Exemplo de referência:** `frontend/app/manager/page.tsx` (é o modelo do padrão visual)

@@ -2,7 +2,7 @@ import { RankingsItem } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { OpportunityRow } from "./opportunity";
-import { computeMqlMetricsFromLeadscore } from "./mqlMetrics";
+import { getMetricNumericValue, isLowerBetterMetric, type MetricKey } from "@/lib/metrics";
 
 /**
  * Rankings globais de métricas por ad_id
@@ -57,13 +57,10 @@ export interface MetricRankingsOptions {
 function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsData {
   const impressions = Number((ad as any).impressions || 0);
   const spend = Number((ad as any).spend || 0);
-  // CPM: priorizar valor do backend, senão calcular
-  const cpm = typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm) && isFinite((ad as any).cpm) ? (ad as any).cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
-  const website_ctr = Number((ad as any).website_ctr || 0);
-  const connect_rate = Number((ad as any).connect_rate || 0);
-  const lpv = Number((ad as any).lpv || 0);
-  const results = actionType ? Number((ad as any).conversions?.[actionType] || 0) : 0;
-  const page_conv = lpv > 0 ? results / lpv : 0;
+  const cpm = getMetricNumericValue(ad as any, "cpm");
+  const website_ctr = getMetricNumericValue(ad as any, "website_ctr");
+  const connect_rate = getMetricNumericValue(ad as any, "connect_rate");
+  const page_conv = getMetricNumericValue(ad as any, "page_conv", { actionType });
   const overall_conversion = website_ctr * connect_rate * page_conv;
 
   return {
@@ -88,55 +85,8 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
 /**
  * Obtém o valor de uma métrica específica de um RankingsItem
  */
-function getMetricValue(ad: RankingsItem, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql", actionType?: string, mqlLeadscoreMin: number = 0): number {
-  switch (metric) {
-    case "hook":
-      return Number(ad.hook || 0);
-    case "website_ctr": {
-      // website_ctr pode não estar no schema, calcular se necessário
-      const websiteCtr = (ad as any).website_ctr;
-      if (typeof websiteCtr === "number" && !Number.isNaN(websiteCtr) && isFinite(websiteCtr)) {
-        return websiteCtr;
-      }
-      // Fallback: calcular a partir de inline_link_clicks / impressions
-      const impressions = Number(ad.impressions || 0);
-      const inlineLinkClicks = Number((ad as any).inline_link_clicks || 0);
-      return impressions > 0 ? inlineLinkClicks / impressions : 0;
-    }
-    case "ctr":
-      return Number(ad.ctr || 0);
-    case "hold_rate":
-      return Number((ad as any).hold_rate || 0);
-    case "page_conv": {
-      const lpv = Number(ad.lpv || 0);
-      const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
-      return lpv > 0 ? results / lpv : 0;
-    }
-    case "cpr": {
-      // Se o ad já tem CPR calculado (vem do ranking), usar esse valor
-      if ("cpr" in ad && typeof (ad as any).cpr === "number" && (ad as any).cpr > 0) {
-        return (ad as any).cpr;
-      }
-      // Caso contrário, calcular baseado no actionType
-      if (!actionType) return 0;
-      const spend = Number(ad.spend || 0);
-      const results = Number((ad as any).conversions?.[actionType] || 0);
-      if (!results) return 0;
-      return spend / results;
-    }
-    case "cpmql": {
-      // Calcular CPMQL usando a função centralizada
-      const spend = Number(ad.spend || 0);
-      const { cpmql } = computeMqlMetricsFromLeadscore({
-        spend,
-        leadscoreRaw: (ad as any).leadscore_values,
-        mqlLeadscoreMin,
-      });
-      return Number.isFinite(cpmql) && cpmql > 0 ? cpmql : 0;
-    }
-    default:
-      return 0;
-  }
+function getMetricValue(ad: RankingsItem, metric: Extract<MetricKey, "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql">, actionType?: string, mqlLeadscoreMin: number = 0): number {
+  return getMetricNumericValue(ad as any, metric, { actionType, mqlLeadscoreMin });
 }
 
 

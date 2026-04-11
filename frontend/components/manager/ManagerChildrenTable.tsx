@@ -9,10 +9,10 @@ import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { StatusCell } from "@/components/manager/StatusCell";
-import { getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
+import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { applyRowFilters } from "@/lib/utils/applyRowFilters";
+import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn } from "@/lib/metrics";
 
 interface ManagerChildrenTableProps {
   childrenData?: RankingsChildrenItem[];
@@ -61,9 +61,6 @@ export function ManagerChildrenTable({
     }
 
     const dataWithCalculations = childrenData.map((child) => {
-      const lpv = Number(child.lpv || 0);
-      const spend = Number(child.spend || 0);
-      const impressions = Number(child.impressions || 0);
       let conversions = child.conversions || {};
 
       if (Object.keys(conversions).length === 0 && child.series?.conversions) {
@@ -80,56 +77,18 @@ export function ManagerChildrenTable({
           }
         }
       }
-
-      let results = 0;
-      if (actionType && typeof actionType === "string" && actionType.trim()) {
-        results = Number(conversions[actionType] || 0);
-
-        if (results === 0 && (actionType.startsWith("conversion:") || actionType.startsWith("action:"))) {
-          const unprefixed = actionType.replace(/^(conversion|action):/, "");
-          results = Number(conversions[unprefixed] || 0);
-        }
-
-        if (results === 0 && !actionType.startsWith("conversion:") && !actionType.startsWith("action:")) {
-          results = Number(conversions[`conversion:${actionType}`] || conversions[`action:${actionType}`] || 0);
-        }
-      }
-
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      const cpr = results > 0 ? spend / results : 0;
-      const clicks = Number(child.clicks || 0);
-      const cpm = typeof child.cpm === "number" ? child.cpm : 0;
-      const { mqlCount } = hasSheetIntegration
-        ? computeMqlMetricsFromLeadscore({
-            spend,
-            leadscoreRaw: (child as any).leadscore_values,
-            mqlLeadscoreMin,
-          })
-        : { mqlCount: 0 };
-      const mqls = mqlCount;
-      const cpmql = mqls > 0 ? spend / mqls : 0;
-      const inline_link_clicks = Number(child.inline_link_clicks || 0);
-      const cpc = clicks > 0 ? spend / clicks : 0;
-      const cplc = inline_link_clicks > 0 ? spend / inline_link_clicks : 0;
-      const website_ctr = impressions > 0 ? inline_link_clicks / impressions : 0;
-
       return {
-        ...child,
+        ...buildManagerComputedRow(
+          {
+            ...child,
+            conversions,
+          },
+          {
+            actionType,
+            mqlLeadscoreMin,
+          },
+        ),
         conversions,
-        results,
-        page_conv,
-        cpr,
-        cpm,
-        lpv,
-        spend,
-        impressions,
-        clicks,
-        inline_link_clicks,
-        mqls,
-        cpmql,
-        cpc,
-        cplc,
-        website_ctr,
         ad_count: 1,
       };
     });
@@ -151,107 +110,25 @@ export function ManagerChildrenTable({
       return filteredData;
     }
 
-    const isActiveStatus = (status?: string | null) => status != null && String(status).toUpperCase() === "ACTIVE";
-
     return [...filteredData].sort((a, b) => {
-      let aVal: string | number = 0;
-      let bVal: string | number = 0;
-
-      switch (sortConfig.column) {
-        case "status": {
-          const activeA = isActiveStatus((a as any).effective_status);
-          const activeB = isActiveStatus((b as any).effective_status);
-          if (activeA === activeB) return 0;
-          const comparison = activeA && !activeB ? -1 : 1;
-          return sortConfig.direction === "asc" ? comparison : -comparison;
-        }
-        case "ad_id":
-          aVal = String(a.ad_id || "");
-          bVal = String(b.ad_id || "");
-          break;
-        case "hook":
-          aVal = Number(a.hook || 0);
-          bVal = Number(b.hook || 0);
-          break;
-        case "cpr":
-          aVal = a.cpr || 0;
-          bVal = b.cpr || 0;
-          break;
-        case "cpc":
-          aVal = a.cpc || 0;
-          bVal = b.cpc || 0;
-          break;
-        case "cplc":
-          aVal = a.cplc || 0;
-          bVal = b.cplc || 0;
-          break;
-        case "cpmql":
-          aVal = a.cpmql || 0;
-          bVal = b.cpmql || 0;
-          break;
-        case "spend":
-          aVal = a.spend || 0;
-          bVal = b.spend || 0;
-          break;
-        case "ctr":
-          aVal = Number(a.ctr || 0);
-          bVal = Number(b.ctr || 0);
-          break;
-        case "website_ctr":
-          aVal = Number(a.website_ctr || 0);
-          bVal = Number(b.website_ctr || 0);
-          break;
-        case "cpm":
-          aVal = a.cpm || 0;
-          bVal = b.cpm || 0;
-          break;
-        case "connect_rate":
-          aVal = Number(a.connect_rate || 0);
-          bVal = Number(b.connect_rate || 0);
-          break;
-        case "page_conv":
-          aVal = a.page_conv || 0;
-          bVal = b.page_conv || 0;
-          break;
-        case "results":
-          aVal = a.results || 0;
-          bVal = b.results || 0;
-          break;
-        case "mqls":
-          aVal = a.mqls || 0;
-          bVal = b.mqls || 0;
-          break;
-        default:
-          return 0;
-      }
-
-      if (typeof aVal === "string" && typeof bVal === "string") {
-        return sortConfig.direction === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-      }
-
-      return sortConfig.direction === "asc" ? Number(aVal) - Number(bVal) : Number(bVal) - Number(aVal);
+      return compareManagerChildRows(a, b, sortConfig.column as ManagerChildSortColumn, sortConfig.direction);
     });
   }, [actionType, childrenData, columnFilters, hasSheetIntegration, mqlLeadscoreMin, searchTerm, sortConfig]);
 
   const filterableColumns = useMemo(() => {
-    const columns: Array<{ id: string; label: string; isPercentage?: boolean; isText?: boolean; isStatus?: boolean }> = [];
-
-    columns.push({ id: "status", label: "Status", isStatus: true });
-
-    if (adsetId) {
-      columns.push({ id: "ad_name", label: "Anúncio", isText: true });
-      columns.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
-    } else {
-      columns.push({ id: "adset_name_filter", label: "Conjunto", isText: true });
-      columns.push({ id: "campaign_name_filter", label: "Campanha", isText: true });
-    }
-
-    for (const column of visibleColumns) {
-      const isPercentage = ["hook", "ctr", "website_ctr", "connect_rate", "page_conv"].includes(column.id);
-      columns.push({ id: column.id, label: column.name, isPercentage });
-    }
-
-    return columns;
+    return getManagerFilterableColumns({
+      visibleColumns,
+      includeStatus: true,
+      textColumns: adsetId
+        ? [
+            { id: "ad_name", label: "Anúncio", isText: true },
+            { id: "campaign_name_filter", label: "Campanha", isText: true },
+          ]
+        : [
+            { id: "adset_name_filter", label: "Conjunto", isText: true },
+            { id: "campaign_name_filter", label: "Campanha", isText: true },
+          ],
+    });
   }, [adsetId, visibleColumns]);
 
   const colspan = visibleColumns.length + (adsetId ? 2 : 1);
@@ -262,41 +139,12 @@ export function ManagerChildrenTable({
         return { column, direction: previous.direction === "asc" ? "desc" : "asc" };
       }
 
-      return { column, direction: column === "ad_id" || column === "status" ? "asc" : "desc" };
+      return { column, direction: getManagerChildSortInitialDirection(column) };
     });
   };
 
   const renderCellValue = (child: any, columnId: ManagerColumnType) => {
-    switch (columnId) {
-      case "hook":
-        return formatPct(Number(child.hook * 100));
-      case "cpr":
-        return child.results > 0 ? formatCurrency(child.cpr) : "—";
-      case "cpc":
-        return child.clicks > 0 ? formatCurrency(child.cpc) : "—";
-      case "cplc":
-        return child.inline_link_clicks > 0 ? formatCurrency(child.cplc) : "—";
-      case "cpmql":
-        return child.mqls > 0 ? formatCurrency(child.cpmql) : "—";
-      case "spend":
-        return formatCurrency(child.spend);
-      case "ctr":
-        return formatPct(Number(child.ctr * 100));
-      case "website_ctr":
-        return formatPct(Number(child.website_ctr * 100));
-      case "cpm":
-        return formatCurrency(child.cpm);
-      case "connect_rate":
-        return formatPct(Number(child.connect_rate * 100));
-      case "page_conv":
-        return child.lpv > 0 ? formatPct(Number(child.page_conv * 100)) : "—";
-      case "results":
-        return child.results > 0 ? child.results.toLocaleString("pt-BR") : "—";
-      case "mqls":
-        return child.mqls > 0 ? child.mqls.toLocaleString("pt-BR") : "—";
-      default:
-        return "—";
-    }
+    return formatManagerChildMetricValue(columnId, child, { currencyFormatter: formatCurrency });
   };
 
   const metricColumnClass = "cursor-pointer select-none px-4 py-3 text-center hover:text-brand";

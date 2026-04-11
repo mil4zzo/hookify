@@ -1,4 +1,5 @@
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
+import { getManagerMetricLabel } from "@/lib/metrics";
 
 export type ManagerColumnOption = {
   id: ManagerColumnType;
@@ -15,19 +16,19 @@ export type ManagerColumnOption = {
  * - A ordem nas linhas expandidas (children)
  */
 export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
-  { id: "spend", name: "Spend", defaultVisible: true },
-  { id: "results", name: "Results", defaultVisible: true },
-  { id: "mqls", name: "MQLs", defaultVisible: true },
-  { id: "cpr", name: "CPR", defaultVisible: true },
-  { id: "cpc", name: "CPC", defaultVisible: true },
-  { id: "cplc", name: "CPLC", defaultVisible: true },
-  { id: "cpmql", name: "CPMQL", defaultVisible: true },
-  { id: "cpm", name: "CPM", defaultVisible: true },
-  { id: "hook", name: "Hook", defaultVisible: true },
-  { id: "ctr", name: "CTR" },
-  { id: "website_ctr", name: "Link CTR", defaultVisible: true },
-  { id: "connect_rate", name: "Connect", defaultVisible: true },
-  { id: "page_conv", name: "Page", defaultVisible: true },
+  { id: "spend", name: getManagerMetricLabel("spend"), defaultVisible: true },
+  { id: "results", name: getManagerMetricLabel("results"), defaultVisible: true },
+  { id: "mqls", name: getManagerMetricLabel("mqls"), defaultVisible: true },
+  { id: "cpr", name: getManagerMetricLabel("cpr"), defaultVisible: true },
+  { id: "cpc", name: getManagerMetricLabel("cpc"), defaultVisible: true },
+  { id: "cplc", name: getManagerMetricLabel("cplc"), defaultVisible: true },
+  { id: "cpmql", name: getManagerMetricLabel("cpmql"), defaultVisible: true },
+  { id: "cpm", name: getManagerMetricLabel("cpm"), defaultVisible: true },
+  { id: "hook", name: getManagerMetricLabel("hook"), defaultVisible: true },
+  { id: "ctr", name: getManagerMetricLabel("ctr") },
+  { id: "website_ctr", name: getManagerMetricLabel("website_ctr"), defaultVisible: true },
+  { id: "connect_rate", name: getManagerMetricLabel("connect_rate"), defaultVisible: true },
+  { id: "page_conv", name: getManagerMetricLabel("page_conv"), defaultVisible: true },
 ] as const;
 
 // Derivadas — sempre coerentes com MANAGER_COLUMNS

@@ -19,6 +19,11 @@ export interface KanbanColumnConfig<T extends string> {
   averageValue?: number | null;
   emptyMessage?: string;
   formatAverage?: (value: number | null | undefined) => string;
+  showSearch?: boolean;
+  searchValue?: string;
+  onSearchChange?: (value: string) => void;
+  searchPlaceholder?: string;
+  maxHeight?: string;
   /** Renderiza o conteúdo da coluna (componente de coluna completo) */
   renderColumn: (config: KanbanColumnConfig<T> & { onAdClick?: (ad: RankingsItem, openVideo?: boolean) => void }, index: number) => ReactNode;
   /** Tooltip opcional para o header da coluna */
@@ -215,6 +220,7 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
           }}
           size="5xl"
           padding="md"
+          className="h-[90dvh] min-h-0"
         >
           {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={modalProps.dateStart} dateStop={modalProps.dateStop} actionType={modalProps.actionType} availableConversionTypes={modalProps.availableConversionTypes} initialTab="video" averages={dialogAverages} />}
         </Modal>

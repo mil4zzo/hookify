@@ -357,7 +357,6 @@ export default function DocsPage() {
       title="Documentação"
       description="Entenda como utilizar cada funcionalidade da plataforma Hookify"
       icon={<PageIcon icon={IconBook2} />}
-      variant="standard"
       actions={
         <PageActions>
           <Button variant="outline" size="sm" onClick={handleCopyDocsMarkdown} className="gap-2">

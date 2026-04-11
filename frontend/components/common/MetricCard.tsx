@@ -2,8 +2,9 @@
 
 import React from "react";
 import { SparklineBars, SparklineSize } from "./SparklineBars";
+import { formatMetricValue, getManagerMetricLabel, isLowerBetterMetric, type ManagerMetricKey } from "@/lib/metrics";
 
-export type MetricType = "hook" | "cpr" | "spend" | "ctr" | "connect_rate" | "page_conv" | "cpm";
+export type MetricType = Extract<ManagerMetricKey, "hook" | "cpr" | "spend" | "ctr" | "connect_rate" | "page_conv" | "cpm">;
 
 type MetricCardLayout = "vertical" | "horizontal";
 
@@ -21,18 +22,16 @@ interface MetricCardProps {
 
 export function MetricCard({ label, value, series, metric, size = "medium", layout = "vertical", formatCurrency, formatPct, className = "" }: MetricCardProps) {
   const valueFormatter = (n: number) => {
-    if (metric === "spend" || metric === "cpr" || metric === "cpm") {
-      return formatCurrency?.(n || 0) || `${(n || 0).toFixed(2)}`;
-    }
-    // percent-based metrics (hook, ctr, connect_rate, page_conv)
-    // As séries já vêm em formato decimal (0.25), então precisamos multiplicar por 100
-    return formatPct?.(n * 100) || `${((n || 0) * 100).toFixed(2)}%`;
+    return formatMetricValue(metric, n, {
+      currencyFormatter: formatCurrency,
+    });
   };
 
   const hasSeries = series && series.length > 0 && series.some((v) => v != null && !Number.isNaN(v));
 
   // Determinar se a métrica é "inversa" (menor é melhor: CPR e CPM)
-  const isInverseMetric = metric === "cpr" || metric === "cpm";
+  const isInverseMetric = isLowerBetterMetric(metric);
+  const metricLabel = label || getManagerMetricLabel(metric);
 
   // Determinar altura baseada no size para manter a altura quando usar w-full
   const sparklineHeightClass = size === "large" ? "h-16" : "h-6";
@@ -40,7 +39,7 @@ export function MetricCard({ label, value, series, metric, size = "medium", layo
   if (layout === "horizontal") {
     return (
       <div className={`p-3 rounded border border-border ${className}`}>
-        <div className="text-xs text-muted-foreground mb-1">{label}</div>
+        <div className="text-xs text-muted-foreground mb-1">{metricLabel}</div>
         {/* Layout vertical (Label -> Valor -> Sparklines) - sempre vertical, mesmo em desktop */}
         <div className="flex flex-col gap-2">
           <div className="text-base font-semibold">{value}</div>
@@ -57,7 +56,7 @@ export function MetricCard({ label, value, series, metric, size = "medium", layo
   // Layout vertical (padrão)
   return (
     <div className={`p-3 rounded border border-border ${className}`}>
-      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="text-xs text-muted-foreground">{metricLabel}</div>
       {hasSeries ? (
         <div className="w-full min-w-[96px]">
           <SparklineBars series={series} size={size} className={`w-full ${sparklineHeightClass}`} valueFormatter={valueFormatter} inverseColors={isInverseMetric} />

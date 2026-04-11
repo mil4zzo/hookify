@@ -25,6 +25,13 @@ import {
   SaveSheetIntegrationResponse,
   SheetSyncJobProgress,
   UpdateEntityStatusResponse,
+  AdsTreeResponse,
+  AdCreativeDetailResponse,
+  BulkAdConfig,
+  BulkAdProgressResponse,
+  CampaignTemplateResponse,
+  CampaignBulkConfig,
+  CampaignBulkProgressResponse,
 } from './schemas'
 import { env } from '@/lib/config/env'
 
@@ -118,6 +125,50 @@ export const api = {
 
     updateCampaignStatus: (campaignId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
       apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/status`, { status }),
+  },
+
+  bulkAds: {
+    getAdsTree: (): Promise<AdsTreeResponse> =>
+      apiClient.get('/facebook/ads/tree'),
+    getAdCreative: (adId: string): Promise<AdCreativeDetailResponse> =>
+      apiClient.get(`/facebook/ads/${encodeURIComponent(adId)}/creative`),
+    start: (
+      files: File[],
+      config: BulkAdConfig,
+    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> => {
+      const formData = new FormData()
+      files.forEach((file) => formData.append('files', file))
+      formData.append('config', JSON.stringify(config))
+      return apiClient.postMultipart('/facebook/bulk-ads', formData)
+    },
+    getProgress: (jobId: string): Promise<BulkAdProgressResponse> =>
+      apiClient.getWithTimeout(`/facebook/bulk-ads/${encodeURIComponent(jobId)}`, 60000),
+    retry: (
+      jobId: string,
+      itemIds: string[],
+    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> =>
+      apiClient.post(`/facebook/bulk-ads/${encodeURIComponent(jobId)}/retry`, {
+        job_id: jobId,
+        item_ids: itemIds,
+      }),
+  },
+
+  campaignBulk: {
+    getCampaignTemplate: (adId: string): Promise<CampaignTemplateResponse> =>
+      apiClient.get(`/facebook/campaign-template/${encodeURIComponent(adId)}`),
+
+    start: (
+      files: File[],
+      config: CampaignBulkConfig,
+    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> => {
+      const formData = new FormData()
+      files.forEach((file) => formData.append('files', file))
+      formData.append('config', JSON.stringify(config))
+      return apiClient.postMultipart('/facebook/campaign-bulk', formData)
+    },
+
+    getProgress: (jobId: string): Promise<CampaignBulkProgressResponse> =>
+      apiClient.getWithTimeout(`/facebook/campaign-bulk/${encodeURIComponent(jobId)}`, 60000),
   },
 
   // Analytics (Supabase)

@@ -1,10 +1,9 @@
 import { toast } from "sonner";
 import { AppError } from "./errors";
 import { parseError } from "./errors";
-import { IconLoader2, IconAlertCircle, IconCheck, IconMicrophone, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconCheck, IconMicrophone, IconX } from "@tabler/icons-react";
 import React, { type ReactNode } from "react";
-import { Progress } from "@/components/ui/progress";
-import { Button } from "@/components/ui/button";
+import { PausedToastCard, ProgressToastCard } from "@/components/common/ProgressToastCard";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
@@ -440,38 +439,30 @@ export function calculateTranscriptionProgressPercent(status: string, details?: 
   return 0;
 }
 
-function renderProgressToastContent(packName: string, progress: number, stagedContent: ProgressToastContent | undefined, message: string | undefined, onCancel: (() => void) | undefined, icon: ReactNode | undefined, currentStep: number, totalSteps: number) {
-  const hasStagedLayout = stagedContent && stagedContent.stageLabel && stagedContent.stageTitle && stagedContent.dynamicLine;
-
+function renderProgressToastContent(
+  packName: string,
+  progress: number,
+  stagedContent: ProgressToastContent | undefined,
+  message: string | undefined,
+  onCancel: (() => void) | undefined,
+  icon: ReactNode | undefined,
+  currentStep: number,
+  totalSteps: number,
+  inlineError?: boolean,
+) {
   return (
-    <div className="flex flex-col gap-2 w-full">
-      <div className="flex items-center gap-3">
-        {icon || <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />}
-        {hasStagedLayout ? (
-          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-            <span className="text-xs text-muted-foreground">{stagedContent.stageContext ? `${packName}: ${stagedContent.stageContext} › ${stagedContent.stageLabel}` : `Atualizando ${packName} — ${stagedContent.stageLabel}`}</span>
-            <span className="text-sm font-semibold text-foreground">{stagedContent.stageTitle}</span>
-            <div className="flex items-center gap-2">
-              <IconLoader2 className="h-4 w-4 animate-spin flex-shrink-0 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">{stagedContent.dynamicLine}</span>
-            </div>
-          </div>
-        ) : (
-          <span className="text-sm">
-            {packName} — etapa {currentStep}/{totalSteps}
-            {message ? ` — ${message}` : "..."}
-          </span>
-        )}
-      </div>
-      <Progress value={progress} max={100} className="w-full" />
-      {onCancel && (
-        <div className="flex gap-2 mt-1">
-          <Button size="sm" variant="ghost" onClick={onCancel}>
-            Cancelar
-          </Button>
-        </div>
-      )}
-    </div>
+    <ProgressToastCard
+      packName={packName}
+      progress={progress}
+      stagedContent={stagedContent}
+      message={message}
+      onCancel={onCancel}
+      icon={icon}
+      currentStep={currentStep}
+      totalSteps={totalSteps}
+      inlineError={inlineError}
+      animated
+    />
   );
 }
 
@@ -486,23 +477,61 @@ function resolveProgressValue(progressPercent: number | undefined, currentStep: 
   return totalSteps > 0 ? Math.min(100, Math.max(0, (currentStep / totalSteps) * 100)) : 0;
 }
 
+function getToastCardOptions(toastId: string, duration: number = Infinity, dismissible?: boolean) {
+  return {
+    id: toastId,
+    duration,
+    dismissible,
+    unstyled: true as const,
+    className: "toast-card-shell",
+  };
+}
+
 /**
  * Mostra toast de progresso para atualização de pack.
  * stagedContent: layout em 3 linhas (Etapa X de Y; título; linha dinâmica). Sem ele, usa fallback "etapa X/Y".
  * progressPercent: 0–100 para a barra; se omitido, usa currentStep/totalSteps.
  */
-export function showProgressToast(toastId: string, packName: string, currentStep: number, totalSteps: number, message?: string, onCancel?: () => void, icon?: ReactNode, stagedContent?: ProgressToastContent, progressPercent?: number) {
+export function showProgressToast(
+  toastId: string,
+  packName: string,
+  currentStep: number,
+  totalSteps: number,
+  message?: string,
+  onCancel?: () => void,
+  icon?: ReactNode,
+  stagedContent?: ProgressToastContent,
+  progressPercent?: number,
+  inlineError?: boolean,
+) {
   const progress = resolveProgressValue(progressPercent, currentStep, totalSteps);
-  toast.loading(renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps), { id: toastId, duration: Infinity });
+  toast.loading(
+    renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps, inlineError),
+    getToastCardOptions(toastId),
+  );
 }
 
 /**
  * Atualiza toast de progresso existente.
  * stagedContent e progressPercent: mesmo que showProgressToast.
  */
-export function updateProgressToast(toastId: string, packName: string, currentStep: number, totalSteps: number, message?: string, onCancel?: () => void, icon?: ReactNode, stagedContent?: ProgressToastContent, progressPercent?: number) {
+export function updateProgressToast(
+  toastId: string,
+  packName: string,
+  currentStep: number,
+  totalSteps: number,
+  message?: string,
+  onCancel?: () => void,
+  icon?: ReactNode,
+  stagedContent?: ProgressToastContent,
+  progressPercent?: number,
+  inlineError?: boolean,
+) {
   const progress = resolveProgressValue(progressPercent, currentStep, totalSteps);
-  toast.loading(renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps), { id: toastId, duration: Infinity });
+  toast.loading(
+    renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps, inlineError),
+    getToastCardOptions(toastId),
+  );
 }
 
 /**
@@ -511,15 +540,8 @@ export function updateProgressToast(toastId: string, packName: string, currentSt
  */
 export function showCancellingToast(toastId: string, packName: string, icon?: ReactNode) {
   toast.loading(
-    <div className="flex flex-col gap-2 w-full">
-      <div className="flex items-center gap-3">
-        {icon || <IconLoader2 className="h-5 w-5 animate-spin flex-shrink-0" />}
-        <span className="text-sm">
-          Cancelando atualização de <strong>{packName}</strong>...
-        </span>
-      </div>
-    </div>,
-    { id: toastId, duration: Infinity },
+    <ProgressToastCard packName={packName} progress={0} currentStep={1} totalSteps={1} icon={icon} cancelling animated />,
+    getToastCardOptions(toastId),
   );
 }
 
@@ -624,26 +646,8 @@ export function finishProgressToast(toastId: string, success: boolean, message: 
  */
 export function showPausedJobToast(toastId: string, packName: string, onReconnect: () => void, onCancel: () => void) {
   toast.warning(
-    <div className="flex flex-col gap-2 w-full">
-      <div className="flex items-center gap-2">
-        <IconAlertCircle className="h-5 w-5 text-warning flex-shrink-0" />
-        <span className="font-medium">Sincronização pausada</span>
-      </div>
-      <span className="text-sm text-muted-foreground">Planilha &quot;{packName}&quot; aguardando reconexão do Google</span>
-      <div className="flex gap-2 mt-1">
-        <Button size="sm" variant="default" onClick={onReconnect}>
-          Reconectar Google
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onCancel}>
-          Cancelar
-        </Button>
-      </div>
-    </div>,
-    {
-      id: toastId,
-      duration: Infinity,
-      dismissible: false, // Força usuário a usar os botões
-    },
+    <PausedToastCard packName={packName} onReconnect={onReconnect} onCancel={onCancel} animated />,
+    getToastCardOptions(toastId, Infinity, false),
   );
 }
 

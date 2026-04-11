@@ -276,7 +276,8 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             toastId, packName, 1, TRANSCRIPTION_TOAST_TOTAL_STEPS,
             undefined, onCancel, metaToastIcon,
             buildTranscriptionToastContent("processing", {}, `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`),
-            lastPercent
+            lastPercent,
+            true,
           );
         },
 
@@ -564,7 +565,8 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               stageTitle: "Verificando...",
               dynamicLine: `Erro ao verificar progresso (tentativa ${consecutiveErrors})...`,
             },
-            lastPercent
+            lastPercent,
+            true,
           );
         },
 

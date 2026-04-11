@@ -88,7 +88,7 @@ export const SparklineBars = React.memo(function SparklineBars({
   barWidth = 2,
   gap = 2,
   colorClass = "brand",
-  nullClass = "muted-foreground",
+  nullClass = "muted",
   minBarHeightPct = 6,
   validMinBarHeightPct = 12,
   valueFormatter,
@@ -124,7 +124,8 @@ export const SparklineBars = React.memo(function SparklineBars({
   // Pre-compute bar data for all items (shared between lightweight and full modes)
   const bars = series.map((v, i) => {
     const isNull = v == null || Number.isNaN(v as number);
-    const hasData = dataAvailability?.[i] ?? (v != null && !Number.isNaN(v as number));
+    const hasExplicitAvailability = Array.isArray(dataAvailability) && i < dataAvailability.length;
+    const hasData = hasExplicitAvailability ? dataAvailability[i] === true : v != null && !Number.isNaN(v as number);
     const isZeroWithData = hasData && (isNull || v === 0);
 
     let heightPct = 0;
@@ -142,7 +143,7 @@ export const SparklineBars = React.memo(function SparklineBars({
     }
 
     let barColor: MetricQualityTone;
-    if (isNull && !hasData) {
+    if (!hasData) {
       barColor = nullClass;
     } else if (isZeroWithData) {
       barColor = zeroValueColorClass;
@@ -172,56 +173,21 @@ export const SparklineBars = React.memo(function SparklineBars({
     return { heightPct, gradientClass, borderClass, barColor, isNull, hasData, isZeroWithData, dateDisplay, valueDisplay, titleText };
   });
 
-  const transitionStyles = (
-    <style jsx>{`
-      .sparklineFadeInBar {
-        opacity: 0;
-        transform: scaleY(0.2);
-        transform-origin: bottom center;
-        animation: sparklineStaggeredFadeIn var(--sparkline-fade-in-duration, 500ms) cubic-bezier(0.4, 0, 0.2, 1) forwards;
-        animation-delay: var(--sparkline-fade-in-delay, 0ms);
-        will-change: transform, opacity;
-      }
-
-      @keyframes sparklineStaggeredFadeIn {
-        from {
-          opacity: 0;
-          transform: scaleY(0.2);
-        }
-        to {
-          opacity: 1;
-          transform: scaleY(1);
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .sparklineFadeInBar {
-          animation: none;
-          opacity: 1;
-          transform: none;
-        }
-      }
-    `}</style>
-  );
-
   // Lightweight mode: native title attributes (no Radix Tooltip overhead)
   if (lightweight) {
     return (
-      <>
-        <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
-          {bars.map((bar, i) => (
-            <div
-              key={i}
-              className={`rounded-xs flex-1 relative ${staggeredFadeIn ? "sparklineFadeInBar" : ""}`}
-              style={{ height: `${bar.heightPct}%`, ...getRevealStyle(i) }}
-              title={bar.titleText}
-            >
-              <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
-            </div>
-          ))}
-        </div>
-        {staggeredFadeIn ? transitionStyles : null}
-      </>
+      <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
+        {bars.map((bar, i) => (
+          <div
+            key={i}
+            className={`rounded-xs flex-1 relative ${staggeredFadeIn ? "sparkline-fade-in-bar" : ""}`}
+            style={{ height: `${bar.heightPct}%`, ...getRevealStyle(i) }}
+            title={bar.titleText}
+          >
+            <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
+          </div>
+        ))}
+      </div>
     );
   }
 
@@ -231,6 +197,7 @@ export const SparklineBars = React.memo(function SparklineBars({
       <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
         {bars.map((bar, i) => {
           const shouldColorText =
+            !bar.hasData ||
             bar.isZeroWithData ||
             (!bar.isNull && bar.hasData && ((packAverage != null && Number.isFinite(packAverage)) || (dynamicColor && colorMode === "per-bar")));
           const textClass = shouldColorText ? getTextClass(bar.barColor) : "text-foreground";
@@ -239,7 +206,7 @@ export const SparklineBars = React.memo(function SparklineBars({
             <Tooltip key={i}>
               <TooltipTrigger asChild>
                 <div
-                  className={`rounded-xs flex-1 relative cursor-pointer ${staggeredFadeIn ? "sparklineFadeInBar" : ""}`}
+                  className={`rounded-xs flex-1 relative cursor-pointer ${staggeredFadeIn ? "sparkline-fade-in-bar" : ""}`}
                   style={{ height: `${bar.heightPct}%`, ...getRevealStyle(i) }}
                 >
                   <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
@@ -255,7 +222,6 @@ export const SparklineBars = React.memo(function SparklineBars({
           );
         })}
       </div>
-      {staggeredFadeIn ? transitionStyles : null}
     </TooltipProvider>
   );
 });
