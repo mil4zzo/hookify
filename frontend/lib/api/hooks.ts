@@ -111,9 +111,29 @@ export const useMe = () => {
   return result
 }
 
+const AD_ACCOUNTS_SYNC_KEY = 'hookify:adaccounts:last_sync'
+const AD_ACCOUNTS_SYNC_TTL_MS = 12 * 60 * 60 * 1000 // 12 horas
+
+function shouldAutoSync(userId: string): boolean {
+  try {
+    const raw = localStorage.getItem(`${AD_ACCOUNTS_SYNC_KEY}:${userId}`)
+    if (!raw) return true
+    return Date.now() - Number(raw) > AD_ACCOUNTS_SYNC_TTL_MS
+  } catch {
+    return true
+  }
+}
+
+function markSynced(userId: string): void {
+  try {
+    localStorage.setItem(`${AD_ACCOUNTS_SYNC_KEY}:${userId}`, String(Date.now()))
+  } catch { /* localStorage indisponível */ }
+}
+
 export const useAdAccountsDb = () => {
   const { session, sessionReady } = useSupabaseAuth()
   const setAdAccounts = useSessionStore(s => s.setAdAccounts)
+  const qc = useQueryClient()
   const result = useQuery({
     queryKey: queryKeys.adAccounts,
     queryFn: api.facebook.getAdAccounts,
@@ -122,11 +142,35 @@ export const useAdAccountsDb = () => {
     retry: 2,
   })
   useEffect(() => {
-    if (Array.isArray(result.data)) {
+    if (!session || !sessionReady || !Array.isArray(result.data)) return
+    const userId = session.user.id
+    const isEmpty = result.data.length === 0
+    if (isEmpty || shouldAutoSync(userId)) {
+      api.facebook.syncAdAccounts()
+        .then(() => {
+          markSynced(userId)
+          qc.invalidateQueries({ queryKey: queryKeys.adAccounts })
+        })
+        .catch(() => {/* sem conexão Facebook ou token expirado — silencioso */})
+    }
+    if (!isEmpty) {
       setAdAccounts(result.data as unknown as FacebookAdAccount[])
     }
-  }, [result.data, setAdAccounts])
+  }, [result.data, setAdAccounts, session, sessionReady, qc])
   return result
+}
+
+export function useSyncAdAccounts() {
+  const { session } = useSupabaseAuth()
+  const qc = useQueryClient()
+  const mutation = useMutation({
+    mutationFn: api.facebook.syncAdAccounts,
+    onSuccess: () => {
+      if (session) markSynced(session.user.id)
+      qc.invalidateQueries({ queryKey: queryKeys.adAccounts })
+    },
+  })
+  return mutation
 }
 
 export const useAds = (params: GetAdsRequest, enabled = true) => {

@@ -4,11 +4,21 @@ import { memo, useMemo, useState } from "react"
 import Image from "next/image"
 import {
   IconCheck,
+  IconCards,
   IconPhoto,
   IconSearch,
   IconX,
 } from "@tabler/icons-react"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { usePackAds } from "@/lib/api/hooks"
+import { usePacks } from "@/lib/store/session"
 import type { AdsTreeResponse } from "@/lib/api/schemas"
 
 interface AdGridProps {
@@ -102,6 +112,15 @@ const AdGrid = memo(function AdGrid({ data, selectedAdId, onSelect }: AdGridProp
   const [qNameOrId, setQNameOrId] = useState("")
   const [qAdset, setQAdset] = useState("")
   const [qCampaign, setQCampaign] = useState("")
+  const [selectedPackId, setSelectedPackId] = useState<string | null>(null)
+
+  const { packs } = usePacks()
+  const { data: packAds } = usePackAds(selectedPackId ?? "", !!selectedPackId)
+
+  const packAdIds = useMemo(
+    () => (packAds && selectedPackId ? new Set(packAds.map((a) => a.ad_id)) : null),
+    [packAds, selectedPackId],
+  )
 
   const allAds = useMemo(() => flattenTree(data), [data])
 
@@ -110,21 +129,46 @@ const AdGrid = memo(function AdGrid({ data, selectedAdId, onSelect }: AdGridProp
     const nNameOrId = n(qNameOrId)
     const nAdset = n(qAdset)
     const nCampaign = n(qCampaign)
-    if (!nNameOrId && !nAdset && !nCampaign) return allAds
+    if (!nNameOrId && !nAdset && !nCampaign && !packAdIds) return allAds
     return allAds.filter(
       (ad) =>
+        (!packAdIds || packAdIds.has(ad.ad_id)) &&
         (!nNameOrId || ad.ad_name.toLowerCase().includes(nNameOrId) || ad.ad_id.toLowerCase().includes(nNameOrId)) &&
         (!nAdset || ad.adset_name.toLowerCase().includes(nAdset)) &&
         (!nCampaign || ad.campaign_name.toLowerCase().includes(nCampaign)),
     )
-  }, [allAds, qNameOrId, qAdset, qCampaign])
+  }, [allAds, qNameOrId, qAdset, qCampaign, packAdIds])
 
-  const hasAnyFilter = qNameOrId || qAdset || qCampaign
+  const hasAnyFilter = qNameOrId || qAdset || qCampaign || selectedPackId
 
   return (
     <div className="flex flex-col gap-3 min-h-0">
       {/* Search inputs */}
       <div className="flex gap-2">
+        {packs.length > 0 && (
+          <div className="shrink-0" style={{ width: 148 }}>
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Pack
+            </label>
+            <Select
+              value={selectedPackId ?? "__all__"}
+              onValueChange={(v) => setSelectedPackId(v === "__all__" ? null : v)}
+            >
+              <SelectTrigger className="h-8 text-xs gap-1.5">
+                <IconCards className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-60" />
+                <SelectValue placeholder="Todos" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">Todos</SelectItem>
+                {packs.map((pack) => (
+                  <SelectItem key={pack.id} value={pack.id}>
+                    {pack.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
         <SearchInput label="Anúncio" placeholder="Nome ou ID do anúncio" value={qNameOrId} onChange={setQNameOrId} />
         <SearchInput label="Conjunto" placeholder="Nome do conjunto" value={qAdset} onChange={setQAdset} />
         <SearchInput label="Campanha" placeholder="Nome da campanha" value={qCampaign} onChange={setQCampaign} />

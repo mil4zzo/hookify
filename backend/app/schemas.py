@@ -138,6 +138,8 @@ class BulkAdConfig(BaseModel):
 
 class CampaignBulkItem(BaseModel):
     ad_name: str
+    campaign_name: Optional[str] = None        # nome final renderizado da campanha (override por item)
+    adset_name_template: Optional[str] = None  # template parcial do conjunto (override por item)
     feed_file_index: Optional[int] = None
     story_file_index: Optional[int] = None
 

@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 AD_NAME_VAR = "{ad_name}"
 INDEX_VAR = "{index}"
+TEMPLATE_ADSET_NAME_VAR = "{template_adset_name}"
 
 _LOG_STR_MAX = 120
 
@@ -43,8 +44,16 @@ def _elapsed_ms(start: float) -> int:
     return int((time.monotonic() - start) * 1000)
 
 
-def _interpolate_name(template: str, ad_name: str, index: int = 1) -> str:
-    return template.replace(AD_NAME_VAR, ad_name).replace(INDEX_VAR, str(index))
+def _interpolate_name(
+    template: str,
+    ad_name: str,
+    index: int = 1,
+    template_adset_name: Optional[str] = None,
+) -> str:
+    result = template.replace(AD_NAME_VAR, ad_name).replace(INDEX_VAR, str(index))
+    if template_adset_name is not None:
+        result = result.replace(TEMPLATE_ADSET_NAME_VAR, template_adset_name)
+    return result
 
 
 _STORY_PLACEMENT_TOKENS = frozenset({"story", "stories", "reels", "facebook_reels", "profile_reels"})
@@ -413,11 +422,16 @@ class CampaignBulkProcessor:
         self._sleep_rate_limit()
 
         # 3. Criar campanha
-        campaign_name = _interpolate_name(
-            str(item.get("campaign_name_template") or payload.get("campaign_name_template") or campaign_template.get("name") or ad_name),
-            ad_name,
-            index=index,
-        )
+        # Nome da campanha: valor por item tem prioridade sobre o template global
+        campaign_name_override = item.get("campaign_name")
+        if campaign_name_override:
+            campaign_name = str(campaign_name_override)
+        else:
+            campaign_name = _interpolate_name(
+                str(item.get("campaign_name_template") or payload.get("campaign_name_template") or campaign_template.get("name") or ad_name),
+                ad_name,
+                index=index,
+            )
         campaign_params: Dict[str, Any] = {
             "name": campaign_name,
             "objective": campaign_template.get("objective", "OUTCOME_TRAFFIC"),
@@ -439,6 +453,10 @@ class CampaignBulkProcessor:
 
         merge_template_campaign_fields(campaign_params, campaign_template)
         uses_cbo_budget = campaign_has_campaign_level_budget(campaign_params)
+        # Meta exige is_adset_budget_sharing_enabled quando a campanha não tem orçamento CBO.
+        if not uses_cbo_budget and "is_adset_budget_sharing_enabled" not in campaign_params:
+            template_val = campaign_template.get("is_adset_budget_sharing_enabled")
+            campaign_params["is_adset_budget_sharing_enabled"] = bool(template_val) if template_val is not None else False
 
         t_camp = time.monotonic()
         campaign_result = self.api.create_campaign(act_id, campaign_params)
@@ -461,7 +479,12 @@ class CampaignBulkProcessor:
 
         # 4. Criar adsets e ads
         selected_adset_ids: List[str] = payload.get("adset_ids") or []
-        adset_name_template = str(item.get("adset_name_template") or payload.get("adset_name_template") or "{ad_name}")
+        # Template do conjunto: valor por item (coluna adset_name) tem prioridade sobre o template global
+        adset_name_template = str(
+            item.get("adset_name")
+            or payload.get("adset_name_template")
+            or "{ad_name}"
+        )
         n_adsets = sum(
             1 for c in adset_configs if c.get("id") in selected_adset_ids
         )
@@ -479,7 +502,13 @@ class CampaignBulkProcessor:
             if adset_cfg.get("id") not in selected_adset_ids:
                 continue
             adset_ord += 1
-            adset_name = _interpolate_name(adset_name_template, ad_name, index=adset_ord)
+            original_adset_name = str(adset_cfg.get("name") or "")
+            adset_name = _interpolate_name(
+                adset_name_template,
+                ad_name,
+                index=adset_ord,
+                template_adset_name=original_adset_name,  # substitui {template_adset_name} pelo nome original
+            )
             adset_params: Dict[str, Any] = {
                 "name": adset_name,
                 "campaign_id": new_campaign_id,

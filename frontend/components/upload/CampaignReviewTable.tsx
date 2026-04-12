@@ -4,7 +4,6 @@ import { useState } from "react"
 import { IconAlertTriangle, IconPhoto, IconTrash, IconVideo } from "@tabler/icons-react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 
 const AD_NAME_VAR = "{ad_name}"
 const INDEX_VAR = "{index}"
@@ -16,6 +15,8 @@ export interface CampaignReviewItem {
   feedFileName?: string
   storyFileName?: string
   status: "ACTIVE" | "PAUSED"
+  campaignName: string       // nome final renderizado, editável por linha
+  adsetNameTemplate: string  // template parcial ({template_adset_name} permanece), editável por linha
 }
 
 interface CampaignReviewTableProps {
@@ -30,15 +31,11 @@ interface CampaignReviewTableProps {
   onBudgetChange: (value: number | null) => void
 }
 
-function interpolate(template: string, adName: string, index: number, templateAdsetName = "{conjunto}"): string {
+export function interpolate(template: string, adName: string, index: number, templateAdsetName = "{conjunto}"): string {
   return template
     .replace(TEMPLATE_ADSET_NAME_VAR, templateAdsetName)
     .replace(AD_NAME_VAR, adName)
     .replace(INDEX_VAR, String(index))
-}
-
-function templateHasAdNameVar(template: string): boolean {
-  return template.includes(AD_NAME_VAR)
 }
 
 function FileInfo({ name }: { name?: string }) {
@@ -73,7 +70,8 @@ export default function CampaignReviewTable({
   }
 
   const hasVarIssue = (item: CampaignReviewItem) =>
-    (templateHasAdNameVar(campaignNameTemplate) || templateHasAdNameVar(adsetNameTemplate)) && !item.adName.trim()
+    (item.campaignName.includes(AD_NAME_VAR) || item.adsetNameTemplate.includes(AD_NAME_VAR)) &&
+    !item.adName.trim()
 
   return (
     <div className="space-y-5">
@@ -184,9 +182,10 @@ export default function CampaignReviewTable({
         </div>
 
         {/* Column headers */}
-        <div className="grid grid-cols-[1fr_2fr_1.4fr_auto_32px] gap-3 border-b border-border bg-muted-10 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] gap-3 border-b border-border bg-muted-10 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           <div>Arquivos</div>
-          <div>Nome da campanha (preview)</div>
+          <div>Nome da campanha</div>
+          <div>Nome do conjunto</div>
           <div>Nome do anúncio</div>
           <div>Status</div>
           <div />
@@ -200,14 +199,13 @@ export default function CampaignReviewTable({
 
         {/* Rows */}
         <div className="divide-y divide-border">
-          {items.map((item, itemIndex) => {
-            const campaignPreview = interpolate(campaignNameTemplate || AD_NAME_VAR, item.adName || "…", itemIndex + 1)
+          {items.map((item) => {
             const warn = hasVarIssue(item)
 
             return (
               <div
                 key={item.id}
-                className="grid grid-cols-[1fr_2fr_1.4fr_auto_32px] items-center gap-3 px-4 py-3"
+                className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] items-center gap-3 px-4 py-3"
               >
                 {/* Files */}
                 <div className="min-w-0 space-y-0.5">
@@ -218,7 +216,7 @@ export default function CampaignReviewTable({
                   )}
                 </div>
 
-                {/* Campaign name preview */}
+                {/* Campaign name — editable */}
                 <div className="min-w-0">
                   {warn ? (
                     <div className="flex items-center gap-1 text-xs text-amber-600">
@@ -226,9 +224,27 @@ export default function CampaignReviewTable({
                       Nome do anúncio vazio
                     </div>
                   ) : (
-                    <div className="truncate text-xs text-muted-foreground" title={campaignPreview}>
-                      {campaignPreview}
-                    </div>
+                    <Input
+                      value={item.campaignName}
+                      placeholder="Nome da campanha"
+                      className="h-8 text-xs"
+                      onChange={(e) => onItemChange(item.id, { campaignName: e.target.value })}
+                    />
+                  )}
+                </div>
+
+                {/* Adset name template — editable */}
+                <div className="min-w-0 space-y-0.5">
+                  <Input
+                    value={item.adsetNameTemplate}
+                    placeholder="Nome do conjunto"
+                    className="h-8 text-xs"
+                    onChange={(e) => onItemChange(item.id, { adsetNameTemplate: e.target.value })}
+                  />
+                  {item.adsetNameTemplate.includes(TEMPLATE_ADSET_NAME_VAR) && (
+                    <p className="truncate pl-1 text-[10px] text-muted-foreground">
+                      <code className="font-mono">{TEMPLATE_ADSET_NAME_VAR}</code> = nome original
+                    </p>
                   )}
                 </div>
 

@@ -1362,8 +1362,9 @@ async def start_campaign_bulk(
                     },
                     "is_multi_slot": True,
                     "adset_id": "",
-                    "adset_name": None,
+                    "adset_name": item.adset_name_template,
                     "ad_name": item.ad_name,
+                    "campaign_name": item.campaign_name,
                     "status": "pending",
                 }
                 for item in parsed_config.items

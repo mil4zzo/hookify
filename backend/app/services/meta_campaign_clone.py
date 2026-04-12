@@ -73,6 +73,7 @@ CAMPAIGN_CREATE_EXTRA_KEYS: Set[str] = frozenset(
     {
         "spend_cap",
         "special_ad_category_country",
+        "is_adset_budget_sharing_enabled",
     },
 )
 

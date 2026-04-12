@@ -2081,7 +2081,7 @@ def upsert_ad_accounts(user_jwt: str, ad_accounts: List[Dict[str, Any]], user_id
 
     try:
         sb = get_supabase_for_user(user_jwt)
-        sb.table("ad_accounts").upsert(rows, on_conflict="id").execute()
+        sb.table("ad_accounts").upsert(rows, on_conflict="id,user_id").execute()
         logger.info(f"Successfully saved {len(rows)} ad accounts to Supabase for user {user_id}")
     except Exception as e:
         logger.error(f"Error saving ad accounts to Supabase for user {user_id}: {e}", exc_info=True)

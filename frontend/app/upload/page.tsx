@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dynamic from "next/dynamic"
 import {
   IconCheck,
@@ -27,7 +27,7 @@ import type {
 import type { BulkReviewRowItem } from "@/components/upload/BulkReviewTable"
 import type { BundleDraft, BundlePoolFile } from "@/components/upload/BundleUploadZone"
 import type { FeedStoryPair } from "@/components/upload/FeedStoryUploadZone"
-import type { CampaignReviewItem } from "@/components/upload/CampaignReviewTable"
+import { interpolate, type CampaignReviewItem } from "@/components/upload/CampaignReviewTable"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -428,6 +428,11 @@ export default function UploadPage() {
   const [campaignNameTemplate, setCampaignNameTemplate] = useState<string>("{ad_name}")
   const [adsetNameTemplate, setAdsetNameTemplate] = useState<string>("{ad_name}")
   const [campaignBudget, setCampaignBudget] = useState<number | null>(null)
+  // Refs para ler os templates sem adicioná-los como deps do useEffect principal de items
+  const campaignNameTemplateRef = useRef(campaignNameTemplate)
+  const adsetNameTemplateRef = useRef(adsetNameTemplate)
+  useEffect(() => { campaignNameTemplateRef.current = campaignNameTemplate }, [campaignNameTemplate])
+  useEffect(() => { adsetNameTemplateRef.current = adsetNameTemplate }, [adsetNameTemplate])
   const { isCreating: isCampaignCreating, progress: campaignProgress, startCampaignBulk, cancelCampaignBulk } = useCampaignBulkCreate()
 
   // ── derived ──────────────────────────────────────────────────────────────────
@@ -552,21 +557,47 @@ export default function UploadPage() {
   }, [selectedTemplateAdName, files, selectedAdsetIds, adsetMap, isMultiSlotTemplate, completeBundles, requiredSlotKeys])
 
   // review items for campaign mode
+  // Nota: campaignNameTemplate e adsetNameTemplate são lidos via ref para não resetar adName edits
   useEffect(() => {
     if (!campaignTemplate || validPairs.length === 0 || campaignSelectedAdsetIds.length === 0) {
       setCampaignReviewItems([])
       return
     }
+    const cTpl = campaignNameTemplateRef.current
+    const aTpl = adsetNameTemplateRef.current
     setCampaignReviewItems(
-      validPairs.map((pair) => ({
+      validPairs.map((pair, idx) => ({
         id: pair.id,
         adName: pair.adName,
+        campaignName: interpolate(cTpl, pair.adName, idx + 1),
+        adsetNameTemplate: interpolate(aTpl, pair.adName, idx + 1),
         feedFileName: pair.feed?.name,
         storyFileName: pair.story?.name,
         status: "ACTIVE" as const,
       })),
     )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [campaignTemplate, validPairs, campaignSelectedAdsetIds])
+
+  // Reset campaignName por linha quando o template global muda
+  useEffect(() => {
+    setCampaignReviewItems((prev) =>
+      prev.length === 0 ? prev : prev.map((item, idx) => ({
+        ...item,
+        campaignName: interpolate(campaignNameTemplate, item.adName, idx + 1),
+      }))
+    )
+  }, [campaignNameTemplate])
+
+  // Reset adsetNameTemplate por linha quando o template global muda
+  useEffect(() => {
+    setCampaignReviewItems((prev) =>
+      prev.length === 0 ? prev : prev.map((item, idx) => ({
+        ...item,
+        adsetNameTemplate: interpolate(adsetNameTemplate, item.adName, idx + 1),
+      }))
+    )
+  }, [adsetNameTemplate])
 
   useEffect(() => {
     if (!isMultiSlotTemplate || bundleUploadMode !== "filename") {
@@ -790,6 +821,8 @@ export default function UploadPage() {
         const pair = validPairs.find((p) => p.id === item.id)
         return {
           ad_name: item.adName,
+          campaign_name: item.campaignName,
+          adset_name_template: item.adsetNameTemplate,
           feed_file_index: pair?.feed ? fileIndexMap.get(`${pair.id}-feed`) : undefined,
           story_file_index: pair?.story ? fileIndexMap.get(`${pair.id}-story`) : undefined,
         }

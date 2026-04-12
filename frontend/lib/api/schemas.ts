@@ -753,6 +753,8 @@ export const CampaignTemplateResponseSchema = z.object({
 
 export const CampaignBulkItemConfigSchema = z.object({
   ad_name: z.string().min(1),
+  campaign_name: z.string().optional(),        // override por item: nome final renderizado
+  adset_name_template: z.string().optional(),  // override por item: template parcial do conjunto
   feed_file_index: z.number().int().min(0).optional(),
   story_file_index: z.number().int().min(0).optional(),
 }).refine(

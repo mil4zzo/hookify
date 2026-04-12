@@ -37,6 +37,7 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useLanguage } from "@/lib/hooks/useLanguage";
 import { useNiche } from "@/lib/hooks/useNiche";
 import { api } from "@/lib/api/endpoints";
+import { useSyncAdAccounts } from "@/lib/api/hooks";
 import { clearAllPacks } from "@/lib/storage/indexedDB";
 import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
@@ -63,6 +64,7 @@ export default function Topbar() {
   const { settings, setLanguage, setNiche, updateSettings } = useSettings();
   const { connections, connect, disconnect, refreshPicture, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
+  const syncAdAccounts = useSyncAdAccounts();
   const { user: supabaseUser } = useSupabaseAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -557,6 +559,7 @@ export default function Topbar() {
               connection={connection}
               onReconnect={handleConnectFacebook}
               onRefreshPicture={handleRefreshPicture}
+              onVerify={() => syncAdAccounts.mutate()}
               onDelete={async (connectionId) => {
                 try {
                   clearConnectionCache(connectionId);

@@ -24,11 +24,12 @@ interface FacebookConnectionCardProps {
   onReconnect?: (connectionId: string) => void;
   onRefreshPicture?: (connectionId: string) => void | Promise<void>;
   onSetPrimary?: (connectionId: string) => void;
+  onVerify?: () => void;
   isDeleting?: boolean;
   showActions?: boolean;
 }
 
-export function FacebookConnectionCard({ connection, isSelected = false, onSelect, onDelete, onReconnect, onRefreshPicture, onSetPrimary, isDeleting = false, showActions = true }: FacebookConnectionCardProps) {
+export function FacebookConnectionCard({ connection, isSelected = false, onSelect, onDelete, onReconnect, onRefreshPicture, onSetPrimary, onVerify, isDeleting = false, showActions = true }: FacebookConnectionCardProps) {
   const { testingConnections, expiredConnections, handleRetestConnection } = useFacebookConnectionVerification();
   const hasTriggeredPictureRefresh = useRef(false);
 
@@ -40,6 +41,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
   const handleRetest = async (e: React.MouseEvent) => {
     e.stopPropagation();
     await handleRetestConnection(connection.id);
+    onVerify?.();
   };
 
   const handleDelete = (e: React.MouseEvent) => {
