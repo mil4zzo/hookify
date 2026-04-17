@@ -56,61 +56,41 @@ def _interpolate_name(
     return result
 
 
-_STORY_PLACEMENT_TOKENS = frozenset({"story", "stories", "reels", "facebook_reels", "profile_reels"})
-
-
-def _is_story_slot(slot: CreativeMediaSlot) -> bool:
-    """Heuristica: slot e considerado story quando placements incluem story/reels."""
-    for summary in slot.placements_summary or []:
-        summary_str = str(summary).lower()
-        if any(token in summary_str for token in _STORY_PLACEMENT_TOKENS):
-            return True
-    return False
-
-
 def _map_slot_files_to_template(
-    slot_files: Dict[str, Any],
+    slot_media: Dict[str, int],
     media_refs: Dict[int, MediaRef],
     template: CreativeTemplate,
     bundle_id: str,
 ) -> BundleMediaRef:
-    feed_ref = media_refs.get(int(slot_files["feed"])) if slot_files.get("feed") is not None else None
-    story_ref = media_refs.get(int(slot_files["story"])) if slot_files.get("story") is not None else None
-
     if not template.media_slots:
         raise MetaAPIError("Template sem media_slots definidos", "template_missing_slots")
 
     slot_refs: Dict[str, MediaRef] = {}
 
-    if len(template.media_slots) == 1:
-        only = template.media_slots[0]
-        chosen = feed_ref or story_ref
-        if not chosen:
-            raise MetaAPIError("Nenhuma midia enviada para o item", "missing_media_ref")
-        if only.media_type != chosen.media_type:
-            raise MetaAPIError(
-                f"Template espera midia do tipo {only.media_type}, mas recebeu {chosen.media_type}",
-                "media_type_mismatch",
-            )
-        slot_refs[only.slot_key] = chosen
-    else:
-        for slot in template.media_slots:
-            wants_story = _is_story_slot(slot)
-            ref = story_ref if wants_story else feed_ref
-            if not ref:
-                missing = "story" if wants_story else "feed"
+    for slot in template.media_slots:
+        file_index = slot_media.get(slot.slot_key)
+        if file_index is None:
+            if slot.required:
                 raise MetaAPIError(
-                    f"Template requer midia para o slot '{slot.display_name}' "
-                    f"({slot.slot_key}); envie o arquivo de {missing}.",
+                    f"Slot obrigatorio '{slot.display_name}' ({slot.slot_key}) nao recebeu midia.",
                     "bundle_missing_slot",
                 )
-            if slot.media_type != ref.media_type:
-                raise MetaAPIError(
-                    f"Template espera midia do tipo {slot.media_type} no slot {slot.slot_key}, "
-                    f"mas recebeu {ref.media_type}",
-                    "media_type_mismatch",
-                )
-            slot_refs[slot.slot_key] = ref
+            continue
+        ref = media_refs.get(file_index)
+        if not ref:
+            raise MetaAPIError(
+                f"Indice {file_index} nao corresponde a nenhum arquivo enviado.",
+                "invalid_file_index",
+            )
+        if slot.media_type != ref.media_type:
+            raise MetaAPIError(
+                f"Slot '{slot.display_name}' espera {slot.media_type}, recebeu {ref.media_type}.",
+                "media_type_mismatch",
+            )
+        slot_refs[slot.slot_key] = ref
+
+    if not slot_refs:
+        raise MetaAPIError("Nenhuma midia mapeada para o template.", "missing_media_ref")
 
     return BundleMediaRef(bundle_id=bundle_id, slot_refs=slot_refs)
 
@@ -377,17 +357,16 @@ class CampaignBulkProcessor:
             )
         template = CreativeTemplate.from_payload(template_payload)
 
-        # 1. Resolve mídias — slot_files = {"feed": N, "story": M}
-        slot_files: Dict[str, Any] = item.get("slot_files") or {}
+        # 1. Resolve mídias — slot_media = {"slot_1": N, "slot_2": M, ...}
+        slot_media: Dict[str, int] = item.get("slot_media") or {}
         bundle_id = f"campaign_bulk_{item_id}"
-        bundle_media_ref = _map_slot_files_to_template(slot_files, media_refs, template, bundle_id)
+        bundle_media_ref = _map_slot_files_to_template(slot_media, media_refs, template, bundle_id)
 
         logger.debug(
-            "[CAMPAIGN_BULK] item_media_resolved job_id=%s item_id=%s feed_idx=%s story_idx=%s",
+            "[CAMPAIGN_BULK] item_media_resolved job_id=%s item_id=%s slot_media=%s",
             self.context.job_id,
             item_id,
-            slot_files.get("feed"),
-            slot_files.get("story"),
+            slot_media,
         )
 
         # 2. Criar criativo

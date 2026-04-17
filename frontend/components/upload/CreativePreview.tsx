@@ -5,6 +5,7 @@ import {
   IconBrandInstagram,
   IconExternalLink,
   IconPhoto,
+  IconVideo,
 } from "@tabler/icons-react"
 import type { AdCreativeDetailResponse } from "@/lib/api/schemas"
 
@@ -22,28 +23,51 @@ function inferPreviewSurface(creative: AdCreativeDetailResponse): PreviewSurface
   return "generic"
 }
 
-
 function PreviewMedia({ creative, className }: { creative: AdCreativeDetailResponse; className?: string }) {
-  if (creative.thumbnail_url) {
+  const videoUrl = creative.video_url ?? null
+  // thumbnail_url is already resolved to image_url by the backend for image ads
+  const imageUrl = creative.thumbnail_url ?? null
+  const url = videoUrl ?? imageUrl
+
+  if (!url) {
     return (
-      <div className={`relative overflow-hidden bg-neutral-900 ${className ?? ""}`}>
+      <div className={`flex items-center justify-center bg-gradient-to-br from-muted to-muted/50 ${className ?? ""}`}>
+        <div className="flex flex-col items-center gap-2 text-muted-foreground opacity-50">
+          <IconPhoto className="h-7 w-7" />
+          <span className="text-xs">Sem miniatura</span>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={`relative overflow-hidden bg-neutral-900 ${className ?? ""}`}>
+      {videoUrl ? (
+        // eslint-disable-next-line jsx-a11y/media-has-caption
+        <video
+          src={videoUrl}
+          className="absolute inset-0 h-full w-full object-cover"
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+        />
+      ) : (
         <Image
-          src={creative.thumbnail_url}
+          src={url}
           alt={creative.title || creative.body || "Prévia do anúncio"}
           fill
           className="object-cover"
           sizes="(max-width: 768px) 100vw, 300px"
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
-      </div>
-    )
-  }
-  return (
-    <div className={`flex items-center justify-center bg-gradient-to-br from-muted to-muted/50 ${className ?? ""}`}>
-      <div className="flex flex-col items-center gap-2 text-muted-foreground opacity-50">
-        <IconPhoto className="h-7 w-7" />
-        <span className="text-xs">Sem miniatura</span>
-      </div>
+      )}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
+      {!videoUrl && creative.format === "video" && (
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 backdrop-blur-sm">
+          <IconVideo className="h-5 w-5 text-white" />
+        </div>
+      )}
     </div>
   )
 }

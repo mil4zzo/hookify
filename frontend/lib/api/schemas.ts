@@ -620,6 +620,24 @@ export const AdsTreeCampaignSchema = z.object({
 
 export const AdsTreeResponseSchema = z.array(AdsTreeCampaignSchema)
 
+export const FlatAdSchema = z.object({
+  ad_id: z.string(),
+  ad_name: z.string().nullable().optional(),
+  account_id: z.string().nullable().optional(),
+  adset_id: z.string(),
+  adset_name: z.string().nullable().optional(),
+  campaign_id: z.string(),
+  campaign_name: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  thumbnail_url: z.string().nullable().optional(),
+})
+
+export const AdsSearchResponseSchema = z.object({
+  items: z.array(FlatAdSchema),
+  next_offset: z.number().int().nullable(),
+  has_more: z.boolean(),
+})
+
 export const AdCreativeDetailResponseSchema = z.object({
   creative: z.record(z.any()),
   body: z.string().nullable().optional(),
@@ -627,6 +645,7 @@ export const AdCreativeDetailResponseSchema = z.object({
   call_to_action: z.string().nullable().optional(),
   link_url: z.string().nullable().optional(),
   thumbnail_url: z.string().nullable().optional(),
+  video_url: z.string().nullable().optional(),
   format: z.string().nullable().optional(),
   family: z.string(),
   supports_bulk_clone: z.boolean(),
@@ -642,6 +661,9 @@ export const AdCreativeDetailResponseSchema = z.object({
       rules_count: z.number().int(),
       placements_summary: z.array(z.string()).default([]),
       required: z.boolean().default(true),
+      primary_placement: z.string().default(""),
+      aspect_ratio: z.string().default(""),
+      compatible_slot_keys: z.array(z.string()).default([]),
     }),
   ).default([]),
   is_multi_slot: z.boolean().default(false),
@@ -714,6 +736,8 @@ export type AdsTreeAd = z.infer<typeof AdsTreeAdSchema>
 export type AdsTreeAdset = z.infer<typeof AdsTreeAdsetSchema>
 export type AdsTreeCampaign = z.infer<typeof AdsTreeCampaignSchema>
 export type AdsTreeResponse = z.infer<typeof AdsTreeResponseSchema>
+export type FlatAd = z.infer<typeof FlatAdSchema>
+export type AdsSearchResponse = z.infer<typeof AdsSearchResponseSchema>
 export type AdCreativeDetailResponse = z.infer<typeof AdCreativeDetailResponseSchema>
 export type BulkAdItemConfig = z.infer<typeof BulkAdItemConfigSchema>
 export type BulkAdConfig = z.infer<typeof BulkAdConfigSchema>
@@ -755,11 +779,10 @@ export const CampaignBulkItemConfigSchema = z.object({
   ad_name: z.string().min(1),
   campaign_name: z.string().optional(),        // override por item: nome final renderizado
   adset_name_template: z.string().optional(),  // override por item: template parcial do conjunto
-  feed_file_index: z.number().int().min(0).optional(),
-  story_file_index: z.number().int().min(0).optional(),
+  slot_media: z.record(z.string(), z.number().int().min(0)),
 }).refine(
-  (v) => v.feed_file_index !== undefined || v.story_file_index !== undefined,
-  { message: "feed_file_index ou story_file_index e obrigatorio" }
+  (v) => Object.keys(v.slot_media).length > 0,
+  { message: "slot_media deve conter ao menos um slot" }
 )
 
 export const CampaignBulkConfigSchema = z.object({
@@ -776,8 +799,7 @@ export const CampaignBulkConfigSchema = z.object({
 export const CampaignBulkItemProgressSchema = z.object({
   id: z.string(),
   ad_name: z.string(),
-  feed_file_index: z.number().nullable().optional(),
-  story_file_index: z.number().nullable().optional(),
+  slot_media: z.record(z.string(), z.number()).nullable().optional(),
   campaign_name_template: z.string().nullable().optional(),
   adset_name_template: z.string().nullable().optional(),
   status: z.string(),

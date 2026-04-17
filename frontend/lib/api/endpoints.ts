@@ -26,6 +26,7 @@ import {
   SheetSyncJobProgress,
   UpdateEntityStatusResponse,
   AdsTreeResponse,
+  AdsSearchResponse,
   AdCreativeDetailResponse,
   BulkAdConfig,
   BulkAdProgressResponse,
@@ -130,6 +131,24 @@ export const api = {
   bulkAds: {
     getAdsTree: (): Promise<AdsTreeResponse> =>
       apiClient.get('/facebook/ads/tree'),
+    searchAds: (params: {
+      q?: string
+      q_adset?: string
+      q_campaign?: string
+      pack_id?: string
+      limit?: number
+      offset?: number
+    }): Promise<AdsSearchResponse> => {
+      const qs = new URLSearchParams()
+      if (params.q) qs.set('q', params.q)
+      if (params.q_adset) qs.set('q_adset', params.q_adset)
+      if (params.q_campaign) qs.set('q_campaign', params.q_campaign)
+      if (params.pack_id) qs.set('pack_id', params.pack_id)
+      if (params.limit !== undefined) qs.set('limit', String(params.limit))
+      if (params.offset !== undefined) qs.set('offset', String(params.offset))
+      const query = qs.toString()
+      return apiClient.get(`/facebook/ads/search${query ? `?${query}` : ''}`)
+    },
     getAdCreative: (adId: string): Promise<AdCreativeDetailResponse> =>
       apiClient.get(`/facebook/ads/${encodeURIComponent(adId)}/creative`),
     start: (
@@ -169,6 +188,15 @@ export const api = {
 
     getProgress: (jobId: string): Promise<CampaignBulkProgressResponse> =>
       apiClient.getWithTimeout(`/facebook/campaign-bulk/${encodeURIComponent(jobId)}`, 60000),
+
+    retry: (
+      jobId: string,
+      itemIds: string[],
+    ): Promise<{ job_id: string; status: string; message: string; total_items: number }> =>
+      apiClient.post(`/facebook/campaign-bulk/${encodeURIComponent(jobId)}/retry`, {
+        job_id: jobId,
+        item_ids: itemIds,
+      }),
   },
 
   // Analytics (Supabase)

@@ -140,8 +140,7 @@ class CampaignBulkItem(BaseModel):
     ad_name: str
     campaign_name: Optional[str] = None        # nome final renderizado da campanha (override por item)
     adset_name_template: Optional[str] = None  # template parcial do conjunto (override por item)
-    feed_file_index: Optional[int] = None
-    story_file_index: Optional[int] = None
+    slot_media: Dict[str, int] = {}            # { "slot_1": file_index, "slot_2": file_index, ... }
 
     @field_validator("ad_name")
     @classmethod
@@ -152,13 +151,11 @@ class CampaignBulkItem(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def validate_has_at_least_one_slot(self):
-        if self.feed_file_index is None and self.story_file_index is None:
-            raise ValueError("at least one of feed_file_index or story_file_index must be provided")
-        if self.feed_file_index is not None and self.feed_file_index < 0:
-            raise ValueError("feed_file_index must be >= 0")
-        if self.story_file_index is not None and self.story_file_index < 0:
-            raise ValueError("story_file_index must be >= 0")
+    def validate_slot_media(self):
+        if not self.slot_media:
+            raise ValueError("slot_media deve conter ao menos um slot")
+        if any(v < 0 for v in self.slot_media.values()):
+            raise ValueError("indices de arquivo em slot_media devem ser >= 0")
         return self
 
 

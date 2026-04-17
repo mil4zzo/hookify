@@ -67,7 +67,7 @@ export function MainContent({ children }: { children: React.ReactNode }) {
           usesSidebarShell ? "flex w-full max-w-none flex-col md:flex-row" : "flex flex-col",
           !usesSidebarShell && (usesWideShell ? "w-full max-w-none" : "container mx-auto"),
           isAuthRoute && "p-0",
-          usesSidebarShell ? (isManagerRoute ? "overflow-hidden" : "overflow-y-auto md:overflow-hidden") : !isAuthRoute && !isManagerRoute ? cn("overflow-y-auto", APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y, APP_PAGE_SHELL_BOTTOM_SCROLL) : undefined,
+          usesSidebarShell ? (isManagerRoute ? "overflow-hidden" : "overflow-y-auto md:overflow-hidden") : !isAuthRoute && !isManagerRoute ? cn("overflow-y-auto", APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y) : undefined,
           !usesSidebarShell && isManagerRoute && cn("overflow-hidden", APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y),
         )}
       >
@@ -85,10 +85,11 @@ export function MainContent({ children }: { children: React.ReactNode }) {
 
         <div
           className={cn(
-            "min-w-0 flex flex-1 min-h-0 flex-col",
+            "min-w-0 flex flex-1 flex-col",
+            (usesSidebarShell || isManagerRoute) && "min-h-0",
             usesSidebarShell && !isAuthRoute && APP_PAGE_SHELL_X,
             usesSidebarShell && !isAuthRoute && APP_PAGE_SHELL_Y,
-            usesSidebarShell && !isAuthRoute && !isManagerRoute && APP_PAGE_SHELL_BOTTOM_SCROLL,
+            !isAuthRoute && !isManagerRoute && APP_PAGE_SHELL_BOTTOM_SCROLL,
             usesSidebarShell && (isManagerRoute ? "overflow-hidden" : "md:overflow-y-auto"),
           )}
         >

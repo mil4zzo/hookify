@@ -7,16 +7,14 @@ import { Button } from "@/components/ui/button"
 
 const AD_NAME_VAR = "{ad_name}"
 const INDEX_VAR = "{index}"
-const TEMPLATE_ADSET_NAME_VAR = "{template_adset_name}"
 
 export interface CampaignReviewItem {
   id: string
   adName: string
-  feedFileName?: string
-  storyFileName?: string
+  slotFileNames?: string[]
   status: "ACTIVE" | "PAUSED"
   campaignName: string       // nome final renderizado, editável por linha
-  adsetNameTemplate: string  // template parcial ({template_adset_name} permanece), editável por linha
+  adsetNameTemplate: string  // template parcial ({index} permanece para o backend resolver por conjunto), editável por linha
 }
 
 interface CampaignReviewTableProps {
@@ -31,11 +29,15 @@ interface CampaignReviewTableProps {
   onBudgetChange: (value: number | null) => void
 }
 
-export function interpolate(template: string, adName: string, index: number, templateAdsetName = "{conjunto}"): string {
+export function interpolate(template: string, adName: string, index: number): string {
   return template
-    .replace(TEMPLATE_ADSET_NAME_VAR, templateAdsetName)
     .replace(AD_NAME_VAR, adName)
     .replace(INDEX_VAR, String(index))
+}
+
+/** Substitui apenas {ad_name}. {index} é deixado intacto para o backend resolver por conjunto. */
+export function interpolateAdset(template: string, adName: string): string {
+  return template.replace(AD_NAME_VAR, adName)
 }
 
 function FileInfo({ name }: { name?: string }) {
@@ -99,27 +101,23 @@ export default function CampaignReviewTable({
               <Input
                 value={adsetNameTemplate}
                 onChange={(e) => onAdsetNameTemplateChange(e.target.value)}
-                placeholder="Ex: Cópia de {template_adset_name} - {ad_name} - [{index}]"
+                placeholder="Ex: Cópia de {ad_name} - [{index}]"
               />
             </div>
 
             {/* Shared variable legend */}
             <div className="rounded-lg border border-border bg-muted-20 px-3 py-2.5 space-y-1.5">
               <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Variáveis disponíveis</p>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                <span className="text-[11px] text-muted-foreground">
+              <ul className="space-y-1">
+                <li className="text-[11px] text-muted-foreground">
                   <code className="rounded bg-muted px-1 py-0.5 font-mono">{AD_NAME_VAR}</code>
-                  {" — "}nome do criativo (feed/story)
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  <code className="rounded bg-muted px-1 py-0.5 font-mono">{TEMPLATE_ADSET_NAME_VAR}</code>
-                  {" — "}nome do conjunto original
-                </span>
-                <span className="text-[11px] text-muted-foreground">
+                  {" — "}nome do criativo
+                </li>
+                <li className="text-[11px] text-muted-foreground">
                   <code className="rounded bg-muted px-1 py-0.5 font-mono">{INDEX_VAR}</code>
-                  {" — "}numeração automática
-                </span>
-              </div>
+                  {" — "}numeração sequencial (ex: 1, 2, 3…)
+                </li>
+              </ul>
             </div>
           </div>
 
@@ -181,8 +179,9 @@ export default function CampaignReviewTable({
           )}
         </div>
 
+        <div className="overflow-x-auto">
         {/* Column headers */}
-        <div className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] gap-3 border-b border-border bg-muted-10 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] gap-3 border-b border-border bg-muted-10 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground min-w-[800px]">
           <div>Arquivos</div>
           <div>Nome da campanha</div>
           <div>Nome do conjunto</div>
@@ -205,13 +204,13 @@ export default function CampaignReviewTable({
             return (
               <div
                 key={item.id}
-                className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] items-center gap-3 px-4 py-3"
+                className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] items-center gap-3 px-4 py-3 min-w-[800px]"
               >
                 {/* Files */}
                 <div className="min-w-0 space-y-0.5">
-                  <FileInfo name={item.feedFileName} />
-                  <FileInfo name={item.storyFileName} />
-                  {!item.feedFileName && !item.storyFileName && (
+                  {(item.slotFileNames ?? []).length > 0 ? (
+                    item.slotFileNames!.map((name, i) => <FileInfo key={i} name={name} />)
+                  ) : (
                     <span className="text-xs italic text-muted-foreground opacity-60">sem arquivo</span>
                   )}
                 </div>
@@ -234,18 +233,13 @@ export default function CampaignReviewTable({
                 </div>
 
                 {/* Adset name template — editable */}
-                <div className="min-w-0 space-y-0.5">
+                <div className="min-w-0">
                   <Input
                     value={item.adsetNameTemplate}
                     placeholder="Nome do conjunto"
                     className="h-8 text-xs"
                     onChange={(e) => onItemChange(item.id, { adsetNameTemplate: e.target.value })}
                   />
-                  {item.adsetNameTemplate.includes(TEMPLATE_ADSET_NAME_VAR) && (
-                    <p className="truncate pl-1 text-[10px] text-muted-foreground">
-                      <code className="font-mono">{TEMPLATE_ADSET_NAME_VAR}</code> = nome original
-                    </p>
-                  )}
                 </div>
 
                 {/* Ad name input */}
@@ -281,6 +275,7 @@ export default function CampaignReviewTable({
                 {/* Remove */}
                 <button
                   type="button"
+                  aria-label="Remover criativo"
                   className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive-10 transition-colors"
                   onClick={() => onRemove(item.id)}
                 >
@@ -290,6 +285,7 @@ export default function CampaignReviewTable({
             )
           })}
         </div>
+        </div>{/* end overflow-x-auto */}
       </div>
     </div>
   )

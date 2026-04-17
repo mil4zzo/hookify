@@ -1,0 +1,145 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+**Hookify** is a Meta Ads management platform. It connects to the Facebook Graph API (v24.0) to pull ad data into a Supabase (PostgreSQL) database, and exposes it through a FastAPI backend consumed by a Next.js 15 frontend.
+
+---
+
+## Development Commands
+
+### Backend (FastAPI — Python)
+
+```bash
+cd backend
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python app/main.py                 # runs on http://localhost:8000
+```
+
+Run tests:
+```bash
+pytest tests/
+pytest tests/test_specific.py     # single test file
+```
+
+### Frontend (Next.js 15)
+
+```bash
+cd frontend
+npm install
+npm run dev                        # runs on http://localhost:3000
+npm run build
+npm run lint
+npm run generate:themes            # regenerate Tailwind theme CSS
+```
+
+### Docker Deployment (VPS)
+
+```bash
+cd deploy
+./deploy.sh            # deploy with cache
+./deploy.sh --no-cache # full rebuild
+docker compose logs -f backend
+./cleanup.sh           # free disk space (unused images, volumes, build cache)
+```
+
+---
+
+## Architecture
+
+### Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 15 (App Router), React 18, TypeScript, Tailwind CSS, shadcn/ui |
+| State | Zustand (client state), TanStack Query (server state/caching) |
+| Backend | FastAPI + Uvicorn |
+| Database | Supabase (PostgreSQL + Auth + RLS) |
+| Integrations | Meta Graph API v24.0, Google OAuth + Sheets, AssemblyAI |
+| Infra | Docker + Traefik (SSL) on Hostinger VPS |
+
+### Request Flow
+
+```
+Frontend (Next.js) → Axios → FastAPI backend → Meta Graph API / Supabase
+```
+
+Authentication is handled by Supabase Auth. The frontend stores the JWT from Supabase and passes it in the `Authorization` header to the backend. The backend validates the JWT against `SUPABASE_JWKS_URL`.
+
+The backend never exposes `SUPABASE_SERVICE_ROLE_KEY` to the client — it's used only server-side for privileged queries.
+
+### Key Backend Patterns
+
+**Async Job Tracking**: Long-running Meta API operations (bulk ad/campaign creation) use a two-phase pattern:
+1. Submit job → returns `job_id`
+2. Client polls `/facebook/jobs/{job_id}` until completion
+
+In-memory `JobTracker` service manages job state during the lifecycle of the request.
+
+**Supabase Client**: Two clients exist — one authenticated as service role (`supabase_client.py`) for backend operations, one using the user JWT for RLS-enforced queries.
+
+**Feature Flags via env vars**: Several behaviors are toggled in `.env`, including:
+- `ANALYTICS_MANAGER_RPC_ENABLED` / `ANALYTICS_MANAGER_RPC_FAIL_OPEN` — controls whether analytics uses a Supabase RPC or falls back
+- `LOG_SUPPRESS_HTTPX`, `LOG_META_USAGE`, `LOG_AD_ID_TRUNCATED` — logging verbosity
+
+### Key Frontend Patterns
+
+**API client**: Configured in `frontend/lib/api/`. Base URL from `NEXT_PUBLIC_API_BASE_URL`. Auth token is injected via Axios interceptor using the Supabase session.
+
+**Route layout**: Uses Next.js App Router. `(auth)/` wraps authenticated pages. `callback/` handles OAuth redirects (Facebook and Google). Most feature pages live under `/manager`, `/explorer`, `/insights`, `/rankings`, `/upload`.
+
+**UI components**: shadcn/ui (Radix primitives) in `components/ui/`. Project-specific components are in `components/ads/`, `components/manager/`, etc. Do not add raw Radix usage — go through shadcn wrappers.
+
+**Notifications**: Use `sonner` (`toast` from `"sonner"`) for all user-facing toasts. Do not use other toast libraries.
+
+---
+
+## Environment Variables
+
+### Backend (`backend/.env`)
+
+```
+FACEBOOK_CLIENT_ID, FACEBOOK_CLIENT_SECRET
+SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_JWKS_URL
+ENCRYPTION_KEY                    # base64-encoded, used to encrypt stored tokens
+CORS_ORIGINS                      # comma-separated allowed origins
+ASSEMBLYAI_API_KEY
+GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET
+LOG_LEVEL, LOG_SUPPRESS_HTTPX, LOG_META_USAGE, LOG_AD_ID_TRUNCATED
+ANALYTICS_MANAGER_RPC_ENABLED, ANALYTICS_MANAGER_RPC_FAIL_OPEN
+```
+
+### Frontend (`frontend/.env.local`)
+
+```
+NEXT_PUBLIC_API_BASE_URL          # backend URL (http://localhost:8000 dev)
+NEXT_PUBLIC_FB_REDIRECT_URI       # Facebook OAuth redirect
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
+NEXT_PUBLIC_SENTRY_DSN
+```
+
+---
+
+## Database
+
+Supabase PostgreSQL with Row-Level Security (RLS). Migrations live in `supabase/migrations/`. The full schema is in `supabase/schema.sql`.
+
+Key tables: `users`, `campaigns`, `ads`, `analytics_cache`, `google_accounts`, `facebook_connections`.
+
+All schema changes must go through migration files — never edit `schema.sql` directly without a corresponding migration.
+
+---
+
+## Documentation
+
+Internal docs in `/documentation/`:
+- `authenticated-app-visual-standard.md` — UI/UX visual standards to follow
+- `como-funciona-o-app.md` — feature explanations in Portuguese
+- `explorer-page-design.md`, `pagina-insights.md` — page-level specs
+
+Deployment docs in `/deploy/`: `README.md`, `QUICK_START.md`, `ENV_TEMPLATE.md`, `SETUP_GUIDE.md`, `TEST_CHECKLIST.md`.

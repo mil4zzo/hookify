@@ -7,15 +7,18 @@ import { useActiveJobsStore } from "@/lib/store/activeJobs"
 import type { CampaignBulkConfig, CampaignBulkProgressResponse } from "@/lib/api/schemas"
 
 interface UseCampaignBulkCreateReturn {
+  isStarting: boolean   // true durante o upload dos arquivos, antes do job_id existir
   isCreating: boolean
   jobId: string | null
   progress: CampaignBulkProgressResponse | null
   startCampaignBulk: (files: File[], config: CampaignBulkConfig) => Promise<string | null>
+  retryCampaignFailed: (currentJobId: string, itemIds: string[]) => Promise<string | null>
   cancelCampaignBulk: () => Promise<void>
   resumePolling: (existingJobId: string) => Promise<void>
 }
 
 export function useCampaignBulkCreate(): UseCampaignBulkCreateReturn {
+  const [isStarting, setIsStarting] = useState(false)
   const [isCreating, setIsCreating] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [progress, setProgress] = useState<CampaignBulkProgressResponse | null>(null)
@@ -75,8 +78,21 @@ export function useCampaignBulkCreate(): UseCampaignBulkCreateReturn {
   }, [removeActiveJob])
 
   const startCampaignBulk = useCallback(async (files: File[], config: CampaignBulkConfig) => {
-    const response = await api.campaignBulk.start(files, config)
-    setJobId(response.job_id)
+    setIsStarting(true)
+    try {
+      const response = await api.campaignBulk.start(files, config)
+      setJobId(response.job_id)
+      addActiveJob(response.job_id)
+      void runPolling(response.job_id)
+      return response.job_id
+    } finally {
+      setIsStarting(false)
+    }
+  }, [addActiveJob, runPolling])
+
+  const retryCampaignFailed = useCallback(async (currentJobId: string, itemIds: string[]) => {
+    const response = await api.campaignBulk.retry(currentJobId, itemIds)
+    setProgress(null)
     addActiveJob(response.job_id)
     void runPolling(response.job_id)
     return response.job_id
@@ -96,10 +112,12 @@ export function useCampaignBulkCreate(): UseCampaignBulkCreateReturn {
   }, [addActiveJob, runPolling])
 
   return {
+    isStarting,
     isCreating,
     jobId,
     progress,
     startCampaignBulk,
+    retryCampaignFailed,
     cancelCampaignBulk,
     resumePolling,
   }

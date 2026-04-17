@@ -4,6 +4,8 @@ import copy
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.services import placement_registry
+
 
 SUPPORTED_CREATIVE_FAMILIES = {
     "story_spec_simple",
@@ -53,6 +55,10 @@ class CreativeMediaSlot:
     rules_count: int
     placements_summary: List[str] = field(default_factory=list)
     required: bool = True
+    # Campos de enriquecimento do placement_registry
+    primary_placement: str = ""       # nome legível: "Facebook Feed", "Instagram Reels", etc.
+    aspect_ratio: str = ""            # ex: "9:16", "1:1 / 1.91:1 / 4:5"
+    compatible_slot_keys: List[str] = field(default_factory=list)  # slot_keys compatíveis neste template
 
     def to_payload(self) -> Dict[str, Any]:
         return asdict(self)
@@ -69,6 +75,9 @@ class CreativeMediaSlot:
             rules_count=int(payload.get("rules_count") or 0),
             placements_summary=list(payload.get("placements_summary") or []),
             required=bool(payload.get("required", True)),
+            primary_placement=str(payload.get("primary_placement") or ""),
+            aspect_ratio=str(payload.get("aspect_ratio") or ""),
+            compatible_slot_keys=list(payload.get("compatible_slot_keys") or []),
         )
 
 
@@ -170,6 +179,8 @@ def parse_creative_template(creative_payload: Dict[str, Any]) -> CreativeTemplat
     family = _classify_family(creative, object_story_spec, asset_feed_spec, rules)
     media_kind = _detect_media_kind(creative, object_story_spec, asset_feed_spec)
     media_slots = _detect_media_slots(asset_feed_spec, rules, media_kind)
+    if family == "story_spec_simple" and not media_slots and media_kind:
+        media_slots = _build_story_spec_simple_slot(media_kind)
     preview = _build_preview(creative, object_story_spec, asset_feed_spec, media_kind)
     capabilities = _build_capabilities(
         creative=creative,
@@ -290,7 +301,7 @@ def _build_preview(
         title=title,
         call_to_action=call_to_action,
         link_url=link_url,
-        thumbnail_url=creative.get("thumbnail_url"),
+        thumbnail_url=creative.get("image_url") or creative.get("thumbnail_url"),
         format=media_kind,
     )
 
@@ -458,6 +469,8 @@ def _detect_media_slots(
     assets_key = "videos" if media_kind == "video" else "images"
     seen: Dict[Tuple[str, str], CreativeMediaSlot] = {}
     ordered_keys: List[Tuple[str, str]] = []
+    # slot_key → lista de (publisher_platform, position) do customization_spec
+    slot_placements: Dict[str, List[Tuple[str, str]]] = {}
 
     for rule in rules:
         label_obj = rule.get(source_key) or {}
@@ -466,8 +479,9 @@ def _detect_media_slots(
             continue
         key = (source_key, label_name)
         if key not in seen:
+            slot_key = f"slot_{len(seen) + 1}"
             seen[key] = CreativeMediaSlot(
-                slot_key=f"slot_{len(seen) + 1}",
+                slot_key=slot_key,
                 display_name="",
                 media_type=media_kind,
                 source=source_key,
@@ -477,21 +491,36 @@ def _detect_media_slots(
                 required=True,
             )
             ordered_keys.append(key)
+            slot_placements[slot_key] = []
+        slot_key = seen[key].slot_key
         seen[key].rules_count += 1
+        customization_spec = rule.get("customization_spec") or {}
         seen[key].placements_summary = _merge_placements_summary(
             seen[key].placements_summary,
-            _summarize_rule_placements(rule.get("customization_spec") or {}),
+            _summarize_rule_placements(customization_spec),
+        )
+        slot_placements[slot_key] = _merge_slot_placements(
+            slot_placements[slot_key],
+            _extract_placements_from_spec(customization_spec),
         )
 
+    # Apenas labels explicitamente referenciados por regras criam slots.
+    # Labels extras em adlabels de assets (internos do Meta) são ignorados.
+    rule_label_names = {
+        str((rule.get(source_key) or {}).get("name") or "").strip()
+        for rule in rules
+        if str((rule.get(source_key) or {}).get("name") or "").strip()
+    }
     for asset in asset_feed_spec.get(assets_key) or []:
         for label in asset.get("adlabels") or []:
             label_name = str((label or {}).get("name") or "").strip()
-            if not label_name:
+            if not label_name or label_name not in rule_label_names:
                 continue
             key = (source_key, label_name)
             if key not in seen:
+                slot_key = f"slot_{len(seen) + 1}"
                 seen[key] = CreativeMediaSlot(
-                    slot_key=f"slot_{len(seen) + 1}",
+                    slot_key=slot_key,
                     display_name="",
                     media_type=media_kind,
                     source=source_key,
@@ -501,6 +530,7 @@ def _detect_media_slots(
                     required=True,
                 )
                 ordered_keys.append(key)
+                slot_placements[slot_key] = []
 
     if not seen:
         assets = asset_feed_spec.get(assets_key) or []
@@ -509,24 +539,160 @@ def _detect_media_slots(
             adlabels = assets[0].get("adlabels") or []
             if adlabels:
                 label_name = str((adlabels[0] or {}).get("name") or "").strip() or None
-            return [
-                CreativeMediaSlot(
-                    slot_key="slot_1",
-                    display_name="Midia principal",
-                    media_type=media_kind,
-                    source=source_key,
-                    label_name=label_name,
-                    rules_count=0,
-                    placements_summary=[],
-                    required=True,
-                )
-            ]
+            slot = CreativeMediaSlot(
+                slot_key="slot_1",
+                display_name="Midia principal",
+                media_type=media_kind,
+                source=source_key,
+                label_name=label_name,
+                rules_count=0,
+                placements_summary=[],
+                required=True,
+            )
+            _enrich_slots([slot], {"slot_1": []})
+            return [slot]
         return []
 
     slots = [seen[key] for key in ordered_keys]
     for index, slot in enumerate(slots, start=1):
         slot.display_name = _build_slot_display_name(index, slot.placements_summary)
+    _enrich_slots(slots, slot_placements)
+    # Sobrescreve display_name com o nome amigável resolvido pelo registry
+    for slot in slots:
+        if slot.primary_placement:
+            slot.display_name = slot.primary_placement
     return slots
+
+
+def _extract_placements_from_spec(customization_spec: Dict[str, Any]) -> List[Tuple[str, str]]:
+    """Extrai pares (publisher_platform, position) de um customization_spec."""
+    result: List[Tuple[str, str]] = []
+    platform_to_positions_key = {
+        "facebook": "facebook_positions",
+        "instagram": "instagram_positions",
+        "messenger": "messenger_positions",
+        "audience_network": "audience_network_positions",
+    }
+    for platform in customization_spec.get("publisher_platforms") or []:
+        positions_key = platform_to_positions_key.get(str(platform))
+        if not positions_key:
+            continue
+        positions = customization_spec.get(positions_key) or []
+        for position in positions:
+            pair: Tuple[str, str] = (str(platform), str(position))
+            if pair not in result:
+                result.append(pair)
+    return result
+
+
+def _merge_slot_placements(
+    current: List[Tuple[str, str]],
+    incoming: List[Tuple[str, str]],
+) -> List[Tuple[str, str]]:
+    merged = list(current)
+    for pair in incoming:
+        if pair not in merged:
+            merged.append(pair)
+    return merged
+
+
+def _enrich_slots(
+    slots: List[CreativeMediaSlot],
+    slot_placements: Dict[str, List[Tuple[str, str]]],
+) -> None:
+    """Preenche primary_placement, aspect_ratio e compatible_slot_keys em cada slot."""
+    # índice reverso: (platform, position) → slot_key
+    placement_to_slot: Dict[Tuple[str, str], str] = {}
+    for slot_key, placements in slot_placements.items():
+        for p in placements:
+            placement_to_slot[p] = slot_key
+
+    for slot in slots:
+        placements = slot_placements.get(slot.slot_key, [])
+        if not placements and slot.rules_count > 0:
+            # Regra catch-all: customization_spec sem publisher_platforms/positions.
+            # Aplica-se a todos os posicionamentos não cobertos por outras regras —
+            # na prática, posicionamentos do tipo Feed (proporção quadrado/paisagem).
+            slot.primary_placement = "Feed"
+            slot.aspect_ratio = "1:1 / 4:5 / 1.91:1"
+            slot.compatible_slot_keys = []
+            continue
+        slot.primary_placement = _resolve_primary_placement(placements)
+        slot.aspect_ratio = _resolve_aspect_ratio(placements)
+        slot.compatible_slot_keys = _resolve_compatible_slot_keys(
+            slot.slot_key, placements, placement_to_slot
+        )
+
+
+def _resolve_primary_placement(placements: List[Tuple[str, str]]) -> str:
+    if not placements:
+        return ""
+
+    known_aspect_ratios: List[str] = []
+    first_display: Optional[str] = None
+    for platform, position in placements:
+        info = placement_registry.lookup(platform, position)
+        if info:
+            if first_display is None:
+                first_display = info.display_name
+            if info.aspect_ratio and info.aspect_ratio not in known_aspect_ratios:
+                known_aspect_ratios.append(info.aspect_ratio)
+
+    # Todos os posicionamentos 9:16 → label agrupado, pois stories e reels
+    # são intercambiáveis do ponto de vista da mídia a enviar.
+    if known_aspect_ratios == ["9:16"]:
+        return "Stories e Reels"
+
+    if first_display:
+        return first_display
+
+    _, position = placements[0]
+    return placement_registry.format_unknown(position)
+
+
+def _resolve_aspect_ratio(placements: List[Tuple[str, str]]) -> str:
+    for platform, position in placements:
+        info = placement_registry.lookup(platform, position)
+        if info and info.aspect_ratio:
+            return info.aspect_ratio
+    return ""
+
+
+def _resolve_compatible_slot_keys(
+    slot_key: str,
+    placements: List[Tuple[str, str]],
+    placement_to_slot: Dict[Tuple[str, str], str],
+) -> List[str]:
+    seen: set = set()
+    compatible: List[str] = []
+    for platform, position in placements:
+        info = placement_registry.lookup(platform, position)
+        if not info:
+            continue
+        for compat_platform, compat_position in info.compatible_with:
+            target_key = placement_to_slot.get((compat_platform, compat_position))
+            if target_key and target_key != slot_key and target_key not in seen:
+                seen.add(target_key)
+                compatible.append(target_key)
+    return compatible
+
+
+def _build_story_spec_simple_slot(media_kind: str) -> List[CreativeMediaSlot]:
+    """Cria slot sintético para criativos story_spec_simple (sem asset_feed_spec rules)."""
+    slot = CreativeMediaSlot(
+        slot_key="slot_1",
+        display_name="Midia principal",
+        media_type=media_kind,
+        source="video_label" if media_kind == "video" else "image_label",
+        label_name=None,
+        rules_count=0,
+        placements_summary=[],
+        required=True,
+        primary_placement="Midia principal",
+        aspect_ratio="",
+        compatible_slot_keys=[],
+    )
+    return [slot]
 
 
 def _build_slot_display_name(index: int, placements_summary: List[str]) -> str:
@@ -547,8 +713,6 @@ def _summarize_rule_placements(customization_spec: Dict[str, Any]) -> List[str]:
         if values:
             normalized = key.replace("_positions", "")
             parts.append(f"{normalized}:{'/'.join(str(value) for value in values)}")
-    if not parts and customization_spec.get("age_min") is not None and customization_spec.get("age_max") is not None:
-        parts.append(f"idade {customization_spec.get('age_min')}-{customization_spec.get('age_max')}")
     return parts
 
 

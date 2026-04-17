@@ -230,6 +230,27 @@ def _drop_adset_schedule_if_end_in_past(cloned: Dict[str, Any]) -> None:
     )
 
 
+def _normalize_targeting_placements(targeting: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Enforces Meta API placement constraints before creating an ad set.
+
+    Rule (subcode 2490392): if 'explore_home' is in instagram_positions,
+    'explore' must also be present.
+    """
+    ig_positions = targeting.get("instagram_positions")
+    if not isinstance(ig_positions, list):
+        return targeting
+    if "explore_home" in ig_positions and "explore" not in ig_positions:
+        import copy
+        targeting = copy.deepcopy(targeting)
+        targeting["instagram_positions"] = ["explore"] + ig_positions
+        logger.debug(
+            "adset_clone: added 'explore' to instagram_positions "
+            "(required when 'explore_home' is present)"
+        )
+    return targeting
+
+
 def adset_clone_fields_for_create(adset_cfg: Dict[str, Any]) -> Dict[str, Any]:
     """Subconjunto do ad set lido na Graph API que é aceito na criação (sem id, sem orçamento)."""
     out: Dict[str, Any] = {}
@@ -242,6 +263,8 @@ def adset_clone_fields_for_create(adset_cfg: Dict[str, Any]) -> Dict[str, Any]:
         if v is not None:
             out[k] = v
     _drop_adset_schedule_if_end_in_past(out)
+    if isinstance(out.get("targeting"), dict):
+        out["targeting"] = _normalize_targeting_placements(out["targeting"])
     return out
 
 

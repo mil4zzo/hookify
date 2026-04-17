@@ -415,7 +415,7 @@ class GraphAPI:
         fields = (
             "id,name,creative{body,title,call_to_action,call_to_action_type,"
             "link_url,url_tags,object_type,asset_feed_spec,image_hash,"
-            "video_id,thumbnail_url,object_story_spec}"
+            "image_url,video_id,thumbnail_url,object_story_spec}"
         )
         return self._handle_graph_request(
             method="GET",
@@ -423,6 +423,15 @@ class GraphAPI:
             operation_name="GraphAPI.get_ad_creative_details",
             params={"fields": fields},
             timeout=30,
+        )
+
+    def get_video_source(self, video_id: str) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="GET",
+            path=video_id,
+            operation_name="GraphAPI.get_video_source",
+            params={"fields": "source"},
+            timeout=15,
         )
 
     def upload_ad_image(self, act_id: str, filename: str, file_bytes: bytes) -> Dict[str, Any]:

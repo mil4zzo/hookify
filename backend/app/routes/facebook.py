@@ -33,6 +33,7 @@ from app.core.config import (
     FACEBOOK_AUTH_BASE_URL,
     FACEBOOK_OAUTH_SCOPES,
 )
+from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
 from fastapi import Query
 
 # Novos imports para arquitetura "2 fases"
@@ -65,6 +66,18 @@ from app.services.creative_template import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/facebook", tags=["facebook"])
+
+
+def _resolve_ad_thumbnail_url(row: Dict[str, Any]) -> Optional[str]:
+    """Retorna URL de thumbnail preferindo Supabase Storage sobre Meta CDN (que expira)."""
+    storage_path = str(row.get("thumb_storage_path") or "").strip()
+    if storage_path:
+        url = build_public_storage_url(DEFAULT_BUCKET, storage_path)
+        if url:
+            return url
+    return row.get("thumbnail_url")
+
+
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png"}
 ALLOWED_VIDEO_CONTENT_TYPES = {"video/mp4", "video/quicktime"}
 LARGE_FILE_THRESHOLD_BYTES = 50 * 1024 * 1024
@@ -279,7 +292,7 @@ def _build_ads_tree(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "ad_name": row.get("ad_name"),
                 "account_id": row.get("account_id"),
                 "status": row.get("effective_status"),
-                "thumbnail_url": row.get("thumbnail_url"),
+                "thumbnail_url": _resolve_ad_thumbnail_url(row),
             }
         )
 
@@ -677,7 +690,7 @@ def update_campaign_status(
 def get_ads_tree(user: Dict[str, Any] = Depends(get_current_user)):
     try:
         sb = get_supabase_for_user(user["token"])
-        _SELECT = "account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,effective_status,thumbnail_url"
+        _SELECT = "account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,effective_status,thumbnail_url,thumb_storage_path"
         _PAGE_SIZE = 1000
         all_rows: List[Dict[str, Any]] = []
         offset = 0
@@ -704,6 +717,90 @@ def get_ads_tree(user: Dict[str, Any] = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/ads/search")
+def search_ads(
+    q: Optional[str] = Query(None, description="Busca em ad_name ou ad_id"),
+    q_adset: Optional[str] = Query(None, description="Busca em adset_name"),
+    q_campaign: Optional[str] = Query(None, description="Busca em campaign_name"),
+    pack_id: Optional[str] = Query(None, description="Filtra por pack (pack_ids @> [pack_id])"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Busca paginada de ads (flat) para o seletor de template da tela /upload.
+
+    Diferente de /ads/tree, que retorna a hierarquia completa, este endpoint
+    retorna itens flat e aplica filtros SQL-native para suportar busca em
+    listas grandes sem timeout.
+    """
+    try:
+        sb = get_supabase_for_user(user["token"])
+        _SELECT = (
+            "account_id,campaign_id,campaign_name,adset_id,adset_name,"
+            "ad_id,ad_name,effective_status,thumbnail_url,thumb_storage_path"
+        )
+
+        q_clean = (q or "").strip()
+        q_adset_clean = (q_adset or "").strip()
+        q_campaign_clean = (q_campaign or "").strip()
+        pack_clean = (pack_id or "").strip()
+
+        query = (
+            sb.table("ads")
+            .select(_SELECT)
+            .eq("user_id", user["user_id"])
+        )
+
+        if q_clean:
+            # Busca simultaneamente em ad_name e ad_id (postgrest .or_).
+            pattern = f"%{q_clean}%"
+            query = query.or_(f"ad_name.ilike.{pattern},ad_id.ilike.{pattern}")
+        if q_adset_clean:
+            query = query.ilike("adset_name", f"%{q_adset_clean}%")
+        if q_campaign_clean:
+            query = query.ilike("campaign_name", f"%{q_campaign_clean}%")
+        if pack_clean:
+            query = query.contains("pack_ids", [pack_clean])
+
+        # Fetch limit+1 para detectar has_more sem um count() extra.
+        end = offset + limit
+        result = (
+            query.order("campaign_name")
+            .order("adset_name")
+            .order("ad_name")
+            .range(offset, end)
+            .execute()
+        )
+        rows = result.data or []
+        has_more = len(rows) > limit
+        items = rows[:limit]
+
+        flat_items = [
+            {
+                "ad_id": str(row.get("ad_id") or ""),
+                "ad_name": row.get("ad_name"),
+                "account_id": row.get("account_id"),
+                "adset_id": str(row.get("adset_id") or ""),
+                "adset_name": row.get("adset_name"),
+                "campaign_id": str(row.get("campaign_id") or ""),
+                "campaign_name": row.get("campaign_name"),
+                "status": row.get("effective_status"),
+                "thumbnail_url": _resolve_ad_thumbnail_url(row),
+            }
+            for row in items
+            if row.get("ad_id") and row.get("adset_id") and row.get("campaign_id")
+        ]
+
+        return {
+            "items": flat_items,
+            "next_offset": (offset + limit) if has_more else None,
+            "has_more": has_more,
+        }
+    except Exception as e:
+        logger.exception("Error in /ads/search endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/ads/{ad_id}/creative")
 def get_ad_creative(
     ad_id: str,
@@ -722,7 +819,20 @@ def get_ad_creative(
         ad_id=ad_id,
         require_supported=False,
     )
-    return template.to_preview_response(data.get("creative") or {})
+    creative = data.get("creative") or {}
+    response = template.to_preview_response(creative)
+
+    video_id = (
+        creative.get("video_id")
+        or (creative.get("object_story_spec") or {}).get("link_data", {}).get("video_id")
+        or (creative.get("object_story_spec") or {}).get("video_data", {}).get("video_id")
+    )
+    if video_id:
+        video_result = api.get_video_source(str(video_id))
+        if video_result.get("status") == "success":
+            response["video_url"] = (video_result.get("data") or {}).get("source")
+
+    return response
 
 
 @router.post("/bulk-ads", status_code=202)
@@ -1207,10 +1317,7 @@ async def start_campaign_bulk(
     # Validar file indexes referenciados
     referenced_indexes: Set[int] = set()
     for item in parsed_config.items:
-        if item.feed_file_index is not None:
-            referenced_indexes.add(item.feed_file_index)
-        if item.story_file_index is not None:
-            referenced_indexes.add(item.story_file_index)
+        referenced_indexes.update(item.slot_media.values())
     if any(file_index >= len(files) for file_index in referenced_indexes):
         raise _validation_error("Um ou mais arquivos referenciados nao foram enviados", field="config.items")
 
@@ -1350,16 +1457,11 @@ async def start_campaign_bulk(
                     "job_id": job_id,
                     "user_id": user["user_id"],
                     "file_name": item.ad_name,
-                    "file_index": item.feed_file_index if item.feed_file_index is not None else (item.story_file_index or 0),
+                    "file_index": next(iter(item.slot_media.values()), 0),
                     "bundle_id": None,
                     "bundle_name": None,
-                    # slot_files encodes feed/story indexes: {"feed": N, "story": M}
-                    "slot_files": {
-                        k: v for k, v in {
-                            "feed": item.feed_file_index,
-                            "story": item.story_file_index,
-                        }.items() if v is not None
-                    },
+                    # slot_media: { "slot_1": file_index, "slot_2": file_index, ... }
+                    "slot_media": item.slot_media,
                     "is_multi_slot": True,
                     "adset_id": "",
                     "adset_name": item.adset_name_template,
@@ -1441,8 +1543,7 @@ def get_campaign_bulk_progress(
             {
                 "id": item.get("id"),
                 "ad_name": item.get("ad_name"),
-                "feed_file_index": item.get("feed_file_index"),
-                "story_file_index": item.get("story_file_index"),
+                "slot_media": item.get("slot_media"),
                 "campaign_name_template": item.get("campaign_name_template"),
                 "adset_name_template": item.get("adset_name_template"),
                 "status": item.get("status"),
@@ -1454,6 +1555,105 @@ def get_campaign_bulk_progress(
         ],
         "summary": summary,
     }
+
+@router.post("/campaign-bulk/{job_id}/retry", status_code=202)
+def retry_campaign_bulk(
+    job_id: str,
+    request: BulkAdRetryRequest,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Reprocessa itens com erro de um job de criacao de campanhas em massa."""
+    if request.job_id != job_id:
+        raise _validation_error("job_id do body deve coincidir com o path", field="job_id")
+
+    tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
+    original_job = tracker.get_job(job_id)
+    if not original_job:
+        raise HTTPException(status_code=404, detail={"error": "job_not_found", "message": "Job nao encontrado"})
+
+    job_payload = original_job.get("payload") or {}
+
+    original_items = {
+        str(item["id"]): item
+        for item in supabase_repo.fetch_bulk_ad_items_for_job(tracker.sb, job_id)
+    }
+    retry_items = [
+        item for item_id in request.item_ids
+        if (item := original_items.get(item_id)) and item.get("status") == "error"
+    ]
+    if not retry_items:
+        raise _validation_error("Nenhum item falho valido foi selecionado", field="item_ids")
+
+    cached_media_refs = job_payload.get("media_refs") or {}
+    required_file_indexes: Set[str] = set()
+    for item in retry_items:
+        slot_media = item.get("slot_media") or {}
+        required_file_indexes.update(str(fi) for fi in slot_media.values())
+    missing = [fi for fi in required_file_indexes if fi not in cached_media_refs]
+    if missing:
+        raise _validation_error(
+            "Nao foi possivel reutilizar a midia destes itens. Inicie um novo upload.",
+            field="item_ids",
+        )
+
+    retry_job_id = str(uuid.uuid4())
+    tracker.create_job(
+        job_id=retry_job_id,
+        status="processing",
+        message=f"Retry de {len(retry_items)} campanha(s) iniciado",
+        payload={
+            **job_payload,
+            "type": "campaign_bulk_retry",
+            "retry_of_job_id": job_id,
+        },
+    )
+    supabase_repo.insert_bulk_ad_items(
+        tracker.sb,
+        [
+            {
+                "job_id": retry_job_id,
+                "user_id": user["user_id"],
+                "file_name": item.get("file_name") or item.get("ad_name") or "",
+                "file_index": next(iter((item.get("slot_media") or {}).values()), 0),
+                "bundle_id": None,
+                "bundle_name": None,
+                "slot_media": item.get("slot_media"),
+                "is_multi_slot": True,
+                "adset_id": "",
+                "adset_name": item.get("adset_name"),
+                "ad_name": item.get("ad_name"),
+                "campaign_name": item.get("campaign_name"),
+                "status": "pending",
+            }
+            for item in retry_items
+        ],
+    )
+
+    def run_retry_campaign_job() -> None:
+        try:
+            processor = CampaignBulkProcessor(
+                BulkAdJobContext(
+                    user_jwt=user["token"],
+                    user_id=user["user_id"],
+                    access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                    job_id=retry_job_id,
+                    account_id=_normalize_account_id(str(job_payload.get("account_id") or "")),
+                )
+            )
+            processor.process([], [])
+        except Exception as exc:
+            logger.exception("[CAMPAIGN_BULK] retry_worker_failed retry_job_id=%s", retry_job_id)
+            tracker.mark_failed(retry_job_id, str(exc), error_code="campaign_bulk_retry_bootstrap_failed")
+
+    threading.Thread(target=run_retry_campaign_job, daemon=True).start()
+
+    return {
+        "job_id": retry_job_id,
+        "status": "accepted",
+        "message": f"Retry de {len(retry_items)} campanha(s) iniciado",
+        "total_items": len(retry_items),
+    }
+
 
 @router.post("/ads-progress")
 def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any] = Depends(get_current_user), x_supabase_user_id: str | None = Header(default=None, alias="X-Supabase-User-Id")):

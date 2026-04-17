@@ -40,19 +40,15 @@ export async function middleware(req: NextRequest) {
   const { data: { session } } = await supabase.auth.getSession()
   
   const pathname = req.nextUrl.pathname
-  
+
   // Rotas públicas que não requerem autenticação
   const PUBLIC_ROUTES = ['/login', '/signup', '/callback', '/termos-de-uso', '/politica-de-privacidade', '/exclusao-de-dados', '/docs', '/pv']
-  
-  // Rotas protegidas (requerem autenticação)
-  const PROTECTED_ROUTES = ['/rankings', '/packs', '/onboarding', '/']
 
-  // Verificar se a rota é protegida
-  const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))
+  // Todas as rotas são protegidas por padrão, exceto as explicitamente públicas acima
   const isPublicRoute = PUBLIC_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))
-  
-  // Se é uma rota protegida e não há sessão, redirecionar para login
-  if (isProtectedRoute && !session && !isPublicRoute) {
+
+  // Se não é rota pública e não há sessão, redirecionar para login
+  if (!isPublicRoute && !session) {
     const url = req.nextUrl.clone()
     url.pathname = '/login'
     url.searchParams.set('redirect', pathname) // Salvar URL original para redirecionar após login
