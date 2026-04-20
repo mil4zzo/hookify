@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
 
+from app.services.ad_media import resolve_media_type, resolve_primary_video_id
+
 def split_date_range(date_range: Dict[str, str], max_days: int = 7) -> List[Dict[str, str]]:
     start_date = datetime.strptime(date_range["since"], "%Y-%m-%d")
     end_date = datetime.strptime(date_range["until"], "%Y-%m-%d")
@@ -107,7 +109,7 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
         day = str(ad.get("date_start", "")) or str(ad.get("date_stop", ""))
 
         # Montagem final
-        formatted.append({
+        formatted_ad = {
             # Identificadores
             "account_id": str(account_id),
             "ad_id": str(ad.get("ad_id", "")),
@@ -153,6 +155,10 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
 
             # Data do registro (útil para agrupamentos no frontend)
             "date": day,
-        })
+        }
+        primary_video_id = resolve_primary_video_id(formatted_ad)
+        formatted_ad["primary_video_id"] = primary_video_id
+        formatted_ad["media_type"] = resolve_media_type(formatted_ad, primary_video_id)
+        formatted.append(formatted_ad)
 
     return formatted

@@ -7,6 +7,9 @@
 
 export function isVideoAd(ad: any): boolean {
   if (!ad) return false;
+  if (ad.media_type === "video") return true;
+  if (ad.media_type === "image") return false;
+  if (typeof ad.primary_video_id === "string" && ad.primary_video_id.trim()) return true;
 
   const videosIds = ad.adcreatives_videos_ids;
   const videosThumbs = ad.adcreatives_videos_thumbs;
@@ -27,4 +30,3 @@ export function filterVideoAds<T extends any>(ads: T[]): T[] {
   if (!Array.isArray(ads)) return [];
   return ads.filter(isVideoAd);
 }
-

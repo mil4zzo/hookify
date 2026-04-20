@@ -19,6 +19,7 @@ from app.core.config import (
     ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS,
 )
 from app.services import supabase_repo
+from app.services.ad_media import resolve_media_type
 from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
 
 try:
@@ -128,14 +129,14 @@ def _fetch_ad_metrics_via_rpc(
 
 
 def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, max_per_page: int = 1000) -> List[Dict[str, Any]]:
-    """Busca todos os registros de uma tabela usando paginação para contornar limite de 1000 linhas do Supabase.
+    """Busca todos os registros de uma tabela usando paginaÃ§Ã£o para contornar limite de 1000 linhas do Supabase.
     
     Args:
         sb: Cliente Supabase
         table_name: Nome da tabela
         select_fields: Campos a selecionar (ex: "id, pack_ids")
-        filters_func: Função que recebe um query builder e retorna o query com filtros aplicados
-        max_per_page: Máximo de registros por página (padrão 1000, limite do Supabase)
+        filters_func: FunÃ§Ã£o que recebe um query builder e retorna o query com filtros aplicados
+        max_per_page: MÃ¡ximo de registros por pÃ¡gina (padrÃ£o 1000, limite do Supabase)
     
     Returns:
         Lista com todos os registros encontrados
@@ -184,11 +185,11 @@ class RankingsRequest(BaseModel):
     order_by: Optional[str] = Field(default=None, description="hook|hold_rate|cpr|spend|ctr|connect_rate|page_conv")
     limit: int = 500
     filters: Optional[RankingsFilters] = None
-    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas. Se vazio/None, não retorna dados.")
-    include_series: bool = Field(default=True, description="Se False, omite series (sparklines) da resposta para economizar memória/payload")
+    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar mÃ©tricas. Se vazio/None, nÃ£o retorna dados.")
+    include_series: bool = Field(default=True, description="Se False, omite series (sparklines) da resposta para economizar memÃ³ria/payload")
     include_leadscore: bool = Field(default=True, description="Se False, omite leadscore_values da resposta")
-    series_window: Optional[int] = Field(default=None, description="Limitar series aos últimos N dias do range. Se None, usa range completo.")
-    offset: int = Field(default=0, ge=0, description="Offset para paginação server-side")
+    series_window: Optional[int] = Field(default=None, description="Limitar series aos Ãºltimos N dias do range. Se None, usa range completo.")
+    offset: int = Field(default=0, ge=0, description="Offset para paginaÃ§Ã£o server-side")
     include_available_conversion_types: bool = Field(
         default=True,
         description="Se False, omite available_conversion_types para reduzir processamento.",
@@ -200,19 +201,19 @@ class RankingsSeriesRequest(BaseModel):
     date_stop: str
     group_by: GroupBy = "ad_id"
     action_type: Optional[str] = None
-    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas.")
+    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar mÃ©tricas.")
     filters: Optional[RankingsFilters] = None
-    group_keys: List[str] = Field(default_factory=list, description="Chaves dos grupos para retornar séries.")
-    window: int = Field(default=5, ge=1, le=30, description="Janela da série em dias.")
+    group_keys: List[str] = Field(default_factory=list, description="Chaves dos grupos para retornar sÃ©ries.")
+    window: int = Field(default=5, ge=1, le=30, description="Janela da sÃ©rie em dias.")
 
 
 class RankingsRetentionRequest(BaseModel):
     date_start: str
     date_stop: str
     group_by: GroupBy = "ad_id"
-    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar métricas.")
+    pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar mÃ©tricas.")
     filters: Optional[RankingsFilters] = None
-    group_key: str = Field(..., description="Chave do grupo para calcular curva de retenção.")
+    group_key: str = Field(..., description="Chave do grupo para calcular curva de retenÃ§Ã£o.")
 
 
 class DashboardRequest(BaseModel):
@@ -222,7 +223,7 @@ class DashboardRequest(BaseModel):
 
 
 class DeletePackRequest(BaseModel):
-    ad_ids: Optional[List[str]] = Field(default=None, description="Fallback opcional para packs antigos sem ad_ids salvos (geralmente não necessário)")
+    ad_ids: Optional[List[str]] = Field(default=None, description="Fallback opcional para packs antigos sem ad_ids salvos (geralmente nÃ£o necessÃ¡rio)")
 
 
 class UpdatePackAutoRefreshRequest(BaseModel):
@@ -261,11 +262,11 @@ def _safe_div(a: float, b: float) -> float:
 def _extract_lpv(row: Dict[str, Any]) -> int:
     """Extrai LPV (landing_page_view) de forma consistente.
 
-    Preferência:
-    1) coluna explícita `lpv` (quando disponível no ad_metrics)
+    PreferÃªncia:
+    1) coluna explÃ­cita `lpv` (quando disponÃ­vel no ad_metrics)
     2) soma de actions[].value onde action_type == landing_page_view
 
-    Retorna 0 quando não houver dados.
+    Retorna 0 quando nÃ£o houver dados.
     """
     try:
         v = row.get("lpv")
@@ -287,7 +288,7 @@ def _extract_lpv(row: Dict[str, Any]) -> int:
 
 
 def _get_user_mql_leadscore_min(sb, user_id: str) -> float:
-    """Busca mql_leadscore_min do usuário. Fallback seguro para 0."""
+    """Busca mql_leadscore_min do usuÃ¡rio. Fallback seguro para 0."""
     try:
         res = sb.table("user_preferences").select("mql_leadscore_min").eq("user_id", user_id).limit(1).execute()
         if res and res.data:
@@ -300,7 +301,7 @@ def _get_user_mql_leadscore_min(sb, user_id: str) -> float:
 
 
 def _count_mql(leadscore_values: Any, mql_leadscore_min: float) -> int:
-    """Conta quantos leadscores são >= mql_leadscore_min (valores inválidos são ignorados)."""
+    """Conta quantos leadscores sÃ£o >= mql_leadscore_min (valores invÃ¡lidos sÃ£o ignorados)."""
     if not isinstance(leadscore_values, list) or not leadscore_values:
         return 0
     cnt = 0
@@ -315,7 +316,7 @@ def _count_mql(leadscore_values: Any, mql_leadscore_min: float) -> int:
 
 
 def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include_cpmql: bool = True) -> Dict[str, Any]:
-    """Constrói payload `series` no formato consumido pelo frontend (sparklines)."""
+    """ConstrÃ³i payload `series` no formato consumido pelo frontend (sparklines)."""
     # Se S for None, usar dict vazio para evitar AttributeError
     if S is None:
         S = {}
@@ -489,10 +490,10 @@ def _build_header_aggregates(items: List[Dict[str, Any]], action_type: Optional[
 
 
 def _get_rankings_core_v2(req: RankingsRequest, user: Dict[str, Any], sb, mql_leadscore_min: float) -> Dict[str, Any]:
-    # Reusa agregação validada do legado, mas com shape de resposta "core".
+    # Reusa agregaÃ§Ã£o validada do legado, mas com shape de resposta "core".
     req_legacy = req.model_copy(deep=True)
     req_legacy.include_series = False
-    req_legacy.limit = 100000  # obter universo filtrado para paginação server-side
+    req_legacy.limit = 100000  # obter universo filtrado para paginaÃ§Ã£o server-side
 
     legacy = _get_rankings_legacy(req_legacy, user, sb, mql_leadscore_min)
     all_items = list(legacy.get("data") or [])
@@ -717,7 +718,7 @@ def _get_rankings_core_v2_rpc_with_retry(
     *,
     max_attempts: int,
 ) -> Dict[str, Any]:
-    """Executa RPC agregada com retry curto apenas para falhas transitórias."""
+    """Executa RPC agregada com retry curto apenas para falhas transitÃ³rias."""
     attempts = max(1, int(max_attempts or 1))
     for attempt in range(1, attempts + 1):
         try:
@@ -851,7 +852,7 @@ def _merge_row_conversions_actions(r: Dict[str, Any], target: Dict[str, Any]) ->
       - "conversion:{action_type}" para itens de r["conversions"]
       - "action:{action_type}"     para itens de r["actions"]
 
-    Usado pelos três endpoints de children (ad-name, adset-id, campaign-id) para garantir
+    Usado pelos trÃªs endpoints de children (ad-name, adset-id, campaign-id) para garantir
     um contrato uniforme de conversions consumido pelo frontend.
     """
     try:
@@ -887,7 +888,7 @@ def _get_thumbnail_with_fallback(ad_row: Dict[str, Any]) -> Optional[str]:
 
 
 def _get_storage_thumb_if_any(ad_row: Dict[str, Any]) -> Optional[str]:
-    """Retorna URL pública do Storage se `thumb_storage_path` existir; senão None."""
+    """Retorna URL pÃºblica do Storage se `thumb_storage_path` existir; senÃ£o None."""
     try:
         p = str(ad_row.get("thumb_storage_path") or "").strip()
         if not p:
@@ -1002,7 +1003,7 @@ class GlobalSearchResult(BaseModel):
     type: GlobalSearchResultType
     value: str
     label: str
-    # Campos auxiliares para navegação/UX (opcionais)
+    # Campos auxiliares para navegaÃ§Ã£o/UX (opcionais)
     ad_id: Optional[str] = None
     ad_name: Optional[str] = None
     adset_name: Optional[str] = None
@@ -1033,13 +1034,13 @@ def search_global(
         return {"results": []}
 
     # Regras simples para evitar queries muito amplas:
-    # - contains: mínimo 2 caracteres
-    # - ad_id exato: permite se parecer ID (dígitos) e for razoável
+    # - contains: mÃ­nimo 2 caracteres
+    # - ad_id exato: permite se parecer ID (dÃ­gitos) e for razoÃ¡vel
     q_is_digits = q.isdigit()
     can_contains = len(q) >= 2
     can_exact_id = q_is_digits and len(q) >= 3
 
-    per_type = max(1, min(10, limit // 2 or 1))  # equilíbrio simples
+    per_type = max(1, min(10, limit // 2 or 1))  # equilÃ­brio simples
 
     results: List[GlobalSearchResult] = []
     seen: set[tuple[str, str]] = set()
@@ -1250,7 +1251,7 @@ def _floats_close(a: Any, b: Any, eps: float = _AB_COMPARE_EPSILON) -> bool:
 
 
 def _compare_rankings_payloads(primary: Dict[str, Any], shadow: Dict[str, Any], context: Dict[str, Any]) -> None:
-    """Compara payload principal vs sombra e loga divergências."""
+    """Compara payload principal vs sombra e loga divergÃªncias."""
     mismatches: List[str] = []
 
     primary_data = primary.get("data") or []
@@ -1333,8 +1334,8 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
     full_stop = req.date_stop
 
     # Normalizar intervalo invertido (defensivo) e gerar eixo base no range solicitado.
-    # Quando series_window é fornecido, recorta para os últimos N dias.
-    # Sem series_window, mantém compatibilidade histórica: até 5 dias.
+    # Quando series_window Ã© fornecido, recorta para os Ãºltimos N dias.
+    # Sem series_window, mantÃ©m compatibilidade histÃ³rica: atÃ© 5 dias.
     try:
         start_dt = _to_date(full_start)
         stop_dt = _to_date(full_stop)
@@ -1351,10 +1352,10 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
     else:
         axis = axis_full[-5:] if len(axis_full) > 5 else axis_full
 
-    # Buscar linhas diárias no período completo (para totais) e na janela de 5 dias (para séries)
-    # Para simplificar, trazemos toda a janela completa (full) e processamos em memória.
-    # RLS garante que apenas dados do usuário são retornados
-    # Usar paginação para contornar limite de 1000 linhas do Supabase
+    # Buscar linhas diÃ¡rias no perÃ­odo completo (para totais) e na janela de 5 dias (para sÃ©ries)
+    # Para simplificar, trazemos toda a janela completa (full) e processamos em memÃ³ria.
+    # RLS garante que apenas dados do usuÃ¡rio sÃ£o retornados
+    # Usar paginaÃ§Ã£o para contornar limite de 1000 linhas do Supabase
     f = req.filters or RankingsFilters()
 
     data = _fetch_ad_metrics_via_rpc(
@@ -1362,9 +1363,9 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         pack_ids=req.pack_ids,
         account_ids=f.adaccount_ids,
     )
-    # Filtros por contains serão aplicados em memória (pode-se otimizar com ilike + expressões geradas futuramente)
+    # Filtros por contains serÃ£o aplicados em memÃ³ria (pode-se otimizar com ilike + expressÃµes geradas futuramente)
 
-    # Extrair tipos únicos de conversão e actions de todos os dados
+    # Extrair tipos Ãºnicos de conversÃ£o e actions de todos os dados
     available_conversion_types = set()
     for r in data:
         # Extrair de conversions
@@ -1428,7 +1429,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         if req.group_by == "ad_name":
             key = ad_name or ad_id  # Fallback OK aqui (ad_name pode ser vazio em casos raros)
         elif req.group_by == "campaign_id":
-            # NOVO: Validação rigorosa
+            # NOVO: ValidaÃ§Ã£o rigorosa
             if not campaign_id:
                 logger.error(f"[rankings] campaign_id ausente em ad_metrics: ad_id={ad_id}, date={r.get('date')}")
                 raise HTTPException(
@@ -1437,7 +1438,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                 )
             key = campaign_id
         elif req.group_by == "adset_id":
-            # NOVO: Validação rigorosa
+            # NOVO: ValidaÃ§Ã£o rigorosa
             if not adset_id:
                 logger.error(f"[rankings] adset_id ausente em ad_metrics: ad_id={ad_id}, date={r.get('date')}")
                 raise HTTPException(
@@ -1447,7 +1448,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             key = adset_id
         else:
             key = ad_id
-        # Preservar key original para usar em series_acc (não pode ser sobrescrita)
+        # Preservar key original para usar em series_acc (nÃ£o pode ser sobrescrita)
         series_key = key
 
         # Extrair e normalizar data de forma robusta
@@ -1485,7 +1486,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         frequency = float(r.get("frequency") or 0)
         leadscore_values = r.get("leadscore_values") or []
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
         # Totais por chave (ao longo do full range)
@@ -1494,7 +1495,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                 "account_id": r.get("account_id"),
                 "campaign_id": r.get("campaign_id") if req.group_by != "campaign_id" else (campaign_id or None),
                 "campaign_name": r.get("campaign_name") if req.group_by != "campaign_id" else (campaign_name or None),
-                # No agrupamento por campanha, não faz sentido fixar um adset/campaign secundário representativo
+                # No agrupamento por campanha, nÃ£o faz sentido fixar um adset/campaign secundÃ¡rio representativo
                 "adset_id": r.get("adset_id") if req.group_by != "campaign_id" else None,
                 "adset_name": r.get("adset_name") if req.group_by != "campaign_id" else None,
                 # Manter um ad_id representativo (pelo maior impressions) para thumbnail e compatibilidade
@@ -1519,11 +1520,11 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                 "reach": 0,
                 "frequency_wsum": 0.0,  # Soma ponderada de frequency (por impressions)
                 "leadscore_values": [],  # Array agregado de todos os leadscore_values
-                # Curva de retenção agregada (ponderada por plays)
+                # Curva de retenÃ§Ã£o agregada (ponderada por plays)
                 "curve_weighted": {},  # {segundo_index: {"weighted_sum": float, "plays_sum": int}}
                 # Conjunto de ad_ids distintos para calcular ad_scale
                 "ad_ids": set(),
-                # Conjunto de adset_ids distintos (útil para agrupamento por campanha)
+                # Conjunto de adset_ids distintos (Ãºtil para agrupamento por campanha)
                 "adset_ids": set(),
                 # ad_count (antigo) deixa de ser usado para pais; manteremos preenchimento ao final
                 "ad_count": 0,
@@ -1550,7 +1551,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             except Exception:
                 pass
         
-        # Agregar curva de retenção ponderada por plays (mesma lógica do hook)
+        # Agregar curva de retenÃ§Ã£o ponderada por plays (mesma lÃ³gica do hook)
         if isinstance(curve, list) and plays > 0:
             try:
                 for i, val in enumerate(curve):
@@ -1608,7 +1609,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         except Exception:
             pass
 
-        # Série 5 dias
+        # SÃ©rie 5 dias
         if date in axis:
             S = series_acc[series_key]
             
@@ -1653,7 +1654,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                 pass
 
     # Buscar thumbnails da tabela ads (usar ad_id representativo por ad_name)
-    # Também buscar todos os ad_ids do grupo para verificar se há pelo menos um ACTIVE
+    # TambÃ©m buscar todos os ad_ids do grupo para verificar se hÃ¡ pelo menos um ACTIVE
     ad_ids_in_results = set()
     for A in agg.values():
         rep_ad_id = A.get("rep_ad_id")
@@ -1704,7 +1705,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                     effective_status_map[ad_id_val] = effective_status
                     # Armazenar array completo de adcreatives_videos_thumbs
                     if isinstance(adcreatives, list) and len(adcreatives) > 0:
-                        # Filtrar valores válidos (não vazios)
+                        # Filtrar valores vÃ¡lidos (nÃ£o vazios)
                         valid_thumbs = [str(t) for t in adcreatives if t and str(t).strip()]
                         adcreatives_map[ad_id_val] = valid_thumbs if valid_thumbs else None
                     else:
@@ -1712,7 +1713,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         except Exception as e:
             logger.warning(f"Erro ao buscar thumbnails: {e}")
 
-    # Finalizar métricas derivadas e montar séries
+    # Finalizar mÃ©tricas derivadas e montar sÃ©ries
     items: List[Dict[str, Any]] = []
     key_index = 0
     for key, A in agg.items():
@@ -1726,14 +1727,14 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         cpc = _safe_div(A["spend"], A["clicks"]) if A["clicks"] else None
         cplc = _safe_div(A["spend"], A["inline_link_clicks"]) if A["inline_link_clicks"] else None
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
-        # results, cpr e page_conv serão calculados no frontend baseado no action_type selecionado
+        # results, cpr e page_conv serÃ£o calculados no frontend baseado no action_type selecionado
 
         # Buscar thumbnail, adcreatives_videos_thumbs e effective_status do map usando rep_ad_id
         ad_id_for_thumb = A.get("rep_ad_id")
         ad_id_str = str(ad_id_for_thumb or "") if ad_id_for_thumb else ""
 
         # Prioridade 1: Storage URL do rep_ad_id; se ele estiver sem cache, usar
-        # outro ad_id do mesmo grupo já carregado evita placeholder em linhas agregadas.
+        # outro ad_id do mesmo grupo jÃ¡ carregado evita placeholder em linhas agregadas.
         ad_ids_in_group = A.get("ad_ids") or set()
         thumbnail, thumbnail_source_ad_id = _select_storage_thumbnail_for_group(
             ad_id_for_thumb,
@@ -1755,8 +1756,8 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         if not thumbnail:
             thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
         
-        # NOVA LÓGICA: Verificar se há pelo menos um ad_id com effective_status = 'ACTIVE' no grupo
-        # Se houver, usar 'ACTIVE' como status do grupo (indica que pelo menos um anúncio está rodando)
+        # NOVA LÃ“GICA: Verificar se hÃ¡ pelo menos um ad_id com effective_status = 'ACTIVE' no grupo
+        # Se houver, usar 'ACTIVE' como status do grupo (indica que pelo menos um anÃºncio estÃ¡ rodando)
         effective_status = None
         has_active = False
         
@@ -1771,7 +1772,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                 active_count += 1
         if not has_active:
             effective_status = effective_status_map.get(ad_id_str) if ad_id_str else None
-            # Se ainda não tiver, tentar pegar o primeiro status disponível do grupo
+            # Se ainda nÃ£o tiver, tentar pegar o primeiro status disponÃ­vel do grupo
             if not effective_status:
                 for ad_id_in_group in ad_ids_in_group:
                     ad_id_group_str = str(ad_id_in_group)
@@ -1780,17 +1781,17 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                         effective_status = status
                         break
         
-        # Fallback: buscar diretamente na tabela se não encontrar no map
+        # Fallback: buscar diretamente na tabela se nÃ£o encontrar no map
         if not thumbnail and ad_id_str:
             try:
                 fallback_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,effective_status").eq("user_id", user["user_id"]).eq("ad_id", ad_id_str).limit(1).execute()
                 if fallback_res.data and len(fallback_res.data) > 0:
                     fallback_row = fallback_res.data[0]
                     thumbnail = _get_storage_thumb_if_any(fallback_row) or _get_thumbnail_with_fallback(fallback_row)
-                    # Atualizar effective_status apenas se ainda não foi definido
+                    # Atualizar effective_status apenas se ainda nÃ£o foi definido
                     if not effective_status:
                         effective_status = fallback_row.get("effective_status")
-                    # Também buscar adcreatives_videos_thumbs no fallback
+                    # TambÃ©m buscar adcreatives_videos_thumbs no fallback
                     fallback_adcreatives = fallback_row.get("adcreatives_videos_thumbs")
                     if isinstance(fallback_adcreatives, list) and len(fallback_adcreatives) > 0:
                         valid_thumbs = [str(t) for t in fallback_adcreatives if t and str(t).strip()]
@@ -1799,7 +1800,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                 pass
 
         S = series_acc.get(key)
-        # Recortar axis para últimos N dias quando series_window definido (reduz payload ~92%)
+        # Recortar axis para Ãºltimos N dias quando series_window definido (reduz payload ~92%)
         series_axis = axis[-req.series_window:] if (req.series_window and req.series_window < len(axis)) else axis
         series = _build_rankings_series(series_axis, S, include_cpmql=True) if (S and req.include_series) else None
 
@@ -1815,7 +1816,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         except Exception:
             ad_scale = 0
 
-        # Calcular curva de retenção agregada (média ponderada por plays)
+        # Calcular curva de retenÃ§Ã£o agregada (mÃ©dia ponderada por plays)
         aggregated_curve: List[int] = []
         if A.get("curve_weighted"):
             max_curve_len = max(A["curve_weighted"].keys()) + 1 if A["curve_weighted"] else 0
@@ -1829,7 +1830,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
                 else:
                     aggregated_curve.append(0)
 
-        # Calcular frequency agregado (média ponderada por impressions)
+        # Calcular frequency agregado (mÃ©dia ponderada por impressions)
         frequency_agg = _safe_div(A["frequency_wsum"], A["impressions"]) if A["impressions"] else 0
         
         items.append({
@@ -1839,7 +1840,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             "campaign_name": A.get("campaign_name"),
             "adset_id": A.get("adset_id"),
             "adset_name": A.get("adset_name"),
-            # Devolver rep_ad_id para facilitar thumb e ações no frontend
+            # Devolver rep_ad_id para facilitar thumb e aÃ§Ãµes no frontend
             "ad_id": A.get("rep_ad_id"),
             "ad_name": A.get("ad_name"),
             "effective_status": effective_status,
@@ -1866,13 +1867,13 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
             "conversions": A.get("conversions", {}),  # {action_type: total_value} para o frontend calcular results/cpr/page_conv
             "ad_count": ad_scale,
             "thumbnail": thumbnail,
-            "adcreatives_videos_thumbs": adcreatives_thumbs,  # Array completo de thumbnails dos vídeos
+            "adcreatives_videos_thumbs": adcreatives_thumbs,  # Array completo de thumbnails dos vÃ­deos
             "video_play_curve_actions": aggregated_curve if aggregated_curve else None,
             "series": series,
         })
 
-    # Calcular médias globais (antes de ordenar/limitar), incluindo por action_type
-    # Também calcular médias de retenção (hook no índice 3 e scroll stop no índice 1)
+    # Calcular mÃ©dias globais (antes de ordenar/limitar), incluindo por action_type
+    # TambÃ©m calcular mÃ©dias de retenÃ§Ã£o (hook no Ã­ndice 3 e scroll stop no Ã­ndice 1)
     total_spend = 0.0
     total_impr = 0
     total_clicks = 0
@@ -1882,7 +1883,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
     total_hook_wsum = 0.0
     total_hold_rate_wsum = 0.0  # Soma ponderada de hold_rate
     total_video_watched_p50_wsum = 0.0  # Soma ponderada de video_watched_p50
-    total_scroll_stop_wsum = 0.0  # Soma ponderada para índice 1 (scroll stop)
+    total_scroll_stop_wsum = 0.0  # Soma ponderada para Ã­ndice 1 (scroll stop)
 
     # results por action_type
     per_action_results: Dict[str, int] = {t: 0 for t in available_conversion_types}
@@ -1898,16 +1899,16 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         total_hold_rate_wsum += float(A.get("hold_rate_wsum") or 0.0)
         total_video_watched_p50_wsum += float(A.get("video_watched_p50_wsum") or 0.0)
 
-        # Calcular scroll stop (índice 1) ponderado por plays
-        # Pegar a curva agregada do item para extrair o valor no índice 1
-        # A curva vem em porcentagem (0-100), então normalizamos para decimal (0-1) como o hook
+        # Calcular scroll stop (Ã­ndice 1) ponderado por plays
+        # Pegar a curva agregada do item para extrair o valor no Ã­ndice 1
+        # A curva vem em porcentagem (0-100), entÃ£o normalizamos para decimal (0-1) como o hook
         curve_weighted = A.get("curve_weighted") or {}
         if 1 in curve_weighted:
             w = curve_weighted[1]
             plays_for_item = int(A.get("plays") or 0)
             if w.get("plays_sum", 0) > 0 and plays_for_item > 0:
                 scroll_stop_raw = w["weighted_sum"] / w["plays_sum"]
-                # Normalizar: se valor > 1, assume que está em porcentagem e divide por 100
+                # Normalizar: se valor > 1, assume que estÃ¡ em porcentagem e divide por 100
                 scroll_stop_val = scroll_stop_raw / 100.0 if scroll_stop_raw > 1 else scroll_stop_raw
                 total_scroll_stop_wsum += scroll_stop_val * plays_for_item
 
@@ -1948,10 +1949,10 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         "per_action_type": per_action_type,
     }
 
-    # Ordenação opcional
+    # OrdenaÃ§Ã£o opcional
     order = (req.order_by or "").lower()
     if order in {"hook", "hold_rate", "cpr", "cpc", "cplc", "spend", "ctr", "connect_rate", "page_conv"}:
-        reverse = order not in {"cpr", "cpc", "cplc"}  # custo menor é melhor; os demais maior é melhor
+        reverse = order not in {"cpr", "cpc", "cplc"}  # custo menor Ã© melhor; os demais maior Ã© melhor
         items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
 
     return {
@@ -2040,8 +2041,8 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         hydration_stats,
     )
 
-    # Compare apenas quando pedimos conversion types completos para reduzir ruído
-    # (nas abas secundárias usamos payload reduzido focado no action_type selecionado).
+    # Compare apenas quando pedimos conversion types completos para reduzir ruÃ­do
+    # (nas abas secundÃ¡rias usamos payload reduzido focado no action_type selecionado).
     if _should_sample_ab_compare() and bool(req.include_available_conversion_types):
         context = {
             "group_by": req.group_by,
@@ -2151,7 +2152,7 @@ def get_rankings_series(req: RankingsSeriesRequest, user=Depends(get_current_use
             context,
             e,
         )
-        raise HTTPException(status_code=500, detail="Erro ao consultar séries do Manager.")
+        raise HTTPException(status_code=500, detail="Erro ao consultar sÃ©ries do Manager.")
 
 
 @router.post("/rankings/retention")
@@ -2206,7 +2207,7 @@ def get_rankings_retention(req: RankingsRetentionRequest, user=Depends(get_curre
             context,
             e,
         )
-        raise HTTPException(status_code=500, detail="Erro ao consultar curva de retenção do Manager.")
+        raise HTTPException(status_code=500, detail="Erro ao consultar curva de retenÃ§Ã£o do Manager.")
 
 
 @router.get("/rankings/ad-name/{ad_name}/details")
@@ -2217,7 +2218,7 @@ def get_ad_name_details(
     include_leadscore: bool = True,
     user=Depends(get_current_user)
 ):
-    """Retorna detalhes agregados de todos os ad_ids com o mesmo ad_name no período.
+    """Retorna detalhes agregados de todos os ad_ids com o mesmo ad_name no perÃ­odo.
     Equivalente a get_ad_details, mas agrupado por ad_name.
     """
     sb = get_supabase_for_user(user["token"])
@@ -2249,9 +2250,9 @@ def get_ad_name_details(
             raise
 
     if not data:
-        raise HTTPException(status_code=404, detail=f"Ad name '{ad_name}' não encontrado no período especificado")
+        raise HTTPException(status_code=404, detail=f"Ad name '{ad_name}' nÃ£o encontrado no perÃ­odo especificado")
 
-    # Agregar dados do período completo (todos os ad_ids com esse nome)
+    # Agregar dados do perÃ­odo completo (todos os ad_ids com esse nome)
     agg: Dict[str, Any] = {
         "account_id": None,
         "ad_name": ad_name,
@@ -2364,7 +2365,7 @@ def get_ad_name_details(
                 pass
             _merge_row_conversions_actions(r, series_acc["conversions"][date])
 
-    # Buscar thumbnail cacheada do ad_id representativo. Se a propagação por ad_name
+    # Buscar thumbnail cacheada do ad_id representativo. Se a propagaÃ§Ã£o por ad_name
     # estiver correta, qualquer ad_id do grupo deve ter a mesma thumb_storage_path.
     thumbnail: Optional[str] = None
     representative_ad_id = next(iter(sorted(str(ad_id) for ad_id in (agg.get("ad_ids") or set()) if ad_id)), None)
@@ -2372,7 +2373,7 @@ def get_ad_name_details(
         try:
             ads_res = (
                 sb.table("ads")
-                .select("ad_id,thumb_storage_path,creative_video_id")
+                .select("ad_id,thumb_storage_path,primary_video_id,media_type,creative_video_id")
                 .eq("user_id", user["user_id"])
                 .eq("ad_id", representative_ad_id)
                 .limit(1)
@@ -2383,7 +2384,7 @@ def get_ad_name_details(
         except Exception as e:
             logger.warning(f"Erro ao buscar thumbnail (ad_name details): {e}")
 
-    # Calcular métricas derivadas
+    # Calcular mÃ©tricas derivadas
     ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
     hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
     hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
@@ -2393,7 +2394,7 @@ def get_ad_name_details(
     website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
     frequency = round(agg["impressions"] / agg["reach"], 2) if agg["reach"] > 0 else None
 
-    # Calcular curva de retenção agregada
+    # Calcular curva de retenÃ§Ã£o agregada
     aggregated_curve: List[int] = []
     if agg.get("curve_weighted"):
         max_curve_len = max(agg["curve_weighted"].keys()) + 1 if agg["curve_weighted"] else 0
@@ -2448,16 +2449,16 @@ def get_rankings_children(
     include_leadscore: bool = True,
     user=Depends(get_current_user)
 ):
-    """Retorna linhas-filhas agregadas por ad_id para um ad_name no período.
-    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """Retorna linhas-filhas agregadas por ad_id para um ad_name no perÃ­odo.
+    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
     """
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
     axis = _axis_5_days(date_stop)
     
-    # Usar paginação para contornar limite de 1000 linhas do Supabase
-    # ALTO RISCO: Pode haver muitos registros se o período for longo ou múltiplos ad_ids com o mesmo nome
+    # Usar paginaÃ§Ã£o para contornar limite de 1000 linhas do Supabase
+    # ALTO RISCO: Pode haver muitos registros se o perÃ­odo for longo ou mÃºltiplos ad_ids com o mesmo nome
     def metrics_filters(q):
         return q.eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
     
@@ -2518,7 +2519,7 @@ def get_rankings_children(
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
         if key not in agg:
@@ -2562,7 +2563,7 @@ def get_rankings_children(
         # Agregar conversions e actions no total
         _merge_row_conversions_actions(r, A["conversions"])
 
-        # Séries 5 dias
+        # SÃ©ries 5 dias
         if date in axis:
             S = series_acc[key]
             S["impressions"][date] += impressions
@@ -2601,7 +2602,7 @@ def get_rankings_children(
                 batch_ads_rows = _fetch_all_paginated(
                     sb,
                     "ads",
-                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id,effective_status",
+                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
                     ads_filters
                 )
                 
@@ -2670,8 +2671,8 @@ def get_campaign_children(
     include_leadscore: bool = True,
     user=Depends(get_current_user),
 ):
-    """Retorna linhas-filhas agregadas por adset_id para um campaign_id no período.
-    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """Retorna linhas-filhas agregadas por adset_id para um campaign_id no perÃ­odo.
+    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
     """
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
@@ -2750,7 +2751,7 @@ def get_campaign_children(
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
         if key not in agg:
@@ -2816,7 +2817,7 @@ def get_campaign_children(
         # Agregar conversions e actions por action_type (com prefixos para diferenciar)
         _merge_row_conversions_actions(r, A["conversions"])
 
-        # Série 5 dias
+        # SÃ©rie 5 dias
         if date in axis:
             S = series_acc[series_key]
             S["impressions"][date] += impressions
@@ -2847,8 +2848,8 @@ def get_campaign_children(
         cpm = (_safe_div(A["spend"], A["impressions"]) * 1000) if A["impressions"] else 0
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
 
-        # Para filhos por adset_id (campanha), não temos um mapeamento de thumbnails por adset.
-        # Mantemos None (o frontend pode usar fallback se necessário).
+        # Para filhos por adset_id (campanha), nÃ£o temos um mapeamento de thumbnails por adset.
+        # Mantemos None (o frontend pode usar fallback se necessÃ¡rio).
         thumbnail = None
 
         ad_count = 0
@@ -2907,8 +2908,8 @@ def get_adset_children(
     include_leadscore: bool = True,
     user=Depends(get_current_user),
 ):
-    """Retorna linhas-filhas agregadas por ad_id para um adset_id no período.
-    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """Retorna linhas-filhas agregadas por ad_id para um adset_id no perÃ­odo.
+    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
     """
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
@@ -2979,7 +2980,7 @@ def get_adset_children(
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
         if key not in agg:
@@ -3023,10 +3024,10 @@ def get_adset_children(
             except Exception:
                 pass
 
-        # conversions e actions agregado no período
+        # conversions e actions agregado no perÃ­odo
         _merge_row_conversions_actions(r, A["conversions"])
 
-        # series (últimos 5 dias)
+        # series (Ãºltimos 5 dias)
         if date in axis:
             S = series_acc[key]
             S["impressions"][date] += impressions
@@ -3047,7 +3048,7 @@ def get_adset_children(
             except Exception:
                 pass
 
-    # Buscar thumbnails e effective_status dos filhos (mesma lógica de get_rankings_children)
+    # Buscar thumbnails e effective_status dos filhos (mesma lÃ³gica de get_rankings_children)
     ad_ids_in_results = list(agg.keys())
     thumbnails_map: Dict[str, Optional[str]] = {}
     effective_status_map: Dict[str, Optional[str]] = {}
@@ -3066,7 +3067,7 @@ def get_adset_children(
                 batch_ads_rows = _fetch_all_paginated(
                     sb,
                     "ads",
-                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id,effective_status",
+                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
                     ads_filters
                 )
 
@@ -3134,8 +3135,8 @@ def get_adset_details(
     date_stop: str,
     user=Depends(get_current_user),
 ):
-    """Retorna detalhes completos de um adset_id no período.
-    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    """Retorna detalhes completos de um adset_id no perÃ­odo.
+    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
     """
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
@@ -3166,7 +3167,7 @@ def get_adset_details(
             raise
 
     if not data:
-        raise HTTPException(status_code=404, detail=f"Adset ID {adset_id} não encontrado no período especificado")
+        raise HTTPException(status_code=404, detail=f"Adset ID {adset_id} nÃ£o encontrado no perÃ­odo especificado")
 
     from collections import defaultdict
 
@@ -3228,7 +3229,7 @@ def get_adset_details(
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
         leadscore_values = r.get("leadscore_values") or []
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
         agg["impressions"] += impressions
@@ -3331,17 +3332,17 @@ def get_ad_details(
     date_stop: str,
     user=Depends(get_current_user)
 ):
-    """Retorna detalhes completos de um ad_id específico no período.
-    Inclui séries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
-    Reutiliza a lógica de get_rankings_children, mas retorna um único item.
+    """Retorna detalhes completos de um ad_id especÃ­fico no perÃ­odo.
+    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
+    Reutiliza a lÃ³gica de get_rankings_children, mas retorna um Ãºnico item.
     """
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
     axis = _axis_5_days(date_stop)
     
-    # Usar paginação para contornar limite de 1000 linhas do Supabase
-    # ALTO RISCO: Pode haver mais de 1000 registros se o período for longo (ex: vários anos)
+    # Usar paginaÃ§Ã£o para contornar limite de 1000 linhas do Supabase
+    # ALTO RISCO: Pode haver mais de 1000 registros se o perÃ­odo for longo (ex: vÃ¡rios anos)
     def metrics_filters(q):
         return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
     
@@ -3366,11 +3367,11 @@ def get_ad_details(
             raise
 
     if not data:
-        raise HTTPException(status_code=404, detail=f"Ad ID {ad_id} não encontrado no período especificado")
+        raise HTTPException(status_code=404, detail=f"Ad ID {ad_id} nÃ£o encontrado no perÃ­odo especificado")
 
     from collections import defaultdict
 
-    # Agregar dados do período completo
+    # Agregar dados do perÃ­odo completo
     agg: Dict[str, Any] = {
         "account_id": None,
         "ad_id": ad_id,
@@ -3388,7 +3389,7 @@ def get_ad_details(
         "hold_rate_wsum": 0.0,
         "video_watched_p50_wsum": 0.0,
         "reach": 0,
-        # Curva de retenção agregada (ponderada por plays, mesma lógica do hook)
+        # Curva de retenÃ§Ã£o agregada (ponderada por plays, mesma lÃ³gica do hook)
         "curve_weighted": {},  # {segundo_index: {"weighted_sum": float, "plays_sum": int}}
         "conversions": {},
         "leadscore_values": [],
@@ -3434,7 +3435,7 @@ def get_ad_details(
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
         reach = int(r.get("reach") or 0)
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
         # Agregar totais
@@ -3456,7 +3457,7 @@ def get_ad_details(
             except Exception:
                 pass
 
-        # Agregar curva de retenção ponderada por plays (mesma lógica do hook)
+        # Agregar curva de retenÃ§Ã£o ponderada por plays (mesma lÃ³gica do hook)
         if isinstance(curve, list) and plays > 0:
             try:
                 for i, val in enumerate(curve):
@@ -3471,7 +3472,7 @@ def get_ad_details(
         # Agregar conversions e actions
         _merge_row_conversions_actions(r, agg["conversions"])
 
-        # Séries 5 dias
+        # SÃ©ries 5 dias
         if date in axis:
             series_acc["impressions"][date] += impressions
             series_acc["clicks"][date] += clicks
@@ -3489,16 +3490,16 @@ def get_ad_details(
                 pass
             _merge_row_conversions_actions(r, series_acc["conversions"][date])
 
-    # Buscar thumbnail e informações adicionais da tabela ads
+    # Buscar thumbnail e informaÃ§Ãµes adicionais da tabela ads
     thumbnail: Optional[str] = None
     try:
-        ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
+        ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
         if ads_res.data:
             thumbnail = _get_storage_thumb_if_any(ads_res.data[0]) or _get_thumbnail_with_fallback(ads_res.data[0])
     except Exception as e:
         logger.warning(f"Erro ao buscar thumbnail (ad details): {e}")
 
-    # Calcular métricas derivadas
+    # Calcular mÃ©tricas derivadas
     ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
     hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
     hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
@@ -3508,7 +3509,7 @@ def get_ad_details(
     website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
     frequency = round(agg["impressions"] / agg["reach"], 2) if agg["reach"] > 0 else None
 
-    # Calcular curva de retenção agregada (média ponderada por plays)
+    # Calcular curva de retenÃ§Ã£o agregada (mÃ©dia ponderada por plays)
     aggregated_curve: List[int] = []
     if agg.get("curve_weighted"):
         max_curve_len = max(agg["curve_weighted"].keys()) + 1 if agg["curve_weighted"] else 0
@@ -3556,25 +3557,72 @@ def get_ad_details(
 
 @router.get("/rankings/ad-id/{ad_id}/creative")
 def get_ad_creative(ad_id: str, user=Depends(get_current_user)):
-    """Retorna apenas creative e video_ids de um anúncio (leve, para uso em player de vídeo)."""
+    """Retorna apenas creative e video_ids de um anÃºncio (leve, para uso em player de vÃ­deo)."""
     sb = get_supabase_for_user(user["token"])
     try:
-        ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id,video_owner_page_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
+        select_fields = "creative,adcreatives_videos_ids,creative_video_id,primary_video_id,media_type,thumbnail_url,video_owner_page_id"
+        try:
+            ads_res = sb.table("ads").select(select_fields).eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
+        except Exception as select_error:
+            if "primary_video_id" not in str(select_error) and "media_type" not in str(select_error):
+                raise
+            ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id,thumbnail_url,video_owner_page_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
         if ads_res.data and len(ads_res.data) > 0:
             ad_row = ads_res.data[0]
             creative = ad_row.get("creative") or {}
-            # Garantir que creative_video_id esteja no creative se não estiver
-            if not creative.get("video_id") and ad_row.get("creative_video_id"):
-                creative["video_id"] = ad_row.get("creative_video_id")
+            oss = creative.get("object_story_spec") or {}
+            asset_feed = creative.get("asset_feed_spec") or {}
+            videos = asset_feed.get("videos") if isinstance(asset_feed, dict) else []
+            derived_video_ids = []
+            for candidate in [
+                ad_row.get("primary_video_id"),
+                *(ad_row.get("adcreatives_videos_ids") or []),
+                creative.get("video_id"),
+                ad_row.get("creative_video_id"),
+                (oss.get("video_data") or {}).get("video_id") if isinstance(oss, dict) else None,
+                (oss.get("link_data") or {}).get("video_id") if isinstance(oss, dict) else None,
+            ]:
+                candidate_str = str(candidate or "").strip()
+                if candidate_str and candidate_str not in derived_video_ids:
+                    derived_video_ids.append(candidate_str)
+            if isinstance(videos, list):
+                for video in videos:
+                    if isinstance(video, dict):
+                        candidate_str = str(video.get("video_id") or "").strip()
+                        if candidate_str and candidate_str not in derived_video_ids:
+                            derived_video_ids.append(candidate_str)
+            if not creative.get("video_id") and derived_video_ids:
+                creative["video_id"] = derived_video_ids[0]
+            if not creative.get("actor_id") and isinstance(oss, dict):
+                actor_id = str(oss.get("page_id") or oss.get("instagram_actor_id") or "").strip()
+                if actor_id:
+                    creative["actor_id"] = actor_id
+            primary_video_id = str(ad_row.get("primary_video_id") or "").strip()
+            if not primary_video_id and derived_video_ids:
+                primary_video_id = derived_video_ids[0]
+            media_type = str(ad_row.get("media_type") or "").strip()
+            if not media_type:
+                media_type = resolve_media_type(
+                    {
+                        **ad_row,
+                        "creative": creative,
+                        "primary_video_id": primary_video_id,
+                        "adcreatives_videos_ids": derived_video_ids,
+                    },
+                    primary_video_id,
+                )
             return {
                 "creative": creative,
-                "adcreatives_videos_ids": ad_row.get("adcreatives_videos_ids") or [],
+                "adcreatives_videos_ids": derived_video_ids,
+                "creative_video_id": ad_row.get("creative_video_id"),
+                "primary_video_id": primary_video_id or None,
+                "media_type": media_type,
                 "video_owner_page_id": ad_row.get("video_owner_page_id"),
             }
-        return {"creative": {}, "adcreatives_videos_ids": []}
+        return {"creative": {}, "adcreatives_videos_ids": [], "primary_video_id": None, "media_type": "unknown"}
     except Exception as e:
         logger.warning(f"Erro ao buscar creative para ad_id={ad_id}: {e}")
-        return {"creative": {}, "adcreatives_videos_ids": []}
+        return {"creative": {}, "adcreatives_videos_ids": [], "primary_video_id": None, "media_type": "unknown"}
 
 
 @router.get("/rankings/ad-id/{ad_id}/history")
@@ -3584,17 +3632,17 @@ def get_ad_history(
     date_stop: str,
     user=Depends(get_current_user)
 ):
-    """Retorna dados históricos diários de um anúncio para o período especificado.
+    """Retorna dados histÃ³ricos diÃ¡rios de um anÃºncio para o perÃ­odo especificado.
     
-    Retorna um array de objetos, um para cada dia do período, contendo todas as métricas diárias.
+    Retorna um array de objetos, um para cada dia do perÃ­odo, contendo todas as mÃ©tricas diÃ¡rias.
     """
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
-    # Gerar array de datas do período
+    # Gerar array de datas do perÃ­odo
     axis = _axis_date_range(date_start, date_stop)
 
-    # Buscar dados diários do período
+    # Buscar dados diÃ¡rios do perÃ­odo
     def metrics_filters(q):
         return q.eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
 
@@ -3654,10 +3702,10 @@ def get_ad_history(
         reach = int(r.get("reach") or 0)
         leadscore_values = r.get("leadscore_values") or []
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
-        # Conversões e actions
+        # ConversÃµes e actions
         conversions = r.get("conversions") or {}
         if isinstance(conversions, list):
             for conv in conversions:
@@ -3691,7 +3739,7 @@ def get_ad_history(
         data_by_date[date]["reach"] += reach
         data_by_date[date]["mql_count"] += _count_mql(leadscore_values, mql_leadscore_min)
 
-    # Construir array de resultados com todas as datas do período
+    # Construir array de resultados com todas as datas do perÃ­odo
     result = []
     for date in axis:
         day_data = data_by_date.get(date, {
@@ -3711,7 +3759,7 @@ def get_ad_history(
             "conversions": {},
         })
 
-        # Calcular métricas derivadas
+        # Calcular mÃ©tricas derivadas
         ctr = _safe_div(day_data["clicks"], day_data["impressions"])
         hook = _safe_div(day_data["hook_wsum"], day_data["plays"]) if day_data["plays"] else 0
         video_watched_p50 = _safe_div(day_data["video_watched_p50_wsum"], day_data["plays"]) if day_data["plays"] else 0
@@ -3754,17 +3802,17 @@ def get_ad_name_history(
     date_stop: str,
     user=Depends(get_current_user)
 ):
-    """Retorna dados históricos diários agregados por *ad_name* para o período especificado.
+    """Retorna dados histÃ³ricos diÃ¡rios agregados por *ad_name* para o perÃ­odo especificado.
 
-    Soma métricas de todos os `ad_metrics` que possuem o mesmo `ad_name`, agrupando por `date`.
+    Soma mÃ©tricas de todos os `ad_metrics` que possuem o mesmo `ad_name`, agrupando por `date`.
     """
     sb = get_supabase_for_user(user["token"])
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
-    # Gerar array de datas do período (inclusive)
+    # Gerar array de datas do perÃ­odo (inclusive)
     axis = _axis_date_range(date_start, date_stop)
 
-    # Buscar dados diários do período filtrando por ad_name
+    # Buscar dados diÃ¡rios do perÃ­odo filtrando por ad_name
     def metrics_filters(q):
         return q.eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
 
@@ -3824,10 +3872,10 @@ def get_ad_name_history(
         reach = int(r.get("reach") or 0)
         leadscore_values = r.get("leadscore_values") or []
 
-        # landing_page_views (preferir coluna lpv quando disponível)
+        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
 
-        # Conversões e actions
+        # ConversÃµes e actions
         conversions = r.get("conversions") or {}
         if isinstance(conversions, list):
             for conv in conversions:
@@ -3861,7 +3909,7 @@ def get_ad_name_history(
         data_by_date[date]["reach"] += reach
         data_by_date[date]["mql_count"] += _count_mql(leadscore_values, mql_leadscore_min)
 
-    # Construir array de resultados com todas as datas do período
+    # Construir array de resultados com todas as datas do perÃ­odo
     result: List[Dict[str, Any]] = []
     for date in axis:
         day_data = data_by_date.get(date, {
@@ -3919,7 +3967,7 @@ def get_ad_name_history(
 def get_dashboard(req: DashboardRequest, user=Depends(get_current_user)):
     sb = get_supabase_for_user(user["token"])
     
-    # Usar paginação para contornar limite de 1000 linhas do Supabase
+    # Usar paginaÃ§Ã£o para contornar limite de 1000 linhas do Supabase
     def metrics_filters(q):
         q = q.gte("date", req.date_start).lte("date", req.date_stop)
         if req.adaccount_ids:
@@ -3979,23 +4027,23 @@ def get_dashboard(req: DashboardRequest, user=Depends(get_current_user)):
 
 @router.get("/packs")
 def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default=False)):
-    """Lista todos os packs do usuário do Supabase.
+    """Lista todos os packs do usuÃ¡rio do Supabase.
     
     Args:
-        include_ads: Se True, também busca os ads de cada pack (pode ser lento)
+        include_ads: Se True, tambÃ©m busca os ads de cada pack (pode ser lento)
     """
     try:
         packs = supabase_repo.list_packs(user["token"], user["user_id"])
         
         # Garantir que todos os packs tenham stats calculados
-        # Se stats estiver ausente, vazio ou inválido, calcular dinamicamente
+        # Se stats estiver ausente, vazio ou invÃ¡lido, calcular dinamicamente
         for pack in packs:
             pack_id = pack.get("id")
             if not pack_id:
                 continue
                 
             stats = pack.get("stats")
-            # Verificar se stats está ausente, None, vazio ou inválido
+            # Verificar se stats estÃ¡ ausente, None, vazio ou invÃ¡lido
             if not stats or not isinstance(stats, dict) or len(stats) == 0 or stats.get("totalSpend") is None:
                 # Calcular stats dinamicamente
                 calculated_stats = supabase_repo.calculate_pack_stats(
@@ -4006,7 +4054,7 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
                 if calculated_stats:
                     # Atualizar pack com stats calculados
                     pack["stats"] = calculated_stats
-                    # Salvar stats no banco para próximas consultas
+                    # Salvar stats no banco para prÃ³ximas consultas
                     try:
                         supabase_repo.update_pack_stats(
                             user["token"],
@@ -4017,7 +4065,7 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
                         logger.info(f"[LIST_PACKS] Stats calculados e salvos para pack {pack_id}")
                     except Exception as update_error:
                         logger.warning(f"[LIST_PACKS] Erro ao salvar stats do pack {pack_id}: {update_error}")
-                        # Continuar mesmo se falhar ao salvar - stats já estão no pack
+                        # Continuar mesmo se falhar ao salvar - stats jÃ¡ estÃ£o no pack
         
         # Se solicitado, buscar ads para cada pack
         if include_ads:
@@ -4036,18 +4084,18 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
 
 @router.get("/packs/{pack_id}")
 def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Query(default=True)):
-    """Busca um pack específico do Supabase.
+    """Busca um pack especÃ­fico do Supabase.
     
     Args:
-        include_ads: Se True, também busca os ads do pack (padrão: True)
+        include_ads: Se True, tambÃ©m busca os ads do pack (padrÃ£o: True)
     """
     try:
         pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
         if not pack:
-            raise HTTPException(status_code=404, detail="Pack não encontrado")
+            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
         
         # Garantir que o pack tenha stats calculados
-        # Se stats estiver ausente, vazio ou inválido, calcular dinamicamente
+        # Se stats estiver ausente, vazio ou invÃ¡lido, calcular dinamicamente
         stats = pack.get("stats")
         if not stats or not isinstance(stats, dict) or len(stats) == 0 or stats.get("totalSpend") is None:
             # Calcular stats dinamicamente
@@ -4059,7 +4107,7 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
             if calculated_stats:
                 # Atualizar pack com stats calculados
                 pack["stats"] = calculated_stats
-                # Salvar stats no banco para próximas consultas
+                # Salvar stats no banco para prÃ³ximas consultas
                 try:
                     supabase_repo.update_pack_stats(
                         user["token"],
@@ -4070,7 +4118,7 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
                     logger.info(f"[GET_PACK] Stats calculados e salvos para pack {pack_id}")
                 except Exception as update_error:
                     logger.warning(f"[GET_PACK] Erro ao salvar stats do pack {pack_id}: {update_error}")
-                    # Continuar mesmo se falhar ao salvar - stats já estão no pack
+                    # Continuar mesmo se falhar ao salvar - stats jÃ¡ estÃ£o no pack
         
         # Buscar ads se solicitado
         if include_ads:
@@ -4091,7 +4139,7 @@ def get_pack_thumbnail_cache(pack_id: str, user=Depends(get_current_user)):
     try:
         pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
         if not pack:
-            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
+            raise HTTPException(status_code=404, detail="Pack nÃƒÂ£o encontrado")
 
         thumbnails = supabase_repo.get_pack_thumbnail_cache(user["token"], pack, user["user_id"])
         ready_count = sum(1 for thumb in thumbnails if thumb.get("thumb_storage_path"))
@@ -4122,7 +4170,7 @@ def delete_pack(
         result = supabase_repo.delete_pack(
             user["token"],
             pack_id=pack_id,
-            ad_ids=request.ad_ids or [],  # Opcional, backend busca do pack se não fornecido
+            ad_ids=request.ad_ids or [],  # Opcional, backend busca do pack se nÃ£o fornecido
             user_id=user["user_id"]
         )
         
@@ -4151,10 +4199,10 @@ def update_pack_auto_refresh(
 ):
     """Atualiza o campo auto_refresh de um pack."""
     try:
-        # Verificar se o pack existe e pertence ao usuário
+        # Verificar se o pack existe e pertence ao usuÃ¡rio
         pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
         if not pack:
-            raise HTTPException(status_code=404, detail="Pack não encontrado")
+            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
         
         # Atualizar auto_refresh
         supabase_repo.update_pack_auto_refresh(
@@ -4184,14 +4232,14 @@ def update_pack_name(
 ):
     """Atualiza o nome de um pack."""
     try:
-        # Verificar se o pack existe e pertence ao usuário
+        # Verificar se o pack existe e pertence ao usuÃ¡rio
         pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
         if not pack:
-            raise HTTPException(status_code=404, detail="Pack não encontrado")
+            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
         
         # Validar nome
         if not request.name or not request.name.strip():
-            raise HTTPException(status_code=400, detail="Nome do pack não pode ser vazio")
+            raise HTTPException(status_code=400, detail="Nome do pack nÃ£o pode ser vazio")
         
         # Atualizar nome
         supabase_repo.update_pack_name(
@@ -4209,9 +4257,9 @@ def update_pack_name(
     except HTTPException:
         raise
     except ValueError as e:
-        # Tratar erros de validação (nome vazio ou duplicado)
+        # Tratar erros de validaÃ§Ã£o (nome vazio ou duplicado)
         error_msg = str(e)
-        if "já existe" in error_msg.lower() or "already exists" in error_msg.lower():
+        if "jÃ¡ existe" in error_msg.lower() or "already exists" in error_msg.lower():
             raise HTTPException(status_code=409, detail=error_msg)
         raise HTTPException(status_code=400, detail=error_msg)
     except Exception as e:
@@ -4221,26 +4269,26 @@ def update_pack_name(
 
 @router.get("/transcription")
 def get_transcription(
-    ad_name: str = Query(None, description="Nome do anúncio (alternativa a transcription_id)"),
-    transcription_id: str = Query(None, description="ID da transcrição (lookup O(1) quando o ad já tem transcription_id)"),
+    ad_name: str = Query(None, description="Nome do anÃºncio (alternativa a transcription_id)"),
+    transcription_id: str = Query(None, description="ID da transcriÃ§Ã£o (lookup O(1) quando o ad jÃ¡ tem transcription_id)"),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Retorna a transcrição por transcription_id ou ad_name. Exatamente um deve ser fornecido."""
+    """Retorna a transcriÃ§Ã£o por transcription_id ou ad_name. Exatamente um deve ser fornecido."""
     tid = (transcription_id or "").strip()
     aname = (ad_name or "").strip()
     if tid and aname:
-        raise HTTPException(status_code=400, detail="Forneça apenas transcription_id ou ad_name, não ambos")
+        raise HTTPException(status_code=400, detail="ForneÃ§a apenas transcription_id ou ad_name, nÃ£o ambos")
     if not tid and not aname:
-        raise HTTPException(status_code=400, detail="Forneça transcription_id ou ad_name")
+        raise HTTPException(status_code=400, detail="ForneÃ§a transcription_id ou ad_name")
 
     if tid:
         result = supabase_repo.get_transcription_by_id(user["token"], user["user_id"], tid)
         if not result:
-            raise HTTPException(status_code=404, detail=f"Transcrição não encontrada para id={tid!r}")
+            raise HTTPException(status_code=404, detail=f"TranscriÃ§Ã£o nÃ£o encontrada para id={tid!r}")
     else:
         result = supabase_repo.get_transcription(user["token"], user["user_id"], aname)
         if not result:
-            raise HTTPException(status_code=404, detail=f"Transcrição não encontrada para ad_name={aname!r}")
+            raise HTTPException(status_code=404, detail=f"TranscriÃ§Ã£o nÃ£o encontrada para ad_name={aname!r}")
 
     return {
         "id": result.get("id"),

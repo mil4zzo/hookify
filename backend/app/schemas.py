@@ -298,6 +298,8 @@ class FormattedAdModel(BaseModel):
     creative: CreativeModel
 
     # Videos associados
+    primary_video_id: Optional[str] = None
+    media_type: Optional[str] = "unknown"
     adcreatives_videos_ids: Optional[List[str]] = None
     adcreatives_videos_thumbs: Optional[List[str]] = None
 

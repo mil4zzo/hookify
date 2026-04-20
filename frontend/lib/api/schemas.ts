@@ -85,6 +85,8 @@ export const FormattedAdSchema = z.object({
   }),
 
   // Videos associados (asset_feed_spec)
+  primary_video_id: z.string().nullable().optional(),
+  media_type: z.enum(['video', 'image', 'unknown']).nullable().optional(),
   adcreatives_videos_ids: z.array(z.string()).optional(),
   adcreatives_videos_thumbs: z.array(z.string()).optional(),
 
@@ -586,6 +588,10 @@ export const AdCreativeResponseSchema = z.object({
     title: z.string().optional(),
   }).passthrough(),
   adcreatives_videos_ids: z.array(z.string()),
+  creative_video_id: z.string().nullable().optional(),
+  primary_video_id: z.string().nullable().optional(),
+  media_type: z.enum(['video', 'image', 'unknown']).nullable().optional(),
+  video_owner_page_id: z.string().nullable().optional(),
 })
 
 export type AdCreativeResponse = z.infer<typeof AdCreativeResponseSchema>

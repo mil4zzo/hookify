@@ -111,13 +111,13 @@ class _HeartbeatThread(threading.Thread):
         self._heartbeat_fn = heartbeat_fn
         self._get_message_fn = get_message_fn  # () -> (message, progress)
         self._interval = interval
-        self._stop = threading.Event()
+        self._stop_event = threading.Event()
 
     def stop(self):
-        self._stop.set()
+        self._stop_event.set()
 
     def run(self):
-        while not self._stop.wait(self._interval):
+        while not self._stop_event.wait(self._interval):
             try:
                 message, progress = self._get_message_fn()
                 self._heartbeat_fn(message, progress)

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, date, timezone
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
+from app.services.ad_media import resolve_media_type, resolve_primary_video_id
 from app.services.thumbnail_cache import CachedThumb, DEFAULT_BUCKET, build_public_storage_url, normalize_ad_name
 
 try:
@@ -396,6 +397,17 @@ def upsert_ads(
         videos_ids_list = [str(v) for v in adcreatives_videos_ids if v]
         videos_thumbs_list = [str(v) for v in adcreatives_videos_thumbs if v]
         
+        media_probe = {
+            **ad,
+            "creative": creative,
+            "adcreatives_videos_ids": videos_ids_list,
+            "adcreatives_videos_thumbs": videos_thumbs_list,
+            "creative_video_id": creative.get("video_id"),
+            "thumbnail_url": creative.get("thumbnail_url"),
+        }
+        primary_video_id = resolve_primary_video_id(media_probe)
+        media_type = resolve_media_type(media_probe, primary_video_id)
+
         row = {
             "ad_id": ad_id,
             "user_id": user_id,
@@ -408,6 +420,8 @@ def upsert_ads(
             "effective_status": ad.get("effective_status"),
             "creative": creative,
             "creative_video_id": creative.get("video_id"),
+            "primary_video_id": primary_video_id,
+            "media_type": media_type,
             "thumbnail_url": creative.get("thumbnail_url"),
             "instagram_permalink_url": creative.get("instagram_permalink_url"),
             # Adicionar campos de fallback
@@ -461,10 +475,16 @@ def upsert_ads(
         except Exception as e:
             # Se a migration ainda não foi aplicada no ambiente, reprocessar removendo colunas novas
             msg = str(e or "")
-            if "thumb_storage_path" in msg or "thumb_cached_at" in msg or "thumb_source_url" in msg:
+            if (
+                "thumb_storage_path" in msg
+                or "thumb_cached_at" in msg
+                or "thumb_source_url" in msg
+                or "primary_video_id" in msg
+                or "media_type" in msg
+            ):
                 logger.warning(
-                    f"[UPSERT_ADS] Colunas de thumbnail cache parecem ausentes no DB; "
-                    f"reprocessando lote {batch_num}/{total_batches} sem thumb_*"
+                    f"[UPSERT_ADS] Colunas novas parecem ausentes no DB; "
+                    f"reprocessando lote {batch_num}/{total_batches} sem thumb_*/media normalizada"
                 )
                 cleaned = []
                 for r in batch:
@@ -472,6 +492,8 @@ def upsert_ads(
                     rr.pop("thumb_storage_path", None)
                     rr.pop("thumb_cached_at", None)
                     rr.pop("thumb_source_url", None)
+                    rr.pop("primary_video_id", None)
+                    rr.pop("media_type", None)
                     cleaned.append(rr)
                 sb.table("ads").upsert(cleaned, on_conflict="ad_id,user_id").execute()
                 logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} reprocessado sem thumb_* ({len(cleaned)} registros)")
@@ -1083,7 +1105,8 @@ def get_existing_ads_map(
     select_fields = (
         "ad_id,account_id,campaign_id,campaign_name,adset_id,adset_name,ad_name,"
         "effective_status,creative,creative_video_id,thumbnail_url,"
-        "instagram_permalink_url,adcreatives_videos_ids,adcreatives_videos_thumbs"
+        "instagram_permalink_url,primary_video_id,media_type,"
+        "adcreatives_videos_ids,adcreatives_videos_thumbs"
     )
     batch_size = 200  # Reduzido de 400 para evitar timeout/URL longa
     existing_ads: Dict[str, Dict[str, Any]] = {}
@@ -2498,7 +2521,7 @@ def get_pack_thumbnail_cache(user_jwt: str, pack: Dict[str, Any], user_id: Optio
         batch_ids = ad_ids[i : i + batch_size]
         res = (
             sb.table("ads")
-            .select("ad_id,thumb_storage_path,creative_video_id")
+            .select("ad_id,thumb_storage_path,primary_video_id,media_type,creative_video_id")
             .eq("user_id", user_id)
             .in_("ad_id", batch_ids)
             .execute()

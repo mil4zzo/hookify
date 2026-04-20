@@ -6,6 +6,7 @@ import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 
 type SharedMetricSource = RankingsItem & Record<string, any>;
 
@@ -14,6 +15,7 @@ export interface SharedAdDetailModel {
   thumbnailUrl: string | null;
   videoSourceUrl: string | null;
   videoId: string | null;
+  mediaType: "video" | "image" | "unknown" | null;
   actorId: string | null;
   videoOwnerPageId: string | null;
   retentionSeries: number[];
@@ -112,8 +114,9 @@ export function buildSharedAdDetailModel({
   });
 
   const creative = creativeData?.creative || {};
-  const resolvedVideoId = String(creative.video_id || creativeData?.adcreatives_videos_ids?.[0] || "");
-  const resolvedActorId = String(creative.actor_id || "");
+  const resolvedVideoId = resolvePrimaryVideoId(creativeData as any, creative, creativeData?.adcreatives_videos_ids);
+  const resolvedMediaType = normalizeMediaType((creativeData as any)?.media_type);
+  const resolvedActorId = extractActorIdFromCreative(creative);
   const resolvedVideoOwnerPageId = String((creativeData as any)?.video_owner_page_id || "");
   const videoWatchedP50Raw =
     source.video_watched_p50 ??
@@ -129,6 +132,7 @@ export function buildSharedAdDetailModel({
     thumbnailUrl: getAdThumbnail(sourceForMedia),
     videoSourceUrl: videoData?.source_url || null,
     videoId: resolvedVideoId || null,
+    mediaType: resolvedMediaType,
     actorId: resolvedActorId || null,
     videoOwnerPageId: resolvedVideoOwnerPageId || null,
     retentionSeries: resolvedRetentionSeries,
@@ -181,8 +185,9 @@ export function useSharedAdNameDetail({
   const creativeQuery = useAdCreative(adId, enabled && !!ad && !!adId);
 
   const creative = creativeQuery.data?.creative || {};
-  const videoId = String(creative.video_id || creativeQuery.data?.adcreatives_videos_ids?.[0] || "");
-  const actorId = String(creative.actor_id || "");
+  const videoId = resolvePrimaryVideoId(creativeQuery.data as any, creative, creativeQuery.data?.adcreatives_videos_ids);
+  const mediaType = normalizeMediaType((creativeQuery.data as any)?.media_type);
+  const actorId = extractActorIdFromCreative(creative);
   const videoOwnerPageId = String((creativeQuery.data as any)?.video_owner_page_id || "");
 
   const hasCurveFromPrimarySource = useMemo(() => {
@@ -210,7 +215,7 @@ export function useSharedAdNameDetail({
       ad_id: adId || undefined,
       video_owner_page_id: videoOwnerPageId || undefined,
     },
-    enabled && !!ad && !!videoId && !!actorId,
+    enabled && !!ad && mediaType !== "image" && !!videoId && !!actorId,
   );
 
   const model = useMemo(() => {

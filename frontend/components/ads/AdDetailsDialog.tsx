@@ -23,6 +23,7 @@ import { loadManagerColumnsPreference } from "@/components/manager/managerColumn
 import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCurrencyDollar, IconLayoutGrid, IconWorld } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
+import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 
@@ -173,10 +174,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   // Extrair video_id e actor_id do creative buscado
   const creative = creativeData?.creative || {};
-  const videoId = creative.video_id || creativeData?.adcreatives_videos_ids?.[0];
-  const actorId = creative.actor_id;
+  const videoId = resolvePrimaryVideoId(creativeData as any, creative, creativeData?.adcreatives_videos_ids);
+  const mediaType = normalizeMediaType((creativeData as any)?.media_type);
+  const actorId = extractActorIdFromCreative(creative);
   const videoOwnerPageId = (creativeData as any)?.video_owner_page_id;
-  const shouldLoadVideo = activeTab === "video" && !!videoId && !!actorId && !loadingCreative;
+  const shouldLoadVideo = activeTab === "video" && mediaType !== "image" && !!videoId && !!actorId && !loadingCreative;
 
   const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || "", ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
 
@@ -480,6 +482,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const resolvedDetailModel = groupByAdName ? groupedSharedDetail.model : null;
   const resolvedThumbnail = groupByAdName ? resolvedDetailModel?.thumbnailUrl ?? getAdThumbnail(ad) : getAdThumbnail(ad);
   const resolvedVideoId = groupByAdName ? resolvedDetailModel?.videoId ?? null : videoId || null;
+  const resolvedMediaType = groupByAdName ? resolvedDetailModel?.mediaType ?? null : mediaType;
   const resolvedActorId = groupByAdName ? resolvedDetailModel?.actorId ?? null : actorId || null;
   const resolvedLoadingVideo = groupByAdName ? groupedSharedDetail.isLoadingMedia : loadingVideo;
   const resolvedVideoError = groupByAdName ? groupedSharedDetail.error : videoError;
@@ -532,7 +535,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   );
 
   const isCreativeLoading = (!groupByAdName && loadingCreative) || (groupByAdName && groupedSharedDetail.isLoadingMedia);
-  const isImageAd = !isCreativeLoading && !resolvedVideoId && (groupByAdName ? !!groupedSharedDetail.creativeData : !!creativeData);
+  const hasCreativeMediaData = groupByAdName ? !!groupedSharedDetail.creativeData : !!creativeData;
+  const isImageAd = !isCreativeLoading && hasCreativeMediaData && (
+    resolvedMediaType === "image" ||
+    (!resolvedMediaType && !resolvedVideoId)
+  );
   const imageActorId = groupByAdName
     ? (groupedSharedDetail.creativeData as any)?.creative?.actor_id || null
     : actorId || null;

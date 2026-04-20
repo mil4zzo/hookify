@@ -42,9 +42,11 @@ def _extract_video_info(
             continue
 
         creative = ad.get("creative") or {}
-        video_id = str(creative.get("video_id") or "").strip()
+        video_id = str(ad.get("primary_video_id") or "").strip()
         actor_id = str(creative.get("actor_id") or "").strip()
 
+        if not video_id:
+            video_id = str(creative.get("video_id") or "").strip()
         if not video_id:
             video_id = str(ad.get("creative_video_id") or "").strip()
         if not video_id:

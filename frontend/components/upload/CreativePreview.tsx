@@ -9,6 +9,7 @@ import {
 } from "@tabler/icons-react"
 import type { AdCreativeDetailResponse } from "@/lib/api/schemas"
 import { useAdCreative, useImageSource, useVideoSource } from "@/lib/api/hooks"
+import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection"
 import { Skeleton } from "@/components/ui/skeleton"
 import { VideoPlayer } from "@/components/common/VideoPlayer"
 
@@ -170,14 +171,14 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
     isVideoAd && !!adId && !existingVideoUrl,
   )
   const dbCreative = ((dbCreativeData as any)?.creative || {}) as Record<string, any>
-  const videoId: string | undefined =
-    rawCreative.video_id ||
-    dbCreative.video_id ||
-    (dbCreativeData as any)?.adcreatives_videos_ids?.[0]
-  const actorId: string = rawCreative.actor_id || dbCreative.actor_id || ""
+  const dbMediaType = normalizeMediaType((dbCreativeData as any)?.media_type)
+  const videoId: string =
+    resolvePrimaryVideoId(dbCreativeData as any, dbCreative, (dbCreativeData as any)?.adcreatives_videos_ids) ||
+    resolvePrimaryVideoId(null, rawCreative)
+  const actorId: string = extractActorIdFromCreative(rawCreative) || extractActorIdFromCreative(dbCreative)
   const videoOwnerPageId: string | undefined = (dbCreativeData as any)?.video_owner_page_id
 
-  const shouldFetchVideo = isVideoAd && !existingVideoUrl && !!videoId && !!actorId && !!adId && !loadingDbCreative
+  const shouldFetchVideo = isVideoAd && dbMediaType !== "image" && !existingVideoUrl && !!videoId && !!actorId && !!adId && !loadingDbCreative
   const { data: videoData, isLoading: loadingVideoSource } = useVideoSource(
     { video_id: videoId ?? "", actor_id: actorId, ad_id: adId ?? "", video_owner_page_id: videoOwnerPageId },
     shouldFetchVideo,

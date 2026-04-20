@@ -161,6 +161,10 @@ class AdsEnricher:
                     ad[field] = existing_value
 
             ad["creative"] = self._hydrate_creative_from_existing(existing_ad)
+            if existing_ad.get("primary_video_id"):
+                ad["primary_video_id"] = existing_ad.get("primary_video_id")
+            if existing_ad.get("media_type"):
+                ad["media_type"] = existing_ad.get("media_type")
             ad["adcreatives_videos_ids"] = list(existing_ad.get("adcreatives_videos_ids") or [])
             ad["adcreatives_videos_thumbs"] = list(existing_ad.get("adcreatives_videos_thumbs") or [])
 
