@@ -15,7 +15,7 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
-      - CORS_ORIGINS=https://hookifyads.com,https://www.hookifyads.com
+      - CORS_ORIGINS=https://hookifyads.com,https://www.hookifyads.com,https://api.hookifyads.com
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
     env_file:
@@ -24,12 +24,18 @@ services:
       - hookify-network
     labels:
       - "traefik.enable=true"
+      # Rota via hookifyads.com/api (proxied pelo Cloudflare - sem uploads grandes)
       - "traefik.http.routers.backend.rule=Host(`hookifyads.com`) && (PathPrefix(`/api`) || PathPrefix(`/facebook`) || PathPrefix(`/analytics`) || Path(`/health`))"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls.certresolver=mytlschallenge"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
       - "traefik.http.middlewares.backend-stripprefix.stripprefix.prefixes=/api"
       - "traefik.http.routers.backend.middlewares=backend-stripprefix"
+      # Rota via api.hookifyads.com (DNS only no Cloudflare - sem limite de 100MB)
+      - "traefik.http.routers.backend-direct.rule=Host(`api.hookifyads.com`)"
+      - "traefik.http.routers.backend-direct.entrypoints=websecure"
+      - "traefik.http.routers.backend-direct.tls.certresolver=mytlschallenge"
+      - "traefik.http.routers.backend-direct.service=backend"
       - "traefik.docker.network=hookify-network"
 
   frontend:
@@ -37,7 +43,7 @@ services:
       context: ../frontend
       dockerfile: ../deploy/Dockerfile.frontend
       args:
-        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://hookifyads.com/api}
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-https://api.hookifyads.com}
         - NEXT_PUBLIC_FB_REDIRECT_URI=${NEXT_PUBLIC_FB_REDIRECT_URI:-https://hookifyads.com/callback}
         - NEXT_PUBLIC_USE_REMOTE_API=${NEXT_PUBLIC_USE_REMOTE_API:-true}
         - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
