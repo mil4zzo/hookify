@@ -17,9 +17,12 @@ from app.services.thumbnail_cache import (
     cache_first_thumbs_for_ad_names,
     normalize_ad_name,
     select_representative_thumb_url,
+    storage_thumb_exists,
 )
 
 logger = logging.getLogger(__name__)
+
+CachedThumbReuseStatus = str
 
 # Store em memória: { job_id: { thumbnails, thumbnails_error?, stats_extended, stats_extended_error?, _created_at } }
 _background_status: Dict[str, Dict[str, Any]] = {}
@@ -40,6 +43,43 @@ def _is_transient_bg_error(error: Exception) -> bool:
         "connection reset",
     )
     return any(m in text for m in markers)
+
+
+def _storage_thumb_exists_for_repair(storage_path: str) -> bool:
+    return storage_thumb_exists(storage_path, raise_on_error=True)
+
+
+def _classify_existing_cached_thumb(
+    existing_cached: Any,
+    *,
+    pack_id: str,
+    thumb_key: str,
+    storage_exists=_storage_thumb_exists_for_repair,
+) -> CachedThumbReuseStatus:
+    storage_path = str(getattr(existing_cached, "storage_path", "") or "").strip()
+    if not storage_path:
+        return "missing_object"
+
+    try:
+        if storage_exists(storage_path):
+            return "valid"
+    except Exception as e:
+        logger.warning(
+            "[BACKGROUND_TASKS] Erro ao validar thumbnail cache pack=%s thumb_key=%s path=%s: %s",
+            pack_id,
+            thumb_key,
+            storage_path,
+            e,
+        )
+        return "validation_error"
+
+    logger.warning(
+        "[BACKGROUND_TASKS] Thumbnail cache aponta para objeto ausente pack=%s thumb_key=%s path=%s",
+        pack_id,
+        thumb_key,
+        storage_path,
+    )
+    return "missing_object"
 
 
 def _cleanup_stale_entries() -> None:
@@ -118,6 +158,10 @@ def run_pack_background_tasks(
             already_cached = 0
             reused_for_new_ad_ids = 0
             skipped_invalid_url = 0
+            cache_validated = 0
+            cache_missing_object = 0
+            cache_validation_errors = 0
+            recached_missing_object = 0
 
             if ad_name_groups:
                 ad_name_list = [
@@ -149,11 +193,22 @@ def run_pack_background_tasks(
 
                     existing_cached = existing_cache_by_key.get(thumb_key)
                     if existing_cached:
-                        already_cached += 1
-                        reused_for_new_ad_ids += len(ad_ids)
-                        for ad_id in ad_ids:
-                            ad_id_to_cached[ad_id] = existing_cached
-                        continue
+                        cache_validated += 1
+                        cache_status = _classify_existing_cached_thumb(
+                            existing_cached,
+                            pack_id=pack_id,
+                            thumb_key=thumb_key,
+                        )
+                        if cache_status == "valid":
+                            already_cached += 1
+                            reused_for_new_ad_ids += len(ad_ids)
+                            for ad_id in ad_ids:
+                                ad_id_to_cached[ad_id] = existing_cached
+                            continue
+                        if cache_status == "validation_error":
+                            cache_validation_errors += 1
+                        else:
+                            cache_missing_object += 1
 
                     # Política por fase:
                     # - criação inicial: cachear todos sem cache prévio
@@ -171,6 +226,8 @@ def run_pack_background_tasks(
 
                     ad_name_to_thumb_url[ad_name] = thumb_url
                     ad_name_to_ad_ids[thumb_key] = ad_ids
+                    if existing_cached:
+                        recached_missing_object += 1
 
                 uploads_requested = len(ad_name_to_thumb_url)
 
@@ -196,7 +253,8 @@ def run_pack_background_tasks(
             logger.info(
                 "[BACKGROUND_TASKS] Thumbnail cache summary pack=%s is_refresh=%s ad_names_total=%s "
                 "already_cached=%s uploads_requested=%s new_cached=%s reused_for_new_ad_ids=%s "
-                "skipped_invalid_url=%s ads_updated=%s write_retries=%s write_failures=%s",
+                "skipped_invalid_url=%s ads_updated=%s write_retries=%s write_failures=%s "
+                "cache_validated=%s cache_missing_object=%s cache_validation_errors=%s recached_missing_object=%s",
                 pack_id,
                 is_refresh,
                 ad_names_total,
@@ -208,6 +266,10 @@ def run_pack_background_tasks(
                 ads_updated,
                 write_retries,
                 write_failures,
+                cache_validated,
+                cache_missing_object,
+                cache_validation_errors,
+                recached_missing_object,
             )
             _set_status(job_id, thumbnails="completed")
         except Exception as e:

@@ -7,7 +7,7 @@ import { VideoMetricCell } from "@/components/common/VideoMetricCell";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useAdHistory, useAdNameHistory } from "@/lib/api/hooks";
+import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useImageSource, useAdHistory, useAdNameHistory } from "@/lib/api/hooks";
 import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
@@ -24,6 +24,7 @@ import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCurrencyDoll
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
+import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 
 interface AdDetailsDialogProps {
   ad: RankingsItem;
@@ -530,6 +531,18 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       : loadingAdDetails && resolvedRetentionSeries.length === 0
   );
 
+  const isCreativeLoading = (!groupByAdName && loadingCreative) || (groupByAdName && groupedSharedDetail.isLoadingMedia);
+  const isImageAd = !isCreativeLoading && !resolvedVideoId && (groupByAdName ? !!groupedSharedDetail.creativeData : !!creativeData);
+  const imageActorId = groupByAdName
+    ? (groupedSharedDetail.creativeData as any)?.creative?.actor_id || null
+    : actorId || null;
+  const shouldLoadImageSource = isImageAd && !!adId && !!imageActorId;
+  const { data: imageSourceData, isLoading: loadingImageSource } = useImageSource(
+    { ad_id: adId, actor_id: imageActorId || "" },
+    shouldLoadImageSource
+  );
+  const resolvedCreativeImageUrl = imageSourceData?.image_url ?? null;
+
 
   // Handler para quando um ponto do gráfico de retenção é clicado
   const handleRetentionPointClick = (second: number) => {
@@ -545,9 +558,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     <div className="h-full flex flex-col gap-4">
       {/* Header */}
       <div className="flex items-start gap-4 pr-8 flex-shrink-0">
-        {(() => {
-          return resolvedThumbnail ? <img src={resolvedThumbnail} alt="thumb" className="w-20 h-20 rounded object-cover" /> : <div className="w-20 h-20 rounded bg-border" />;
-        })()}
+        <ThumbnailImage src={resolvedThumbnail} alt="thumb" size="lg" />
         <div className="flex-1 min-w-0">
           <h2 className="text-lg font-semibold truncate">{ad?.ad_name || "—"}</h2>
           <div className="mt-1 flex flex-col gap-1 text-sm text-muted-foreground">
@@ -609,18 +620,34 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
         <TabbedContentItem value="video" variant="simple" className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 flex flex-col min-h-0">
-            {(!groupByAdName && loadingCreative) ? (
+            {isCreativeLoading ? (
               <VideoTabSkeleton showConversionFilter={allConversionTypes.length > 0} />
-            ) : !resolvedVideoId || !resolvedActorId ? (
-              <div className="text-sm text-muted-foreground p-6 text-center">Vídeo não disponível para este anúncio.</div>
+            ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) ? (
+              <div className="text-sm text-muted-foreground p-6 text-center">Mídia não disponível para este anúncio.</div>
             ) : (
               <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
-                {/* Player de vídeo */}
+                {/* Player de vídeo ou imagem */}
                 <div className="flex-shrink-0 rounded-lg flex items-center justify-center ml-8" style={{ aspectRatio: "9/16" }}>
-                  {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
-                  {resolvedVideoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
-                  {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
-                  {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+                  {isImageAd ? (
+                    loadingImageSource ? (
+                      <RetentionVideoPlayerSkeleton />
+                    ) : resolvedCreativeImageUrl ? (
+                      <img
+                        src={resolvedCreativeImageUrl}
+                        alt={adName}
+                        className="w-full h-full object-contain rounded-lg"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">Imagem não disponível</div>
+                    )
+                  ) : (
+                    <>
+                      {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
+                      {resolvedVideoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
+                      {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
+                      {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+                    </>
+                  )}
                 </div>
 
                 {/* Métricas em seções */}

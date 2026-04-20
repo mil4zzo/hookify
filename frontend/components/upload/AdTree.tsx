@@ -6,6 +6,7 @@ import { IconPhoto, IconSearch } from "@tabler/icons-react"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { getAdThumbnail } from "@/lib/utils/thumbnailFallback"
 import type { AdsTreeResponse } from "@/lib/api/schemas"
 
 interface AdTreeProps {
@@ -116,6 +117,7 @@ export default function AdTree({ data, selectedAdId, onSelect }: AdTreeProps) {
                     <AccordionContent className="space-y-2">
                       {adset.ads.map((ad) => {
                         const isSelected = selectedAdId === ad.ad_id
+                        const thumbnail = getAdThumbnail(ad) || ad.thumbnail_url || null
                         return (
                           <div
                             key={ad.ad_id}
@@ -125,9 +127,9 @@ export default function AdTree({ data, selectedAdId, onSelect }: AdTreeProps) {
                           >
                             <div className="flex min-w-0 items-center gap-3">
                               <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-md border border-border bg-muted">
-                                {ad.thumbnail_url ? (
+                                {thumbnail ? (
                                   <Image
-                                    src={ad.thumbnail_url}
+                                    src={thumbnail}
                                     alt={ad.ad_name || "Thumbnail do anuncio"}
                                     fill
                                     className="object-cover"

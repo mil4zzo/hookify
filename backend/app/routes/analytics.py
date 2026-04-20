@@ -881,24 +881,8 @@ def _hook_at_3_from_curve(curve: Any) -> float:
         return 0.0
 
 def _get_thumbnail_with_fallback(ad_row: Dict[str, Any]) -> Optional[str]:
-    """Obtém thumbnail com fallback para adcreatives_videos_thumbs.
-    
-    Prioridade:
-    1. thumbnail_url (de creative)
-    2. adcreatives_videos_thumbs[0] (primeiro item do array de fallback)
-    3. None
-    """
-    thumbnail_url = ad_row.get("thumbnail_url")
-    if thumbnail_url and thumbnail_url.strip():
-        return thumbnail_url
-    
-    # Fallback: usar primeiro thumbnail de adcreatives_videos_thumbs
-    adcreatives_thumbs = ad_row.get("adcreatives_videos_thumbs")
-    if isinstance(adcreatives_thumbs, list) and len(adcreatives_thumbs) > 0:
-        first_thumb = adcreatives_thumbs[0]
-        if first_thumb and str(first_thumb).strip():
-            return str(first_thumb)
-    
+    """Meta CDN thumbnail fallback is disabled; callers must use Storage thumbs."""
+    _ = ad_row
     return None
 
 
@@ -911,6 +895,104 @@ def _get_storage_thumb_if_any(ad_row: Dict[str, Any]) -> Optional[str]:
         return build_public_storage_url(DEFAULT_BUCKET, p)
     except Exception:
         return None
+
+
+def _select_storage_thumbnail_for_group(
+    rep_ad_id: Any,
+    ad_ids_in_group: Any,
+    storage_thumbnails_map: Dict[str, str],
+) -> tuple[Optional[str], Optional[str]]:
+    """Select a Storage thumbnail for an aggregated group, preferring the representative ad."""
+    rep_ad_id_str = str(rep_ad_id or "").strip()
+    if rep_ad_id_str:
+        rep_thumb = storage_thumbnails_map.get(rep_ad_id_str)
+        if rep_thumb:
+            return rep_thumb, rep_ad_id_str
+
+    try:
+        ad_ids = sorted(str(ad_id or "").strip() for ad_id in (ad_ids_in_group or []) if str(ad_id or "").strip())
+    except Exception:
+        ad_ids = []
+
+    for ad_id in ad_ids:
+        if ad_id == rep_ad_id_str:
+            continue
+        thumb = storage_thumbnails_map.get(ad_id)
+        if thumb:
+            return thumb, ad_id
+
+    return None, None
+
+
+def _is_storage_thumbnail_url(value: Any) -> bool:
+    try:
+        v = str(value or "").strip()
+        return "/storage/v1/object/public/" in v
+    except Exception:
+        return False
+
+
+def _hydrate_storage_thumbnails_for_rankings_rows(
+    sb,
+    user_id: str,
+    rows: List[Dict[str, Any]],
+) -> Dict[str, int]:
+    """Ensure rankings rows use Storage thumbnail URLs when available in ads.thumb_storage_path."""
+    if not rows:
+        return {"rows": 0, "candidates": 0, "storage_found": 0, "overridden": 0}
+
+    candidate_ad_ids: Set[str] = set()
+    for row in rows:
+        ad_id = str(row.get("ad_id") or "").strip()
+        if not ad_id:
+            continue
+        current_thumb = row.get("thumbnail")
+        if _is_storage_thumbnail_url(current_thumb):
+            continue
+        candidate_ad_ids.add(ad_id)
+
+    if not candidate_ad_ids:
+        return {"rows": len(rows), "candidates": 0, "storage_found": 0, "overridden": 0}
+
+    ad_id_to_storage: Dict[str, str] = {}
+    batch_size = 500
+    candidate_list = sorted(candidate_ad_ids)
+    for i in range(0, len(candidate_list), batch_size):
+        batch = candidate_list[i : i + batch_size]
+        try:
+            res = (
+                sb.table("ads")
+                .select("ad_id,thumb_storage_path")
+                .eq("user_id", user_id)
+                .in_("ad_id", batch)
+                .execute()
+            )
+            for ad_row in (res.data or []):
+                ad_id = str(ad_row.get("ad_id") or "").strip()
+                storage_url = _get_storage_thumb_if_any(ad_row)
+                if ad_id and storage_url:
+                    ad_id_to_storage[ad_id] = storage_url
+        except Exception as e:
+            logger.warning("[rankings_cutover] failed to hydrate storage thumbnails batch=%s err=%s", len(batch), e)
+
+    overridden = 0
+    for row in rows:
+        ad_id = str(row.get("ad_id") or "").strip()
+        if not ad_id:
+            continue
+        storage_url = ad_id_to_storage.get(ad_id)
+        if not storage_url:
+            continue
+        if row.get("thumbnail") != storage_url:
+            row["thumbnail"] = storage_url
+            overridden += 1
+
+    return {
+        "rows": len(rows),
+        "candidates": len(candidate_ad_ids),
+        "storage_found": len(ad_id_to_storage),
+        "overridden": overridden,
+    }
 
 
 GlobalSearchResultType = Literal["ad_id", "ad_name", "adset_name", "campaign_name"]
@@ -1650,29 +1732,32 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
         ad_id_for_thumb = A.get("rep_ad_id")
         ad_id_str = str(ad_id_for_thumb or "") if ad_id_for_thumb else ""
 
-        # Prioridade 1: Storage URL do rep_ad_id (já cacheado no Supabase Storage)
-        thumbnail = storage_thumbnails_map.get(ad_id_str) if ad_id_str else None
+        # Prioridade 1: Storage URL do rep_ad_id; se ele estiver sem cache, usar
+        # outro ad_id do mesmo grupo já carregado evita placeholder em linhas agregadas.
+        ad_ids_in_group = A.get("ad_ids") or set()
+        thumbnail, thumbnail_source_ad_id = _select_storage_thumbnail_for_group(
+            ad_id_for_thumb,
+            ad_ids_in_group,
+            storage_thumbnails_map,
+        )
+        if thumbnail and thumbnail_source_ad_id and thumbnail_source_ad_id != ad_id_str:
+            logger.warning(
+                "[ANALYTICS_THUMBNAIL] rep_ad_id sem thumb Storage; usando sibling "
+                "group_by=%s ad_name=%s rep_ad_id=%s source_ad_id=%s pack_ids=%s",
+                req.group_by,
+                A.get("ad_name"),
+                ad_id_str,
+                thumbnail_source_ad_id,
+                req.pack_ids,
+            )
         adcreatives_thumbs = adcreatives_map.get(ad_id_str) if ad_id_str else None
 
-        # Prioridade 2: se rep_ad_id não tem Storage URL, varrer todos os ad_ids do grupo
-        # (evita cair em URL Meta CDN quando outro membro do grupo já tem cache)
-        if not thumbnail:
-            for _aid in (A.get("ad_ids") or set()):
-                _aid_str = str(_aid)
-                _candidate = storage_thumbnails_map.get(_aid_str)
-                if _candidate:
-                    thumbnail = _candidate
-                    adcreatives_thumbs = adcreatives_map.get(_aid_str) or adcreatives_thumbs
-                    break
-
-        # Prioridade 3: fallback para URL Meta CDN do rep_ad_id (nenhum membro do grupo tem Storage)
         if not thumbnail:
             thumbnail = thumbnails_map.get(ad_id_str) if ad_id_str else None
         
         # NOVA LÓGICA: Verificar se há pelo menos um ad_id com effective_status = 'ACTIVE' no grupo
         # Se houver, usar 'ACTIVE' como status do grupo (indica que pelo menos um anúncio está rodando)
         effective_status = None
-        ad_ids_in_group = A.get("ad_ids") or set()
         has_active = False
         
         # Verificar todos os ad_ids do grupo e contar ativos (para active_count)
@@ -1939,14 +2024,20 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Erro ao consultar analytics agregados.")
 
     elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+    hydration_stats = _hydrate_storage_thumbnails_for_rankings_rows(
+        sb=sb,
+        user_id=user_id,
+        rows=primary.get("data") or [],
+    )
     logger.info(
-        "[rankings_cutover] aggregated_rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s",
+        "[rankings_cutover] aggregated_rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s hydrated=%s",
         elapsed_ms,
         req.group_by,
         req.date_start,
         req.date_stop,
         len(req.pack_ids or []),
         len(primary.get("data") or []),
+        hydration_stats,
     )
 
     # Compare apenas quando pedimos conversion types completos para reduzir ruído
@@ -2273,14 +2364,22 @@ def get_ad_name_details(
                 pass
             _merge_row_conversions_actions(r, series_acc["conversions"][date])
 
-    # Buscar thumbnail do primeiro ad_id encontrado
+    # Buscar thumbnail cacheada do ad_id representativo. Se a propagação por ad_name
+    # estiver correta, qualquer ad_id do grupo deve ter a mesma thumb_storage_path.
     thumbnail: Optional[str] = None
-    first_ad_id = next(iter(agg["ad_ids"]), None)
-    if first_ad_id:
+    representative_ad_id = next(iter(sorted(str(ad_id) for ad_id in (agg.get("ad_ids") or set()) if ad_id)), None)
+    if representative_ad_id:
         try:
-            ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", first_ad_id).limit(1).execute()
+            ads_res = (
+                sb.table("ads")
+                .select("ad_id,thumb_storage_path,creative_video_id")
+                .eq("user_id", user["user_id"])
+                .eq("ad_id", representative_ad_id)
+                .limit(1)
+                .execute()
+            )
             if ads_res.data:
-                thumbnail = _get_storage_thumb_if_any(ads_res.data[0]) or _get_thumbnail_with_fallback(ads_res.data[0])
+                thumbnail = _get_storage_thumb_if_any(ads_res.data[0])
         except Exception as e:
             logger.warning(f"Erro ao buscar thumbnail (ad_name details): {e}")
 
@@ -3984,6 +4083,32 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
     except Exception as e:
         logger.exception(f"Erro ao buscar pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao buscar pack: {str(e)}")
+
+
+@router.get("/packs/{pack_id}/thumbnail-cache")
+def get_pack_thumbnail_cache(pack_id: str, user=Depends(get_current_user)):
+    """Busca apenas o patch de thumbnails Storage dos ads de um pack."""
+    try:
+        pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
+        if not pack:
+            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
+
+        thumbnails = supabase_repo.get_pack_thumbnail_cache(user["token"], pack, user["user_id"])
+        ready_count = sum(1 for thumb in thumbnails if thumb.get("thumb_storage_path"))
+        total = len(thumbnails)
+        return {
+            "success": True,
+            "pack_id": pack_id,
+            "thumbnails": thumbnails,
+            "ready": total > 0 and ready_count == total,
+            "ready_count": ready_count,
+            "total": total,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Erro ao buscar thumbnail cache do pack {pack_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao buscar thumbnail cache: {str(e)}")
 
 
 @router.delete("/packs/{pack_id}")

@@ -88,6 +88,8 @@ interface ManagerTableProps {
   hasSheetIntegration?: boolean;
   /** Indica se os dados estão sendo carregados */
   isLoading?: boolean;
+  /** Indica que a requisição da aba por-anuncio falhou (ex: timeout do RPC) */
+  isError?: boolean;
   /** Filtros iniciais a serem aplicados (ex: vindos de query params da URL) */
   initialFilters?: Array<{ id: string; value: any }>;
   /** Callback para informar chaves de grupo visiveis no viewport da tabela atual. */
@@ -116,7 +118,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow foi extraído para arquivo próprio em `frontend/components/manager/ExpandedChildrenRow.tsx`
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -925,8 +927,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       expandedTableColumnFilters: expandedTableFilters[currentTab] ?? [],
       setExpandedTableColumnFilters,
       onVisibleRowKeysChange: handleVisibleRowKeysChange,
+      isError: isError && currentTab === "por-anuncio",
     }),
-    [table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
+    [table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
   );
   return (
     <div className="w-full h-full flex-1 flex flex-col min-h-0 overflow-hidden">

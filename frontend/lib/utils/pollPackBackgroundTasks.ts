@@ -1,16 +1,10 @@
-/**
- * Polling de background tasks (thumbnails + stats estendidos) após criação de pack.
- * Exibe toast de erro imediatamente quando alguma task falha.
- * Sem toast de sucesso (conforme plano).
- */
 import { api } from "@/lib/api/endpoints";
-import { showError } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
+import { showError } from "@/lib/utils/toast";
 
-// Backoff progressivo: 2s, 2s, 3s, 3s, 5s, 5s, 5s...
 const INTERVALS_MS = [2000, 2000, 3000, 3000, 5000];
 const MAX_POLLS = 60;
-const MAX_MISSING_BG = 3; // Parar se 3 polls consecutivos sem background_tasks_status
+const MAX_MISSING_BG = 3;
 
 function getInterval(pollIndex: number): number {
   return INTERVALS_MS[Math.min(pollIndex, INTERVALS_MS.length - 1)];
@@ -31,27 +25,42 @@ function isDone(status: BackgroundTasksStatus): boolean {
   return tDone && sDone;
 }
 
-/**
- * Polla o progresso do job para detectar falhas nas tasks em background.
- * Roda em background (não bloquear a UI). Exibe toast de erro quando detecta falha.
- */
-export function pollPackBackgroundTasks(jobId: string): void {
+async function refreshPackAdsCache(packId: string, requireReady: boolean = false): Promise<boolean> {
+  const response = await api.analytics.getPackThumbnailCache(packId);
+  const thumbnails = Array.isArray(response.thumbnails) ? response.thumbnails : [];
+  if (!response.success || thumbnails.length === 0) return false;
+  if (requireReady && !response.ready) return false;
+
+  const { promoteCachedPackAdsThumbnails } = await import("@/lib/storage/adsCache");
+  const promoted = await promoteCachedPackAdsThumbnails(packId, thumbnails);
+  if (!promoted.success) {
+    logger.warn("[pollPackBackgroundTasks] Failed to promote thumbnail cache:", promoted.error);
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("hookify:pack-ads-cache-updated", { detail: { packId } }));
+  }
+
+  return true;
+}
+
+export function pollPackBackgroundTasks(jobId: string, packId?: string): void {
   let polls = 0;
   let missingBgCount = 0;
+  let refreshedThumbnailCache = false;
   const seenErrors = { thumbnails: false, stats_extended: false };
 
   const poll = async () => {
     while (polls < MAX_POLLS) {
-      await new Promise((r) => setTimeout(r, getInterval(polls)));
+      await new Promise((resolve) => setTimeout(resolve, getInterval(polls)));
       polls++;
 
       try {
         const progress = await api.facebook.getJobProgress(jobId);
 
-        // Parar imediatamente se o job está em estado final (proteção defensiva)
         const jobStatus = (progress as any).status;
         if (jobStatus === "failed" || jobStatus === "cancelled") {
-          logger.debug(`[pollPackBackgroundTasks] Job em estado final (${jobStatus}), parando imediatamente`);
+          logger.debug(`[pollPackBackgroundTasks] Job ended as ${jobStatus}, stopping`);
           break;
         }
 
@@ -60,29 +69,47 @@ export function pollPackBackgroundTasks(jobId: string): void {
         if (!bg) {
           missingBgCount++;
           if (missingBgCount >= MAX_MISSING_BG) {
-            logger.debug("[pollPackBackgroundTasks] Sem background_tasks_status após", missingBgCount, "polls, parando");
+            if (packId && !refreshedThumbnailCache) {
+              const refreshed = await refreshPackAdsCache(packId, true);
+              if (refreshed) {
+                refreshedThumbnailCache = true;
+                logger.debug("[pollPackBackgroundTasks] Refreshed thumbnail cache without background status");
+                break;
+              }
+              missingBgCount = 0;
+              continue;
+            }
+            logger.debug("[pollPackBackgroundTasks] Missing background status, stopping");
             break;
           }
           continue;
         }
         missingBgCount = 0;
 
+        if (bg.thumbnails === "completed" && packId && !refreshedThumbnailCache) {
+          refreshedThumbnailCache = await refreshPackAdsCache(packId).catch((error) => {
+            logger.warn("[pollPackBackgroundTasks] Failed to refresh thumbnail cache:", error);
+            return false;
+          });
+        }
+
         if (bg.thumbnails === "failed" && !seenErrors.thumbnails) {
           seenErrors.thumbnails = true;
           const msg = bg.thumbnails_error || "Falha ao processar thumbnails em segundo plano.";
           showError({ message: msg });
-          logger.warn("[pollPackBackgroundTasks] Thumbnails falhou:", msg);
+          logger.warn("[pollPackBackgroundTasks] Thumbnails failed:", msg);
         }
+
         if (bg.stats_extended === "failed" && !seenErrors.stats_extended) {
           seenErrors.stats_extended = true;
-          const msg = bg.stats_extended_error || "Falha ao calcular estatísticas completas em segundo plano.";
+          const msg = bg.stats_extended_error || "Falha ao calcular estatisticas completas em segundo plano.";
           showError({ message: msg });
-          logger.warn("[pollPackBackgroundTasks] Stats estendidos falhou:", msg);
+          logger.warn("[pollPackBackgroundTasks] Extended stats failed:", msg);
         }
 
         if (isDone(bg)) break;
-      } catch (e) {
-        logger.debug("[pollPackBackgroundTasks] Erro ao poll (continuando):", e);
+      } catch (error) {
+        logger.debug("[pollPackBackgroundTasks] Poll error, continuing:", error);
       }
     }
   };

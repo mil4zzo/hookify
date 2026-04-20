@@ -11,8 +11,9 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { PackFilter } from "@/components/common/PackFilter"
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear"
-import { usePacks } from "@/lib/store/session"
+import { useClientPacks } from "@/lib/hooks/useClientSession"
 import { useAdsSearch } from "@/lib/hooks/useAdsSearch"
+import { getAdThumbnail } from "@/lib/utils/thumbnailFallback"
 import type { FlatAd } from "@/lib/api/schemas"
 
 interface AdGridProps {
@@ -64,6 +65,8 @@ const AdRow = memo(function AdRow({
   isSelected: boolean
   onSelect: (adId: string, adName: string, accountId?: string | null) => void
 }) {
+  const thumbnail = getAdThumbnail(ad) || ad.thumbnail_url || null
+
   return (
     <button
       type="button"
@@ -71,9 +74,9 @@ const AdRow = memo(function AdRow({
       className={`group flex w-full cursor-pointer items-center gap-3 border-b border-border px-3 py-3 text-left transition-colors hover:bg-muted-40 ${isSelected ? "bg-primary-5 hover:bg-primary-10" : ""}`}
     >
       <div className={`relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border ${isSelected ? "border-primary-40" : "border-border"} bg-muted`}>
-        {ad.thumbnail_url ? (
+        {thumbnail ? (
           <Image
-            src={ad.thumbnail_url}
+            src={thumbnail}
             alt={ad.ad_name ?? ""}
             fill
             className="object-cover"
@@ -117,7 +120,7 @@ const AdGrid = memo(function AdGrid({ selectedAdId, onSelect }: AdGridProps) {
   const dQAdset = useDebouncedValue(qAdset, 250)
   const dQCampaign = useDebouncedValue(qCampaign, 250)
 
-  const { packs } = usePacks()
+  const { packs, isClient } = useClientPacks()
 
   useEffect(() => {
     if (!packInitialized.current && packs.length > 0) {
@@ -191,19 +194,16 @@ const AdGrid = memo(function AdGrid({ selectedAdId, onSelect }: AdGridProps) {
   return (
     <div className="flex min-h-0 flex-col gap-3">
       <div className="flex gap-2">
-        {packs.length > 0 && (
-          <LabeledFilter label="Pack">
-            <PackFilter
-              packs={packs}
-              selectedPackIds={selectedPackIds}
-              onTogglePack={handleTogglePack}
-              singleSelect
-              showLabel={false}
-              packsClient
-              isLoading={false}
-            />
-          </LabeledFilter>
-        )}
+        <LabeledFilter label="Pack">
+          <PackFilter
+            packs={packs}
+            selectedPackIds={selectedPackIds}
+            onTogglePack={handleTogglePack}
+            singleSelect
+            showLabel={false}
+            packsClient={isClient}
+          />
+        </LabeledFilter>
         <LabeledFilter label="Anúncio">
           <SearchInputWithClear
             value={qNameOrId}

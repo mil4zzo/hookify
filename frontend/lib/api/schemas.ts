@@ -126,6 +126,15 @@ export const GetVideoSourceRequestSchema = z.object({
   video_owner_page_id: z.string().optional(),
 })
 
+export const GetImageSourceRequestSchema = z.object({
+  ad_id: z.string(),
+  actor_id: z.string(),
+})
+
+export const GetImageSourceResponseSchema = z.object({
+  image_url: z.string().nullable().optional(),
+}).passthrough()
+
 export const AuthTokenRequestSchema = z.object({
   code: z.string(),
   redirect_uri: z.string(),
@@ -177,11 +186,13 @@ export type FacebookVideoSource = z.infer<typeof GetVideoSourceResponseSchema>
 export type FilterRule = z.infer<typeof FilterRuleSchema>
 export type GetAdsRequest = z.infer<typeof GetAdsRequestSchema>
 export type GetVideoSourceRequest = z.infer<typeof GetVideoSourceRequestSchema>
+export type GetImageSourceRequest = z.infer<typeof GetImageSourceRequestSchema>
 export type AuthTokenRequest = z.infer<typeof AuthTokenRequestSchema>
 
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 export type GetAdsResponse = z.infer<typeof GetAdsResponseSchema>
 export type GetVideoSourceResponse = z.infer<typeof GetVideoSourceResponseSchema>
+export type GetImageSourceResponse = z.infer<typeof GetImageSourceResponseSchema>
 export type AuthTokenResponse = z.infer<typeof AuthTokenResponseSchema>
 export type AuthUrlResponse = z.infer<typeof AuthUrlResponseSchema>
 export type UpdateEntityStatusRequest = z.infer<typeof UpdateEntityStatusRequestSchema>
@@ -413,6 +424,7 @@ export const RankingsItemSchema = z.object({
   conversions: z.record(z.string(), z.number()), // {action_type: total_value} para calcular results/cpr/page_conv no frontend
   ad_count: z.number(),
   thumbnail: z.string().nullable().optional(),
+  thumb_storage_path: z.string().nullable().optional(),
   adcreatives_videos_thumbs: z.array(z.string()).nullable().optional(), // Array de thumbnails dos vídeos do adcreative
   video_play_curve_actions: z.array(z.number()).nullable().optional(), // Curva de retenção agregada (ponderada por plays)
   series: z

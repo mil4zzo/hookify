@@ -126,6 +126,46 @@ def build_public_storage_url(bucket: str, storage_path: str) -> Optional[str]:
     return f"{base}/storage/v1/object/public/{b}/{_quote_path(p)}"
 
 
+def storage_thumb_exists(
+    storage_path: str,
+    *,
+    bucket: str = DEFAULT_BUCKET,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    raise_on_error: bool = False,
+) -> bool:
+    """Return True when the cached Storage object still exists."""
+    storage_path = str(storage_path or "").strip()
+    bucket = str(bucket or "").strip()
+    if not storage_path or not bucket or not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
+        return False
+
+    base = SUPABASE_URL.rstrip("/")
+    encoded_path = "/".join(quote(seg, safe="") for seg in storage_path.split("/"))
+    url = f"{base}/storage/v1/object/{bucket}/{encoded_path}"
+    headers = {
+        "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+        "apikey": SUPABASE_SERVICE_ROLE_KEY,
+    }
+
+    try:
+        resp = requests.head(url, headers=headers, timeout=timeout_seconds)
+        if resp.status_code in (400, 404):
+            return False
+        if resp.status_code in (405, 501):
+            resp = requests.get(url, headers={**headers, "Range": "bytes=0-0"}, timeout=timeout_seconds)
+            if resp.status_code in (400, 404):
+                return False
+            if resp.status_code in (200, 206):
+                return True
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        logger.warning(f"[THUMB_CACHE] Falha ao validar objeto Storage path={storage_path}: {e}")
+        if raise_on_error:
+            raise
+        return False
+
+
 def _detect_ext_and_content_type(header_content_type: Optional[str], first_bytes: bytes) -> Tuple[str, str]:
     ct = (header_content_type or "").split(";")[0].strip().lower()
 

@@ -5,6 +5,8 @@ import {
   GetAdsResponse,
   GetVideoSourceRequest,
   GetVideoSourceResponse,
+  GetImageSourceRequest,
+  GetImageSourceResponse,
   AuthTokenRequest,
   AuthTokenResponse,
   AuthUrlResponse,
@@ -107,6 +109,9 @@ export const api = {
     
     getVideoSource: (params: GetVideoSourceRequest): Promise<GetVideoSourceResponse> =>
       apiClient.get('/facebook/video-source', { params }),
+
+    getImageSource: (params: GetImageSourceRequest): Promise<GetImageSourceResponse> =>
+      apiClient.get('/facebook/image-source', { params }),
     
     refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh", skipSheetsSync: boolean = false): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string }> =>
       apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType, skip_sheets_sync: skipSheetsSync }),
@@ -259,6 +264,8 @@ export const api = {
       apiClient.get('/analytics/packs', { params: { include_ads: includeAds || false } }),
     getPack: (packId: string, includeAds: boolean = true): Promise<{ success: boolean; pack: any }> =>
       apiClient.get(`/analytics/packs/${packId}`, { params: { include_ads: includeAds } }),
+    getPackThumbnailCache: (packId: string): Promise<{ success: boolean; pack_id: string; thumbnails: any[]; ready?: boolean; ready_count?: number; total?: number }> =>
+      apiClient.get(`/analytics/packs/${packId}/thumbnail-cache`),
     deletePack: (packId: string, adIds: string[] = []): Promise<{ success: boolean; pack_id: string; stats: { pack_deleted: boolean; ads_deleted: number; metrics_deleted: number; storage_thumbs_candidates: number; storage_thumbs_deleted: number; storage_thumbs_kept: number } }> =>
       apiClient.deleteWithBody(`/analytics/packs/${packId}`, { ad_ids: adIds }),
     updatePackAutoRefresh: (packId: string, autoRefresh: boolean): Promise<{ success: boolean; pack_id: string; auto_refresh: boolean }> =>

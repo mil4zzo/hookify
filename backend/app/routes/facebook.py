@@ -1970,6 +1970,38 @@ def get_video_source(
         logger.exception("Error in /video-source endpoint")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/image-source")
+def get_image_source(
+    ad_id: str,
+    actor_id: str,
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user)
+):
+    """Get fresh image URL for an image ad."""
+    try:
+        result = api.get_image_source_url(ad_id, actor_id)
+
+        if isinstance(result, dict) and "status" in result:
+            error_msg = result.get("message", "")
+            if check_meta_error_for_token_expiry(error_msg):
+                mark_connection_as_expired(user["token"], user["user_id"])
+                raise HTTPException(
+                    status_code=401,
+                    detail={
+                        "error": "facebook_token_expired",
+                        "code": "TOKEN_EXPIRED",
+                        "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
+                    }
+                )
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        return {"image_url": result.get("image_url")}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error in /image-source endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/auth/token")
 def exchange_code_for_token(request: FacebookTokenRequest):
     """Exchange Facebook authorization code for access token."""

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 import json
@@ -28,13 +28,38 @@ from app.services.facebook_connections_repo import (
     update_connection_status,
 )
 from app.services.graph_api import GraphAPI, test_facebook_connection
-from app.services.thumbnail_cache import cache_profile_picture, build_public_storage_url, DEFAULT_BUCKET
+from app.services.thumbnail_cache import (
+    cache_profile_picture,
+    build_public_storage_url,
+    storage_thumb_exists,
+    DEFAULT_BUCKET,
+)
 from app.services import supabase_repo
 from app.services.facebook_token_service import invalidate_token_cache
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/facebook", tags=["facebook-connector"])
+
+
+def _extract_profile_picture_url(fb_payload: Dict[str, Any]) -> Optional[str]:
+    picture_obj = fb_payload.get("picture")
+    if not isinstance(picture_obj, dict):
+        return None
+    picture_data = picture_obj.get("data", {})
+    if not isinstance(picture_data, dict):
+        return None
+    picture_url = picture_data.get("url")
+    if not picture_url or not str(picture_url).strip():
+        return None
+    return str(picture_url).strip()
+
+
+def _has_valid_picture_cache(connection: Dict[str, Any]) -> bool:
+    storage_path = str(connection.get("picture_storage_path") or "").strip()
+    if not storage_path:
+        return False
+    return storage_thumb_exists(storage_path, bucket=DEFAULT_BUCKET)
 
 
 @router.post("/connect/url")
@@ -103,7 +128,7 @@ def connect_callback(
     if expires_in is None:
         logger.warning(f"Facebook did not return expires_in in token response")
     
-    # Verificar se expires_in existe e é um número válido (> 0)
+    # Verificar se expires_in existe e Ã© um nÃºmero vÃ¡lido (> 0)
     if expires_in is not None and isinstance(expires_in, (int, float)) and expires_in > 0:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
         expires_at_str = expires_at.isoformat()
@@ -118,13 +143,7 @@ def connect_callback(
         raise HTTPException(status_code=400, detail=f"Invalid access token: {info.get('message')}")
 
     fb = info["data"]
-    # Extract profile picture URL (Facebook Graph API returns picture as { data: { url: "..." } })
-    picture_url = None
-    picture_obj = fb.get("picture")
-    if isinstance(picture_obj, dict):
-        picture_data = picture_obj.get("data", {})
-        if isinstance(picture_data, dict):
-            picture_url = picture_data.get("url")
+    picture_url = _extract_profile_picture_url(fb)
 
     user_id = user["user_id"]
     facebook_user_id = str(fb.get("id"))
@@ -141,6 +160,11 @@ def connect_callback(
             picture_storage_path = cached.storage_path
             picture_cached_at = cached.cached_at
             picture_source_url = cached.source_url
+    cached_picture_public_url = (
+        build_public_storage_url(DEFAULT_BUCKET, picture_storage_path)
+        if picture_storage_path
+        else None
+    )
 
     # Persist connection with expires_at and status="active" (new connection or reconnection)
     rec = upsert_connection(
@@ -150,7 +174,8 @@ def connect_callback(
         access_token=access_token,
         facebook_name=fb.get("name"),
         facebook_email=fb.get("email"),
-        facebook_picture_url=picture_url,
+        # Nunca salvar URL direta do Meta; somente URL de Storage (ou null).
+        facebook_picture_url=cached_picture_public_url,
         expires_at=expires_at_str,
         status="active",  # Sempre "active" ao conectar/reconectar
         picture_storage_path=picture_storage_path,
@@ -161,7 +186,7 @@ def connect_callback(
     # Invalidate cache to force refresh with new token
     invalidate_token_cache(user["user_id"])
 
-    # Sincronizar contas de anúncios deste usuário no Supabase (best-effort)
+    # Sincronizar contas de anÃºncios deste usuÃ¡rio no Supabase (best-effort)
     try:
         logger.info(f"Synchronizing ad accounts for user {user.get('user_id')} after Facebook connection")
         adacc_result = api.get_adaccounts()
@@ -176,14 +201,15 @@ def connect_callback(
         else:
             logger.warning(f"Failed to fetch ad accounts from Facebook API: {adacc_result.get('message')}")
     except Exception as e:
-        # Log mas não falha o fluxo de conexão se a sincronização de ad accounts falhar
+        # Log mas nÃ£o falha o fluxo de conexÃ£o se a sincronizaÃ§Ã£o de ad accounts falhar
         logger.exception(f"Error synchronizing ad accounts after Facebook connection (non-fatal): {e}")
 
-    # Enriquecer rec com URL do Storage quando houver cache (consistente com list_connections)
+    # Enriquecer rec com URL do Storage quando houver cache (consistente com list_connections).
+    # Sem cache, o avatar deve ser nulo (nÃ£o usar fallback direto da Meta).
     if rec.get("picture_storage_path"):
-        url = build_public_storage_url(DEFAULT_BUCKET, rec["picture_storage_path"])
-        if url:
-            rec["facebook_picture_url"] = url
+        rec["facebook_picture_url"] = build_public_storage_url(DEFAULT_BUCKET, rec["picture_storage_path"])
+    else:
+        rec["facebook_picture_url"] = None
 
     return {"connection": rec}
 
@@ -209,18 +235,18 @@ def make_primary(connection_id: str, user=Depends(get_current_user)):
 def refresh_profile_picture(connection_id: str, user=Depends(get_current_user)):
     """
     Re-busca a foto de perfil do Facebook e salva no Storage.
-    Útil para contas antigas que tinham apenas facebook_picture_url (URL expirada).
+    Ãštil para contas antigas que tinham apenas facebook_picture_url (URL expirada).
     """
     user_jwt = user["token"]
     user_id = user["user_id"]
 
     conn = get_connection_by_id(user_jwt, user_id, connection_id)
     if not conn:
-        raise HTTPException(status_code=404, detail="Conexão não encontrada")
+        raise HTTPException(status_code=404, detail="ConexÃ£o nÃ£o encontrada")
     if conn.get("status") != "active":
         raise HTTPException(
             status_code=400,
-            detail="Conexão não está ativa. Use reconectar para renovar o token.",
+            detail="ConexÃ£o nÃ£o estÃ¡ ativa. Use reconectar para renovar o token.",
         )
 
     access_token, _, _ = get_facebook_token_for_connection(
@@ -231,30 +257,25 @@ def refresh_profile_picture(connection_id: str, user=Depends(get_current_user)):
     if not access_token:
         raise HTTPException(
             status_code=400,
-            detail="Token não disponível. Reconecte a conta do Facebook.",
+            detail="Token nÃ£o disponÃ­vel. Reconecte a conta do Facebook.",
         )
 
     api = GraphAPI(access_token, user_id=user_id)
     info = api.get_account_info()
     if info.get("status") != "success":
-        msg = info.get("message", "Token inválido ou expirado")
+        msg = info.get("message", "Token invÃ¡lido ou expirado")
         if info.get("status") == "auth_error":
             raise HTTPException(status_code=400, detail=msg)
         raise HTTPException(status_code=502, detail=msg)
 
     fb = info["data"]
-    picture_url = None
-    picture_obj = fb.get("picture")
-    if isinstance(picture_obj, dict):
-        picture_data = picture_obj.get("data", {})
-        if isinstance(picture_data, dict):
-            picture_url = picture_data.get("url")
+    picture_url = _extract_profile_picture_url(fb)
 
     facebook_user_id = str(conn.get("facebook_user_id") or fb.get("id", ""))
     if not picture_url or not str(picture_url).strip():
         raise HTTPException(
             status_code=502,
-            detail="Facebook não retornou URL da foto de perfil",
+            detail="Facebook nÃ£o retornou URL da foto de perfil",
         )
 
     cached = cache_profile_picture(
@@ -281,9 +302,9 @@ def refresh_profile_picture(connection_id: str, user=Depends(get_current_user)):
     rec = next((c for c in connections if c.get("id") == connection_id), None)
     if rec:
         if rec.get("picture_storage_path"):
-            url = build_public_storage_url(DEFAULT_BUCKET, rec["picture_storage_path"])
-            if url:
-                rec["facebook_picture_url"] = url
+            rec["facebook_picture_url"] = build_public_storage_url(DEFAULT_BUCKET, rec["picture_storage_path"])
+        else:
+            rec["facebook_picture_url"] = None
     return {"connection": rec}
 
 
@@ -293,11 +314,11 @@ def test_facebook_connection_endpoint(
     user=Depends(get_current_user),
 ):
     """
-    Testa se uma conexão Facebook específica está válida.
-    Faz uma chamada simples para a API do Facebook usando os tokens dessa conexão.
+    Testa se uma conexÃ£o Facebook especÃ­fica estÃ¡ vÃ¡lida.
+    Faz uma chamada simples para a API do Facebook usando os tokens dessa conexÃ£o.
     """
     try:
-        # Buscar token da conexão específica
+        # Buscar token da conexÃ£o especÃ­fica
         access_token, expires_at, status = get_facebook_token_for_connection(
             user_jwt=user["token"],
             user_id=user["user_id"],
@@ -308,33 +329,84 @@ def test_facebook_connection_endpoint(
             return {
                 "valid": False,
                 "expired": True,
-                "message": "Conexão não encontrada ou token não disponível",
+                "message": "ConexÃ£o nÃ£o encontrada ou token nÃ£o disponÃ­vel",
             }
         
         # Testar o token
         result = test_facebook_connection(access_token)
         
         if result.get("status") == "success":
-            # Token válido - atualizar status para active se não estiver
-            if status != "active":
-                # Buscar facebook_user_id para atualizar status
-                connections = list_connections(user["token"])
-                connection = next((c for c in connections if c.get("id") == connection_id), None)
-                if connection:
-                    update_connection_status(
-                        user_jwt=user["token"],
-                        user_id=user["user_id"],
-                        facebook_user_id=connection.get("facebook_user_id"),
-                        status="active",
+            connections = list_connections(user["token"])
+            connection = next((c for c in connections if c.get("id") == connection_id), None)
+
+            # Token valido - atualizar status para active se nao estiver
+            if status != "active" and connection:
+                update_connection_status(
+                    user_jwt=user["token"],
+                    user_id=user["user_id"],
+                    facebook_user_id=connection.get("facebook_user_id"),
+                    status="active",
+                )
+
+            # Auto-repair do avatar durante refresh/teste da conexao quando
+            # ainda nao existe cache no Storage ou o objeto salvo virou 404.
+            if connection and not _has_valid_picture_cache(connection):
+                try:
+                    api = GraphAPI(access_token, user_id=user["user_id"])
+
+                    info = api.get_account_info()
+                    if info.get("status") == "success":
+                        fb = info["data"]
+                        picture_url = _extract_profile_picture_url(fb)
+                        facebook_user_id = str(connection.get("facebook_user_id") or fb.get("id", ""))
+                        if picture_url and facebook_user_id:
+                            logger.info(
+                                "[FACEBOOK_CONNECTION_TEST] Recaching avatar from fresh Meta picture URL for connection %s",
+                                connection_id,
+                            )
+                            cached = cache_profile_picture(
+                                user_id=user["user_id"],
+                                facebook_user_id=facebook_user_id,
+                                picture_url=picture_url,
+                            )
+                            if cached:
+                                update_connection_picture(
+                                    user_jwt=user["token"],
+                                    user_id=user["user_id"],
+                                    connection_id=connection_id,
+                                    picture_storage_path=cached.storage_path,
+                                    picture_cached_at=cached.cached_at,
+                                    picture_source_url=cached.source_url,
+                                )
+                                logger.info(
+                                    "[FACEBOOK_CONNECTION_TEST] Avatar recached to Storage path=%s for connection %s",
+                                    cached.storage_path,
+                                    connection_id,
+                                )
+                            else:
+                                logger.warning(
+                                    "[FACEBOOK_CONNECTION_TEST] Fresh Meta picture URL was returned but cache_profile_picture failed for connection %s",
+                                    connection_id,
+                                )
+                        else:
+                            logger.warning(
+                                "[FACEBOOK_CONNECTION_TEST] Meta did not return a usable picture URL for connection %s",
+                                connection_id,
+                            )
+                except Exception as pic_err:
+                    logger.warning(
+                        "[FACEBOOK_CONNECTION_TEST] Avatar auto-repair failed for connection %s: %s",
+                        connection_id,
+                        pic_err,
                     )
-            
+
             return {
                 "valid": True,
                 "expired": False,
-                "message": "Conexão válida",
+                "message": "Conexao valida",
             }
         elif result.get("status") == "auth_error":
-            # Token expirado/inválido - atualizar status
+            # Token expirado/invÃ¡lido - atualizar status
             connections = list_connections(user["token"])
             connection = next((c for c in connections if c.get("id") == connection_id), None)
             if connection:
@@ -348,22 +420,20 @@ def test_facebook_connection_endpoint(
             return {
                 "valid": False,
                 "expired": True,
-                "message": result.get("message", "Token expirado ou inválido"),
+                "message": result.get("message", "Token expirado ou invÃ¡lido"),
             }
         else:
             # Outro tipo de erro
             return {
                 "valid": False,
                 "expired": False,
-                "message": result.get("message", "Erro ao testar conexão"),
+                "message": result.get("message", "Erro ao testar conexÃ£o"),
             }
             
     except Exception as e:
-        logger.exception(f"[FACEBOOK_CONNECTION_TEST] Erro inesperado ao testar conexão {connection_id}")
+        logger.exception(f"[FACEBOOK_CONNECTION_TEST] Erro inesperado ao testar conexÃ£o {connection_id}")
         return {
             "valid": False,
             "expired": False,
-            "message": f"Erro ao testar conexão: {str(e)}",
+            "message": f"Erro ao testar conexÃ£o: {str(e)}",
         }
-
-

@@ -18,6 +18,7 @@ import { PageActions } from "@/components/common/PageActions";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { PageIcon } from "@/lib/utils/pageIcon";
 import { logger } from "@/lib/utils/logger";
+import { toast } from "sonner";
 import { useFilters } from "@/lib/hooks/useFilters";
 
 type ManagerRow = RankingsItem & { series_loading?: boolean };
@@ -362,7 +363,16 @@ function ManagerPageContent() {
   }, [managerData]);
 
   useEffect(() => {
-    if (managerError) logger.error("Erro ao buscar manager:", managerError);
+    const TOAST_ID = "manager-data-error";
+    if (managerError) {
+      logger.error("Erro ao buscar manager:", managerError);
+      toast.error("Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs.", {
+        id: TOAST_ID,
+        duration: Infinity,
+      });
+    } else {
+      toast.dismiss(TOAST_ID);
+    }
   }, [managerError]);
 
   // ── Data mapping: Step 1 — base metrics ───────────────────────────────────
@@ -581,6 +591,7 @@ function ManagerPageContent() {
         showTrends={showTrends}
         hasSheetIntegration={hasSheetIntegration}
         isLoading={loading}
+        isError={!!managerError && !loading}
         initialFilters={initialFilters}
         averagesOverride={(() => {
           const base = validatedAveragesForAverages || serverAverages || null;

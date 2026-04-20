@@ -28,6 +28,7 @@ interface PackFilterProps {
   packs: Pack[];
   selectedPackIds: Set<string>;
   onTogglePack: (packId: string) => void;
+  onClose?: () => void; // Chamado quando o popover fecha
   className?: string;
   showLabel?: boolean;
   isLoading?: boolean; // Se true, mostra loading state
@@ -38,7 +39,7 @@ interface PackFilterProps {
   singleSelect?: boolean; // Se true, usa estilo single-select (sem checkboxes, como ActionTypeFilter)
 }
 
-export function PackFilter({ packs, selectedPackIds, onTogglePack, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false }: PackFilterProps) {
+export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false }: PackFilterProps) {
   const [open, setOpen] = useState(false);
 
   // Determinar se está carregando (prop explícita ou quando packsClient é false ou quando não há packs ainda)
@@ -94,7 +95,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, className, sh
     <div className={`space-y-2 ${className || ""}`}>
       {showLabel && <label className="text-sm font-medium">Packs</label>}
       <TooltipProvider>
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={(nextOpen) => { setOpen(nextOpen); if (!nextOpen) onClose?.(); }}>
           <Tooltip>
             <TooltipTrigger asChild>
               <PopoverTrigger asChild>

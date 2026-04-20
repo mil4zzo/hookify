@@ -16,7 +16,7 @@ export type TableContentProps = SharedTableContentProps;
 // Função de comparação customizada otimizada para React.memo
 function areTableContentPropsEqual(prev: TableContentProps, next: TableContentProps): boolean {
   // 1. Comparações primitivas (rápidas)
-  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends) {
+  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.isError !== next.isError || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends) {
     return false;
   }
 
@@ -109,7 +109,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters, onVisibleRowKeysChange }: TableContentProps) {
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters, onVisibleRowKeysChange }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -338,7 +338,9 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={table.getVisibleLeafColumns().length} className="p-8 text-center text-muted-foreground">
-                  Nenhum resultado com esses filtros.
+                  {isError
+                    ? "Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs."
+                    : "Nenhum resultado com esses filtros."}
                 </td>
               </tr>
             ) : (

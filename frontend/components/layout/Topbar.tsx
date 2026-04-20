@@ -47,6 +47,7 @@ import { useGoogleReconnectHandler } from "@/lib/hooks/useGoogleReconnectHandler
 import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
 import { cn } from "@/lib/utils/cn";
+import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
@@ -151,7 +152,7 @@ export default function Topbar() {
     if (!activeConnections || activeConnections.length === 0) return null;
     const primary = activeConnections.find((c: any) => c.is_primary);
     const conn = primary || activeConnections[0];
-    return conn?.facebook_picture_url || null;
+    return getFacebookAvatarUrl(conn);
   }, [activeConnections]);
   // Só mostra botão de conectar quando carregamento terminou E não há conexões ativas
   const shouldShowConnectButton = !connections.isLoading && !hasActiveConnection;

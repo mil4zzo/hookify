@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, date, timezone
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
-from app.services.thumbnail_cache import CachedThumb, normalize_ad_name
+from app.services.thumbnail_cache import CachedThumb, DEFAULT_BUCKET, build_public_storage_url, normalize_ad_name
 
 try:
     import httpx
@@ -24,6 +24,14 @@ if TYPE_CHECKING:
     from supabase import Client
 
 logger = logging.getLogger(__name__)
+
+
+def _attach_storage_thumbnail(ad: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy with a renderable Storage thumbnail URL, if cached."""
+    row = dict(ad or {})
+    storage_path = str(row.get("thumb_storage_path") or "").strip()
+    row["thumbnail"] = build_public_storage_url(DEFAULT_BUCKET, storage_path) if storage_path else None
+    return row
 
 
 def _get_sb(user_jwt: Optional[str] = None, sb_client: Optional["Client"] = None) -> "Client":
@@ -2459,12 +2467,52 @@ def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]
                     filtered_ads.append(ad)
             
             ads = filtered_ads
+
+        ads = [_attach_storage_thumbnail(ad) for ad in ads]
         
     except Exception as e:
         logger.error(f"Erro ao buscar ads para pack {pack.get('id')}: {e}")
         return []
     
     return ads
+
+
+def get_pack_thumbnail_cache(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]) -> List[Dict[str, Any]]:
+    """Return lightweight Storage thumbnail rows for the ads explicitly attached to a pack."""
+    if not user_id:
+        return []
+
+    ad_ids = [
+        str(ad_id).strip()
+        for ad_id in (pack.get("ad_ids") or [])
+        if str(ad_id).strip()
+    ]
+    if not ad_ids:
+        return []
+
+    sb = get_supabase_for_user(user_jwt)
+    rows: List[Dict[str, Any]] = []
+    batch_size = 500
+
+    for i in range(0, len(ad_ids), batch_size):
+        batch_ids = ad_ids[i : i + batch_size]
+        res = (
+            sb.table("ads")
+            .select("ad_id,thumb_storage_path,creative_video_id")
+            .eq("user_id", user_id)
+            .in_("ad_id", batch_ids)
+            .execute()
+        )
+
+        for row in res.data or []:
+            storage_path = str(row.get("thumb_storage_path") or "").strip()
+            rows.append({
+                "ad_id": row.get("ad_id"),
+                "thumb_storage_path": storage_path or None,
+                "thumbnail": build_public_storage_url(DEFAULT_BUCKET, storage_path) if storage_path else None,
+            })
+
+    return rows
 
 
 # ============ TRANSCRIPTION ============

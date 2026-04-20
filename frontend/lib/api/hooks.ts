@@ -6,6 +6,7 @@ import { AppError } from '@/lib/utils/errors'
 import {
   GetAdsRequest,
   GetVideoSourceRequest,
+  GetImageSourceRequest,
   AuthTokenRequest,
   FacebookUser,
   FacebookAdAccount,
@@ -30,6 +31,7 @@ export const queryKeys = {
   adAccounts: ['facebook', 'adaccounts'] as const,
   ads: (params: GetAdsRequest) => ['facebook', 'ads', params] as const,
   videoSource: (params: GetVideoSourceRequest) => ['facebook', 'video-source', params] as const,
+  imageSource: (params: GetImageSourceRequest) => ['facebook', 'image-source', params] as const,
   adVariations: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'children', adName, dateStart, dateStop] as const,
   adDetails: (adId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-details', adId, dateStart, dateStop] as const,
   adCreative: (adId: string) => ['analytics', 'rankings', 'ad-creative', adId] as const,
@@ -190,6 +192,16 @@ export const useVideoSource = (params: GetVideoSourceRequest, enabled = true) =>
     enabled,
     staleTime: 30 * 60 * 1000, // 30 minutos (videos são mais estáveis)
     retry: 2,
+  })
+}
+
+export const useImageSource = (params: GetImageSourceRequest, enabled = true) => {
+  return useQuery({
+    queryKey: queryKeys.imageSource(params),
+    queryFn: () => api.facebook.getImageSource(params),
+    enabled,
+    staleTime: 30 * 60 * 1000,
+    retry: 1,
   })
 }
 

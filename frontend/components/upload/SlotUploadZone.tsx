@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { IconCircleCheck, IconLink, IconPhotoFilled, IconPlus, IconVideo, IconX } from "@tabler/icons-react";
+import { IconCircleCheck, IconLink, IconPhotoFilled, IconPlus, IconX } from "@tabler/icons-react";
+import { VideoPlayer } from "@/components/common/VideoPlayer";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import type { AdCreativeDetailResponse } from "@/lib/api/schemas";
@@ -98,14 +99,14 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
   const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => {
-    if (!file || isVideo) {
+    if (!file) {
       setPreviewUrl(null);
       return;
     }
     const url = URL.createObjectURL(file);
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [file, isVideo]);
+  }, [file]);
 
   const aspectClass = parseAspectRatio(aspectRatios[0] ?? "");
 
@@ -130,19 +131,21 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
       {/* Slot area */}
       {file ? (
         <div className={`relative w-full overflow-hidden rounded-lg bg-muted ${aspectClass}`}>
-          {isVideo ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-muted">
-              <IconVideo className="h-8 w-8 text-muted-foreground opacity-50" />
-            </div>
+          {isVideo && previewUrl ? (
+            <VideoPlayer src={previewUrl} className="absolute inset-0" />
           ) : previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={previewUrl} alt={file.name} className="absolute inset-0 h-full w-full object-cover" />
           ) : null}
-          {/* Bottom gradient + filename */}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/60 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 px-2 pb-1.5">
-            <p className="truncate text-[10px] leading-tight text-white drop-shadow">{file.name}</p>
-          </div>
+          {/* Bottom gradient + filename — images only */}
+          {!isVideo && (
+            <>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/60 to-transparent" />
+              <div className="absolute inset-x-0 bottom-0 px-2 pb-1.5">
+                <p className="truncate text-[10px] leading-tight text-white drop-shadow">{file.name}</p>
+              </div>
+            </>
+          )}
           {/* Remove button */}
           <button type="button" className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70" onClick={onClear}>
             <IconX className="h-3 w-3" />

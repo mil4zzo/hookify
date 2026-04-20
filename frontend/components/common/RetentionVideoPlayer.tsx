@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { RetentionChartOverlay } from "@/components/charts/RetentionChartOverlay";
 import { Skeleton } from "@/components/ui/skeleton";
+import { VideoPlayer } from "@/components/common/VideoPlayer";
 
 interface RetentionVideoPlayerProps {
   src: string;
@@ -149,9 +150,7 @@ export function RetentionVideoPlayer({
   return (
     <div className="relative w-full h-full flex justify-center overflow-visible">
       <div className="relative w-full h-full overflow-visible">
-        <div className="absolute inset-0 rounded-lg overflow-hidden bg-black">
-          <video ref={videoRef} src={src} controls className="absolute inset-0 w-full h-full object-contain" playsInline autoPlay={autoplay} />
-        </div>
+        <VideoPlayer ref={videoRef} src={src} autoPlay={autoplay} className="absolute inset-0" />
         {showRetentionLoadingOverlay && (
           <div className="absolute inset-0 z-10 flex flex-col justify-between rounded-lg bg-black/24 p-4 pointer-events-none">
             <div className="self-start rounded-md bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur-sm">

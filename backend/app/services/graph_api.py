@@ -1,10 +1,15 @@
 import json
+import mimetypes
+import os
+import subprocess
+import tempfile
 import time
 import urllib.parse
 import logging
 from typing import Any, Dict, List, Optional, Union
 import requests
-from app.core.config import META_GRAPH_BASE_URL
+import httpx
+from app.core.config import META_GRAPH_BASE_URL, META_API_VERSION
 from app.services.facebook_page_token_service import get_page_access_token_for_page_id
 from app.services.meta_api_errors import sanitize_error_dict_for_log
 from app.services.meta_usage_logger import log_meta_usage
@@ -413,7 +418,7 @@ class GraphAPI:
     def get_ad_creative_details(self, ad_id: str) -> Dict[str, Any]:
         # dsa_* nao sao campos do no AdCreative na Graph API (usar nivel de anuncio/conta se necessario).
         fields = (
-            "id,name,creative{body,title,call_to_action,call_to_action_type,"
+            "id,name,creative{actor_id,body,title,call_to_action,call_to_action_type,"
             "link_url,url_tags,object_type,asset_feed_spec,image_hash,"
             "image_url,video_id,thumbnail_url,object_story_spec}"
         )
@@ -434,6 +439,108 @@ class GraphAPI:
             timeout=15,
         )
 
+    def get_image_source_url(self, ad_id: str, actor_id: str) -> Dict[str, Any]:
+        """Fetch a fresh, high-quality image URL for an image ad.
+
+        Cascade:
+          1. Read ad + creative (account_id, asset_feed_spec, object_story_spec, image_hash, image_url).
+          2. Collect candidate image hashes in priority order.
+          3. If any hash, query /act_{account_id}/adimages to get permalink_url/url (stable, original size).
+          4. Fallback to creative.image_url. Never use thumbnail_url (low quality).
+        """
+        if not actor_id or not ad_id:
+            raise ValueError("actor_id and ad_id are required")
+        try:
+            page_token = self.get_page_access_token(actor_id)
+            ad_url = self.base_url + str(ad_id) + page_token
+            fields = "account_id,creative{id,image_hash,image_url,asset_feed_spec,object_story_spec}"
+            resp = requests.get(ad_url, params={"fields": fields}, timeout=15)
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.get_image_source_url.ad_read")
+
+            data = resp.json() or {}
+            account_id_raw = str(data.get("account_id") or "").strip()
+            creative = data.get("creative") or {}
+            creative_image_url = creative.get("image_url")
+
+            # Step 2: collect candidate hashes in priority order, deduped.
+            candidate_hashes: List[str] = []
+            seen = set()
+
+            def _add_hash(h: Optional[str]) -> None:
+                if h and isinstance(h, str) and h not in seen:
+                    seen.add(h)
+                    candidate_hashes.append(h)
+
+            asset_feed = creative.get("asset_feed_spec") or {}
+            for img in (asset_feed.get("images") or []):
+                if isinstance(img, dict):
+                    _add_hash(img.get("hash"))
+
+            oss = creative.get("object_story_spec") or {}
+            link_data = oss.get("link_data") or {}
+            _add_hash(link_data.get("image_hash"))
+            photo_data = oss.get("photo_data") or {}
+            _add_hash(photo_data.get("image_hash"))
+
+            _add_hash(creative.get("image_hash"))
+
+            # Step 3: resolve via /adimages when we have hashes and account_id.
+            if candidate_hashes and account_id_raw:
+                act_id = account_id_raw if account_id_raw.startswith("act_") else f"act_{account_id_raw}"
+                try:
+                    adimages_url = self.base_url + act_id + "/adimages" + self.user_token
+                    adimages_resp = requests.get(
+                        adimages_url,
+                        params={
+                            "hashes": json.dumps(candidate_hashes),
+                            "fields": "hash,permalink_url,url,original_width,original_height",
+                        },
+                        timeout=15,
+                    )
+                    adimages_resp.raise_for_status()
+                    log_meta_usage(adimages_resp, "GraphAPI.get_image_source_url.adimages_lookup")
+
+                    by_hash: Dict[str, Dict[str, Any]] = {}
+                    for item in (adimages_resp.json() or {}).get("data", []):
+                        h = item.get("hash")
+                        if h:
+                            by_hash[h] = item
+
+                    for h in candidate_hashes:
+                        item = by_hash.get(h)
+                        if not item:
+                            continue
+                        url = item.get("permalink_url") or item.get("url")
+                        if url:
+                            return {"image_url": url}
+                except requests.exceptions.HTTPError as http_err:
+                    decoded_text = urllib.parse.unquote(http_err.response.text)
+                    logger.warning(
+                        "get_image_source_url adimages_lookup http_error: status=%s act_id=%s body=%s",
+                        http_err.response.status_code, act_id, decoded_text[:300],
+                    )
+                except Exception as lookup_err:
+                    logger.warning("get_image_source_url adimages_lookup failed: %s", lookup_err)
+
+            # Step 4: fallback to creative.image_url. Never thumbnail_url.
+            if creative_image_url:
+                logger.info(
+                    "get_image_source_url falling back to creative.image_url ad_id=%s hashes_found=%d",
+                    ad_id, len(candidate_hashes),
+                )
+                return {"image_url": creative_image_url}
+
+            return {"status": "not_found", "message": "No image hash or URL available"}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            logger.error("get_image_source_url http_error: status=%s ad_id=%s body=%s",
+                         http_err.response.status_code, ad_id, decoded_text[:300])
+            return {"status": f"Status: {http_err.response.status_code} - http_error", "message": decoded_text}
+        except Exception as err:
+            logger.exception("get_image_source_url error: %s", err)
+            return {"status": "error", "message": str(err)}
+
     def upload_ad_image(self, act_id: str, filename: str, file_bytes: bytes) -> Dict[str, Any]:
         return self._handle_graph_request(
             method="POST",
@@ -450,6 +557,138 @@ class GraphAPI:
             operation_name="GraphAPI.upload_ad_video",
             files={"source": (filename, file_bytes)},
             timeout=900,
+        )
+
+    def upload_ad_video_curl(self, act_id: str, filename: str, file_bytes: bytes, timeout: int = 900) -> Dict[str, Any]:
+        url = f"{self.base_url}{act_id}/advideos"
+        mime_type, _ = mimetypes.guess_type(filename)
+        if not mime_type:
+            mime_type = "video/mp4"
+        _, ext = os.path.splitext(filename)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=ext or ".mp4") as tmp:
+                tmp.write(file_bytes)
+                tmp_path = tmp.name
+
+            cmd = [
+                "curl.exe", "-s", "--show-error",
+                "-X", "POST", url,
+                "-F", f"access_token={self.access_token}",
+                "-F", f"source=@{tmp_path};type={mime_type};filename={filename}",
+                "--max-time", str(timeout),
+            ]
+
+            t0 = time.monotonic()
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 30)
+            elapsed = time.monotonic() - t0
+            mbps = (len(file_bytes) * 8 / (1024 * 1024)) / max(elapsed, 0.001)
+            logger.info(
+                "GraphAPI.upload_ad_video_curl elapsed_s=%.2f file_size=%d effective_mbps=%.1f curl_exit=%d",
+                elapsed, len(file_bytes), mbps, proc.returncode,
+            )
+
+            if proc.returncode != 0:
+                logger.error("upload_ad_video_curl curl_stderr=%r", proc.stderr[:500])
+                return {"status": "error", "message": f"curl.exe failed (code={proc.returncode}): {proc.stderr}"}
+
+            try:
+                data = json.loads(proc.stdout)
+            except json.JSONDecodeError as exc:
+                logger.error("upload_ad_video_curl JSON parse error: %s stdout=%r", exc, proc.stdout[:300])
+                return {"status": "error", "message": f"JSON parse error: {exc}"}
+
+            if "error" in data:
+                error_obj = data["error"]
+                error_code = error_obj.get("code")
+                error_message = error_obj.get("message") or str(data)
+                logger.warning("upload_ad_video_curl Meta API error: %s", sanitize_error_dict_for_log(dict(error_obj)))
+                if error_code == 190:
+                    return {"status": "auth_error", "message": error_message, "error": error_obj}
+                return {"status": "http_error", "message": error_message, "error": error_obj}
+
+            return {"status": "success", "data": data}
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+    def start_video_upload(self, act_id: str) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/video_ads",
+            operation_name="GraphAPI.start_video_upload",
+            params={"upload_phase": "start"},
+            timeout=30,
+        )
+
+    def transfer_video_resumable(
+        self,
+        video_id: str,
+        data: bytes,
+        file_size: int,
+        offset: int = 0,
+        timeout: int = 1800,
+    ) -> Dict[str, Any]:
+        url = f"https://rupload.facebook.com/video-ads-upload/{META_API_VERSION}/{video_id}"
+        headers = {
+            "Authorization": f"OAuth {self.access_token}",
+            "offset": str(offset),
+            "file_size": str(file_size),
+        }
+        try:
+            logger.info(
+                "[UPLOAD_DEBUG] transfer_start video_id=%s url=%s payload_size=%d payload_type=%s",
+                video_id, url, len(data), type(data).__name__,
+            )
+
+            t_send_start = time.monotonic()
+            # Use httpx with HTTP/2: avoids Python ssl.SSLSocket.write() 16KB-per-call
+            # limitation that caps throughput at ~70 KB/s on Windows via delayed ACK.
+            with httpx.Client(http2=True, timeout=httpx.Timeout(float(timeout))) as client:
+                resp = client.post(url, headers=headers, content=data)
+            t_send_end = time.monotonic()
+            resp.raise_for_status()
+
+            elapsed_s = t_send_end - t_send_start
+            effective_kbs = (file_size / 1024) / max(elapsed_s, 0.001)
+            effective_mbps = (file_size * 8 / (1024 * 1024)) / max(elapsed_s, 0.001)
+            logger.info(
+                "[UPLOAD_DEBUG] transfer_completed video_id=%s http_status=%s "
+                "http_version=%s elapsed_s=%.2f file_size=%d effective_kbs=%.1f effective_mbps=%.1f "
+                "resp_headers=%s",
+                video_id, resp.status_code, resp.http_version, elapsed_s, file_size,
+                effective_kbs, effective_mbps, dict(resp.headers),
+            )
+            resp_data = resp.json() if resp.content else {}
+            return {"status": "success", "data": resp_data}
+        except httpx.HTTPStatusError as http_err:
+            error_data = http_err.response.json() if http_err.response.content else {}
+            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+            error_code = error_obj.get("code")
+            error_message = error_obj.get("message") or str(http_err)
+            if isinstance(error_obj, dict) and error_obj:
+                logger.warning(
+                    "GraphAPI.transfer_video_resumable Meta API HTTP error: %s",
+                    sanitize_error_dict_for_log(dict(error_obj)),
+                )
+            if error_code == 190:
+                return {"status": "auth_error", "message": error_message, "error": error_obj}
+            return {"status": "http_error", "message": error_message, "error": error_obj}
+        except httpx.RequestError as req_err:
+            logger.exception("GraphAPI.transfer_video_resumable network error: %s", req_err)
+            return {"status": "error", "message": str(req_err)}
+        # _JobCancelledError and other non-requests exceptions propagate up intentionally
+
+    def finish_video_upload(self, act_id: str, video_id: str) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/video_ads",
+            operation_name="GraphAPI.finish_video_upload",
+            params={"upload_phase": "finish", "video_id": video_id},
+            timeout=60,
         )
 
     def create_ad_creative(self, act_id: str, creative_params: Dict[str, Any]) -> Dict[str, Any]:

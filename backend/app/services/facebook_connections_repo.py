@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
 from app.core.supabase_client import get_supabase_for_user
 from app.services.token_encryption import encrypt_token, decrypt_token
-from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
+from app.services.thumbnail_cache import build_public_storage_url, storage_thumb_exists, DEFAULT_BUCKET
 
 logger = logging.getLogger(__name__)
 
@@ -75,13 +75,15 @@ def list_connections(user_jwt: str) -> List[Dict[str, Any]]:
         return q.order("created_at", desc=True)
 
     rows = _fetch_all_paginated(sb, "facebook_connections", ",".join(cols), filters)
-    # Preferir URL do Storage quando houver cache (evita URL do Meta que expira)
+    # Retornar avatar apenas via Storage; nunca expor URL direta do Meta CDN.
     for row in rows:
         path = (row.get("picture_storage_path") or "").strip()
-        if path:
+        if path and storage_thumb_exists(path, bucket=DEFAULT_BUCKET):
             url = build_public_storage_url(DEFAULT_BUCKET, path)
-            if url:
-                row["facebook_picture_url"] = url
+            row["facebook_picture_url"] = url if url else None
+        else:
+            row["picture_storage_path"] = None
+            row["facebook_picture_url"] = None
     return rows
 
 
@@ -123,10 +125,13 @@ def update_connection_picture(
     Não altera access_token nem outros campos.
     """
     sb = get_supabase_for_user(user_jwt)
+    storage_public_url = build_public_storage_url(DEFAULT_BUCKET, picture_storage_path)
     sb.table("facebook_connections").update({
         "picture_storage_path": picture_storage_path,
         "picture_cached_at": picture_cached_at,
         "picture_source_url": picture_source_url,
+        # Manter coluna legada alinhada com a URL pública de Storage.
+        "facebook_picture_url": storage_public_url,
     }).eq("id", connection_id).eq("user_id", user_id).execute()
 
 
@@ -157,8 +162,9 @@ def upsert_connection(
         payload["facebook_name"] = facebook_name
     if facebook_email is not None:
         payload["facebook_email"] = facebook_email
-    if facebook_picture_url is not None:
-        payload["facebook_picture_url"] = facebook_picture_url
+    # Coluna legada: sempre persistir valor explícito (inclusive null) para
+    # impedir que URL antiga da Meta permaneça após reconexão.
+    payload["facebook_picture_url"] = facebook_picture_url
     if expires_at is not None:
         payload["expires_at"] = expires_at
     if scopes is not None:
@@ -349,5 +355,3 @@ def get_facebook_token_for_connection(
     
     token = decrypt_token(encrypted_token)
     return token, expires_at, status
-
-

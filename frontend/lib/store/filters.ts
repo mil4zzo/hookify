@@ -23,6 +23,7 @@ interface FiltersState {
 
 interface FiltersActions {
   togglePack: (packId: string) => void
+  setPackPreferences: (prefs: PackPreferences) => void
   setDateRange: (range: DateRange) => void
   setActionType: (value: string) => void
   setUsePackDates: (value: boolean) => void
@@ -133,6 +134,8 @@ export const useFiltersStore = create<FiltersStore>()(
 
         set({ packPreferences: { ...packPreferences, [packId]: !isEnabled } })
       },
+
+      setPackPreferences: (prefs) => set({ packPreferences: prefs }),
 
       setDateRange: (range) => set({ dateRange: range }),
 

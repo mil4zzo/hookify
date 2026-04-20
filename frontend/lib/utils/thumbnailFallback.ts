@@ -1,56 +1,53 @@
-/**
- * Utilitário para obter thumbnail com fallback para adcreatives_videos_thumbs
- * 
- * Prioridade:
- * 1. adcreatives_videos_thumbs[0] (primeiro item do array de fallback - geralmente melhor qualidade)
- * 2. thumbnail_url (de creative ou campo direto)
- * 3. null
- */
+const STORAGE_PUBLIC_PATH = "/storage/v1/object/public/";
 
+function isStorageThumbnailUrl(value: unknown): value is string {
+  const url = String(value || "").trim();
+  if (!url) return false;
+  return url.includes(STORAGE_PUBLIC_PATH);
+}
+
+function buildStorageUrlFromPath(path: unknown): string | null {
+  const storagePath = String(path || "").trim();
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (!storagePath || !supabaseUrl) return null;
+
+  const encodedPath = storagePath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+
+  return `${supabaseUrl.replace(/\/$/, "")}/storage/v1/object/public/ad-thumbs/${encodedPath}`;
+}
+
+/**
+ * Legacy compatibility shim.
+ *
+ * Meta CDN thumbnail URLs expire and must not be used for rendering. Callers
+ * should pass Storage-backed `thumbnail` or `thumb_storage_path` data instead.
+ */
 export function getThumbnailWithFallback(
   thumbnailUrl?: string | null,
   adcreativesVideosThumbs?: string[] | null
 ): string | null {
-  // Prioridade 1: primeiro item de adcreatives_videos_thumbs (geralmente melhor qualidade)
-  if (Array.isArray(adcreativesVideosThumbs) && adcreativesVideosThumbs.length > 0) {
-    const firstThumb = adcreativesVideosThumbs[0];
-    if (firstThumb && String(firstThumb).trim()) {
-      return String(firstThumb);
-    }
-  }
-
-  // Prioridade 2: thumbnail_url
-  if (thumbnailUrl && thumbnailUrl.trim()) {
-    return thumbnailUrl;
-  }
-
+  void adcreativesVideosThumbs;
+  if (isStorageThumbnailUrl(thumbnailUrl)) return thumbnailUrl.trim();
   return null;
 }
 
 /**
- * Helper para objetos ad que podem ter thumbnail em diferentes formatos
- * 
- * Prioridade:
- * 1. ad.thumbnail (URL do Storage/WebP quando disponível - prioridade máxima)
- * 2. ad.adcreatives_videos_thumbs[0] (geralmente melhor qualidade que thumbnail_url)
- * 3. ad.thumbnail_url (fallback final)
+ * Helper for ad-like objects with thumbnail data.
+ *
+ * Only Storage-backed thumbnails are renderable. Meta URLs from `thumbnail_url`
+ * or `adcreatives_videos_thumbs` are intentionally ignored so expired CDN links
+ * cannot mask cache failures.
  */
 export function getAdThumbnail(ad: any): string | null {
-  // Prioridade 1: thumbnail do Storage (quando cacheado)
-  if (ad?.thumbnail && String(ad.thumbnail).trim()) {
+  if (isStorageThumbnailUrl(ad?.thumbnail)) {
     return String(ad.thumbnail).trim();
   }
-  
-  // Prioridade 2 e 3: usar função de fallback (adcreatives_videos_thumbs[0] > thumbnail_url)
-  const thumbnailUrl = 
-    ad?.thumbnail_url || 
-    ad?.creative?.thumbnail_url ||
-    ad?.["creative.thumbnail_url"];
-  
-  const adcreativesThumbs = 
-    ad?.adcreatives_videos_thumbs || 
-    ad?.creative?.adcreatives_videos_thumbs;
 
-  return getThumbnailWithFallback(thumbnailUrl, adcreativesThumbs);
+  const storageUrl = buildStorageUrlFromPath(ad?.thumb_storage_path);
+  if (storageUrl) return storageUrl;
+
+  return null;
 }
-

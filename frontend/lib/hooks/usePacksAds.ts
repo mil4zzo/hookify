@@ -3,8 +3,8 @@
  * Usa useQueries do TanStack Query para buscar múltiplos packs em paralelo
  */
 
-import { useMemo } from 'react'
-import { useQueries } from '@tanstack/react-query'
+import { useEffect, useMemo } from 'react'
+import { useQueries, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api/endpoints'
 import * as adsCache from '@/lib/storage/adsCache'
 import { queryKeys } from '@/lib/api/hooks'
@@ -16,6 +16,7 @@ import { filterVideoAds } from '@/lib/utils/filterVideoAds'
  * Retorna um mapa de packId -> ads e um array com todos os ads combinados
  */
 export function usePacksAds(packs: AdsPack[] | undefined | null) {
+  const queryClient = useQueryClient()
   // Garantir que packs seja sempre um array válido
   const validPacks = useMemo(() => {
     if (!packs || !Array.isArray(packs)) {
@@ -82,6 +83,20 @@ export function usePacksAds(packs: AdsPack[] | undefined | null) {
     }))
   }, [validPacks])
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const handleCacheUpdated = (event: Event) => {
+      const packId = (event as CustomEvent<{ packId?: string }>).detail?.packId
+      if (!packId) return
+      queryClient.invalidateQueries({ queryKey: queryKeys.packAds(packId), refetchType: 'active' })
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })
+    }
+
+    window.addEventListener('hookify:pack-ads-cache-updated', handleCacheUpdated)
+    return () => window.removeEventListener('hookify:pack-ads-cache-updated', handleCacheUpdated)
+  }, [queryClient])
+
   // Usar useQueries para buscar múltiplos packs em paralelo (sem violar regras dos hooks)
   const queries = useQueries({
     queries: queryConfigs,
@@ -129,4 +144,3 @@ export function usePacksAds(packs: AdsPack[] | undefined | null) {
     getPackAds: (packId: string) => packsAdsMap.get(packId) || [],
   }
 }
-

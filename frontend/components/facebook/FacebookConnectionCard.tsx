@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { IconBrandFacebook, IconCheck, IconLoader2, IconRefresh, IconTrash, IconAlertCircle } from "@tabler/icons-react";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
+import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
 
 interface FacebookConnection {
   id: string;
@@ -32,6 +33,7 @@ interface FacebookConnectionCardProps {
 export function FacebookConnectionCard({ connection, isSelected = false, onSelect, onDelete, onReconnect, onRefreshPicture, onSetPrimary, onVerify, isDeleting = false, showActions = true }: FacebookConnectionCardProps) {
   const { testingConnections, expiredConnections, handleRetestConnection } = useFacebookConnectionVerification();
   const hasTriggeredPictureRefresh = useRef(false);
+  const avatarUrl = getFacebookAvatarUrl(connection);
 
   const isTesting = testingConnections.has(connection.id);
   const isExpired = expiredConnections.has(connection.id) || connection.status === "expired" || connection.status === "invalid";
@@ -63,13 +65,13 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {/* Avatar */}
-          {connection.facebook_picture_url ? (
+          {avatarUrl ? (
             <img
-              src={connection.facebook_picture_url}
+              src={avatarUrl}
               alt={connection.facebook_name || "Facebook"}
               className="w-8 h-8 rounded-full object-cover flex-shrink-0"
               onError={() => {
-                if (!hasTriggeredPictureRefresh.current && onRefreshPicture && !connection.picture_storage_path) {
+                if (!hasTriggeredPictureRefresh.current && onRefreshPicture) {
                   hasTriggeredPictureRefresh.current = true;
                   onRefreshPicture(connection.id);
                 }

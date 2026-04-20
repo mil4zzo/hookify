@@ -8,7 +8,9 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
+import { queryKeys } from "@/lib/api/hooks";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useActiveJobsStore } from "@/lib/store/activeJobs";
 import {
@@ -66,6 +68,7 @@ const metaToastIcon = React.createElement(MetaIcon, { className: "h-5 w-5 flex-s
 export function usePackCreation(options?: PackCreationOptions): UsePackCreationReturn {
   const { addPack, removePack } = useClientPacks();
   const { addActiveJob, removeActiveJob } = useActiveJobsStore();
+  const queryClient = useQueryClient();
 
   const [isCreating, setIsCreating] = useState(false);
   const mountedRef = useRef(true);
@@ -380,13 +383,15 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
       addPack(pack);
 
       // Background tasks polling (thumbnails + stats estendidos)
-      pollPackBackgroundTasks(jobId);
+      pollPackBackgroundTasks(jobId, packId);
 
-      // Cache ads to IndexedDB
+      // Seed memory immediately, but keep IndexedDB pending until Storage thumbs finish.
       if (formattedAds.length > 0) {
         try {
-          const { cachePackAds } = await import("@/lib/storage/adsCache");
-          await cachePackAds(packId, formattedAds);
+          queryClient.setQueryData(queryKeys.packAds(packId), filterVideoAds(formattedAds));
+
+          const { cachePendingPackAds } = await import("@/lib/storage/adsCache");
+          await cachePendingPackAds(packId, formattedAds);
         } catch (error) {
           logger.error("Erro ao salvar ads no cache:", error);
         }

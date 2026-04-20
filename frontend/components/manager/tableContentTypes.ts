@@ -42,5 +42,7 @@ export interface SharedTableContentProps {
   setExpandedTableColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   /** Chaves de grupo visiveis no viewport virtualizado (ordem atual da tabela). */
   onVisibleRowKeysChange?: (keys: string[]) => void;
+  /** Indica que a requisição falhou (ex: timeout do RPC). Exibe estado de erro no lugar de "Nenhum resultado". */
+  isError?: boolean;
 }
 

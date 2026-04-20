@@ -922,7 +922,6 @@ export default function UploadPage() {
     <PageContainer
       title="Upload em Massa"
       description="Crie ou duplique anúncios e campanhas em lote"
-      actions={navActions}
     >
       <TabbedContent
         value={uploadMode}
@@ -933,8 +932,11 @@ export default function UploadPage() {
       {/* ── Content area (shared between tabs) ── */}
       <TabbedContentItem value={uploadMode} className="space-y-6">
 
-        {/* Step breadcrumb */}
-        <StepIndicator steps={steps} currentStep={currentStep} onStepClick={(id) => { if (id < currentStep) setCurrentStep(id) }} />
+        {/* Step breadcrumb + nav actions */}
+        <div className="flex items-center justify-between gap-4">
+          <StepIndicator steps={steps} currentStep={currentStep} onStepClick={(id) => { if (id < currentStep) setCurrentStep(id) }} />
+          {navActions}
+        </div>
 
         {/* Step 1: Template selection */}
         {currentStep === 1 && (
@@ -953,10 +955,10 @@ export default function UploadPage() {
               {isLoadingCreative ? (
                 <CampaignPreviewSkeleton mode={uploadMode} />
               ) : uploadMode === "ads" ? (
-                <CreativePreview creative={creative} />
+                <CreativePreview creative={creative} adId={selectedTemplateAdId} />
               ) : campaignTemplate ? (
                 <div className="space-y-3">
-                  <CreativePreview creative={creative} />
+                  <CreativePreview creative={creative} adId={selectedTemplateAdId} />
                   {/* Campaign structure */}
                   <div className="rounded-xl border border-border bg-background p-4 space-y-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estrutura da campanha</div>
@@ -1012,11 +1014,6 @@ export default function UploadPage() {
           <div className="space-y-3">
             {uploadMode === "campaign" ? (
               <>
-                {campaignSelectedAdsetIds.length > 0 && (
-                  <div className="rounded-lg border border-primary-20 bg-primary-5 px-3 py-2.5 text-xs text-primary">
-                    <strong>{campaignSelectedAdsetIds.length} conjunto{campaignSelectedAdsetIds.length !== 1 ? "s" : ""}</strong> pré-selecionado{campaignSelectedAdsetIds.length !== 1 ? "s" : ""} do modelo — ajuste se necessário.
-                  </div>
-                )}
                 <AdsetSelector
                   data={campaignTreeForSelector}
                   selectedAdsetIds={campaignSelectedAdsetIds}
@@ -1118,13 +1115,9 @@ export default function UploadPage() {
             )}
           </div>
         )}
-        {/* Bottom navigation — mirrors header actions so user doesn't need to scroll up */}
-        <div className="flex justify-end border-t border-border pt-4">
-          {navActions}
-        </div>
-
       </TabbedContentItem>
       </TabbedContent>
+
     </PageContainer>
   )
 }

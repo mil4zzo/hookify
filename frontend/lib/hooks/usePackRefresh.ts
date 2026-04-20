@@ -42,6 +42,7 @@ import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 import { logger } from "@/lib/utils/logger";
 import { pollJob } from "@/lib/utils/pollJob";
+import { pollPackBackgroundTasks } from "@/lib/utils/pollPackBackgroundTasks";
 import { pollSheetsSyncJob } from "@/lib/utils/pollSheetsSyncJob";
 
 // ============================================================================
@@ -590,6 +591,8 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
       // Handle Meta completion
       if (metaResult.completed) {
+        pollPackBackgroundTasks(jobId, packId);
+
         const elapsedSec = Math.round((Date.now() - startTime) / 1000);
         const elapsedStr = elapsedSec >= 60
           ? `${Math.floor(elapsedSec / 60)}min e ${elapsedSec % 60}s`
