@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import threading
 import time
 from typing import Any, Dict, List, Optional
@@ -727,7 +728,10 @@ class CampaignBulkProcessor:
             heartbeat_thread.start()
             try:
                 t_send = time.monotonic()
-                result = self.api.upload_ad_video_curl(act_id, file_name, upload_bytes)
+                if platform.system() == "Windows":
+                    result = self.api.upload_ad_video_curl(act_id, file_name, upload_bytes)
+                else:
+                    result = self.api.upload_ad_video(act_id, file_name, upload_bytes)
                 elapsed_s = time.monotonic() - t_send
                 effective_kbs = (file_size / 1024) / max(elapsed_s, 0.001)
                 effective_mbps = (file_size * 8 / (1024 * 1024)) / max(elapsed_s, 0.001)
