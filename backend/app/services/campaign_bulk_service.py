@@ -274,6 +274,9 @@ class CampaignBulkProcessor:
         cached_refs = payload.get("media_refs") or {}
         refs: Dict[int, MediaRef] = {}
 
+        # Pre-fetch items once so we can mark per-file status without extra DB round-trips
+        all_items = supabase_repo.fetch_bulk_ad_items_for_job(self.sb, self.context.job_id)
+
         cached_hits = 0
         for meta in file_metas:
             file_index = int(meta["file_index"])
@@ -288,6 +291,12 @@ class CampaignBulkProcessor:
                     video_id=cached.get("video_id"),
                 )
                 continue
+
+            # Mark items that use this file as uploading_media so the frontend reflects progress
+            for item in all_items:
+                slot_media = item.get("slot_media") or {}
+                if file_index in slot_media.values():
+                    supabase_repo.update_bulk_ad_item_status(self.sb, item["id"], "uploading_media")
 
             self._heartbeat(f"Enviando midia {file_index + 1}/{len(file_metas)}...", progress=5)
             media_ref = self._upload_single_media(files_data[file_index], meta)

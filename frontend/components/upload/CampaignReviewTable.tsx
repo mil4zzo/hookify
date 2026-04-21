@@ -153,7 +153,7 @@ export default function CampaignReviewTable({
                 <Button
                   type="button"
                   size="sm"
-                  variant={globalStatus === "PAUSED" ? "default" : "outline"}
+                  variant={globalStatus === "PAUSED" ? "destructive" : "outline"}
                   className="h-9"
                   onClick={() => applyGlobalStatus("PAUSED")}
                 >
@@ -198,7 +198,7 @@ export default function CampaignReviewTable({
 
         {/* Rows */}
         <div className="divide-y divide-border">
-          {items.map((item) => {
+          {items.map((item, idx) => {
             const warn = hasVarIssue(item)
 
             return (
@@ -233,13 +233,18 @@ export default function CampaignReviewTable({
                 </div>
 
                 {/* Adset name template — editable */}
-                <div className="min-w-0">
+                <div className="min-w-0 space-y-0.5">
                   <Input
                     value={item.adsetNameTemplate}
                     placeholder="Nome do conjunto"
                     className="h-8 text-xs"
                     onChange={(e) => onItemChange(item.id, { adsetNameTemplate: e.target.value })}
                   />
+                  {item.adsetNameTemplate.includes(INDEX_VAR) && (
+                    <p className="truncate text-[10px] text-muted-foreground px-0.5">
+                      ex: {item.adsetNameTemplate.replace(AD_NAME_VAR, item.adName || "…").replace(INDEX_VAR, String(idx + 1))}
+                    </p>
+                  )}
                 </div>
 
                 {/* Ad name input */}
@@ -264,7 +269,7 @@ export default function CampaignReviewTable({
                   <Button
                     type="button"
                     size="sm"
-                    variant={item.status === "PAUSED" ? "default" : "outline"}
+                    variant={item.status === "PAUSED" ? "destructive" : "outline"}
                     className="h-8 px-2 text-xs"
                     onClick={() => onItemChange(item.id, { status: "PAUSED" })}
                   >

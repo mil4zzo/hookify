@@ -36,6 +36,7 @@ import { PageContainer } from "@/components/common/PageContainer"
 import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent"
 import AdGrid from "@/components/upload/AdGrid"
 import CreativePreview from "@/components/upload/CreativePreview"
+import { ProgressItemCard } from "@/components/upload/BulkProgressList"
 
 const FileUploadZone = dynamic(() => import("@/components/upload/FileUploadZone"), {
   loading: () => <Skeleton className="h-64 w-full" />,
@@ -213,91 +214,20 @@ function StepIndicator({
 
 // ── Campaign progress view ────────────────────────────────────────────────────
 
-const STEP_LABELS: Record<string, string> = {
-  pending: "Na fila",
-  uploading_media: "Enviando mídia",
-  creating_creative: "Criando criativo",
-  creating_campaign: "Criando campanha",
-  creating_adsets: "Criando conjuntos",
-  creating_ad: "Criando anúncio",
-  success: "Concluído",
-  error: "Erro",
-}
-
-const STEP_ORDER = [
-  "pending",
-  "uploading_media",
-  "creating_creative",
-  "creating_campaign",
-  "creating_adsets",
-  "creating_ad",
-  "success",
+const CAMPAIGN_PIPELINE = [
+  "pending", "uploading_media", "creating_creative", "creating_campaign", "creating_adsets", "success",
 ]
-
-function stepIndex(status: string) {
-  const idx = STEP_ORDER.indexOf(status)
-  return idx === -1 ? 0 : idx
-}
-
-function CampaignProgressItemRow({ item }: { item: { id: string; ad_name: string; status: string; error_message?: string | null } }) {
-  const isDone = item.status === "success"
-  const isError = item.status === "error"
-  const isActive = !isDone && !isError && item.status !== "pending"
-
-  return (
-    <div className={`rounded-xl border px-4 py-3 transition-colors ${isDone ? "border-success-30 bg-success-5" : isError ? "border-destructive-30 bg-destructive-5" : isActive ? "border-primary-30 bg-primary-5" : "border-border bg-muted-10"}`}>
-      <div className="flex items-center gap-3">
-        {/* Icon */}
-        <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${isDone ? "bg-success-10" : isError ? "bg-destructive-10" : isActive ? "bg-primary-10" : "bg-muted"}`}>
-          {isDone && <IconCheck className="h-4 w-4 text-success-600" />}
-          {isError && <IconX className="h-4 w-4 text-destructive" />}
-          {isActive && <IconLoader2 className="h-4 w-4 animate-spin text-primary" />}
-          {!isDone && !isError && !isActive && <div className="h-2 w-2 rounded-full bg-muted-foreground opacity-30" />}
-        </div>
-
-        {/* Info */}
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium">{item.ad_name}</div>
-          {isError && item.error_message ? (
-            <div className="mt-0.5 text-xs text-destructive">{item.error_message}</div>
-          ) : (
-            <div className={`text-xs ${isDone ? "text-success-600" : isActive ? "text-primary" : "text-muted-foreground"}`}>
-              {STEP_LABELS[item.status] ?? item.status}
-            </div>
-          )}
-        </div>
-
-        {/* Step mini progress dots (only when active or done) */}
-        {!isError && (
-          <div className="hidden sm:flex items-center gap-1 shrink-0">
-            {STEP_ORDER.filter((s) => s !== "pending").map((s) => {
-              const sIdx = stepIndex(item.status)
-              const thisIdx = stepIndex(s)
-              const done = isDone || thisIdx < sIdx
-              const active = !isDone && thisIdx === sIdx
-              return (
-                <div
-                  key={s}
-                  title={STEP_LABELS[s]}
-                  className={`h-1.5 rounded-full transition-all ${active ? "w-4 bg-primary" : done ? "w-1.5 bg-success" : "w-1.5 bg-muted-foreground opacity-20"}`}
-                />
-              )
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
 
 function CampaignProgressView({
   progress,
   isCreating,
+  creative,
   onCancel,
   onRetry,
 }: {
   progress: import("@/lib/api/schemas").CampaignBulkProgressResponse
   isCreating: boolean
+  creative?: import("@/lib/api/schemas").AdCreativeDetailResponse | null
   onCancel: () => void
   onRetry?: (itemIds: string[]) => void
 }) {
@@ -355,10 +285,21 @@ function CampaignProgressView({
         </div>
       </div>
 
-      {/* Item list */}
+      {/* Item cards */}
       <div className="space-y-2">
-        {items.map((item) => (
-          <CampaignProgressItemRow key={item.id} item={item} />
+        {items.map((item, idx) => (
+          <ProgressItemCard
+            key={item.id}
+            adName={item.ad_name}
+            status={item.status}
+            errorMessage={item.error_message}
+            pipeline={CAMPAIGN_PIPELINE}
+            slotKeys={item.slot_media ? Object.keys(item.slot_media) : undefined}
+            creative={creative}
+            indexInGroup={idx + 1}
+            groupSize={items.length}
+            autoExpand={item.status === "error" || items.length === 1}
+          />
         ))}
       </div>
 
@@ -716,7 +657,7 @@ export default function UploadPage() {
       if (uploadMode === "campaign") {
         const template = await api.campaignBulk.getCampaignTemplate(adId)
         setCampaignTemplate(template)
-        setCampaignNameTemplate(`Cópia de ${template.campaign_name}`)
+        setCampaignNameTemplate(`Cópia de ${template.campaign_name} [{ad_name}]`)
         setAdsetNameTemplate("Cópia de {ad_name} - [{index}]")
         setCampaignBudget(template.campaign_daily_budget ?? null)
         // Pre-select all template adsets
@@ -1036,7 +977,7 @@ export default function UploadPage() {
             {/* Ads mode progress */}
             {progress && uploadMode === "ads" ? (
               <div className="space-y-4">
-                <BulkProgressList progress={progress} />
+                <BulkProgressList progress={progress} creative={creative} />
                 <div className="flex flex-wrap gap-3">
                   {isCreating && (
                     <Button type="button" variant="outline" onClick={() => void cancelBulkCreate()}>
@@ -1056,6 +997,7 @@ export default function UploadPage() {
                 ? <CampaignProgressView
                     progress={campaignProgress}
                     isCreating={isCampaignCreating}
+                    creative={creative}
                     onCancel={() => void cancelCampaignBulk()}
                     onRetry={(itemIds) => void retryCampaignFailed(campaignProgress.job_id, itemIds)}
                   />
