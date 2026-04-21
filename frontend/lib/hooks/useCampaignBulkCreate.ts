@@ -102,6 +102,7 @@ export function useCampaignBulkCreate(): UseCampaignBulkCreateReturn {
     if (!jobId) return
     cancelledRef.current = true
     await api.facebook.cancelJobsBatch([jobId], "Criacao de campanhas cancelada pelo usuario")
+    setProgress((prev) => prev ? { ...prev, status: "cancelled" } : prev)
     removeActiveJob(jobId)
     setIsCreating(false)
   }, [jobId, removeActiveJob])

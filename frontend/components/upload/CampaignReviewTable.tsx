@@ -126,14 +126,21 @@ export default function CampaignReviewTable({
             <div className="space-y-1.5 flex-1 min-w-[180px]">
               <label className="text-xs font-semibold text-foreground">Orçamento diário (R$)</label>
               <Input
-                type="number"
-                min={0}
-                step={0.01}
+                type="text"
+                inputMode="decimal"
                 placeholder="Deixe vazio para herdar do modelo"
-                value={campaignBudget !== null ? (campaignBudget / 100).toFixed(2) : ""}
-                onChange={(e) => {
-                  const raw = parseFloat(e.target.value)
-                  onBudgetChange(isNaN(raw) ? null : Math.round(raw * 100))
+                defaultValue={campaignBudget !== null ? (campaignBudget / 100).toFixed(2) : ""}
+                key={campaignBudget === null ? "empty" : undefined}
+                onBlur={(e) => {
+                  const raw = parseFloat(e.target.value.replace(",", "."))
+                  if (isNaN(raw) || e.target.value.trim() === "") {
+                    onBudgetChange(null)
+                    e.target.value = ""
+                  } else {
+                    const cents = Math.round(raw * 100)
+                    onBudgetChange(cents)
+                    e.target.value = (cents / 100).toFixed(2)
+                  }
                 }}
               />
             </div>

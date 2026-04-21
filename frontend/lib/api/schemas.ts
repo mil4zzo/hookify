@@ -734,6 +734,7 @@ export const BulkAdItemProgressSchema = z.object({
   meta_creative_id: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
   error_code: z.string().nullable().optional(),
+  error_details: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const BulkAdProgressResponseSchema = z.object({
@@ -824,6 +825,7 @@ export const CampaignBulkItemProgressSchema = z.object({
   meta_creative_id: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
   error_code: z.string().nullable().optional(),
+  error_details: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export const CampaignBulkProgressResponseSchema = z.object({

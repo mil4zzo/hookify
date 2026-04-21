@@ -81,6 +81,7 @@ export interface ProgressItemCardProps {
   adsetName?: string | null
   status: string
   errorMessage?: string | null
+  errorDetails?: Record<string, unknown> | null
   metaAdId?: string | null
   pipeline: string[]
   slotKeys?: string[]
@@ -95,6 +96,7 @@ export function ProgressItemCard({
   adsetName,
   status,
   errorMessage,
+  errorDetails,
   metaAdId,
   pipeline,
   slotKeys,
@@ -188,7 +190,25 @@ export function ProgressItemCard({
           {isError ? (
             <div className="flex items-start gap-2.5 rounded-lg border border-destructive-20 bg-destructive-5 px-3 py-2.5">
               <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-              <p className="text-xs text-destructive">{errorMessage || "Erro desconhecido"}</p>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <p className="text-xs text-destructive">{errorMessage || "Erro desconhecido"}</p>
+                {errorDetails && (
+                  <div className="space-y-0.5 border-t border-destructive-20 pt-1.5">
+                    {errorDetails.error_subcode != null && (
+                      <p className="text-[10px] text-destructive/70">subcode: {String(errorDetails.error_subcode)}</p>
+                    )}
+                    {!!errorDetails.fbtrace_id && (
+                      <p className="text-[10px] text-destructive/70 font-mono break-all">trace: {String(errorDetails.fbtrace_id)}</p>
+                    )}
+                    {!!errorDetails.type && (
+                      <p className="text-[10px] text-destructive/70">type: {String(errorDetails.type)}</p>
+                    )}
+                    {Array.isArray(errorDetails.error_blame_field_specs) && errorDetails.error_blame_field_specs.length > 0 && (
+                      <p className="text-[10px] text-destructive/70 break-all">blame: {JSON.stringify(errorDetails.error_blame_field_specs)}</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div className="space-y-2">
@@ -235,10 +255,11 @@ interface BulkProgressListProps {
 export default function BulkProgressList({ progress, creative }: BulkProgressListProps) {
   const { summary, items } = progress
 
-  const isCompleted = progress.status === "completed"
-  const isFailed    = progress.status === "failed"
-  const isTerminal  = isCompleted || isFailed
-  const pct         = progress.progress
+  const isCompleted  = progress.status === "completed"
+  const isFailed     = progress.status === "failed"
+  const isCancelled  = progress.status === "cancelled"
+  const isTerminal   = isCompleted || isFailed || isCancelled
+  const pct          = progress.progress
 
   const grouped = useMemo(() => {
     return items.reduce<Record<string, BulkAdItemProgress[]>>((acc, item) => {
@@ -260,15 +281,16 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
         <div className="rounded-2xl border border-border bg-background overflow-hidden shadow-sm">
           <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
-              isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : "bg-primary-10"
+              isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : isCancelled ? "bg-muted" : "bg-primary-10"
             }`}>
-              {isCompleted && <IconCheck       className="h-5 w-5 text-success-600" />}
-              {isFailed    && <IconAlertCircle className="h-5 w-5 text-destructive" />}
-              {!isTerminal && <IconLoader2     className="h-5 w-5 animate-spin text-primary" />}
+              {isCompleted  && <IconCheck       className="h-5 w-5 text-success-600" />}
+              {isFailed     && <IconAlertCircle className="h-5 w-5 text-destructive" />}
+              {isCancelled  && <IconX           className="h-5 w-5 text-muted-foreground" />}
+              {!isTerminal  && <IconLoader2     className="h-5 w-5 animate-spin text-primary" />}
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-semibold">
-                {isCompleted ? "Upload concluído!" : isFailed ? "Erro no upload" : "Criando anúncios…"}
+                {isCompleted ? "Upload concluído!" : isFailed ? "Erro no upload" : isCancelled ? "Cancelado" : "Criando anúncios…"}
               </div>
               <div className="text-xs text-muted-foreground">
                 {summary.success} de {summary.total} anúncios criados
@@ -280,7 +302,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
           <div className="h-1.5 bg-muted">
             <div
               className={`h-full transition-all duration-500 ${
-                isCompleted ? "bg-success" : isFailed ? "bg-destructive" : "bg-primary"
+                isCompleted ? "bg-success" : isFailed ? "bg-destructive" : isCancelled ? "bg-muted-foreground/30" : "bg-primary"
               }`}
               style={{ width: `${pct}%` }}
             />
@@ -311,6 +333,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
               adsetName={item.adset_name}
               status={item.status}
               errorMessage={item.error_message}
+              errorDetails={item.error_details}
               metaAdId={item.meta_ad_id}
               pipeline={pipeline}
               slotKeys={item.slot_files ? Object.keys(item.slot_files) : undefined}

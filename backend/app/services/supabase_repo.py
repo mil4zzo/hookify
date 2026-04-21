@@ -1677,6 +1677,7 @@ def update_bulk_ad_item_status(
     meta_ad_id: Optional[str] = None,
     meta_creative_id: Optional[str] = None,
     error_code: Optional[str] = None,
+    error_details: Optional[Dict[str, Any]] = None,
 ) -> None:
     update_data: Dict[str, Any] = {
         "status": status,
@@ -1690,6 +1691,8 @@ def update_bulk_ad_item_status(
         update_data["meta_creative_id"] = meta_creative_id
     if error_code is not None:
         update_data["error_code"] = error_code
+    if error_details is not None:
+        update_data["error_details"] = error_details
     logger.debug(
         "[BULK_AD_ITEMS] update item_id=%s status=%s error_code=%s",
         item_id,

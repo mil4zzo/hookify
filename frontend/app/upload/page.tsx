@@ -218,6 +218,8 @@ const CAMPAIGN_PIPELINE = [
   "pending", "uploading_media", "creating_creative", "creating_campaign", "creating_adsets", "success",
 ]
 
+const ADS_PIPELINE = ["pending", "uploading_media", "creating_creative", "creating_ad", "success"]
+
 function CampaignProgressView({
   progress,
   isCreating,
@@ -293,6 +295,7 @@ function CampaignProgressView({
             adName={item.ad_name}
             status={item.status}
             errorMessage={item.error_message}
+            errorDetails={item.error_details}
             pipeline={CAMPAIGN_PIPELINE}
             slotKeys={item.slot_media ? Object.keys(item.slot_media) : undefined}
             creative={creative}
@@ -991,6 +994,37 @@ export default function UploadPage() {
                   )}
                 </div>
               </div>
+            ) : isCreating && !progress && uploadMode === "ads" ? (
+              /* Ads mode: initializing skeleton — shows real item list as pending */
+              <div className="space-y-3">
+                <div className="rounded-2xl border border-border bg-background overflow-hidden shadow-sm">
+                  <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
+                      <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold">
+                        Preparando {reviewItems.length} anúncio{reviewItems.length !== 1 ? "s" : ""}…
+                      </div>
+                      <div className="text-xs text-muted-foreground">Iniciando job de criação</div>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-muted">
+                    <div className="h-full bg-primary/30 animate-pulse w-full" />
+                  </div>
+                </div>
+                {reviewItems.map((item, i) => (
+                  <ProgressItemCard
+                    key={item.id}
+                    adName={item.adName}
+                    adsetName={item.adsetName}
+                    status="pending"
+                    pipeline={ADS_PIPELINE}
+                    indexInGroup={i + 1}
+                    groupSize={reviewItems.length}
+                  />
+                ))}
+              </div>
             ) : (isCampaignStarting || isCampaignCreating || campaignProgress) && uploadMode === "campaign" ? (
               /* Campaign mode: uploading skeleton → progress view */
               campaignProgress
@@ -1002,32 +1036,53 @@ export default function UploadPage() {
                     onRetry={(itemIds) => void retryCampaignFailed(campaignProgress.job_id, itemIds)}
                   />
                 : <div className="space-y-3">
-                    <div className="rounded-2xl border border-border bg-background overflow-hidden">
+                    <div className="rounded-2xl border border-border bg-background overflow-hidden shadow-sm">
                       <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
                           <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold">Preparando criação…</div>
+                          <div className="text-sm font-semibold">
+                            {isCampaignStarting
+                              ? "Enviando arquivos ao servidor…"
+                              : `Preparando ${campaignReviewItems.length} campanha${campaignReviewItems.length !== 1 ? "s" : ""}…`}
+                          </div>
                           <div className="text-xs text-muted-foreground">
-                            {isCampaignStarting ? "Enviando arquivos ao servidor" : "Iniciando job de criação"}
+                            {campaignSelectedAdsetIds.length} conjunto{campaignSelectedAdsetIds.length !== 1 ? "s" : ""} por campanha
+                            {" · "}{campaignReviewItems.length * campaignSelectedAdsetIds.length} no total
                           </div>
                         </div>
                       </div>
                       <div className="h-1.5 bg-muted">
                         <div className="h-full bg-primary/30 animate-pulse w-full" />
                       </div>
-                      <div className="grid grid-cols-4 divide-x divide-border text-center">
-                        {["Total", "Concluídos", "Erros", "Pendentes"].map((label) => (
-                          <div key={label} className="py-3">
-                            <Skeleton className="h-7 w-8 mx-auto mb-1" />
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</div>
+                      <div className="grid grid-cols-3 divide-x divide-border text-center">
+                        <div className="py-3">
+                          <div className="text-xl font-bold tabular-nums">{campaignReviewItems.length}</div>
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Campanhas</div>
+                        </div>
+                        <div className="py-3">
+                          <div className="text-xl font-bold tabular-nums">{campaignSelectedAdsetIds.length}</div>
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Conjuntos/campanha</div>
+                        </div>
+                        <div className="py-3">
+                          <div className="text-xl font-bold tabular-nums">
+                            {campaignReviewItems.length * campaignSelectedAdsetIds.length}
                           </div>
-                        ))}
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Total</div>
+                        </div>
                       </div>
                     </div>
-                    <Skeleton className="h-14 w-full rounded-xl" />
-                    <Skeleton className="h-14 w-full rounded-xl" />
+                    {campaignReviewItems.map((item, i) => (
+                      <ProgressItemCard
+                        key={item.id}
+                        adName={item.adName}
+                        status="pending"
+                        pipeline={CAMPAIGN_PIPELINE}
+                        indexInGroup={i + 1}
+                        groupSize={campaignReviewItems.length}
+                      />
+                    ))}
                   </div>
             ) : uploadMode === "campaign" ? (
               /* Campaign review */

@@ -429,17 +429,19 @@ class CampaignBulkProcessor:
             except MetaAPIError as exc:
                 logger.warning(
                     "[CAMPAIGN_BULK] item_meta_error job_id=%s item_index=%s/%s item_id=%s "
-                    "error_code=%s message=%s",
+                    "error_code=%s message=%s raw_error=%s",
                     self.context.job_id,
                     index,
                     total,
                     item.get("id"),
                     exc.error_code,
                     _log_str(exc.message, 500),
+                    exc.raw_error,
                 )
                 supabase_repo.update_bulk_ad_item_status(
                     self.sb, item["id"], "error",
                     error_message=exc.message, error_code=exc.error_code,
+                    error_details=exc.raw_error,
                 )
             except Exception as exc:
                 logger.exception(

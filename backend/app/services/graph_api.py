@@ -324,6 +324,12 @@ class GraphAPI:
                     operation_name,
                     sanitize_error_dict_for_log(dict(error_obj)),
                 )
+            if json_payload:
+                logger.warning(
+                    "%s request_payload: %s",
+                    operation_name,
+                    json.dumps(sanitize_error_dict_for_log(json_payload), ensure_ascii=False)[:3000],
+                )
             if error_code == 190:
                 return {"status": "auth_error", "message": error_message, "error": error_obj}
             return {"status": "http_error", "message": error_message, "error": error_obj}

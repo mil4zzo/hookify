@@ -92,6 +92,7 @@ export function useBulkCreate(): UseBulkCreateReturn {
     if (!jobId) return
     cancelledRef.current = true
     await api.facebook.cancelJobsBatch([jobId], "Criacao em massa cancelada pelo usuario")
+    setProgress((prev) => prev ? { ...prev, status: "cancelled" } : prev)
     removeActiveJob(jobId)
     setIsCreating(false)
   }, [jobId, removeActiveJob])
