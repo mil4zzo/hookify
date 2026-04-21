@@ -92,7 +92,7 @@ export default function BulkReviewTable({ items, onNameChange, onRemove, onStatu
       </div>
 
       <div className="overflow-hidden rounded-lg border">
-        <div className="grid grid-cols-[1.1fr_1fr_1.6fr_0.9fr_56px] gap-3 bg-muted/40 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <div className="grid grid-cols-[1.1fr_1fr_1.6fr_0.9fr_56px] gap-3 bg-muted-40 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           <div>Origem</div>
           <div>Conjunto</div>
           <div>Nome do anuncio</div>

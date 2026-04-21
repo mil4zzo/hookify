@@ -279,7 +279,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
       <Tooltip>
         <TooltipTrigger asChild>
           {/* Card */}
-          <StandardCard variant="default" padding="md" interactive={true} onClick={handleCardClick} className={cn("group relative w-full min-w-0 max-w-full overflow-hidden opacity-100", selected && "border-primary bg-card-hover ring-2 ring-primary/20")}>
+          <StandardCard variant="default" padding="md" interactive={true} onClick={handleCardClick} className={cn("group relative w-full min-w-0 max-w-full overflow-hidden opacity-100", selected && "border-primary bg-card-hover ring-2 ring-primary-20")}>
             <div className="relative flex items-stretch gap-3 sm:gap-4">
               {/* Thumbnail com botão de play centralizado */}
               <AdPlayArea

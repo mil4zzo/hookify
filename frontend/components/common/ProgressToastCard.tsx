@@ -328,7 +328,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
         </div>
       </div>
 
-      <div className="mt-1.5 flex justify-between px-0.5 text-[10px] font-medium tabular-nums text-primary-foreground/45">
+      <div className="mt-1.5 flex justify-between px-0.5 text-[10px] font-medium tabular-nums text-primary-foreground-45">
         <span>0</span>
         <span>25</span>
         <span>50</span>
@@ -359,11 +359,11 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
         <div className="flex items-start gap-2">
           <span className="mt-0.5 flex-shrink-0 [&_svg]:h-4 [&_svg]:w-4">{cancelling ? <IconLoader2 className="animate-spin opacity-90" /> : icon || <IconLoader2 className="animate-spin opacity-90" />}</span>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-[11px] font-medium leading-tight text-primary-foreground/75">{eyebrow}</p>
+            <p className="text-[11px] font-medium leading-tight text-primary-foreground-75">{eyebrow}</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-primary-foreground">{titleText}</p>
 
             {cancelling ? (
-              <p className="pt-0.5 text-xs font-medium leading-snug text-primary-foreground/90">
+              <p className="pt-0.5 text-xs font-medium leading-snug text-primary-foreground-90">
                 Cancelando atualização de <strong className="font-semibold text-primary-foreground">{packName}</strong>...
               </p>
             ) : inlineError ? (
@@ -371,8 +371,8 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
             ) : (
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pt-0.5">
                 <span className="text-2xl font-semibold tabular-nums leading-none tracking-tight text-primary-foreground">{animatedProgress}%</span>
-                <span className="text-xl font-semibold leading-none text-primary-foreground/40">•</span>
-                <span className="min-w-0 text-xs font-medium leading-snug text-primary-foreground/88">{dynamicLine}</span>
+                <span className="text-xl font-semibold leading-none text-primary-foreground-40">•</span>
+                <span className="min-w-0 text-xs font-medium leading-snug text-primary-foreground-88">{dynamicLine}</span>
               </div>
             )}
           </div>
@@ -390,7 +390,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
 
         {showBar && onCancel && (
           <div className="flex justify-end">
-            <Button type="button" size="sm" variant="ghost" className="h-8 text-primary-foreground/90 hover:bg-white/10 hover:text-primary-foreground" onClick={onCancel}>
+            <Button type="button" size="sm" variant="ghost" className="h-8 text-primary-foreground-90 hover:bg-white/10 hover:text-primary-foreground" onClick={onCancel}>
               Cancelar
             </Button>
           </div>
@@ -409,9 +409,9 @@ export function PausedToastCard({ packName, onReconnect, onCancel, animated = tr
             <IconAlertCircle />
           </span>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-[11px] font-medium leading-tight text-primary-foreground/75">{packName}: Leadscore</p>
+            <p className="text-[11px] font-medium leading-tight text-primary-foreground-75">{packName}: Leadscore</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-attention">Sincronização pausada</p>
-            <p className="pt-0.5 text-sm leading-snug text-primary-foreground/82">Aguardando reconexão do Google para continuar a importação.</p>
+            <p className="pt-0.5 text-sm leading-snug text-primary-foreground-82">Aguardando reconexão do Google para continuar a importação.</p>
           </div>
         </div>
 

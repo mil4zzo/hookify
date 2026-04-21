@@ -534,7 +534,7 @@ export default function Topbar() {
               }
             }}
             disabled={isLoadingNiche || isSavingNiche}
-            className={isLoadingNiche || isSavingNiche ? "bg-border/50" : ""}
+            className={isLoadingNiche || isSavingNiche ? "bg-border-50" : ""}
           />
           <p className="text-xs text-muted-foreground">{isSavingNiche ? "Salvando..." : "Digite o nicho do seu negócio (ex: E-commerce, SaaS, etc.)"}</p>
         </div>
@@ -587,7 +587,7 @@ export default function Topbar() {
       )}
 
       {/* Zona de perigo */}
-      <div className="mt-8 pt-6 border-t border-destructive/20 space-y-4">
+      <div className="mt-8 pt-6 border-t border-destructive-20 space-y-4">
         <h4 className="text-sm font-semibold text-destructive">Zona de perigo</h4>
 
         <div className="flex items-start justify-between gap-4">
@@ -741,7 +741,7 @@ export default function Topbar() {
     return (
       <>
         <ServerStatusBanner />
-        <header className="z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <header className="z-40 w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
           <div className="container mx-auto flex h-16 items-center justify-between px-4">
             <div className="flex items-center gap-3 flex-shrink-0">
               <h1 className="text-xl font-bold text-text">Hookify</h1>
@@ -794,7 +794,7 @@ export default function Topbar() {
   return (
     <>
       <ServerStatusBanner />
-      <header className="z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <header className="z-40 w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
         <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4 md:px-8">
           {/* Left: Título (desktop) ou Logo (mobile) */}

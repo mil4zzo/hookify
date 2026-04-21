@@ -10,22 +10,22 @@ export const gemsMetricColorSchemes: Record<
   GenericColumnColorScheme
 > = {
   hook: {
-    headerBg: "bg-chart-1/10 border-chart-1/30",
+    headerBg: "bg-chart-1-10 border-chart-1-30",
     title: "",
     card: {
-      border: "border-chart-1/30",
-      bg: "bg-chart-1/5",
+      border: "border-chart-1-30",
+      bg: "bg-chart-1-5",
       text: "text-chart-1",
       accent: "border-chart-1",
       badge: "bg-chart-1 text-primary-foreground",
     },
   },
   website_ctr: {
-    headerBg: "bg-chart-2/10 border-chart-2/30",
+    headerBg: "bg-chart-2-10 border-chart-2-30",
     title: "",
     card: {
-      border: "border-chart-2/30",
-      bg: "bg-chart-2/5",
+      border: "border-chart-2-30",
+      bg: "bg-chart-2-5",
       text: "text-chart-2",
       accent: "border-chart-2",
       badge: "bg-chart-2 text-primary-foreground",
@@ -54,11 +54,11 @@ export const gemsMetricColorSchemes: Record<
     },
   },
   hold_rate: {
-    headerBg: "bg-chart-3/10 border-chart-3/30",
+    headerBg: "bg-chart-3-10 border-chart-3-30",
     title: "",
     card: {
-      border: "border-chart-3/30",
-      bg: "bg-chart-3/5",
+      border: "border-chart-3-30",
+      bg: "bg-chart-3-5",
       text: "text-chart-3",
       accent: "border-chart-3",
       badge: "bg-chart-3 text-primary-foreground",
@@ -76,11 +76,11 @@ export const gemsMetricColorSchemes: Record<
     },
   },
   cpmql: {
-    headerBg: "bg-chart-4/10 border-chart-4/30",
+    headerBg: "bg-chart-4-10 border-chart-4-30",
     title: "",
     card: {
-      border: "border-chart-4/30",
-      bg: "bg-chart-4/5",
+      border: "border-chart-4-30",
+      bg: "bg-chart-4-5",
       text: "text-chart-4",
       accent: "border-chart-4",
       badge: "bg-chart-4 text-primary-foreground",

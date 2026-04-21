@@ -100,17 +100,17 @@ function LoginContent() {
                 {isSignUp && (
                   <div className="space-y-2">
                     <label className="text-sm">Nome</label>
-                    <Input type="text" placeholder="Seu nome completo" value={name} onChange={(e) => setName(e.target.value)} required className="placeholder:text-foreground/60" />
+                    <Input type="text" placeholder="Seu nome completo" value={name} onChange={(e) => setName(e.target.value)} required className="placeholder:text-foreground-60" />
                   </div>
                 )}
                 <div className="space-y-2">
                   <label className="text-sm">Email</label>
-                  <Input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="placeholder:text-foreground/60" />
+                  <Input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required className="placeholder:text-foreground-60" />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm">Senha</label>
                   <div className="relative">
-                    <Input type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="pr-10 placeholder:text-foreground/60" />
+                    <Input type={showPassword ? "text" : "password"} placeholder="••••••••" value={password} onChange={(e) => setPassword(e.target.value)} required className="pr-10 placeholder:text-foreground-60" />
                     <Button type="button" variant="ghost" size="sm" className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}>
                       {showPassword ? <IconEyeOff className="h-4 w-4 text-muted-foreground" /> : <IconEye className="h-4 w-4 text-muted-foreground" />}
                     </Button>

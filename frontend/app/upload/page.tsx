@@ -141,7 +141,7 @@ function CampaignPreviewSkeleton({ mode }: { mode: "ads" | "campaign" }) {
           <div className="space-y-1.5">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="flex items-center gap-2">
-                <div className="h-1 w-1 rounded-full bg-muted-foreground/20 shrink-0" />
+                <div className="h-1 w-1 rounded-full bg-muted-foreground-20 shrink-0" />
                 <Skeleton className="h-3 w-40" />
               </div>
             ))}
@@ -910,7 +910,7 @@ export default function UploadPage() {
                     <div className="space-y-1">
                       {campaignTemplate.adsets.map((adset) => (
                         <div key={adset.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <div className="h-1 w-1 rounded-full bg-muted-foreground/40 shrink-0" />
+                          <div className="h-1 w-1 rounded-full bg-muted-foreground-40 shrink-0" />
                           <span className="truncate">{adset.name}</span>
                         </div>
                       ))}
@@ -1010,7 +1010,7 @@ export default function UploadPage() {
                     </div>
                   </div>
                   <div className="h-1.5 bg-muted">
-                    <div className="h-full bg-primary/30 animate-pulse w-full" />
+                    <div className="h-full bg-primary-30 animate-pulse w-full" />
                   </div>
                 </div>
                 {reviewItems.map((item, i) => (
@@ -1054,7 +1054,7 @@ export default function UploadPage() {
                         </div>
                       </div>
                       <div className="h-1.5 bg-muted">
-                        <div className="h-full bg-primary/30 animate-pulse w-full" />
+                        <div className="h-full bg-primary-30 animate-pulse w-full" />
                       </div>
                       <div className="grid grid-cols-3 divide-x divide-border text-center">
                         <div className="py-3">

@@ -122,7 +122,7 @@ export default function AdTree({ data, selectedAdId, onSelect }: AdTreeProps) {
                           <div
                             key={ad.ad_id}
                             className={`flex items-center justify-between gap-3 rounded-md border p-3 ${
-                              isSelected ? "border-primary bg-primary/5" : "border-border"
+                              isSelected ? "border-primary bg-primary-5" : "border-border"
                             }`}
                           >
                             <div className="flex min-w-0 items-center gap-3">

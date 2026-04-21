@@ -47,7 +47,7 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank, seconda
       padding="none"
       interactive={true}
       onClick={onClick}
-      className={cn(styles.border, styles.bg, selected && "ring-2 ring-primary/20 border-primary bg-primary/5")}
+      className={cn(styles.border, styles.bg, selected && "ring-2 ring-primary-20 border-primary bg-primary-5")}
     >
       <CardContent className="p-1">
         <div className="flex items-start gap-3">

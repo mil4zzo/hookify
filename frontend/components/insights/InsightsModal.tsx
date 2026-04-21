@@ -157,7 +157,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
       <div className="relative flex items-start gap-10">
         {/* Botão fechar */}
-        <Button variant="outline" size="icon" className="absolute -top-12 right-0 h-10 w-10 rounded-full shadow-lg bg-background/90 backdrop-blur-sm hover:bg-background" onClick={onClose} aria-label="Fechar">
+        <Button variant="outline" size="icon" className="absolute -top-12 right-0 h-10 w-10 rounded-full shadow-lg bg-background-90 backdrop-blur-sm hover:bg-background" onClick={onClose} aria-label="Fechar">
           <IconX className="h-5 w-5" />
         </Button>
 

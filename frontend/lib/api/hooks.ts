@@ -132,14 +132,20 @@ function markSynced(userId: string): void {
   } catch { /* localStorage indisponível */ }
 }
 
-export const useAdAccountsDb = () => {
+interface UseAdAccountsDbOptions {
+  enabled?: boolean
+  populateStore?: boolean
+}
+
+export const useAdAccountsDb = (options: UseAdAccountsDbOptions = {}) => {
   const { session, sessionReady } = useSupabaseAuth()
   const setAdAccounts = useSessionStore(s => s.setAdAccounts)
   const qc = useQueryClient()
+  const { enabled = true, populateStore = true } = options
   const result = useQuery({
     queryKey: queryKeys.adAccounts,
     queryFn: api.facebook.getAdAccounts,
-    enabled: !!session && sessionReady,
+    enabled: enabled && !!session && sessionReady,
     staleTime: 10 * 60 * 1000,
     retry: 2,
   })
@@ -155,10 +161,10 @@ export const useAdAccountsDb = () => {
         })
         .catch(() => {/* sem conexão Facebook ou token expirado — silencioso */})
     }
-    if (!isEmpty) {
+    if (!isEmpty && populateStore) {
       setAdAccounts(result.data as unknown as FacebookAdAccount[])
     }
-  }, [result.data, setAdAccounts, session, sessionReady, qc])
+  }, [result.data, setAdAccounts, session, sessionReady, qc, populateStore])
   return result
 }
 

@@ -170,7 +170,7 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
         >
           <IconPhotoFilled className={`h-6 w-6 transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`} />
           <span className={`text-center text-[11px] font-medium leading-tight transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`}>Arraste ou selecione</span>
-          {aspectRatios.filter(Boolean).length > 0 && <span className="text-center text-[10px] text-muted-foreground/60 leading-tight">{aspectRatios.filter(Boolean).join(" · ")}</span>}
+          {aspectRatios.filter(Boolean).length > 0 && <span className="text-center text-[10px] text-muted-foreground-60 leading-tight">{aspectRatios.filter(Boolean).join(" · ")}</span>}
         </button>
       )}
 

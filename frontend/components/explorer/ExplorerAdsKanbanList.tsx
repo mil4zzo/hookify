@@ -157,7 +157,7 @@ export function ExplorerAdsKanbanList({ ads, selectedGroupKey, onSelectAd, avera
       <div className="mt-3 min-w-0 md:min-h-0 md:flex-1 md:overflow-y-auto md:overflow-x-hidden [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <div className="min-w-0 max-w-full space-y-4">
           {filteredAds.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border/70 bg-background/40 px-4 py-8 text-center text-sm text-muted-foreground">Nenhum anuncio encontrado para essa busca.</div>
+            <div className="rounded-xl border border-dashed border-border-70 bg-background-40 px-4 py-8 text-center text-sm text-muted-foreground">Nenhum anuncio encontrado para essa busca.</div>
           ) : (
             filteredAds.map((item) => (
               <ExplorerAdSidebarCard
@@ -174,7 +174,7 @@ export function ExplorerAdsKanbanList({ ads, selectedGroupKey, onSelectAd, avera
         </div>
       </div>
 
-      <div className={cn("pt-2 text-xs text-muted-foreground sm:hidden", averagePrimaryMetric != null && "border-t border-border/70")}>
+      <div className={cn("pt-2 text-xs text-muted-foreground sm:hidden", averagePrimaryMetric != null && "border-t border-border-70")}>
         {averagePrimaryMetric != null ? `${selectedMetricLabel} Media: ${formatMetricValue(sortState.metricKey, averagePrimaryMetric)}` : null}
       </div>
     </section>

@@ -123,7 +123,7 @@ export const GetAdsRequestSchema = z.object({
 
 export const GetVideoSourceRequestSchema = z.object({
   video_id: z.string(),
-  actor_id: z.string(),
+  actor_id: z.string().optional(),
   ad_id: z.string().optional(),
   video_owner_page_id: z.string().optional(),
 })

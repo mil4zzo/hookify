@@ -1915,7 +1915,7 @@ def get_job_progress(
 @router.get("/video-source")
 def get_video_source(
     video_id: str,
-    actor_id: str,
+    actor_id: str = "",
     ad_id: str = "",
     video_owner_page_id: str = "",
     api: GraphAPI = Depends(get_graph_api),

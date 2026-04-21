@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import React from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
 import { PacksOverflowMenu } from "@/components/packs/PacksOverflowMenu";
@@ -11,33 +10,28 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Modal } from "@/components/common/Modal";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { LoadingState, EmptyState } from "@/components/common/States";
+import { LoadingState } from "@/components/common/States";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
-import { Switch } from "@/components/ui/switch";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useMe, useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
+import { useAdAccountsDb, useInvalidatePackAds } from "@/lib/api/hooks";
 import { GoogleSheetIntegrationDialog } from "@/components/ads/GoogleSheetIntegrationDialog";
-import { useClientAuth, useClientPacks, useClientAdAccounts } from "@/lib/hooks/useClientSession";
+import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconCalendar, IconFilter, IconPlus, IconTrash, IconChartBar, IconEye, IconDownload, IconArrowsSort, IconCode, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconRotateClockwise, IconRefresh, IconDotsVertical, IconPencil, IconTableExport, IconMicrophone } from "@tabler/icons-react";
-import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, createColumnHelper, flexRender, ColumnDef } from "@tanstack/react-table";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone } from "@tabler/icons-react";
 
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
-import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
-import { usePageConfig } from "@/lib/hooks/usePageConfig";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { subDays } from "date-fns";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { Skeleton } from "@/components/ui/skeleton";
-import { filterVideoAds } from "@/lib/utils/filterVideoAds";
 import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh";
 import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -117,35 +111,6 @@ interface PackFormData {
   auto_refresh?: boolean;
 }
 
-interface Pack {
-  id: string;
-  name: string;
-  adaccount_id: string;
-  date_start: string;
-  date_stop: string;
-  level: "campaign" | "adset" | "ad";
-  filters: FilterRule[];
-  ads: any[]; // Dados formatados pelo backend
-  stats?: {
-    // Stats agregados do pack (calculados no backend)
-    totalAds: number;
-    uniqueAds: number;
-    uniqueCampaigns: number;
-    uniqueAdsets: number;
-    totalSpend: number;
-    totalClicks: number;
-    totalImpressions: number;
-    totalReach: number;
-    totalInlineLinkClicks: number;
-    totalPlays: number;
-    totalThruplays: number;
-    ctr: number;
-    cpm: number;
-    frequency: number;
-  };
-  created_at: string;
-  updated_at: string;
-}
 
 const FILTER_FIELDS = [
   { label: "Campaign Name", value: "campaign.name" },
@@ -155,193 +120,7 @@ const FILTER_FIELDS = [
 
 const FILTER_OPERATORS = ["CONTAIN", "EQUAL", "NOT_EQUAL", "NOT_CONTAIN", "STARTS_WITH", "ENDS_WITH"];
 
-// TanStack Table column helper
-const columnHelper = createColumnHelper<any>();
-
-// Função para exportar dados para CSV
-const exportToCSV = (data: any[], filename: string) => {
-  if (!data || data.length === 0) return;
-
-  const headers = ["Campaign ID", "Campaign Name", "Adset ID", "Adset Name", "Ad ID", "Ad Name", "Status", "Spend", "Impressions", "Clicks", "CTR", "CPC", "CPM", "Conversions", "Cost per Conversion"];
-
-  const csvContent = [headers.join(","), ...data.map((ad) => [ad.campaign_id || "", `"${(ad.campaign_name || "").replace(/"/g, '""')}"`, ad.adset_id || "", `"${(ad.adset_name || "").replace(/"/g, '""')}"`, ad.ad_id || "", `"${(ad.ad_name || "").replace(/"/g, '""')}"`, ad.effective_status || "", ad.spend || 0, ad.impressions || 0, ad.clicks || 0, ad.ctr ? (ad.ctr * 100).toFixed(2) : 0, ad.cpc || 0, ad.cpm || 0, ad.conversions || 0, ad.cost_per_conversion || 0].join(","))].join("\n");
-
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-  const link = document.createElement("a");
-  const url = URL.createObjectURL(blob);
-  link.setAttribute("href", url);
-  link.setAttribute("download", `${filename}.csv`);
-  link.style.visibility = "hidden";
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
-
-// Função auxiliar para formatar cabeçalhos das colunas
-const formatColumnHeader = (key: string): string => {
-  return key
-    .split(".")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-};
-
-// Função auxiliar para formatar valores das células
-const formatCellValue = (value: any, key: string, formatCurrency: (value: number) => string): React.ReactNode => {
-  if (value === null || value === undefined) return <span>—</span>;
-
-  // IDs - formatação monospace
-  if (key.includes("_id") || key.includes("id")) {
-    return <span className="font-mono text-xs">{String(value)}</span>;
-  }
-
-  // Status - cores especiais
-  if (key.includes("status")) {
-    const status = String(value);
-    const colorClass = status === "ACTIVE" ? "bg-success-20 text-success" : status === "PAUSED" ? "bg-warning-20 text-warning" : "bg-destructive-20 text-destructive";
-    return <span className={`px-2 py-1 rounded text-xs ${colorClass}`}>{status}</span>;
-  }
-
-  // Valores monetários
-  if (key.includes("spend") || key.includes("cost") || key.includes("cpc") || key.includes("cpm")) {
-    const numValue = Number(value);
-    return <span className="text-right">{numValue ? formatCurrency(numValue) : "—"}</span>;
-  }
-
-  // Percentuais
-  if (key.includes("ctr") || key.includes("rate") || key.includes("p50") || key.includes("retention")) {
-    const numValue = Number(value);
-    return <span className="text-right">{numValue ? `${(numValue * 100).toFixed(2)}%` : "—"}</span>;
-  }
-
-  // Números grandes (impressions, reach, clicks, etc.)
-  if (typeof value === "number" && (key.includes("impressions") || key.includes("reach") || key.includes("clicks") || key.includes("plays"))) {
-    return <span className="text-right">{value.toLocaleString()}</span>;
-  }
-
-  // Arrays - mostra conteúdo expandido para debug
-  if (Array.isArray(value)) {
-    if (value.length === 0) return <span className="text-xs text-muted-foreground">[]</span>;
-    if (value.length <= 3) {
-      return <span className="text-xs">{JSON.stringify(value)}</span>;
-    }
-    return (
-      <span className="text-xs" title={JSON.stringify(value)}>
-        [{value.length} items] {JSON.stringify(value.slice(0, 2))}...
-      </span>
-    );
-  }
-
-  // Objetos - mostra como JSON para debug
-  if (typeof value === "object" && value !== null) {
-    const jsonStr = JSON.stringify(value);
-    if (jsonStr.length <= 100) {
-      return <span className="text-xs font-mono">{jsonStr}</span>;
-    }
-    return (
-      <span className="text-xs font-mono" title={jsonStr}>
-        {jsonStr.substring(0, 100)}...
-      </span>
-    );
-  }
-
-  // Strings longas (como creative.body, creative.title)
-  if (typeof value === "string" && value.length > 50) {
-    return <span title={value}>{value.substring(0, 50)}...</span>;
-  }
-
-  // Padrão - string simples
-  return <span>{String(value)}</span>;
-};
-
-// Função auxiliar para determinar tamanho da coluna
-const getColumnSize = (key: string): number => {
-  if (key.includes("_id")) return 120;
-  if (key.includes("name")) return 200;
-  if (key.includes("status")) return 100;
-  if (key.includes("creative")) return 150;
-  if (key.includes("retention")) return 120;
-  if (key.includes("conversion")) return 150;
-  return 100;
-};
-
-// Definição das colunas da tabela usando Smart Columns (Debug Mode - mostra todos os campos)
-const createSmartColumns = (data: any[], formatCurrency: (value: number) => string): ColumnDef<any>[] => {
-  if (!data || data.length === 0) return [];
-
-  // Campos importantes que devem aparecer primeiro
-  const priorityFields = ["campaign_id", "campaign_name", "adset_id", "adset_name", "ad_id", "ad_name", "effective_status", "status", "spend", "impressions", "reach", "frequency", "clicks", "inline_link_clicks", "ctr", "website_ctr", "cpc", "cpm", "total_plays", "total_thruplays", "video_watched_p50", "conversions", "conversions.purchase", "conversions.initiate_checkout", "cost_per_conversion", "cost_per_conversion.purchase", "creative.call_to_action_type", "creative.object_type", "creative.body", "creative.title"];
-
-  const allKeys = [...new Set(data.flatMap((item) => Object.keys(item)))];
-
-  // Ordena: campos prioritários primeiro, depois TODOS os outros campos (debug mode)
-  const sortedKeys = [...priorityFields.filter((key) => allKeys.includes(key)), ...allKeys.filter((key) => !priorityFields.includes(key))];
-
-  return sortedKeys.map((key) => {
-    return columnHelper.accessor(key, {
-      header: formatColumnHeader(key),
-      cell: (info) => formatCellValue(info.getValue(), key, formatCurrency),
-      size: getColumnSize(key),
-    });
-  });
-};
-
-// Componente TanStack Table
-const TanStackTableComponent = ({ data, formatCurrency }: { data: any[]; formatCurrency: (value: number) => string }) => {
-  const columns = createSmartColumns(data, formatCurrency);
-
-  const table = useReactTable({
-    data,
-    columns,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    enableSorting: true,
-    enableFilters: true,
-  });
-
-  return (
-    <div className="w-full">
-      <table className="w-full text-sm border-collapse">
-        <thead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <tr key={headerGroup.id} className="bg-border">
-              {headerGroup.headers.map((header) => (
-                <th key={header.id} className="border border-border p-2 text-left font-medium" style={{ width: header.getSize() }}>
-                  {header.isPlaceholder ? null : (
-                    <div className={`flex items-center gap-1 ${header.column.getCanSort() ? "cursor-pointer select-none hover:text-brand" : ""}`} onClick={header.column.getToggleSortingHandler()}>
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      {header.column.getCanSort() && <IconArrowsSort className="w-3 h-3" />}
-                      {{
-                        asc: " 🔼",
-                        desc: " 🔽",
-                      }[header.column.getIsSorted() as string] ?? null}
-                    </div>
-                  )}
-                </th>
-              ))}
-            </tr>
-          ))}
-        </thead>
-        <tbody>
-          {table.getRowModel().rows.map((row) => (
-            <tr key={row.id} className="hover:bg-border/50">
-              {row.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="border border-border p-2">
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {data.length === 0 && <div className="text-center py-8 text-muted-foreground">Nenhum dado encontrado</div>}
-    </div>
-  );
-};
-
 export default function PacksPage() {
-  const pageConfig = usePageConfig();
   const formatCurrency = useFormatCurrency();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -350,13 +129,10 @@ export default function PacksPage() {
   const [refreshType, setRefreshType] = useState<"since_last_refresh" | "full_period">("since_last_refresh");
   const [refreshToggles, setRefreshToggles] = useState<RefreshToggles>(() => loadRefreshToggles() ?? DEFAULT_REFRESH_TOGGLES);
   const [packToDisableAutoRefresh, setPackToDisableAutoRefresh] = useState<{ id: string; name: string } | null>(null);
-  const [packToRename, setPackToRename] = useState<{ id: string; name: string } | null>(null);
-  const [newPackName, setNewPackName] = useState<string>("");
-  const [isRenaming, setIsRenaming] = useState(false);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
   const { isPackUpdating } = useUpdatingPacksStore();
   const { refreshPack, isRefreshing, startTranscriptionOnly } = usePackRefresh();
-  const { startCreation, cancelCreation, isCreating } = usePackCreation({
+  const { startCreation, isCreating } = usePackCreation({
     onComplete: () => {
       setFormData((prev) => ({
         ...prev,
@@ -366,8 +142,6 @@ export default function PacksPage() {
       }));
     },
   });
-  const [previewPack, setPreviewPack] = useState<any>(null);
-  const [jsonViewerPack, setJsonViewerPack] = useState<any>(null);
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
@@ -412,21 +186,17 @@ export default function PacksPage() {
   const [packNameDuplicateError, setPackNameDuplicateError] = useState(false);
 
   // Store hooks
-  const { isAuthenticated, user, isClient } = useClientAuth();
+  const { isClient } = useClientAuth();
   const { packs, removePack, updatePack } = useClientPacks();
-  const { adAccounts } = useClientAdAccounts();
   const { authStatus, onboardingStatus } = useOnboardingGate("app");
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
   const { isLoading: isLoadingPacks } = usePacksLoading();
 
   // API hooks
-  const { data: me, isLoading: meLoading, error: meError } = useMe();
-  // Carrega ad accounts do Supabase para preencher store (fallback quando /me não disponível)
-  const { data: adAccountsFromDb, isLoading: adAccountsLoading } = useAdAccountsDb();
-  const adAccountsData = (me?.adaccounts ?? adAccounts ?? adAccountsFromDb ?? []) as any[];
-
-  // Calculate statistics using centralized utility
-  const packStats = getAggregatedPackStatistics(packs);
+  const { data: adAccountsData = [], isLoading: adAccountsLoading } = useAdAccountsDb({
+    enabled: isDialogOpen,
+    populateStore: false,
+  });
 
   // Para o modal de refresh: habilita botão Confirmar apenas se ao menos um processo estiver selecionado
   const refreshModalPack = packToRefresh ? packs.find((p) => p.id === packToRefresh.id) : null;
@@ -568,25 +338,13 @@ export default function PacksPage() {
     }
   };
 
-  const handleRenamePack = (packId: string) => {
-    const pack = packs.find((p) => p.id === packId);
-    if (!pack) return;
-
-    setPackToRename({
-      id: pack.id,
-      name: pack.name,
-    });
-    setNewPackName(pack.name);
-  };
 
   const handleRemovePack = async (packId: string) => {
     const pack = packs.find((p) => p.id === packId);
     if (!pack) return;
 
-    // Usar stats.uniqueAds (anúncios únicos) se disponível, senão buscar do backend
     let adsCount = pack.stats?.uniqueAds || 0;
 
-    // Se não tem stats, buscar do backend (sem ads, apenas stats)
     if (adsCount === 0 && !pack.stats) {
       try {
         const response = await api.analytics.getPack(packId, false);
@@ -595,7 +353,6 @@ export default function PacksPage() {
         }
       } catch (error) {
         logger.error("Erro ao buscar stats do pack:", error);
-        // Usar 0 como fallback
         adsCount = 0;
       }
     }
@@ -612,29 +369,17 @@ export default function PacksPage() {
 
     setIsDeleting(true);
     try {
-      // Backend busca ad_ids automaticamente do pack - não precisa buscar aqui
       await api.analytics.deletePack(packToRemove.id, []);
-
-      // Remover do estado local
       removePack(packToRemove.id);
-
-      // Invalidar cache de ads do pack removido
       await invalidatePackAds(packToRemove.id);
-
-      // Invalidar dados agregados (ad performance) para atualizar Manager/Insights
       invalidateAdPerformance();
 
       showSuccess(`Pack "${packToRemove.name}" removido com sucesso!`);
       setPackToRemove(null);
     } catch (error) {
       logger.error("Erro ao deletar pack do Supabase:", error);
-      // Ainda remove do estado local mesmo se falhar no Supabase
       removePack(packToRemove.id);
-
-      // Invalidar cache mesmo se falhar no servidor
       await invalidatePackAds(packToRemove.id).catch(() => {});
-
-      // Invalidar dados agregados (ad performance) para atualizar Manager/Insights
       invalidateAdPerformance();
 
       showError({ message: `Pack removido localmente, mas houve erro ao deletar do servidor: ${error}` });
@@ -645,197 +390,13 @@ export default function PacksPage() {
   };
 
   const cancelRemovePack = () => {
-    if (isDeleting) return; // Não permite cancelar durante a deleção
+    if (isDeleting) return;
     setPackToRemove(null);
   };
 
-  const confirmRenamePack = async () => {
-    if (!packToRename || isRenaming) return;
-
-    const trimmedName = newPackName.trim();
-    if (!trimmedName) {
-      showError({ message: "Nome do pack não pode ser vazio" });
-      return;
-    }
-
-    if (trimmedName === packToRename.name) {
-      // Nome não mudou, apenas fechar o modal
-      setPackToRename(null);
-      setNewPackName("");
-      return;
-    }
-
-    // Verificar se já existe outro pack com o mesmo nome
-    const existingPack = packs.find((p) => p.id !== packToRename.id && p.name.trim().toLowerCase() === trimmedName.toLowerCase());
-    if (existingPack) {
-      showError({ message: `Já existe um pack com o nome "${trimmedName}"` });
-      return;
-    }
-
-    setIsRenaming(true);
-    try {
-      await api.analytics.updatePackName(packToRename.id, trimmedName);
-
-      // Atualizar pack no store local
-      updatePack(packToRename.id, {
-        name: trimmedName,
-      } as Partial<AdsPack>);
-
-      showSuccess(`Pack renomeado para "${trimmedName}"`);
-      setPackToRename(null);
-      setNewPackName("");
-    } catch (error) {
-      logger.error("Erro ao renomear pack:", error);
-      showError({ message: `Erro ao renomear pack: ${error}` });
-    } finally {
-      setIsRenaming(false);
-    }
-  };
-
-  const cancelRenamePack = () => {
-    if (isRenaming) return; // Não permite cancelar durante a renomeação
-    setPackToRename(null);
-    setNewPackName("");
-  };
-
-  const handlePreviewPack = async (pack: any) => {
-    // Buscar ads do cache IndexedDB primeiro, depois do backend se necessário
-    try {
-      // Tentar cache primeiro
-      const { getCachedPackAds } = await import("@/lib/storage/adsCache");
-      const cachedResult = await getCachedPackAds(pack.id);
-
-      let allAds = [];
-      if (cachedResult.success && cachedResult.data && cachedResult.data.length > 0) {
-        allAds = cachedResult.data;
-      } else {
-        // Se não tem cache, buscar do backend
-        const response = await api.analytics.getPack(pack.id, true);
-        if (response.success && response.pack?.ads) {
-          allAds = response.pack.ads;
-          // Salvar no cache para próximas vezes
-          const { cachePackAds } = await import("@/lib/storage/adsCache");
-          await cachePackAds(pack.id, allAds).catch(() => {});
-        } else if (!response.success) {
-          logger.error("packs/page: getPack retornou success:false ao carregar preview", { packId: pack.id, response });
-        }
-      }
-
-      // Filtrar apenas ads de vídeo para exibição
-      const ads = filterVideoAds(allAds);
-
-      // Garantir que stats estejam completos
-      // Se não tiver stats ou estiver incompleto, recalcular dos ads
-      const essentialStatsKeys = ["totalSpend", "uniqueAds", "uniqueCampaigns", "uniqueAdsets"];
-      const hasValidStats = pack.stats && typeof pack.stats === "object" && Object.keys(pack.stats).length > 0 && essentialStatsKeys.every((key) => key in pack.stats && pack.stats[key] !== null && pack.stats[key] !== undefined);
-
-      let finalStats = pack.stats;
-      if (!hasValidStats && ads.length > 0) {
-        // Recalcular todos os stats dos ads usando a função utilitária
-        const { getAdStatistics } = await import("@/lib/utils/adCounting");
-        const calculated = getAdStatistics(ads as any[]);
-
-        // Calcular métricas adicionais que não estão em getAdStatistics
-        const totalClicks = ads.reduce((sum: number, ad: any) => sum + (ad.clicks || 0), 0);
-        const totalImpressions = ads.reduce((sum: number, ad: any) => sum + (ad.impressions || 0), 0);
-        const totalReach = ads.reduce((sum: number, ad: any) => sum + (ad.reach || 0), 0);
-
-        finalStats = {
-          ...calculated,
-          totalClicks,
-          totalImpressions,
-          totalReach,
-          totalInlineLinkClicks: ads.reduce((sum: number, ad: any) => sum + (ad.inline_link_clicks || 0), 0),
-          totalPlays: ads.reduce((sum: number, ad: any) => sum + (ad.video_plays || 0), 0),
-          totalThruplays: ads.reduce((sum: number, ad: any) => sum + (ad.video_thruplay || 0), 0),
-          ctr: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
-          cpm: totalImpressions > 0 ? (calculated.totalSpend / totalImpressions) * 1000 : 0,
-          frequency: totalReach > 0 ? totalImpressions / totalReach : 0,
-        };
-      }
-
-      setPreviewPack({ ...pack, ads, stats: finalStats });
-    } catch (error) {
-      logger.error("Erro ao carregar ads do pack para preview:", error);
-      setPreviewPack(pack);
-    }
-  };
-
-  const handleViewJson = async (pack: any) => {
-    // Buscar ads do cache IndexedDB primeiro, depois do backend se necessário
-    try {
-      // Tentar cache primeiro
-      const { getCachedPackAds } = await import("@/lib/storage/adsCache");
-      const cachedResult = await getCachedPackAds(pack.id);
-
-      if (cachedResult.success && cachedResult.data && cachedResult.data.length > 0) {
-        // Usar cache se disponível
-        setJsonViewerPack({ ...pack, ads: cachedResult.data });
-        return;
-      }
-
-      // Se não tem cache, buscar do backend
-      const response = await api.analytics.getPack(pack.id, true);
-      if (response.success && response.pack?.ads) {
-        const ads = response.pack.ads;
-        // Salvar no cache para próximas vezes
-        const { cachePackAds } = await import("@/lib/storage/adsCache");
-        await cachePackAds(pack.id, ads).catch(() => {});
-        setJsonViewerPack({ ...pack, ads });
-      } else {
-        setJsonViewerPack(pack);
-      }
-    } catch (error) {
-      logger.error("Erro ao carregar ads do pack para JSON viewer:", error);
-      setJsonViewerPack(pack);
-    }
-  };
-
-  const closePreview = () => {
-    setPreviewPack(null);
-  };
-
-  const closeJsonViewer = () => {
-    setJsonViewerPack(null);
-  };
-
-  const handleExportData = () => {
-    if (previewPack?.ads) {
-      exportToCSV(previewPack.ads, `${previewPack.name}_ads_data`);
-      showSuccess(`Dados exportados para ${previewPack.name}_ads_data.csv`);
-    }
-  };
-
   const formatDate = (dateString: string) => {
-    // Corrigir problema de timezone - usar apenas a data sem conversão de timezone
     const [year, month, day] = dateString.split("-");
     return `${day}/${month}/${year}`;
-  };
-
-  const formatDateTime = (dateTimeString: string) => {
-    if (!dateTimeString) return "N/A";
-    try {
-      // Formato esperado: ISO 8601 (ex: "2024-01-15T10:30:00Z" ou "2024-01-15T10:30:00.000Z")
-      const date = new Date(dateTimeString);
-      const day = String(date.getDate()).padStart(2, "0");
-      const month = String(date.getMonth() + 1).padStart(2, "0");
-      const year = date.getFullYear();
-      const hours = String(date.getHours()).padStart(2, "0");
-      const minutes = String(date.getMinutes()).padStart(2, "0");
-      return `${day}/${month}/${year} ${hours}:${minutes}`;
-    } catch (error) {
-      return "Data inválida";
-    }
-  };
-
-  const getAccountName = (accountId: string) => {
-    const account = Array.isArray(adAccountsData) ? adAccountsData.find((acc: any) => acc.id === accountId) : null;
-    return account?.name || accountId;
-  };
-
-  const getFilterFieldLabel = (fieldValue: string) => {
-    const field = FILTER_FIELDS.find((f) => f.value === fieldValue);
-    return field ? field.label : fieldValue;
   };
 
   const handleRefreshPack = (packId: string) => {
@@ -1109,7 +670,7 @@ export default function PacksPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {packs.map((pack) => (
-              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} formatDateTime={formatDateTime} getAccountName={getAccountName} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
             ))}
           </div>
         )}
@@ -1141,7 +702,7 @@ export default function PacksPage() {
           {/* Ad Account */}
           <div className="space-y-2">
             <label className="text-sm font-medium">Conta de Anúncios</label>
-            {adAccountsLoading || meLoading ? (
+            {adAccountsLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <IconLoader2 className="w-4 h-4 animate-spin" />
                 Carregando contas de anúncios...
@@ -1359,122 +920,6 @@ export default function PacksPage() {
         </div>
       </Modal>
 
-      {/* Preview Modal */}
-      <Modal isOpen={!!previewPack} onClose={closePreview} size="full" className="max-w-7xl" padding="md">
-        <div className="space-y-1.5 mb-6">
-          <h2 className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
-            <IconEye className="w-5 h-5" />
-            Preview: {previewPack?.name}
-          </h2>
-          <p className="text-sm text-muted-foreground">Visualização completa dos dados formatados pelo sistema ({previewPack?.ads?.length || 0} anúncios)</p>
-        </div>
-
-        {previewPack && (
-          <div className="overflow-auto max-h-[70vh]">
-            <div className="bg-border p-4 rounded-lg mb-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="font-medium text-muted-foreground">Período:</p>
-                  <p>
-                    {formatDate(previewPack.date_start)} - {formatDate(previewPack.date_stop)}
-                  </p>
-                </div>
-                <div>
-                  <p className="font-medium text-muted-foreground">Conta:</p>
-                  <p>{getAccountName(previewPack.adaccount_id)}</p>
-                </div>
-                <div>
-                  <p className="font-medium text-muted-foreground">Total Investido:</p>
-                  <p className="font-bold text-warning">{formatCurrency(previewPack.stats?.totalSpend ?? 0)}</p>
-                </div>
-                <div>
-                  <p className="font-medium text-muted-foreground">Anúncios:</p>
-                  <p>{previewPack.ads?.length || 0}</p>
-                </div>
-              </div>
-            </div>
-
-            {/* TanStack Table */}
-            <div className="overflow-x-auto">
-              <TanStackTableComponent data={previewPack.ads} formatCurrency={formatCurrency} />
-            </div>
-          </div>
-        )}
-
-        <div className="flex justify-between mt-6">
-          <Button variant="outline" onClick={handleExportData} className="flex items-center gap-2">
-            <IconDownload className="w-4 h-4" />
-            Exportar CSV
-          </Button>
-          <Button variant="outline" onClick={closePreview}>
-            Fechar
-          </Button>
-        </div>
-      </Modal>
-
-      {/* JSON Viewer Modal */}
-      <Modal isOpen={!!jsonViewerPack} onClose={closeJsonViewer} size="full" className="max-w-6xl" padding="md">
-        <div className="space-y-1.5 mb-6">
-          <h2 className="text-lg font-semibold leading-none tracking-tight flex items-center gap-2">
-            <IconCode className="w-5 h-5" />
-            JSON Bruto: {jsonViewerPack?.name}
-          </h2>
-          <p className="text-sm text-muted-foreground">Dados brutos do pack em formato JSON ({jsonViewerPack?.ads?.length || 0} anúncios)</p>
-        </div>
-
-        {jsonViewerPack && (
-          <div className="overflow-auto max-h-[70vh]">
-            <div className="bg-border p-4 rounded-lg mb-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div>
-                  <p className="font-medium text-muted-foreground">Período:</p>
-                  <p>
-                    {formatDate(jsonViewerPack.date_start)} - {formatDate(jsonViewerPack.date_stop)}
-                  </p>
-                </div>
-                <div>
-                  <p className="font-medium text-muted-foreground">Anúncios:</p>
-                  <p>{jsonViewerPack.ads?.length || 0}</p>
-                </div>
-                <div>
-                  <p className="font-medium text-muted-foreground">Filtros:</p>
-                  <p>{jsonViewerPack.filters?.length || 0}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-black rounded-lg p-4 overflow-auto">
-              <pre className="text-success text-xs font-mono whitespace-pre-wrap">{JSON.stringify(jsonViewerPack, null, 2)}</pre>
-            </div>
-          </div>
-        )}
-
-        <div className="flex justify-end gap-2 mt-6">
-          <Button variant="outline" onClick={closeJsonViewer}>
-            Fechar
-          </Button>
-          <Button
-            onClick={() => {
-              if (jsonViewerPack) {
-                const blob = new Blob([JSON.stringify(jsonViewerPack, null, 2)], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const link = document.createElement("a");
-                link.href = url;
-                link.download = `${jsonViewerPack.name}_raw_data.json`;
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-                showSuccess(`JSON exportado para ${jsonViewerPack.name}_raw_data.json`);
-              }
-            }}
-          >
-            <IconDownload className="w-4 h-4 mr-2" />
-            Exportar JSON
-          </Button>
-        </div>
-      </Modal>
-
       {/* Refresh Pack Confirmation Dialog */}
       <Modal isOpen={!!packToRefresh} onClose={cancelRefreshPack} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="flex flex-col gap-5 py-4">
@@ -1585,52 +1030,6 @@ export default function PacksPage() {
       {/* Disable Auto-Refresh Confirmation Dialog */}
       <ConfirmDialog isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} title="Desativar atualização automática?" message="Ao desativar você precisará lembrar de atualizá-lo manualmente quando necessário." onConfirm={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} onCancel={cancelDisableAutoRefresh} confirmText="Desativar" isLoading={!!isTogglingAutoRefresh} />
 
-      {/* Rename Pack Dialog */}
-      <Modal isOpen={!!packToRename} onClose={() => !isRenaming && cancelRenamePack()} size="md" padding="md" closeOnOverlayClick={!isRenaming} closeOnEscape={!isRenaming} showCloseButton={!isRenaming}>
-        <div className="space-y-1.5 mb-6">
-          <h2 className="text-lg font-semibold leading-none tracking-tight">Renomear Pack</h2>
-          <p className="text-sm text-muted-foreground">Altere o nome do pack "{packToRename?.name}"</p>
-        </div>
-
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Novo Nome</label>
-            <Input
-              placeholder="Digite o novo nome do pack"
-              value={newPackName}
-              onChange={(e) => setNewPackName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !isRenaming && newPackName.trim()) {
-                  confirmRenamePack();
-                }
-              }}
-              disabled={isRenaming}
-              autoFocus
-            />
-            <p className="text-xs text-muted-foreground">O nome não pode estar vazio</p>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-3 mt-6">
-          <Button variant="outline" onClick={cancelRenamePack} disabled={isRenaming}>
-            Cancelar
-          </Button>
-          <Button onClick={confirmRenamePack} disabled={isRenaming || !newPackName.trim() || newPackName.trim() === packToRename?.name}>
-            {isRenaming ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2" />
-                Renomeando...
-              </>
-            ) : (
-              <>
-                <IconPencil className="w-4 h-4 mr-2" />
-                Renomear
-              </>
-            )}
-          </Button>
-        </div>
-      </Modal>
-
       {/* Booster de planilha por pack (Google Sheets) */}
       <GoogleSheetIntegrationDialog
         isOpen={!!sheetIntegrationPack}
@@ -1644,3 +1043,7 @@ export default function PacksPage() {
     </>
   );
 }
+
+
+
+

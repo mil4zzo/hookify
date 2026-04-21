@@ -78,8 +78,8 @@ function SamplePreviewTable({ duplicates, columnsWithIndices, sampleRows }: Samp
   const maxPreviewRows = 5;
 
   return (
-    <div className="rounded-md border border-border bg-muted/30 overflow-hidden">
-      <p className="text-xs font-medium px-3 py-2 text-muted-foreground bg-muted/50">
+    <div className="rounded-md border border-border bg-muted-30 overflow-hidden">
+      <p className="text-xs font-medium px-3 py-2 text-muted-foreground bg-muted-50">
         Amostra das colunas duplicadas (até {maxPreviewRows} linhas) — use para identificar qual coluna escolher
       </p>
       <div className="overflow-x-auto max-h-48 overflow-y-auto">
@@ -87,7 +87,7 @@ function SamplePreviewTable({ duplicates, columnsWithIndices, sampleRows }: Samp
           <thead>
             <tr>
               {duplicateColumns.map(({ label }) => (
-                <th key={label} className="text-left px-3 py-2 font-medium border-b border-border bg-background/80 sticky top-0">
+                <th key={label} className="text-left px-3 py-2 font-medium border-b border-border bg-background-80 sticky top-0">
                   {label}
                 </th>
               ))}
@@ -95,7 +95,7 @@ function SamplePreviewTable({ duplicates, columnsWithIndices, sampleRows }: Samp
           </thead>
           <tbody>
             {sampleRows.slice(0, maxPreviewRows).map((row, rowIdx) => (
-              <tr key={rowIdx} className="border-b border-border/50 hover:bg-muted/20">
+              <tr key={rowIdx} className="border-b border-border-50 hover:bg-muted-20">
                 {duplicateColumns.map(({ index }) => (
                   <td key={`${rowIdx}-${index}`} className="px-3 py-1.5 text-muted-foreground">
                     {row[index] ?? "—"}

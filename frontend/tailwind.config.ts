@@ -7,7 +7,7 @@ import type { Config } from 'tailwindcss'
 const colorMixOnCanvas = (cssVar: string, percent: number) =>
   `color-mix(in oklab, var(${cssVar}) ${percent}%, var(--background))`
 
-const alphaSteps = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90] as const
+const alphaSteps = [5, 10, 20, 30, 40, 45, 50, 60, 70, 75, 80, 82, 88, 90, 95] as const
 
 /** Opacidade da própria `--background` (overlay) — usa alpha real, não mix com transparent. */
 const backgroundAlphaScale = () => {
@@ -65,7 +65,7 @@ export default {
       colors: {
         // === BASE ===
         background: alphaScale('--background'),
-        foreground: 'var(--foreground)',
+        foreground: alphaScale('--foreground'),
         neutral: {
           DEFAULT: 'var(--neutral-600)',
           950: 'var(--neutral-950)',
@@ -79,58 +79,58 @@ export default {
           DEFAULT: 'var(--card)',
           hover: 'color-mix(in oklab, var(--card) 85%, var(--accent) 15%)',
         },
-        'card-foreground': 'var(--card-foreground)',
+        'card-foreground': alphaScale('--card-foreground'),
         popover: {
           DEFAULT: 'var(--popover)',
           hover: 'color-mix(in oklab, var(--popover) 85%, var(--accent) 15%)',
         },
-        'popover-foreground': 'var(--popover-foreground)',
+        'popover-foreground': alphaScale('--popover-foreground'),
 
         // === PRIMÁRIAS ===
         primary: semanticScale('primary', {
           hover: 'color-mix(in oklab, var(--primary) 90%, oklch(1 0 0) 10%)',
         }),
-        'primary-foreground': 'var(--primary-foreground)',
+        'primary-foreground': alphaScale('--primary-foreground'),
 
         // === SECUNDÁRIAS ===
         secondary: {
           ...alphaScale('--secondary'),
           hover: 'color-mix(in oklab, var(--secondary) 85%, var(--accent) 15%)',
         },
-        'secondary-foreground': 'var(--secondary-foreground)',
+        'secondary-foreground': alphaScale('--secondary-foreground'),
 
         // === ESTADOS ===
         muted: {
           ...alphaScale('--muted'),
           hover: 'color-mix(in oklab, var(--muted) 85%, var(--accent) 15%)',
         },
-        'muted-foreground': 'var(--muted-foreground)',
+        'muted-foreground': alphaScale('--muted-foreground'),
         accent: {
           ...alphaScale('--accent'),
           hover: 'color-mix(in oklab, var(--card) 80%, var(--accent) 20%)',
         },
-        'accent-foreground': 'var(--accent-foreground)',
+        'accent-foreground': alphaScale('--accent-foreground'),
 
         // === FEEDBACK ===
         destructive: semanticScale('destructive', {
           hover: 'color-mix(in oklab, var(--destructive) 90%, oklch(1 0 0) 10%)',
         }),
-        'destructive-foreground': 'var(--destructive-foreground)',
+        'destructive-foreground': alphaScale('--destructive-foreground'),
         success: semanticScale('success'),
-        'success-foreground': 'var(--success-foreground)',
+        'success-foreground': alphaScale('--success-foreground'),
         warning: alphaScale('--warning'),
-        'warning-foreground': 'var(--warning-foreground)',
+        'warning-foreground': alphaScale('--warning-foreground'),
         info: alphaScale('--info'),
-        'info-foreground': 'var(--info-foreground)',
+        'info-foreground': alphaScale('--info-foreground'),
         attention: alphaScale('--attention'),
-        'attention-foreground': 'var(--attention-foreground)',
+        'attention-foreground': alphaScale('--attention-foreground'),
 
         // === FORMULÁRIOS ===
         input: alphaScale('--input'),
-        'input-foreground': 'var(--input-foreground)',
-        border: 'var(--border)',
+        'input-foreground': alphaScale('--input-foreground'),
+        border: alphaScale('--border'),
         ring: alphaScale('--ring'),
-        'ring-foreground': 'var(--ring-foreground)',
+        'ring-foreground': alphaScale('--ring-foreground'),
 
         // === COMPONENTES ESPECÍFICOS ===
         sidebar: 'var(--sidebar)',
@@ -154,11 +154,11 @@ export default {
 
         // === GRÁFICOS ===
         chart: {
-          1: 'var(--chart-1)',
-          2: 'var(--chart-2)',
-          3: 'var(--chart-3)',
-          4: 'var(--chart-4)',
-          5: 'var(--chart-5)',
+          1: alphaScale('--chart-1'),
+          2: alphaScale('--chart-2'),
+          3: alphaScale('--chart-3'),
+          4: alphaScale('--chart-4'),
+          5: alphaScale('--chart-5'),
         },
 
         // === BRAND ===

@@ -76,7 +76,7 @@ export default function PrivacyPolicyPage() {
                 identificadores e referências de mídia como vídeo/imagem quando aplicável)
               </li>
             </ul>
-            <blockquote className="border-l-2 border-muted-foreground/30 pl-4 text-sm italic text-muted-foreground">
+            <blockquote className="border-l-2 border-muted-foreground-30 pl-4 text-sm italic text-muted-foreground">
               Nós processamos esses dados <strong>somente</strong> para fornecer as análises e
               relatórios do Hookify ao próprio usuário.
             </blockquote>

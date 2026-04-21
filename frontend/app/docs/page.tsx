@@ -455,7 +455,7 @@ export default function DocsPage() {
             <AccordionContent>
               <div className="space-y-2">
                 {META_PERMISSIONS.map((p) => (
-                  <div key={p.scope} className="rounded-md border border-border/60 p-3">
+                  <div key={p.scope} className="rounded-md border border-border-60 p-3">
                     <div className="flex items-start gap-2 text-sm">
                       <code className="text-xs bg-muted-50 px-1.5 py-0.5 rounded font-mono text-attention shrink-0">{p.scope}</code>
                       <span className="text-muted-foreground">{p.description}</span>
@@ -663,7 +663,7 @@ export default function DocsPage() {
                     </thead>
                     <tbody>
                       {table.columns.map((col) => (
-                        <tr key={col.name} className="border-b border-border/50">
+                        <tr key={col.name} className="border-b border-border-50">
                           <td className="py-1.5 pr-3">
                             <code className="text-xs font-mono text-foreground">{col.name}</code>
                           </td>

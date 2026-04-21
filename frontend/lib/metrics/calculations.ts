@@ -99,8 +99,12 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     case "plays": {
       return toFiniteNumber(source.plays ?? source.video_total_plays);
     }
-    case "results":
-      return getResultsForActionType(source, context.actionType);
+    case "results": {
+      const fromActionType = getResultsForActionType(source, context.actionType);
+      if (fromActionType != null) return fromActionType;
+      // Fallback: use pre-computed source.results (set by buildManagerComputedRow when actionType was available)
+      return toFiniteNumber(source.results);
+    }
     case "website_ctr": {
       const fromBackend = toFiniteNumber(source.website_ctr);
       if (fromBackend != null) return fromBackend;

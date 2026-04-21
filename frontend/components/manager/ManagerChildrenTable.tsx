@@ -208,7 +208,7 @@ export function ManagerChildrenTable({
 
   const innerContent = (
     <div>
-      <div className="bg-muted/50 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
+      <div className="bg-muted-50 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
         <div className="flex flex-nowrap items-center gap-3">
           <SearchInputWithClear
             value={searchTerm}

@@ -178,9 +178,9 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
   const actorId: string = extractActorIdFromCreative(rawCreative) || extractActorIdFromCreative(dbCreative)
   const videoOwnerPageId: string | undefined = (dbCreativeData as any)?.video_owner_page_id
 
-  const shouldFetchVideo = isVideoAd && dbMediaType !== "image" && !existingVideoUrl && !!videoId && !!actorId && !!adId && !loadingDbCreative
+  const shouldFetchVideo = isVideoAd && dbMediaType !== "image" && !existingVideoUrl && !!videoId && !!adId && !loadingDbCreative
   const { data: videoData, isLoading: loadingVideoSource } = useVideoSource(
-    { video_id: videoId ?? "", actor_id: actorId, ad_id: adId ?? "", video_owner_page_id: videoOwnerPageId },
+    { video_id: videoId ?? "", actor_id: actorId || undefined, ad_id: adId ?? "", video_owner_page_id: videoOwnerPageId },
     shouldFetchVideo,
   )
   const resolvedVideoUrl = existingVideoUrl || videoData?.source_url || null

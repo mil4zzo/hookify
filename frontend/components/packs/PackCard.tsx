@@ -25,8 +25,6 @@ export interface PackCardProps {
   pack: AdsPack;
   formatCurrency: (value: number) => string;
   formatDate: (dateString: string) => string;
-  formatDateTime: (dateTimeString: string) => string;
-  getAccountName: (accountId: string) => string;
   // Handlers
   onRefresh: (packId: string) => void;
   onRemove: (packId: string) => void;
@@ -52,7 +50,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, getAccountName, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
@@ -239,7 +237,7 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
             {isUpdating && (
               <>
                 {/* Overlay sutil com animação */}
-                <div className="absolute inset-0 bg-primary/10 rounded-xl pointer-events-none z-[15] animate-pulse" />
+                <div className="absolute inset-0 bg-primary-10 rounded-xl pointer-events-none z-[15] animate-pulse" />
 
                 {/* Borda animada */}
                 <div className="absolute inset-0 rounded-xl border-2 border-primary pointer-events-none z-[16] animate-pulse" />
@@ -303,9 +301,9 @@ export function PackCard({ pack, formatCurrency, formatDate, formatDateTime, get
                     {pack.filters.map((filter: FilterRule, index: number) => (
                       <div key={index} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
                         <IconFilter className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="font-medium text-foreground/80">{getFilterFieldLabel(filter.field)}</span>
+                        <span className="font-medium text-foreground-80">{getFilterFieldLabel(filter.field)}</span>
                         <span className="opacity-60">{filter.operator.toLowerCase().replace("_", " ")}</span>
-                        <span className="font-medium text-foreground/80">"{filter.value}"</span>
+                        <span className="font-medium text-foreground-80">"{filter.value}"</span>
                       </div>
                     ))}
                   </div>

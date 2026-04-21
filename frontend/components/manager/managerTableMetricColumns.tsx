@@ -297,7 +297,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                               e.stopPropagation();
                               openSettings("leadscore");
                             }}
-                            className="text-warning hover:text-warning/80 transition-colors"
+                            className="text-warning hover:text-warning-80 transition-colors"
                           >
                             <IconAlertTriangle className={isMinimal ? "h-3 w-3" : "h-4 w-4"} />
                           </button>

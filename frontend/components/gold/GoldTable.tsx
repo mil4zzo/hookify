@@ -249,13 +249,13 @@ export function GoldTable({ ads, averages, actionType }: GoldTableProps) {
         return {
           label: "Oportunidades",
           color: "text-chart-1",
-          bgColor: "bg-chart-1/10 border-chart-1/30",
+          bgColor: "bg-chart-1-10 border-chart-1-30",
         };
       case "licoes":
         return {
           label: "Lições",
           color: "text-chart-2",
-          bgColor: "bg-chart-2/10 border-chart-2/30",
+          bgColor: "bg-chart-2-10 border-chart-2-30",
         };
       case "descartes":
         return {

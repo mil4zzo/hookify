@@ -33,7 +33,7 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 function StatusDot({ status }: { status?: string | null }) {
   return (
     <span
-      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${status === "ACTIVE" ? "bg-emerald-500" : "bg-muted-foreground/40"}`}
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${status === "ACTIVE" ? "bg-emerald-500" : "bg-muted-foreground-40"}`}
       title={status ?? ""}
     />
   )

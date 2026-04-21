@@ -178,9 +178,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const mediaType = normalizeMediaType((creativeData as any)?.media_type);
   const actorId = extractActorIdFromCreative(creative);
   const videoOwnerPageId = (creativeData as any)?.video_owner_page_id;
-  const shouldLoadVideo = activeTab === "video" && mediaType !== "image" && !!videoId && !!actorId && !loadingCreative;
+  const shouldLoadVideo = activeTab === "video" && mediaType !== "image" && !!videoId && !loadingCreative;
 
-  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || "", ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
+  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
 
   const { data: historyDataById, isLoading: loadingHistoryById } = useAdHistory(adId, dateStart || "", dateStop || "", shouldLoadHistoryById);
   const { data: historyDataByName, isLoading: loadingHistoryByName } = useAdNameHistory(adName, dateStart || "", dateStop || "", shouldLoadHistoryByName);

@@ -50,7 +50,7 @@ export default function Sidebar() {
   const isReady = !isLoadingOnboarding && hasCompletedOnboarding;
 
   return (
-    <aside className={cn("hidden md:flex fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground border-r border-border backdrop-blur supports-[backdrop-filter]:bg-background/60 z-40 flex-col transition-all duration-300 overflow-hidden", isCollapsed ? "w-16 ease-in" : "w-64 ease-out")}>
+    <aside className={cn("hidden md:flex fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground border-r border-border backdrop-blur supports-[backdrop-filter]:bg-background-60 z-40 flex-col transition-all duration-300 overflow-hidden", isCollapsed ? "w-16 ease-in" : "w-64 ease-out")}>
       {/* Logo and Collapse Button */}
       <div className={cn("pl-6 pr-3 py-4 flex items-center justify-between border-b border-border transition-all duration-300", isCollapsed ? "px-3 ease-in" : "ease-out")}>
         <Link href="/" className={cn("flex items-center hover:opacity-80 transition-all duration-300", isCollapsed ? "opacity-0 w-0 pointer-events-none ease-in" : "opacity-100 w-auto ease-out")}>

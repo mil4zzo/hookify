@@ -153,15 +153,15 @@ export function RetentionVideoPlayer({
         <VideoPlayer ref={videoRef} src={src} autoPlay={autoplay} className="absolute inset-0" />
         {showRetentionLoadingOverlay && (
           <div className="absolute inset-0 z-10 flex flex-col justify-between rounded-lg bg-black/24 p-4 pointer-events-none">
-            <div className="self-start rounded-md bg-background/90 px-3 py-1.5 shadow-sm backdrop-blur-sm">
+            <div className="self-start rounded-md bg-background-90 px-3 py-1.5 shadow-sm backdrop-blur-sm">
               <div className="text-[11px] font-medium text-foreground">Carregando retenção...</div>
             </div>
             <div className="space-y-2">
-              <Skeleton className="h-24 w-full rounded-md bg-background/40" />
+              <Skeleton className="h-24 w-full rounded-md bg-background-40" />
               <div className="grid grid-cols-3 gap-2">
-                <Skeleton className="h-8 rounded-md bg-background/40" />
-                <Skeleton className="h-8 rounded-md bg-background/40" />
-                <Skeleton className="h-8 rounded-md bg-background/40" />
+                <Skeleton className="h-8 rounded-md bg-background-40" />
+                <Skeleton className="h-8 rounded-md bg-background-40" />
+                <Skeleton className="h-8 rounded-md bg-background-40" />
               </div>
             </div>
           </div>

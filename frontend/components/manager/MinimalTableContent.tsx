@@ -348,11 +348,11 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
                   (currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null);
 
                 if (isExpanded && expandedContent) {
-                  return <ExpandedRowCell key={row.id} ref={rowVirtualizer.measureElement} row={row} table={table} expandedContent={expandedContent} tdClassName="p-0 align-top border border-primary rounded-md bg-input-30" onRowClick={handleRowClick} trClassName={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} bg-muted/30`} dataIndex={virtualRow.index} summaryCellClassName="py-1.5 px-2" />;
+                  return <ExpandedRowCell key={row.id} ref={rowVirtualizer.measureElement} row={row} table={table} expandedContent={expandedContent} tdClassName="p-0 align-top border border-primary rounded-md bg-input-30" onRowClick={handleRowClick} trClassName={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"} bg-muted-30`} dataIndex={virtualRow.index} summaryCellClassName="py-1.5 px-2" />;
                 }
 
                 return (
-                  <tr key={row.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted/30 cursor-pointer"} ${isExpanded ? "bg-muted/30" : ""}`} onClick={(e) => handleRowClick(e, row)}>
+                  <tr key={row.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"} ${isExpanded ? "bg-muted-30" : ""}`} onClick={(e) => handleRowClick(e, row)}>
                     {row.getVisibleCells().map((cell, cellIndex) => {
                       const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
                       const isFirst = cellIndex === 0;

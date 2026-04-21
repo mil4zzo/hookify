@@ -46,7 +46,7 @@ function SignalList({ title, icon: Icon, items }: { title: string; icon: typeof 
         {items.map((item) => (
           <div key={`${title}-${item.title}`} className={cn("rounded-2xl border p-5 shadow-sm transition-colors", getToneStyles(item.tone))}>
             <div className="flex items-start gap-2">
-              <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-background/70">
+              <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-background-70">
                 <IconCircleCheckFilled className="h-3.5 w-3.5" />
               </span>
               <div className="space-y-1">

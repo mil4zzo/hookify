@@ -163,10 +163,10 @@ class GraphAPI:
 
     def get_page_access_token(self, actor_id: str) -> str:
         """
-        Resolve o Page Access Token a partir do actor_id (Page ID) sem chamar /me/accounts.
+        Resolve o Page Access Token a partir do actor_id (Page ID) via /me/accounts.
 
         Estratégia:
-        - Usa /me/adaccounts?fields=...promote_pages{access_token} com cache em memória por user_id.
+        - Usa GET /me/accounts com cache em memória por user_id.
         - Fallback: se não encontrar token da página, usa token do usuário (pode funcionar em alguns casos).
         """
         if not actor_id:
@@ -752,12 +752,13 @@ class GraphAPI:
             return None
 
     def get_video_source_url(
-        self, video_id: Union[str, int], actor_id: str, video_owner_page_id: Optional[str] = None
+        self, video_id: Union[str, int], actor_id: Optional[str] = None, video_owner_page_id: Optional[str] = None
     ) -> Union[str, Dict[str, Any]]:
-        if not actor_id or not video_id:
-            raise ValueError("actor_id and video_id are required")
+        if not video_id:
+            raise ValueError("video_id is required")
 
-        resolved_owner_page_id = video_owner_page_id
+        actor_id = str(actor_id or "").strip()
+        resolved_owner_page_id = str(video_owner_page_id or "").strip() or None
 
         try:
             # 1. Se já temos o owner, usar direto
@@ -779,18 +780,20 @@ class GraphAPI:
                     return {"source": source, "video_owner_page_id": resolved_owner_page_id}
 
             # 4. Fallback: tentar com actor_id (comportamento original)
-            page_token = self.get_page_access_token(actor_id)
-            video_url = self.base_url + str(video_id) + page_token
-            payload = {'fields': 'source'}
-            resp = requests.get(video_url, params=payload, timeout=15)
-            resp.raise_for_status()
-            log_meta_usage(resp, "GraphAPI.get_video_source_url")
-            source = resp.json().get('source')
-            if source:
-                return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}
+            if actor_id:
+                page_token = self.get_page_access_token(actor_id)
+                video_url = self.base_url + str(video_id) + page_token
+                payload = {'fields': 'source'}
+                resp = requests.get(video_url, params=payload, timeout=15)
+                resp.raise_for_status()
+                log_meta_usage(resp, "GraphAPI.get_video_source_url")
+                source = resp.json().get('source')
+                if source:
+                    return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}
             return {"status": "not_found", "message": "No video source returned"}
         except requests.exceptions.HTTPError as http_err:
             decoded_text = urllib.parse.unquote(http_err.response.text)
+            owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
             try:
                 error_data = json.loads(decoded_text)
                 error_message = error_data.get('error', {}).get('message', decoded_text)
@@ -799,7 +802,7 @@ class GraphAPI:
                 # Mensagens de erro mais claras baseadas no código de erro
                 if error_code == 100:
                     user_friendly_message = (
-                        f"Sua conta do Facebook não tem acesso à página {actor_id}. "
+                        f"Sua conta do Facebook não tem acesso à página {owner_reference}. "
                         f"O vídeo pode estar associado a uma página que você não gerencia ou que foi removida."
                     )
                 elif error_code == 190:
@@ -823,16 +826,24 @@ class GraphAPI:
                     f"Verifique se sua conta do Facebook tem as permissões necessárias."
                 )
 
-            logger.error("get_video_source_url http_error: status=%s video_id=%s actor_id=%s body=%s", http_err.response.status_code, video_id, actor_id, decoded_text[:300])
+            logger.error(
+                "get_video_source_url http_error: status=%s video_id=%s actor_id=%s owner_page_id=%s body=%s",
+                http_err.response.status_code,
+                video_id,
+                actor_id,
+                resolved_owner_page_id,
+                decoded_text[:300],
+            )
             return {
                 'status': f"Status: {http_err.response.status_code} - http_error",
                 'message': user_friendly_message
             }
         except Exception as err:
             error_message = str(err)
+            owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
             if "Page with ID" in error_message and "not found" in error_message:
                 user_friendly_message = (
-                    f"Sua conta do Facebook não tem acesso à página {actor_id}. "
+                    f"Sua conta do Facebook não tem acesso à página {owner_reference}. "
                     f"O vídeo pode estar associado a uma página que você não gerencia."
                 )
             else:

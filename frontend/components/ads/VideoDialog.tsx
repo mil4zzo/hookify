@@ -14,8 +14,8 @@ interface VideoDialogProps {
 }
 
 export function VideoDialog({ open, onOpenChange, videoId, actorId, adId, videoOwnerPageId, title }: VideoDialogProps) {
-  const enabled = Boolean(open && videoId && actorId);
-  const { data, isLoading, error } = useVideoSource({ video_id: videoId || "", actor_id: actorId || "", ad_id: adId, video_owner_page_id: videoOwnerPageId }, enabled);
+  const enabled = Boolean(open && videoId);
+  const { data, isLoading, error } = useVideoSource({ video_id: videoId || "", actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId }, enabled);
 
   const sourceUrl = (data as any)?.source_url;
 

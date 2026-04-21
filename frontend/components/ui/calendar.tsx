@@ -47,7 +47,7 @@ function Calendar({
         button_next: cn(buttonVariants({ variant: buttonVariant }), "h-[--cell-size] w-[--cell-size] min-h-[2.75rem] min-w-[2.75rem] sm:min-h-[2.5rem] sm:min-w-[2.5rem] md:min-h-0 md:min-w-0", "select-none p-0 rounded-md transition-colors", "hover:bg-accent hover:text-accent-foreground", "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", "aria-disabled:opacity-40 aria-disabled:cursor-not-allowed", defaultClassNames.button_next),
         month_caption: cn("flex h-[--cell-size] w-full items-center justify-center px-[--cell-size]", "min-h-[2.75rem] sm:min-h-[2.5rem] md:min-h-0", defaultClassNames.month_caption),
         dropdowns: cn("flex h-[--cell-size] w-full items-center justify-center gap-1.5 sm:gap-2", "min-h-[2.75rem] sm:min-h-[2.5rem] md:min-h-0", "text-sm sm:text-base font-medium", defaultClassNames.dropdowns),
-        dropdown_root: cn("has-focus:border-ring border-input shadow-xs", "has-focus:ring-ring/50 has-focus:ring-[3px]", "relative rounded-md border transition-all", defaultClassNames.dropdown_root),
+        dropdown_root: cn("has-focus:border-ring border-input shadow-xs", "has-focus:ring-ring-50 has-focus:ring-[3px]", "relative rounded-md border transition-all", defaultClassNames.dropdown_root),
         dropdown: cn("bg-popover absolute inset-0 opacity-0", defaultClassNames.dropdown),
         caption_label: cn("select-none font-semibold text-foreground", captionLayout === "label" ? "text-sm sm:text-base md:text-lg" : "[&>svg]:text-muted-foreground flex h-8 sm:h-9 items-center gap-1.5 rounded-md pl-2 pr-1.5 text-sm sm:text-base [&>svg]:size-3.5 sm:[&>svg]:size-4", defaultClassNames.caption_label),
         table: "w-full border-collapse",
@@ -61,8 +61,8 @@ function Calendar({
         range_middle: cn("!bg-popover", "[&:first-child]:rounded-l-md [&:last-child]:rounded-r-md", defaultClassNames.range_middle),
         range_end: cn("!bg-primary-20 rounded-md", defaultClassNames.range_end),
         today: cn("underline underline-offset-4 decoration-2 decoration-dotted decoration-primary text-accent-foreground rounded-md font-semibold", "data-[selected=true]:rounded-md data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground", defaultClassNames.today),
-        outside: cn("text-muted-foreground/60 aria-selected:text-muted-foreground/60", defaultClassNames.outside),
-        disabled: cn("text-muted-foreground/40 opacity-50 cursor-not-allowed", defaultClassNames.disabled),
+        outside: cn("text-muted-foreground-60 aria-selected:text-muted-foreground-60", defaultClassNames.outside),
+        disabled: cn("text-muted-foreground-40 opacity-50 cursor-not-allowed", defaultClassNames.disabled),
         hidden: cn("invisible", defaultClassNames.hidden),
         ...classNames,
       }}
@@ -149,7 +149,7 @@ function CalendarDayButton({ className, day, modifiers, ...props }: React.Compon
         // Focus states
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "group-data-[focused=true]/day:relative group-data-[focused=true]/day:z-10",
-        "group-data-[focused=true]/day:ring-[3px] group-data-[focused=true]/day:ring-ring/50",
+        "group-data-[focused=true]/day:ring-[3px] group-data-[focused=true]/day:ring-ring-50",
         defaultClassNames.day,
         className
       )}

@@ -159,7 +159,7 @@ export default function BundleUploadZone({
           className="flex min-h-44 cursor-pointer flex-col items-center justify-center gap-3 border-dashed p-6 text-center"
           onClick={() => bulkInputRef.current?.click()}
         >
-          <div className="rounded-full bg-primary/10 p-4 text-primary">
+          <div className="rounded-full bg-primary-10 p-4 text-primary">
             <IconUpload className="h-8 w-8" />
           </div>
           <div>
@@ -191,7 +191,7 @@ export default function BundleUploadZone({
       ) : null}
 
       {parseErrors.length > 0 ? (
-        <Card className="space-y-2 border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive">
+        <Card className="space-y-2 border-destructive-20 bg-destructive-5 p-4 text-sm text-destructive">
           <div className="font-medium">Arquivos com nomenclatura invalida</div>
           <ul className="space-y-1">
             {parseErrors.map((error) => (

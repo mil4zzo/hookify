@@ -211,11 +211,11 @@ export function useSharedAdNameDetail({
   const videoQuery = useVideoSource(
     {
       video_id: videoId,
-      actor_id: actorId,
+      actor_id: actorId || undefined,
       ad_id: adId || undefined,
       video_owner_page_id: videoOwnerPageId || undefined,
     },
-    enabled && !!ad && mediaType !== "image" && !!videoId && !!actorId,
+    enabled && !!ad && mediaType !== "image" && !!videoId,
   );
 
   const model = useMemo(() => {

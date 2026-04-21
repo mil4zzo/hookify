@@ -27,7 +27,7 @@ export default function FileUploadZone({ files, onFilesChange }: FileUploadZoneP
         className="flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 border-dashed p-6 text-center"
         onClick={() => inputRef.current?.click()}
       >
-        <div className="rounded-full bg-primary/10 p-4 text-primary">
+        <div className="rounded-full bg-primary-10 p-4 text-primary">
           <IconUpload className="h-8 w-8" />
         </div>
         <div>

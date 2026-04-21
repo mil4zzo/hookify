@@ -65,7 +65,7 @@ const cardSurfaceMap: Record<MetricQualityTone, string> = {
   primary: "border-primary-10 shadow-[0_0_18px_rgba(59,130,246,0.08)]",
   brand: "border-brand-10 shadow-[0_0_18px_rgba(168,85,247,0.08)]",
   muted: "border-border bg-background shadow-none",
-  accent: "border-ring/10 bg-ring/5 shadow-[0_0_18px_rgba(148,163,184,0.08)]",
+  accent: "border-ring-10 bg-ring-5 shadow-[0_0_18px_rgba(148,163,184,0.08)]",
   "muted-foreground": "border-border bg-background shadow-none",
 };
 

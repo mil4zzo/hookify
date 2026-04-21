@@ -176,7 +176,7 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
   const innerContent = (
     <div>
       {/* Busca e filtros - flex horizontal: search à esquerda, filterbar à direita */}
-      <div className="px-4 py-3 bg-muted/50" role="region" aria-label="Busca e filtros da tabela expandida">
+      <div className="px-4 py-3 bg-muted-50" role="region" aria-label="Busca e filtros da tabela expandida">
         <div className="flex items-center gap-3 flex-nowrap">
           <SearchInputWithClear
             value={searchTerm}

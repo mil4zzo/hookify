@@ -28,7 +28,7 @@ export function showError(error: AppError | Error | unknown) {
       <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
       <div className="flex items-center gap-2 flex-1 min-w-0">
         <span className="flex-1 min-w-0 text-sm text-foreground break-words">{message}</span>
-        <button type="button" onClick={() => toast.dismiss(toastId)} className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring" aria-label="Fechar">
+        <button type="button" onClick={() => toast.dismiss(toastId)} className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted-50 focus:outline-none focus:ring-1 focus:ring-ring" aria-label="Fechar">
           <IconX className="h-4 w-4" strokeWidth={2} />
         </button>
       </div>

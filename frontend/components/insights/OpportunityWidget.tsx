@@ -239,7 +239,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
 
       {/* Botão anterior */}
       {canScrollLeft && (
-        <Button variant="outline" size="icon" className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full shadow-lg bg-background/80 backdrop-blur-sm hover:bg-background" onClick={scrollLeft} aria-label="Anterior">
+        <Button variant="outline" size="icon" className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full shadow-lg bg-background-80 backdrop-blur-sm hover:bg-background" onClick={scrollLeft} aria-label="Anterior">
           <IconChevronLeft className="h-5 w-5" />
         </Button>
       )}
@@ -257,7 +257,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
 
       {/* Botão próximo */}
       {canScrollRight && (
-        <Button variant="outline" size="icon" className="absolute right-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full shadow-lg bg-background/80 backdrop-blur-sm hover:bg-background" onClick={scrollRight} aria-label="Próximo">
+        <Button variant="outline" size="icon" className="absolute right-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full shadow-lg bg-background-80 backdrop-blur-sm hover:bg-background" onClick={scrollRight} aria-label="Próximo">
           <IconChevronRight className="h-5 w-5" />
         </Button>
       )}

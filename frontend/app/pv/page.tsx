@@ -203,7 +203,7 @@ export default async function PvPage({
                   <CardDescription>Comparação direta. Sem scroll infinito.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="rounded-lg border border-border bg-background/40 p-4">
+                  <div className="rounded-lg border border-border bg-background-40 p-4">
                     <div className="grid grid-cols-[1fr_repeat(3,auto)] items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
                       <div className="font-medium text-foreground">Anúncio</div>
                       <div className="text-right">Hook</div>
