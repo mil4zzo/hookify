@@ -220,6 +220,17 @@ const CAMPAIGN_PIPELINE = [
 
 const ADS_PIPELINE = ["pending", "uploading_media", "creating_creative", "creating_ad", "success"]
 
+const GENERAL_PROGRESS_STATUSES = new Set(["pending"])
+const TERMINAL_PROGRESS_STATUSES = new Set(["success", "error", "skipped"])
+
+function getCurrentProgressItemLabel(items: Array<{ ad_name: string; status: string }>) {
+  const activeIndex = items.findIndex((item) => !GENERAL_PROGRESS_STATUSES.has(item.status) && !TERMINAL_PROGRESS_STATUSES.has(item.status))
+  const fallbackIndex = items.findIndex((item) => !TERMINAL_PROGRESS_STATUSES.has(item.status))
+  const index = activeIndex >= 0 ? activeIndex : fallbackIndex
+  if (index < 0) return null
+  return `Subindo anúncio ${index + 1} de ${items.length}: ${items[index].ad_name}`
+}
+
 function CampaignProgressView({
   progress,
   isCreating,
@@ -241,6 +252,7 @@ function CampaignProgressView({
   const isFailed = progress.status === "failed"
   const isCancelled = progress.status === "cancelled"
   const isTerminal = isCompleted || isFailed || isCancelled
+  const currentItemLabel = getCurrentProgressItemLabel(items)
 
   return (
     <div className="space-y-4">
@@ -256,7 +268,7 @@ function CampaignProgressView({
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold">
-              {isCompleted ? "Criação concluída!" : isFailed ? "Erro na criação" : isCancelled ? "Cancelado" : "Criando campanhas…"}
+              {isCompleted ? "Criação concluída!" : isFailed ? "Erro na criação" : isCancelled ? "Cancelado" : currentItemLabel || "Criando campanhas..."}
             </div>
             <div className="text-xs text-muted-foreground truncate">{message}</div>
           </div>
@@ -356,7 +368,7 @@ export default function UploadPage() {
   const [bundleParseErrors, setBundleParseErrors] = useState<string[]>([])
   const [selectedAdsetIds, setSelectedAdsetIds] = useState<string[]>([])
   const [reviewItems, setReviewItems] = useState<BulkReviewRowItem[]>([])
-  const { isCreating, progress, startBulkCreate, retryFailed, cancelBulkCreate, resumePolling } = useBulkCreate()
+  const { isCreating, progress, startBulkCreate, retryFailed, cancelBulkCreate, resumePolling, resetBulkCreate } = useBulkCreate()
 
   // ── campaign mode ────────────────────────────────────────────────────────────
   const [campaignTemplate, setCampaignTemplate] = useState<CampaignTemplateResponse | null>(null)
@@ -371,7 +383,15 @@ export default function UploadPage() {
   const adsetNameTemplateRef = useRef(adsetNameTemplate)
   useEffect(() => { campaignNameTemplateRef.current = campaignNameTemplate }, [campaignNameTemplate])
   useEffect(() => { adsetNameTemplateRef.current = adsetNameTemplate }, [adsetNameTemplate])
-  const { isStarting: isCampaignStarting, isCreating: isCampaignCreating, progress: campaignProgress, startCampaignBulk, retryCampaignFailed, cancelCampaignBulk } = useCampaignBulkCreate()
+  const {
+    isStarting: isCampaignStarting,
+    isCreating: isCampaignCreating,
+    progress: campaignProgress,
+    startCampaignBulk,
+    retryCampaignFailed,
+    cancelCampaignBulk,
+    resetCampaignBulk,
+  } = useCampaignBulkCreate()
 
   // ── derived ──────────────────────────────────────────────────────────────────
   const adsetMap = useMemo(() => {
@@ -402,7 +422,6 @@ export default function UploadPage() {
     () => (campaignTemplate ? buildCampaignTreeForSelector(campaignTemplate) : []),
     [campaignTemplate],
   )
-
   const campaignTemplateSlots = useMemo(
     () => creative?.media_slots ?? [],
     [creative],
@@ -606,7 +625,9 @@ export default function UploadPage() {
   }, [])
 
   // ── handlers ──────────────────────────────────────────────────────────────────
-  const switchMode = useCallback(function switchMode(mode: "ads" | "campaign") {
+  const resetCurrentFlow = useCallback((mode: "ads" | "campaign" = uploadMode) => {
+    resetBulkCreate()
+    resetCampaignBulk()
     setUploadMode(mode)
     setCurrentStep(1)
     setSelectedTemplateAdId(null)
@@ -614,6 +635,7 @@ export default function UploadPage() {
     setSelectedAccountId(null)
     setCreative(null)
     setFiles([])
+    setBundleUploadMode("visual")
     setBundleFilePool([])
     setBundleDrafts([])
     setBundleParseErrors([])
@@ -626,7 +648,11 @@ export default function UploadPage() {
     setCampaignNameTemplate("{ad_name}")
     setAdsetNameTemplate("{ad_name}")
     setCampaignBudget(null)
-  }, [])
+  }, [resetBulkCreate, resetCampaignBulk, uploadMode])
+
+  const switchMode = useCallback(function switchMode(mode: "ads" | "campaign") {
+    resetCurrentFlow(mode)
+  }, [resetCurrentFlow])
 
   const handleBundleModeChange = useCallback(function handleBundleModeChange(mode: "visual" | "filename") {
     setBundleUploadMode(mode)
@@ -797,13 +823,24 @@ export default function UploadPage() {
   const canCreate = uploadMode === "campaign"
     ? campaignReviewItems.length > 0 && !isAnyCreating && !campaignProgress
     : reviewItems.length > 0 && !isAnyCreating && !progress
+  const isCampaignSuccessState = uploadMode === "campaign"
+    && currentStep === 4
+    && campaignProgress?.status === "completed"
+    && campaignProgress.summary.error === 0
 
   const uploadTabs: TabItem[] = [
     { value: "campaign", label: "Duplicar campanha", icon: IconCopy },
-    { value: "ads", label: "Criar anúncios", icon: IconPhoto },
+    { value: "ads", label: "Criar anúncios", icon: IconPhoto, disabled: true, tooltip: "Em breve" },
   ]
 
-  const navActions = (
+  const navActions = isCampaignSuccessState ? (
+    <div className="flex items-center gap-2">
+      <Button type="button" size="sm" onClick={() => resetCurrentFlow("campaign")} className="gap-1.5">
+        Concluir
+        <IconCircleCheck className="h-4 w-4" />
+      </Button>
+    </div>
+  ) : (
     <div className="flex items-center gap-2">
       <Button
         type="button"

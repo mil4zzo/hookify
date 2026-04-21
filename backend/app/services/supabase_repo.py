@@ -427,6 +427,7 @@ def upsert_ads(
             # Adicionar campos de fallback
             "adcreatives_videos_ids": videos_ids_list if videos_ids_list else None,
             "adcreatives_videos_thumbs": videos_thumbs_list if videos_thumbs_list else None,
+            "video_owner_page_id": ad.get("video_owner_page_id") or None,
             "updated_at": _now_iso(),
         }
         # Mantém apenas uma ocorrência por ad_id (sobrescreve se houver duplicata)
@@ -1208,270 +1209,6 @@ def calculate_pack_stats_essential(
     }
 
 
-def calculate_pack_stats(
-    user_jwt: str,
-    pack_id: str,
-    user_id: Optional[str],
-    *,
-    sb_client: Optional["Client"] = None,
-) -> Dict[str, Any]:
-    """Calcula estatísticas agregadas de um pack baseado nas métricas de ad_metrics.
-    
-    Filtra métricas por pack_ids (não por período) para incluir todos os dados do pack,
-    incluindo dados de refresh que podem ter datas diferentes do período original.
-    
-    Returns:
-        Dict com stats: {
-            "totalAds": int,
-            "uniqueAds": int,
-            "uniqueAdNames": int,
-            "uniqueCampaigns": int,
-            "uniqueAdsets": int,
-            "totalSpend": float,
-            "totalClicks": int,
-            "totalImpressions": int,
-            "totalReach": int,
-            "totalInlineLinkClicks": int,
-            "totalPlays": int,
-            "totalThruplays": int,
-            "ctr": float,
-            "cpm": float,
-            "frequency": float,
-            "holdRate": float,
-            "connectRate": float,
-            "websiteCtr": float,
-            "profileCtr": float,
-            "videoWatchedP50": float,
-            "totalLandingPageViews": int,
-            "actions": Dict[str, int],
-            "conversions": Dict[str, int],
-        }
-    """
-    if not user_id:
-        return {}
-    
-    sb = _get_sb(user_jwt, sb_client)
-    
-    try:
-        # Verificar se pack existe (apenas para validação)
-        pack_res = sb.table("packs")\
-            .select("id")\
-            .eq("id", pack_id)\
-            .eq("user_id", user_id)\
-            .limit(1)\
-            .execute()
-        
-        if not pack_res.data or len(pack_res.data) == 0:
-            logger.warning(f"[CALCULATE_PACK_STATS] Pack {pack_id} não encontrado")
-            return {}
-        
-        # Buscar métricas que pertencem ao pack (via pack_ids array)
-        # Isso inclui TODAS as métricas do pack, independente da data (criadas + refresh)
-        # Usar operador PostgREST @> (contains) via query parameter
-        # Incluir campos adicionais para novas métricas agregadas
-        try:
-            # Tentar usar filtro direto com contains (PostgREST @> operator)
-            def metrics_filters(q):
-                return q.eq("user_id", user_id).filter("pack_ids", "cs", f"{{{pack_id}}}")
-            
-            metrics = _fetch_all_paginated(
-                sb,
-                "ad_metrics",
-                "ad_id, ad_name, campaign_id, adset_id, spend, clicks, impressions, reach, inline_link_clicks, video_total_plays, video_total_thruplays, cpm, ctr, frequency, hold_rate, connect_rate, website_ctr, profile_ctr, video_watched_p50, actions, conversions",
-                metrics_filters
-            )
-        except Exception as filter_error:
-            # IMPORTANTE:
-            # O fallback antigo varria TODAS as métricas do usuário e filtrava em Python.
-            # Em produção isso pode ser enorme e travar requests e jobs (especialmente durante persistência).
-            # Melhor prática aqui é degradar com segurança (stats best-effort) e preservar a saúde do sistema.
-            logger.warning(
-                f"[CALCULATE_PACK_STATS] Erro ao filtrar ad_metrics por pack_ids (cs) para pack {pack_id}; "
-                f"pulando cálculo de stats (best-effort). Erro: {filter_error}"
-            )
-            return {}
-        
-        if not metrics:
-            return {
-                "totalAds": 0,
-                "uniqueAds": 0,
-                "uniqueAdNames": 0,
-                "uniqueCampaigns": 0,
-                "uniqueAdsets": 0,
-                "totalSpend": 0.0,
-                "totalClicks": 0,
-                "totalImpressions": 0,
-                "totalReach": 0,
-                "totalInlineLinkClicks": 0,
-                "totalPlays": 0,
-                "totalThruplays": 0,
-                "ctr": 0.0,
-                "cpm": 0.0,
-                "frequency": 0.0,
-                "holdRate": 0.0,
-                "connectRate": 0.0,
-                "websiteCtr": 0.0,
-                "profileCtr": 0.0,
-                "videoWatchedP50": 0.0,
-                "totalLandingPageViews": 0,
-                "actions": {},
-                "conversions": {},
-            }
-        
-        # Agregar métricas
-        unique_ad_ids = set()
-        unique_ad_names = set()
-        unique_campaign_ids = set()
-        unique_adset_ids = set()
-        
-        total_spend = 0.0
-        total_clicks = 0
-        total_impressions = 0
-        total_reach = 0
-        total_inline_link_clicks = 0
-        total_plays = 0
-        total_thruplays = 0
-        
-        # Métricas ponderadas (para médias)
-        hold_rate_wsum = 0.0  # Soma ponderada de hold_rate por plays
-        video_watched_p50_wsum = 0.0  # Soma ponderada de video_watched_p50 por plays
-        profile_ctr_wsum = 0.0  # Soma ponderada de profile_ctr por impressions
-        connect_rate_wsum = 0.0  # Soma ponderada de connect_rate por inline_link_clicks
-        
-        # Agregar actions e conversions
-        total_landing_page_views = 0
-        actions_agg: Dict[str, int] = {}  # {action_type: total_value}
-        conversions_agg: Dict[str, int] = {}  # {action_type: total_value}
-        
-        for metric in metrics:
-            ad_id = metric.get("ad_id")
-            ad_name = metric.get("ad_name")
-            campaign_id = metric.get("campaign_id")
-            adset_id = metric.get("adset_id")
-            
-            if ad_id:
-                unique_ad_ids.add(str(ad_id))
-            if ad_name:
-                unique_ad_names.add(str(ad_name))
-            if campaign_id:
-                unique_campaign_ids.add(str(campaign_id))
-            if adset_id:
-                unique_adset_ids.add(str(adset_id))
-            
-            # Somar valores numéricos básicos
-            spend = float(metric.get("spend", 0) or 0)
-            clicks = int(metric.get("clicks", 0) or 0)
-            impressions = int(metric.get("impressions", 0) or 0)
-            reach = int(metric.get("reach", 0) or 0)
-            inline_link_clicks = int(metric.get("inline_link_clicks", 0) or 0)
-            plays = int(metric.get("video_total_plays", 0) or 0)
-            thruplays = int(metric.get("video_total_thruplays", 0) or 0)
-            
-            total_spend += spend
-            total_clicks += clicks
-            total_impressions += impressions
-            total_reach += reach
-            total_inline_link_clicks += inline_link_clicks
-            total_plays += plays
-            total_thruplays += thruplays
-            
-            # Agregar métricas ponderadas
-            hold_rate = float(metric.get("hold_rate", 0) or 0)
-            if hold_rate > 0 and plays > 0:
-                hold_rate_wsum += hold_rate * plays
-            
-            video_watched_p50 = float(metric.get("video_watched_p50", 0) or 0)
-            if video_watched_p50 > 0 and plays > 0:
-                video_watched_p50_wsum += video_watched_p50 * plays
-            
-            profile_ctr = float(metric.get("profile_ctr", 0) or 0)
-            if profile_ctr > 0 and impressions > 0:
-                profile_ctr_wsum += profile_ctr * impressions
-            
-            connect_rate = float(metric.get("connect_rate", 0) or 0)
-            if connect_rate > 0 and inline_link_clicks > 0:
-                connect_rate_wsum += connect_rate * inline_link_clicks
-            
-            # Agregar actions e conversions
-            actions = metric.get("actions") or []
-            if isinstance(actions, list):
-                for action in actions:
-                    action_type = str(action.get("action_type") or "").strip()
-                    value = int(action.get("value") or 0)
-                    if action_type:
-                        if action_type not in actions_agg:
-                            actions_agg[action_type] = 0
-                        actions_agg[action_type] += value
-                        
-                        # Extrair landing_page_views para calcular connect_rate agregado
-                        if action_type == "landing_page_view":
-                            total_landing_page_views += value
-            
-            conversions = metric.get("conversions") or []
-            if isinstance(conversions, list):
-                for conversion in conversions:
-                    action_type = str(conversion.get("action_type") or "").strip()
-                    value = int(conversion.get("value") or 0)
-                    if action_type:
-                        if action_type not in conversions_agg:
-                            conversions_agg[action_type] = 0
-                        conversions_agg[action_type] += value
-        
-        # Calcular métricas derivadas
-        calculated_ctr = _safe_div(total_clicks, total_impressions)
-        calculated_cpm = _safe_div(total_spend * 1000, total_impressions)
-        calculated_frequency = _safe_div(total_impressions, total_reach)
-        
-        # Calcular médias ponderadas
-        calculated_hold_rate = _safe_div(hold_rate_wsum, total_plays)
-        calculated_video_watched_p50 = _safe_div(video_watched_p50_wsum, total_plays)
-        calculated_profile_ctr = _safe_div(profile_ctr_wsum, total_impressions)
-        
-        # Calcular connect_rate agregado: total_landing_page_views / total_inline_link_clicks
-        # Priorizar cálculo agregado a partir das actions (mais preciso)
-        # Se não houver landing_page_views nas actions, usar valor ponderado do banco
-        if total_landing_page_views > 0:
-            calculated_connect_rate = _safe_div(total_landing_page_views, total_inline_link_clicks)
-        else:
-            # Fallback: usar valor ponderado do banco
-            calculated_connect_rate = _safe_div(connect_rate_wsum, total_inline_link_clicks)
-        
-        # Calcular website_ctr agregado: total_inline_link_clicks / total_impressions
-        calculated_website_ctr = _safe_div(total_inline_link_clicks, total_impressions)
-        
-        stats = {
-            "totalAds": len(metrics),
-            "uniqueAds": len(unique_ad_ids),
-            "uniqueAdNames": len(unique_ad_names),
-            "uniqueCampaigns": len(unique_campaign_ids),
-            "uniqueAdsets": len(unique_adset_ids),
-            "totalSpend": round(total_spend, 2),
-            "totalClicks": total_clicks,
-            "totalImpressions": total_impressions,
-            "totalReach": total_reach,
-            "totalInlineLinkClicks": total_inline_link_clicks,
-            "totalPlays": total_plays,
-            "totalThruplays": total_thruplays,
-            "ctr": round(calculated_ctr, 4),
-            "cpm": round(calculated_cpm, 2),
-            "frequency": round(calculated_frequency, 2),
-            "holdRate": round(calculated_hold_rate, 4),
-            "connectRate": round(calculated_connect_rate, 4),
-            "websiteCtr": round(calculated_website_ctr, 4),
-            "profileCtr": round(calculated_profile_ctr, 4),
-            "videoWatchedP50": round(calculated_video_watched_p50, 0),  # Arredondar para inteiro (segundos)
-            "totalLandingPageViews": total_landing_page_views,
-            "actions": actions_agg,
-            "conversions": conversions_agg,
-        }
-        
-        logger.info(f"[CALCULATE_PACK_STATS] Stats calculados para pack {pack_id}: {stats}")
-        return stats
-        
-    except Exception as e:
-        logger.exception(f"[CALCULATE_PACK_STATS] Erro ao calcular stats do pack {pack_id}: {e}")
-        raise
-
 
 def upsert_pack(
     user_jwt: str,
@@ -1758,6 +1495,84 @@ def validate_ad_account_ownership(
         .execute()
     )
     return bool(result.data)
+
+
+def get_ad_account_connection_id(
+    user_jwt: str,
+    user_id: Optional[str],
+    account_id: str,
+) -> Optional[str]:
+    """Retorna o connection_id preferencial salvo para uma conta de anúncios."""
+    if not user_id:
+        return None
+
+    normalized_account_id = str(account_id or "").strip()
+    if not normalized_account_id:
+        return None
+
+    sb = get_supabase_for_user(user_jwt)
+    try:
+        result = (
+            sb.table("ad_accounts")
+            .select("connection_id")
+            .eq("user_id", user_id)
+            .eq("id", normalized_account_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        if "connection_id" in str(exc or ""):
+            logger.warning(
+                "get_ad_account_connection_id: coluna connection_id ainda nao existe; usando fallback sem preferencia salva"
+            )
+            return None
+        raise
+    if not result.data:
+        return None
+
+    connection_id = result.data[0].get("connection_id")
+    return str(connection_id).strip() if connection_id else None
+
+
+def prune_ad_accounts(
+    user_jwt: str,
+    user_id: Optional[str],
+    keep_account_ids: List[str],
+) -> int:
+    """Remove do cache local as contas que nao aparecem mais em nenhuma conexao ativa."""
+    if not user_id:
+        return 0
+
+    normalized_keep = {
+        str(account_id or "").strip()
+        for account_id in keep_account_ids
+        if str(account_id or "").strip()
+    }
+
+    sb = get_supabase_for_user(user_jwt)
+    existing_rows = _fetch_all_paginated(
+        sb,
+        "ad_accounts",
+        "id",
+        lambda q: q.eq("user_id", user_id),
+    )
+    stale_ids = [
+        str(row.get("id") or "").strip()
+        for row in existing_rows
+        if str(row.get("id") or "").strip() and str(row.get("id") or "").strip() not in normalized_keep
+    ]
+    if not stale_ids:
+        return 0
+
+    deleted = 0
+    batch_size = 200
+    for start in range(0, len(stale_ids), batch_size):
+        batch = stale_ids[start:start + batch_size]
+        sb.table("ad_accounts").delete().eq("user_id", user_id).in_("id", batch).execute()
+        deleted += len(batch)
+
+    logger.info("prune_ad_accounts: removed %d stale accounts for user %s", deleted, user_id)
+    return deleted
 
 
 def delete_pack(
@@ -2063,12 +1878,18 @@ def delete_pack(
 
 
 # ===== Ad Accounts =====
-def upsert_ad_accounts(user_jwt: str, ad_accounts: List[Dict[str, Any]], user_id: Optional[str]) -> None:
+def upsert_ad_accounts(
+    user_jwt: str,
+    ad_accounts: List[Dict[str, Any]],
+    user_id: Optional[str],
+    connection_id: Optional[str] = None,
+) -> None:
     """Upsert de contas de anúncios na tabela ad_accounts.
 
     Campos suportados na tabela:
     - id (PK)
     - user_id
+    - connection_id
     - name
     - account_status
     - user_tasks (text[])
@@ -2101,6 +1922,10 @@ def upsert_ad_accounts(user_jwt: str, ad_accounts: List[Dict[str, Any]], user_id
         row = {
             "id": acc_id,
             "user_id": user_id,
+            "connection_id": (
+                str(acc.get("connection_id") or "").strip()
+                or (str(connection_id).strip() if connection_id else None)
+            ),
             "name": acc.get("name"),
             "account_status": acc.get("account_status"),
             "user_tasks": user_tasks,
@@ -2115,7 +1940,20 @@ def upsert_ad_accounts(user_jwt: str, ad_accounts: List[Dict[str, Any]], user_id
 
     try:
         sb = get_supabase_for_user(user_jwt)
-        sb.table("ad_accounts").upsert(rows, on_conflict="id,user_id").execute()
+        try:
+            sb.table("ad_accounts").upsert(rows, on_conflict="id,user_id").execute()
+        except Exception as exc:
+            if "connection_id" not in str(exc or ""):
+                raise
+            logger.warning(
+                "upsert_ad_accounts: coluna connection_id ainda nao existe; reprocessando sem vinculo de conexao"
+            )
+            fallback_rows = []
+            for row in rows:
+                fallback_row = dict(row)
+                fallback_row.pop("connection_id", None)
+                fallback_rows.append(fallback_row)
+            sb.table("ad_accounts").upsert(fallback_rows, on_conflict="id,user_id").execute()
         logger.info(f"Successfully saved {len(rows)} ad accounts to Supabase for user {user_id}")
     except Exception as e:
         logger.error(f"Error saving ad accounts to Supabase for user {user_id}: {e}", exc_info=True)

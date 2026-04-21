@@ -194,7 +194,12 @@ def connect_callback(
             ad_accounts_data = adacc_result.get("data") or []
             logger.info(f"Received {len(ad_accounts_data)} ad accounts from Facebook API")
             if ad_accounts_data:
-                supabase_repo.upsert_ad_accounts(user["token"], ad_accounts_data, user.get("user_id"))
+                supabase_repo.upsert_ad_accounts(
+                    user["token"],
+                    ad_accounts_data,
+                    user.get("user_id"),
+                    connection_id=str(rec.get("id") or "").strip() or None,
+                )
                 logger.info(f"Successfully synchronized {len(ad_accounts_data)} ad accounts to Supabase")
             else:
                 logger.warning(f"No ad accounts returned from Facebook API for user {user.get('user_id')}")

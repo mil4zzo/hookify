@@ -165,6 +165,8 @@ class AdsEnricher:
                 ad["primary_video_id"] = existing_ad.get("primary_video_id")
             if existing_ad.get("media_type"):
                 ad["media_type"] = existing_ad.get("media_type")
+            if existing_ad.get("video_owner_page_id"):
+                ad["video_owner_page_id"] = existing_ad.get("video_owner_page_id")
             ad["adcreatives_videos_ids"] = list(existing_ad.get("adcreatives_videos_ids") or [])
             ad["adcreatives_videos_thumbs"] = list(existing_ad.get("adcreatives_videos_thumbs") or [])
 
@@ -355,14 +357,16 @@ class AdsEnricher:
     # e o asset original (com owner page resolvivel via GET /{video_id}?fields=from),
     # enquanto o video_id do creative direto costuma ser uma copia sem permissao de acesso.
     # Fallback para creative/adcreatives diretos cobre anuncios originais (sem duplicacao).
+    # object_story_spec.page_id permite popular video_owner_page_id no enrichment,
+    # eliminando o GET /{video_id}?fields=from que ocorria lazily no primeiro acesso ao modal.
     _DETAILS_FIELDS = (
         "id,name,effective_status,source_ad_id,"
         "source_ad{creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
         "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
-        "adcreatives{asset_feed_spec}},"
+        "adcreatives{asset_feed_spec,object_story_spec}},"
         "creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
         "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
-        "adcreatives{asset_feed_spec}"
+        "adcreatives{asset_feed_spec,object_story_spec}"
     )
 
     def fetch_details(
@@ -397,6 +401,7 @@ class AdsEnricher:
         # com owner resolvivel). Cai para creative/adcreatives diretos se nao houver source_ad.
         creative_map: Dict[str, Optional[Dict[str, Any]]] = {}
         videos_map: Dict[str, List[Dict[str, Any]]] = {}
+        page_id_map: Dict[str, str] = {}
         source_ad_hits = 0
         for detail in details:
             name = detail.get("name")
@@ -410,9 +415,13 @@ class AdsEnricher:
                 source_ad_hits += 1
             data = adcreatives.get("data") if isinstance(adcreatives, dict) else None
             if data:
-                asset_feed_spec = (data[0] or {}).get("asset_feed_spec") or {}
+                first = data[0] or {}
+                asset_feed_spec = first.get("asset_feed_spec") or {}
                 if asset_feed_spec.get("videos"):
                     videos_map[name] = asset_feed_spec["videos"]
+                page_id = (first.get("object_story_spec") or {}).get("page_id")
+                if page_id:
+                    page_id_map[name] = page_id
 
         logger.info(
             "[AdsEnricher] merge_details: %d/%d detalhes com source_ad.adcreatives",
@@ -439,6 +448,10 @@ class AdsEnricher:
                     video_thumbs.append(video.get("thumbnail_url"))
             ad["adcreatives_videos_ids"] = video_ids
             ad["adcreatives_videos_thumbs"] = video_thumbs
+
+            page_id = page_id_map.get(ad_name)
+            if page_id:
+                ad["video_owner_page_id"] = page_id
 
         logger.info("[AdsEnricher] Detalhes mesclados em %d anuncios", len(raw_data))
         return raw_data
@@ -474,19 +487,26 @@ class AdsEnricher:
                 new_ad_ids_set = set(
                     ad_id for ad_id in unique_ad_ids if ad_id not in existing_ads_map
                 )
+                missing_owner_ad_ids_set = set(
+                    ad_id for ad_id in unique_ad_ids
+                    if ad_id in existing_ads_map
+                    and not str(existing_ads_map[ad_id].get("video_owner_page_id") or "").strip()
+                )
+                enrich_ad_ids_set = new_ad_ids_set | missing_owner_ad_ids_set
                 new_unique_ads = self.deduplicate_by_name(
                     [
                         ad
                         for ad in raw_data
-                        if str(ad.get("ad_id") or "").strip() in new_ad_ids_set
+                        if str(ad.get("ad_id") or "").strip() in enrich_ad_ids_set
                     ]
                 )
                 rep_ids = list(new_unique_ads.values())
 
                 logger.info(
-                    "[AdsEnricher] Refresh otimizado: %d ads existentes reutilizados, %d ads novos para enriquecimento completo",
-                    len(existing_ads_map),
-                    len(rep_ids),
+                    "[AdsEnricher] Refresh otimizado: %d ads existentes reutilizados, %d ads novos, %d existentes sem video_owner_page_id para re-enriquecimento",
+                    len(existing_ads_map) - len(missing_owner_ad_ids_set),
+                    len(new_ad_ids_set),
+                    len(missing_owner_ad_ids_set),
                 )
 
             media_details = self.fetch_details(act_id, rep_ids)

@@ -4045,8 +4045,8 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
             stats = pack.get("stats")
             # Verificar se stats estÃ¡ ausente, None, vazio ou invÃ¡lido
             if not stats or not isinstance(stats, dict) or len(stats) == 0 or stats.get("totalSpend") is None:
-                # Calcular stats dinamicamente
-                calculated_stats = supabase_repo.calculate_pack_stats(
+                # Calcular stats essenciais dinamicamente (fallback para packs legados)
+                calculated_stats = supabase_repo.calculate_pack_stats_essential(
                     user["token"],
                     pack_id,
                     user_id=user["user_id"]
@@ -4098,8 +4098,8 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
         # Se stats estiver ausente, vazio ou invÃ¡lido, calcular dinamicamente
         stats = pack.get("stats")
         if not stats or not isinstance(stats, dict) or len(stats) == 0 or stats.get("totalSpend") is None:
-            # Calcular stats dinamicamente
-            calculated_stats = supabase_repo.calculate_pack_stats(
+            # Calcular stats essenciais dinamicamente (fallback para packs legados)
+            calculated_stats = supabase_repo.calculate_pack_stats_essential(
                 user["token"],
                 pack_id,
                 user_id=user["user_id"]

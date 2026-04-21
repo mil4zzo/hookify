@@ -16,6 +16,7 @@ export const FacebookUserSchema = z.object({
 export const FacebookAdAccountSchema = z.object({
   id: z.string(),
   name: z.string(),
+  connection_id: z.string().uuid().nullable().optional(),
   account_status: z.number(), // 1=ativo, 2=pausado, 101=ativo com restrições
   user_tasks: z.array(z.string()).optional(), // ["DRAFT", "ANALYZE", "ADVERTISE", "MANAGE"]
   instagram_accounts: z.array(z.object({
@@ -713,6 +714,7 @@ export const BulkAdItemConfigSchema = z.object({
 export const BulkAdConfigSchema = z.object({
   template_ad_id: z.string(),
   account_id: z.string(),
+  connection_id: z.string().uuid().nullable().optional(),
   status: z.enum(["ACTIVE", "PAUSED"]),
   bundle_strategy: z.enum(["legacy_single_file", "explicit_bundles"]).optional(),
   items: z.array(BulkAdItemConfigSchema).min(1).max(500),
@@ -807,6 +809,7 @@ export const CampaignBulkItemConfigSchema = z.object({
 export const CampaignBulkConfigSchema = z.object({
   template_ad_id: z.string(),
   account_id: z.string(),
+  connection_id: z.string().uuid().nullable().optional(),
   status: z.enum(["ACTIVE", "PAUSED"]),
   adset_ids: z.array(z.string()).min(1),
   campaign_name_template: z.string(),

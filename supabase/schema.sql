@@ -2894,7 +2894,8 @@ CREATE TABLE public.ad_accounts (
     business_name text,
     instagram_accounts jsonb,
     created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
+    updated_at timestamp with time zone DEFAULT now(),
+    connection_id uuid
 );
 
 
@@ -3504,6 +3505,13 @@ CREATE INDEX ad_accounts_user_idx ON public.ad_accounts USING btree (user_id);
 
 
 --
+-- Name: ad_accounts_user_connection_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX ad_accounts_user_connection_idx ON public.ad_accounts USING btree (user_id, connection_id);
+
+
+--
 -- Name: ad_metric_pack_map_user_ad_date_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3903,6 +3911,14 @@ ALTER TABLE ONLY public.ad_sheet_integrations
 
 ALTER TABLE ONLY public.ads
     ADD CONSTRAINT ads_transcription_id_fkey FOREIGN KEY (transcription_id) REFERENCES public.ad_transcriptions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: ad_accounts ad_accounts_connection_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_accounts
+    ADD CONSTRAINT ad_accounts_connection_id_fkey FOREIGN KEY (connection_id) REFERENCES public.facebook_connections(id) ON DELETE SET NULL;
 
 
 --

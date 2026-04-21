@@ -595,6 +595,16 @@ class GraphAPI:
             timeout=30,
         )
 
+    def get_ad_account(self, act_id: str) -> Dict[str, Any]:
+        """Valida se o token atual possui acesso a uma conta de anúncios."""
+        return self._handle_graph_request(
+            method="GET",
+            path=act_id,
+            operation_name="GraphAPI.get_ad_account",
+            params={"fields": "id,name,account_status"},
+            timeout=30,
+        )
+
     def get_campaign_config(self, campaign_id: str) -> Dict[str, Any]:
         """Retorna configuracoes da campanha para duplicacao."""
         # Apenas campos do no Campaign (ex.: start_time/end_time/pacing_type sao do AdSet).

@@ -31,8 +31,7 @@ def _extract_video_info(
 ) -> Dict[str, Dict[str, str]]:
     """Extrai mapa ad_name -> {video_id, actor_id} (primeiro encontrado com vídeo).
 
-    video_id vem de: creative.video_id, creative_video_id (nível do ad) ou
-    adcreatives_videos_ids[0] (vídeo em asset_feed_spec quando creative não tem video_id).
+    A transcrição usa apenas primary_video_id + creative.actor_id.
     """
     result: Dict[str, Dict[str, str]] = {}
 
@@ -44,15 +43,6 @@ def _extract_video_info(
         creative = ad.get("creative") or {}
         video_id = str(ad.get("primary_video_id") or "").strip()
         actor_id = str(creative.get("actor_id") or "").strip()
-
-        if not video_id:
-            video_id = str(creative.get("video_id") or "").strip()
-        if not video_id:
-            video_id = str(ad.get("creative_video_id") or "").strip()
-        if not video_id:
-            ids = ad.get("adcreatives_videos_ids") or []
-            if ids and len(ids) > 0:
-                video_id = str(ids[0] or "").strip()
 
         if video_id and actor_id:
             result[ad_name] = {"video_id": video_id, "actor_id": actor_id}
@@ -194,7 +184,12 @@ def run_transcription_batch(
             done=0,
             total=0,
             message="Nenhuma transcrição pendente",
-            extras={"success_count": 0, "fail_count": 0},
+            extras={
+                "success_count": 0,
+                "fail_count": 0,
+                "skipped_existing": 0,
+                "completed_with_failures": False,
+            },
         )
         return
 
@@ -211,7 +206,12 @@ def run_transcription_batch(
             done=0,
             total=0,
             message="Nenhuma transcrição pendente",
-            extras={"success_count": 0, "fail_count": 0, "skipped_existing": len(existing)},
+            extras={
+                "success_count": 0,
+                "fail_count": 0,
+                "skipped_existing": len(existing),
+                "completed_with_failures": False,
+            },
         )
         return
 
@@ -355,17 +355,28 @@ def run_transcription_batch(
         return
 
     final_status = STATUS_COMPLETED if success_count > 0 else STATUS_FAILED
-    final_message = (
-        f"Transcrição concluída: {success_count} sucesso(s), {fail_count} falha(s)"
-        if final_status == STATUS_COMPLETED
-        else f"Transcrição falhou: {fail_count} falha(s)"
-    )
+    completed_with_failures = success_count > 0 and fail_count > 0
+    if final_status == STATUS_COMPLETED:
+        if completed_with_failures:
+            final_message = (
+                f"Transcrição concluída parcialmente: {success_count} sucesso(s), "
+                f"{fail_count} falha(s)"
+            )
+        else:
+            final_message = f"Transcrição concluída com sucesso: {success_count} sucesso(s)"
+    else:
+        final_message = f"Transcrição falhou: {fail_count} falha(s)"
     _heartbeat(
         status=final_status,
         done=processed,
         total=total,
         message=final_message,
-        extras={"success_count": success_count, "fail_count": fail_count},
+        extras={
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "skipped_existing": len(existing),
+            "completed_with_failures": completed_with_failures,
+        },
     )
     logger.info(
         f"[TRANSCRIPTION] Batch concluído: {success_count} ok, {fail_count} falhas, "
@@ -400,4 +411,12 @@ def retry_single_transcription(
         )
         return
 
-    _transcribe_single(user_jwt, user_id, ad_name, video_url, video_id, actor_id)
+    _transcribe_single(
+        user_jwt,
+        user_id,
+        ad_name,
+        video_url,
+        video_id,
+        actor_id,
+        lambda: False,
+    )

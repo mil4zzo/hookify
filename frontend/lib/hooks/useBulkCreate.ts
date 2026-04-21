@@ -14,6 +14,7 @@ interface UseBulkCreateReturn {
   retryFailed: (currentJobId: string, itemIds: string[]) => Promise<string | null>
   cancelBulkCreate: () => Promise<void>
   resumePolling: (existingJobId: string) => Promise<void>
+  resetBulkCreate: () => void
 }
 
 export function useBulkCreate(): UseBulkCreateReturn {
@@ -102,6 +103,13 @@ export function useBulkCreate(): UseBulkCreateReturn {
     await runPolling(existingJobId)
   }, [addActiveJob, runPolling])
 
+  const resetBulkCreate = useCallback(() => {
+    cancelledRef.current = false
+    setIsCreating(false)
+    setJobId(null)
+    setProgress(null)
+  }, [])
+
   return {
     isCreating,
     jobId,
@@ -110,5 +118,6 @@ export function useBulkCreate(): UseBulkCreateReturn {
     retryFailed,
     cancelBulkCreate,
     resumePolling,
+    resetBulkCreate,
   }
 }

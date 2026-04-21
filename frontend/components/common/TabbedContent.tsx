@@ -10,6 +10,7 @@ export interface TabItem {
   label: string;
   icon?: React.ComponentType<{ className?: string }>;
   tooltip?: string;
+  disabled?: boolean;
 }
 
 export interface TabbedContentProps {
@@ -40,7 +41,14 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
     );
 
     const trigger = (
-      <TabsTrigger value={tab.value} className={cn(orientation === "vertical" && "w-full justify-start gap-3")}>
+      <TabsTrigger
+        value={tab.value}
+        disabled={tab.disabled}
+        className={cn(
+          orientation === "vertical" && "w-full justify-start gap-3",
+          tab.disabled && "cursor-not-allowed opacity-50 hover:bg-transparent hover:text-muted-foreground"
+        )}
+      >
         {hasIcon ? <div className="flex items-center gap-2">{triggerContent}</div> : triggerContent}
       </TabsTrigger>
     );

@@ -129,7 +129,32 @@ NEXT_PUBLIC_SENTRY_DSN
 
 Supabase PostgreSQL with Row-Level Security (RLS). Migrations live in `supabase/migrations/`. The full schema is in `supabase/schema.sql`.
 
-Key tables: `users`, `campaigns`, `ads`, `analytics_cache`, `google_accounts`, `facebook_connections`.
+### Arquivos de referência do schema
+
+| Arquivo | Quando usar |
+|---|---|
+| `supabase/schema_map.md` | Consulta rápida de tabelas e colunas — leia este primeiro |
+| `supabase/schema.sql` | Detalhes de constraints, índices, RLS policies, funções/RPCs, triggers |
+| `supabase/migrations/` | Histórico de alterações — não consultar para entender o schema atual |
+
+**Fluxo de leitura:** sempre comece pelo `schema_map.md`. Só vá ao `schema.sql` se precisar de algo além de nomes de colunas e tipos (ex: corpo de uma função RPC, política RLS específica, índice).
+
+**Não é necessário consultar os arquivos de `migrations/`** para entender o schema — eles servem apenas para rastrear histórico de alterações.
+
+### Sincronizar schema com o banco remoto
+
+Quando o banco remoto evoluir (nova migration aplicada), sincronize os arquivos locais:
+
+```bash
+# 1. Atualizar schema.sql
+pg_dump "postgresql://postgres:SENHA@db.yyhiwayyvawsdsptdklx.supabase.co:5432/postgres" \
+  --schema-only --schema=public -f supabase/schema.sql
+
+# 2. Regenerar schema_map.md
+py supabase/generate_schema_map.py
+```
+
+Tabelas: `ad_accounts`, `ad_metric_pack_map`, `ad_metrics`, `ad_sheet_integrations`, `ad_transcriptions`, `ads`, `bulk_ad_items`, `facebook_connections`, `google_accounts`, `jobs`, `packs`, `profiles`, `user_preferences`.
 
 All schema changes must go through migration files — never edit `schema.sql` directly without a corresponding migration.
 

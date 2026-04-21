@@ -148,6 +148,7 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
             # Videos associados
             "adcreatives_videos_ids": [str(v) for v in adcreatives_videos_ids if v],
             "adcreatives_videos_thumbs": [str(v) for v in adcreatives_videos_thumbs if v],
+            "video_owner_page_id": ad.get("video_owner_page_id") or None,
 
             # Derivadas
             "connect_rate": connect_rate,

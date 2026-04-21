@@ -29,6 +29,47 @@ class TemplateError(RuntimeError):
     pass
 
 
+def _normalize_story_spec_for_creation(story_spec: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normaliza object_story_spec antes do POST /adcreatives.
+
+    A documentação atual da Meta para Object Story Spec documenta `page_id` e
+    `instagram_user_id`, mas não `actor_id`/`instagram_actor_id`. Alguns
+    templates retornados pela leitura do creative trazem esses campos legados;
+    reenviá-los pode fazer a criação apontar para um perfil errado ou sem
+    permissão. Quando só houver `instagram_actor_id`, promovemos para o campo
+    documentado `instagram_user_id`.
+    """
+    if not isinstance(story_spec, dict):
+        return {}
+
+    normalized = copy.deepcopy(story_spec)
+
+    def _sanitize_node(node: Dict[str, Any], *, top_level: bool = False) -> None:
+        if top_level:
+            instagram_actor_id = node.get("instagram_actor_id")
+            instagram_user_id = node.get("instagram_user_id")
+            if instagram_actor_id not in (None, "") and instagram_user_id in (None, ""):
+                node["instagram_user_id"] = str(instagram_actor_id)
+
+        node.pop("actor_id", None)
+        node.pop("instagram_actor_id", None)
+
+        for child_key in ("link_data", "photo_data", "video_data", "template_data"):
+            child = node.get(child_key)
+            if isinstance(child, dict):
+                _sanitize_node(child, top_level=False)
+
+        children = node.get("child_attachments")
+        if isinstance(children, list):
+            for child in children:
+                if isinstance(child, dict):
+                    _sanitize_node(child, top_level=False)
+
+    _sanitize_node(normalized, top_level=True)
+    return normalized
+
+
 @dataclass
 class BulkAdJobContext:
     user_jwt: str
@@ -65,7 +106,7 @@ class BundleMediaRef:
 class StorySpecCreativeBuilder:
     def build(self, item: Dict[str, Any], template: CreativeTemplate, bundle_media_ref: BundleMediaRef) -> Dict[str, Any]:
         media_ref = self._get_primary_media_ref(bundle_media_ref)
-        story_spec = copy.deepcopy(template.story_spec_base or {})
+        story_spec = _normalize_story_spec_for_creation(template.story_spec_base or {})
         if media_ref.media_type == "video":
             story_spec = self._apply_video_media_to_story_spec(story_spec, media_ref)
         else:
@@ -124,7 +165,7 @@ class StorySpecCreativeBuilder:
 
 class AssetFeedCreativeBuilder:
     def build(self, item: Dict[str, Any], template: CreativeTemplate, bundle_media_ref: BundleMediaRef) -> Dict[str, Any]:
-        story_spec = copy.deepcopy(template.story_spec_base or {})
+        story_spec = _normalize_story_spec_for_creation(template.story_spec_base or {})
         asset_feed_spec = copy.deepcopy(template.asset_feed_spec_base or {})
         slot_by_key = {slot.slot_key: slot for slot in template.media_slots}
         new_labels: Dict[str, str] = {}

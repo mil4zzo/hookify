@@ -15,6 +15,7 @@ interface UseCampaignBulkCreateReturn {
   retryCampaignFailed: (currentJobId: string, itemIds: string[]) => Promise<string | null>
   cancelCampaignBulk: () => Promise<void>
   resumePolling: (existingJobId: string) => Promise<void>
+  resetCampaignBulk: () => void
 }
 
 export function useCampaignBulkCreate(): UseCampaignBulkCreateReturn {
@@ -112,6 +113,14 @@ export function useCampaignBulkCreate(): UseCampaignBulkCreateReturn {
     await runPolling(existingJobId)
   }, [addActiveJob, runPolling])
 
+  const resetCampaignBulk = useCallback(() => {
+    cancelledRef.current = false
+    setIsStarting(false)
+    setIsCreating(false)
+    setJobId(null)
+    setProgress(null)
+  }, [])
+
   return {
     isStarting,
     isCreating,
@@ -121,5 +130,6 @@ export function useCampaignBulkCreate(): UseCampaignBulkCreateReturn {
     retryCampaignFailed,
     cancelCampaignBulk,
     resumePolling,
+    resetCampaignBulk,
   }
 }

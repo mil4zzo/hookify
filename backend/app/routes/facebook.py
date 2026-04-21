@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Body, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional, Set, Tuple
 from datetime import datetime, timezone, timedelta, date
 import logging
 import requests
@@ -19,7 +19,9 @@ from app.services.facebook_token_service import (
     invalidate_token_cache
 )
 from app.services.facebook_connections_repo import (
+    get_facebook_token_for_connection,
     get_primary_facebook_token_with_status,
+    list_connections,
     update_connection_status
 )
 from app.core.auth import get_current_user
@@ -115,6 +117,28 @@ def _build_bulk_summary(items: List[Dict[str, Any]]) -> Dict[str, int]:
         else:
             summary["pending"] += 1
     return summary
+
+
+def _normalize_story_spec_actor_fields(story_spec: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normaliza object_story_spec para o formato atual da Marketing API.
+
+    A documentação v25 expõe `instagram_user_id`; `instagram_actor_id` e
+    `actor_id` são legados e não devem ser reenviados na criação do creative.
+    """
+    if not isinstance(story_spec, dict):
+        return {}
+
+    normalized = dict(story_spec)
+    instagram_user_id = normalized.get("instagram_user_id")
+    if instagram_user_id in (None, ""):
+        legacy_instagram_actor_id = normalized.get("instagram_actor_id")
+        if legacy_instagram_actor_id not in (None, ""):
+            normalized["instagram_user_id"] = str(legacy_instagram_actor_id)
+
+    normalized.pop("instagram_actor_id", None)
+    normalized.pop("actor_id", None)
+    return normalized
 
 
 def _cleanup_uploaded_temp_files(file_metas: List[Dict[str, Any]]) -> None:
@@ -446,6 +470,113 @@ def get_graph_api(user: Dict[str, Any] = Depends(get_current_user)) -> GraphAPI:
             }
         )
 
+
+def _resolve_facebook_token_for_ad_account(
+    *,
+    user_jwt: str,
+    user_id: str,
+    account_id: str,
+    preferred_connection_id: Optional[str] = None,
+) -> Tuple[str, Optional[str]]:
+    """
+    Resolve o token da conexão Facebook que realmente enxerga o ad account.
+
+    O fluxo de upload não pode assumir que a conexão primária do usuário é a
+    mesma conexão que possui acesso à conta de anúncios selecionada.
+    """
+    normalized_account_id = _normalize_account_id(account_id)
+    act_id = _meta_act_id(normalized_account_id)
+    tried_connection_ids: List[str] = []
+    preferred_connection_id = str(preferred_connection_id or "").strip() or None
+    persisted_connection_id = supabase_repo.get_ad_account_connection_id(
+        user_jwt,
+        user_id,
+        normalized_account_id,
+    )
+
+    def _token_has_access(token: str) -> bool:
+        api = GraphAPI(token, user_id=user_id)
+        result = api.get_ad_account(act_id)
+        return result.get("status") == "success"
+
+    active_connections = [
+        connection
+        for connection in list_connections(user_jwt)
+        if connection.get("status") == "active"
+    ]
+    connections_by_id: Dict[str, Dict[str, Any]] = {}
+    for connection in active_connections:
+        connection_id = str(connection.get("id") or "").strip()
+        if connection_id and connection_id not in connections_by_id:
+            connections_by_id[connection_id] = connection
+
+    ordered_connection_ids: List[str] = []
+
+    def _append_connection(candidate_id: Optional[str]) -> None:
+        normalized_candidate_id = str(candidate_id or "").strip()
+        if (
+            normalized_candidate_id
+            and normalized_candidate_id in connections_by_id
+            and normalized_candidate_id not in ordered_connection_ids
+        ):
+            ordered_connection_ids.append(normalized_candidate_id)
+
+    _append_connection(preferred_connection_id)
+    _append_connection(persisted_connection_id)
+    for connection in active_connections:
+        if connection.get("is_primary"):
+            _append_connection(connection.get("id"))
+    for connection in active_connections:
+        _append_connection(connection.get("id"))
+
+    for connection_id in ordered_connection_ids:
+        tried_connection_ids.append(connection_id)
+        token, _, _ = get_facebook_token_for_connection(
+            user_jwt=user_jwt,
+            user_id=user_id,
+            connection_id=connection_id,
+        )
+        if not token:
+            continue
+        if _token_has_access(token):
+            logger.info(
+                "[FB_TOKEN] resolved act_id=%s via connection_id=%s preferred_connection_id=%s persisted_connection_id=%s",
+                act_id,
+                connection_id,
+                preferred_connection_id,
+                persisted_connection_id,
+            )
+            return token, connection_id
+
+    primary_token = get_facebook_token_for_user(user_jwt, user_id)
+    if primary_token and _token_has_access(primary_token):
+        logger.warning(
+            "[FB_TOKEN] resolved act_id=%s via legacy primary token fallback preferred_connection_id=%s persisted_connection_id=%s",
+            act_id,
+            preferred_connection_id,
+            persisted_connection_id,
+        )
+        return primary_token, None
+
+    logger.error(
+        "[FB_TOKEN] no active connection can access act_id=%s user_id=%s tried_connections=%s preferred_connection_id=%s persisted_connection_id=%s",
+        act_id,
+        user_id,
+        tried_connection_ids,
+        preferred_connection_id,
+        persisted_connection_id,
+    )
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "error": "facebook_ad_account_token_mismatch",
+            "message": (
+                "Nenhuma conexão ativa do Facebook com acesso a esta conta de anúncios foi encontrada. "
+                "Reconecte a conta correta ou torne primária a conexão que possui acesso a este perfil."
+            ),
+        },
+    )
+
 @router.get("/me")
 def get_me(api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any] = Depends(get_current_user)):
     """Get Facebook user account info."""
@@ -486,15 +617,71 @@ def get_ad_accounts(user: Dict[str, Any] = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/adaccounts/sync")
-def sync_ad_accounts(api: GraphAPI = Depends(get_graph_api), user: Dict[str, Any] = Depends(get_current_user)):
+def sync_ad_accounts(user: Dict[str, Any] = Depends(get_current_user)):
     """Sincroniza as contas de anúncios do Facebook para o Supabase."""
     try:
-        result = api.get_adaccounts()
-        if result.get("status") != "success":
-            raise HTTPException(status_code=502, detail=result.get("message") or "Falha ao obter ad accounts do Facebook")
-        ad_accounts = result.get("data") or []
-        supabase_repo.upsert_ad_accounts(user["token"], ad_accounts, user.get("user_id"))
-        return {"ok": True, "count": len(ad_accounts)}
+        active_connections = [
+            connection
+            for connection in list_connections(user["token"])
+            if connection.get("status") == "active"
+        ]
+        ordered_connections = sorted(
+            active_connections,
+            key=lambda connection: (not bool(connection.get("is_primary")),),
+        )
+
+        ad_accounts: List[Dict[str, Any]] = []
+        seen_account_ids: Set[str] = set()
+        synced_connections = 0
+
+        for connection in ordered_connections:
+            connection_id = str(connection.get("id") or "").strip()
+            if not connection_id:
+                continue
+
+            token, _, _ = get_facebook_token_for_connection(
+                user_jwt=user["token"],
+                user_id=user["user_id"],
+                connection_id=connection_id,
+            )
+            if not token:
+                continue
+
+            result = GraphAPI(token, user_id=user["user_id"]).get_adaccounts()
+            if result.get("status") != "success":
+                logger.warning(
+                    "[FB_ADACCOUNTS_SYNC] failed for connection_id=%s user_id=%s message=%s",
+                    connection_id,
+                    user["user_id"],
+                    result.get("message"),
+                )
+                continue
+
+            synced_connections += 1
+            for account in result.get("data") or []:
+                account_id = str(account.get("id") or "").strip()
+                if not account_id or account_id in seen_account_ids:
+                    continue
+                seen_account_ids.add(account_id)
+                ad_accounts.append({**account, "connection_id": connection_id})
+
+        if ad_accounts:
+            supabase_repo.upsert_ad_accounts(user["token"], ad_accounts, user.get("user_id"))
+
+        removed_count = 0
+        if synced_connections > 0 or not ordered_connections:
+            removed_count = supabase_repo.prune_ad_accounts(
+                user["token"],
+                user.get("user_id"),
+                [str(account.get("id") or "").strip() for account in ad_accounts],
+            )
+
+        return {
+            "ok": True,
+            "count": len(ad_accounts),
+            "removed": removed_count,
+            "connections": synced_connections,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -852,6 +1039,14 @@ async def start_bulk_ads(
     if not files:
         raise _validation_error("Envie pelo menos um arquivo", field="files")
 
+    resolved_access_token, resolved_connection_id = _resolve_facebook_token_for_ad_account(
+        user_jwt=user["token"],
+        user_id=user["user_id"],
+        account_id=parsed_config.account_id,
+        preferred_connection_id=parsed_config.connection_id,
+    )
+    api = GraphAPI(resolved_access_token, user_id=user["user_id"])
+
     sb = get_supabase_for_user(user["token"])
     _assert_entity_belongs_to_user(
         user_jwt=user["token"],
@@ -945,6 +1140,9 @@ async def start_bulk_ads(
             ad_id=parsed_config.template_ad_id,
             require_supported=True,
         )
+        creative_template.story_spec_base = _normalize_story_spec_actor_fields(
+            creative_template.story_spec_base
+        )
         _validate_bulk_items_against_template(
             parsed_config=parsed_config,
             creative_template=creative_template,
@@ -965,6 +1163,7 @@ async def start_bulk_ads(
                 "type": "bulk_ads",
                 "template_ad_id": parsed_config.template_ad_id,
                 "account_id": _normalize_account_id(parsed_config.account_id),
+                "connection_id": resolved_connection_id,
                 "status": parsed_config.status,
                 "media_refs": {},
                 "template_creative_data": template_data,
@@ -1003,7 +1202,7 @@ async def start_bulk_ads(
                     BulkAdJobContext(
                         user_jwt=user["token"],
                         user_id=user["user_id"],
-                        access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                        access_token=resolved_access_token,
                         job_id=job_id,
                         account_id=_normalize_account_id(parsed_config.account_id),
                     )
@@ -1183,11 +1382,17 @@ def retry_bulk_ads(
 
     def run_retry_job() -> None:
         try:
+            retry_access_token, _ = _resolve_facebook_token_for_ad_account(
+                user_jwt=user["token"],
+                user_id=user["user_id"],
+                account_id=str(job_payload.get("account_id") or ""),
+                preferred_connection_id=str(job_payload.get("connection_id") or "").strip() or None,
+            )
             processor = BulkAdProcessor(
                 BulkAdJobContext(
                     user_jwt=user["token"],
                     user_id=user["user_id"],
-                    access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                    access_token=retry_access_token,
                     job_id=retry_job_id,
                     account_id=_normalize_account_id(str(job_payload.get("account_id") or "")),
                 )
@@ -1296,6 +1501,14 @@ async def start_campaign_bulk(
 
     if not files:
         raise _validation_error("Envie pelo menos um arquivo", field="files")
+
+    resolved_access_token, resolved_connection_id = _resolve_facebook_token_for_ad_account(
+        user_jwt=user["token"],
+        user_id=user["user_id"],
+        account_id=parsed_config.account_id,
+        preferred_connection_id=parsed_config.connection_id,
+    )
+    api = GraphAPI(resolved_access_token, user_id=user["user_id"])
 
     _assert_entity_belongs_to_user(
         user_jwt=user["token"],
@@ -1418,10 +1631,15 @@ async def start_campaign_bulk(
 
         if object_story_actor.get("page_id") and not creative_template.story_spec_base.get("page_id"):
             creative_template.story_spec_base["page_id"] = str(object_story_actor["page_id"])
-        for actor_key in ("instagram_user_id", "instagram_actor_id", "actor_id"):
-            actor_value = object_story_actor.get(actor_key)
-            if actor_value and not creative_template.story_spec_base.get(actor_key):
-                creative_template.story_spec_base[actor_key] = str(actor_value)
+        instagram_user_id = (
+            object_story_actor.get("instagram_user_id")
+            or object_story_actor.get("instagram_actor_id")
+        )
+        if instagram_user_id and not creative_template.story_spec_base.get("instagram_user_id"):
+            creative_template.story_spec_base["instagram_user_id"] = str(instagram_user_id)
+        creative_template.story_spec_base = _normalize_story_spec_actor_fields(
+            creative_template.story_spec_base
+        )
     except HTTPException:
         _cleanup_uploaded_temp_files(file_metas)
         raise
@@ -1437,6 +1655,7 @@ async def start_campaign_bulk(
                 "type": "campaign_bulk",
                 "template_ad_id": parsed_config.template_ad_id,
                 "account_id": _normalize_account_id(parsed_config.account_id),
+                "connection_id": resolved_connection_id,
                 "status": parsed_config.status,
                 "adset_ids": parsed_config.adset_ids,
                 "campaign_name_template": parsed_config.campaign_name_template,
@@ -1490,7 +1709,7 @@ async def start_campaign_bulk(
                     BulkAdJobContext(
                         user_jwt=user["token"],
                         user_id=user["user_id"],
-                        access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                        access_token=resolved_access_token,
                         job_id=job_id,
                         account_id=_normalize_account_id(parsed_config.account_id),
                     )
@@ -1631,11 +1850,17 @@ def retry_campaign_bulk(
 
     def run_retry_campaign_job() -> None:
         try:
+            retry_access_token, _ = _resolve_facebook_token_for_ad_account(
+                user_jwt=user["token"],
+                user_id=user["user_id"],
+                account_id=str(job_payload.get("account_id") or ""),
+                preferred_connection_id=str(job_payload.get("connection_id") or "").strip() or None,
+            )
             processor = CampaignBulkProcessor(
                 BulkAdJobContext(
                     user_jwt=user["token"],
                     user_id=user["user_id"],
-                    access_token=get_facebook_token_for_user(user["token"], user["user_id"]),
+                    access_token=retry_access_token,
                     job_id=retry_job_id,
                     account_id=_normalize_account_id(str(job_payload.get("account_id") or "")),
                 )
@@ -2401,7 +2626,7 @@ def retry_transcription(
     try:
         ads_res = (
             sb.table("ads")
-            .select("creative")
+            .select("primary_video_id,creative")
             .eq("user_id", user_id)
             .eq("ad_name", ad_name)
             .limit(1)
@@ -2414,12 +2639,16 @@ def retry_transcription(
     if not ads_res.data or len(ads_res.data) == 0:
         raise HTTPException(status_code=404, detail=f"Nenhum anúncio encontrado com ad_name={ad_name!r}")
 
-    creative = ads_res.data[0].get("creative") or {}
-    video_id = str(creative.get("video_id") or "").strip()
+    ad_row = ads_res.data[0] or {}
+    creative = ad_row.get("creative") or {}
+    video_id = str(ad_row.get("primary_video_id") or "").strip()
     actor_id = str(creative.get("actor_id") or "").strip()
 
     if not video_id or not actor_id:
-        raise HTTPException(status_code=400, detail="Anúncio não possui video_id/actor_id no creative")
+        raise HTTPException(
+            status_code=400,
+            detail="Anúncio não possui primary_video_id e/ou creative.actor_id",
+        )
 
     access_token = api.access_token
 

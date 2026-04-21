@@ -8,7 +8,6 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional
 
 from app.services import supabase_repo
@@ -276,42 +275,7 @@ def run_pack_background_tasks(
             logger.exception(f"[BACKGROUND_TASKS] Falha ao cachear thumbnails para pack {pack_id}: {e}")
             _set_status(job_id, thumbnails="failed", thumbnails_error=str(e))
 
-    def _run_stats_extended() -> None:
-        try:
-            max_attempts = 3
-            stats = None
-            for attempt in range(1, max_attempts + 1):
-                try:
-                    stats = supabase_repo.calculate_pack_stats(
-                        user_jwt, pack_id, user_id, sb_client=sb
-                    )
-                    if stats and stats.get("totalSpend") is not None:
-                        supabase_repo.update_pack_stats(
-                            user_jwt, pack_id, stats, user_id, sb_client=sb
-                        )
-                        logger.info(f"[BACKGROUND_TASKS] Stats estendidos salvos para pack {pack_id}")
-                    break
-                except Exception as e:
-                    if _is_transient_bg_error(e) and attempt < max_attempts:
-                        delay = 0.5 * attempt
-                        logger.warning(
-                            f"[BACKGROUND_TASKS] Erro transitório em stats estendidos "
-                            f"(tentativa {attempt}/{max_attempts}) pack={pack_id}: {e}. Retry em {delay:.1f}s"
-                        )
-                        time.sleep(delay)
-                        continue
-                    raise
-            _set_status(job_id, stats_extended="completed")
-        except Exception as e:
-            logger.exception(f"[BACKGROUND_TASKS] Falha ao calcular stats para pack {pack_id}: {e}")
-            _set_status(job_id, stats_extended="failed", stats_extended_error=str(e))
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        thumb_future = executor.submit(_run_thumbnails)
-        stats_future = executor.submit(_run_stats_extended)
-        # Aguardar ambas terminarem (error handling já é interno a cada task)
-        thumb_future.result()
-        stats_future.result()
+    _run_thumbnails()
 
 
 def spawn_pack_background_tasks(
@@ -325,7 +289,7 @@ def spawn_pack_background_tasks(
     use_service_role: bool = False,
 ) -> None:
     """Spawna run_pack_background_tasks em thread daemon (não bloqueia shutdown)."""
-    _set_status(job_id, thumbnails="pending", stats_extended="pending")
+    _set_status(job_id, thumbnails="pending")
 
     def _run():
         run_pack_background_tasks(

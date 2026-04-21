@@ -122,6 +122,7 @@ class BulkAdItem(BaseModel):
 class BulkAdConfig(BaseModel):
     template_ad_id: str
     account_id: str
+    connection_id: Optional[str] = None
     status: Literal["ACTIVE", "PAUSED"]
     bundle_strategy: Optional[Literal["legacy_single_file", "explicit_bundles"]] = None
     items: List[BulkAdItem]
@@ -162,6 +163,7 @@ class CampaignBulkItem(BaseModel):
 class CampaignBulkConfig(BaseModel):
     template_ad_id: str
     account_id: str
+    connection_id: Optional[str] = None
     status: Literal["ACTIVE", "PAUSED"]
     adset_ids: List[str]
     campaign_name_template: str
