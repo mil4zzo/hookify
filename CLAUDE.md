@@ -141,5 +141,34 @@ Internal docs in `/documentation/`:
 - `authenticated-app-visual-standard.md` — UI/UX visual standards to follow
 - `como-funciona-o-app.md` — feature explanations in Portuguese
 - `explorer-page-design.md`, `pagina-insights.md` — page-level specs
+- `decisoes-tecnicas.md` — decisões de arquitetura e lições aprendidas (espelho humano da memória do Claude)
 
 Deployment docs in `/deploy/`: `README.md`, `QUICK_START.md`, `ENV_TEMPLATE.md`, `SETUP_GUIDE.md`, `TEST_CHECKLIST.md`.
+
+## Gerenciamento de memória e decisões técnicas
+
+Claude deve gerenciar memórias de forma autônoma e proativa ao longo do desenvolvimento. Sempre que identificar algo que vale registrar, deve fazê-lo sem precisar ser solicitado — e **sempre notificar o usuário** ao final da mensagem quando uma memória for criada, atualizada ou removida.
+
+### Quando criar/atualizar uma memória
+
+- Decisão de arquitetura ou abordagem com motivação não-óbvia
+- Lição aprendida a partir de um bug ou comportamento inesperado de API externa (ex.: Meta, Supabase)
+- Padrão validado que deve ser seguido em contextos similares
+- Restrição de negócio ou técnica que afeta escolhas futuras
+
+### Quando NÃO criar memória
+
+- Padrões de código deriváveis lendo o próprio código
+- Detalhes de tarefas em andamento (usar tasks para isso)
+- Informações já documentadas no `CLAUDE.md`
+
+### Como registrar
+
+Sempre atualizar **ambos**:
+
+1. `C:\Users\worki\.claude\projects\C--projetos-Hookify\memory\` — arquivo individual + índice `MEMORY.md` (carregado pelo Claude em futuras conversas)
+2. `/documentation/decisoes-tecnicas.md` — espelho legível por humanos, versionado em git
+
+### Notificação obrigatória
+
+Toda vez que uma memória for criada, atualizada ou removida — seja por solicitação do usuário ou por iniciativa própria — Claude deve informar explicitamente ao final da mensagem: o que foi feito e qual arquivo foi afetado.

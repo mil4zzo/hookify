@@ -351,8 +351,15 @@ class AdsEnricher:
         )
         return all_results
 
+    # Busca criativo/adcreatives via source_ad quando disponivel: o video_id do source_ad
+    # e o asset original (com owner page resolvivel via GET /{video_id}?fields=from),
+    # enquanto o video_id do creative direto costuma ser uma copia sem permissao de acesso.
+    # Fallback para creative/adcreatives diretos cobre anuncios originais (sem duplicacao).
     _DETAILS_FIELDS = (
-        "id,name,effective_status,"
+        "id,name,effective_status,source_ad_id,"
+        "source_ad{creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
+        "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
+        "adcreatives{asset_feed_spec}},"
         "creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
         "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
         "adcreatives{asset_feed_spec}"
@@ -386,17 +393,32 @@ class AdsEnricher:
         if not details:
             return raw_data
 
-        creative_map = {d.get("name"): d.get("creative") for d in details}
-
+        # Prioriza source_ad.creative / source_ad.adcreatives (video_id do asset original,
+        # com owner resolvivel). Cai para creative/adcreatives diretos se nao houver source_ad.
+        creative_map: Dict[str, Optional[Dict[str, Any]]] = {}
         videos_map: Dict[str, List[Dict[str, Any]]] = {}
+        source_ad_hits = 0
         for detail in details:
             name = detail.get("name")
-            adcreatives = detail.get("adcreatives", {})
-            if adcreatives and "data" in adcreatives and len(adcreatives["data"]) > 0:
-                first_creative = adcreatives["data"][0]
-                asset_feed_spec = first_creative.get("asset_feed_spec", {})
-                if "videos" in asset_feed_spec:
+            source_ad = detail.get("source_ad") or {}
+
+            creative = source_ad.get("creative") or detail.get("creative")
+            creative_map[name] = creative
+
+            adcreatives = source_ad.get("adcreatives") or detail.get("adcreatives") or {}
+            if source_ad.get("adcreatives"):
+                source_ad_hits += 1
+            data = adcreatives.get("data") if isinstance(adcreatives, dict) else None
+            if data:
+                asset_feed_spec = (data[0] or {}).get("asset_feed_spec") or {}
+                if asset_feed_spec.get("videos"):
                     videos_map[name] = asset_feed_spec["videos"]
+
+        logger.info(
+            "[AdsEnricher] merge_details: %d/%d detalhes com source_ad.adcreatives",
+            source_ad_hits,
+            len(details),
+        )
 
         for ad in raw_data:
             ad_name = ad.get("ad_name")

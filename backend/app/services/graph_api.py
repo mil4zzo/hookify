@@ -161,39 +161,6 @@ class GraphAPI:
             logger.exception("get_adaccounts error: %s", err)
             return {'status': 'error', 'message': str(err)}
 
-    def get_page_access_token(self, actor_id: str) -> str:
-        """
-        Resolve o Page Access Token a partir do actor_id (Page ID) via /me/accounts.
-
-        Estratégia:
-        - Usa GET /me/accounts com cache em memória por user_id.
-        - Fallback: se não encontrar token da página, usa token do usuário (pode funcionar em alguns casos).
-        """
-        if not actor_id:
-            return self.user_token
-
-        # Sem user_id (ex.: fluxos de validação/diagnóstico), não cacheia e não tenta resolver.
-        if not self.user_id:
-            return self.user_token
-
-        try:
-            page_access_token = get_page_access_token_for_page_id(
-                user_id=self.user_id,
-                user_access_token=self.access_token,
-                page_id=str(actor_id),
-                graph_base_url=self.base_url,
-            )
-            if page_access_token:
-                return f"?access_token={page_access_token}"
-        except Exception as e:
-            logger.warning("get_page_access_token fallback to user token due to error: %s", e)
-
-        logger.warning(
-            "Não foi possível resolver Page Access Token para page_id=%s. Usando token do usuário como fallback.",
-            actor_id,
-        )
-        return self.user_token
-
     def start_ads_job(self, act_id: str, time_range: Dict[str, str], filters: List[Dict[str, Any]]) -> str:
         """Start async ads job and return report_run_id.
 
@@ -237,6 +204,273 @@ class GraphAPI:
         except Exception as err:
             logger.exception("start_ads_job error: %s", err)
             raise GraphAPIError("error", str(err)) from err
+
+    ## GET MEDIA SOURCE URLS
+
+    def get_page_access_token(self, actor_id: str) -> str:
+        """
+        Resolve o Page Access Token a partir do actor_id (Page ID) via /me/accounts.
+
+        Estratégia:
+        - Usa GET /me/accounts com cache em memória por user_id.
+        - Fallback: se não encontrar token da página, usa token do usuário (pode funcionar em alguns casos).
+        """
+        if not actor_id:
+            return self.user_token
+
+        # Sem user_id (ex.: fluxos de validação/diagnóstico), não cacheia e não tenta resolver.
+        if not self.user_id:
+            return self.user_token
+
+        try:
+            page_access_token = get_page_access_token_for_page_id(
+                user_id=self.user_id,
+                user_access_token=self.access_token,
+                page_id=str(actor_id),
+                graph_base_url=self.base_url,
+            )
+            if page_access_token:
+                return f"?access_token={page_access_token}"
+        except Exception as e:
+            logger.warning("get_page_access_token fallback to user token due to error: %s", e)
+
+        logger.warning(
+            "Não foi possível resolver Page Access Token para page_id=%s. Usando token do usuário como fallback.",
+            actor_id,
+        )
+        return self.user_token
+
+    def get_video_owner_page_id(self, video_id: Union[str, int]) -> Optional[str]:
+        """Resolve o page_id do dono real do vídeo via GET /{video_id}?fields=from."""
+        try:
+            video_url = self.base_url + str(video_id) + self.user_token
+            resp = requests.get(video_url, params={'fields': 'from'}, timeout=15)
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.get_video_owner_page_id")
+            from_data = resp.json().get('from')
+            if from_data and from_data.get('id'):
+                owner_id = str(from_data['id'])
+                logger.info("Video %s owner resolved: from.id=%s", video_id, owner_id)
+                return owner_id
+        except Exception as e:
+            logger.warning("get_video_owner_page_id failed for video %s: %s", video_id, e)
+        return None
+
+    def _fetch_video_source_with_token(self, video_id: Union[str, int], page_token: str) -> Optional[str]:
+        """Tenta buscar source do vídeo com o token fornecido. Retorna source ou None."""
+        try:
+            video_url = self.base_url + str(video_id) + page_token
+            resp = requests.get(video_url, params={'fields': 'source'}, timeout=15)
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.fetch_video_source")
+            return resp.json().get('source')
+        except Exception:
+            return None
+
+    def get_video_source_url(self, video_id: Union[str, int], actor_id: Optional[str] = None, video_owner_page_id: Optional[str] = None) -> Union[str, Dict[str, Any]]:
+        if not video_id:
+            raise ValueError("video_id is required")
+
+        actor_id = str(actor_id or "").strip()
+        resolved_owner_page_id = str(video_owner_page_id or "").strip() or None
+
+        try:
+            # 1. Se já temos o owner, usar direto
+            if resolved_owner_page_id:
+                owner_token = self.get_page_access_token(resolved_owner_page_id)
+                source = self._fetch_video_source_with_token(video_id, owner_token)
+                if source:
+                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
+
+            # 2. Se não temos owner, resolver via GET /{video_id}?fields=from
+            if not resolved_owner_page_id:
+                resolved_owner_page_id = self.get_video_owner_page_id(video_id)
+
+            # 3. Tentar com token do owner resolvido (se diferente do actor_id)
+            if resolved_owner_page_id and resolved_owner_page_id != actor_id:
+                owner_token = self.get_page_access_token(resolved_owner_page_id)
+                source = self._fetch_video_source_with_token(video_id, owner_token)
+                if source:
+                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
+
+            # 4. Fallback: tentar com actor_id (comportamento original)
+            if actor_id:
+                page_token = self.get_page_access_token(actor_id)
+                video_url = self.base_url + str(video_id) + page_token
+                payload = {'fields': 'source'}
+                resp = requests.get(video_url, params=payload, timeout=15)
+                resp.raise_for_status()
+                log_meta_usage(resp, "GraphAPI.get_video_source_url")
+                source = resp.json().get('source')
+                if source:
+                    return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}
+            return {"status": "not_found", "message": "No video source returned"}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
+            try:
+                error_data = json.loads(decoded_text)
+                error_message = error_data.get('error', {}).get('message', decoded_text)
+                error_code = error_data.get('error', {}).get('code')
+
+                # Mensagens de erro mais claras baseadas no código de erro
+                if error_code == 100:
+                    user_friendly_message = (
+                        f"Sua conta do Facebook não tem acesso à página {owner_reference}. "
+                        f"O vídeo pode estar associado a uma página que você não gerencia ou que foi removida."
+                    )
+                elif error_code == 190:
+                    user_friendly_message = (
+                        f"Token do Facebook expirado ou inválido. "
+                        f"Por favor, reconecte sua conta do Facebook."
+                    )
+                elif "does not exist" in error_message.lower() or "not found" in error_message.lower():
+                    user_friendly_message = (
+                        f"O vídeo {video_id} não foi encontrado ou não está mais disponível. "
+                        f"Isso pode acontecer se o anúncio foi removido ou se você não tem permissão para acessá-lo."
+                    )
+                else:
+                    user_friendly_message = (
+                        f"Não foi possível acessar o vídeo. "
+                        f"Erro da API do Facebook: {error_message}"
+                    )
+            except Exception:
+                user_friendly_message = (
+                    f"Não foi possível acessar o vídeo do anúncio. "
+                    f"Verifique se sua conta do Facebook tem as permissões necessárias."
+                )
+
+            logger.error(
+                "get_video_source_url http_error: status=%s video_id=%s actor_id=%s owner_page_id=%s body=%s",
+                http_err.response.status_code,
+                video_id,
+                actor_id,
+                resolved_owner_page_id,
+                decoded_text[:300],
+            )
+            return {
+                'status': f"Status: {http_err.response.status_code} - http_error",
+                'message': user_friendly_message
+            }
+        except Exception as err:
+            error_message = str(err)
+            owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
+            if "Page with ID" in error_message and "not found" in error_message:
+                user_friendly_message = (
+                    f"Sua conta do Facebook não tem acesso à página {owner_reference}. "
+                    f"O vídeo pode estar associado a uma página que você não gerencia."
+                )
+            else:
+                user_friendly_message = (
+                    f"Erro ao acessar o vídeo: {error_message}"
+                )
+
+            logger.exception("get_video_source_url error: %s", err)
+            return {'status': 'error', 'message': user_friendly_message}
+
+    def get_image_source_url(self, ad_id: str, actor_id: str) -> Dict[str, Any]:
+        """Fetch a fresh, high-quality image URL for an image ad.
+
+        Cascade:
+        1. Read ad + creative (account_id, asset_feed_spec, object_story_spec, image_hash, image_url).
+        2. Collect candidate image hashes in priority order.
+        3. If any hash, query /act_{account_id}/adimages to get permalink_url/url (stable, original size).
+        4. Fallback to creative.image_url. Never use thumbnail_url (low quality).
+        """
+        if not actor_id or not ad_id:
+            raise ValueError("actor_id and ad_id are required")
+        try:
+            page_token = self.get_page_access_token(actor_id)
+            ad_url = self.base_url + str(ad_id) + page_token
+            fields = "account_id,creative{id,image_hash,image_url,asset_feed_spec,object_story_spec}"
+            resp = requests.get(ad_url, params={"fields": fields}, timeout=15)
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.get_image_source_url.ad_read")
+
+            data = resp.json() or {}
+            account_id_raw = str(data.get("account_id") or "").strip()
+            creative = data.get("creative") or {}
+            creative_image_url = creative.get("image_url")
+
+            # Step 2: collect candidate hashes in priority order, deduped.
+            candidate_hashes: List[str] = []
+            seen = set()
+
+            def _add_hash(h: Optional[str]) -> None:
+                if h and isinstance(h, str) and h not in seen:
+                    seen.add(h)
+                    candidate_hashes.append(h)
+
+            asset_feed = creative.get("asset_feed_spec") or {}
+            for img in (asset_feed.get("images") or []):
+                if isinstance(img, dict):
+                    _add_hash(img.get("hash"))
+
+            oss = creative.get("object_story_spec") or {}
+            link_data = oss.get("link_data") or {}
+            _add_hash(link_data.get("image_hash"))
+            photo_data = oss.get("photo_data") or {}
+            _add_hash(photo_data.get("image_hash"))
+
+            _add_hash(creative.get("image_hash"))
+
+            # Step 3: resolve via /adimages when we have hashes and account_id.
+            if candidate_hashes and account_id_raw:
+                act_id = account_id_raw if account_id_raw.startswith("act_") else f"act_{account_id_raw}"
+                try:
+                    adimages_url = self.base_url + act_id + "/adimages" + self.user_token
+                    adimages_resp = requests.get(
+                        adimages_url,
+                        params={
+                            "hashes": json.dumps(candidate_hashes),
+                            "fields": "hash,permalink_url,url,original_width,original_height",
+                        },
+                        timeout=15,
+                    )
+                    adimages_resp.raise_for_status()
+                    log_meta_usage(adimages_resp, "GraphAPI.get_image_source_url.adimages_lookup")
+
+                    by_hash: Dict[str, Dict[str, Any]] = {}
+                    for item in (adimages_resp.json() or {}).get("data", []):
+                        h = item.get("hash")
+                        if h:
+                            by_hash[h] = item
+
+                    for h in candidate_hashes:
+                        item = by_hash.get(h)
+                        if not item:
+                            continue
+                        url = item.get("permalink_url") or item.get("url")
+                        if url:
+                            return {"image_url": url}
+                except requests.exceptions.HTTPError as http_err:
+                    decoded_text = urllib.parse.unquote(http_err.response.text)
+                    logger.warning(
+                        "get_image_source_url adimages_lookup http_error: status=%s act_id=%s body=%s",
+                        http_err.response.status_code, act_id, decoded_text[:300],
+                    )
+                except Exception as lookup_err:
+                    logger.warning("get_image_source_url adimages_lookup failed: %s", lookup_err)
+
+            # Step 4: fallback to creative.image_url. Never thumbnail_url.
+            if creative_image_url:
+                logger.info(
+                    "get_image_source_url falling back to creative.image_url ad_id=%s hashes_found=%d",
+                    ad_id, len(candidate_hashes),
+                )
+                return {"image_url": creative_image_url}
+
+            return {"status": "not_found", "message": "No image hash or URL available"}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            logger.error("get_image_source_url http_error: status=%s ad_id=%s body=%s",
+                        http_err.response.status_code, ad_id, decoded_text[:300])
+            return {"status": f"Status: {http_err.response.status_code} - http_error", "message": decoded_text}
+        except Exception as err:
+            logger.exception("get_image_source_url error: %s", err)
+            return {"status": "error", "message": str(err)}
+
+    ## MANAGE STATUS
 
     def _update_entity_status(self, entity_id: str, status: str) -> Dict[str, Any]:
         """
@@ -349,6 +583,8 @@ class GraphAPI:
         """Atualiza status de uma campanha (PAUSED/ACTIVE) via Meta Graph API."""
         return self._update_entity_status(campaign_id, status)
 
+    ## BULK CREATE ADS
+
     def get_ad_parent_info(self, ad_id: str) -> Dict[str, Any]:
         """Retorna campaign_id, adset_id e account_id de um anuncio."""
         return self._handle_graph_request(
@@ -444,108 +680,6 @@ class GraphAPI:
             params={"fields": "source"},
             timeout=15,
         )
-
-    def get_image_source_url(self, ad_id: str, actor_id: str) -> Dict[str, Any]:
-        """Fetch a fresh, high-quality image URL for an image ad.
-
-        Cascade:
-          1. Read ad + creative (account_id, asset_feed_spec, object_story_spec, image_hash, image_url).
-          2. Collect candidate image hashes in priority order.
-          3. If any hash, query /act_{account_id}/adimages to get permalink_url/url (stable, original size).
-          4. Fallback to creative.image_url. Never use thumbnail_url (low quality).
-        """
-        if not actor_id or not ad_id:
-            raise ValueError("actor_id and ad_id are required")
-        try:
-            page_token = self.get_page_access_token(actor_id)
-            ad_url = self.base_url + str(ad_id) + page_token
-            fields = "account_id,creative{id,image_hash,image_url,asset_feed_spec,object_story_spec}"
-            resp = requests.get(ad_url, params={"fields": fields}, timeout=15)
-            resp.raise_for_status()
-            log_meta_usage(resp, "GraphAPI.get_image_source_url.ad_read")
-
-            data = resp.json() or {}
-            account_id_raw = str(data.get("account_id") or "").strip()
-            creative = data.get("creative") or {}
-            creative_image_url = creative.get("image_url")
-
-            # Step 2: collect candidate hashes in priority order, deduped.
-            candidate_hashes: List[str] = []
-            seen = set()
-
-            def _add_hash(h: Optional[str]) -> None:
-                if h and isinstance(h, str) and h not in seen:
-                    seen.add(h)
-                    candidate_hashes.append(h)
-
-            asset_feed = creative.get("asset_feed_spec") or {}
-            for img in (asset_feed.get("images") or []):
-                if isinstance(img, dict):
-                    _add_hash(img.get("hash"))
-
-            oss = creative.get("object_story_spec") or {}
-            link_data = oss.get("link_data") or {}
-            _add_hash(link_data.get("image_hash"))
-            photo_data = oss.get("photo_data") or {}
-            _add_hash(photo_data.get("image_hash"))
-
-            _add_hash(creative.get("image_hash"))
-
-            # Step 3: resolve via /adimages when we have hashes and account_id.
-            if candidate_hashes and account_id_raw:
-                act_id = account_id_raw if account_id_raw.startswith("act_") else f"act_{account_id_raw}"
-                try:
-                    adimages_url = self.base_url + act_id + "/adimages" + self.user_token
-                    adimages_resp = requests.get(
-                        adimages_url,
-                        params={
-                            "hashes": json.dumps(candidate_hashes),
-                            "fields": "hash,permalink_url,url,original_width,original_height",
-                        },
-                        timeout=15,
-                    )
-                    adimages_resp.raise_for_status()
-                    log_meta_usage(adimages_resp, "GraphAPI.get_image_source_url.adimages_lookup")
-
-                    by_hash: Dict[str, Dict[str, Any]] = {}
-                    for item in (adimages_resp.json() or {}).get("data", []):
-                        h = item.get("hash")
-                        if h:
-                            by_hash[h] = item
-
-                    for h in candidate_hashes:
-                        item = by_hash.get(h)
-                        if not item:
-                            continue
-                        url = item.get("permalink_url") or item.get("url")
-                        if url:
-                            return {"image_url": url}
-                except requests.exceptions.HTTPError as http_err:
-                    decoded_text = urllib.parse.unquote(http_err.response.text)
-                    logger.warning(
-                        "get_image_source_url adimages_lookup http_error: status=%s act_id=%s body=%s",
-                        http_err.response.status_code, act_id, decoded_text[:300],
-                    )
-                except Exception as lookup_err:
-                    logger.warning("get_image_source_url adimages_lookup failed: %s", lookup_err)
-
-            # Step 4: fallback to creative.image_url. Never thumbnail_url.
-            if creative_image_url:
-                logger.info(
-                    "get_image_source_url falling back to creative.image_url ad_id=%s hashes_found=%d",
-                    ad_id, len(candidate_hashes),
-                )
-                return {"image_url": creative_image_url}
-
-            return {"status": "not_found", "message": "No image hash or URL available"}
-        except requests.exceptions.HTTPError as http_err:
-            decoded_text = urllib.parse.unquote(http_err.response.text)
-            logger.error("get_image_source_url http_error: status=%s ad_id=%s body=%s",
-                         http_err.response.status_code, ad_id, decoded_text[:300])
-            return {"status": f"Status: {http_err.response.status_code} - http_error", "message": decoded_text}
-        except Exception as err:
-            logger.exception("get_image_source_url error: %s", err)
-            return {"status": "error", "message": str(err)}
 
     def upload_ad_image(self, act_id: str, filename: str, file_bytes: bytes) -> Dict[str, Any]:
         return self._handle_graph_request(
@@ -723,133 +857,3 @@ class GraphAPI:
             params={"fields": "status"},
             timeout=30,
         )
-
-    def get_video_owner_page_id(self, video_id: Union[str, int]) -> Optional[str]:
-        """Resolve o page_id do dono real do vídeo via GET /{video_id}?fields=from."""
-        try:
-            video_url = self.base_url + str(video_id) + self.user_token
-            resp = requests.get(video_url, params={'fields': 'from'}, timeout=15)
-            resp.raise_for_status()
-            log_meta_usage(resp, "GraphAPI.get_video_owner_page_id")
-            from_data = resp.json().get('from')
-            if from_data and from_data.get('id'):
-                owner_id = str(from_data['id'])
-                logger.info("Video %s owner resolved: from.id=%s", video_id, owner_id)
-                return owner_id
-        except Exception as e:
-            logger.warning("get_video_owner_page_id failed for video %s: %s", video_id, e)
-        return None
-
-    def _fetch_video_source_with_token(self, video_id: Union[str, int], page_token: str) -> Optional[str]:
-        """Tenta buscar source do vídeo com o token fornecido. Retorna source ou None."""
-        try:
-            video_url = self.base_url + str(video_id) + page_token
-            resp = requests.get(video_url, params={'fields': 'source'}, timeout=15)
-            resp.raise_for_status()
-            log_meta_usage(resp, "GraphAPI.fetch_video_source")
-            return resp.json().get('source')
-        except Exception:
-            return None
-
-    def get_video_source_url(
-        self, video_id: Union[str, int], actor_id: Optional[str] = None, video_owner_page_id: Optional[str] = None
-    ) -> Union[str, Dict[str, Any]]:
-        if not video_id:
-            raise ValueError("video_id is required")
-
-        actor_id = str(actor_id or "").strip()
-        resolved_owner_page_id = str(video_owner_page_id or "").strip() or None
-
-        try:
-            # 1. Se já temos o owner, usar direto
-            if resolved_owner_page_id:
-                owner_token = self.get_page_access_token(resolved_owner_page_id)
-                source = self._fetch_video_source_with_token(video_id, owner_token)
-                if source:
-                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
-
-            # 2. Se não temos owner, resolver via GET /{video_id}?fields=from
-            if not resolved_owner_page_id:
-                resolved_owner_page_id = self.get_video_owner_page_id(video_id)
-
-            # 3. Tentar com token do owner resolvido (se diferente do actor_id)
-            if resolved_owner_page_id and resolved_owner_page_id != actor_id:
-                owner_token = self.get_page_access_token(resolved_owner_page_id)
-                source = self._fetch_video_source_with_token(video_id, owner_token)
-                if source:
-                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
-
-            # 4. Fallback: tentar com actor_id (comportamento original)
-            if actor_id:
-                page_token = self.get_page_access_token(actor_id)
-                video_url = self.base_url + str(video_id) + page_token
-                payload = {'fields': 'source'}
-                resp = requests.get(video_url, params=payload, timeout=15)
-                resp.raise_for_status()
-                log_meta_usage(resp, "GraphAPI.get_video_source_url")
-                source = resp.json().get('source')
-                if source:
-                    return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}
-            return {"status": "not_found", "message": "No video source returned"}
-        except requests.exceptions.HTTPError as http_err:
-            decoded_text = urllib.parse.unquote(http_err.response.text)
-            owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
-            try:
-                error_data = json.loads(decoded_text)
-                error_message = error_data.get('error', {}).get('message', decoded_text)
-                error_code = error_data.get('error', {}).get('code')
-
-                # Mensagens de erro mais claras baseadas no código de erro
-                if error_code == 100:
-                    user_friendly_message = (
-                        f"Sua conta do Facebook não tem acesso à página {owner_reference}. "
-                        f"O vídeo pode estar associado a uma página que você não gerencia ou que foi removida."
-                    )
-                elif error_code == 190:
-                    user_friendly_message = (
-                        f"Token do Facebook expirado ou inválido. "
-                        f"Por favor, reconecte sua conta do Facebook."
-                    )
-                elif "does not exist" in error_message.lower() or "not found" in error_message.lower():
-                    user_friendly_message = (
-                        f"O vídeo {video_id} não foi encontrado ou não está mais disponível. "
-                        f"Isso pode acontecer se o anúncio foi removido ou se você não tem permissão para acessá-lo."
-                    )
-                else:
-                    user_friendly_message = (
-                        f"Não foi possível acessar o vídeo. "
-                        f"Erro da API do Facebook: {error_message}"
-                    )
-            except Exception:
-                user_friendly_message = (
-                    f"Não foi possível acessar o vídeo do anúncio. "
-                    f"Verifique se sua conta do Facebook tem as permissões necessárias."
-                )
-
-            logger.error(
-                "get_video_source_url http_error: status=%s video_id=%s actor_id=%s owner_page_id=%s body=%s",
-                http_err.response.status_code,
-                video_id,
-                actor_id,
-                resolved_owner_page_id,
-                decoded_text[:300],
-            )
-            return {
-                'status': f"Status: {http_err.response.status_code} - http_error",
-                'message': user_friendly_message
-            }
-        except Exception as err:
-            error_message = str(err)
-            owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
-            if "Page with ID" in error_message and "not found" in error_message:
-                user_friendly_message = (
-                    f"Sua conta do Facebook não tem acesso à página {owner_reference}. "
-                    f"O vídeo pode estar associado a uma página que você não gerencia."
-                )
-            else:
-                user_friendly_message = (
-                    f"Erro ao acessar o vídeo: {error_message}"
-                )
-
-            logger.exception("get_video_source_url error: %s", err)
-            return {'status': 'error', 'message': user_friendly_message}
