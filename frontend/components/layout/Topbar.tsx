@@ -159,7 +159,7 @@ export default function Topbar() {
 
   const handleConnectFacebook = async () => {
     try {
-      await connect.mutateAsync();
+      await connect.mutateAsync({});
     } catch (error) {
       const authError = error as AuthPopupError;
       if (authError?.code === "AUTH_POPUP_CLOSED") return; // Cancelamento pelo usuário — não mostrar toast

@@ -23,7 +23,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
 
   const handleConnect = async () => {
     try {
-      const ok = await connect.mutateAsync();
+      const ok = await connect.mutateAsync({});
       if (ok) {
         showSuccess("Facebook conectado com sucesso!");
         props.onContinue();
