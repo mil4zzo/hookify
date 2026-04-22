@@ -35,6 +35,19 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
     }
   };
 
+  const handleReconnect = async () => {
+    try {
+      const ok = await connect.mutateAsync({ reauth: true });
+      if (ok) {
+        showSuccess("Facebook reconectado com sucesso!");
+      }
+    } catch (e: any) {
+      const authError = e as AuthPopupError;
+      if (authError?.code === "AUTH_POPUP_CLOSED") return;
+      showError(e);
+    }
+  };
+
   const handleDelete = async (connectionId: string) => {
     if (!confirm("Tem certeza que deseja desconectar esta conta do Facebook?")) {
       return;
@@ -66,7 +79,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
                 <FacebookConnectionCard
                   key={connection.id}
                   connection={connection}
-                  onReconnect={handleConnect}
+                  onReconnect={handleReconnect}
                   onRefreshPicture={async (connectionId) => {
                     try {
                       await refreshPicture.mutateAsync(connectionId);

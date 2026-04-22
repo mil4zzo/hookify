@@ -25,7 +25,7 @@ FACEBOOK_TOKEN_URL = os.getenv("FACEBOOK_TOKEN_URL", f"https://graph.facebook.co
 # Em produção, permissões de Pages podem exigir App Review dependendo do cenário.
 FACEBOOK_OAUTH_SCOPES = os.getenv(
     "FACEBOOK_OAUTH_SCOPES",
-    "public_profile,email,ads_read,ads_management,pages_show_list,pages_read_engagement",
+    "public_profile,email,ads_read,ads_management,pages_show_list,pages_read_engagement,business_management",
 )
 
 # Google OAuth / Sheets

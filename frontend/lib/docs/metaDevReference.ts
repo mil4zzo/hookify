@@ -66,6 +66,18 @@ export const META_PERMISSIONS: MetaPermissionDoc[] = [
     ],
     appReviewNotes: ["Não publicamos conteúdo; apenas leitura para exibição/análise."],
   },
+  {
+    scope: "business_management",
+    description: "Acesso a ativos de negócio e permissões de Business Manager vinculados ao usuário.",
+    usedFor: [
+      "Garantir acesso a contas de anúncio e ativos empresariais associados ao Business Manager do usuário.",
+      "Suportar listagem e sincronização de contas de anúncio conectadas ao negócio.",
+    ],
+    appReviewNotes: [
+      "Solicitada apenas para acessar ativos empresariais que o próprio usuário já administra no Meta Business Manager.",
+      "Não realizamos criação ou compartilhamento automático de ativos empresariais sem ação explícita do usuário.",
+    ],
+  },
 ];
 
 export type MetaEndpointDoc = {

@@ -714,7 +714,7 @@ class CampaignBulkProcessor:
             "[CAMPAIGN_BULK] non_resumable_upload_start job_id=%s file_index=%s file_size=%s",
             self.context.job_id, file_index, file_size,
         )
-        self._heartbeat("Enviando vídeo para o Meta...", progress=5)
+        self._heartbeat("Enviando mídia ao Meta...", progress=5)
 
         upload_content = self._get_upload_content(file_data)
         try:
@@ -729,11 +729,7 @@ class CampaignBulkProcessor:
             )
 
             def _get_progress_msg():
-                elapsed = int(time.monotonic() - t0)
-                return (
-                    f"Enviando vídeo para o Meta ({file_size} bytes, {elapsed}s decorridos)...",
-                    8,
-                )
+                return ("Enviando mídia ao Meta...", 8)
 
             heartbeat_thread = _HeartbeatThread(self._heartbeat, _get_progress_msg, interval=5.0)
             heartbeat_thread.start()
@@ -793,7 +789,7 @@ class CampaignBulkProcessor:
             "[CAMPAIGN_BULK] resumable_upload_start job_id=%s file_index=%s file_size=%s",
             self.context.job_id, file_index, file_size,
         )
-        self._heartbeat("Iniciando envio de vídeo para o Meta...", progress=5)
+        self._heartbeat("Enviando mídia ao Meta...", progress=5)
         start_result = self.api.start_video_upload(act_id)
         start_data = self._extract_data_or_raise(start_result)
         video_id = str(start_data["video_id"])
@@ -825,16 +821,12 @@ class CampaignBulkProcessor:
             # during the transfer, even though we can't report byte-level progress
             # when sending bytes in a single call.
             def _get_progress_msg():
-                elapsed = int(time.monotonic() - t0)
-                return (
-                    f"Enviando vídeo para o Meta ({file_size} bytes, {elapsed}s decorridos)...",
-                    8,
-                )
+                return ("Enviando mídia ao Meta...", 8)
 
             heartbeat_thread = _HeartbeatThread(self._heartbeat, _get_progress_msg, interval=5.0)
             heartbeat_thread.start()
             try:
-                self._heartbeat(f"Enviando vídeo ({file_size} bytes)...", progress=6)
+                self._heartbeat("Enviando mídia ao Meta...", progress=6)
                 transfer_result = self.api.transfer_video_resumable(
                     video_id=video_id,
                     data=upload_bytes,
@@ -864,7 +856,7 @@ class CampaignBulkProcessor:
         )
 
         # Phase 3 — Finish
-        self._heartbeat("Finalizando envio de vídeo...", progress=15)
+        self._heartbeat("Finalizando envio da mídia...", progress=15)
         finish_result = self.api.finish_video_upload(act_id, video_id)
         self._extract_data_or_raise(finish_result)
         logger.info(

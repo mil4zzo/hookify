@@ -223,12 +223,40 @@ const ADS_PIPELINE = ["pending", "uploading_media", "creating_creative", "creati
 const GENERAL_PROGRESS_STATUSES = new Set(["pending"])
 const TERMINAL_PROGRESS_STATUSES = new Set(["success", "error", "skipped"])
 
-function getCurrentProgressItemLabel(items: Array<{ ad_name: string; status: string }>) {
+function formatElapsedSeconds(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`
+  if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, "0")}s`
+  return `${seconds}s`
+}
+
+function useElapsedLabel(startedAtMs: number | null, endedAtMs: number | null): string | null {
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (startedAtMs === null || endedAtMs !== null) return
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(intervalId)
+  }, [endedAtMs, startedAtMs])
+
+  if (startedAtMs === null) return null
+  const referenceMs = endedAtMs ?? nowMs
+  return formatElapsedSeconds((referenceMs - startedAtMs) / 1000)
+}
+
+function getCurrentProgressItemMeta(items: Array<{ ad_name: string; status: string }>) {
   const activeIndex = items.findIndex((item) => !GENERAL_PROGRESS_STATUSES.has(item.status) && !TERMINAL_PROGRESS_STATUSES.has(item.status))
   const fallbackIndex = items.findIndex((item) => !TERMINAL_PROGRESS_STATUSES.has(item.status))
   const index = activeIndex >= 0 ? activeIndex : fallbackIndex
   if (index < 0) return null
-  return `Subindo anúncio ${index + 1} de ${items.length}: ${items[index].ad_name}`
+  return {
+    title: `Duplicando campanha ${index + 1} de ${items.length}...`,
+    subtitle: `Subindo anúncio ${index + 1} de ${items.length}: ${items[index].ad_name}`,
+  }
 }
 
 function CampaignProgressView({
@@ -237,12 +265,16 @@ function CampaignProgressView({
   creative,
   onCancel,
   onRetry,
+  processStartedAtMs,
+  processEndedAtMs,
 }: {
   progress: import("@/lib/api/schemas").CampaignBulkProgressResponse
   isCreating: boolean
   creative?: import("@/lib/api/schemas").AdCreativeDetailResponse | null
   onCancel: () => void
   onRetry?: (itemIds: string[]) => void
+  processStartedAtMs: number | null
+  processEndedAtMs: number | null
 }) {
   const { summary, message, items } = progress
   const pct = summary.total > 0
@@ -252,7 +284,8 @@ function CampaignProgressView({
   const isFailed = progress.status === "failed"
   const isCancelled = progress.status === "cancelled"
   const isTerminal = isCompleted || isFailed || isCancelled
-  const currentItemLabel = getCurrentProgressItemLabel(items)
+  const currentItemMeta = getCurrentProgressItemMeta(items)
+  const elapsedLabel = useElapsedLabel(processStartedAtMs, processEndedAtMs)
 
   return (
     <div className="space-y-4">
@@ -268,11 +301,20 @@ function CampaignProgressView({
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold">
-              {isCompleted ? "Criação concluída!" : isFailed ? "Erro na criação" : isCancelled ? "Cancelado" : currentItemLabel || "Criando campanhas..."}
+              {isCompleted ? "Criação concluída!" : isFailed ? "Erro na criação" : isCancelled ? "Cancelado" : currentItemMeta?.title || "Duplicando campanhas..."}
             </div>
-            <div className="text-xs text-muted-foreground truncate">{message}</div>
+            <div className="text-xs text-muted-foreground truncate">
+              {isCompleted || isFailed || isCancelled ? message : currentItemMeta?.subtitle || "Preparando duplicação..."}
+            </div>
           </div>
-          <div className="text-2xl font-bold tabular-nums text-primary shrink-0">{pct}%</div>
+          <div className="flex shrink-0 items-end gap-3">
+            {elapsedLabel && (
+              <div className="rounded-md border border-border bg-background px-2 py-1 text-xs font-medium tabular-nums text-muted-foreground">
+                {elapsedLabel}
+              </div>
+            )}
+            <div className="text-2xl font-bold tabular-nums text-primary">{pct}%</div>
+          </div>
         </div>
 
         {/* Progress bar */}
@@ -392,6 +434,8 @@ export default function UploadPage() {
     cancelCampaignBulk,
     resetCampaignBulk,
   } = useCampaignBulkCreate()
+  const [campaignProcessStartedAtMs, setCampaignProcessStartedAtMs] = useState<number | null>(null)
+  const [campaignProcessEndedAtMs, setCampaignProcessEndedAtMs] = useState<number | null>(null)
 
   // ── derived ──────────────────────────────────────────────────────────────────
   const adsetMap = useMemo(() => {
@@ -464,6 +508,13 @@ export default function UploadPage() {
       }
     })
   }, [resumePolling])
+
+  useEffect(() => {
+    if (!campaignProgress || campaignProcessStartedAtMs === null || campaignProcessEndedAtMs !== null) return
+    if (["completed", "failed", "cancelled"].includes(campaignProgress.status)) {
+      setCampaignProcessEndedAtMs(Date.now())
+    }
+  }, [campaignProcessEndedAtMs, campaignProcessStartedAtMs, campaignProgress])
 
   // review items for ads mode
   useEffect(() => {
@@ -628,6 +679,8 @@ export default function UploadPage() {
   const resetCurrentFlow = useCallback((mode: "ads" | "campaign" = uploadMode) => {
     resetBulkCreate()
     resetCampaignBulk()
+    setCampaignProcessStartedAtMs(null)
+    setCampaignProcessEndedAtMs(null)
     setUploadMode(mode)
     setCurrentStep(1)
     setSelectedTemplateAdId(null)
@@ -757,6 +810,8 @@ export default function UploadPage() {
 
   async function handleStartCampaign() {
     if (!selectedTemplateAdId || !selectedAccountId || campaignReviewItems.length === 0 || campaignSelectedAdsetIds.length === 0) return
+    setCampaignProcessStartedAtMs(Date.now())
+    setCampaignProcessEndedAtMs(null)
 
     const allFiles: File[] = []
     const fileByRef = new Map<File, number>()
@@ -797,6 +852,12 @@ export default function UploadPage() {
     await startCampaignBulk(allFiles, config)
   }
 
+  const handleRetryCampaign = useCallback(async (jobId: string, itemIds: string[]) => {
+    setCampaignProcessStartedAtMs(Date.now())
+    setCampaignProcessEndedAtMs(null)
+    await retryCampaignFailed(jobId, itemIds)
+  }, [retryCampaignFailed])
+
   // ── navigation ────────────────────────────────────────────────────────────────
   const steps = uploadMode === "campaign" ? stepsCampaign : stepsAds
 
@@ -813,6 +874,7 @@ export default function UploadPage() {
     : !!selectedTemplateAdId && !!campaignTemplate && !!creative && !!creative.supports_bulk_clone
 
   const isAnyCreating = isCreating || isCampaignCreating || isCampaignStarting
+  const campaignProcessElapsedLabel = useElapsedLabel(campaignProcessStartedAtMs, campaignProcessEndedAtMs)
 
   const canGoNext =
     (currentStep === 1 && step1Ready) ||
@@ -1035,11 +1097,11 @@ export default function UploadPage() {
               /* Ads mode: initializing skeleton — shows real item list as pending */
               <div className="space-y-3">
                 <div className="rounded-2xl border border-border bg-background overflow-hidden shadow-sm">
-                  <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
-                      <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
+                            <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
+                          </div>
+                          <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold">
                         Preparando {reviewItems.length} anúncio{reviewItems.length !== 1 ? "s" : ""}…
                       </div>
@@ -1070,7 +1132,9 @@ export default function UploadPage() {
                     isCreating={isCampaignCreating}
                     creative={creative}
                     onCancel={() => void cancelCampaignBulk()}
-                    onRetry={(itemIds) => void retryCampaignFailed(campaignProgress.job_id, itemIds)}
+                    onRetry={(itemIds) => void handleRetryCampaign(campaignProgress.job_id, itemIds)}
+                    processStartedAtMs={campaignProcessStartedAtMs}
+                    processEndedAtMs={campaignProcessEndedAtMs}
                   />
                 : <div className="space-y-3">
                     <div className="rounded-2xl border border-border bg-background overflow-hidden shadow-sm">
@@ -1085,11 +1149,16 @@ export default function UploadPage() {
                               : `Preparando ${campaignReviewItems.length} campanha${campaignReviewItems.length !== 1 ? "s" : ""}…`}
                           </div>
                           <div className="text-xs text-muted-foreground">
-                            {campaignSelectedAdsetIds.length} conjunto{campaignSelectedAdsetIds.length !== 1 ? "s" : ""} por campanha
-                            {" · "}{campaignReviewItems.length * campaignSelectedAdsetIds.length} no total
+                              {campaignSelectedAdsetIds.length} conjunto{campaignSelectedAdsetIds.length !== 1 ? "s" : ""} por campanha
+                              {" · "}{campaignReviewItems.length * campaignSelectedAdsetIds.length} no total
+                            </div>
                           </div>
+                          {campaignProcessElapsedLabel && (
+                            <div className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium tabular-nums text-muted-foreground">
+                              {campaignProcessElapsedLabel}
+                            </div>
+                          )}
                         </div>
-                      </div>
                       <div className="h-1.5 bg-muted">
                         <div className="h-full bg-primary-30 animate-pulse w-full" />
                       </div>

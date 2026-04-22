@@ -19,6 +19,7 @@ import {
   RankingsSeriesResponse,
   RankingsRetentionRequest,
   RankingsRetentionResponse,
+  AdTranscriptionResponse,
 } from './schemas'
 import { useSessionStore } from '@/lib/store/session'
 import { useSupabaseAuth } from '@/lib/hooks/useSupabaseAuth'
@@ -38,6 +39,7 @@ export const queryKeys = {
   adHistory: (adId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-history', adId, dateStart, dateStop] as const,
   adNameDetails: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-details', adName, dateStart, dateStop] as const,
   adNameHistory: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop] as const,
+  adTranscription: (adName: string) => ['analytics', 'transcription', adName] as const,
   campaignChildren: (campaignId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop] as const,
   adsetChildren: (adsetId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
@@ -554,6 +556,16 @@ export const usePackAds = (packId: string, enabled: boolean = true) => {
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     refetchOnReconnect: false,
+  })
+}
+
+export const useAdTranscription = (adName: string, enabled: boolean = false) => {
+  return useQuery<AdTranscriptionResponse>({
+    queryKey: queryKeys.adTranscription(adName),
+    queryFn: () => api.analytics.getTranscription(adName),
+    enabled: enabled && !!adName,
+    staleTime: 5 * 60 * 1000,
+    retry: 0,
   })
 }
 

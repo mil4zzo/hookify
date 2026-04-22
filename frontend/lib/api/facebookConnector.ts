@@ -1,9 +1,10 @@
 import { apiClient } from '@/lib/api/client'
 
 export const facebookConnectorApi = {
-  async getAuthUrl(redirect_uri: string, state?: string) {
+  async getAuthUrl(redirect_uri: string, state?: string, reauth: boolean = false) {
     const params = new URLSearchParams({ redirect_uri })
     if (state) params.set('state', state)
+    if (reauth) params.set('reauth', 'true')
     return apiClient.post<{ auth_url: string }>(`/facebook/connect/url?${params.toString()}`)
   },
 

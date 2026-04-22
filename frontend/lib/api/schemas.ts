@@ -851,3 +851,15 @@ export type CampaignBulkItemConfig = z.infer<typeof CampaignBulkItemConfigSchema
 export type CampaignBulkConfig = z.infer<typeof CampaignBulkConfigSchema>
 export type CampaignBulkItemProgress = z.infer<typeof CampaignBulkItemProgressSchema>
 export type CampaignBulkProgressResponse = z.infer<typeof CampaignBulkProgressResponseSchema>
+
+// ========== Transcription ==========
+export interface AdTranscriptionResponse {
+  id: string
+  ad_name: string
+  status: "processing" | "completed" | "failed"
+  full_text: string | null
+  timestamped_text: any | null
+  metadata: any | null
+  created_at?: string
+  updated_at?: string
+}

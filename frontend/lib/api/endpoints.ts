@@ -35,6 +35,7 @@ import {
   CampaignTemplateResponse,
   CampaignBulkConfig,
   CampaignBulkProgressResponse,
+  AdTranscriptionResponse,
 } from './schemas'
 import { env } from '@/lib/config/env'
 
@@ -243,6 +244,8 @@ export const api = {
       params: { date_start: string; date_stop: string }
     ): Promise<{ data: any[] }> =>
       apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/history`, { params }),
+    getTranscription: (adName: string): Promise<AdTranscriptionResponse> =>
+      apiClient.get('/analytics/transcription', { params: { ad_name: adName } }),
     getAdsetDetails: (
       adsetId: string,
       params: { date_start: string; date_stop: string }

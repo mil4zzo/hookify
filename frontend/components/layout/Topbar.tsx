@@ -167,6 +167,17 @@ export default function Topbar() {
     }
   };
 
+  const handleReconnectFacebook = async () => {
+    try {
+      await connect.mutateAsync({ reauth: true });
+      syncAdAccounts.mutate();
+    } catch (error) {
+      const authError = error as AuthPopupError;
+      if (authError?.code === "AUTH_POPUP_CLOSED") return;
+      showError(error as any);
+    }
+  };
+
   const handleRefreshPicture = async (connectionId: string) => {
     try {
       await refreshPicture.mutateAsync(connectionId);
@@ -558,7 +569,9 @@ export default function Topbar() {
             <FacebookConnectionCard
               key={connection.id}
               connection={connection}
-              onReconnect={handleConnectFacebook}
+              onReconnect={() => {
+                void handleReconnectFacebook();
+              }}
               onRefreshPicture={handleRefreshPicture}
               onVerify={() => syncAdAccounts.mutate()}
               onDelete={async (connectionId) => {

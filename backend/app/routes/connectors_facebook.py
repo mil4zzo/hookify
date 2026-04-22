@@ -63,7 +63,12 @@ def _has_valid_picture_cache(connection: Dict[str, Any]) -> bool:
 
 
 @router.post("/connect/url")
-def get_connect_url(redirect_uri: str = Query(..., description="OAuth redirect URI"), state: Optional[str] = Query(None), user=Depends(get_current_user)):
+def get_connect_url(
+    redirect_uri: str = Query(..., description="OAuth redirect URI"),
+    state: Optional[str] = Query(None),
+    reauth: bool = Query(False, description="Force a reconnect flow to request newly-added scopes"),
+    user=Depends(get_current_user),
+):
     if not FACEBOOK_CLIENT_ID:
         raise HTTPException(status_code=500, detail="Facebook OAuth not configured. Missing CLIENT_ID.")
 
@@ -77,6 +82,10 @@ def get_connect_url(redirect_uri: str = Query(..., description="OAuth redirect U
     }
     if state:
         params["state"] = state
+    if reauth:
+        # When new permissions are added after the first connection, the app must
+        # run the OAuth dialog again instead of only testing the current token.
+        params["auth_type"] = "rerequest"
     url = f"{FACEBOOK_AUTH_BASE_URL}?{urlencode(params)}"
     return {"auth_url": url}
 

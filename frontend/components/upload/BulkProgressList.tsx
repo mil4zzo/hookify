@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   IconAlertCircle,
   IconCheck,
@@ -18,6 +18,48 @@ const CAMPAIGN_PIPELINE = ["pending", "uploading_media", "creating_creative", "c
 
 const GENERAL_STATUSES = new Set(["pending"])
 const TERMINAL_ITEM_STATUSES = new Set(["success", "error", "skipped"])
+
+function formatElapsedSeconds(totalSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(totalSeconds))
+  const hours = Math.floor(safeSeconds / 3600)
+  const minutes = Math.floor((safeSeconds % 3600) / 60)
+  const seconds = safeSeconds % 60
+
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m ${String(seconds).padStart(2, "0")}s`
+  if (minutes > 0) return `${minutes}m ${String(seconds).padStart(2, "0")}s`
+  return `${seconds}s`
+}
+
+function useItemElapsedLabel(status: string): string | null {
+  const [startedAtMs, setStartedAtMs] = useState<number | null>(null)
+  const [endedAtMs, setEndedAtMs] = useState<number | null>(null)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (status !== "pending" && startedAtMs === null) {
+      const timestamp = Date.now()
+      setStartedAtMs(timestamp)
+      if (TERMINAL_ITEM_STATUSES.has(status)) {
+        setEndedAtMs(timestamp)
+      }
+      return
+    }
+
+    if (startedAtMs !== null && endedAtMs === null && TERMINAL_ITEM_STATUSES.has(status)) {
+      setEndedAtMs(Date.now())
+    }
+  }, [endedAtMs, startedAtMs, status])
+
+  useEffect(() => {
+    if (startedAtMs === null || endedAtMs !== null) return
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(intervalId)
+  }, [endedAtMs, startedAtMs])
+
+  if (startedAtMs === null) return null
+  const referenceMs = endedAtMs ?? nowMs
+  return formatElapsedSeconds((referenceMs - startedAtMs) / 1000)
+}
 
 function unique<T>(values: T[]): T[] {
   return [...new Set(values)]
@@ -132,6 +174,7 @@ export function ProgressItemCard({
   autoExpand = false,
 }: ProgressItemCardProps) {
   const [expanded, setExpanded] = useState(autoExpand)
+  const elapsedLabel = useItemElapsedLabel(status)
 
   const isDone = status === "success"
   const isError = status === "error"
@@ -171,6 +214,12 @@ export function ProgressItemCard({
             <span className="truncate">{currentLabel}</span>
           </div>
         </div>
+
+        {elapsedLabel && (
+          <div className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
+            {elapsedLabel}
+          </div>
+        )}
 
         {isDone && metaAdId && (
           <a

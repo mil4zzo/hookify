@@ -37,10 +37,10 @@ export function useFacebookConnections() {
   })
 
   const connect = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ reauth = false }: { reauth?: boolean } = {}) => {
       const redirectUri = window.location.origin + '/callback'
       const state = Math.random().toString(36).slice(2)
-      const { auth_url } = await facebookConnectorApi.getAuthUrl(redirectUri, state)
+      const { auth_url } = await facebookConnectorApi.getAuthUrl(redirectUri, state, reauth)
 
       let messageData: { type?: string; code?: string; error?: string; errorDescription?: string; error_description?: string; state?: string }
       try {
@@ -96,7 +96,7 @@ export function useFacebookConnections() {
           qc.refetchQueries({ queryKey: queryKeys.adAccounts }),
           qc.refetchQueries({ queryKey: queryKeys.me }),
         ])
-        showSuccess('Facebook conectado com sucesso!')
+        showSuccess(reauth ? 'Facebook reconectado com sucesso!' : 'Facebook conectado com sucesso!')
         return true
       } catch (e: any) {
         const authError = e as AuthPopupError
@@ -137,5 +137,4 @@ export function useFacebookConnections() {
 
   return { connections, connect, disconnect, setPrimary, refreshPicture }
 }
-
 

@@ -7,7 +7,7 @@ import { VideoMetricCell } from "@/components/common/VideoMetricCell";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useImageSource, useAdHistory, useAdNameHistory } from "@/lib/api/hooks";
+import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useImageSource, useAdHistory, useAdNameHistory, useAdTranscription } from "@/lib/api/hooks";
 import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
@@ -20,7 +20,7 @@ import { buildMetricSeriesFromSourceSeries, getMetricAverageTooltip, getMetricBe
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
 import { loadManagerColumnsPreference } from "@/components/manager/managerColumnPreferences";
-import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCurrencyDollar, IconLayoutGrid, IconWorld } from "@tabler/icons-react";
+import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
@@ -53,7 +53,7 @@ interface AdDetailsDialogProps {
 }
 
 export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, availableConversionTypes = [], initialTab = "video", averages }: AdDetailsDialogProps) {
-  const [activeTab, setActiveTab] = useState<"variations" | "video" | "history">(initialTab);
+  const [activeTab, setActiveTab] = useState<"variations" | "video" | "copy" | "history">(initialTab);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
   const [retentionViewMode, setRetentionViewMode] = useState<"chart" | "metrics">("metrics");
@@ -112,7 +112,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const detailDateStop = historyDateRange.end || dateStop || "";
   const shouldLoadVariations = groupByAdName && activeTab === "variations" && !!adName && !!dateStart && !!dateStop;
   const shouldLoadDetails = !groupByAdName && activeTab === "video" && !!adId && !!dateStart && !!dateStop;
-  const shouldLoadCreative = !groupByAdName && activeTab === "video" && !!adId;
+  const shouldLoadCreative = !groupByAdName && (activeTab === "video" || activeTab === "copy") && !!adId;
+  const shouldLoadTranscription = activeTab === "copy" && !!adName;
   const shouldLoadHistoryById = activeTab === "history" && !groupByAdName && !!adId && !!dateStart && !!dateStop;
   const shouldLoadHistoryByName = activeTab === "history" && groupByAdName && !!adName && !!dateStart && !!dateStop;
 
@@ -178,7 +179,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const mediaType = normalizeMediaType((creativeData as any)?.media_type);
   const actorId = extractActorIdFromCreative(creative);
   const videoOwnerPageId = (creativeData as any)?.video_owner_page_id;
-  const shouldLoadVideo = activeTab === "video" && mediaType !== "image" && !!videoId && !loadingCreative;
+  const shouldLoadVideo = (activeTab === "video" || activeTab === "copy") && mediaType !== "image" && !!videoId && !loadingCreative;
 
   const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
 
@@ -550,6 +551,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   );
   const resolvedCreativeImageUrl = imageSourceData?.image_url ?? null;
 
+  const { data: transcriptionData, isLoading: loadingTranscription, isError: transcriptionError } = useAdTranscription(adName, shouldLoadTranscription);
+
 
   // Handler para quando um ponto do gráfico de retenção é clicado
   const handleRetentionPointClick = (second: number) => {
@@ -594,7 +597,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as typeof activeTab)}
         variant="with-controls"
-        tabs={[{ value: "video", label: "Geral" }, { value: "history", label: "Histórico" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : [])]}
+        tabs={[{ value: "video", label: "Geral" }, { value: "copy", label: "Copy" }, { value: "history", label: "Histórico" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : [])]}
         tabsContainerClassName="mb-6"
         controls={
           allConversionTypes.length > 0 ? (
@@ -625,39 +628,40 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           </TabbedContentItem>
         )}
 
-        <TabbedContentItem value="video" variant="simple" className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 flex flex-col min-h-0">
-            {isCreativeLoading ? (
-              <VideoTabSkeleton showConversionFilter={allConversionTypes.length > 0} />
-            ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) ? (
-              <div className="text-sm text-muted-foreground p-6 text-center">Mídia não disponível para este anúncio.</div>
-            ) : (
-              <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
-                {/* Player de vídeo ou imagem */}
-                <div className="flex-shrink-0 rounded-lg flex items-center justify-center ml-8" style={{ aspectRatio: "9/16" }}>
-                  {isImageAd ? (
-                    loadingImageSource ? (
-                      <RetentionVideoPlayerSkeleton />
-                    ) : resolvedCreativeImageUrl ? (
-                      <img
-                        src={resolvedCreativeImageUrl}
-                        alt={adName}
-                        className="w-full h-full object-contain rounded-lg"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">Imagem não disponível</div>
-                    )
+        {/* Layout compartilhado entre "Geral" e "Copy": renderizado fora de TabsContent para manter o vídeo montado ao trocar de aba */}
+        <div className={`flex-1 flex flex-col min-h-0 ${activeTab !== "video" && activeTab !== "copy" ? "hidden" : ""}`}>
+          {isCreativeLoading ? (
+            <VideoTabSkeleton showConversionFilter={allConversionTypes.length > 0} />
+          ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) ? (
+            <div className="text-sm text-muted-foreground p-6 text-center">Mídia não disponível para este anúncio.</div>
+          ) : (
+            <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
+              {/* Player de vídeo ou imagem (compartilhado — nunca desmonta ao trocar entre Geral e Copy) */}
+              <div className="flex-shrink-0 rounded-lg flex items-center justify-center ml-8" style={{ aspectRatio: "9/16" }}>
+                {isImageAd ? (
+                  loadingImageSource ? (
+                    <RetentionVideoPlayerSkeleton />
+                  ) : resolvedCreativeImageUrl ? (
+                    <img
+                      src={resolvedCreativeImageUrl}
+                      alt={adName}
+                      className="w-full h-full object-contain rounded-lg"
+                    />
                   ) : (
-                    <>
-                      {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
-                      {resolvedVideoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
-                      {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
-                      {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
-                    </>
-                  )}
-                </div>
+                    <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">Imagem não disponível</div>
+                  )
+                ) : (
+                  <>
+                    {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
+                    {resolvedVideoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
+                    {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
+                    {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+                  </>
+                )}
+              </div>
 
-                {/* Métricas em seções */}
+              {/* Conteúdo direito: métricas (Geral) ou transcrição (Copy) */}
+              {activeTab === "video" && (
                 <div className={`flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-between transition-opacity duration-200 ${loadingOverridden ? "opacity-50 pointer-events-none" : ""}`}>
                   {/* Retenção */}
                   <MetricSection
@@ -724,10 +728,51 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     <VideoMetricCell label="Reach" value={resolvedReach != null ? resolvedReach.toLocaleString("pt-BR") : "—"} />
                   </MetricSection>
                 </div>
-              </div>
-            )}
-          </div>
-        </TabbedContentItem>
+              )}
+
+              {activeTab === "copy" && (
+                <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4">
+                  {loadingTranscription ? (
+                    <div className="flex flex-col gap-3 pt-1">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-5/6" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-4/5" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-5/6" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-4/5" />
+                    </div>
+                  ) : transcriptionError || !transcriptionData ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                      <IconMicrophone className="h-8 w-8 opacity-30" />
+                      <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
+                    </div>
+                  ) : transcriptionData.status === "processing" ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                      <IconMicrophone className="h-8 w-8 opacity-30" />
+                      <p className="text-sm">Transcrição em andamento...</p>
+                    </div>
+                  ) : transcriptionData.status === "failed" ? (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                      <IconMicrophone className="h-8 w-8 opacity-30" />
+                      <p className="text-sm">A transcrição falhou para este anúncio.</p>
+                    </div>
+                  ) : transcriptionData.full_text ? (
+                    <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{transcriptionData.full_text}</p>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                      <IconMicrophone className="h-8 w-8 opacity-30" />
+                      <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         <TabbedContentItem value="history" variant="simple" className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 flex flex-col min-h-0">

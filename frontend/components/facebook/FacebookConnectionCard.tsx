@@ -125,6 +125,19 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
             </Button>
           ) : (
             <>
+              {onReconnect && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  onClick={handleReconnect}
+                  disabled={isDeleting}
+                  title="Reconectar para renovar token ou solicitar novas permissões"
+                >
+                  Reconectar
+                </Button>
+              )}
               <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleRetest} disabled={isDeleting} title="Verificar novamente">
                 <IconRefresh className="w-3.5 h-3.5 mr-1" />
                 Verificar
