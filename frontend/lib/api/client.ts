@@ -81,7 +81,11 @@ class ApiClient {
 
             if (isSessionValid && accessToken) {
               config.headers.Authorization = `Bearer ${accessToken}`
-            } else {
+            }
+
+            config.headers['X-Page-Route'] = window.location.pathname
+
+            if (!isSessionValid || !accessToken) {
               if (config.headers && 'Authorization' in config.headers) {
                 delete (config.headers as any).Authorization
               }

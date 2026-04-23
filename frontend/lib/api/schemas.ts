@@ -863,3 +863,83 @@ export interface AdTranscriptionResponse {
   created_at?: string
   updated_at?: string
 }
+
+// ========== Meta API Usage ==========
+export interface MetaUsageAppUsage {
+  call_count?: number
+  total_cputime?: number
+  total_time?: number
+}
+
+export interface MetaUsageBucEntry {
+  type?: string
+  call_count?: number
+  total_cputime?: number
+  total_time?: number
+  estimated_time_to_regain_access?: number
+}
+
+export interface MetaUsageLatest {
+  created_at: string
+  call_count_pct: number | null
+  cputime_pct: number | null
+  total_time_pct: number | null
+  business_use_case_usage: Record<string, MetaUsageBucEntry[]> | null
+  ad_account_usage: Record<string, any> | null
+}
+
+export interface MetaUsageTopRoute {
+  route: string
+  calls: number
+  cputime_sum: number
+}
+
+export interface MetaUsageSummaryResponse {
+  latest: MetaUsageLatest | null
+  calls_24h: number
+  calls_7d: number
+  top_routes_24h: MetaUsageTopRoute[]
+}
+
+export interface MetaUsageCall {
+  id: string
+  created_at: string
+  user_id: string | null
+  route: string | null
+  page_route: string | null
+  service_name: string | null
+  ad_account_id: string | null
+  meta_endpoint: string | null
+  http_method: string | null
+  http_status: number | null
+  response_ms: number | null
+  call_count_pct: number | null
+  cputime_pct: number | null
+  total_time_pct: number | null
+  business_use_case_usage: Record<string, MetaUsageBucEntry[]> | null
+  ad_account_usage: Record<string, any> | null
+}
+
+export interface MetaUsageCallsParams {
+  route?: string
+  service_name?: string
+  ad_account_id?: string
+  from?: string
+  to?: string
+  min_cputime?: number
+  page?: number
+  page_size?: number
+}
+
+export interface MetaUsageCallsResponse {
+  items: MetaUsageCall[]
+  total: number | null
+  page: number
+  page_size: number
+}
+
+export interface MetaUsageDistinctResponse {
+  routes: string[]
+  services: string[]
+  ad_accounts: string[]
+}

@@ -4,6 +4,7 @@ import {
   IconCompass,
   IconDiamond,
   IconFlask,
+  IconGauge,
   IconPalette,
   IconSitemapFilled,
   IconSunFilled,
@@ -68,6 +69,14 @@ export const pageConfigs: PageConfig[] = [
     label: "Upload",
     icon: IconUpload,
     description: "Crie anuncios em massa a partir de um modelo",
+    showInMenu: true,
+  },
+  {
+    path: "/meta-usage",
+    title: "Meta Usage",
+    label: "Meta Usage",
+    icon: IconGauge,
+    description: "Monitore o consumo da Meta Graph API",
     showInMenu: true,
   },
   {

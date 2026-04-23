@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa, ec
 from fastapi import Depends, HTTPException, Header
 
 from app.core.config import SUPABASE_JWKS_URL, SUPABASE_URL, SUPABASE_ANON_KEY
+from app.core.request_context import current_user_id
 
 _logger = logging.getLogger(__name__)
 
@@ -339,7 +340,9 @@ async def get_current_user(authorization: str = Header(default=None, alias="Auth
     user_id = claims.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid token payload")
-    
+
+    current_user_id.set(user_id)
+
     return {"user_id": user_id, "claims": claims, "token": token}
 
 

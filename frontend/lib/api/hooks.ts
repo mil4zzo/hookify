@@ -20,6 +20,10 @@ import {
   RankingsRetentionRequest,
   RankingsRetentionResponse,
   AdTranscriptionResponse,
+  MetaUsageCallsParams,
+  MetaUsageCallsResponse,
+  MetaUsageSummaryResponse,
+  MetaUsageDistinctResponse,
 } from './schemas'
 import { useSessionStore } from '@/lib/store/session'
 import { useSupabaseAuth } from '@/lib/hooks/useSupabaseAuth'
@@ -566,6 +570,44 @@ export const useAdTranscription = (adName: string, enabled: boolean = false) => 
     enabled: enabled && !!adName,
     staleTime: 5 * 60 * 1000,
     retry: 0,
+  })
+}
+
+// ========== Meta API Usage ==========
+export const metaUsageQueryKeys = {
+  summary: ['meta-usage', 'summary'] as const,
+  calls: (params: MetaUsageCallsParams) => ['meta-usage', 'calls', params] as const,
+  distinct: ['meta-usage', 'distinct'] as const,
+}
+
+export const useMetaUsageSummary = (enabled: boolean = true) => {
+  return useQuery<MetaUsageSummaryResponse>({
+    queryKey: metaUsageQueryKeys.summary,
+    queryFn: api.metaUsage.getSummary,
+    enabled,
+    staleTime: 30 * 1000,
+    refetchInterval: 60 * 1000,
+    retry: 1,
+  })
+}
+
+export const useMetaUsageCalls = (params: MetaUsageCallsParams, enabled: boolean = true) => {
+  return useQuery<MetaUsageCallsResponse>({
+    queryKey: metaUsageQueryKeys.calls(params),
+    queryFn: () => api.metaUsage.listCalls(params),
+    enabled,
+    staleTime: 30 * 1000,
+    retry: 1,
+  })
+}
+
+export const useMetaUsageDistinct = (enabled: boolean = true) => {
+  return useQuery<MetaUsageDistinctResponse>({
+    queryKey: metaUsageQueryKeys.distinct,
+    queryFn: api.metaUsage.getDistinct,
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
   })
 }
 

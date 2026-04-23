@@ -1,12 +1,14 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from app.core.config import CORS_ORIGINS, LOG_AD_ID_TRUNCATED, LOG_LEVEL, LOG_SUPPRESS_HTTPX
 from app.core.logging_config import setup_httpx_logging_filter
+from app.core.request_context import current_page_route, current_route
 from app.routes.facebook import router as facebook_router
 from app.routes.analytics import router as analytics_router
 from app.routes.connectors_facebook import router as fb_connector_router
 from app.routes.google_integration import router as google_integration_router
+from app.routes.meta_usage import router as meta_usage_router
 from app.routes.onboarding import router as onboarding_router
 from app.routes.user import router as user_router
 
@@ -41,11 +43,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def _set_request_context(request: Request, call_next):
+    """Sets backend route and optional frontend page slug as request-scoped contextvars."""
+    t_route = current_route.set(request.url.path)
+    t_page = current_page_route.set(request.headers.get("x-page-route") or None)
+    try:
+        return await call_next(request)
+    finally:
+        current_route.reset(t_route)
+        current_page_route.reset(t_page)
+
+
 # Include routers
 app.include_router(facebook_router)
 app.include_router(analytics_router)
 app.include_router(fb_connector_router)
 app.include_router(google_integration_router)
+app.include_router(meta_usage_router)
 app.include_router(onboarding_router)
 app.include_router(user_router)
 

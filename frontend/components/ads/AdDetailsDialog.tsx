@@ -20,7 +20,7 @@ import { buildMetricSeriesFromSourceSeries, getMetricAverageTooltip, getMetricBe
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
 import { loadManagerColumnsPreference } from "@/components/manager/managerColumnPreferences";
-import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
+import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
@@ -561,6 +561,11 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     setShouldAutoplay(false); // Não autoplay quando vem do gráfico
   };
 
+  const handleCopyTranscription = () => {
+    if (!transcriptionData?.full_text) return;
+    navigator.clipboard.writeText(`## ${adName}\n${transcriptionData.full_text}`);
+  };
+
   const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-muted") : (isAdActive ? "bg-success" : "bg-muted");
   const detailsTabContentGapClassName = "gap-4 md:gap-8";
 
@@ -732,8 +737,21 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
               {activeTab === "copy" && (
                 <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4">
+                  {/* Título da seção */}
+                  <div className="flex items-center justify-between gap-3 text-sm font-semibold text-muted-foreground flex-shrink-0">
+                    <div className="flex items-center gap-1.5">
+                      <IconMicrophone className="h-4 w-4 flex-shrink-0" />
+                      <span>Transcrição</span>
+                    </div>
+                    {transcriptionData?.full_text && (
+                      <Button variant="ghost" size="sm" className="h-8 px-2.5 rounded-md" onClick={handleCopyTranscription} aria-label="Copiar transcrição">
+                        <IconCopy className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+
                   {loadingTranscription ? (
-                    <div className="flex flex-col gap-3 pt-1">
+                    <div className="flex flex-col gap-3">
                       <Skeleton className="h-4 w-full" />
                       <Skeleton className="h-4 w-5/6" />
                       <Skeleton className="h-4 w-full" />
@@ -746,24 +764,24 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       <Skeleton className="h-4 w-4/5" />
                     </div>
                   ) : transcriptionError || !transcriptionData ? (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
                     </div>
                   ) : transcriptionData.status === "processing" ? (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">Transcrição em andamento...</p>
                     </div>
                   ) : transcriptionData.status === "failed" ? (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">A transcrição falhou para este anúncio.</p>
                     </div>
                   ) : transcriptionData.full_text ? (
                     <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{transcriptionData.full_text}</p>
                   ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
                     </div>

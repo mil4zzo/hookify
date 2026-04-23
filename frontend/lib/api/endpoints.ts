@@ -36,6 +36,10 @@ import {
   CampaignBulkConfig,
   CampaignBulkProgressResponse,
   AdTranscriptionResponse,
+  MetaUsageSummaryResponse,
+  MetaUsageCallsParams,
+  MetaUsageCallsResponse,
+  MetaUsageDistinctResponse,
 } from './schemas'
 import { env } from '@/lib/config/env'
 
@@ -275,6 +279,29 @@ export const api = {
       apiClient.patch(`/analytics/packs/${packId}/auto-refresh`, { auto_refresh: autoRefresh }),
     updatePackName: (packId: string, name: string): Promise<{ success: boolean; pack_id: string; name: string }> =>
       apiClient.patch(`/analytics/packs/${packId}/name`, { name }),
+  },
+
+  // Meta API usage (quota monitoring)
+  metaUsage: {
+    getSummary: (): Promise<MetaUsageSummaryResponse> =>
+      apiClient.get('/meta-usage/summary'),
+
+    listCalls: (params: MetaUsageCallsParams = {}): Promise<MetaUsageCallsResponse> => {
+      const qs = new URLSearchParams()
+      if (params.route) qs.set('route', params.route)
+      if (params.service_name) qs.set('service_name', params.service_name)
+      if (params.ad_account_id) qs.set('ad_account_id', params.ad_account_id)
+      if (params.from) qs.set('from', params.from)
+      if (params.to) qs.set('to', params.to)
+      if (params.min_cputime !== undefined) qs.set('min_cputime', String(params.min_cputime))
+      if (params.page !== undefined) qs.set('page', String(params.page))
+      if (params.page_size !== undefined) qs.set('page_size', String(params.page_size))
+      const query = qs.toString()
+      return apiClient.get(`/meta-usage/calls${query ? `?${query}` : ''}`)
+    },
+
+    getDistinct: (): Promise<MetaUsageDistinctResponse> =>
+      apiClient.get('/meta-usage/distinct'),
   },
 
   // User account management
