@@ -40,7 +40,7 @@ def get_summary(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dic
         sb.table("meta_api_usage")
         .select(
             "created_at,call_count_pct,cputime_pct,total_time_pct,"
-            "business_use_case_usage,ad_account_usage"
+            "regain_access_minutes,business_use_case_usage,ad_account_usage"
         )
         .or_(f"user_id.eq.{user_id},user_id.is.null")
         .order("created_at", desc=True)

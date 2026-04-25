@@ -20,6 +20,12 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
     return false;
   }
 
+  const prevPackIdsKey = [...(prev.selectedPackIds || [])].sort().join("|");
+  const nextPackIdsKey = [...(next.selectedPackIds || [])].sort().join("|");
+  if (prevPackIdsKey !== nextPackIdsKey) {
+    return false;
+  }
+
   // 2. Comparação de funções (devem ser estáveis via useCallback)
   if (prev.getRowKey !== next.getRowKey || prev.setExpanded !== next.setExpanded || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setColumnFilters !== next.setColumnFilters || prev.onVisibleRowKeysChange !== next.onVisibleRowKeysChange) {
     return false;
@@ -109,7 +115,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters, onVisibleRowKeysChange }: TableContentProps) {
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, selectedPackIds = [], actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters, onVisibleRowKeysChange }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -355,7 +361,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                 const expandedContent =
                   (groupByAdNameEffective && isExpanded && adName ? <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null) ??
                   (currentTab === "por-conjunto" && isExpanded && String((original as any)?.adset_id || "").trim() ? <ExpandedChildrenRow adsetId={String((original as any)?.adset_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null) ??
-                  (currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null);
+                  (currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} packIds={selectedPackIds} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null);
 
                 if (isExpanded && expandedContent) {
                   return <ExpandedRowCell key={row.id} ref={rowVirtualizer.measureElement} row={row} table={table} expandedContent={expandedContent} tdClassName="p-0 align-top border border-primary rounded-md" onRowClick={handleRowClick} trClassName={`transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-input-30 cursor-pointer"} bg-input-30`} dataIndex={virtualRow.index} />;

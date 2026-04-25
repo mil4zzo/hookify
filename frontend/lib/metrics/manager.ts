@@ -2,7 +2,7 @@ import { METRIC_DEFINITIONS, type MetricKey } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import { getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
 
-export type ManagerMetricKey = Extract<MetricKey, "spend" | "results" | "mqls" | "cpr" | "cpc" | "cplc" | "cpmql" | "cpm" | "hook" | "ctr" | "website_ctr" | "connect_rate" | "page_conv">;
+export type ManagerMetricKey = Extract<MetricKey, "spend" | "impressions" | "results" | "mqls" | "cpr" | "cpc" | "cplc" | "cpmql" | "cpm" | "hook" | "ctr" | "website_ctr" | "connect_rate" | "page_conv">;
 
 export interface ManagerAverages {
   count: number;
@@ -28,6 +28,7 @@ export interface ManagerAverages {
   cpmql: number | null;
   mqls: number;
   sumSpend: number;
+  sumImpressions: number;
   sumResults: number;
   sumMqls: number;
 }
@@ -56,13 +57,14 @@ const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
   cpmql: null,
   mqls: 0,
   sumSpend: 0,
+  sumImpressions: 0,
   sumResults: 0,
   sumMqls: 0,
 };
 
-export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = ["spend", "results", "mqls", "cpr", "cpc", "cplc", "cpmql", "cpm", "hook", "ctr", "website_ctr", "connect_rate", "page_conv"] as const;
+export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = ["spend", "impressions", "results", "mqls", "cpr", "cpc", "cplc", "cpmql", "cpm", "hook", "ctr", "website_ctr", "connect_rate", "page_conv"] as const;
 
-const MANAGER_SUMMARY_METRICS = new Set<ManagerMetricKey>(["spend", "results", "mqls"]);
+const MANAGER_SUMMARY_METRICS = new Set<ManagerMetricKey>(["spend", "impressions", "results", "mqls"]);
 
 function getMetricDefinitionLocal(metricKey: string) {
   if (metricKey in METRIC_DEFINITIONS) {
@@ -114,6 +116,10 @@ export function formatManagerAverageValue(metricKey: ManagerMetricKey, averages:
 
   if (metricKey === "spend") {
     return formatManagerMetricValue(metricKey, averages.sumSpend, options);
+  }
+
+  if (metricKey === "impressions") {
+    return formatManagerMetricValue(metricKey, averages.sumImpressions, options);
   }
 
   if (metricKey === "results") {
@@ -252,6 +258,7 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     cpmql: hasSheetIntegration && sumMqls > 0 ? sumSpend / sumMqls : null,
     mqls: hasSheetIntegration ? sumMqls / rows.length : 0,
     sumSpend,
+    sumImpressions,
     sumResults,
     sumMqls,
   };

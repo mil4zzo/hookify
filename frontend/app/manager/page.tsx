@@ -576,6 +576,7 @@ function ManagerPageContent() {
         groupByAdName
         activeTab={activeManagerTab}
         onTabChange={handleTabChange}
+        selectedPackIds={Array.from(selectedPackIds)}
         adsIndividual={adsForIndividualTable}
         isLoadingIndividual={loadingIndividual}
         adsAdset={adsForAdsetTable}

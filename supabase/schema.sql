@@ -4451,6 +4451,45 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 
 
 --
+-- Name: meta_api_usage; Type: TABLE; Schema: public
+-- Added via migrations 063, 064, 065
+--
+
+CREATE TABLE IF NOT EXISTS public.meta_api_usage (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    user_id uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+    route text,
+    page_route text,
+    service_name text,
+    ad_account_id text,
+    meta_endpoint text,
+    http_method text,
+    http_status integer,
+    response_ms integer,
+    call_count_pct numeric,
+    cputime_pct numeric,
+    total_time_pct numeric,
+    regain_access_minutes integer,
+    business_use_case_usage jsonb,
+    ad_account_usage jsonb
+);
+
+CREATE INDEX IF NOT EXISTS meta_api_usage_user_created_idx
+    ON public.meta_api_usage (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS meta_api_usage_created_idx
+    ON public.meta_api_usage (created_at DESC);
+
+ALTER TABLE public.meta_api_usage ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "meta_usage_read_own"
+    ON public.meta_api_usage FOR SELECT
+    TO authenticated
+    USING (user_id = auth.uid());
+
+
+--
 -- PostgreSQL database dump complete
 --
 

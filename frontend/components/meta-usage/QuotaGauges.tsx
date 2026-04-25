@@ -50,6 +50,8 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
     return raw as Record<string, MetaUsageBucEntry[]>;
   })();
 
+  const regainMinutes = latest?.regain_access_minutes ?? null;
+
   if (isLoading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -62,6 +64,15 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
 
   return (
     <div className="space-y-4">
+      {regainMinutes != null && regainMinutes > 0 && (
+        <div className="flex items-start gap-3 rounded border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <span className="font-semibold shrink-0">⚠ Rate limit atingido</span>
+          <span>
+            Uma ou mais contas de anúncios está temporariamente bloqueada pela Meta.
+            Acesso estimado em <strong>{regainMinutes} min</strong>.
+          </span>
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Gauge label="Call count" value={latest?.call_count_pct} />
         <Gauge label="CPU time" value={latest?.cputime_pct} />

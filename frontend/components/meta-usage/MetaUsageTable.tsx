@@ -60,19 +60,20 @@ export function MetaUsageTable({
               <th className="px-3 py-2 font-normal text-right">Time %</th>
               <th className="px-3 py-2 font-normal text-right">Latência</th>
               <th className="px-3 py-2 font-normal text-right">Status</th>
+              <th className="px-3 py-2 font-normal text-right">Bloqueio</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && items.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
                   Carregando...
                 </td>
               </tr>
             )}
             {!isLoading && items.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-3 py-8 text-center text-muted-foreground">
+                <td colSpan={12} className="px-3 py-8 text-center text-muted-foreground">
                   Nenhuma chamada registrada no período/filtros.
                 </td>
               </tr>
@@ -101,6 +102,11 @@ export function MetaUsageTable({
                 </td>
                 <td className={cn("px-3 py-2 text-right tabular-nums", statusBadgeClass(call.http_status))}>
                   {call.http_status ?? "—"}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {call.regain_access_minutes != null && call.regain_access_minutes > 0
+                    ? <span className="text-red-400 font-medium">{call.regain_access_minutes}m</span>
+                    : <span className="text-muted-foreground">—</span>}
                 </td>
               </tr>
             ))}

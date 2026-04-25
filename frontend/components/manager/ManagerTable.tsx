@@ -65,6 +65,7 @@ interface ManagerTableProps {
   /** Loading específico da aba Por campanha */
   isLoadingCampaign?: boolean;
   actionType?: string;
+  selectedPackIds?: string[];
   endDate?: string;
   dateStart?: string;
   dateStop?: string;
@@ -118,7 +119,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow foi extraído para arquivo próprio em `frontend/components/manager/ExpandedChildrenRow.tsx`
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -599,6 +600,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         cpmql: computedAverages.cpmql,
         mqls: computedAverages.mqls,
         sumSpend: computedAverages.sumSpend,
+        sumImpressions: computedAverages.sumImpressions,
         sumResults: computedAverages.sumResults,
         sumMqls: computedAverages.sumMqls,
       } as ManagerAverages;
@@ -912,6 +914,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       setSelectedAdset: handleSelectAdset,
       dateStart,
       dateStop,
+      selectedPackIds,
       actionType,
       formatCurrency,
       formatPct,
@@ -929,7 +932,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       onVisibleRowKeysChange: handleVisibleRowKeysChange,
       isError: isError && currentTab === "por-anuncio",
     }),
-    [table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
+    [table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
   );
   return (
     <div className="w-full h-full flex-1 flex flex-col min-h-0 overflow-hidden">

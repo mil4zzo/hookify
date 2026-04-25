@@ -350,6 +350,7 @@ export const RankingsFiltersSchema = z.object({
   campaign_name_contains: z.string().optional(),
   adset_name_contains: z.string().optional(),
   ad_name_contains: z.string().optional(),
+  campaign_id: z.string().optional(),
 })
 
 export const RankingsRequestSchema = z.object({
@@ -404,6 +405,7 @@ export const RankingsItemSchema = z.object({
   adset_name: z.string().nullable().optional(),
   ad_id: z.string().nullable().optional(),
   ad_name: z.string().nullable().optional(),
+  status_resolved: z.boolean().optional(),
   effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
   active_count: z.number().nullable().optional(), // Quantidade de anúncios ativos no grupo (por anúncio / por conjunto)
   impressions: z.number(),
@@ -548,6 +550,7 @@ export const RankingsChildrenItemSchema = z.object({
   account_id: z.string().nullable().optional(),
   ad_id: z.string(),
   ad_name: z.string().nullable().optional(),
+  status_resolved: z.boolean().optional(),
   effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
   campaign_name: z.string().nullable().optional(),
   adset_name: z.string().nullable().optional(),
@@ -884,6 +887,7 @@ export interface MetaUsageLatest {
   call_count_pct: number | null
   cputime_pct: number | null
   total_time_pct: number | null
+  regain_access_minutes: number | null
   business_use_case_usage: Record<string, MetaUsageBucEntry[]> | null
   ad_account_usage: Record<string, any> | null
 }
@@ -916,6 +920,7 @@ export interface MetaUsageCall {
   call_count_pct: number | null
   cputime_pct: number | null
   total_time_pct: number | null
+  regain_access_minutes: number | null
   business_use_case_usage: Record<string, MetaUsageBucEntry[]> | null
   ad_account_usage: Record<string, any> | null
 }

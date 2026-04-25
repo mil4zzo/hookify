@@ -31,7 +31,7 @@ test("hides sheet-dependent metric columns when integration is unavailable", () 
 
 test("builds filterable columns preserving status, text columns and metric order", () => {
   const visibleColumns = getVisibleManagerColumns({
-    activeColumns: new Set(["spend", "results", "website_ctr"] as const) as Set<any>,
+    activeColumns: new Set(["spend", "impressions", "results", "website_ctr"] as const) as Set<any>,
     hasSheetIntegration: true,
   });
 
@@ -49,6 +49,7 @@ test("builds filterable columns preserving status, text columns and metric order
     { id: "ad_name", label: "Anúncio", isText: true },
     { id: "campaign_name_filter", label: "Campanha", isText: true },
     { id: "spend", label: "Spend", isPercentage: false },
+    { id: "impressions", label: "Impressions", isPercentage: false },
     { id: "results", label: "Results", isPercentage: false },
     { id: "website_ctr", label: "Link CTR", isPercentage: true },
   ]);

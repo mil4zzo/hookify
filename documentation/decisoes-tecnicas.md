@@ -28,3 +28,29 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 **Limitações:**
 - Packs criados antes de 2026-04-21 podem ter `primary_video_id` do asset sem permissão; só corrigidos com re-enriquecimento do zero.
 - Ads originais (não duplicados) não têm `source_ad` — o fallback para `creative` direto os cobre corretamente.
+
+---
+
+## Meta API — Tabela `meta_api_usage` e tracking de quota
+
+**Data:** 2026-04-23
+
+**Contexto:** Usuários atingindo limites de quota da Meta sem visibilidade de qual flow era responsável.
+
+**O que cada linha representa (não-óbvio):** Cada registro é um **snapshot cumulativo do quota total da conta** no momento da chamada — NÃO o custo individual daquela chamada. `cputime_pct: 4` significa "a conta está em 4% do limite agora", não "essa chamada custou 4%". Para estimar o custo de uma flow, compare snapshots consecutivos.
+
+**Detecção de throttling:**
+- `regain_access_minutes > 0` → conta bloqueada; valor indica minutos até liberação
+- Meta usa HTTP 400 com error code 17 ou 613 para throttling (NÃO 429)
+- Campo extraído de `estimated_time_to_regain_access` dentro do header `x-business-use-case-usage`
+
+**Ads API access tier vs. Live mode:** `ads_api_access_tier: "development_access"` é independente do app estar em Live mode. Mesmo em Live, fica em development_access até solicitar Advanced Access para `ads_management`/`ads_read` via App Review. Development access tem quota muito inferior ao Standard.
+
+**Padrões de implementação:**
+- `ContextVar` em `request_context.py` propaga `user_id`/`route`/`page_route` sem alterar assinaturas
+- `ThreadPoolExecutor` (4 workers) para inserts fire-and-forget — não bloqueia a chamada Meta
+- BUC fallback: maioria das chamadas Marketing API retorna só `x-business-use-case-usage`, não `x-app-usage`
+- `json.dumps()` explícito para colunas jsonb — supabase-py pode double-encodar dicts em algumas versões
+- Header `X-Page-Route`: frontend injeta `window.location.pathname`; backend armazena em `page_route` separado de `route`
+
+**Arquivos principais:** `backend/app/services/meta_usage_logger.py`, `backend/app/routes/meta_usage.py`, `backend/app/core/request_context.py`, `frontend/components/meta-usage/`

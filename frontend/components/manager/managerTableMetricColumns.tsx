@@ -41,7 +41,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
 
   const isMinimal = viewMode === "minimal";
 
-  const sumMetrics = new Set(["spend", "results", "mqls"]);
+  const sumMetrics = new Set(["spend", "impressions", "results", "mqls"]);
 
   const renderMetricHeader = (metricId: string, label: string, column: Column<RankingsItem, unknown>, filterValue: FilterValue | FilterValue[] | undefined) => {
     const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
@@ -139,6 +139,30 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrencyRef.current(Number(info.getValue()) || 0)}</span>} metric="spend" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />,
       }) as any,
+    );
+  }
+
+  // Impressions
+  if (shouldShow("impressions")) {
+    cols.push(
+      columnHelper.accessor(
+        (row) => getMetricValue(row as RankingsItem, "impressions"),
+        {
+          id: "impressions",
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return renderMetricHeader("impressions", getManagerMetricLabel("impressions"), column, filterValue);
+          },
+          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
+            return applyNumericFilterMaybeArray(getMetricValue(row.original as RankingsItem, "impressions"), filterValue, applyNumericFilter);
+          },
+          sortingFn: "auto",
+          cell: (info) => {
+            const impressions = Number(info.getValue() || 0);
+            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatMetricCellValue("impressions", impressions)}</span>} metric="impressions" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
+          },
+        },
+      ) as any,
     );
   }
 

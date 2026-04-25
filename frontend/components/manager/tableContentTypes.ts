@@ -21,6 +21,7 @@ export interface SharedTableContentProps {
   setSelectedAdset: React.Dispatch<React.SetStateAction<{ adsetId: string; adsetName?: string | null } | null>>;
   dateStart?: string;
   dateStop?: string;
+  selectedPackIds?: string[];
   actionType: string;
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;

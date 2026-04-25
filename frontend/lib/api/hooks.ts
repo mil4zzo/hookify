@@ -44,7 +44,7 @@ export const queryKeys = {
   adNameDetails: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-details', adName, dateStart, dateStop] as const,
   adNameHistory: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop] as const,
   adTranscription: (adName: string) => ['analytics', 'transcription', adName] as const,
-  campaignChildren: (campaignId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop] as const,
+  campaignChildren: (campaignId: string, dateStart: string, dateStop: string, actionType: string, packIdsKey: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop, actionType, packIdsKey] as const,
   adsetChildren: (adsetId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
   rankings: (params: RankingsRequest) => [
@@ -262,14 +262,20 @@ export const useCampaignChildren = (
   campaignId: string,
   dateStart: string,
   dateStop: string,
+  actionType?: string,
+  packIds: string[] = [],
   enabled: boolean = false
 ) => {
+  const packIdsKey = [...packIds].sort().join("|")
+  const actionTypeKey = String(actionType || "").trim()
   return useQuery({
-    queryKey: queryKeys.campaignChildren(campaignId, dateStart, dateStop),
+    queryKey: queryKeys.campaignChildren(campaignId, dateStart, dateStop, actionTypeKey, packIdsKey),
     queryFn: async () => {
       const response = await api.analytics.getCampaignChildren(campaignId, {
         date_start: dateStart,
         date_stop: dateStop,
+        action_type: actionTypeKey || undefined,
+        pack_ids: packIds,
       })
       return (response.data || []) as RankingsItem[]
     },

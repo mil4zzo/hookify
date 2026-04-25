@@ -97,6 +97,8 @@ def _build_row(response, headers, service_name: str, user_id: Optional[str], rou
         cputime_pct = _max_buc_metric(buc_data, "total_cputime")
         total_time_pct = _max_buc_metric(buc_data, "total_time")
 
+    regain_access_minutes = _max_buc_regain(buc_data) if isinstance(buc_data, dict) else None
+
     return {
         "user_id": user_id,
         "route": route,
@@ -110,8 +112,9 @@ def _build_row(response, headers, service_name: str, user_id: Optional[str], rou
         "call_count_pct": call_count_pct,
         "cputime_pct": cputime_pct,
         "total_time_pct": total_time_pct,
-        "business_use_case_usage": buc_data if isinstance(buc_data, dict) else None,
-        "ad_account_usage": ad_account_data if isinstance(ad_account_data, dict) else None,
+        "regain_access_minutes": regain_access_minutes,
+        "business_use_case_usage": json.dumps(buc_data) if isinstance(buc_data, dict) else None,
+        "ad_account_usage": json.dumps(ad_account_data) if isinstance(ad_account_data, dict) else None,
     }
 
 
@@ -126,6 +129,21 @@ def _max_buc_metric(buc_data: Dict[str, Any], metric: str) -> Optional[float]:
             if isinstance(val, (int, float)):
                 if max_val is None or val > max_val:
                     max_val = float(val)
+    return max_val
+
+
+def _max_buc_regain(buc_data: Dict[str, Any]) -> Optional[int]:
+    """Returns max estimated_time_to_regain_access (minutes) across all BUC entries.
+    Non-zero means at least one ad account is currently throttled."""
+    max_val: Optional[int] = None
+    for entries in buc_data.values():
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            val = entry.get("estimated_time_to_regain_access")
+            if isinstance(val, (int, float)) and val > 0:
+                if max_val is None or int(val) > max_val:
+                    max_val = int(val)
     return max_val
 
 

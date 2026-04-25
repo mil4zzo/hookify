@@ -17,6 +17,7 @@ interface CampaignChildrenRowProps {
   campaignId: string;
   dateStart: string;
   dateStop: string;
+  packIds?: string[];
   actionType?: string;
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;
@@ -34,11 +35,14 @@ function areCampaignChildrenRowPropsEqual(prev: CampaignChildrenRowProps, next: 
 
   const columnFiltersEqual = (prev.columnFilters?.length ?? 0) === (next.columnFilters?.length ?? 0) && JSON.stringify(prev.columnFilters ?? []) === JSON.stringify(next.columnFilters ?? []);
 
-  return prev.asContent === next.asContent && prev.campaignId === next.campaignId && prev.dateStart === next.dateStart && prev.dateStop === next.dateStop && prev.actionType === next.actionType && prev.formatCurrency === next.formatCurrency && prev.formatPct === next.formatPct && activeColumnsEqual && prev.hasSheetIntegration === next.hasSheetIntegration && prev.mqlLeadscoreMin === next.mqlLeadscoreMin && columnFiltersEqual && prev.setColumnFilters === next.setColumnFilters;
+  const prevPackIdsKey = [...(prev.packIds || [])].sort().join("|");
+  const nextPackIdsKey = [...(next.packIds || [])].sort().join("|");
+
+  return prev.asContent === next.asContent && prev.campaignId === next.campaignId && prev.dateStart === next.dateStart && prev.dateStop === next.dateStop && prev.actionType === next.actionType && prev.formatCurrency === next.formatCurrency && prev.formatPct === next.formatPct && activeColumnsEqual && prev.hasSheetIntegration === next.hasSheetIntegration && prev.mqlLeadscoreMin === next.mqlLeadscoreMin && columnFiltersEqual && prevPackIdsKey === nextPackIdsKey && prev.setColumnFilters === next.setColumnFilters;
 }
 
-export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, actionType, formatCurrency, formatPct, activeColumns, hasSheetIntegration = false, mqlLeadscoreMin = 0, columnFilters = [], setColumnFilters, asContent = false }: CampaignChildrenRowProps) {
-  const { data: childrenData, isLoading, isError } = useCampaignChildren(campaignId, dateStart, dateStop, true);
+export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, packIds = [], actionType, formatCurrency, formatPct, activeColumns, hasSheetIntegration = false, mqlLeadscoreMin = 0, columnFilters = [], setColumnFilters, asContent = false }: CampaignChildrenRowProps) {
+  const { data: childrenData, isLoading, isError } = useCampaignChildren(campaignId, dateStart, dateStop, actionType, packIds, true);
 
   const [sortConfig, setSortConfig] = useState<{
     column: string | null;

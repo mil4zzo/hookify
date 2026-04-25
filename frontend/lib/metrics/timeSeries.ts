@@ -40,7 +40,7 @@ export type TimeSeriesGroupBy = "ad_id" | "ad_name";
 
 export type MetricSparklineKey = Extract<
   MetricKey,
-  "hook" | "cpr" | "cpc" | "cplc" | "spend" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" | "results" | "mqls"
+  "hook" | "cpr" | "cpc" | "cplc" | "spend" | "impressions" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" | "results" | "mqls"
 >;
 
 export interface BuildGroupedMetricBaseSeriesOptions extends MetricValueContext {
@@ -356,6 +356,12 @@ export function getMetricSeriesAvailability(
       const spend = seriesData.spend || [];
       return {
         dataAvailability: spend.map((value) => value != null && value > 0),
+      };
+    }
+    case "impressions": {
+      const impressions = seriesData.impressions || [];
+      return {
+        dataAvailability: impressions.map((value) => value != null && value > 0),
       };
     }
     default: {

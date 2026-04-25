@@ -145,10 +145,12 @@ test("computes manager averages and short labels from the registry", () => {
 
   assert.equal(getManagerMetricLabel("connect_rate"), "Connect");
   assert.equal(getManagerMetricLabel("page_conv"), "Page");
+  assert.equal(averages.sumImpressions, 1500);
   assert.equal(averages.sumResults, 6);
   assert.equal(averages.cpr, 25);
   assert.equal(averages.page_conv, 0.5);
   assert.equal(averages.website_ctr, 25 / 1500);
+  assert.equal(formatManagerAverageValue("impressions", averages), "1.500");
   assert.equal(formatManagerAverageValue("results", averages), "6");
   assert.equal(formatManagerAverageValue("spend", averages, { currencyFormatter: (value) => `R$ ${value.toFixed(2)}` }), "R$ 150.00");
 });
@@ -255,6 +257,7 @@ test("derives manager presentation metadata from metric semantics", () => {
     cpmql: 40,
     mqls: 2,
     sumSpend: 100,
+    sumImpressions: 1000,
     sumResults: 5,
     sumMqls: 2,
   };

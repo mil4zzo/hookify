@@ -17,6 +17,7 @@ export type ManagerColumnOption = {
  */
 export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   { id: "spend", name: getManagerMetricLabel("spend"), defaultVisible: true },
+  { id: "impressions", name: getManagerMetricLabel("impressions") },
   { id: "results", name: getManagerMetricLabel("results"), defaultVisible: true },
   { id: "mqls", name: getManagerMetricLabel("mqls"), defaultVisible: true },
   { id: "cpr", name: getManagerMetricLabel("cpr"), defaultVisible: true },

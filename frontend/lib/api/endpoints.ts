@@ -264,9 +264,19 @@ export const api = {
       apiClient.get('/analytics/search', { params: { query, limit } }),
     getCampaignChildren: (
       campaignId: string,
-      params: { date_start: string; date_stop: string; order_by?: string }
-    ): Promise<{ data: any[] }> =>
-      apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children`, { params }),
+      params: { date_start: string; date_stop: string; order_by?: string; action_type?: string; pack_ids?: string[] }
+    ): Promise<{ data: any[] }> => {
+      const qs = new URLSearchParams()
+      qs.set('date_start', params.date_start)
+      qs.set('date_stop', params.date_stop)
+      if (params.order_by) qs.set('order_by', params.order_by)
+      if (params.action_type) qs.set('action_type', params.action_type)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      const query = qs.toString()
+      return apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children${query ? `?${query}` : ''}`)
+    },
     listPacks: (includeAds?: boolean): Promise<{ success: boolean; packs: any[] }> =>
       apiClient.get('/analytics/packs', { params: { include_ads: includeAds || false } }),
     getPack: (packId: string, includeAds: boolean = true): Promise<{ success: boolean; pack: any }> =>

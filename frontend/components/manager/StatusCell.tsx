@@ -18,6 +18,7 @@ function isPausedStatus(status?: string | null): boolean {
 
 export function StatusCell({ original, currentTab }: StatusCellProps) {
   const effectiveStatus = (original as any)?.effective_status;
+  const statusResolved = (original as any)?.status_resolved;
 
   // Determinar entityType e entityId baseado na aba atual
   const { entityType, entityId } = useMemo(() => {
@@ -33,7 +34,7 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
       const campaignId = String((original as any)?.campaign_id || "").trim();
       return { entityType: "campaign" as AdEntityType, entityId: campaignId };
     }
-    // Para "por-anuncio" (groupByAdNameEffective), não há um ID único, retornar null
+    // Para "por-anuncio" (groupByAdNameEffective), nÃ£o hÃ¡ um ID Ãºnico, retornar null
     return { entityType: "ad" as AdEntityType, entityId: "" };
   }, [currentTab, original]);
 
@@ -43,7 +44,15 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
     currentStatus: effectiveStatus,
   });
 
-  // Se não houver entityId válido (ex: grupo por nome), não mostrar o switch
+  if (statusResolved === false) {
+    return (
+      <div className="flex items-center justify-center w-full text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+        —
+      </div>
+    );
+  }
+
+  // Se nÃ£o houver entityId vÃ¡lido (ex: grupo por nome), nÃ£o mostrar o switch
   if (!entityId || !entityId.trim()) {
     return (
       <div className="flex items-center justify-center w-full" onClick={(e) => e.stopPropagation()}>
@@ -53,7 +62,7 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
   }
 
   const label = useMemo(() => {
-    const kind = entityType === "ad" ? "anúncio" : entityType === "adset" ? "conjunto" : "campanha";
+    const kind = entityType === "ad" ? "anÃºncio" : entityType === "adset" ? "conjunto" : "campanha";
     return isPaused ? `Ativar ${kind}` : `Pausar ${kind}`;
   }, [entityType, isPaused]);
 
@@ -68,4 +77,3 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
     </div>
   );
 }
-

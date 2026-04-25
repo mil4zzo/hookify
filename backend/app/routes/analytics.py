@@ -175,6 +175,7 @@ class RankingsFilters(BaseModel):
     campaign_name_contains: Optional[str] = None
     adset_name_contains: Optional[str] = None
     ad_name_contains: Optional[str] = None
+    campaign_id: Optional[str] = None
 
 
 class RankingsRequest(BaseModel):
@@ -700,6 +701,7 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
         "p_campaign_name_contains": f.campaign_name_contains,
         "p_adset_name_contains": f.adset_name_contains,
         "p_ad_name_contains": f.ad_name_contains,
+        "p_campaign_id": f.campaign_id,
         "p_action_type": req.action_type,
         "p_include_leadscore": bool(req.include_leadscore),
         "p_include_available_conversion_types": bool(req.include_available_conversion_types),
@@ -2668,13 +2670,43 @@ def get_campaign_children(
     date_start: str,
     date_stop: str,
     order_by: Optional[str] = None,
+    action_type: Optional[str] = None,
     include_leadscore: bool = True,
+    pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
 ):
     """Retorna linhas-filhas agregadas por adset_id para um campaign_id no perÃ­odo.
     Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
     """
+    req = RankingsRequest(
+        date_start=date_start,
+        date_stop=date_stop,
+        group_by="adset_id",
+        action_type=action_type,
+        order_by=order_by,
+        limit=10000,
+        offset=0,
+        filters=RankingsFilters(campaign_id=campaign_id),
+        pack_ids=pack_ids,
+        include_series=False,
+        include_leadscore=include_leadscore,
+        include_available_conversion_types=False,
+    )
     sb = get_supabase_for_user(user["token"])
+    result = _get_rankings_core_v2_rpc(req, user, sb)
+    items: List[Dict[str, Any]] = []
+    for row in (result.get("data") or []):
+        if not isinstance(row, dict):
+            continue
+        status = row.get("effective_status")
+        items.append(
+            {
+                **row,
+                "status_resolved": bool(str(status).strip()) if status is not None else False,
+            }
+        )
+    return {"data": items}
+
     mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
 
     axis = _axis_5_days(date_stop)
