@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { VideoMetricCell } from "@/components/common/VideoMetricCell";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useImageSource, useAdHistory, useAdNameHistory, useAdTranscription } from "@/lib/api/hooks";
+import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useImageSource, useAdHistory, useAdNameHistory, useAdTranscription, useTranscribeAd } from "@/lib/api/hooks";
 import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
@@ -26,6 +26,7 @@ import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
+import { showProgressToast, finishProgressToast, buildTranscriptionToastContent } from "@/lib/utils/toast";
 
 interface AdDetailsDialogProps {
   ad: RankingsItem;
@@ -59,6 +60,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const [retentionViewMode, setRetentionViewMode] = useState<"chart" | "metrics">("metrics");
   const [variationColumnFilters, setVariationColumnFilters] = useState<ColumnFiltersState>([]);
   const [variationActiveColumns] = useState<Set<ManagerColumnType>>(() => loadManagerColumnsPreference());
+  const [transcriptionPending, setTranscriptionPending] = useState(false);
+  const transcriptionToastId = useRef<string>('');
 
   // Atualizar aba quando initialTab mudar (quando o modal é reaberto com outro anúncio)
   useEffect(() => {
@@ -69,6 +72,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     setVariationColumnFilters([]);
     setHistoryDateRange({ start: dateStart, end: dateStop }); // Resetar date range quando mudar de anúncio
     setUsePackDates(true); // Resetar para "usar datas do pack" quando mudar de anúncio
+    setTranscriptionPending(false);
   }, [initialTab, ad?.ad_id]); // Resetar quando o anúncio mudar
   // Local actionType que pode ser alterado dentro do dialog sem afetar o Manager
   const [localActionType, setLocalActionType] = useState<string>(actionType || "");
@@ -551,7 +555,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   );
   const resolvedCreativeImageUrl = imageSourceData?.image_url ?? null;
 
-  const { data: transcriptionData, isLoading: loadingTranscription, isError: transcriptionError } = useAdTranscription(adName, shouldLoadTranscription);
+  const { data: transcriptionData, isLoading: loadingTranscription, isError: transcriptionError } = useAdTranscription(adName, shouldLoadTranscription, transcriptionPending);
+  const { mutate: transcribeAdMutation, isPending: isTranscribing } = useTranscribeAd();
 
 
   // Handler para quando um ponto do gráfico de retenção é clicado
@@ -565,6 +570,42 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     if (!transcriptionData?.full_text) return;
     navigator.clipboard.writeText(`## ${adName}\n${transcriptionData.full_text}`);
   };
+
+  const handleTranscribeAd = () => {
+    const toastId = `transcription-${adName}-${Date.now()}`;
+    transcriptionToastId.current = toastId;
+    showProgressToast(
+      toastId,
+      adName,
+      1, 2,
+      undefined,
+      undefined,
+      <IconMicrophone className="h-5 w-5 flex-shrink-0" />,
+      buildTranscriptionToastContent('processing', { total: 1, done: 0 }),
+    );
+    setTranscriptionPending(true);
+    transcribeAdMutation(adName, {
+      onError: () => {
+        finishProgressToast(toastId, false, 'Falha ao iniciar transcrição');
+        setTranscriptionPending(false);
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (!transcriptionPending || !transcriptionToastId.current) return;
+    if (transcriptionData?.status === 'completed') {
+      finishProgressToast(transcriptionToastId.current, true, 'Transcrição concluída', {
+        context: 'transcription',
+        packName: adName,
+        visibleDurationOnly: 5,
+      });
+      setTranscriptionPending(false);
+    } else if (transcriptionData?.status === 'failed') {
+      finishProgressToast(transcriptionToastId.current, false, 'Transcrição falhou');
+      setTranscriptionPending(false);
+    }
+  }, [transcriptionData, transcriptionPending, adName]);
 
   const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-muted") : (isAdActive ? "bg-success" : "bg-muted");
   const detailsTabContentGapClassName = "gap-4 md:gap-8";
@@ -763,20 +804,28 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       <Skeleton className="h-4 w-full" />
                       <Skeleton className="h-4 w-4/5" />
                     </div>
-                  ) : transcriptionError || !transcriptionData ? (
+                  ) : (isTranscribing || transcriptionPending || transcriptionData?.status === "processing") ? (
+                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                      <IconMicrophone className="h-8 w-8 opacity-30 animate-pulse" />
+                      <p className="text-sm">Transcrição em andamento...</p>
+                    </div>
+                  ) : transcriptionError ? (
+                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
+                      <IconMicrophone className="h-8 w-8 opacity-30" />
+                      <p className="text-sm">Erro ao carregar transcrição.</p>
+                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Transcrever</Button>
+                    </div>
+                  ) : !transcriptionData ? (
                     <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
-                    </div>
-                  ) : transcriptionData.status === "processing" ? (
-                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
-                      <IconMicrophone className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">Transcrição em andamento...</p>
+                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Transcrever</Button>
                     </div>
                   ) : transcriptionData.status === "failed" ? (
                     <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">A transcrição falhou para este anúncio.</p>
+                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Tentar novamente</Button>
                     </div>
                   ) : transcriptionData.full_text ? (
                     <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{transcriptionData.full_text}</p>
@@ -784,6 +833,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                     <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
+                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Transcrever</Button>
                     </div>
                   )}
                 </div>

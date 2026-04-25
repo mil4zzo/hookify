@@ -569,13 +569,29 @@ export const usePackAds = (packId: string, enabled: boolean = true) => {
   })
 }
 
-export const useAdTranscription = (adName: string, enabled: boolean = false) => {
-  return useQuery<AdTranscriptionResponse>({
+export const useAdTranscription = (adName: string, enabled: boolean = false, forcePolling: boolean = false) => {
+  return useQuery<AdTranscriptionResponse | null>({
     queryKey: queryKeys.adTranscription(adName),
     queryFn: () => api.analytics.getTranscription(adName),
     enabled: enabled && !!adName,
     staleTime: 5 * 60 * 1000,
     retry: 0,
+    refetchInterval: (query) => {
+      if (query.state.data?.status === 'processing') return 3000;
+      // Keep polling when transcription was just started but backend hasn't saved yet (null data)
+      if (forcePolling && !query.state.data) return 2000;
+      return false;
+    },
+  })
+}
+
+export const useTranscribeAd = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (adName: string) => api.facebook.transcribeAd(adName),
+    onSuccess: (_data, adName) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.adTranscription(adName) })
+    },
   })
 }
 

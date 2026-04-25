@@ -2595,17 +2595,17 @@ def cancel_jobs_batch(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class TranscriptionRetryRequest(BaseModel):
+class TranscriptionStartRequest(BaseModel):
     ad_name: str
 
 
-@router.post("/transcription/retry", status_code=202)
-def retry_transcription(
-    request: TranscriptionRetryRequest,
+@router.post("/transcription/start", status_code=202)
+def start_transcription(
+    request: TranscriptionStartRequest,
     user: Dict[str, Any] = Depends(get_current_user),
     api: GraphAPI = Depends(get_graph_api),
 ):
-    """Retry assíncrono de transcrição para um ad_name com status=failed."""
+    """Inicia ou reinicia a transcrição de um ad_name. Recusa apenas se já estiver em andamento."""
     user_id = user["user_id"]
     user_jwt = user["token"]
     ad_name = request.ad_name.strip()
@@ -2614,13 +2614,8 @@ def retry_transcription(
         raise HTTPException(status_code=400, detail="ad_name é obrigatório")
 
     existing = supabase_repo.get_transcription(user_jwt, user_id, ad_name)
-    if not existing:
-        raise HTTPException(status_code=404, detail=f"Transcrição não encontrada para ad_name={ad_name!r}")
-    if existing.get("status") != "failed":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Transcrição não está com status=failed (atual: {existing.get('status')})"
-        )
+    if existing and existing.get("status") == "processing":
+        raise HTTPException(status_code=409, detail="Transcrição já está em andamento para este anúncio")
 
     sb = supabase_repo.get_supabase_for_user(user_jwt)
     try:
@@ -2633,11 +2628,11 @@ def retry_transcription(
             .execute()
         )
     except Exception as e:
-        logger.error(f"[TRANSCRIPTION_RETRY] Erro ao buscar ad: {e}")
+        logger.error(f"[TRANSCRIPTION_START] Erro ao buscar ad: {e}")
         raise HTTPException(status_code=500, detail="Erro ao buscar dados do anúncio")
 
-    if not ads_res.data or len(ads_res.data) == 0:
-        raise HTTPException(status_code=404, detail=f"Nenhum anúncio encontrado com ad_name={ad_name!r}")
+    if not ads_res.data:
+        raise HTTPException(status_code=404, detail=f"Nenhum anúncio encontrado para ad_name={ad_name!r}")
 
     ad_row = ads_res.data[0] or {}
     creative = ad_row.get("creative") or {}
@@ -2652,18 +2647,19 @@ def retry_transcription(
 
     access_token = api.access_token
 
-    def _run_retry():
+    def _run():
         try:
             from app.services.transcription_worker import retry_single_transcription
             retry_single_transcription(user_jwt, user_id, access_token, ad_name, video_id, actor_id)
         except Exception as e:
-            logger.warning(f"[TRANSCRIPTION_RETRY] Falha no retry de {ad_name!r}: {e}")
+            logger.warning(f"[TRANSCRIPTION_START] Falha em {ad_name!r}: {e}")
 
-    threading.Thread(target=_run_retry, daemon=True).start()
+    threading.Thread(target=_run, daemon=True).start()
+    logger.info(f"[TRANSCRIPTION_START] Transcrição iniciada para ad_name={ad_name!r}")
 
     return JSONResponse(
         status_code=202,
-        content={"message": "Retry iniciado", "ad_name": ad_name},
+        content={"message": "Transcrição iniciada", "ad_name": ad_name},
     )
 
 

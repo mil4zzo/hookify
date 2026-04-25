@@ -124,6 +124,10 @@ export const api = {
     /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Retorna transcription_job_id para polling. */
     startPackTranscription: (packId: string): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null }> =>
       apiClient.post(`/facebook/packs/${packId}/transcribe`),
+
+    /** Inicia ou reinicia a transcrição de um anúncio por ad_name. */
+    transcribeAd: (adName: string): Promise<{ message: string; ad_name: string }> =>
+      apiClient.post('/facebook/transcription/start', { ad_name: adName }),
     
     cancelJobsBatch: (jobIds: string[], reason?: string): Promise<{ cancelled_count: number; total_requested: number; message: string }> =>
       apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout' }),
@@ -248,8 +252,14 @@ export const api = {
       params: { date_start: string; date_stop: string }
     ): Promise<{ data: any[] }> =>
       apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/history`, { params }),
-    getTranscription: (adName: string): Promise<AdTranscriptionResponse> =>
-      apiClient.get('/analytics/transcription', { params: { ad_name: adName } }),
+    getTranscription: async (adName: string): Promise<AdTranscriptionResponse | null> => {
+      try {
+        return await (apiClient.get('/analytics/transcription', { params: { ad_name: adName } }) as Promise<AdTranscriptionResponse>);
+      } catch (err: any) {
+        if (err?.response?.status === 404) return null;
+        throw err;
+      }
+    },
     getAdsetDetails: (
       adsetId: string,
       params: { date_start: string; date_stop: string }
