@@ -548,10 +548,18 @@ class GraphAPI:
             log_meta_usage(response, operation_name)
             return {"status": "success", "data": response.json() if response.content else {}}
         except requests.exceptions.HTTPError as http_err:
-            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            status_code = http_err.response.status_code if http_err.response is not None else None
+            error_data = {}
+            response_text = ""
+            if http_err.response is not None and http_err.response.content:
+                response_text = http_err.response.text
+                try:
+                    error_data = http_err.response.json()
+                except ValueError:
+                    error_data = {}
             error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
             error_code = error_obj.get("code")
-            error_message = error_obj.get("message") or str(http_err)
+            error_message = error_obj.get("message") or response_text[:500] or str(http_err)
             if isinstance(error_obj, dict) and error_obj:
                 logger.warning(
                     "%s Meta API HTTP error: %s",
@@ -565,8 +573,8 @@ class GraphAPI:
                     json.dumps(sanitize_error_dict_for_log(json_payload), ensure_ascii=False)[:3000],
                 )
             if error_code == 190:
-                return {"status": "auth_error", "message": error_message, "error": error_obj}
-            return {"status": "http_error", "message": error_message, "error": error_obj}
+                return {"status": "auth_error", "message": error_message, "error": error_obj, "http_status": status_code}
+            return {"status": "http_error", "message": error_message, "error": error_obj, "http_status": status_code}
         except Exception as err:
             logger.exception("%s error: %s", operation_name, err)
             return {"status": "error", "message": str(err)}

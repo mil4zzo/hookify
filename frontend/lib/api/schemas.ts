@@ -856,12 +856,19 @@ export type CampaignBulkItemProgress = z.infer<typeof CampaignBulkItemProgressSc
 export type CampaignBulkProgressResponse = z.infer<typeof CampaignBulkProgressResponseSchema>
 
 // ========== Transcription ==========
+export interface TimestampedWord {
+  start: number
+  end: number
+  text: string
+  confidence: number
+}
+
 export interface AdTranscriptionResponse {
   id: string
   ad_name: string
   status: "processing" | "completed" | "failed"
   full_text: string | null
-  timestamped_text: any | null
+  timestamped_text: TimestampedWord[] | null
   metadata: any | null
   created_at?: string
   updated_at?: string

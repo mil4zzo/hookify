@@ -256,7 +256,7 @@ export const api = {
       try {
         return await (apiClient.get('/analytics/transcription', { params: { ad_name: adName } }) as Promise<AdTranscriptionResponse>);
       } catch (err: any) {
-        if (err?.response?.status === 404) return null;
+        if (err?.status === 404) return null;
         throw err;
       }
     },

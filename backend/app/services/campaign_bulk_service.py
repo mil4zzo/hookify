@@ -751,7 +751,18 @@ class CampaignBulkProcessor:
                 heartbeat_thread.stop()
                 heartbeat_thread.join(timeout=10)
 
-            data = self._extract_data_or_raise(result)
+            try:
+                data = self._extract_data_or_raise(result)
+            except MetaAPIError as exc:
+                if self._is_request_entity_too_large(result, exc):
+                    logger.warning(
+                        "[CAMPAIGN_BULK] non_resumable_upload_413_fallback job_id=%s file_index=%s file_size=%s",
+                        self.context.job_id, file_index, file_size,
+                    )
+                    self._heartbeat("Arquivo grande; alternando para envio em partes...", progress=6)
+                    return self._upload_video_resumable(act_id, file_name, file_data, meta, file_index)
+                raise
+
             video_id = str(data.get("id") or data.get("video_id") or "")
             if not video_id:
                 raise MetaAPIError(
@@ -873,6 +884,20 @@ class CampaignBulkProcessor:
             result,
             log_context=f"[CAMPAIGN_BULK] job={self.context.job_id}",
         )
+
+    def _is_request_entity_too_large(self, result: Dict[str, Any], exc: MetaAPIError) -> bool:
+        if result.get("http_status") == 413:
+            return True
+
+        haystack = " ".join(
+            str(value or "")
+            for value in (
+                result.get("message"),
+                exc.message,
+                exc.user_msg,
+            )
+        ).lower()
+        return "413" in haystack or "request entity too large" in haystack
 
     def _heartbeat(self, message: str, progress: int) -> None:
         accepted = self.tracker.heartbeat(

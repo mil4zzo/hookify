@@ -20,7 +20,9 @@ import { buildMetricSeriesFromSourceSeries, getMetricAverageTooltip, getMetricBe
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
 import { loadManagerColumnsPreference } from "@/components/manager/managerColumnPreferences";
-import { IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
+import { IconAlignLeft, IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCheck, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
+import { retentionToColor, findHookBoundary, secondToRetentionIndex } from "@/lib/utils/retentionColor";
+import type { TimestampedWord } from "@/lib/api/schemas";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
@@ -61,7 +63,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const [variationColumnFilters, setVariationColumnFilters] = useState<ColumnFiltersState>([]);
   const [variationActiveColumns] = useState<Set<ManagerColumnType>>(() => loadManagerColumnsPreference());
   const [transcriptionPending, setTranscriptionPending] = useState(false);
-  const transcriptionToastId = useRef<string>('');
+  const [copiedTranscription, setCopiedTranscription] = useState(false);
+  const [transcriptionViewMode, setTranscriptionViewMode] = useState<"plain" | "retention">("retention");
+  const transcriptionToastId = useRef<string>("");
 
   // Atualizar aba quando initialTab mudar (quando o modal é reaberto com outro anúncio)
   useEffect(() => {
@@ -73,6 +77,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     setHistoryDateRange({ start: dateStart, end: dateStop }); // Resetar date range quando mudar de anúncio
     setUsePackDates(true); // Resetar para "usar datas do pack" quando mudar de anúncio
     setTranscriptionPending(false);
+    setTranscriptionViewMode("retention");
   }, [initialTab, ad?.ad_id]); // Resetar quando o anúncio mudar
   // Local actionType que pode ser alterado dentro do dialog sem afetar o Manager
   const [localActionType, setLocalActionType] = useState<string>(actionType || "");
@@ -92,7 +97,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   });
   const handleMetricsChange = (metrics: string[]) => {
     setSelectedMetrics(metrics);
-    try { localStorage.setItem("history_selected_metrics", JSON.stringify(metrics)); } catch {}
+    try {
+      localStorage.setItem("history_selected_metrics", JSON.stringify(metrics));
+    } catch {}
   };
   // Date range específico para o histórico (inicializa com o date range principal ou vazio para mostrar todos)
   const [historyDateRange, setHistoryDateRange] = useState<DateRangeValue>(() => ({
@@ -141,9 +148,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   // Override de métricas: buscar dados frescos quando date range diferente do pai
   const shouldLoadOverriddenById = isDateRangeOverridden && !groupByAdName && !!adId;
-  const { data: overriddenById, isLoading: loadingOverriddenById } = useAdDetails(
-    adId, historyDateRange.start || "", historyDateRange.end || "", shouldLoadOverriddenById
-  );
+  const { data: overriddenById, isLoading: loadingOverriddenById } = useAdDetails(adId, historyDateRange.start || "", historyDateRange.end || "", shouldLoadOverriddenById);
   const overriddenDetails = overriddenById;
   const loadingOverridden = isDateRangeOverridden && loadingOverriddenById;
 
@@ -339,7 +344,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     );
   }
 
-
   // Obter todos os tipos de conversão disponíveis (priorizar availableConversionTypes, senão usar os do ad)
   const allConversionTypes = useMemo(() => {
     if (availableConversionTypes && availableConversionTypes.length > 0) {
@@ -485,32 +489,35 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const isRetentionLoadingForVideo = activeTab === "video" && loadingAdDetails && retentionSeries.length === 0;
 
   const resolvedDetailModel = groupByAdName ? groupedSharedDetail.model : null;
-  const resolvedThumbnail = groupByAdName ? resolvedDetailModel?.thumbnailUrl ?? getAdThumbnail(ad) : getAdThumbnail(ad);
-  const resolvedVideoId = groupByAdName ? resolvedDetailModel?.videoId ?? null : videoId || null;
-  const resolvedMediaType = groupByAdName ? resolvedDetailModel?.mediaType ?? null : mediaType;
-  const resolvedActorId = groupByAdName ? resolvedDetailModel?.actorId ?? null : actorId || null;
+  const resolvedThumbnail = groupByAdName ? (resolvedDetailModel?.thumbnailUrl ?? getAdThumbnail(ad)) : getAdThumbnail(ad);
+  const resolvedVideoId = groupByAdName ? (resolvedDetailModel?.videoId ?? null) : videoId || null;
+  const resolvedMediaType = groupByAdName ? (resolvedDetailModel?.mediaType ?? null) : mediaType;
+  const resolvedActorId = groupByAdName ? (resolvedDetailModel?.actorId ?? null) : actorId || null;
   const resolvedLoadingVideo = groupByAdName ? groupedSharedDetail.isLoadingMedia : loadingVideo;
   const resolvedVideoError = groupByAdName ? groupedSharedDetail.error : videoError;
-  const resolvedVideoSourceUrl = groupByAdName ? resolvedDetailModel?.videoSourceUrl ?? null : (videoData as any)?.source_url ?? null;
-  const resolvedRetentionSeries = groupByAdName ? resolvedDetailModel?.retentionSeries ?? [] : retentionSeries;
-  const resolvedScrollStop = groupByAdName ? resolvedDetailModel?.scrollStop ?? 0 : scrollStop;
+  const resolvedVideoSourceUrl = groupByAdName ? (resolvedDetailModel?.videoSourceUrl ?? null) : ((videoData as any)?.source_url ?? null);
+  const resolvedRetentionSeries = groupByAdName ? (resolvedDetailModel?.retentionSeries ?? []) : retentionSeries;
+  const resolvedScrollStop = groupByAdName ? (resolvedDetailModel?.scrollStop ?? 0) : scrollStop;
   const resolvedVideoWatchedP50 = groupByAdName ? resolvedDetailModel?.videoWatchedP50 : videoWatchedP50;
-  const resolvedHookValue = groupByAdName ? resolvedDetailModel?.hook ?? Number(ad?.hook ?? 0) : effectiveAd?.hook ?? Number(ad?.hook ?? 0);
-  const resolvedHoldRateValue = groupByAdName ? resolvedDetailModel?.holdRate ?? null : (() => { const hr = effectiveAd?.hold_rate ?? (ad as any)?.hold_rate; return hr != null ? Number(hr) : null; })();
-  const resolvedCtrValue = groupByAdName ? resolvedDetailModel?.ctr ?? Number(ad?.ctr ?? 0) : effectiveAd?.ctr ?? Number(ad?.ctr ?? 0);
-  const resolvedWebsiteCtr = groupByAdName ? resolvedDetailModel?.websiteCtr ?? 0 : websiteCtr;
-  const resolvedConnectRate = groupByAdName ? resolvedDetailModel?.connectRate ?? Number(ad?.connect_rate ?? 0) : effectiveAd?.connect_rate ?? Number(ad?.connect_rate ?? 0);
-  const resolvedPageConv = groupByAdName ? resolvedDetailModel?.pageConv ?? 0 : pageConv;
-  const resolvedCpm = groupByAdName ? resolvedDetailModel?.cpm ?? 0 : cpm;
-  const resolvedCpc = groupByAdName ? resolvedDetailModel?.cpc ?? 0 : cpc;
-  const resolvedHasCpc = groupByAdName ? resolvedDetailModel?.hasCpc ?? false : hasCpc;
-  const resolvedCpr = groupByAdName ? resolvedDetailModel?.cpr ?? 0 : cpr;
-  const resolvedHasCpr = groupByAdName ? resolvedDetailModel?.hasCpr ?? false : hasCpr;
+  const resolvedHookValue = groupByAdName ? (resolvedDetailModel?.hook ?? Number(ad?.hook ?? 0)) : (effectiveAd?.hook ?? Number(ad?.hook ?? 0));
+  const resolvedHoldRateValue = groupByAdName
+    ? (resolvedDetailModel?.holdRate ?? null)
+    : (() => {
+        const hr = effectiveAd?.hold_rate ?? (ad as any)?.hold_rate;
+        return hr != null ? Number(hr) : null;
+      })();
+  const resolvedCtrValue = groupByAdName ? (resolvedDetailModel?.ctr ?? Number(ad?.ctr ?? 0)) : (effectiveAd?.ctr ?? Number(ad?.ctr ?? 0));
+  const resolvedWebsiteCtr = groupByAdName ? (resolvedDetailModel?.websiteCtr ?? 0) : websiteCtr;
+  const resolvedConnectRate = groupByAdName ? (resolvedDetailModel?.connectRate ?? Number(ad?.connect_rate ?? 0)) : (effectiveAd?.connect_rate ?? Number(ad?.connect_rate ?? 0));
+  const resolvedPageConv = groupByAdName ? (resolvedDetailModel?.pageConv ?? 0) : pageConv;
+  const resolvedCpm = groupByAdName ? (resolvedDetailModel?.cpm ?? 0) : cpm;
+  const resolvedCpc = groupByAdName ? (resolvedDetailModel?.cpc ?? 0) : cpc;
+  const resolvedHasCpc = groupByAdName ? (resolvedDetailModel?.hasCpc ?? false) : hasCpc;
+  const resolvedCpr = groupByAdName ? (resolvedDetailModel?.cpr ?? 0) : cpr;
+  const resolvedHasCpr = groupByAdName ? (resolvedDetailModel?.hasCpr ?? false) : hasCpr;
   const resolvedResultsForActionType = groupByAdName ? Number(resolvedDetailModel?.results ?? 0) : resultsForActionType;
-  const resolvedMqlMetrics = groupByAdName
-    ? { cpmql: Number(resolvedDetailModel?.cpmql ?? 0), mqlCount: Number(resolvedDetailModel?.mqlCount ?? 0) }
-    : mqlMetrics;
-  const resolvedSeries = groupByAdName ? (resolvedDetailModel?.series as any) ?? null : series;
+  const resolvedMqlMetrics = groupByAdName ? { cpmql: Number(resolvedDetailModel?.cpmql ?? 0), mqlCount: Number(resolvedDetailModel?.mqlCount ?? 0) } : mqlMetrics;
+  const resolvedSeries = groupByAdName ? ((resolvedDetailModel?.series as any) ?? null) : series;
   const resolvedSpend = groupByAdName ? Number((resolvedDetailModel?.source?.spend ?? ad?.spend) || 0) : _spend;
   const resolvedClicks = groupByAdName ? Number((resolvedDetailModel?.source?.clicks ?? ad?.clicks) || 0) : _clicks;
   const resolvedFrequency = groupByAdName
@@ -522,7 +529,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         const value = effectiveAd?.frequency ?? (ad as any)?.frequency;
         return value != null ? Number(value) : null;
       })();
-  const resolvedImpressions = groupByAdName ? Number((resolvedDetailModel?.source?.impressions ?? ad?.impressions) || 0) : effectiveAd?.impressions ?? Number(ad?.impressions || 0);
+  const resolvedImpressions = groupByAdName ? Number((resolvedDetailModel?.source?.impressions ?? ad?.impressions) || 0) : (effectiveAd?.impressions ?? Number(ad?.impressions || 0));
   const resolvedReach = groupByAdName
     ? (() => {
         const value = resolvedDetailModel?.source?.reach;
@@ -532,32 +539,19 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         const value = effectiveAd?.reach ?? (ad as any)?.reach;
         return value != null ? Number(value) : null;
       })();
-  const resolvedHasSheetIntegration = groupByAdName ? resolvedDetailModel?.hasSheetIntegration ?? false : hasSheetIntegration;
-  const isRetentionLoadingForResolvedVideo = activeTab === "video" && (
-    groupByAdName
-      ? groupedSharedDetail.isLoadingDetail && resolvedRetentionSeries.length === 0
-      : loadingAdDetails && resolvedRetentionSeries.length === 0
-  );
+  const resolvedHasSheetIntegration = groupByAdName ? (resolvedDetailModel?.hasSheetIntegration ?? false) : hasSheetIntegration;
+  const isRetentionLoadingForResolvedVideo = activeTab === "video" && (groupByAdName ? groupedSharedDetail.isLoadingDetail && resolvedRetentionSeries.length === 0 : loadingAdDetails && resolvedRetentionSeries.length === 0);
 
   const isCreativeLoading = (!groupByAdName && loadingCreative) || (groupByAdName && groupedSharedDetail.isLoadingMedia);
   const hasCreativeMediaData = groupByAdName ? !!groupedSharedDetail.creativeData : !!creativeData;
-  const isImageAd = !isCreativeLoading && hasCreativeMediaData && (
-    resolvedMediaType === "image" ||
-    (!resolvedMediaType && !resolvedVideoId)
-  );
-  const imageActorId = groupByAdName
-    ? (groupedSharedDetail.creativeData as any)?.creative?.actor_id || null
-    : actorId || null;
+  const isImageAd = !isCreativeLoading && hasCreativeMediaData && (resolvedMediaType === "image" || (!resolvedMediaType && !resolvedVideoId));
+  const imageActorId = groupByAdName ? (groupedSharedDetail.creativeData as any)?.creative?.actor_id || null : actorId || null;
   const shouldLoadImageSource = isImageAd && !!adId && !!imageActorId;
-  const { data: imageSourceData, isLoading: loadingImageSource } = useImageSource(
-    { ad_id: adId, actor_id: imageActorId || "" },
-    shouldLoadImageSource
-  );
+  const { data: imageSourceData, isLoading: loadingImageSource } = useImageSource({ ad_id: adId, actor_id: imageActorId || "" }, shouldLoadImageSource);
   const resolvedCreativeImageUrl = imageSourceData?.image_url ?? null;
 
   const { data: transcriptionData, isLoading: loadingTranscription, isError: transcriptionError } = useAdTranscription(adName, shouldLoadTranscription, transcriptionPending);
   const { mutate: transcribeAdMutation, isPending: isTranscribing } = useTranscribeAd();
-
 
   // Handler para quando um ponto do gráfico de retenção é clicado
   const handleRetentionPointClick = (second: number) => {
@@ -568,25 +562,38 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   const handleCopyTranscription = () => {
     if (!transcriptionData?.full_text) return;
-    navigator.clipboard.writeText(`## ${adName}\n${transcriptionData.full_text}`);
+
+    let text: string;
+    const words = transcriptionData.timestamped_text;
+
+    if (transcriptionViewMode === "retention" && words && words.length > 0) {
+      const boundary = findHookBoundary(words);
+      const hookText = words
+        .slice(0, boundary)
+        .map((w) => w.text)
+        .join(" ");
+      const bodyText = words
+        .slice(boundary)
+        .map((w) => w.text)
+        .join(" ");
+      text = `## ${adName}\n### Hook\n${hookText}\n\n### Body\n${bodyText}`;
+    } else {
+      text = `## ${adName}\n${transcriptionData.full_text}`;
+    }
+
+    navigator.clipboard.writeText(text);
+    setCopiedTranscription(true);
+    setTimeout(() => setCopiedTranscription(false), 3000);
   };
 
   const handleTranscribeAd = () => {
     const toastId = `transcription-${adName}-${Date.now()}`;
     transcriptionToastId.current = toastId;
-    showProgressToast(
-      toastId,
-      adName,
-      1, 2,
-      undefined,
-      undefined,
-      <IconMicrophone className="h-5 w-5 flex-shrink-0" />,
-      buildTranscriptionToastContent('processing', { total: 1, done: 0 }),
-    );
+    showProgressToast(toastId, adName, 1, 2, undefined, undefined, <IconMicrophone className="h-5 w-5 flex-shrink-0" />, buildTranscriptionToastContent("processing", { total: 1, done: 0 }));
     setTranscriptionPending(true);
     transcribeAdMutation(adName, {
       onError: () => {
-        finishProgressToast(toastId, false, 'Falha ao iniciar transcrição');
+        finishProgressToast(toastId, false, "Falha ao iniciar transcrição");
         setTranscriptionPending(false);
       },
     });
@@ -594,20 +601,20 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   useEffect(() => {
     if (!transcriptionPending || !transcriptionToastId.current) return;
-    if (transcriptionData?.status === 'completed') {
-      finishProgressToast(transcriptionToastId.current, true, 'Transcrição concluída', {
-        context: 'transcription',
+    if (transcriptionData?.status === "completed") {
+      finishProgressToast(transcriptionToastId.current, true, "Transcrição concluída", {
+        context: "transcription",
         packName: adName,
         visibleDurationOnly: 5,
       });
       setTranscriptionPending(false);
-    } else if (transcriptionData?.status === 'failed') {
-      finishProgressToast(transcriptionToastId.current, false, 'Transcrição falhou');
+    } else if (transcriptionData?.status === "failed") {
+      finishProgressToast(transcriptionToastId.current, false, "Transcrição falhou");
       setTranscriptionPending(false);
     }
   }, [transcriptionData, transcriptionPending, adName]);
 
-  const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-muted") : (isAdActive ? "bg-success" : "bg-muted");
+  const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-muted") : isAdActive ? "bg-success" : "bg-muted";
   const detailsTabContentGapClassName = "gap-4 md:gap-8";
 
   return (
@@ -658,19 +665,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       >
         {groupByAdName && (
           <TabbedContentItem value="variations" variant="simple">
-            <ManagerChildrenTable
-              childrenData={childrenData}
-              isLoading={loadingChildren}
-              actionType={localActionType}
-              formatCurrency={formatCurrency}
-              formatPct={formatPct}
-              activeColumns={variationActiveColumns}
-              hasSheetIntegration={resolvedHasSheetIntegration}
-              mqlLeadscoreMin={mqlLeadscoreMin}
-              columnFilters={variationColumnFilters}
-              setColumnFilters={setVariationColumnFilters}
-              asContent
-            />
+            <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationActiveColumns} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={variationColumnFilters} setColumnFilters={setVariationColumnFilters} asContent />
           </TabbedContentItem>
         )}
 
@@ -688,11 +683,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   loadingImageSource ? (
                     <RetentionVideoPlayerSkeleton />
                   ) : resolvedCreativeImageUrl ? (
-                    <img
-                      src={resolvedCreativeImageUrl}
-                      alt={adName}
-                      className="w-full h-full object-contain rounded-lg"
-                    />
+                    <img src={resolvedCreativeImageUrl} alt={adName} className="w-full h-full object-contain rounded-lg" />
                   ) : (
                     <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">Imagem não disponível</div>
                   )
@@ -784,11 +775,39 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       <IconMicrophone className="h-4 w-4 flex-shrink-0" />
                       <span>Transcrição</span>
                     </div>
-                    {transcriptionData?.full_text && (
-                      <Button variant="ghost" size="sm" className="h-8 px-2.5 rounded-md" onClick={handleCopyTranscription} aria-label="Copiar transcrição">
-                        <IconCopy className="h-4 w-4" />
-                      </Button>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {transcriptionData?.timestamped_text && resolvedRetentionSeries.length > 0 && (
+                        <TooltipProvider>
+                          <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização da transcrição">
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant={transcriptionViewMode === "plain" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("plain")} className="h-8 px-2.5 rounded-md" aria-label="Texto simples" aria-pressed={transcriptionViewMode === "plain"}>
+                                  <IconAlignLeft className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">Texto simples</p>
+                              </TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button variant={transcriptionViewMode === "retention" ? "secondary" : "ghost"} size="sm" onClick={() => setTranscriptionViewMode("retention")} className="h-8 px-2.5 rounded-md" aria-label="Mapa de retenção" aria-pressed={transcriptionViewMode === "retention"}>
+                                  <IconBrandParsinta className="h-4 w-4" />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">Mapa de retenção</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </div>
+                        </TooltipProvider>
+                      )}
+                      {transcriptionData?.full_text && (
+                        <Button variant="ghost" size="sm" onClick={handleCopyTranscription} aria-label="Copiar transcrição" className={`h-8 px-2.5 rounded-md transition-colors duration-200 ${copiedTranscription ? "bg-success/15 hover:bg-success/20 text-success" : ""}`}>
+                          {copiedTranscription ? <IconCheck className="h-4 w-4 text-success animate-in zoom-in-50 duration-150" /> : <IconCopy className="h-4 w-4" />}
+                        </Button>
+                      )}
+                    </div>
                   </div>
 
                   {loadingTranscription ? (
@@ -804,38 +823,77 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       <Skeleton className="h-4 w-full" />
                       <Skeleton className="h-4 w-4/5" />
                     </div>
-                  ) : (isTranscribing || transcriptionPending || transcriptionData?.status === "processing") ? (
+                  ) : isTranscribing || transcriptionPending || transcriptionData?.status === "processing" ? (
                     <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30 animate-pulse" />
-                      <p className="text-sm">Transcrição em andamento...</p>
+                      <p className="text-sm">Transcrevendo...</p>
                     </div>
                   ) : transcriptionError ? (
                     <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">Erro ao carregar transcrição.</p>
-                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Transcrever</Button>
+                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
+                        Transcrever
+                      </Button>
                     </div>
                   ) : !transcriptionData ? (
                     <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
-                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Transcrever</Button>
+                      <p className="text-sm">Esse anúncio ainda não foi transcrito.</p>
+                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
+                        Transcrever
+                      </Button>
                     </div>
                   ) : transcriptionData.status === "failed" ? (
                     <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
                       <IconMicrophone className="h-8 w-8 opacity-30" />
                       <p className="text-sm">A transcrição falhou para este anúncio.</p>
-                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Tentar novamente</Button>
+                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
+                        Tentar novamente
+                      </Button>
                     </div>
                   ) : transcriptionData.full_text ? (
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{transcriptionData.full_text}</p>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
-                      <IconMicrophone className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">Nenhuma transcrição disponível para este anúncio.</p>
-                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>Transcrever</Button>
-                    </div>
-                  )}
+                    <>
+                      {transcriptionViewMode === "plain" && <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{transcriptionData.full_text}</p>}
+                      {transcriptionViewMode === "retention" &&
+                        (() => {
+                          const words = transcriptionData.timestamped_text;
+                          if (!words || words.length === 0) {
+                            return <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{transcriptionData.full_text}</p>;
+                          }
+                          const boundary = findHookBoundary(words);
+                          const hookWords = words.slice(0, boundary);
+                          const bodyWords = words.slice(boundary);
+                          const renderWords = (ws: TimestampedWord[]) =>
+                            ws.map((w, i) => {
+                              const second = Math.floor(w.start / 1000);
+                              const idx = secondToRetentionIndex(second);
+                              const pct = resolvedRetentionSeries[idx] ?? resolvedRetentionSeries[resolvedRetentionSeries.length - 1] ?? 50;
+                              const mm = Math.floor(second / 60);
+                              const ss = String(second % 60).padStart(2, "0");
+                              return (
+                                <span key={i} style={{ color: retentionToColor(pct) }} title={`${mm}:${ss} — ${pct.toFixed(0)}% retenção`}>
+                                  {w.text}{" "}
+                                </span>
+                              );
+                            });
+                          return (
+                            <div className="flex flex-col gap-4 text-sm leading-relaxed">
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Hook</div>
+                                <p className="leading-relaxed">{renderWords(hookWords)}</p>
+                              </div>
+                              {bodyWords.length > 0 && (
+                                <div>
+                                  <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">Body</div>
+                                  <p className="leading-relaxed">{renderWords(bodyWords)}</p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                    </>
+                  ) : null}
                 </div>
               )}
             </div>
