@@ -292,21 +292,6 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 
 ---
 
-### profiles
-Perfil do usuário com dados básicos do Facebook OAuth.
-
-| Coluna | Tipo | Flags |
-|--------|------|-------|
-| user_id | uuid | NOT NULL |
-| fb_user_id | text |  |
-| name | text |  |
-| email | text |  |
-| picture_url | text |  |
-| created_at | timestamp | DEFAULT |
-| updated_at | timestamp | DEFAULT |
-
----
-
 ### user_preferences
 Preferências e configurações personalizadas por usuário.
 

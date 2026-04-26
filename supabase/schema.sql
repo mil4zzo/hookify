@@ -3316,24 +3316,6 @@ ALTER TABLE public.packs OWNER TO postgres;
 COMMENT ON COLUMN public.packs.sheet_integration_id IS 'Referência à integração de planilha Google Sheets associada a este pack. Permite buscar dados da integração diretamente via JOIN ao buscar packs.';
 
 
---
--- Name: profiles; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.profiles (
-    user_id uuid NOT NULL,
-    fb_user_id text,
-    name text,
-    email text,
-    picture_url text,
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now()
-);
-
-
-ALTER TABLE public.profiles OWNER TO postgres;
-
---
 -- Name: user_preferences; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -3481,15 +3463,6 @@ ALTER TABLE ONLY public.packs
     ADD CONSTRAINT packs_pkey PRIMARY KEY (id);
 
 
---
--- Name: profiles profiles_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
---
-
-ALTER TABLE ONLY public.profiles
-    ADD CONSTRAINT profiles_pkey PRIMARY KEY (user_id);
-
-
---
 -- Name: user_preferences user_preferences_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -3868,14 +3841,6 @@ CREATE UNIQUE INDEX packs_user_normalized_name_unique_idx ON public.packs USING 
 COMMENT ON INDEX public.packs_user_normalized_name_unique_idx IS 'Garante unicidade de nome de pack por usuário usando trim + lower.';
 
 
---
--- Name: profiles_email_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX profiles_email_idx ON public.profiles USING btree (email);
-
-
---
 -- Name: facebook_connections trg_facebook_connections_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -4102,20 +4067,6 @@ ALTER TABLE public.packs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY packs_modify_own ON public.packs USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
 
 
---
--- Name: profiles; Type: ROW SECURITY; Schema: public; Owner: postgres
---
-
-ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
-
---
--- Name: profiles profiles_modify_own; Type: POLICY; Schema: public; Owner: postgres
---
-
-CREATE POLICY profiles_modify_own ON public.profiles USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
-
-
---
 -- Name: user_preferences; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -4372,16 +4323,6 @@ GRANT ALL ON TABLE public.packs TO authenticated;
 GRANT ALL ON TABLE public.packs TO service_role;
 
 
---
--- Name: TABLE profiles; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.profiles TO anon;
-GRANT ALL ON TABLE public.profiles TO authenticated;
-GRANT ALL ON TABLE public.profiles TO service_role;
-
-
---
 -- Name: TABLE user_preferences; Type: ACL; Schema: public; Owner: postgres
 --
 

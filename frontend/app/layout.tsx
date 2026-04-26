@@ -5,6 +5,7 @@ import { SidebarProvider } from "../components/layout/SidebarContext";
 import { Toaster } from "sonner";
 import AppLayout from "../components/layout/AppLayout";
 import { SentryUserIdentifier } from "../components/providers/SentryUserIdentifier";
+import { AuthSessionExpiredHandler } from "../components/providers/AuthSessionExpiredHandler";
 
 const geist = Geist({
   subsets: ["latin"],
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ReactQueryProvider>
           <SidebarProvider>
             <SentryUserIdentifier />
+            <AuthSessionExpiredHandler />
             <AppLayout>{children}</AppLayout>
             <Toaster
               position="bottom-right"

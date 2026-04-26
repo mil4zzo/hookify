@@ -6,11 +6,13 @@ import {
   IconFlask,
   IconGauge,
   IconPalette,
+  IconShieldLock,
   IconSitemapFilled,
   IconSunFilled,
   IconUpload,
 } from "@tabler/icons-react";
 import { ComponentType } from "react";
+import { type Tier, canAccess } from "@/lib/config/tierConfig";
 
 export interface PageConfig {
   path: string;
@@ -20,6 +22,7 @@ export interface PageConfig {
   description?: string;
   isDevelopment?: boolean;
   showInMenu?: boolean;
+  minimumTier?: Tier;
 }
 
 export const pageConfigs: PageConfig[] = [
@@ -54,6 +57,7 @@ export const pageConfigs: PageConfig[] = [
     icon: IconCompass,
     description: "Analise profunda de criativos e seus gargalos",
     showInMenu: true,
+    minimumTier: "insider",
   },
   {
     path: "/gold",
@@ -62,6 +66,7 @@ export const pageConfigs: PageConfig[] = [
     icon: IconDiamond,
     description: "G.O.L.D.",
     showInMenu: true,
+    minimumTier: "insider",
   },
   {
     path: "/upload",
@@ -70,6 +75,7 @@ export const pageConfigs: PageConfig[] = [
     icon: IconUpload,
     description: "Crie anuncios em massa a partir de um modelo",
     showInMenu: true,
+    minimumTier: "insider",
   },
   {
     path: "/meta-usage",
@@ -78,6 +84,16 @@ export const pageConfigs: PageConfig[] = [
     icon: IconGauge,
     description: "Monitore o consumo da Meta Graph API",
     showInMenu: true,
+    minimumTier: "insider",
+  },
+  {
+    path: "/admin",
+    title: "Admin",
+    label: "Admin",
+    icon: IconShieldLock,
+    description: "Gerenciamento de usuários e tiers",
+    showInMenu: true,
+    minimumTier: "admin",
   },
   {
     path: "/docs",
@@ -109,8 +125,13 @@ export function getPageConfig(path: string): PageConfig | undefined {
   return pageConfigs.find((config) => config.path === path);
 }
 
-export function getMenuItems(): PageConfig[] {
-  return pageConfigs.filter((config) => config.showInMenu && !config.isDevelopment);
+export function getMenuItems(userTier: Tier = "standard"): PageConfig[] {
+  return pageConfigs.filter(
+    (config) =>
+      config.showInMenu &&
+      !config.isDevelopment &&
+      canAccess(userTier, config.minimumTier ?? "standard")
+  );
 }
 
 export function getDevelopmentItems(): PageConfig[] {

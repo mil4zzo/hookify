@@ -1,11 +1,11 @@
 "use client";
-import { useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import Image from "next/image";
 import { IconEye, IconEyeOff } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { showError, showSuccess } from "@/lib/utils/toast";
+import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
@@ -22,9 +22,17 @@ function LoginContent() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const expiredWarningShownRef = useRef(false);
 
   // Verificar se há redirect após login
   const redirectTo = searchParams.get("redirect") || "/packs";
+
+  useEffect(() => {
+    if (expiredWarningShownRef.current || searchParams.get("expired") !== "true") return;
+
+    expiredWarningShownRef.current = true;
+    showWarning("Sua sessão expirou ou foi encerrada em outro dispositivo. Entre novamente para continuar.");
+  }, [searchParams]);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();

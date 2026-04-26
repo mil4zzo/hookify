@@ -34,7 +34,6 @@ TABLE_DESCRIPTIONS = {
     "google_accounts": "Contas Google OAuth vinculadas a usuários (para acesso ao Sheets).",
     "jobs": "Jobs assíncronos de longa duração (ex: criação em lote de anúncios).",
     "packs": "Agrupamentos de anúncios definidos pelo usuário para análise comparativa.",
-    "profiles": "Perfil do usuário com dados básicos do Facebook OAuth.",
     "user_preferences": "Preferências e configurações personalizadas por usuário.",
 }
 

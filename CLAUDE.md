@@ -154,7 +154,7 @@ pg_dump "postgresql://postgres:SENHA@db.yyhiwayyvawsdsptdklx.supabase.co:5432/po
 py supabase/generate_schema_map.py
 ```
 
-Tabelas: `ad_accounts`, `ad_metric_pack_map`, `ad_metrics`, `ad_sheet_integrations`, `ad_transcriptions`, `ads`, `bulk_ad_items`, `facebook_connections`, `google_accounts`, `jobs`, `packs`, `profiles`, `user_preferences`.
+Tabelas: `ad_accounts`, `ad_metric_pack_map`, `ad_metrics`, `ad_sheet_integrations`, `ad_transcriptions`, `ads`, `bulk_ad_items`, `facebook_connections`, `google_accounts`, `jobs`, `packs`, `user_preferences`.
 
 All schema changes must go through migration files — never edit `schema.sql` directly without a corresponding migration.
 

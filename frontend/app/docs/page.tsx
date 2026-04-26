@@ -228,20 +228,6 @@ const SUPABASE_TABLES: TableDoc[] = [
     ],
   },
   {
-    id: "profiles",
-    name: "profiles",
-    description: "Perfil do usuário na plataforma.",
-    columns: [
-      { name: "user_id", type: "UUID", description: "Chave primária — FK para auth.users" },
-      { name: "fb_user_id", type: "TEXT", description: "ID do Facebook vinculado" },
-      { name: "name", type: "TEXT", description: "Nome do usuário" },
-      { name: "email", type: "TEXT", description: "Email do usuário" },
-      { name: "picture_url", type: "TEXT", description: "URL da foto de perfil" },
-      { name: "created_at", type: "TIMESTAMPTZ", description: "Data de criação" },
-      { name: "updated_at", type: "TIMESTAMPTZ", description: "Data de atualização" },
-    ],
-  },
-  {
     id: "user_preferences",
     name: "user_preferences",
     description: "Preferências e configurações do usuário (idioma, moeda, critérios de validação, etc.).",

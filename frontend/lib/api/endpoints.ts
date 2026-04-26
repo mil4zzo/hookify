@@ -390,4 +390,26 @@ export const api = {
         apiClient.delete(`/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}`),
     },
   },
+
+  // Admin
+  admin: {
+    listUsers: (): Promise<AdminUser[]> =>
+      apiClient.get('/admin/users'),
+
+    updateUserTier: (userId: string, tier: 'standard' | 'insider' | 'admin'): Promise<AdminUser> =>
+      apiClient.patch(`/admin/users/${userId}/tier`, { tier }),
+  },
+}
+
+export interface AdminUser {
+  user_id: string
+  email: string
+  name: string
+  tier: 'standard' | 'insider' | 'admin'
+  meta_email: string | null
+  packs_count: number
+  created_at: string | null
+  expires_at: string | null
+  updated_at: string | null
+  granted_by: string | null
 }

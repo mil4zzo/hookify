@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
+import { ROUTE_MINIMUM_TIER, canAccess, type Tier } from '@/lib/config/tierConfig'
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next({ request: { headers: req.headers } })
@@ -56,13 +57,32 @@ export async function middleware(req: NextRequest) {
   }
   
   // Se está logado e tenta acessar login/signup, redirecionar para packs
-  // EXCETO se houver parâmetro ?logout=true (permite acesso após logout mesmo com cookies residuais)
+  // EXCETO se houver parâmetro ?logout=true ou ?expired=true
+  // (permite acesso após logout/expiração mesmo com cookies residuais)
   // Isso resolve o problema onde cookies ainda não foram completamente limpos após signOut
   const isLogoutRequest = req.nextUrl.searchParams.get('logout') === 'true'
-  if ((pathname === '/login' || pathname === '/signup') && session && !isLogoutRequest) {
+  const isExpiredSessionRequest = req.nextUrl.searchParams.get('expired') === 'true'
+  if ((pathname === '/login' || pathname === '/signup') && session && !isLogoutRequest && !isExpiredSessionRequest) {
     const url = req.nextUrl.clone()
     url.pathname = '/packs'
     return NextResponse.redirect(url)
+  }
+
+  // Tier-based route protection
+  const requiredTier = ROUTE_MINIMUM_TIER[pathname]
+  if (requiredTier && session) {
+    const { data: sub } = await supabase
+      .from('subscriptions')
+      .select('tier')
+      .single()
+
+    const userTier = (sub?.tier ?? 'standard') as Tier
+    if (!canAccess(userTier, requiredTier)) {
+      const url = req.nextUrl.clone()
+      url.pathname = '/planos'
+      url.searchParams.set('from', pathname)
+      return NextResponse.redirect(url)
+    }
   }
 
   return res
@@ -73,5 +93,4 @@ export const config = {
   matcher: ['/((?!_next|static|.*\\.\
 (?:png|jpg|jpeg|gif|svg|ico|webp|txt)).*)'],
 }
-
 

@@ -2,12 +2,14 @@
 
 import { usePathname } from "next/navigation";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
+import { useUserTier } from "@/lib/hooks/useUserTier";
 import { getMenuItems } from "@/lib/config/pageConfig";
 import { NavBar } from "@/components/ui/tubelight-navbar";
 
 export default function BottomNavigationBar() {
   const pathname = usePathname();
   const { isAuthenticated, isClient } = useClientAuth();
+  const { data: userTier = "standard" } = useUserTier();
 
   // Não mostrar em rotas de autenticação
   const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/signup") || pathname?.startsWith("/callback");
@@ -16,7 +18,7 @@ export default function BottomNavigationBar() {
     return null;
   }
 
-  const menuItems = getMenuItems();
+  const menuItems = getMenuItems(userTier);
 
   // Converter PageConfig[] para NavItem[]
   const navItems = menuItems.map((item) => ({

@@ -6,6 +6,7 @@ import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
 import { useOnboardingStatus } from "@/lib/hooks/useOnboardingStatus";
+import { useUserTier } from "@/lib/hooks/useUserTier";
 import { IconBook2, IconChevronLeft, IconChevronRight, IconFileText, IconShieldLock, IconTrash } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { env } from "@/lib/config/env";
@@ -22,6 +23,7 @@ export default function Sidebar() {
   const { isCollapsed, toggleCollapse } = useSidebar();
   const [showLabels, setShowLabels] = useState(!isCollapsed);
   const { data: onboardingData, isLoading: isLoadingOnboarding } = useOnboardingStatus(isAuthenticated);
+  const { data: userTier = "standard" } = useUserTier();
 
   // Controla a exibição dos labels baseado no estado de colapso e na animação
   useEffect(() => {
@@ -83,7 +85,7 @@ export default function Sidebar() {
       <nav className={cn("px-3 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
         {isReady ? (
           <ul className="space-y-1">
-            {getMenuItems().map((item) => {
+            {getMenuItems(userTier).map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.path;
 

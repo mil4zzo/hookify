@@ -13,6 +13,9 @@ type SessionCacheEntry = {
 
 let sessionCache: SessionCacheEntry | null = null
 let loggingOut = false
+let authSessionExpiredNotified = false
+
+export const AUTH_SESSION_EXPIRED_EVENT = 'hookify:auth-session-expired'
 
 export function invalidateSessionCache() {
   sessionCache = null
@@ -24,6 +27,29 @@ export function setLoggingOut(value: boolean) {
 
 export function getIsLoggingOut() {
   return loggingOut
+}
+
+export function notifyAuthSessionExpired(detail?: { source?: string }) {
+  if (typeof window === 'undefined' || authSessionExpiredNotified) return
+
+  authSessionExpiredNotified = true
+  window.dispatchEvent(new CustomEvent(AUTH_SESSION_EXPIRED_EVENT, { detail }))
+}
+
+function isAppAuthUnauthorized(error: any) {
+  const detail = error?.response?.data?.detail
+  if (typeof detail !== 'string') return false
+
+  const message = detail.toLowerCase()
+  return (
+    message.includes('missing bearer token') ||
+    message.includes('invalid token payload') ||
+    message.includes('invalid token key') ||
+    message.includes('token missing key id') ||
+    message.includes('token expired') ||
+    message.includes('invalid or expired token') ||
+    message.includes('token validation')
+  )
 }
 
 class ApiClient {
@@ -129,6 +155,9 @@ class ApiClient {
           // Se estamos em processo de logout, silenciar o 401 — não propagar toasts/retries
           if (loggingOut) {
             return Promise.reject(error)
+          }
+          if (isAppAuthUnauthorized(error)) {
+            notifyAuthSessionExpired({ source: error?.config?.url })
           }
         }
         const appError = parseError(error)

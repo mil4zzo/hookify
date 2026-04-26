@@ -59,7 +59,6 @@ def _delete_user_data(user_id: str) -> Dict[str, Any]:
         ("google_accounts", "user_id"),
         ("facebook_connections", "user_id"),
         ("user_preferences", "user_id"),
-        ("profiles", "user_id"),
     ]
 
     for table, column in tables_to_delete:
