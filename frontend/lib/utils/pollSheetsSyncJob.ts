@@ -11,6 +11,7 @@ import {
   finishProgressToast,
   updateProgressToast,
   showPausedJobToast,
+  showProcessCancelledWarning,
   dismissToast,
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
@@ -178,7 +179,9 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
       }
 
       if (progress.status === "cancelled") {
-        finishProgressToast(toastId, false, `Importação do Leadscore cancelada`);
+        // Cancelamento (cliente ou servidor): nunca mostrar erro vermelho — apenas o aviso amarelo padrão.
+        dismissToast(toastId);
+        showProcessCancelledWarning("sheets", packName);
         return { done: true, result: { success: false, error: "Cancelado" } };
       }
 

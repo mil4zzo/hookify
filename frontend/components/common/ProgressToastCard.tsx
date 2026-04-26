@@ -1,7 +1,7 @@
 "use client";
 
 import React, { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertCircle, IconLoader2 } from "@tabler/icons-react";
+import { IconAlertCircle, IconLoader2, IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/button";
 
@@ -46,6 +46,8 @@ export type ProgressToastCardProps = {
   inlineError?: boolean;
   cancelling?: boolean;
   animated?: boolean;
+  /** Terminal frame: success (progress=100) or error (inlineError). Hides cancel UI on success and shows an icon-only "Fechar" on error. */
+  terminal?: boolean;
 };
 
 export type PausedToastCardProps = {
@@ -132,23 +134,6 @@ function getBackgroundLayerClasses(): Record<ProgressToastVisualVariant, string>
   };
 }
 
-function getGlowLayers(): Record<ProgressToastVisualVariant, React.CSSProperties> {
-  return {
-    initializing: {
-      background: `radial-gradient(circle at 48% 88%, color-mix(in oklab, var(--surface-fill) 18%, transparent), transparent 38%)`,
-    },
-    loading: {
-      background: `radial-gradient(circle at 48% 88%, color-mix(in oklab, var(--primary-label) 42%, transparent), transparent 38%)`,
-    },
-    success: {
-      background: `radial-gradient(circle at 48% 88%, color-mix(in oklab, var(--success-label) 32%, transparent), transparent 38%)`,
-    },
-    error: {
-      background: `radial-gradient(circle at 48% 88%, color-mix(in oklab, var(--destructive-label) 36%, transparent), transparent 38%)`,
-    },
-  };
-}
-
 function getFrameConfig(variant: ProgressToastVisualVariant, progress: number) {
   if (variant === "success") {
     return {
@@ -193,7 +178,6 @@ function getFrameConfig(variant: ProgressToastVisualVariant, progress: number) {
 function ToastCardFrame({ variant, progress, animated = true, children }: ToastCardFrameProps) {
   const { ambientShadow, glowPulse } = getFrameConfig(variant, progress);
   const backgroundClasses = getBackgroundLayerClasses();
-  // const glows = getGlowLayers();
 
   return (
     <div
@@ -220,7 +204,6 @@ function ToastCardFrame({ variant, progress, animated = true, children }: ToastC
           key={`glow-${key}`}
           className="pointer-events-none absolute inset-0"
           style={{
-            // ...glows[key],
             opacity: variant === key ? 1 : 0,
             zIndex: 4 + index,
             transform: `scale(${variant === key ? glowPulse : 1})`,
@@ -339,7 +322,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
   );
 }
 
-export function ProgressToastCard({ packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps, inlineError = false, cancelling = false, animated = true }: ProgressToastCardProps) {
+export function ProgressToastCard({ packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps, inlineError = false, cancelling = false, animated = true, terminal = false }: ProgressToastCardProps) {
   const targetProgress = clamp(Math.round(progress), 0, 100);
   const animatedProgress = useAnimatedProgress(targetProgress, animated && !inlineError && !cancelling);
   const variant = useMemo(() => getVariant(inlineError || cancelling ? targetProgress : animatedProgress, inlineError, cancelling), [animatedProgress, cancelling, inlineError, targetProgress]);
@@ -351,7 +334,11 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
 
   const titleText = staged ? staged.stageTitle : "Processando";
   const dynamicLine = staged ? staged.dynamicLine : message || "...";
+  const isSuccess = variant === "success";
   const showBar = !cancelling && !inlineError;
+  const showTerminalCloseButton = terminal && inlineError && Boolean(onCancel);
+  const showTransientErrorCancelButton = !terminal && inlineError && Boolean(onCancel);
+  const showLoadingCancelButton = showBar && Boolean(onCancel) && !(terminal && isSuccess);
 
   return (
     <ToastCardFrame variant={variant} progress={animatedProgress} animated={animated}>
@@ -376,9 +363,20 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
               </div>
             )}
           </div>
+
+          {showTerminalCloseButton && (
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Fechar"
+              className="ml-1 flex-shrink-0 rounded p-1 text-primary-foreground-75 hover:bg-white/10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-white/30"
+            >
+              <IconX className="h-4 w-4" strokeWidth={2} />
+            </button>
+          )}
         </div>
 
-        {inlineError && onCancel && (
+        {showTransientErrorCancelButton && (
           <div className="flex justify-end pt-1">
             <Button type="button" size="sm" variant="secondary" className="h-8 border-white/15 bg-white/10 text-primary-foreground hover:bg-white/15" onClick={onCancel}>
               Cancelar
@@ -388,7 +386,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
 
         {showBar && <ProgressBar progress={animatedProgress} variant={variant} animated={animated} />}
 
-        {showBar && onCancel && (
+        {showLoadingCancelButton && (
           <div className="flex justify-end">
             <Button type="button" size="sm" variant="ghost" className="h-8 text-primary-foreground-90 hover:bg-white/10 hover:text-primary-foreground" onClick={onCancel}>
               Cancelar

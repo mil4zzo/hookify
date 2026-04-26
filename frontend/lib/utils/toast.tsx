@@ -1,7 +1,7 @@
 import { toast } from "sonner";
 import { AppError } from "./errors";
 import { parseError } from "./errors";
-import { IconAlertCircle, IconCheck, IconMicrophone, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconMicrophone, IconX } from "@tabler/icons-react";
 import React, { type ReactNode } from "react";
 import { PausedToastCard, ProgressToastCard } from "@/components/common/ProgressToastCard";
 import { MetaIcon } from "@/components/icons/MetaIcon";
@@ -513,26 +513,9 @@ export function showProgressToast(
 
 /**
  * Atualiza toast de progresso existente.
- * stagedContent e progressPercent: mesmo que showProgressToast.
+ * Alias de showProgressToast — sonner deduplica pelo toastId, mas mantemos o nome semântico nos callsites.
  */
-export function updateProgressToast(
-  toastId: string,
-  packName: string,
-  currentStep: number,
-  totalSteps: number,
-  message?: string,
-  onCancel?: () => void,
-  icon?: ReactNode,
-  stagedContent?: ProgressToastContent,
-  progressPercent?: number,
-  inlineError?: boolean,
-) {
-  const progress = resolveProgressValue(progressPercent, currentStep, totalSteps);
-  toast.loading(
-    renderProgressToastContent(packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps, inlineError),
-    getToastCardOptions(toastId),
-  );
-}
+export const updateProgressToast = showProgressToast;
 
 /**
  * Mostra toast de "Cancelando..." - usado quando usuário clica no botão cancelar
@@ -565,78 +548,65 @@ function dismissAfterVisibleSeconds(toastId: string, visibleSeconds: number): vo
   }, TICK_MS);
 }
 
+// Ícones reutilizados nos toasts terminais (criados uma vez por módulo).
+const META_TOAST_ICON = <MetaIcon className="h-5 w-5 flex-shrink-0" />;
+const SHEETS_TOAST_ICON = <GoogleSheetsIcon className="h-5 w-5 flex-shrink-0" />;
+const TRANSCRIPTION_TOAST_ICON = <IconMicrophone className="h-5 w-5 flex-shrink-0 text-primary-foreground" />;
+
+function getTerminalContextMeta(context?: "meta" | "sheets" | "transcription"): { stageContext?: string; icon?: ReactNode } {
+  if (context === "meta") return { stageContext: "Meta", icon: META_TOAST_ICON };
+  if (context === "sheets") return { stageContext: "Leadscore", icon: SHEETS_TOAST_ICON };
+  if (context === "transcription") return { stageContext: "Transcrição", icon: TRANSCRIPTION_TOAST_ICON };
+  return {};
+}
+
 /**
- * Finaliza toast de progresso com sucesso ou erro
- * Erros são persistentes (não fecham automaticamente) até o usuário fechar
- * options.visibleDurationOnly: quando definido (ex.: 5), o toast de sucesso só some após N segundos com a aba visível (pausa quando a aba está em segundo plano)
- * options.context: permite layouts específicos (ex.: Meta)
+ * Finaliza toast de progresso com sucesso ou erro reutilizando o ProgressToastCard.
+ * - Sucesso: progress=100 → variant "success" (gradiente verde + barra cheia). Auto-dismiss em 5s ou em N segundos com a aba visível (visibleDurationOnly).
+ * - Erro: inlineError + terminal → variant "error" (gradiente vermelho) + botão X "Fechar". Persistente até o usuário fechar.
  */
-export function finishProgressToast(toastId: string, success: boolean, message: string, options?: { visibleDurationOnly?: number; context?: "meta" | "sheets" | "transcription"; packName?: string }) {
+export function finishProgressToast(
+  toastId: string,
+  success: boolean,
+  message: string,
+  options?: { visibleDurationOnly?: number; context?: "meta" | "sheets" | "transcription"; packName?: string },
+) {
+  const { stageContext, icon } = getTerminalContextMeta(options?.context);
+  const packName = options?.packName ?? "";
+
+  const stagedContent: ProgressToastContent = {
+    stageLabel: success ? "Concluído" : "Falhou",
+    stageTitle: success ? "Concluído" : "Erro",
+    dynamicLine: message,
+    stageContext,
+  };
+
+  const card = (
+    <ProgressToastCard
+      packName={packName || message}
+      progress={success ? 100 : 0}
+      currentStep={1}
+      totalSteps={1}
+      stagedContent={stagedContent}
+      icon={icon}
+      inlineError={!success}
+      terminal
+      animated={false}
+      onCancel={success ? undefined : () => toast.dismiss(toastId)}
+    />
+  );
+
   if (success) {
     const visibleOnly = options?.visibleDurationOnly;
-    const context = options?.context;
-    const packName = options?.packName;
-
-    const isMeta = context === "meta" && packName;
-    const isSheets = context === "sheets" && packName;
-    const isTranscription = context === "transcription" && packName;
-
-    const content = isMeta ? (
-      <div className="flex items-start gap-3">
-        <MetaIcon className="h-5 w-5 flex-shrink-0" />
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <span className="text-xs text-muted-foreground">{packName}: Meta</span>
-          <div className="flex items-center gap-2">
-            <IconCheck className="h-4 w-4 text-success flex-shrink-0" />
-            <span className="text-sm text-foreground">{message}</span>
-          </div>
-        </div>
-      </div>
-    ) : isSheets ? (
-      <div className="flex items-start gap-3">
-        <GoogleSheetsIcon className="h-5 w-5 flex-shrink-0" />
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <span className="text-xs text-muted-foreground">{packName}: Leadscore</span>
-          <div className="flex items-center gap-2">
-            <IconCheck className="h-4 w-4 text-success flex-shrink-0" />
-            <span className="text-sm text-foreground">{message}</span>
-          </div>
-        </div>
-      </div>
-    ) : isTranscription ? (
-      <div className="flex items-start gap-3">
-        <IconMicrophone className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
-        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-          <span className="text-xs text-muted-foreground">{packName}: Transcrição</span>
-          <div className="flex items-center gap-2">
-            <IconCheck className="h-4 w-4 text-success flex-shrink-0" />
-            <span className="text-sm text-foreground">{message}</span>
-          </div>
-        </div>
-      </div>
-    ) : (
-      message
-    );
-
     if (visibleOnly != null && visibleOnly > 0) {
-      toast.success(content, { id: toastId, duration: Infinity });
+      toast.success(card, getToastCardOptions(toastId, Infinity));
       dismissAfterVisibleSeconds(toastId, visibleOnly);
     } else {
-      toast.success(content, { id: toastId, duration: 5000 });
+      toast.success(card, getToastCardOptions(toastId, 5000));
     }
   } else {
-    // Erro sempre persistente até usuário fechar
-    toast.error(
-      <div className="flex items-start gap-3">
-        <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
-        <span className="text-sm text-foreground break-words">{message}</span>
-      </div>,
-      {
-        id: toastId,
-        duration: Infinity,
-        dismissible: true,
-      },
-    );
+    // Erro sempre persistente até usuário fechar (botão X).
+    toast.error(card, getToastCardOptions(toastId, Infinity, true));
   }
 }
 

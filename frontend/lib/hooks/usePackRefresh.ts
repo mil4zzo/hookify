@@ -26,6 +26,7 @@ import {
   finishProgressToast,
   showCancellingToast,
   dismissToast,
+  showInfo,
   showProcessCancelledWarning,
   buildSheetsToastContent,
   calculateSheetsProgressPercent,
@@ -111,6 +112,8 @@ interface ActiveRefresh {
   pendingCancellation: boolean;
   isCancelling: boolean;
   toggles: RefreshToggles;
+  /** Timeout pendente para o "Cancelando..." → dismiss + warning. Limpado em cleanupRefreshState. */
+  cancelTimeoutId?: ReturnType<typeof setTimeout> | null;
 }
 
 const activeRefreshes = new Map<string, ActiveRefresh>();
@@ -162,6 +165,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   const cleanupRefreshState = useCallback(
     (packId: string, jobId?: string | null) => {
       if (jobId) removeActiveJob(jobId);
+      const ar = activeRefreshes.get(packId);
+      if (ar?.cancelTimeoutId) {
+        clearTimeout(ar.cancelTimeoutId);
+        ar.cancelTimeoutId = null;
+      }
       activeRefreshes.delete(packId);
       useUpdatingPacksStore.getState().removeUpdatingPack(packId);
     },
@@ -363,7 +371,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             logger.error("Erro no polling da transcrição:", err);
           });
         } else {
-          finishProgressToast(toastId, false, res.message || "Todos anúncios já estão transcritos.");
+          // Não é sucesso nem falha: nada para transcrever. Toast neutro informativo.
+          dismissToast(toastId);
+          showInfo(res.message || "Todos anúncios já estão transcritos.");
         }
       } catch (error) {
         logger.error("Erro ao iniciar transcrição:", error);
@@ -409,19 +419,20 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
     }
 
     if (activeRefresh.sheetSyncToastId) {
-      finishProgressToast(activeRefresh.sheetSyncToastId, false, "Importação do Leadscore cancelada pelo usuário");
+      dismissToast(activeRefresh.sheetSyncToastId);
       showProcessCancelledWarning("sheets", activeRefresh.packName);
     }
     if (activeRefresh.transcriptionToastId) {
-      finishProgressToast(activeRefresh.transcriptionToastId, false, "Transcrição cancelada pelo usuário");
+      dismissToast(activeRefresh.transcriptionToastId);
       showProcessCancelledWarning("transcription", activeRefresh.packName);
     }
     if (activeRefresh.toastId && activeRefresh.toggles.meta) {
       showCancellingToast(activeRefresh.toastId, activeRefresh.packName, metaToastIcon);
-      setTimeout(() => {
+      const cancelTimeoutId = setTimeout(() => {
         dismissToast(activeRefresh.toastId);
         showProcessCancelledWarning("meta", activeRefresh.packName);
       }, 500);
+      activeRefresh.cancelTimeoutId = cancelTimeoutId;
     }
 
     // Fix #5: cleanup state immediately on cancel
@@ -451,10 +462,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           try {
             showCancellingToast(ar.toastId, ar.packName, metaToastIcon);
             await api.facebook.cancelJobsBatch([ar.metaJobId], "Atualização Meta cancelada pelo usuário");
-            finishProgressToast(ar.toastId, false, "Atualização Meta cancelada pelo usuário");
+            dismissToast(ar.toastId);
             showProcessCancelledWarning("meta", ar.packName);
           } catch (error) {
             logger.error("Erro ao cancelar job Meta:", error);
+            // Falha real ao chamar a API de cancelamento — mostra erro persistente.
             finishProgressToast(ar.toastId, false, "Erro ao cancelar atualização Meta");
           }
         } else {
@@ -661,10 +673,11 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         if (ar.sheetSyncJobId && ar.sheetSyncToastId) {
           try {
             await api.facebook.cancelJobsBatch([ar.sheetSyncJobId], "Importação do Leadscore cancelada pelo usuário");
-            finishProgressToast(ar.sheetSyncToastId, false, "Importação do Leadscore cancelada pelo usuário");
+            dismissToast(ar.sheetSyncToastId);
             showProcessCancelledWarning("sheets", ar.packName);
           } catch (error) {
             logger.error("Erro ao cancelar sync job:", error);
+            // Falha real ao chamar a API de cancelamento — mostra erro persistente.
             finishProgressToast(ar.sheetSyncToastId, false, "Erro ao cancelar importação da planilha");
           }
         } else if (ar.sheetSyncToastId) {
@@ -781,7 +794,9 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
 
           return { success: result.success };
         } else {
-          finishProgressToast(toastId, false, res.message || "Todos anúncios já estão transcritos.");
+          // Não é sucesso nem falha: nada para transcrever. Toast neutro informativo.
+          dismissToast(toastId);
+          showInfo(res.message || "Todos anúncios já estão transcritos.");
           return { success: true };
         }
       } catch (error) {
@@ -836,6 +851,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         pendingCancellation: false,
         isCancelling: false,
         toggles,
+        cancelTimeoutId: null,
       };
       activeRefreshes.set(packId, activeRefresh);
       useUpdatingPacksStore.getState().addUpdatingPack(packId);

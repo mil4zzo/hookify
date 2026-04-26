@@ -10,6 +10,7 @@ import {
   showSuccess,
   showError,
   showProcessCancelledWarning,
+  dismissToast,
   buildSheetsToastContent,
   SHEETS_TOAST_TOTAL_STEPS,
 } from "@/lib/utils/toast";
@@ -53,7 +54,7 @@ export function useGoogleSyncJob() {
         if (jobIdRef.current) {
           api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário").catch(() => {});
         }
-        finishProgressToast(toastId, false, "Importação cancelada");
+        dismissToast(toastId);
         showProcessCancelledWarning("sheets", packNameForWarning);
       };
 
@@ -133,7 +134,7 @@ export function useGoogleSyncJob() {
         if (jobIdRef.current) {
           api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário").catch(() => {});
         }
-        finishProgressToast(toastId, false, "Importação cancelada");
+        dismissToast(toastId);
         showProcessCancelledWarning("sheets", "Planilha");
       };
 
