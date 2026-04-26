@@ -1,0 +1,12 @@
+Checked Sentry MCP successfully for `hookify/hookify`. No files edited.
+
+**Recent Unresolved Errors**
+
+| Issue | Count / Frequency | Culprit | Stack Hint | Proposed Fix |
+|---|---:|---|---|---|
+| `HOOKIFY-1V` - `Maximum update depth exceeded` | 3 occurrences, 1 user. First/last seen Apr 26, 2026 13:39:08-13:40:08 UTC | `/admin` | `lib/hooks/useUserPreferences.ts:156` calls `setPreferences`; state update lands in `lib/store/userPreferences.ts:48` | Break the `useEffect` update loop. Check dependencies around `useUserPreferences`, avoid writing preferences when values/user id are unchanged, and make `setPreferences` return previous state when the incoming payload is equivalent. |
+| `HOOKIFY-1W` - `ModuleBuildError: Module build failed` | 1 occurrence. Apr 26, 2026 13:39:45 UTC | `/_error` from `/admin` | Next SWC failed reading `frontend/lib/hooks/useMqlLeadscore.ts`: file not found | Fix the missing or stale import/reference to `useMqlLeadscore.ts`. Either restore/rename the file or update imports to the current hook filename. |
+| `HOOKIFY-1T` - `<unknown>` promise rejection | 1 occurrence, 1 user. Apr 26, 2026 13:25:54 UTC | `/admin` | No stacktrace. Serialized event target is `head > link`, type `error` | Likely a failed resource load captured as an unhandled rejection. Inspect `<link>` assets on `/admin` such as stylesheet/preload/font links, add `onerror`/guarding where applicable, and filter non-actionable resource load events if intentional. |
+| `HOOKIFY-E` - `TypeError: Cannot create proxy with a non-object as target or handler` | 2 occurrences, 1 user. First seen Mar 14, last seen Apr 25, 2026 20:59:03 UTC | `/manager` | TanStack Query `useQueries` path: `QueriesObserver` -> `QueryObserver.trackResult` -> `new Proxy(result, ...)` | Audit `/manager` `useQueries` usage. Ensure every query config is a valid object, no `undefined/null` entries are passed, `combine` returns an object, and query arrays are memoized/stable. |
+
+All listed events are tagged `environment: development` and `url: https://localhost:3000/...`, so these look like local/dev errors rather than production user traffic.

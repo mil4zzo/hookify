@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageIcon } from "@/lib/utils/pageIcon";
 import { StandardCard } from "@/components/common/StandardCard";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { IconChevronUp, IconChevronDown, IconSelector, IconShieldLock } from "@tabler/icons-react";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { IconChevronUp, IconChevronDown, IconSelector, IconShieldLock, IconUser, IconDiamond, IconShield } from "@tabler/icons-react";
 import { api, type AdminUser } from "@/lib/api/endpoints";
 import { showSuccess, showError } from "@/lib/utils/toast";
 
@@ -26,19 +26,40 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; s
     : <IconChevronDown className="inline ml-1 opacity-70" size={12} />;
 }
 
+const TIER_STYLE: Record<string, { icon: React.ElementType; className: string }> = {
+  standard: { icon: IconUser,    className: "text-muted-foreground" },
+  insider:  { icon: IconDiamond, className: "text-blue-400" },
+  admin:    { icon: IconShield,  className: "text-amber-400" },
+};
+
+function TierBadge({ tier }: { tier: string }) {
+  const { icon: Icon, className } = TIER_STYLE[tier] ?? TIER_STYLE.standard;
+  return (
+    <div className={`flex items-center gap-1.5 text-xs font-medium capitalize whitespace-nowrap ${className}`}>
+      <Icon size={13} className="shrink-0" />
+      {tier}
+    </div>
+  );
+}
+
 function TierSelect({ user, onUpdate }: { user: AdminUser; onUpdate: (userId: string, tier: string) => void }) {
   return (
     <Select
       value={user.tier}
       onValueChange={(value) => onUpdate(user.user_id, value)}
     >
-      <SelectTrigger className="w-28 h-7 text-xs">
-        <SelectValue />
+      <SelectTrigger className="w-32 h-7 text-xs flex items-center gap-1">
+        <TierBadge tier={user.tier} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value="standard">Standard</SelectItem>
-        <SelectItem value="insider">Insider</SelectItem>
-        <SelectItem value="admin">Admin</SelectItem>
+        {Object.entries(TIER_STYLE).map(([tier, { icon: Icon, className }]) => (
+          <SelectItem key={tier} value={tier}>
+            <div className={`flex items-center gap-1.5 text-xs font-medium capitalize whitespace-nowrap ${className}`}>
+              <Icon size={13} className="shrink-0" />
+              {tier}
+            </div>
+          </SelectItem>
+        ))}
       </SelectContent>
     </Select>
   );

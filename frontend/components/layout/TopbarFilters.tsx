@@ -21,6 +21,7 @@ export function TopbarFilters() {
   const pathname = usePathname()
   const isPacksPage = pathname === "/packs"
   const isUploadPage = pathname === "/upload"
+  const isAdminPage = pathname === "/admin"
   const {
     packs,
     packsClient,
@@ -83,7 +84,7 @@ export function TopbarFilters() {
     setPackPreferences(newPrefs)
   }, [setPackPreferences])
 
-  if (!isAuthenticated || isPacksPage || isUploadPage) return null
+  if (!isAuthenticated || isPacksPage || isUploadPage || isAdminPage) return null
 
   return (
     <div className="hidden md:flex items-center gap-2">
