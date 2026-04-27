@@ -219,7 +219,18 @@ BEGIN
   FROM expanded e
   WHERE am.id = e.id
     AND am.user_id = p_user_id
-    AND (p_pack_id IS NULL OR am.pack_ids @> ARRAY[p_pack_id]::uuid[]);
+    -- MIGRADO: dual-read — EXISTS em ad_metric_pack_map + fallback legado pack_ids[]
+    AND (
+      p_pack_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM public.ad_metric_pack_map apm
+        WHERE apm.user_id = am.user_id
+          AND apm.ad_id = am.ad_id
+          AND apm.metric_date = am.date
+          AND apm.pack_id = p_pack_id
+      )
+      OR am.pack_ids @> ARRAY[p_pack_id]::uuid[]
+    );
 
   GET DIAGNOSTICS total_rows_updated = ROW_COUNT;
 
@@ -227,10 +238,18 @@ BEGIN
     SELECT
       count(*)::int,
       count(*) FILTER (
-        WHERE p_pack_id IS NULL OR pack_ids @> ARRAY[p_pack_id]::uuid[]
+        WHERE p_pack_id IS NULL
+          OR EXISTS (
+            SELECT 1 FROM public.ad_metric_pack_map apm2
+            WHERE apm2.user_id = p_user_id
+              AND apm2.ad_id = am_diag.ad_id
+              AND apm2.metric_date = am_diag.date
+              AND apm2.pack_id = p_pack_id
+          )
+          OR pack_ids @> ARRAY[p_pack_id]::uuid[]
       )::int
     INTO existing_count, in_pack_count
-    FROM public.ad_metrics
+    FROM public.ad_metrics am_diag
     WHERE user_id = p_user_id AND id = ANY(all_ids);
   END IF;
 
@@ -839,7 +858,7 @@ declare
   v_total_clicks numeric := 0;
   v_total_inline numeric := 0;
 begin
-  select public.fetch_manager_analytics_aggregated_base_v047(
+  select public.fetch_manager_analytics_aggregated_base_v048(
     p_user_id,
     p_date_start,
     p_date_stop,
@@ -1615,6 +1634,22 @@ ALTER FUNCTION public.fetch_manager_analytics_aggregated_base_v047(p_user_id uui
 --
 
 COMMENT ON FUNCTION public.fetch_manager_analytics_aggregated_base_v047(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) IS 'RPC otimizada do Manager v2: agrega métricas por group_by, séries via CROSS JOIN (sem subqueries correlacionadas), MQL calculado só na janela de séries.';
+
+
+--
+-- Name: fetch_manager_analytics_aggregated_base_v048(uuid, date, date, text, uuid[], text[], text, text, text, boolean, boolean, integer, integer, text); Type: FUNCTION; Schema: public; Owner: postgres
+-- Migration: 071_migrate_ad_metrics_to_pack_map.sql
+-- Igual à _v047 mas com dual-read: EXISTS em ad_metric_pack_map + OR fallback pack_ids[]
+--
+
+-- (função definida em migration 071 — regenerar schema.sql via pg_dump após aplicar a migration)
+-- Resumo da diferença na cláusula WHERE de ad_metrics:
+--   v047: and (p_pack_ids is null or am.pack_ids && p_pack_ids)
+--   v048: and (p_pack_ids is null or exists (select 1 from ad_metric_pack_map ...) or am.pack_ids && p_pack_ids)
+
+ALTER FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) OWNER TO postgres;
+
+COMMENT ON FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) IS 'Manager aggregated base v048: mesmo que _v047 mas com dual-read (EXISTS em ad_metric_pack_map + OR fallback pack_ids[]).';
 
 
 --
