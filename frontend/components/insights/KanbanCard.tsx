@@ -1,6 +1,5 @@
 "use client";
 
-import { CardContent } from "@/components/ui/card";
 import { StandardCard } from "@/components/common/StandardCard";
 import { cn } from "@/lib/utils/cn";
 import Image from "next/image";
@@ -49,7 +48,7 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank, seconda
       onClick={onClick}
       className={cn(styles.border, styles.bg, selected && "ring-2 ring-primary-20 border-primary bg-primary-5")}
     >
-      <CardContent className="p-1">
+      <div className="p-1">
         <div className="flex items-start gap-3">
           {/* Thumbnail */}
           <div className="relative w-24 h-24 flex-shrink-0 rounded overflow-hidden bg-muted">
@@ -86,7 +85,7 @@ export function KanbanCard({ ad, metricLabel, variant = "success", rank, seconda
             </div>
           </div>
         </div>
-      </CardContent>
+      </div>
     </StandardCard>
   );
 }

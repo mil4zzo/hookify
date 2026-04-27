@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { StandardCard } from "@/components/common/StandardCard";
 import { cn } from "@/lib/utils/cn";
 import { ComponentType, ReactNode } from "react";
 
@@ -18,35 +18,33 @@ interface StatCardProps {
 
 export function StatCard({ icon: IconComponent, value, label, title, description, additionalData, iconBgColor = "bg-brand-20", iconColor = "text-brand", className }: StatCardProps) {
   return (
-    <Card className={cn("", className)}>
+    <StandardCard className={cn("space-y-4", className)}>
       {(title || description || IconComponent) && (
-        <CardHeader>
-          <CardTitle className={cn("flex items-center gap-2", IconComponent && "text-lg")}>
+        <div className="space-y-1">
+          <div className={cn("flex items-center gap-2 font-semibold text-card-foreground", IconComponent && "text-lg")}>
             {IconComponent && (
               <div className={cn("p-2 rounded-lg", iconBgColor)}>
                 <IconComponent className={cn("w-5 h-5", iconColor)} />
               </div>
             )}
             {title || label}
-          </CardTitle>
-          {description && <CardDescription>{description}</CardDescription>}
-        </CardHeader>
-      )}
-      <CardContent>
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">{label}</span>
-            <span className="text-2xl font-bold">{value}</span>
           </div>
-          {additionalData &&
-            additionalData.map((item, index) => (
-              <div key={index} className="flex justify-between items-center">
-                <span className="text-sm text-muted-foreground">{item.label}</span>
-                <span className="font-semibold">{item.value}</span>
-              </div>
-            ))}
+          {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>
-      </CardContent>
-    </Card>
+      )}
+      <div className="space-y-2">
+        <div className="flex justify-between items-center">
+          <span className="text-sm text-muted-foreground">{label}</span>
+          <span className="text-2xl font-bold">{value}</span>
+        </div>
+        {additionalData &&
+          additionalData.map((item, index) => (
+            <div key={index} className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">{item.label}</span>
+              <span className="font-semibold">{item.value}</span>
+            </div>
+          ))}
+      </div>
+    </StandardCard>
   );
 }

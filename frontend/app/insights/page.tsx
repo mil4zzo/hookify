@@ -16,7 +16,7 @@ import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateA
 import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { IconSparkles, IconDiamond, IconSunFilled, IconStarFilled } from "@tabler/icons-react";
-import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { PageContainer } from "@/components/common/PageContainer";
@@ -611,12 +611,14 @@ export default function InsightsPage() {
       </AnalyticsWorkspace>
 
       {/* Modal com detalhes do anúncio */}
-      <Modal
+      <AppDialog
         isOpen={!!selectedAd}
         onClose={() => { setSelectedAd(null); setOpenInVideoTab(false); }}
+        title="Detalhes do anúncio"
         size="5xl"
         padding="md"
-        className="h-[90dvh] min-h-0"
+        className="flex h-[90dvh] min-h-0 flex-col overflow-hidden"
+        bodyClassName="flex min-h-0 flex-1 flex-col"
       >
         {selectedAd && (
           <AdDetailsDialog
@@ -645,7 +647,7 @@ export default function InsightsPage() {
             }
           />
         )}
-      </Modal>
+      </AppDialog>
     </PageContainer>
   );
 }

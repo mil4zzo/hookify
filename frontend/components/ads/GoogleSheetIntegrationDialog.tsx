@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { api } from "@/lib/api/endpoints";
 import { env } from "@/lib/config/env";
 import { SheetIntegrationRequest, SheetColumnsResponse, GoogleConnection } from "@/lib/api/schemas";
@@ -458,7 +458,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} size="xl" padding="lg" closeOnOverlayClick={!isImporting} closeOnEscape={!isImporting} showCloseButton={!isImporting}>
+    <AppDialog isOpen={isOpen} onClose={handleClose} title="Enriquecer anúncios com Google Sheets" size="xl" padding="lg" closeOnOverlayClick={!isImporting} closeOnEscape={!isImporting} showCloseButton={!isImporting}>
       <div className="space-y-6">
         <div className="space-y-1">
           <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -538,6 +538,6 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
           </section>
         )}
       </div>
-    </Modal>
+    </AppDialog>
   );
 }

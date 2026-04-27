@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Modal } from "./Modal";
+import { AppDialog } from "./AppDialog";
 import { Button } from "@/components/ui/button";
 import { IconCircleCheck, IconCircleX, IconCheck } from "@tabler/icons-react";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
@@ -51,7 +51,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
   // Se há apenas 1 pack, usar o comportamento simples
   if (packCount === 1) {
     return (
-      <Modal isOpen={isOpen} onClose={onCancel} size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
+      <AppDialog isOpen={isOpen} onClose={onCancel} title="Atualizar dados de Packs" size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
         <div className="flex flex-col items-center gap-6 py-4">
           <h2 className="text-xl font-semibold text-text">Atualizar dados de Packs</h2>
 
@@ -69,13 +69,13 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
             </Button>
           </div>
         </div>
-      </Modal>
+      </AppDialog>
     );
   }
 
   // Se há múltiplos packs, mostrar lista com checkboxes
   return (
-    <Modal isOpen={isOpen} onClose={onCancel} size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
+    <AppDialog isOpen={isOpen} onClose={onCancel} title="Atualizar dados de Packs" size="md" closeOnOverlayClick={false} closeOnEscape={false} showCloseButton={false}>
       <div className="flex flex-col gap-6 py-4">
         <div>
           <h2 className="text-xl font-semibold text-text mb-2">Atualizar dados de Packs</h2>
@@ -137,6 +137,6 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
           </Button>
         </div>
       </div>
-    </Modal>
+    </AppDialog>
   );
 }

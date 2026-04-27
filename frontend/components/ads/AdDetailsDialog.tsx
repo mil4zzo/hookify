@@ -323,7 +323,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   function VideoTabSkeleton({ showConversionFilter }: { showConversionFilter: boolean }) {
     return (
       <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
-        <div className="relative flex-shrink-0 ml-8" style={{ aspectRatio: "9/16" }}>
+        <div className="relative ml-8 h-[min(70vh,42rem)] min-h-0 flex-shrink-0 aspect-[9/16] md:h-full md:max-h-full">
           <RetentionVideoPlayerSkeleton />
         </div>
 
@@ -664,7 +664,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         }
       >
         {groupByAdName && (
-          <TabbedContentItem value="variations" variant="simple">
+          <TabbedContentItem value="variations" variant="simple" className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationActiveColumns} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={variationColumnFilters} setColumnFilters={setVariationColumnFilters} asContent />
           </TabbedContentItem>
         )}
@@ -678,7 +678,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           ) : (
             <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
               {/* Player de vídeo ou imagem (compartilhado — nunca desmonta ao trocar entre Geral e Copy) */}
-              <div className="flex-shrink-0 rounded-lg flex items-center justify-center ml-8" style={{ aspectRatio: "9/16" }}>
+              <div className="ml-8 flex h-[min(70vh,42rem)] min-h-0 flex-shrink-0 aspect-[9/16] items-center justify-center rounded-lg md:h-full md:max-h-full">
                 {isImageAd ? (
                   loadingImageSource ? (
                     <RetentionVideoPlayerSkeleton />

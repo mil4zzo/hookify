@@ -3,7 +3,7 @@
 import { useRef } from "react"
 import { IconPhoto, IconUpload, IconVideo, IconX } from "@tabler/icons-react"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
+import { StandardCard } from "@/components/common/StandardCard"
 
 interface FileUploadZoneProps {
   files: File[]
@@ -23,8 +23,9 @@ export default function FileUploadZone({ files, onFilesChange }: FileUploadZoneP
 
   return (
     <div className="space-y-4">
-      <Card
-        className="flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 border-dashed p-6 text-center"
+      <StandardCard
+        density="spacious"
+        className="flex min-h-56 cursor-pointer flex-col items-center justify-center gap-3 border-dashed text-center"
         onClick={() => inputRef.current?.click()}
       >
         <div className="rounded-full bg-primary-10 p-4 text-primary">
@@ -43,13 +44,13 @@ export default function FileUploadZone({ files, onFilesChange }: FileUploadZoneP
           accept=".jpg,.jpeg,.png,.mp4,.mov"
           onChange={(event) => appendFiles(event.target.files)}
         />
-      </Card>
+      </StandardCard>
 
       <div className="space-y-2">
         {files.map((file, index) => {
           const isVideo = file.type.startsWith("video/")
           return (
-            <Card key={`${file.name}-${index}`} className="flex items-center justify-between gap-3 p-3">
+            <StandardCard key={`${file.name}-${index}`} density="compact" className="flex items-center justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
                 {isVideo ? <IconVideo className="h-5 w-5 text-muted-foreground" /> : <IconPhoto className="h-5 w-5 text-muted-foreground" />}
                 <div className="min-w-0">
@@ -63,11 +64,12 @@ export default function FileUploadZone({ files, onFilesChange }: FileUploadZoneP
                 type="button"
                 variant="ghost"
                 size="icon"
+                aria-label={`Remover ${file.name}`}
                 onClick={() => onFilesChange(files.filter((_, currentIndex) => currentIndex !== index))}
               >
                 <IconX className="h-4 w-4" />
               </Button>
-            </Card>
+            </StandardCard>
           )
         })}
       </div>

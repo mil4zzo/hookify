@@ -4,7 +4,7 @@ import { useState, useMemo, ReactNode } from "react";
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent, pointerWithin } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, horizontalListSortingStrategy, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
-import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { KanbanWorkspace } from "@/components/common/layout";
 import { useKanbanColumnOrder } from "@/lib/hooks/useKanbanColumnOrder";
@@ -210,18 +210,20 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
 
       {/* Modal com detalhes do anúncio (apenas se onAdClick não foi fornecido) */}
       {!onAdClick && modalProps && (
-        <Modal
+        <AppDialog
           isOpen={!!selectedAd}
           onClose={() => {
             setSelectedAd(null);
             setOpenInVideoTab(false);
           }}
+          title="Detalhes do anúncio"
           size="5xl"
           padding="md"
-          className="h-[90dvh] min-h-0"
+          className="flex h-[90dvh] min-h-0 flex-col overflow-hidden"
+          bodyClassName="flex min-h-0 flex-1 flex-col"
         >
           {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={modalProps.dateStart} dateStop={modalProps.dateStop} actionType={modalProps.actionType} availableConversionTypes={modalProps.availableConversionTypes} initialTab="video" averages={dialogAverages} />}
-        </Modal>
+        </AppDialog>
       )}
     </>
   );

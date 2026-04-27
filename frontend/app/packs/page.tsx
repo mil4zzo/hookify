@@ -2,13 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { CardContent } from "@/components/ui/card";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
 import { PacksOverflowMenu } from "@/components/packs/PacksOverflowMenu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -659,7 +658,7 @@ export default function PacksPage() {
           </div>
         ) : packs.length === 0 ? (
           <StandardCard variant="card" padding="lg">
-            <CardContent className="p-12 text-center">
+            <div className="p-12 text-center">
               <IconChartBar className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-xl font-semibold mb-2">Nenhum Pack Carregado</h3>
               <p className="text-muted-foreground mb-6">Carregue seu primeiro pack de anúncios para começar a análise</p>
@@ -667,7 +666,7 @@ export default function PacksPage() {
                 <IconPlus className="w-4 h-4 mr-2" />
                 Carregar Primeiro Pack
               </Button>
-            </CardContent>
+            </div>
           </StandardCard>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -680,7 +679,7 @@ export default function PacksPage() {
       </PageContainer>
 
       {/* Load Pack Modal */}
-      <Modal isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} size="2xl" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
+      <AppDialog isOpen={isDialogOpen} onClose={() => setIsDialogOpen(false)} title="Carregar Pack de Anúncios" size="2xl" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="space-y-1.5 mb-6">
           <h2 className="text-lg font-semibold leading-none tracking-tight">Carregar Pack de Anúncios</h2>
           <p className="text-sm text-muted-foreground">Configure os parâmetros para carregar um novo pack de anúncios</p>
@@ -921,10 +920,10 @@ export default function PacksPage() {
             </Button>
           </div>
         </div>
-      </Modal>
+      </AppDialog>
 
       {/* Refresh Pack Confirmation Dialog */}
-      <Modal isOpen={!!packToRefresh} onClose={cancelRefreshPack} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
+      <AppDialog isOpen={!!packToRefresh} onClose={cancelRefreshPack} title="Atualizar Pack" size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="flex flex-col gap-5 py-4">
           <div>
             <h2 className="text-xl font-semibold text-text mb-1">Atualizar Pack?</h2>
@@ -1008,7 +1007,7 @@ export default function PacksPage() {
             </Button>
           </div>
         </div>
-      </Modal>
+      </AppDialog>
 
       {/* Confirmation Dialog */}
       <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Excluindo os dados do pack "${packToRemove?.name}..."` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} loadingText="Deletando..." layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>

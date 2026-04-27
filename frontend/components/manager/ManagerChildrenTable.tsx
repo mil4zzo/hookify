@@ -207,8 +207,8 @@ export function ManagerChildrenTable({
   }
 
   const innerContent = (
-    <div>
-      <div className="bg-muted-50 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
+    <div className={asContent ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden" : undefined}>
+      <div className="flex-shrink-0 bg-muted-50 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
         <div className="flex flex-nowrap items-center gap-3">
           <SearchInputWithClear
             value={searchTerm}
@@ -254,9 +254,9 @@ export function ManagerChildrenTable({
           </div>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className={asContent ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}>
           <table className="w-full border-collapse text-xs">
-            <thead>
+            <thead className={asContent ? "sticky top-0 z-sticky" : undefined}>
               <tr className="bg-border">
                 <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">

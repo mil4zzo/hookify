@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { IconBrandFacebook, IconChevronRight, IconChevronLeft, IconLoader2 } from "@tabler/icons-react";
 import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
 import { FacebookConnectionCard } from "@/components/facebook/FacebookConnectionCard";
+import { FormPageSection } from "@/components/common/layout";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { AuthPopupError } from "@/lib/utils/authPopup";
 
@@ -61,12 +61,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Conta de anúncios do Facebook</CardTitle>
-        <CardDescription>Conecte sua conta do Facebook (com acesso à conta de anúncios) para carregar seus anúncios automaticamente.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <FormPageSection title="Conta de anúncios do Facebook" description="Conecte sua conta do Facebook (com acesso à conta de anúncios) para carregar seus anúncios automaticamente.">
         {connections.isLoading ? (
           <div className="flex items-center justify-center py-8">
             <p className="text-sm text-muted-foreground">Carregando conexões...</p>
@@ -124,7 +119,6 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
             </Button>
           )}
         </div>
-      </CardContent>
-    </Card>
+    </FormPageSection>
   );
 }

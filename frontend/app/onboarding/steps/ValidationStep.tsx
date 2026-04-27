@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { IconChevronRight, IconChevronLeft, IconLoader2 } from "@tabler/icons-react";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { ValidationCondition, ValidationCriteriaBuilder, validateConditions } from "@/components/common/ValidationCriteriaBuilder";
 import { api } from "@/lib/api/endpoints";
+import { FormPageSection } from "@/components/common/layout";
 import { LoadingState } from "@/components/common/States";
 import { showError, showSuccess } from "@/lib/utils/toast";
 
@@ -41,14 +41,9 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
 
   if (isLoading) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Configurando critério de validação</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <LoadingState label="Carregando critérios..." />
-        </CardContent>
-      </Card>
+      <FormPageSection title="Configurando critério de validação">
+        <LoadingState label="Carregando critérios..." />
+      </FormPageSection>
     );
   }
 
@@ -66,36 +61,36 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Critério de Validação</CardTitle>
-        <CardDescription>
+    <FormPageSection
+      title="Critério de Validação"
+      description={
+        <>
           Defina a partir de <strong>quando um anúncio tem dados suficientes para ser analisado</strong>. Anúncios que não atendem esses critérios são considerados em fase de testes.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 pt-6">
-        <ValidationCriteriaBuilder value={criteria} onChange={updateCriteria} onSave={handleSave} isSaving={isSaving} hideSaveButton={true} />
+        </>
+      }
+      density="spacious"
+    >
+      <ValidationCriteriaBuilder value={criteria} onChange={updateCriteria} onSave={handleSave} isSaving={isSaving} hideSaveButton={true} />
 
-        <div className="flex justify-between">
-          <Button variant="outline" onClick={props.onBack} disabled={isSaving}>
-            <IconChevronLeft className="w-4 h-4 mr-1" />
-            Voltar
-          </Button>
-          <Button variant="default" onClick={handleNext} disabled={isSaving || !criteria || criteria.length === 0}>
-            {isSaving ? (
-              <>
-                <IconLoader2 className="w-4 h-4 mr-1 animate-spin" />
-                Salvando...
-              </>
-            ) : (
-              <>
-                Próximo
-                <IconChevronRight className="w-4 h-4 ml-1" />
-              </>
-            )}
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+      <div className="flex justify-between">
+        <Button variant="outline" onClick={props.onBack} disabled={isSaving}>
+          <IconChevronLeft className="w-4 h-4 mr-1" />
+          Voltar
+        </Button>
+        <Button variant="default" onClick={handleNext} disabled={isSaving || !criteria || criteria.length === 0}>
+          {isSaving ? (
+            <>
+              <IconLoader2 className="w-4 h-4 mr-1 animate-spin" />
+              Salvando...
+            </>
+          ) : (
+            <>
+              Próximo
+              <IconChevronRight className="w-4 h-4 ml-1" />
+            </>
+          )}
+        </Button>
+      </div>
+    </FormPageSection>
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { StandardCard } from "@/components/common/StandardCard";
 import { SparklineBars, SparklineSize } from "./SparklineBars";
 import { formatMetricValue, getManagerMetricLabel, isLowerBetterMetric, type ManagerMetricKey } from "@/lib/metrics";
 
@@ -38,7 +39,7 @@ export function MetricCard({ label, value, series, metric, size = "medium", layo
 
   if (layout === "horizontal") {
     return (
-      <div className={`p-3 rounded border border-border ${className}`}>
+      <StandardCard density="compact" className={className}>
         <div className="text-xs text-muted-foreground mb-1">{metricLabel}</div>
         {/* Layout vertical (Label -> Valor -> Sparklines) - sempre vertical, mesmo em desktop */}
         <div className="flex flex-col gap-2">
@@ -49,13 +50,13 @@ export function MetricCard({ label, value, series, metric, size = "medium", layo
             </div>
           ) : null}
         </div>
-      </div>
+      </StandardCard>
     );
   }
 
   // Layout vertical (padrão)
   return (
-    <div className={`p-3 rounded border border-border ${className}`}>
+    <StandardCard density="compact" className={className}>
       <div className="text-xs text-muted-foreground">{metricLabel}</div>
       {hasSeries ? (
         <div className="w-full min-w-[96px]">
@@ -63,6 +64,6 @@ export function MetricCard({ label, value, series, metric, size = "medium", layo
         </div>
       ) : null}
       <div className={`text-base font-semibold ${hasSeries ? "mt-1" : "mt-7"}`}>{value}</div>
-    </div>
+    </StandardCard>
   );
 }

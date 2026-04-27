@@ -19,10 +19,10 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
       link: "text-brand underline-offset-4 hover:underline",
     },
     size: {
-      default: "h-10 py-2 px-4",
-      sm: "h-9 py-2 px-3",
-      lg: "h-11 py-2 px-8",
-      icon: "h-10 w-10",
+      default: "h-control-default py-2 px-4",
+      sm: "h-control-compact py-2 px-3",
+      lg: "h-control-large py-2 px-8",
+      icon: "h-control-default w-control-default",
     },
     shadow: {
       auto: null,
@@ -30,9 +30,9 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
       xs: "shadow-xs",
       sm: "shadow-sm",
       md: "shadow-md",
-      lg: "shadow-lg",
-      xl: "shadow-xl",
-      "2xl": "shadow-2xl",
+      lg: "shadow-elevation-raised",
+      xl: "shadow-elevation-overlay",
+      "2xl": "shadow-elevation-overlay",
     },
   },
   compoundVariants: [

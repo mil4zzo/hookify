@@ -52,6 +52,8 @@ Receitas comuns:
 
 - `PageBodyStack`: fluxo vertical padrao.
 - `FormStepWorkspace`: paginas com steps, breadcrumb e acoes de navegacao.
+- `FormPageSection`: secoes de formulario, onboarding e settings com titulo,
+  descricao, acoes e footer opcionais.
 - `WorkspaceState`: estados de loading/empty/error.
 
 ### `analytics`
@@ -66,7 +68,21 @@ Receitas comuns:
 - `TableWorkspace`: filtros/toolbar mais uma area principal de tabela.
 - `KanbanWorkspace`: kanban horizontal ou vertical.
 - `DashboardGrid`: grids responsivos de cards/widgets.
+- `WidgetPanel`: paineis de widget com header, acoes, densidade e scroll.
 - `WorkspaceState`: estados centralizados.
+
+## Densidade
+
+As receitas principais aceitam `density?: "compact" | "default" | "spacious"`
+quando a densidade altera espacamento sem mudar a estrutura.
+
+- `compact`: tabelas, filtros e paineis densos.
+- `default`: paginas e widgets comuns.
+- `spacious`: onboarding, upload, formularios longos e fluxos por etapa.
+
+Prefira `density` antes de adicionar `gap-*`, `space-y-*`, `p-*` ou
+`min-h-0` localmente. Use classes locais apenas quando o conteudo realmente
+precisar de uma excecao.
 
 ## Sidebar
 
@@ -98,12 +114,21 @@ Explorer. O header continua pertencendo ao `PageContainer`.
 ## Primitivos preferidos
 
 - `StandardCard` para cards e paineis autenticados.
-- `AppDialog` para novos dialogs.
+- `AppDialog` para dialogs do app.
 - `ToggleSwitch` para switches com label.
 - `TabbedWorkspace` para tabs de pagina.
 
 Direto `Card`, `Modal`, `Dialog` e `Switch` so devem aparecer em primitivas,
 excecoes documentadas ou legado ainda nao migrado.
+
+Regras rapidas:
+
+- Card de app autenticado: `StandardCard`.
+- Widget com titulo/acoes: `WidgetPanel`.
+- Formulario/setting/onboarding: `FormPageSection`.
+- Dialog: `AppDialog` com `title` acessivel.
+- Switch com texto: `ToggleSwitch`.
+- Switch cru: apenas em controles compactos de tabela/grafico.
 
 ## Checklist para novas paginas autenticadas
 

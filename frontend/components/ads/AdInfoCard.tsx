@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent } from "@/components/ui/card";
+import { StandardCard } from "@/components/common/StandardCard";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 
 interface AdInfoCardProps {
@@ -9,8 +9,8 @@ interface AdInfoCardProps {
 
 export function AdInfoCard({ ad }: AdInfoCardProps) {
   return (
-    <Card>
-      <CardContent className="p-4 space-y-3 text-sm">
+    <StandardCard density="default">
+      <div className="space-y-3 text-sm">
         <div className="grid grid-cols-2 gap-3">
           <div>
             <p className="text-muted-foreground">Ad Name</p>
@@ -34,7 +34,7 @@ export function AdInfoCard({ ad }: AdInfoCardProps) {
           const thumbnail = getAdThumbnail(ad);
           return thumbnail ? <img src={thumbnail} alt="thumbnail" className="w-full rounded" /> : null;
         })()}
-      </CardContent>
-    </Card>
+      </div>
+    </StandardCard>
   );
 }

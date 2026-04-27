@@ -1,11 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { IconChevronRight, IconLoader2 } from "@tabler/icons-react";
+import { FormPageSection } from "@/components/common/layout";
 import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
 
@@ -38,14 +38,15 @@ export function InitialSettingsStep(props: { onContinue: () => void }) {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Preferências</CardTitle>
-        <CardDescription>
+    <FormPageSection
+      title="Preferências"
+      description={
+        <>
           Essas configurações podem ser alteradas depois em <strong>Configurações &gt; Preferências</strong>.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
+        </>
+      }
+      density="spacious"
+    >
         {/* Idioma */}
         <div className="space-y-2">
           <label className="text-sm font-medium">Idioma</label>
@@ -110,7 +111,6 @@ export function InitialSettingsStep(props: { onContinue: () => void }) {
             )}
           </Button>
         </div>
-      </CardContent>
-    </Card>
+    </FormPageSection>
   );
 }

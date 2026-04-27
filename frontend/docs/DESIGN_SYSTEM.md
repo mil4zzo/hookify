@@ -55,6 +55,15 @@ Header actions ficam em `PageActions`. O corpo deve usar uma receita de
 - `KanbanWorkspace`: kanban horizontal ou vertical com scroll previsivel.
 - `DashboardGrid`: grid responsivo para metric cards e widgets.
 - `FormStepWorkspace`: steps, breadcrumbs e acoes de fluxo.
+- `FormPageSection`: secao de formulario/settings/onboarding com header,
+  descricao, acoes e footer opcionais.
+- `SettingsPanelLayout`: corpo settings-like com navegacao lateral ou painel
+  principal.
+- `WidgetPanel`: card de widget com titulo, acoes, densidade e scroll opcional.
+
+Receitas que aceitam `density` usam `"compact"`, `"default"` ou `"spacious"`.
+Use `compact` para controles densos/tabelas, `default` para a maioria das
+paginas e `spacious` para onboarding, upload e formularios de leitura lenta.
 
 Exemplo standard:
 
@@ -84,8 +93,10 @@ Exemplo com sidebar:
 
 ## Primitivos Preferidos
 
-- `StandardCard`: cards e paineis autenticados.
-- `AppDialog`: novos dialogs.
+- `StandardCard`: cards e paineis autenticados. Use `density` e `elevation`
+  antes de classes locais de padding/shadow.
+- `AppDialog`: dialogs do app. Mantem a API de `Modal` para sizing, padding,
+  fechamento por overlay/ESC, close button e variante mobile.
 - `ToggleSwitch`: switches com label.
 - `TabbedWorkspace`: tabs de pagina.
 - `WorkspaceState`: estados de corpo.
@@ -93,6 +104,38 @@ Exemplo com sidebar:
 Uso direto de `Card`, `Modal`, `Dialog` e `Switch` deve ficar restrito a
 primitivas, superficies publicas/dev, compact controls ou legado documentado no
 checker.
+
+| Necessidade | Use | Evite em app autenticado |
+| --- | --- | --- |
+| Card/painel | `StandardCard` | `Card` direto |
+| Widget com titulo | `WidgetPanel` | header/body montado a mao |
+| Dialog | `AppDialog` | `Modal`/Radix direto |
+| Switch com label | `ToggleSwitch` | `Switch` cru |
+| Pagina com tabs | `TabbedWorkspace` | `TabbedContent` solto |
+
+## Densidade, Elevacao e Camadas
+
+Use tokens Tailwind nomeados para padroes recorrentes:
+
+- Controles: `h-control-compact`, `h-control-default`, `h-control-large`.
+- Linhas de tabela: `h-row-compact`, `h-row-default`, `h-row-detailed`.
+- Padding de widgets: `p-widget-compact`, `p-widget-default`,
+  `p-widget-spacious`.
+- Gaps: `gap-stack-*`, `gap-grid-*`, `gap-workspace`.
+- Elevacao: `shadow-elevation-flat`, `shadow-elevation-raised`,
+  `shadow-elevation-overlay`.
+- Z-index: `z-sticky`, `z-overlay`, `z-modal`, `z-dropdown`, `z-toast`.
+
+Exemplos:
+
+```tsx
+<StandardCard density="compact" elevation="raised">{content}</StandardCard>
+<WidgetPanel title="Resumo" density="default" actions={actions}>{chart}</WidgetPanel>
+<Button size="sm">Filtrar</Button> // usa h-control-compact
+```
+
+Use `AppDialog` com `title` mesmo quando o titulo visual ja existe no corpo;
+esse titulo tambem alimenta leitores de tela.
 
 ## Radius
 

@@ -2,7 +2,7 @@
 
 import { useRef } from "react"
 import { IconPhoto, IconPlus, IconTrash, IconUpload, IconVideo, IconX } from "@tabler/icons-react"
-import { Card } from "@/components/ui/card"
+import { StandardCard } from "@/components/common/StandardCard"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
@@ -127,7 +127,7 @@ export default function BundleUploadZone({
 
   return (
     <div className="space-y-4">
-      <Card className="space-y-4 p-4">
+      <StandardCard className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold">Bundles de mídia</div>
@@ -152,11 +152,12 @@ export default function BundleUploadZone({
             </Badge>
           ))}
         </div>
-      </Card>
+      </StandardCard>
 
       {mode === "filename" ? (
-        <Card
-          className="flex min-h-44 cursor-pointer flex-col items-center justify-center gap-3 border-dashed p-6 text-center"
+        <StandardCard
+          density="spacious"
+          className="flex min-h-44 cursor-pointer flex-col items-center justify-center gap-3 border-dashed text-center"
           onClick={() => bulkInputRef.current?.click()}
         >
           <div className="rounded-full bg-primary-10 p-4 text-primary">
@@ -177,7 +178,7 @@ export default function BundleUploadZone({
             accept=".jpg,.jpeg,.png,.mp4,.mov"
             onChange={(event) => appendPoolFiles(event.target.files)}
           />
-        </Card>
+        </StandardCard>
       ) : null}
 
       {mode === "visual" ? (
@@ -191,18 +192,18 @@ export default function BundleUploadZone({
       ) : null}
 
       {parseErrors.length > 0 ? (
-        <Card className="space-y-2 border-destructive-20 bg-destructive-5 p-4 text-sm text-destructive">
+        <StandardCard className="space-y-2 border-destructive-20 bg-destructive-5 text-sm text-destructive">
           <div className="font-medium">Arquivos com nomenclatura invalida</div>
           <ul className="space-y-1">
             {parseErrors.map((error) => (
               <li key={error}>{error}</li>
             ))}
           </ul>
-        </Card>
+        </StandardCard>
       ) : null}
 
       {filePool.length > 0 ? (
-        <Card className="space-y-3 p-4">
+        <StandardCard className="space-y-3">
           <div className="text-sm font-medium">Arquivos disponiveis</div>
           <div className="space-y-2">
             {filePool.map((entry) => (
@@ -224,12 +225,12 @@ export default function BundleUploadZone({
               </div>
             ))}
           </div>
-        </Card>
+        </StandardCard>
       ) : null}
 
       <div className="space-y-4">
         {bundles.map((bundle, bundleIndex) => (
-          <Card key={bundle.id} className="space-y-4 p-4">
+          <StandardCard key={bundle.id} className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <Input
                 value={bundle.name}
@@ -301,7 +302,7 @@ export default function BundleUploadZone({
                 )
               })}
             </div>
-          </Card>
+          </StandardCard>
         ))}
       </div>
     </div>

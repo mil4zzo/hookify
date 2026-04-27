@@ -8,6 +8,10 @@ export interface StandardCardProps extends React.HTMLAttributes<HTMLDivElement> 
   variant?: "default" | "muted" | "card";
   /** Tamanho do padding interno */
   padding?: "sm" | "md" | "lg" | "none";
+  /** Densidade semantica do conteudo quando padding nao e informado */
+  density?: "compact" | "default" | "spacious";
+  /** Nivel de elevacao padronizado */
+  elevation?: "flat" | "raised" | "overlay";
   /** Se o card deve ter efeitos de hover (default: true quando onClick presente) */
   interactive?: boolean;
   /** Se o card está desabilitado (desabilita interações) */
@@ -27,7 +31,7 @@ export interface StandardCardProps extends React.HTMLAttributes<HTMLDivElement> 
  * - hover:border-primary hover:bg-card-hover hover:shadow-lg (quando interactive)
  * - padding padrão: p-4
  */
-export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(({ children, className, variant = "default", padding = "md", interactive, disabled = false, onClick, ...props }, ref) => {
+export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(({ children, className, variant = "default", padding, density = "default", elevation = "flat", interactive, disabled = false, onClick, ...props }, ref) => {
   // Determinar se é interativo: true se onClick presente, senão usa prop interactive
   const isInteractive = interactive !== undefined ? interactive : !!onClick;
 
@@ -45,12 +49,23 @@ export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(
     lg: "p-6",
     none: "",
   };
+  const densityPaddingStyles = {
+    compact: "p-widget-compact",
+    default: "p-widget-default",
+    spacious: "p-widget-spacious",
+  };
+  const elevationStyles = {
+    flat: "shadow-elevation-flat",
+    raised: "shadow-elevation-raised",
+    overlay: "shadow-elevation-overlay",
+  };
 
   // Classes base
   const baseClasses = cn(
     "rounded-md border border-border",
     variantStyles[variant],
-    paddingStyles[padding],
+    padding ? paddingStyles[padding] : densityPaddingStyles[density],
+    elevationStyles[elevation],
     "transition-all duration-420",
     // Hover effects apenas quando interativo e não desabilitado
     isInteractive && !disabled && "hover:border-primary hover:bg-card-hover hover:shadow-lg",

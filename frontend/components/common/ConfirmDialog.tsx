@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Modal } from "./Modal";
+import { AppDialog } from "./AppDialog";
 import { Button } from "@/components/ui/button";
 import { IconCircleCheck, IconCircleX, IconLoader2 } from "@tabler/icons-react";
 
@@ -75,7 +75,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
   const isCentered = layout === "centered";
 
   return (
-    <Modal isOpen={isOpen} onClose={handleCancel} size={size} padding="md" closeOnOverlayClick={effectiveCloseOnOverlayClick} closeOnEscape={effectiveCloseOnEscape} showCloseButton={showCloseButton && canClose}>
+    <AppDialog isOpen={isOpen} onClose={handleCancel} title={title} size={size} padding="md" closeOnOverlayClick={effectiveCloseOnOverlayClick} closeOnEscape={effectiveCloseOnEscape} showCloseButton={showCloseButton && canClose}>
       <div className={`flex flex-col gap-6 py-4 ${isCentered ? "items-center" : "items-start"}`}>
         <h2 className={`text-xl font-semibold text-text ${isCentered ? "text-center" : ""}`}>{title}</h2>
 
@@ -104,7 +104,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
           </Button>
         </div>
       </div>
-    </Modal>
+    </AppDialog>
   );
 }
 

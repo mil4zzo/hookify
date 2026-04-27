@@ -15,7 +15,6 @@ import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import { AuthPopupError } from "@/lib/utils/authPopup";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
 import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTarget, IconTrash, IconRefresh } from "@tabler/icons-react";
-import { Modal } from "@/components/common/Modal";
 import { AppDialog } from "@/components/common/AppDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { useSettings } from "@/lib/store/settings";

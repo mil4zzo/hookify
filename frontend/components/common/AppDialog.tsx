@@ -14,6 +14,7 @@ export interface AppDialogProps {
   children: React.ReactNode;
   /** Classe CSS customizada para o container do conteúdo */
   className?: string;
+  bodyClassName?: string;
   /** Tamanho máximo do dialog (padrão: 'lg') */
   size?: "sm" | "md" | "lg" | "xl" | "2xl" | "3xl" | "4xl" | "5xl" | "full";
   /** Padding customizado (padrão: 'md') */
@@ -58,7 +59,7 @@ const paddingClasses: Record<NonNullable<AppDialogProps["padding"]>, string> = {
  * Wrapper de dialog que usa Radix UI por dentro e expõe API compatível com o Modal
  * (isOpen, onClose, size, padding, etc.). Garante foco inicial e focus trap para acessibilidade.
  */
-export function AppDialog({ isOpen, onClose, children, className, size = "lg", padding = "md", showCloseButton = true, closeOnOverlayClick = true, closeOnEscape = true, overlayOpacity = 0.8, overlayClassName, title, mobileVariant = "center" }: AppDialogProps) {
+export function AppDialog({ isOpen, onClose, children, className, bodyClassName, size = "lg", padding = "md", showCloseButton = true, closeOnOverlayClick = true, closeOnEscape = true, overlayOpacity = 0.8, overlayClassName, title, mobileVariant = "center" }: AppDialogProps) {
   const handleOpenChange = React.useCallback(
     (open: boolean) => {
       if (!open) onClose();
@@ -92,10 +93,10 @@ export function AppDialog({ isOpen, onClose, children, className, size = "lg", p
   return (
     <DialogPrimitive.Root open={isOpen} onOpenChange={handleOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className={cn("fixed inset-0 z-50 bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0", overlayClassName)} style={overlayStyle} />
+        <DialogPrimitive.Overlay className={cn("fixed inset-0 z-overlay bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0", overlayClassName)} style={overlayStyle} />
         <DialogPrimitive.Content onOpenAutoFocus={handleOpenAutoFocus} onInteractOutside={handleInteractOutside} onEscapeKeyDown={handleEscapeKeyDown} className={cn(
           // Base
-          "fixed z-50 border border-border bg-card shadow-lg duration-200",
+          "fixed z-modal border border-border bg-card shadow-elevation-overlay duration-200",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           // Variante mobile
@@ -126,7 +127,7 @@ export function AppDialog({ isOpen, onClose, children, className, size = "lg", p
               <IconX className="h-4 w-4" />
             </DialogPrimitive.Close>
           )}
-          <div ref={contentRef} tabIndex={-1} className="outline-none">
+          <div ref={contentRef} tabIndex={-1} className={cn("outline-none", bodyClassName)}>
             {children}
           </div>
         </DialogPrimitive.Content>

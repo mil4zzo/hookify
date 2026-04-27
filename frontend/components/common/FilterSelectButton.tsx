@@ -27,7 +27,7 @@ export const FilterSelectButton = forwardRef<HTMLButtonElement, FilterSelectButt
         variant="outline"
         role="combobox"
         className={cn(
-          "h-10 w-full items-center rounded-md border border-border px-3 py-2 text-sm",
+          "h-control-default w-full items-center rounded-md border border-border px-3 py-2 text-sm",
           "ring-offset-background transition-colors",
           "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
           "disabled:cursor-not-allowed disabled:opacity-50",
@@ -48,4 +48,3 @@ export const FilterSelectButton = forwardRef<HTMLButtonElement, FilterSelectButt
 );
 
 FilterSelectButton.displayName = "FilterSelectButton";
-

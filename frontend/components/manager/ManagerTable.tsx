@@ -2,7 +2,7 @@
 
 import React, { useMemo, useState, useEffect, useCallback, useRef, startTransition, useDeferredValue } from "react";
 import { Button } from "@/components/ui/button";
-import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import dynamic from "next/dynamic";
 import { AdInfoCard } from "@/components/ads/AdInfoCard";
@@ -1013,14 +1013,14 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       </TabbedWorkspace>
 
       {/* Details Dialog */}
-      <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="5xl" padding="md" className="h-[90dvh] min-h-0">
+      <AppDialog isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} title="Detalhes do anúncio" size="5xl" padding="md" className="flex h-[90dvh] min-h-0 flex-col overflow-hidden" bodyClassName="flex min-h-0 flex-1 flex-col">
         {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdNameEffective} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} averages={averages} />}
-      </Modal>
+      </AppDialog>
 
       {/* Adset Details Dialog */}
-      <Modal isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} size="4xl" padding="md">
+      <AppDialog isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} title="Detalhes do conjunto" size="4xl" padding="md">
         {selectedAdset && <AdsetDetailsDialog adsetId={selectedAdset.adsetId} adsetName={selectedAdset.adsetName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} />}
-      </Modal>
+      </AppDialog>
 
       {/* Video Dialog - Único para toda a tabela */}
       <VideoDialog
