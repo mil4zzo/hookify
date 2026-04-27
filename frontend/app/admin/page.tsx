@@ -28,8 +28,8 @@ function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; s
 
 const TIER_STYLE: Record<string, { icon: React.ElementType; className: string }> = {
   standard: { icon: IconUser,    className: "text-muted-foreground" },
-  insider:  { icon: IconDiamond, className: "text-blue-400" },
-  admin:    { icon: IconShield,  className: "text-amber-400" },
+  insider:  { icon: IconDiamond, className: "text-primary" },
+  admin:    { icon: IconShield,  className: "text-attention" },
 };
 
 function TierBadge({ tier }: { tier: string }) {
@@ -129,6 +129,7 @@ export default function AdminPage() {
 
   return (
     <PageContainer
+      variant="analytics"
       title="Admin"
       description="Gerenciamento de usuários e tiers"
       icon={<PageIcon icon={IconShieldLock} />}

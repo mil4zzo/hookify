@@ -227,8 +227,8 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
   return (
     <div className="relative inline-block w-full">
       {/* Cards decorativos atrás */}
-      <div className="absolute inset-0 rounded-xl bg-card rotate-2 pointer-events-none" />
-      <div className="absolute inset-0 rounded-xl bg-secondary rotate-1 pointer-events-none" />
+      <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
+      <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
 
       <DropdownMenu open={isEditingName ? false : undefined}>
         <DropdownMenuTrigger asChild disabled={isEditingName}>
@@ -237,10 +237,10 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
             {isUpdating && (
               <>
                 {/* Overlay sutil com animação */}
-                <div className="absolute inset-0 bg-primary-10 rounded-xl pointer-events-none z-[15] animate-pulse" />
+                <div className="absolute inset-0 bg-primary-10 rounded-md pointer-events-none z-[15] animate-pulse" />
 
                 {/* Borda animada */}
-                <div className="absolute inset-0 rounded-xl border-2 border-primary pointer-events-none z-[16] animate-pulse" />
+                <div className="absolute inset-0 rounded-md border-2 border-primary pointer-events-none z-[16] animate-pulse" />
 
                 {/* Badge no topo direito */}
                 <div className="absolute top-3 right-3 bg-primary text-primary-foreground px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-lg">
@@ -271,7 +271,7 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                           rows={1}
                           // `textarea` permite quebra de linha (ao contrário de `input`), evitando overflow e deslocamento do card.
                           // `fit-content` + `maxWidth: 100%` faz a borda acompanhar o conteúdo até o limite do card.
-                          className={`text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere] transition-colors ${hasNameError ? "border-destructive" : "border-white"}`}
+                          className={`text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere] transition-colors ${hasNameError ? "border-destructive" : "border-primary-foreground"}`}
                           style={{ width: "fit-content", maxWidth: "100%" }}
                           maxLength={100}
                           onClick={(e) => e.stopPropagation()}

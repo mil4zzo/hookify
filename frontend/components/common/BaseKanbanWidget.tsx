@@ -6,7 +6,7 @@ import { arrayMove, SortableContext, sortableKeyboardCoordinates, horizontalList
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { Modal } from "@/components/common/Modal";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
-import { KanbanScrollContainer } from "@/components/common/KanbanScrollContainer";
+import { KanbanWorkspace } from "@/components/common/layout";
 import { useKanbanColumnOrder } from "@/lib/hooks/useKanbanColumnOrder";
 
 /**
@@ -179,12 +179,10 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
       </div>
     );
 
-    const content = isHorizontal ? (
-      <KanbanScrollContainer itemWidth={itemWidth} scrollItems={scrollItems}>
+    const content = (
+      <KanbanWorkspace vertical={!isHorizontal} itemWidth={itemWidth} scrollItems={scrollItems}>
         {columnsInner}
-      </KanbanScrollContainer>
-    ) : (
-      <div className="w-full overflow-y-auto">{columnsInner}</div>
+      </KanbanWorkspace>
     );
 
     if (enableDrag) {

@@ -57,6 +57,7 @@ export default function MetaUsagePage() {
 
   return (
     <PageContainer
+      variant="analytics"
       title="Meta Usage"
       icon={<IconGauge className="h-5 w-5" />}
       description="Monitore o consumo da Meta Graph API por rota, serviço e ad account."

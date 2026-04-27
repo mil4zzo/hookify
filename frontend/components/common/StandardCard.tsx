@@ -21,7 +21,7 @@ export interface StandardCardProps extends React.HTMLAttributes<HTMLDivElement> 
  * Centraliza estilos de borda, padding, background e transições/animações.
  *
  * Baseado no estilo usado em GenericCard.tsx:
- * - rounded-xl border border-border
+ * - rounded-md border border-border
  * - bg-card (variante padrão)
  * - transition-all duration-420
  * - hover:border-primary hover:bg-card-hover hover:shadow-lg (quando interactive)
@@ -48,7 +48,7 @@ export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(
 
   // Classes base
   const baseClasses = cn(
-    "rounded-xl border border-border",
+    "rounded-md border border-border",
     variantStyles[variant],
     paddingStyles[padding],
     "transition-all duration-420",

@@ -10,7 +10,6 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Modal } from "@/components/common/Modal";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { LoadingState } from "@/components/common/States";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -27,6 +26,7 @@ import { AdsPack } from "@/lib/types";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
+import { PageBodyStack, WorkspaceState } from "@/components/common/layout";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { subDays } from "date-fns";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
@@ -538,31 +538,32 @@ export default function PacksPage() {
   // Client-side only rendering
   if (!isClient) {
     return (
-      <div>
-        <LoadingState label="Carregando..." />
-      </div>
+      <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
+        <WorkspaceState kind="loading" label="Carregando..." framed={false} />
+      </PageContainer>
     );
   }
 
   if (authStatus !== "authorized") {
     return (
-      <div>
-        <LoadingState label="Redirecionando para login..." />
-      </div>
+      <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
+        <WorkspaceState kind="loading" label="Redirecionando para login..." framed={false} />
+      </PageContainer>
     );
   }
 
   if (onboardingStatus === "requires_onboarding") {
     return (
-      <div>
-        <LoadingState label="Redirecionando para configuração inicial..." />
-      </div>
+      <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
+        <WorkspaceState kind="loading" label="Redirecionando para configuração inicial..." framed={false} />
+      </PageContainer>
     );
   }
 
   return (
     <>
       <PageContainer
+        variant="standard"
         title="Biblioteca"
         description="Gerencie seus Packs de anúncios."
         actions={
@@ -575,6 +576,7 @@ export default function PacksPage() {
           </PageActions>
         }
       >
+        <PageBodyStack>
         {/* Packs Grid */}
         {isLoadingPacks ? (
           // Skeleton enquanto carrega packs
@@ -582,8 +584,8 @@ export default function PacksPage() {
             {[1, 2, 3, 4].map((i) => (
               <div key={i} className="relative inline-block w-full">
                 {/* Cards decorativos atrás */}
-                <div className="absolute inset-0 rounded-xl bg-card rotate-2 pointer-events-none" />
-                <div className="absolute inset-0 rounded-xl bg-secondary rotate-1 pointer-events-none" />
+                <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
+                <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
 
                 <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full overflow-hidden">
                   <div className="p-6 space-y-6 flex flex-col justify-between h-full relative z-10">
@@ -674,6 +676,7 @@ export default function PacksPage() {
             ))}
           </div>
         )}
+        </PageBodyStack>
       </PageContainer>
 
       {/* Load Pack Modal */}
@@ -951,7 +954,7 @@ export default function PacksPage() {
                       </TooltipProvider>
                     )}
                   </div>
-                  <ToggleSwitch id="refresh-toggle-transcription" checked={refreshToggles.transcription} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, transcription: checked }))} label="Transcrição" variant="minimal" icon={<IconMicrophone className="h-4 w-4 flex-shrink-0 text-orange-500" />} />
+                  <ToggleSwitch id="refresh-toggle-transcription" checked={refreshToggles.transcription} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, transcription: checked }))} label="Transcrição" variant="minimal" icon={<IconMicrophone className="h-4 w-4 flex-shrink-0 text-warning" />} />
                 </div>
               </div>
             );

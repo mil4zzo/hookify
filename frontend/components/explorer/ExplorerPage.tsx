@@ -4,9 +4,8 @@ import { useMemo, useState } from "react";
 import { IconBrandParsinta, IconBulb, IconChartFunnel, IconCircleCheckFilled, IconCurrencyDollar, IconSparkles, IconWorld } from "@tabler/icons-react";
 import { PageContainer } from "@/components/common/PageContainer";
 import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
-import { EmptyState, ErrorState, LoadingState } from "@/components/common/States";
 import { VideoMetricCell } from "@/components/common/VideoMetricCell";
-import { Card, CardContent } from "@/components/ui/card";
+import { AnalyticsWorkspace, PageBodyStack, WorkspaceState } from "@/components/common/layout";
 import { cn } from "@/lib/utils/cn";
 import { explorerPlaceholderPresentation } from "@/lib/explorer/placeholders";
 import { buildExplorerFlowSections } from "@/lib/explorer/flowSections";
@@ -44,7 +43,7 @@ function SignalList({ title, icon: Icon, items }: { title: string; icon: typeof 
 
       <div className="space-y-3">
         {items.map((item) => (
-          <div key={`${title}-${item.title}`} className={cn("rounded-2xl border p-5 shadow-sm transition-colors", getToneStyles(item.tone))}>
+          <div key={`${title}-${item.title}`} className={cn("rounded-md border p-5 shadow-sm transition-colors", getToneStyles(item.tone))}>
             <div className="flex items-start gap-2">
               <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-background-70">
                 <IconCircleCheckFilled className="h-3.5 w-3.5" />
@@ -84,13 +83,7 @@ function FlowColumnLabel({ title, icon: Icon, tone }: { title: string; icon: typ
 }
 
 function ExplorerDetailSkeleton() {
-  return (
-    <Card className="min-h-[28rem] justify-center">
-      <CardContent className="flex items-center justify-center py-16">
-        <LoadingState label="Carregando detalhe do criativo..." />
-      </CardContent>
-    </Card>
-  );
+  return <WorkspaceState kind="loading" label="Carregando detalhe do criativo..." fill />;
 }
 
 export function ExplorerPage() {
@@ -104,48 +97,32 @@ export function ExplorerPage() {
 
   if (status.kind === "loading") {
     return (
-      <PageContainer title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
-        <Card className="min-h-[28rem] justify-center">
-          <CardContent className="flex items-center justify-center py-16">
-            <LoadingState label="Montando Explorer..." />
-          </CardContent>
-        </Card>
+      <PageContainer variant="analytics" title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
+        <WorkspaceState kind="loading" label="Montando Explorer..." fill />
       </PageContainer>
     );
   }
 
   if (status.kind === "needs-packs" || status.kind === "needs-range") {
     return (
-      <PageContainer title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
-        <Card className="min-h-[28rem] justify-center">
-          <CardContent className="flex items-center justify-center py-16">
-            <EmptyState message={status.message} />
-          </CardContent>
-        </Card>
+      <PageContainer variant="analytics" title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
+        <WorkspaceState kind="empty" message={status.message} fill />
       </PageContainer>
     );
   }
 
   if (status.kind === "error") {
     return (
-      <PageContainer title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
-        <Card className="min-h-[28rem] justify-center">
-          <CardContent className="flex items-center justify-center py-16">
-            <ErrorState message={status.message} />
-          </CardContent>
-        </Card>
+      <PageContainer variant="analytics" title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
+        <WorkspaceState kind="error" message={status.message} fill />
       </PageContainer>
     );
   }
 
   if (listItems.length === 0) {
     return (
-      <PageContainer title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
-        <Card className="min-h-[28rem] justify-center">
-          <CardContent className="flex items-center justify-center py-16">
-            <EmptyState message="Nenhum criativo de video foi encontrado para os filtros atuais." />
-          </CardContent>
-        </Card>
+      <PageContainer variant="analytics" title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
+        <WorkspaceState kind="empty" message="Nenhum criativo de video foi encontrado para os filtros atuais." fill />
       </PageContainer>
     );
   }
@@ -166,14 +143,15 @@ export function ExplorerPage() {
     ) : undefined;
 
   return (
-    <PageContainer title={explorerPageTitle} description={explorerPageDescription} fullWidth contentClassName="min-w-0" pageSidebar={explorerSidebar} pageSidebarClassName="md:w-[360px]" pageSidebarMobileBehavior="stack">
-      {!selectedDetail || isLoadingDetail ? (
-        <ExplorerDetailSkeleton />
-      ) : (
-        <div className="space-y-10">
+    <PageContainer variant="analytics" title={explorerPageTitle} description={explorerPageDescription} fullWidth contentClassName="min-w-0" pageSidebar={explorerSidebar} pageSidebarClassName="md:w-[360px]" pageSidebarMobileBehavior="stack">
+      <AnalyticsWorkspace className="overflow-visible">
+        {!selectedDetail || isLoadingDetail ? (
+          <ExplorerDetailSkeleton />
+        ) : (
+        <PageBodyStack className="space-y-10">
           <div className="grid gap-8 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
             <div className="w-full max-w-[260px] shadow-md">
-              <div className="relative rounded-2xl border-8 border-surface bg-black/60" style={{ aspectRatio: "9 / 16" }}>
+              <div className="relative rounded-lg border-8 border-surface bg-black/60" style={{ aspectRatio: "9 / 16" }}>
                 {isLoadingMedia ? <RetentionVideoPlayerSkeleton /> : selectedDetail.detail.videoSourceUrl ? <RetentionVideoPlayer src={selectedDetail.detail.videoSourceUrl} retentionCurve={selectedDetail.detail.retentionSeries} showRetentionYAxisLabels={false} /> : <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">Video nao disponivel para este criativo.</div>}
               </div>
             </div>
@@ -227,8 +205,9 @@ export function ExplorerPage() {
               </div>
             </div>
           </div>
-        </div>
-      )}
+        </PageBodyStack>
+        )}
+      </AnalyticsWorkspace>
     </PageContainer>
   );
 }

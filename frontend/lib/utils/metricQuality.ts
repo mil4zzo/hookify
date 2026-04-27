@@ -58,14 +58,14 @@ const metricValueTextMap: Record<MetricQualityTone, string> = {
 };
 
 const cardSurfaceMap: Record<MetricQualityTone, string> = {
-  destructive: "border-destructive-10 shadow-[0_0_18px_rgba(239,68,68,0.08)]",
-  warning: "border-warning-10 -[0_0_18px_rgba(245,158,11,0.08)]",
-  attention: "border-attention-10 shadow-[0_0_18px_rgba(234,179,8,0.08)]",
-  success: "border-success-10 shadow-[0_0_18px_rgba(34,197,94,0.08)]",
-  primary: "border-primary-10 shadow-[0_0_18px_rgba(59,130,246,0.08)]",
-  brand: "border-brand-10 shadow-[0_0_18px_rgba(168,85,247,0.08)]",
+  destructive: "border-destructive-10 bg-destructive-5 shadow-sm",
+  warning: "border-warning-10 bg-warning-5 shadow-sm",
+  attention: "border-attention-10 bg-attention-5 shadow-sm",
+  success: "border-success-10 bg-success-5 shadow-sm",
+  primary: "border-primary-10 bg-primary-5 shadow-sm",
+  brand: "border-brand-10 bg-brand-5 shadow-sm",
   muted: "border-border bg-background shadow-none",
-  accent: "border-ring-10 bg-ring-5 shadow-[0_0_18px_rgba(148,163,184,0.08)]",
+  accent: "border-ring-10 bg-ring-5 shadow-sm",
   "muted-foreground": "border-border bg-background shadow-none",
 };
 

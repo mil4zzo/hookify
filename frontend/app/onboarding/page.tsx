@@ -56,6 +56,7 @@ export default function OnboardingPage() {
 
   return (
     <PageContainer
+      variant="standard"
       title="Configuração inicial"
       description="Vamos deixar tudo pronto para o Hookify analisar seus anúncios."
     >

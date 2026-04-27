@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { LoadingState, EmptyState } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { api } from "@/lib/api/endpoints";
 import { AdPerformanceRequest, AdPerformanceResponse, RankingsItem } from "@/lib/api/schemas";
@@ -13,6 +12,7 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { GoldKanbanWidget } from "@/components/gold/GoldKanbanWidget";
 import { GoldTable } from "@/components/gold/GoldTable";
 import { useFilters } from "@/lib/hooks/useFilters";
+import { AnalyticsWorkspace, DashboardGrid, WorkspaceState } from "@/components/common/layout";
 
 export default function GoldPage() {
   const { isClient, isAuthorized } = useAppAuthReady();
@@ -168,39 +168,41 @@ export default function GoldPage() {
 
   if (!isClient || !isAuthorized) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance">
-        <LoadingState />
+      <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
+        <WorkspaceState kind="loading" framed={false} fill />
       </PageContainer>
     );
   }
 
   if (loading || isLoadingCriteria) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance">
-        <LoadingState />
+      <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
+        <WorkspaceState kind="loading" framed={false} fill />
       </PageContainer>
     );
   }
 
   if (!validatedRankings || validatedRankings.length === 0) {
     return (
-      <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance">
-        <EmptyState message="Nenhum anúncio encontrado para os filtros selecionados." />
+      <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
+        <WorkspaceState kind="empty" message="Nenhum anúncio encontrado para os filtros selecionados." framed={false} fill />
       </PageContainer>
     );
   }
 
   return (
-    <PageContainer title="G.O.L.D." description="Classificação de anúncios por performance">
+    <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
       {actionType && validatedAverages && (
-        <>
+        <AnalyticsWorkspace className="gap-8 overflow-visible">
           <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria || []} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} />
 
-          <div className="mt-8">
+          <div>
             <h2 className="text-xl font-semibold mb-4">Lista de Anúncios</h2>
-            <GoldTable ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} />
+            <DashboardGrid className="grid-cols-1 sm:grid-cols-1 xl:grid-cols-1">
+              <GoldTable ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} />
+            </DashboardGrid>
           </div>
-        </>
+        </AnalyticsWorkspace>
       )}
     </PageContainer>
   );

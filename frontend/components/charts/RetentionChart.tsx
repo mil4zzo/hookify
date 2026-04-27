@@ -79,7 +79,7 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
     };
   };
   const [tooltipData, setTooltipData] = useState<{ point: DataPoint; x: number; y: number } | null>(null);
-  const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("#6b7280"); // fallback gray
+  const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("var(--muted-foreground)");
 
   // Obter cor muted-foreground computada do CSS
   useEffect(() => {

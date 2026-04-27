@@ -50,11 +50,12 @@ export function GenericColumn({ title, items, colorScheme, averageValue, renderC
     });
 
   return (
-    <div className={cn("flex h-full w-full flex-col gap-2 rounded-xl bg-card p-2", className)}>
+    <div className={cn("flex h-full w-full flex-col gap-2 rounded-md bg-card p-2", className)}>
       <div className="w-full flex-shrink-0 space-y-3 pr-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <h3 className={cn("text-base font-semibold text-white sm:text-md", colorScheme.title)}>🔹 {title}</h3>
+            <span className={cn("h-2 w-2 rounded-full bg-primary", colorScheme.title)} aria-hidden />
+            <h3 className={cn("text-base font-semibold text-foreground sm:text-md", colorScheme.title)}>{title}</h3>
             {tooltip ? (
               <TooltipProvider>
                 <Tooltip>
@@ -81,7 +82,7 @@ export function GenericColumn({ title, items, colorScheme, averageValue, renderC
       </div>
 
       <div className={cn("space-y-4", maxHeight && "min-h-0 flex-1 overflow-y-auto")} style={maxHeight ? { maxHeight } : undefined}>
-        {items.length === 0 ? <div className="rounded-xl border border-dashed border-border-60 bg-background-40 px-4 py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : items.map((item, index) => renderCard(item, index, colorScheme))}
+        {items.length === 0 ? <div className="rounded-md border border-dashed border-border-60 bg-background-40 px-4 py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div> : items.map((item, index) => renderCard(item, index, colorScheme))}
       </div>
     </div>
   );

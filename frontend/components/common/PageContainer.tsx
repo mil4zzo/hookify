@@ -5,6 +5,8 @@ import { DEFAULT_MAIN_CONTENT_LAYOUT_CONFIG, type PageSidebarMobileBehavior, use
 import { PageSectionHeader } from "./PageSectionHeader";
 import { cn } from "@/lib/utils/cn";
 
+export type PageContainerVariant = "standard" | "analytics";
+
 export interface PageContainerProps {
   title: string;
   description?: ReactNode;
@@ -13,7 +15,10 @@ export interface PageContainerProps {
   children: ReactNode;
   className?: string;
 
-  /** Manager usa. Faz o wrapper ter h-full para permitir scroll interno dos filhos. */
+  /** Escolha semantica do layout da pagina autenticada. */
+  variant?: PageContainerVariant;
+
+  /** Escape hatch legado. Faz o wrapper ter h-full para permitir scroll interno dos filhos. */
   fullHeight?: boolean;
 
   /** Uso restrito (Explorer). Remove o header (título/descrição) mas preserva o layout. */
@@ -39,6 +44,7 @@ export function PageContainer({
   children,
   className,
   contentClassName,
+  variant = "standard",
   fullHeight = false,
   fullWidth = false,
   pageSidebar = null,
@@ -76,15 +82,17 @@ export function PageContainer({
     };
   }, [setLayoutConfig]);
 
+  const shouldUseFullHeight = variant === "analytics" || fullHeight;
+
   return (
     <div
       className={cn(
-        fullHeight ? "h-full flex-1 flex flex-col min-h-0" : !hideHeader ? "space-y-5" : "",
+        shouldUseFullHeight ? "h-full flex-1 flex flex-col min-h-0" : !hideHeader ? "space-y-5" : "",
         className,
       )}
     >
       {!hideHeader && <PageSectionHeader title={title} description={description} icon={icon} actions={actions} />}
-      <div className={cn(fullHeight ? "flex-1 flex flex-col min-h-0" : "min-w-0", contentClassName)}>{children}</div>
+      <div className={cn(shouldUseFullHeight ? "flex-1 flex flex-col min-h-0" : "min-w-0", contentClassName)}>{children}</div>
     </div>
   );
 }

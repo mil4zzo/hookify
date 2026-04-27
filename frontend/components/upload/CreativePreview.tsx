@@ -142,7 +142,7 @@ function GenericMockup({
   loadingImage: boolean
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border bg-background shadow-sm">
+    <div className="overflow-hidden rounded-md border border-border bg-background shadow-sm">
       <PreviewMedia creative={creative} resolvedImageUrl={resolvedImageUrl} loadingImage={loadingImage} className="aspect-video" />
       <div className="space-y-1.5 p-3 text-xs">
         {creative.title && <div className="font-semibold">{creative.title}</div>}
@@ -194,7 +194,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
 
   if (!creative) {
     return (
-      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-muted-20 p-6 text-center">
+      <div className="flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-md border border-dashed border-border bg-muted-20 p-6 text-center">
         <IconPhoto className="h-8 w-8 text-muted-foreground opacity-30" />
         <div className="space-y-1">
           <div className="text-sm font-medium text-muted-foreground">Nenhum anúncio selecionado</div>
@@ -206,7 +206,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
 
   const surface = inferPreviewSurface(creative)
   const warningBanner = !creative.supports_bulk_clone && (
-    <div className="rounded-xl border border-destructive-20 bg-destructive-5 p-3 text-xs text-destructive">
+    <div className="rounded-md border border-destructive-20 bg-destructive-5 p-3 text-xs text-destructive">
       Esse modelo ainda não pode ser usado com segurança no upload em massa.
     </div>
   )
@@ -217,7 +217,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
     const maxWidthClass = surface === "story" ? "mx-auto max-w-[200px]" : "w-full"
     return (
       <div className="space-y-4">
-        <div className="rounded-2xl bg-gradient-to-b from-muted/60 to-muted/20 p-4">
+        <div className="rounded-md bg-gradient-to-b from-muted/60 to-muted/20 p-4">
           <div className={`relative overflow-hidden rounded-2xl bg-black ${aspectClass} ${maxWidthClass}`}>
             {loadingVideo ? (
               <Skeleton className="absolute inset-0 h-full w-full" />
@@ -241,7 +241,7 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
   // Image ads: show mockup frame
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl bg-gradient-to-b from-muted/60 to-muted/20 p-4">
+      <div className="rounded-md bg-gradient-to-b from-muted/60 to-muted/20 p-4">
         {surface === "story" && (
           <StoryMockup creative={creative} resolvedImageUrl={resolvedImageUrl} loadingImage={loadingImageSource} />
         )}

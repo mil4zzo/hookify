@@ -406,7 +406,7 @@ export default async function PvPage({
             </div>
           </section>
 
-          <section className="rounded-2xl border border-border bg-card p-8 md:p-10">
+          <section className="rounded-md border border-border bg-card p-8 md:p-10">
             <div className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr] lg:items-center">
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -454,4 +454,3 @@ export default async function PvPage({
     </div>
   );
 }
-

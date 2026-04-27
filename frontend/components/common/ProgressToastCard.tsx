@@ -181,7 +181,7 @@ function ToastCardFrame({ variant, progress, animated = true, children }: ToastC
 
   return (
     <div
-      className="relative w-[22rem] max-w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-[1.25rem] border border-white/10"
+      className="relative w-[22rem] max-w-[min(22rem,calc(100vw-1rem))] overflow-hidden rounded-lg border border-primary-foreground-10"
       style={{
         boxShadow: ambientShadow,
         transition: animated ? `box-shadow ${CARD_TRANSITION}` : undefined,
@@ -221,7 +221,7 @@ function ToastCardFrame({ variant, progress, animated = true, children }: ToastC
         }}
       />
       <div
-        className="pointer-events-none absolute inset-0 rounded-[1.25rem]"
+        className="pointer-events-none absolute inset-0 rounded-lg"
         style={{
           zIndex: 11,
           boxShadow: "inset 0 1px 0 color-mix(in oklab, var(--surface-fill) 18%, transparent), inset 0 -1px 0 color-mix(in oklab, var(--neutral-950) 8%, transparent)",
@@ -246,16 +246,16 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
   return (
     <div className="relative">
       <div
-        className="relative h-[3.25rem] w-full rounded-2xl border border-white/12 px-1 py-1 backdrop-blur-md"
+        className="relative h-[3.25rem] w-full rounded-md border border-primary-foreground-10 px-1 py-1 backdrop-blur-md"
         style={{
           background: `color-mix(in oklab, var(--surface-fill) ${Math.round(surfaceOpacity * 100)}%, transparent)`,
           boxShadow: "inset 0 1px 0 color-mix(in oklab, var(--surface-fill) 14%, transparent), inset 0 -1px 0 color-mix(in oklab, var(--neutral-950) 6%, transparent), 0 12px 36px color-mix(in oklab, var(--neutral-950) 35%, transparent)",
           transition: animated ? `background ${CARD_TRANSITION}, box-shadow ${CARD_TRANSITION}` : undefined,
         }}
       >
-        <div className="relative h-full w-full overflow-visible rounded-[0.875rem]">
+        <div className="relative h-full w-full overflow-visible rounded-md">
           <div
-            className="pointer-events-none absolute left-0 right-0 top-0 h-[42%] rounded-[0.875rem]"
+            className="pointer-events-none absolute left-0 right-0 top-0 h-[42%] rounded-md"
             style={{
               background: `linear-gradient(180deg, color-mix(in oklab, var(--surface-fill) ${Math.round(sheenOpacity * 100)}%, transparent), transparent 100%)`,
               transition: animated ? `opacity ${CONTENT_TRANSITION}` : undefined,
@@ -265,7 +265,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
           {variant === "success" && (
             <>
               <div
-                className="absolute inset-y-0 left-0 rounded-[0.875rem] bg-primary-foreground"
+                className="absolute inset-y-0 left-0 rounded-md bg-primary-foreground"
                 style={{
                   width: "100%",
                   boxShadow: "0 6px 18px color-mix(in oklab, var(--surface-fill) 18%, transparent), 0 0 22px color-mix(in oklab, var(--surface-fill) 22%, transparent)",
@@ -278,7 +278,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
           {variant !== "success" && numericProgress > 0 && (
             <>
               <div
-                className="absolute inset-y-0 left-0 rounded-[0.875rem] bg-primary-foreground"
+                className="absolute inset-y-0 left-0 rounded-md bg-primary-foreground"
                 style={{
                   width: `${numericProgress}%`,
                   minWidth: "4px",
@@ -369,7 +369,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
               type="button"
               onClick={onCancel}
               aria-label="Fechar"
-              className="ml-1 flex-shrink-0 rounded p-1 text-primary-foreground-75 hover:bg-white/10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-white/30"
+              className="ml-1 flex-shrink-0 rounded p-1 text-primary-foreground-75 hover:bg-primary-foreground-10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-primary-foreground-30"
             >
               <IconX className="h-4 w-4" strokeWidth={2} />
             </button>
@@ -378,7 +378,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
 
         {showTransientErrorCancelButton && (
           <div className="flex justify-end pt-1">
-            <Button type="button" size="sm" variant="secondary" className="h-8 border-white/15 bg-white/10 text-primary-foreground hover:bg-white/15" onClick={onCancel}>
+            <Button type="button" size="sm" variant="secondary" className="h-8 border-primary-foreground-20 bg-primary-foreground-10 text-primary-foreground hover:bg-primary-foreground-20" onClick={onCancel}>
               Cancelar
             </Button>
           </div>
@@ -388,7 +388,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
 
         {showLoadingCancelButton && (
           <div className="flex justify-end">
-            <Button type="button" size="sm" variant="ghost" className="h-8 text-primary-foreground-90 hover:bg-white/10 hover:text-primary-foreground" onClick={onCancel}>
+            <Button type="button" size="sm" variant="ghost" className="h-8 text-primary-foreground-90 hover:bg-primary-foreground-10 hover:text-primary-foreground" onClick={onCancel}>
               Cancelar
             </Button>
           </div>

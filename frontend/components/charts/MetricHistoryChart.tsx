@@ -132,7 +132,7 @@ function calculateMetricValue(item: any, metric: string, actionType?: string): n
 function MetricHistoryChartInner({ data, formatValue, actionType, availableMetrics, selectedMetrics, onMetricsChange, layoutGapClassName = "gap-4 md:gap-8" }: MetricHistoryChartProps) {
   const [metricsPopoverOpen, setMetricsPopoverOpen] = useState(false);
   const [tooltipData, setTooltipData] = useState<{ point: DataPoint; x: number; y: number } | null>(null);
-  const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("#6b7280");
+  const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("var(--muted-foreground)");
   const [isNormalized, setIsNormalized] = useState<boolean>(true);
   const [tooltipWidth, setTooltipWidth] = useState<number>(200);
 

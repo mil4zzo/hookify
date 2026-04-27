@@ -10,9 +10,9 @@ interface QuotaGaugesProps {
 
 function bandColor(value: number | null | undefined): string {
   if (value == null) return "bg-muted";
-  if (value >= 80) return "bg-red-500";
-  if (value >= 50) return "bg-yellow-500";
-  return "bg-emerald-500";
+  if (value >= 80) return "bg-destructive";
+  if (value >= 50) return "bg-warning";
+  return "bg-success";
 }
 
 function Gauge({ label, value }: { label: string; value: number | null | undefined }) {
@@ -65,7 +65,7 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
   return (
     <div className="space-y-4">
       {regainMinutes != null && regainMinutes > 0 && (
-        <div className="flex items-start gap-3 rounded border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+        <div className="flex items-start gap-3 rounded-md border border-destructive-40 bg-destructive-10 px-4 py-3 text-sm text-destructive">
           <span className="font-semibold shrink-0">⚠ Rate limit atingido</span>
           <span>
             Uma ou mais contas de anúncios está temporariamente bloqueada pela Meta.

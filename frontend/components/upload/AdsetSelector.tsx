@@ -131,7 +131,7 @@ const AdsetSelector = memo(function AdsetSelector({ data, selectedAdsetIds, onCh
       </div>
 
       {/* List — scrollable */}
-      <div className="overflow-y-auto max-h-[420px] rounded-xl border border-border scrollbar-thin">
+      <div className="overflow-y-auto max-h-[420px] rounded-md border border-border scrollbar-thin">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
             <IconSearch className="h-6 w-6 opacity-30" />

@@ -73,7 +73,7 @@ export default function DesignSystemPage() {
 
   if (!env.IS_DEV) {
     return (
-      <PageContainer title="Design System" description="Cores, tokens e componentes de referência (dev)." icon={<IconPalette className="w-6 h-6 text-attention" />}>
+      <PageContainer variant="standard" title="Design System" description="Cores, tokens e componentes de referência (dev)." icon={<IconPalette className="w-6 h-6 text-attention" />}>
         <div className="flex items-center justify-center py-16">
           <Card className="max-w-md">
             <CardHeader>
@@ -96,6 +96,7 @@ export default function DesignSystemPage() {
 
   return (
     <PageContainer
+      variant="standard"
       title="Design System"
       description="Cores, tokens e componentes de referência (dev)."
       icon={<IconPalette className="w-6 h-6 text-attention" />}

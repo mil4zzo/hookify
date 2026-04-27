@@ -7,8 +7,6 @@ import { SheetSyncResponse } from "@/lib/api/schemas";
 import {
   showProgressToast,
   finishProgressToast,
-  showSuccess,
-  showError,
   showProcessCancelledWarning,
   dismissToast,
   buildSheetsToastContent,
@@ -95,10 +93,7 @@ export function useGoogleSyncJob() {
             : undefined,
         });
 
-        if (result.success) {
-          const updatedRows = result.stats?.rows_updated ?? 0;
-          showSuccess(updatedRows > 0 ? `Importação concluída! Atualizadas ${updatedRows} linhas em ad_metrics.` : "Importação concluída!");
-        } else if (!result.paused && result.error) {
+        if (!result.success && !result.paused && result.error) {
           logger.warn("useGoogleSyncJob: sync finalizado com falha (toast de progresso já exibido)", {
             integrationId,
             packId,

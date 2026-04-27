@@ -67,7 +67,7 @@ const ReviewRow = memo(function ReviewRow({
         </Button>
       </div>
       <div className="text-right">
-        <Button type="button" variant="ghost" size="icon" onClick={() => onRemove(item.id)}>
+        <Button type="button" variant="ghost" size="icon" onClick={() => onRemove(item.id)} aria-label={`Remover ${item.adName}`}>
           <IconTrash className="h-4 w-4" />
         </Button>
       </div>

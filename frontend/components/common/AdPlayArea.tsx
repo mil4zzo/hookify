@@ -82,9 +82,9 @@ export function AdPlayArea({ ad, thumbnailUrl, alt, aspectRatio = "3:4", size, c
             className={cn(
               "flex items-center justify-center rounded-full transition-all duration-500",
               // Estado normal: cinza translúcido com blur
-              "bg-gray-500/40 backdrop-blur-sm border border-border",
+              "bg-muted-foreground-40 backdrop-blur-sm border border-border",
               // Hover: primary azul com shadow
-              "group-hover:bg-primary group-hover:shadow-lg group-hover:shadow-[0_0_20px_rgba(20,71,230,0.6)]",
+              "group-hover:bg-primary group-hover:shadow-lg",
               // Scale no hover
               "scale-90 group-hover:scale-100"
             )}

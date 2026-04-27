@@ -7,11 +7,11 @@ import { cn } from "@/lib/utils/cn";
 const buttonVariants = cva("inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring-50 focus-visible:ring-[3px] aria-invalid:ring-destructive-20 dark:aria-invalid:ring-destructive-40 aria-invalid:border-destructive", {
   variants: {
     variant: {
-      default: "primary-gradient text-primary-foreground border border-[rgb(255_255_255_/0.03)] has-[>svg]:px-3",
-      primary: "bg-primary text-primary-foreground border border-[rgb(255_255_255_/0.03)] has-[>svg]:px-3",
-      neutral: "neutral-gradient text-primary-foreground border border-[rgb(255_255_255_/0.03)] has-[>svg]:px-3",
-      success: "success-gradient text-success-foreground border border-[rgb(255_255_255_/0.03)] has-[>svg]:px-3",
-      destructive: "destructive-gradient text-destructive-foreground border border-[rgb(255_255_255_/0.03)]",
+      default: "primary-gradient text-primary-foreground border border-primary-foreground-5 has-[>svg]:px-3",
+      primary: "bg-primary text-primary-foreground border border-primary-foreground-5 has-[>svg]:px-3",
+      neutral: "neutral-gradient text-primary-foreground border border-primary-foreground-5 has-[>svg]:px-3",
+      success: "success-gradient text-success-foreground border border-primary-foreground-5 has-[>svg]:px-3",
+      destructive: "destructive-gradient text-destructive-foreground border border-primary-foreground-5",
       destructiveOutline: "border border-destructive-50 text-destructive bg-transparent hover:border-destructive hover:bg-destructive-10 has-[>svg]:px-3",
       outline: "border hover:bg-accent hover:text-accent-foreground border-border has-[>svg]:px-3",
       secondary: "border bg-input-30 hover:bg-accent hover:text-accent-foreground border-border has-[>svg]:px-3",

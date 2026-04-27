@@ -2,13 +2,11 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { LoadingState, EmptyState } from "@/components/common/States";
+import { LoadingState } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
-import { Card, CardContent } from "@/components/ui/card";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
@@ -16,7 +14,7 @@ import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validated
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
-import { PageIcon } from "@/lib/utils/pageIcon";
+import { AnalyticsWorkspace, WorkspaceState } from "@/components/common/layout";
 import { logger } from "@/lib/utils/logger";
 import { toast } from "sonner";
 import { useFilters } from "@/lib/hooks/useFilters";
@@ -548,22 +546,34 @@ function ManagerPageContent() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!isClient) {
-    return <div><LoadingState label="Carregando..." /></div>;
+    return (
+      <PageContainer variant="analytics" title="Otimize" description="Dados de performance dos seus anúncios">
+        <WorkspaceState kind="loading" label="Carregando..." framed={false} fill />
+      </PageContainer>
+    );
   }
 
   if (authStatus !== "authorized") {
-    return <div><LoadingState label="Redirecionando para login..." /></div>;
+    return (
+      <PageContainer variant="analytics" title="Otimize" description="Dados de performance dos seus anúncios">
+        <WorkspaceState kind="loading" label="Redirecionando para login..." framed={false} fill />
+      </PageContainer>
+    );
   }
 
   if (onboardingStatus === "requires_onboarding") {
-    return <div><LoadingState label="Redirecionando para configuração inicial..." /></div>;
+    return (
+      <PageContainer variant="analytics" title="Otimize" description="Dados de performance dos seus anúncios">
+        <WorkspaceState kind="loading" label="Redirecionando para configuração inicial..." framed={false} fill />
+      </PageContainer>
+    );
   }
 
   return (
     <PageContainer
       title="Otimize"
       description="Dados de performance dos seus anúncios"
-      fullHeight={true}
+      variant="analytics"
       className="min-h-0"
       actions={
         <PageActions className="xl:flex-nowrap xl:items-center">
@@ -571,49 +581,51 @@ function ManagerPageContent() {
         </PageActions>
       }
     >
-      <ManagerTable
-        ads={adsForTable}
-        groupByAdName
-        activeTab={activeManagerTab}
-        onTabChange={handleTabChange}
-        selectedPackIds={Array.from(selectedPackIds)}
-        adsIndividual={adsForIndividualTable}
-        isLoadingIndividual={loadingIndividual}
-        adsAdset={adsForAdsetTable}
-        isLoadingAdset={loadingAdset}
-        adsCampaign={adsForCampaignTable}
-        isLoadingCampaign={loadingCampaign}
-        onVisibleGroupKeysChange={handleVisibleGroupKeysChange}
-        actionType={actionType}
-        endDate={endDate}
-        dateStart={dateRange.start}
-        dateStop={dateRange.end}
-        availableConversionTypes={actionTypeOptions}
-        showTrends={showTrends}
-        hasSheetIntegration={hasSheetIntegration}
-        isLoading={loading}
-        isError={!!managerError && !loading}
-        initialFilters={initialFilters}
-        averagesOverride={(() => {
-          const base = validatedAveragesForAverages || serverAverages || null;
-          if (!base) return undefined;
-          const per = (base as any).per_action_type || {};
-          const perSel = actionType ? per[actionType] : undefined;
-          const defaultPerSel = actionType && !perSel ? { cpr: 0, page_conv: 0, results: 0 } : perSel;
-          return {
-            hook: typeof base.hook === "number" ? base.hook : null,
-            hold_rate: typeof base.hold_rate === "number" ? base.hold_rate : null,
-            video_watched_p50: typeof base.video_watched_p50 === "number" ? base.video_watched_p50 : null,
-            scroll_stop: typeof base.scroll_stop === "number" ? base.scroll_stop : null,
-            ctr: typeof base.ctr === "number" ? base.ctr : null,
-            website_ctr: typeof base.website_ctr === "number" ? base.website_ctr : null,
-            connect_rate: typeof base.connect_rate === "number" ? base.connect_rate : null,
-            cpm: typeof base.cpm === "number" ? base.cpm : null,
-            cpr: defaultPerSel && typeof defaultPerSel.cpr === "number" ? defaultPerSel.cpr : null,
-            page_conv: defaultPerSel && typeof defaultPerSel.page_conv === "number" ? defaultPerSel.page_conv : null,
-          } as any;
-        })()}
-      />
+      <AnalyticsWorkspace>
+        <ManagerTable
+          ads={adsForTable}
+          groupByAdName
+          activeTab={activeManagerTab}
+          onTabChange={handleTabChange}
+          selectedPackIds={Array.from(selectedPackIds)}
+          adsIndividual={adsForIndividualTable}
+          isLoadingIndividual={loadingIndividual}
+          adsAdset={adsForAdsetTable}
+          isLoadingAdset={loadingAdset}
+          adsCampaign={adsForCampaignTable}
+          isLoadingCampaign={loadingCampaign}
+          onVisibleGroupKeysChange={handleVisibleGroupKeysChange}
+          actionType={actionType}
+          endDate={endDate}
+          dateStart={dateRange.start}
+          dateStop={dateRange.end}
+          availableConversionTypes={actionTypeOptions}
+          showTrends={showTrends}
+          hasSheetIntegration={hasSheetIntegration}
+          isLoading={loading}
+          isError={!!managerError && !loading}
+          initialFilters={initialFilters}
+          averagesOverride={(() => {
+            const base = validatedAveragesForAverages || serverAverages || null;
+            if (!base) return undefined;
+            const per = (base as any).per_action_type || {};
+            const perSel = actionType ? per[actionType] : undefined;
+            const defaultPerSel = actionType && !perSel ? { cpr: 0, page_conv: 0, results: 0 } : perSel;
+            return {
+              hook: typeof base.hook === "number" ? base.hook : null,
+              hold_rate: typeof base.hold_rate === "number" ? base.hold_rate : null,
+              video_watched_p50: typeof base.video_watched_p50 === "number" ? base.video_watched_p50 : null,
+              scroll_stop: typeof base.scroll_stop === "number" ? base.scroll_stop : null,
+              ctr: typeof base.ctr === "number" ? base.ctr : null,
+              website_ctr: typeof base.website_ctr === "number" ? base.website_ctr : null,
+              connect_rate: typeof base.connect_rate === "number" ? base.connect_rate : null,
+              cpm: typeof base.cpm === "number" ? base.cpm : null,
+              cpr: defaultPerSel && typeof defaultPerSel.cpr === "number" ? defaultPerSel.cpr : null,
+              page_conv: defaultPerSel && typeof defaultPerSel.page_conv === "number" ? defaultPerSel.page_conv : null,
+            } as any;
+          })()}
+        />
+      </AnalyticsWorkspace>
     </PageContainer>
   );
 }

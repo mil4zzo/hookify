@@ -60,7 +60,7 @@ export function useGoogleReconnectHandler() {
           if (jobIdRef.current) {
             api.facebook.cancelJobsBatch([jobIdRef.current], "Importação do Leadscore cancelada pelo usuário").catch(() => {});
           }
-          finishProgressToast(newToastId, false, "Importação cancelada");
+          dismissToast(newToastId);
           showProcessCancelledWarning("sheets", pausedJob.packName);
         };
 

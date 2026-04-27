@@ -218,7 +218,7 @@ export default function BundleUploadZone({
                     <div className="text-xs text-muted-foreground">{formatFileSize(entry.file)}</div>
                   </div>
                 </div>
-                <Button type="button" variant="ghost" size="icon" onClick={() => removePoolFile(entry.id)}>
+                <Button type="button" variant="ghost" size="icon" onClick={() => removePoolFile(entry.id)} aria-label={`Remover ${entry.file.name}`}>
                   <IconX className="h-4 w-4" />
                 </Button>
               </div>
@@ -237,7 +237,7 @@ export default function BundleUploadZone({
                 placeholder={`Bundle ${bundleIndex + 1}`}
                 className="max-w-sm"
               />
-              <Button type="button" variant="ghost" size="icon" onClick={() => removeBundle(bundle.id)}>
+              <Button type="button" variant="ghost" size="icon" onClick={() => removeBundle(bundle.id)} aria-label={`Remover ${bundle.name}`}>
                 <IconTrash className="h-4 w-4" />
               </Button>
             </div>

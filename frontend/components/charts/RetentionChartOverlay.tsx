@@ -101,7 +101,7 @@ const getRetentionAtSecond = (second: number, data: { x: number; y: number }[]):
 export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duration = 0, isPlaying = false, onTimeSeek, className = "", showYAxisLabels = true }: RetentionChartOverlayProps) {
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("#6b7280"); // fallback gray
+  const [mutedForegroundColor, setMutedForegroundColor] = useState<string>("var(--muted-foreground)");
 
   // Obter cor muted-foreground computada do CSS
   useEffect(() => {

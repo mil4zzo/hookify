@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { LoadingState, EmptyState } from "@/components/common/States";
+import { EmptyState } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { OpportunityWidget } from "@/components/insights/OpportunityWidget";
 import { calculateGlobalMetricRanks, createEmptyMetricRanks } from "@/lib/utils/metricRankings";
@@ -26,7 +26,8 @@ import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { Skeleton } from "@/components/ui/skeleton";
 import { HookifyWidget } from "@/components/common/HookifyWidget";
-import { TabbedContent, TabbedContentItem } from "@/components/common/TabbedContent";
+import { TabbedContentItem } from "@/components/common/TabbedContent";
+import { AnalyticsWorkspace, DashboardGrid, TabbedWorkspace, WorkspaceState } from "@/components/common/layout";
 import { useFilters } from "@/lib/hooks/useFilters";
 
 // Chaves específicas do Insights
@@ -385,15 +386,27 @@ export default function InsightsPage() {
 
   // ── Loading states ─────────────────────────────────────────────────────────
   if (!isClient) {
-    return <div><LoadingState label="Carregando..." /></div>;
+    return (
+      <PageContainer variant="analytics" title="Oportunidades" description="Melhorias para maximizar seus lucros, ordenada por maior impacto.">
+        <WorkspaceState kind="loading" label="Carregando..." framed={false} fill />
+      </PageContainer>
+    );
   }
 
   if (authStatus !== "authorized") {
-    return <div><LoadingState label="Redirecionando para login..." /></div>;
+    return (
+      <PageContainer variant="analytics" title="Oportunidades" description="Melhorias para maximizar seus lucros, ordenada por maior impacto.">
+        <WorkspaceState kind="loading" label="Redirecionando para login..." framed={false} fill />
+      </PageContainer>
+    );
   }
 
   if (onboardingStatus === "requires_onboarding") {
-    return <div><LoadingState label="Redirecionando para configuração inicial..." /></div>;
+    return (
+      <PageContainer variant="analytics" title="Oportunidades" description="Melhorias para maximizar seus lucros, ordenada por maior impacto.">
+        <WorkspaceState kind="loading" label="Redirecionando para configuração inicial..." framed={false} fill />
+      </PageContainer>
+    );
   }
 
   const hasData = serverData && serverData.length > 0;
@@ -405,9 +418,11 @@ export default function InsightsPage() {
     <div className="space-y-6">
       <div className="relative">
         <div className="flex gap-4 overflow-hidden">
-          {[1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-80 w-80 flex-shrink-0 rounded-lg" />
-          ))}
+          <DashboardGrid className="min-w-max grid-cols-[repeat(3,20rem)]">
+            {[1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-80 w-80 flex-shrink-0 rounded-lg" />
+            ))}
+          </DashboardGrid>
         </div>
       </div>
     </div>
@@ -448,6 +463,7 @@ export default function InsightsPage() {
 
   return (
     <PageContainer
+      variant="analytics"
       title={headerConfig.title}
       description={headerConfig.description}
       actions={
@@ -465,19 +481,19 @@ export default function InsightsPage() {
         ) : undefined
       }
     >
-      {/* Tabs */}
-      <TabbedContent
-        value={activeTab}
-        onValueChange={handleTabChange}
-        variant="with-icons"
-        showTooltips={true}
-        separatorAfterTabs={true}
-        tabs={[
-          { value: "opportunities", label: "Oportunidades", icon: IconStarFilled, tooltip: TAB_TITLES.opportunities },
-          { value: "insights", label: "Insights", icon: IconSparkles, tooltip: TAB_TITLES.insights },
-          { value: "gems", label: "Gems", icon: IconDiamond, tooltip: TAB_TITLES.gems },
-        ]}
-      >
+      <AnalyticsWorkspace>
+        <TabbedWorkspace
+          value={activeTab}
+          onValueChange={handleTabChange}
+          variant="with-icons"
+          showTooltips={true}
+          separatorAfterTabs={true}
+          tabs={[
+            { value: "opportunities", label: "Oportunidades", icon: IconStarFilled, tooltip: TAB_TITLES.opportunities },
+            { value: "insights", label: "Insights", icon: IconSparkles, tooltip: TAB_TITLES.insights },
+            { value: "gems", label: "Gems", icon: IconDiamond, tooltip: TAB_TITLES.gems },
+          ]}
+        >
         {/* Tab Oportunidades */}
         <TabbedContentItem value="opportunities" variant="with-icons">
           <HookifyWidget
@@ -591,7 +607,8 @@ export default function InsightsPage() {
             )}
           </HookifyWidget>
         </TabbedContentItem>
-      </TabbedContent>
+        </TabbedWorkspace>
+      </AnalyticsWorkspace>
 
       {/* Modal com detalhes do anúncio */}
       <Modal

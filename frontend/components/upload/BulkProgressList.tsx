@@ -194,7 +194,7 @@ export function ProgressItemCard({
         : "border-border bg-muted-10"
 
   return (
-    <div className={`rounded-xl border transition-colors ${borderClass}`}>
+    <div className={`rounded-md border transition-colors ${borderClass}`}>
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
           isDone ? "bg-success-10" : isError ? "bg-destructive-10" : isActive ? "bg-primary-10" : "bg-muted"
@@ -345,7 +345,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
   return (
     <div className="space-y-4">
       {summary.total > 1 && (
-        <div className="overflow-hidden rounded-2xl border border-border bg-background shadow-sm">
+        <div className="overflow-hidden rounded-md border border-border bg-background shadow-sm">
           <div className="flex items-center gap-3 border-b border-border px-5 py-4">
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
               isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : isCancelled ? "bg-muted" : "bg-primary-10"

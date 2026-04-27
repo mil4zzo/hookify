@@ -82,3 +82,31 @@ Nada mais necessário — middleware e sidebar filtram automaticamente.
 **Admin UI:** `/admin` gated por tier `admin`; chama RPC `get_admin_users_list` (join auth.users + subscriptions + packs + facebook_connections) e `PATCH /admin/users/{id}/tier` no FastAPI com validação de tier do caller.
 
 **Arquivos chave:** `frontend/lib/config/tierConfig.ts`, `frontend/middleware.ts`, `frontend/lib/hooks/useUserTier.ts`, `backend/app/routes/admin.py`, migrations 068 e 069.
+
+---
+
+## Analytics — Paridade entre RPC e fallback legado em endpoints de séries
+
+**Data:** 2026-04-27
+
+**Problema:** `/analytics/rankings/series` aceita uma lista de `group_keys` e deveria devolver uma série por chave. Em produção, o usuário pediu 10 chaves e recebeu apenas 4. As 6 ausentes não tinham linhas em `ad_metrics` dentro da janela `window=5` (últimos N dias do range).
+
+**Causa raiz:** Existem dois caminhos para esse endpoint:
+- **RPC** (`_get_rankings_series_v2_rpc` → função `fetch_manager_rankings_series_v2`): após receber a resposta do Postgres, percorre os `keys` requisitados e preenche stub vazio (`_empty_series_for_axis(axis)`) para qualquer chave ausente.
+- **Legado** (`_get_rankings_series_v2`): iterava as linhas retornadas pelo `_get_rankings_legacy` e descartava silenciosamente qualquer chave sem dados na janela (`if not series: continue`).
+
+Como `ANALYTICS_MANAGER_RPC_FAIL_OPEN=true`, qualquer falha do RPC cai para o legado sem alerta visível ao usuário, e o legado emitia uma resposta com chaves faltando.
+
+**Por que isso quebra a UI:** O Manager (`frontend/app/manager/page.tsx`, `buildPendingSet`) calcula chaves "pendentes" como aquelas ausentes do cache. Chaves silenciosamente descartadas ficam pendentes indefinidamente — sparkline não renderiza e o frontend dispara nova requisição a cada repaint.
+
+**Solução:** No fallback legado, depois de montar `out`, preencher stubs para qualquer `group_keys_set - out.keys()` usando `_empty_series_for_axis(axis)` — comportamento idêntico ao do RPC. Frontend e contratos não precisam mudar.
+
+**Plano de descontinuação do legado (não nesta PR):**
+1. Manter `FAIL_OPEN=true` enquanto AB-compare (`ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED=true`) confirma paridade entre RPC e legado.
+2. Desligar `ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED=false` para rodar somente RPC em produção e validar.
+3. Se estável, mudar `ANALYTICS_MANAGER_RPC_FAIL_OPEN=false` no `.env.production` (reversível com restart).
+4. Apenas então remover `_get_rankings_series_v2` e o ramo de fallback no handler — atenção: `_get_rankings_legacy` também é usado por `_get_rankings_core_v2` e pelo shadow de AB-compare; remoção exige cascata.
+
+**Regra geral:** Em qualquer endpoint cuja resposta seja indexada por chaves requisitadas pelo cliente, todos os caminhos servidores devem garantir que toda chave pedida apareça na resposta (com payload vazio quando aplicável). Divergência silenciosa entre paths é particularmente perigosa em pares com `FAIL_OPEN`.
+
+**Arquivos alterados:** `backend/app/routes/analytics.py` (`_get_rankings_series_v2`).

@@ -24,7 +24,8 @@ import { createManagerTableColumns } from "@/components/manager/managerTableColu
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ColumnFilter, FilterValue, FilterOperator, TextFilterValue, TextFilterOperator } from "@/components/common/ColumnFilter";
 import { Separator } from "@/components/common/Separator";
-import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+import { TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+import { TabbedWorkspace, TableWorkspace } from "@/components/common/layout";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDialog").then((m) => m.AdsetDetailsDialog), { ssr: false });
@@ -935,8 +936,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
   );
   return (
-    <div className="w-full h-full flex-1 flex flex-col min-h-0 overflow-hidden">
-      <TabbedContent
+    <>
+      <TabbedWorkspace
         value={currentTab}
         onValueChange={handleTabChange}
         variant="with-controls"
@@ -947,53 +948,69 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         tabsListClassName="w-full overflow-x-auto md:w-fit"
       >
         <TabbedContentItem value="individual" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
+          <TableWorkspace
+            compact={viewMode === "detailed"}
+            toolbar={
+              <>
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
-            </div>
+              </>
+            }
+          >
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
-          </div>
+          </TableWorkspace>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-anuncio" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
+          <TableWorkspace
+            compact={viewMode === "detailed"}
+            toolbar={
+              <>
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
-            </div>
+              </>
+            }
+          >
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
-          </div>
+          </TableWorkspace>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-conjunto" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
+          <TableWorkspace
+            compact={viewMode === "detailed"}
+            toolbar={
+              <>
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
-            </div>
+              </>
+            }
+          >
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
-          </div>
+          </TableWorkspace>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-campanha" variant="with-controls">
-          <div className={`flex flex-col flex-1 min-h-0 overflow-hidden ${viewMode === "detailed" ? "gap-0" : "gap-4"}`}>
-            <div className="flex flex-col gap-4 flex-shrink-0 md:flex-row md:items-center md:gap-6">
+          <TableWorkspace
+            compact={viewMode === "detailed"}
+            toolbar={
+              <>
               {searchBar}
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
               </div>
-            </div>
+              </>
+            }
+          >
             {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
-          </div>
+          </TableWorkspace>
         </TabbedContentItem>
-      </TabbedContent>
+      </TabbedWorkspace>
 
       {/* Details Dialog */}
       <Modal isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} size="5xl" padding="md" className="h-[90dvh] min-h-0">
@@ -1016,6 +1033,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         actorId={selectedVideo?.actorId}
         title={selectedVideo?.title}
       />
-    </div>
+    </>
   );
 }

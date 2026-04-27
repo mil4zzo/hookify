@@ -23,7 +23,7 @@ export const useClientSession = () => {
           // Se algum pack tem rawAds, limpar tudo para forçar recarregamento
           const hasOldFormat = parsedPacks.some((pack: any) => pack.rawAds !== undefined)
           if (hasOldFormat) {
-            console.log('🧹 Limpando packs antigos com formato incompatível...')
+            console.log('Limpando packs antigos com formato incompatível...')
             localStorage.removeItem('hookify_packs')
             localStorage.removeItem('hookify_adaccounts')
           }

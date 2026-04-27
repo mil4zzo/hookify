@@ -7,6 +7,7 @@ import { Modal } from "@/components/common/Modal";
 import { useState } from "react";
 import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
 import { showSuccess, showError, showInfo } from "@/lib/utils/toast";
+import { IconRocket } from "@tabler/icons-react";
 
 export default function UIDemo() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -34,7 +35,7 @@ export default function UIDemo() {
             <Button size="sm">Small</Button>
             <Button size="default">Default</Button>
             <Button size="lg">Large</Button>
-            <Button size="icon">🚀</Button>
+            <Button size="icon" aria-label="Rocket"><IconRocket className="h-4 w-4" /></Button>
           </div>
         </section>
 

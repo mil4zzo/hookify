@@ -14,8 +14,8 @@ interface Props {
 
 function pctCellClass(value: number | null): string {
   if (value == null) return "";
-  if (value >= 80) return "text-red-400";
-  if (value >= 50) return "text-yellow-400";
+  if (value >= 80) return "text-destructive";
+  if (value >= 50) return "text-warning";
   return "";
 }
 
@@ -26,9 +26,9 @@ function formatNum(v: number | null, digits = 1): string {
 
 function statusBadgeClass(status: number | null): string {
   if (status == null) return "text-muted-foreground";
-  if (status >= 500) return "text-red-400";
-  if (status >= 400) return "text-yellow-400";
-  return "text-emerald-400";
+  if (status >= 500) return "text-destructive";
+  if (status >= 400) return "text-warning";
+  return "text-success";
 }
 
 export function MetaUsageTable({
@@ -105,7 +105,7 @@ export function MetaUsageTable({
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {call.regain_access_minutes != null && call.regain_access_minutes > 0
-                    ? <span className="text-red-400 font-medium">{call.regain_access_minutes}m</span>
+                    ? <span className="text-destructive font-medium">{call.regain_access_minutes}m</span>
                     : <span className="text-muted-foreground">—</span>}
                 </td>
               </tr>

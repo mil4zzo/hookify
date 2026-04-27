@@ -206,7 +206,7 @@ function SlotCard({ set, index, templateSlots, onUpdate, onRemove }: { set: AdMe
   const totalCount = templateSlots.length;
 
   return (
-    <div className={`rounded-xl border bg-secondary transition-colors ${complete ? "border-primary-30" : "border-border"}`}>
+    <div className={`rounded-md border bg-secondary transition-colors ${complete ? "border-primary-30" : "border-border"}`}>
       {/* Header */}
       <div className="flex items-center justify-between gap-3 rounded-t-md border-b border-border bg-card px-4 py-3">
         <div className="flex items-center gap-2.5">
@@ -326,7 +326,7 @@ export default function SlotUploadZone({ sets, templateSlots, onChange }: SlotUp
         {/* Add card — lives inside the grid as a peer */}
         <button
           type="button"
-          className="group flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted-10 text-sm text-muted-foreground transition-colors hover:border-primary-60 hover:bg-primary-5 hover:text-primary"
+          className="group flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-2 rounded-md border border-dashed border-border bg-muted-10 text-sm text-muted-foreground transition-colors hover:border-primary-60 hover:bg-primary-5 hover:text-primary"
           onClick={addSet}
         >
           <IconPlus className="h-5 w-5 transition-transform group-hover:scale-110" />

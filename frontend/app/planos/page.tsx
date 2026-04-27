@@ -40,6 +40,7 @@ function PlanosContent() {
 
   return (
     <PageContainer
+      variant="standard"
       title="Planos"
       description={
         blockedPage

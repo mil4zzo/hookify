@@ -30,10 +30,10 @@ import type { AdMediaSet } from "@/components/upload/SlotUploadZone"
 import { isMediaSetComplete, makeEmptyMediaSet } from "@/components/upload/SlotUploadZone"
 import { interpolate, interpolateAdset, type CampaignReviewItem } from "@/components/upload/CampaignReviewTable"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageContainer } from "@/components/common/PageContainer"
-import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent"
+import { TabbedContentItem, type TabItem } from "@/components/common/TabbedContent"
+import { FormStepWorkspace, TabbedWorkspace } from "@/components/common/layout"
 import AdGrid from "@/components/upload/AdGrid"
 import CreativePreview from "@/components/upload/CreativePreview"
 import { ProgressItemCard } from "@/components/upload/BulkProgressList"
@@ -130,12 +130,12 @@ function CampaignPreviewSkeleton({ mode }: { mode: "ads" | "campaign" }) {
       {/* Creative name badge */}
       <Skeleton className="h-5 w-28" />
       {/* Video preview */}
-      <div className="rounded-2xl bg-gradient-to-b from-muted/60 to-muted/20 p-4 flex justify-center">
-        <Skeleton className="w-[200px] aspect-[9/16] rounded-2xl" />
+      <div className="rounded-md bg-gradient-to-b from-muted/60 to-muted/20 p-4 flex justify-center">
+        <Skeleton className="w-[200px] aspect-[9/16] rounded-md" />
       </div>
       {/* Campaign structure card — only in campaign mode */}
       {mode === "campaign" && (
-        <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+        <div className="rounded-md border border-border bg-background p-4 space-y-3">
           <Skeleton className="h-3 w-32" />
           <Skeleton className="h-4 w-48" />
           <div className="space-y-1.5">
@@ -290,7 +290,7 @@ function CampaignProgressView({
   return (
     <div className="space-y-4">
       {/* Header card */}
-      <div className="rounded-2xl border border-border bg-background shadow-sm overflow-hidden">
+      <div className="rounded-md border border-border bg-background shadow-sm overflow-hidden">
         {/* Top: status + message */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
           <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : "bg-primary-10"}`}>
@@ -963,23 +963,25 @@ export default function UploadPage() {
 
   return (
     <PageContainer
+      variant="standard"
       title="Upload em Massa"
       description="Crie ou duplique anúncios e campanhas em lote"
     >
-      <TabbedContent
+      <TabbedWorkspace
         value={uploadMode}
         onValueChange={switchMode as (v: string) => void}
         tabs={uploadTabs}
         separatorAfterTabs={true}
+        fullHeight={false}
       >
       {/* ── Content area (shared between tabs) ── */}
-      <TabbedContentItem value={uploadMode} className="space-y-6">
+      <TabbedContentItem value={uploadMode}>
 
         {/* Step breadcrumb + nav actions */}
-        <div className="flex items-center justify-between gap-4">
-          <StepIndicator steps={steps} currentStep={currentStep} onStepClick={(id) => { if (id < currentStep) setCurrentStep(id) }} />
-          {navActions}
-        </div>
+        <FormStepWorkspace
+          header={<StepIndicator steps={steps} currentStep={currentStep} onStepClick={(id) => { if (id < currentStep) setCurrentStep(id) }} />}
+          actions={navActions}
+        >
 
         {/* Step 1: Template selection */}
         {currentStep === 1 && (
@@ -1003,7 +1005,7 @@ export default function UploadPage() {
                 <div className="space-y-3">
                   <CreativePreview creative={creative} adId={selectedTemplateAdId} />
                   {/* Campaign structure */}
-                  <div className="rounded-xl border border-border bg-background p-4 space-y-3">
+                  <div className="rounded-md border border-border bg-background p-4 space-y-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estrutura da campanha</div>
                     <div className="text-sm font-medium truncate">{campaignTemplate.campaign_name}</div>
                     <div className="space-y-1">
@@ -1096,7 +1098,7 @@ export default function UploadPage() {
             ) : isCreating && !progress && uploadMode === "ads" ? (
               /* Ads mode: initializing skeleton — shows real item list as pending */
               <div className="space-y-3">
-                <div className="rounded-2xl border border-border bg-background overflow-hidden shadow-sm">
+                <div className="rounded-md border border-border bg-background overflow-hidden shadow-sm">
                         <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
                             <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
@@ -1137,7 +1139,7 @@ export default function UploadPage() {
                     processEndedAtMs={campaignProcessEndedAtMs}
                   />
                 : <div className="space-y-3">
-                    <div className="rounded-2xl border border-border bg-background overflow-hidden shadow-sm">
+                    <div className="rounded-md border border-border bg-background overflow-hidden shadow-sm">
                       <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
                           <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
@@ -1218,8 +1220,9 @@ export default function UploadPage() {
             )}
           </div>
         )}
+        </FormStepWorkspace>
       </TabbedContentItem>
-      </TabbedContent>
+      </TabbedWorkspace>
 
     </PageContainer>
   )

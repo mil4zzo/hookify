@@ -591,6 +591,15 @@ def _get_rankings_series_v2(req: RankingsSeriesRequest, user: Dict[str, Any], sb
                 series["conversions"] = reduced
         out[key] = series
 
+    # Mirror RPC behaviour: emit an empty stub for every requested key that had
+    # no rows in the series window, so the frontend cache treats them as resolved
+    # instead of perpetually pending.
+    missing_keys = group_keys_set - out.keys()
+    if missing_keys:
+        axis = _series_axis_for_request(req.date_start, req.date_stop, req.window)
+        for k in missing_keys:
+            out[k] = _empty_series_for_axis(axis)
+
     return {"series_by_group": out, "window": req.window}
 
 
@@ -996,6 +1005,55 @@ def _hydrate_storage_thumbnails_for_rankings_rows(
         "storage_found": len(ad_id_to_storage),
         "overridden": overridden,
     }
+
+
+def _hydrate_transcription_flags_for_rankings_rows(
+    sb,
+    user_id: str,
+    rows: List[Dict[str, Any]],
+) -> int:
+    """Set has_transcription=True on rows whose ad_name has a completed transcription."""
+    if not rows:
+        return 0
+
+    ad_names: List[str] = []
+    for row in rows:
+        name = str(row.get("ad_name") or "").strip()
+        if name:
+            ad_names.append(name)
+
+    if not ad_names:
+        return 0
+
+    unique_names = list(set(ad_names))
+    completed_names: Set[str] = set()
+    batch_size = 500
+    for i in range(0, len(unique_names), batch_size):
+        batch = unique_names[i : i + batch_size]
+        try:
+            res = (
+                sb.table("ad_transcriptions")
+                .select("ad_name")
+                .eq("user_id", user_id)
+                .eq("status", "completed")
+                .in_("ad_name", batch)
+                .execute()
+            )
+            for tr_row in (res.data or []):
+                name = str(tr_row.get("ad_name") or "").strip()
+                if name:
+                    completed_names.add(name)
+        except Exception as e:
+            logger.warning("[rankings_transcription_hydration] batch failed batch=%s err=%s", len(batch), e)
+
+    flagged = 0
+    for row in rows:
+        name = str(row.get("ad_name") or "").strip()
+        if name in completed_names:
+            row["has_transcription"] = True
+            flagged += 1
+
+    return flagged
 
 
 GlobalSearchResultType = Literal["ad_id", "ad_name", "adset_name", "campaign_name"]
@@ -2032,8 +2090,13 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         user_id=user_id,
         rows=primary.get("data") or [],
     )
+    transcription_flagged = _hydrate_transcription_flags_for_rankings_rows(
+        sb=sb,
+        user_id=user_id,
+        rows=primary.get("data") or [],
+    )
     logger.info(
-        "[rankings_cutover] aggregated_rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s hydrated=%s",
+        "[rankings_cutover] aggregated_rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s hydrated=%s transcription_flagged=%s",
         elapsed_ms,
         req.group_by,
         req.date_start,
@@ -2041,6 +2104,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         len(req.pack_ids or []),
         len(primary.get("data") or []),
         hydration_stats,
+        transcription_flagged,
     )
 
     # Compare apenas quando pedimos conversion types completos para reduzir ruÃ­do

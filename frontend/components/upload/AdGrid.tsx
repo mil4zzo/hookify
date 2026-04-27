@@ -33,7 +33,7 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
 function StatusDot({ status }: { status?: string | null }) {
   return (
     <span
-      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${status === "ACTIVE" ? "bg-emerald-500" : "bg-muted-foreground-40"}`}
+      className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${status === "ACTIVE" ? "bg-success" : "bg-muted-foreground-40"}`}
       title={status ?? ""}
     />
   )
@@ -248,7 +248,7 @@ const AdGrid = memo(function AdGrid({ selectedAdId, onSelect }: AdGridProps) {
 
       <div
         ref={scrollRef}
-        className="scrollbar-thin max-h-[420px] overflow-y-auto rounded-xl border border-border pr-0.5"
+        className="scrollbar-thin max-h-[420px] overflow-y-auto rounded-md border border-border pr-0.5"
       >
         {isPending ? (
           <div className="divide-y divide-border">

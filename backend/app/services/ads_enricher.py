@@ -401,6 +401,7 @@ class AdsEnricher:
         # com owner resolvivel). Cai para creative/adcreatives diretos se nao houver source_ad.
         creative_map: Dict[str, Optional[Dict[str, Any]]] = {}
         videos_map: Dict[str, List[Dict[str, Any]]] = {}
+        primary_video_id_map: Dict[str, str] = {}
         page_id_map: Dict[str, str] = {}
         source_ad_hits = 0
         for detail in details:
@@ -417,8 +418,12 @@ class AdsEnricher:
             if data:
                 first = data[0] or {}
                 asset_feed_spec = first.get("asset_feed_spec") or {}
-                if asset_feed_spec.get("videos"):
-                    videos_map[name] = asset_feed_spec["videos"]
+                videos = asset_feed_spec.get("videos")
+                if isinstance(videos, list) and videos:
+                    videos_map[name] = videos
+                    first_video = videos[0] or {}
+                    if isinstance(first_video, dict) and first_video.get("video_id"):
+                        primary_video_id_map[name] = str(first_video.get("video_id"))
                 page_id = (first.get("object_story_spec") or {}).get("page_id")
                 if page_id:
                     page_id_map[name] = page_id
@@ -448,6 +453,9 @@ class AdsEnricher:
                     video_thumbs.append(video.get("thumbnail_url"))
             ad["adcreatives_videos_ids"] = video_ids
             ad["adcreatives_videos_thumbs"] = video_thumbs
+            primary_video_id = primary_video_id_map.get(ad_name)
+            if primary_video_id:
+                ad["primary_video_id"] = primary_video_id
 
             page_id = page_id_map.get(ad_name)
             if page_id:

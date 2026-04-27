@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
-import { IconChevronDown } from "@tabler/icons-react";
+import { IconChevronDown, IconMicrophone } from "@tabler/icons-react";
 
 interface AdNameCellProps {
   original: RankingsItem;
@@ -105,7 +105,16 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
 
   return (
     <div className="flex items-center gap-3 w-full">
-      {showThumbnail && <ThumbnailImage src={thumbnail} alt="thumb" size={thumbnailSize} />}
+      {showThumbnail && (
+        <div className="relative flex-shrink-0">
+          <ThumbnailImage src={thumbnail} alt="thumb" size={thumbnailSize} />
+          {original.has_transcription && (
+            <div className="absolute bottom-0.5 right-0.5 rounded bg-background/80 p-0.5 backdrop-blur-sm">
+              <IconMicrophone className="h-2.5 w-2.5 text-primary" />
+            </div>
+          )}
+        </div>
+      )}
       <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex items-center gap-2 truncate">
           <span className="truncate flex-1">{name}</span>

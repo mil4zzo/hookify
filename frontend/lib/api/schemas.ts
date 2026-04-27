@@ -432,6 +432,7 @@ export const RankingsItemSchema = z.object({
   thumb_storage_path: z.string().nullable().optional(),
   adcreatives_videos_thumbs: z.array(z.string()).nullable().optional(), // Array de thumbnails dos vídeos do adcreative
   video_play_curve_actions: z.array(z.number()).nullable().optional(), // Curva de retenção agregada (ponderada por plays)
+  has_transcription: z.boolean().optional(),
   series: z
     .lazy(() => RankingsSeriesSchema)
     .nullable()

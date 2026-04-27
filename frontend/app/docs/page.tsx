@@ -5,6 +5,7 @@ import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
 import { PageIcon } from "@/lib/utils/pageIcon";
 import { StandardCard } from "@/components/common/StandardCard";
+import { PageBodyStack } from "@/components/common/layout";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -340,6 +341,7 @@ export default function DocsPage() {
 
   return (
     <PageContainer
+      variant="standard"
       title="Documentação"
       description="Entenda como utilizar cada funcionalidade da plataforma Hookify"
       icon={<PageIcon icon={IconBook2} />}
@@ -352,6 +354,7 @@ export default function DocsPage() {
         </PageActions>
       }
     >
+      <PageBodyStack>
       {/* Hero */}
       <StandardCard padding="lg">
         <h2 className="text-lg font-semibold text-foreground mb-2">O que é o Hookify?</h2>
@@ -667,6 +670,7 @@ export default function DocsPage() {
           ))}
         </Accordion>
       </StandardCard>
+      </PageBodyStack>
     </PageContainer>
   );
 }
