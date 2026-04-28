@@ -75,6 +75,7 @@ export default function ServerStatusBanner() {
   // Se estiver verificando após já ter verificado antes, mostrar estado de loading
   if (status === "checking" && isChecking && hasCheckedOnce) {
     return (
+      // design-system-exception: inline-notice-pattern - Full-width app chrome banner, not an inline page notice.
       <div className="w-full bg-warning-20 border-b border-warning-50 py-2">
         <div className="hidden md:flex container mx-auto items-center justify-between px-8">
           <div className="flex items-center gap-2 text-warning">
@@ -94,6 +95,7 @@ export default function ServerStatusBanner() {
 
   // Servidor offline (só aparece quando confirmado)
   return (
+    // design-system-exception: inline-notice-pattern - Full-width app chrome banner, not an inline page notice.
     <div className="w-full bg-destructive-20 border-b border-destructive-50 py-2">
       {/* Desktop Layout */}
       <div className="hidden md:flex container mx-auto items-center justify-between px-8">

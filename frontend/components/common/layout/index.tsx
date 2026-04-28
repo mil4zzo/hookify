@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentProps, HTMLAttributes, ReactNode } from "react";
-import { ErrorState, EmptyState, LoadingState } from "@/components/common/States";
+import { StatePanel, type StateDensity, type StateTone } from "@/components/common/States";
 import { StandardCard } from "@/components/common/StandardCard";
 import { TabbedContent, type TabbedContentProps } from "@/components/common/TabbedContent";
 import { KanbanScrollContainer } from "@/components/common/KanbanScrollContainer";
@@ -81,50 +81,44 @@ export function TabbedWorkspace({
   );
 }
 
-export type WorkspaceStateKind = "loading" | "empty" | "error";
+export type WorkspaceStateKind = "empty" | "error";
 
 export interface WorkspaceStateProps {
   kind: WorkspaceStateKind;
+  tone?: Exclude<StateTone, "loading">;
+  title?: ReactNode;
   label?: string;
-  message?: string;
+  message?: ReactNode;
   action?: ReactNode;
   framed?: boolean;
   fill?: boolean;
+  density?: StateDensity;
   className?: string;
 }
 
 export function WorkspaceState({
   kind,
+  tone,
+  title,
   label,
   message,
   action,
   framed = true,
   fill = false,
+  density = "default",
   className,
 }: WorkspaceStateProps) {
-  const content =
-    kind === "loading" ? (
-      <LoadingState label={label} />
-    ) : kind === "error" ? (
-      <ErrorState message={message || "Nao foi possivel carregar os dados."} action={action} />
-    ) : (
-      <EmptyState message={message} />
-    );
-
-  const contentWrapper = (
-    <div className={cn("flex items-center justify-center py-12", fill && "min-h-[18rem] flex-1", className)}>
-      {content}
-    </div>
-  );
-
-  if (!framed) {
-    return contentWrapper;
-  }
-
   return (
-    <StandardCard padding="lg" className={cn("flex justify-center", fill && "min-h-[18rem] flex-1")}>
-      {contentWrapper}
-    </StandardCard>
+    <StatePanel
+      kind={tone ?? kind}
+      title={title}
+      message={message || (kind === "error" ? "Nao foi possivel carregar os dados." : label)}
+      action={action}
+      framed={framed}
+      fill={fill}
+      density={density}
+      className={className}
+    />
   );
 }
 

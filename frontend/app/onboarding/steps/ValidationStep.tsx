@@ -7,7 +7,7 @@ import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { ValidationCondition, ValidationCriteriaBuilder, validateConditions } from "@/components/common/ValidationCriteriaBuilder";
 import { api } from "@/lib/api/endpoints";
 import { FormPageSection } from "@/components/common/layout";
-import { LoadingState } from "@/components/common/States";
+import { StateSkeleton } from "@/components/common/States";
 import { showError, showSuccess } from "@/lib/utils/toast";
 
 const RECOMMENDED_IMPRESSIONS = 3000;
@@ -42,7 +42,7 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
   if (isLoading) {
     return (
       <FormPageSection title="Configurando critério de validação">
-        <LoadingState label="Carregando critérios..." />
+        <StateSkeleton variant="widget" rows={3} />
       </FormPageSection>
     );
   }

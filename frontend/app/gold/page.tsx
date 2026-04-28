@@ -12,7 +12,18 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { GoldKanbanWidget } from "@/components/gold/GoldKanbanWidget";
 import { GoldTable } from "@/components/gold/GoldTable";
 import { useFilters } from "@/lib/hooks/useFilters";
+import { StateSkeleton } from "@/components/common/States";
 import { AnalyticsWorkspace, DashboardGrid, WorkspaceState } from "@/components/common/layout";
+
+function GoldPageSkeleton() {
+  return (
+    <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
+      <AnalyticsWorkspace>
+        <StateSkeleton variant="page" rows={4} className="rounded-md border border-border bg-card" />
+      </AnalyticsWorkspace>
+    </PageContainer>
+  );
+}
 
 export default function GoldPage() {
   const { isClient, isAuthorized } = useAppAuthReady();
@@ -167,19 +178,11 @@ export default function GoldPage() {
   }, [filteredRankings, validationCriteria, actionType, actionTypeOptions]);
 
   if (!isClient || !isAuthorized) {
-    return (
-      <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
-        <WorkspaceState kind="loading" framed={false} fill />
-      </PageContainer>
-    );
+    return <GoldPageSkeleton />;
   }
 
   if (loading || isLoadingCriteria) {
-    return (
-      <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
-        <WorkspaceState kind="loading" framed={false} fill />
-      </PageContainer>
-    );
+    return <GoldPageSkeleton />;
   }
 
   if (!validatedRankings || validatedRankings.length === 0) {

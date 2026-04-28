@@ -4,6 +4,7 @@ import React, { useRef, useState, useEffect, useCallback, useMemo } from "react"
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { TableSummaryBar } from "@/components/manager/TableSummaryBar";
+import { StatePanel } from "@/components/common/States";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
@@ -343,10 +344,13 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
               ))
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={table.getVisibleLeafColumns().length} className="p-8 text-center text-muted-foreground">
-                  {isError
-                    ? "Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs."
-                    : "Nenhum resultado com esses filtros."}
+                <td colSpan={table.getVisibleLeafColumns().length} className="p-4">
+                  <StatePanel
+                    kind={isError ? "error" : "empty"}
+                    message={isError ? "Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs." : "Nenhum resultado com esses filtros."}
+                    framed={false}
+                    density="compact"
+                  />
                 </td>
               </tr>
             ) : (

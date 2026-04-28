@@ -4,6 +4,7 @@ import React, { useRef, useState, useEffect, useCallback, useMemo } from "react"
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { TableSummaryBar } from "@/components/manager/TableSummaryBar";
+import { StatePanel } from "@/components/common/States";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
@@ -335,8 +336,8 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
               ))
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={table.getVisibleLeafColumns().length} className="p-4 text-center text-muted-foreground text-xs">
-                  Nenhum resultado com esses filtros.
+                <td colSpan={table.getVisibleLeafColumns().length} className="p-2">
+                  <StatePanel kind="empty" message="Nenhum resultado com esses filtros." framed={false} density="compact" />
                 </td>
               </tr>
             ) : (

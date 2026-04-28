@@ -3,14 +3,30 @@
 import { useEffect, useState } from "react";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
-import { LoadingState } from "@/components/common/States";
+import { StateSkeleton } from "@/components/common/States";
 import { PageContainer } from "@/components/common/PageContainer";
+import { PageBodyStack } from "@/components/common/layout";
 import { InitialSettingsStep } from "./steps/InitialSettingsStep";
 import { FacebookStep } from "./steps/FacebookStep";
 import { ValidationStep } from "./steps/ValidationStep";
 import { SuccessStep } from "./steps/SuccessStep";
 
 type Step = 1 | 2 | 3 | 4;
+
+function OnboardingSkeleton() {
+  return (
+    <PageContainer
+      variant="standard"
+      title="Configuração inicial"
+      description="Vamos deixar tudo pronto para o Hookify analisar seus anúncios."
+    >
+      <PageBodyStack density="spacious">
+        <StateSkeleton variant="widget" rows={1} className="rounded-md border border-border bg-card" />
+        <StateSkeleton variant="page" rows={3} className="rounded-md border border-border bg-card" />
+      </PageBodyStack>
+    </PageContainer>
+  );
+}
 
 /** Calcula o step inicial com base no progresso salvo no backend. */
 function computeInitialStep(data: { initial_settings_configured?: boolean; facebook_connected?: boolean; validation_criteria_configured?: boolean } | undefined): Step {
@@ -43,15 +59,15 @@ export default function OnboardingPage() {
   };
 
   if (!isClient) {
-    return <LoadingState label="Carregando..." />;
+    return <OnboardingSkeleton />;
   }
 
   if (authStatus !== "authorized") {
-    return <LoadingState label="Redirecionando para login..." />;
+    return <OnboardingSkeleton />;
   }
 
   if (onboardingStatus === "checking") {
-    return <LoadingState label="Verificando configurações iniciais..." />;
+    return <OnboardingSkeleton />;
   }
 
   return (

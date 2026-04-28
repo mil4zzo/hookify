@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { IconArrowsSort, IconLoader2 } from "@tabler/icons-react";
+import { IconArrowsSort } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
+import { StatePanel } from "@/components/common/States";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { FilterBar } from "@/components/manager/FilterBar";
@@ -150,24 +151,15 @@ export function ManagerChildrenTable({
   const metricColumnClass = "cursor-pointer select-none px-4 py-3 text-center hover:text-brand";
 
   const loadingContent = (
-    <div className="p-2 pl-8">
-      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-        <IconLoader2 className="h-4 w-4 shrink-0 animate-spin" />
-        <span>{`Carregando ${childrenLabel}...`}</span>
-      </div>
-    </div>
+    <StatePanel kind="loading" message={`Carregando ${childrenLabel}...`} framed={false} density="compact" align="left" />
   );
 
   const errorContent = (
-    <div className="p-2 pl-8">
-      <div className="text-sm text-destructive">{`Erro ao carregar ${childrenLabel}.`}</div>
-    </div>
+    <StatePanel kind="error" message={`Erro ao carregar ${childrenLabel}.`} framed={false} density="compact" align="left" />
   );
 
   const emptyContent = (
-    <div className="p-2 pl-8">
-      <div className="text-sm text-muted-foreground">{`Sem ${childrenLabel} no período.`}</div>
-    </div>
+    <StatePanel kind="empty" message={`Sem ${childrenLabel} no período.`} framed={false} density="compact" align="left" />
   );
 
   if (isLoading) {
@@ -231,14 +223,19 @@ export function ManagerChildrenTable({
       </div>
 
       {sortedData.length === 0 && (searchTerm.trim() || columnFilters.length > 0) ? (
-        <div className="p-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            {searchTerm.trim()
-              ? columnFilters.length > 0
-                ? `Nenhuma ${singularLabel} encontrada para "${searchTerm}" com os filtros aplicados.`
-                : `Nenhuma ${singularLabel} encontrada para "${searchTerm}".`
-              : `Nenhuma ${singularLabel} corresponde aos filtros aplicados.`}
-          </p>
+        <div className="p-4">
+          <StatePanel
+            kind="empty"
+            message={
+              searchTerm.trim()
+                ? columnFilters.length > 0
+                  ? `Nenhuma ${singularLabel} encontrada para "${searchTerm}" com os filtros aplicados.`
+                  : `Nenhuma ${singularLabel} encontrada para "${searchTerm}".`
+                : `Nenhuma ${singularLabel} corresponde aos filtros aplicados.`
+            }
+            framed={false}
+            density="compact"
+          />
           <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
             {searchTerm.trim() && (
               <button onClick={() => setSearchTerm("")} className="text-xs text-primary hover:underline">

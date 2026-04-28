@@ -50,7 +50,7 @@ Header actions ficam em `PageActions`. O corpo deve usar uma receita de
 - `PageBodyStack`: corpo vertical padrao para paginas standard.
 - `AnalyticsWorkspace`: corpo flexivel com `min-h-0` para workspaces.
 - `TabbedWorkspace`: tabs de pagina, com controles e wrapping consistentes.
-- `WorkspaceState`: loading, empty e error centralizados.
+- `WorkspaceState`: empty e error centralizados.
 - `TableWorkspace`: toolbar/filtros mais uma area primaria de tabela.
 - `KanbanWorkspace`: kanban horizontal ou vertical com scroll previsivel.
 - `DashboardGrid`: grid responsivo para metric cards e widgets.
@@ -90,6 +90,32 @@ Exemplo com sidebar:
   <AnalyticsWorkspace>{detail}</AnalyticsWorkspace>
 </PageContainer>
 ```
+
+## Estados
+
+Estados de loading, vazio, erro e aviso devem vir de
+`components/common/States`.
+
+| Contexto | Use | Observacao |
+| --- | --- | --- |
+| Loading de pagina/corpo | `StateSkeleton` | Mostre a silhueta do layout final. |
+| Estado vazio/erro de pagina/corpo | `WorkspaceState` | Receita para empty/error de paginas autenticadas. |
+| Estado em painel/widget/tabela | `StatePanel` | Use `framed={false}` quando ja estiver dentro de um card. |
+| Aviso inline | `InlineNotice` | Para warning, erro, info ou sucesso dentro de um fluxo. |
+| Skeleton generico | `StateSkeleton` | `page`, `widget`, `table` ou `media`. |
+| Skeleton especializado | componente local | Apenas para media real, chart shape ou linhas densas de tabela. |
+
+Exemplos:
+
+```tsx
+<StateSkeleton variant="page" rows={4} />
+<StatePanel kind="empty" title="Sem resultados" message="Ajuste os filtros." />
+<InlineNotice tone="warning">Revise os campos antes de continuar.</InlineNotice>
+<StateSkeleton variant="table" rows={8} />
+```
+
+Mantenha `LoadingState`, `EmptyState` e `ErrorState` somente para compatibilidade
+ou superficies simples fora das receitas novas.
 
 ## Primitivos Preferidos
 
@@ -175,10 +201,22 @@ Ele reporta:
 - emoji usado como icone visivel;
 - `PageContainer` sem `variant`;
 - imports diretos de `Card`, `Modal`, `Dialog` ou `Switch` fora da allowlist;
+- imports diretos de `Skeleton` fora de estados, media, charts ou linhas de
+  tabela documentadas;
+- banners inline de warning/info/error que deveriam usar `InlineNotice`;
+- `WorkspaceState kind="loading"`; use `StateSkeleton` estrutural;
 - icon-only buttons sem `aria-label` ou `title`.
 
-Se uma excecao for intencional, documente a razao na allowlist de
-`frontend/scripts/check-design-system.ts`.
+Se uma excecao for rara e local, use um comentario na linha anterior ou na
+mesma linha:
+
+```tsx
+// design-system-exception: inline-notice-pattern - Full-width app chrome banner.
+<div className="w-full bg-warning-20 border-b border-warning-50 py-2" />
+```
+
+Use o id exato da regra e uma razao curta. Excecoes recorrentes devem ficar na
+allowlist por regra em `frontend/scripts/check-design-system.ts`.
 
 ## Checklist
 

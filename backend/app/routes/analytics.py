@@ -6,7 +6,7 @@ import logging
 import random
 import time
 
-from fastapi import APIRouter, HTTPException, Body, Depends, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Body, Depends, Query
 from pydantic import BaseModel, Field
 
 from app.core.supabase_client import get_supabase_for_user
@@ -1359,6 +1359,24 @@ def _should_sample_ab_compare() -> bool:
     return random.random() < ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE
 
 
+def _run_rankings_ab_shadow(req: Any, user: Dict[str, Any], primary_payload: Dict[str, Any], context: Dict[str, Any]) -> None:
+    """Shadow A/B comparison — runs as a background task so it never blocks the HTTP response."""
+    try:
+        sb_bg = _get_analytics_supabase(user["token"])
+        shadow_started = time.perf_counter()
+        mql_leadscore_min = _get_user_mql_leadscore_min(sb_bg, str(user["user_id"]))
+        shadow = _get_rankings_legacy(req, user, sb_bg, mql_leadscore_min)
+        shadow_elapsed_ms = (time.perf_counter() - shadow_started) * 1000.0
+        _compare_rankings_payloads(primary_payload, shadow, context)
+        logger.info(
+            "[rankings_ab] compare_done shadow_elapsed_ms=%.2f context=%s",
+            shadow_elapsed_ms,
+            context,
+        )
+    except Exception as e:
+        logger.exception("[rankings_ab] compare_failed context=%s error=%s", context, e)
+
+
 def _get_rankings_via_aggregated_rpc(sb, req: RankingsRequest, user_id: str) -> Dict[str, Any]:
     """Executa RPC agregada do Manager e retorna payload no contrato de rankings."""
     f = req.filters or RankingsFilters()
@@ -2024,7 +2042,7 @@ def _get_rankings_legacy(req: RankingsRequest, user: Dict[str, Any], sb, mql_lea
 
 @router.post("/rankings")
 @router.post("/ad-performance")
-def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
+def get_rankings(req: RankingsRequest, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     sb = _get_analytics_supabase(user["token"])
     user_id = str(user["user_id"])
 
@@ -2107,8 +2125,9 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         transcription_flagged,
     )
 
-    # Compare apenas quando pedimos conversion types completos para reduzir ruÃ­do
-    # (nas abas secundÃ¡rias usamos payload reduzido focado no action_type selecionado).
+    # Compare apenas quando pedimos conversion types completos para reduzir ruído
+    # (nas abas secundárias usamos payload reduzido focado no action_type selecionado).
+    # Roda como background task para não bloquear a resposta HTTP.
     if _should_sample_ab_compare() and bool(req.include_available_conversion_types):
         context = {
             "group_by": req.group_by,
@@ -2119,19 +2138,7 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             "series_window": req.series_window if req.series_window else 5,
             "limit": req.limit,
         }
-        try:
-            shadow_started = time.perf_counter()
-            mql_leadscore_min = _get_user_mql_leadscore_min(sb, user_id)
-            shadow = _get_rankings_legacy(req, user, sb, mql_leadscore_min)
-            shadow_elapsed_ms = (time.perf_counter() - shadow_started) * 1000.0
-            _compare_rankings_payloads(primary, shadow, context)
-            logger.info(
-                "[rankings_ab] compare_done shadow_elapsed_ms=%.2f context=%s",
-                shadow_elapsed_ms,
-                context,
-            )
-        except Exception as e:
-            logger.exception("[rankings_ab] compare_failed context=%s error=%s", context, e)
+        background_tasks.add_task(_run_rankings_ab_shadow, req, user, primary, context)
 
     return primary
 

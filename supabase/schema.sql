@@ -219,7 +219,6 @@ BEGIN
   FROM expanded e
   WHERE am.id = e.id
     AND am.user_id = p_user_id
-    -- MIGRADO: dual-read — EXISTS em ad_metric_pack_map + fallback legado pack_ids[]
     AND (
       p_pack_id IS NULL
       OR EXISTS (
@@ -229,7 +228,6 @@ BEGIN
           AND apm.metric_date = am.date
           AND apm.pack_id = p_pack_id
       )
-      OR am.pack_ids @> ARRAY[p_pack_id]::uuid[]
     );
 
   GET DIAGNOSTICS total_rows_updated = ROW_COUNT;
@@ -246,7 +244,6 @@ BEGIN
               AND apm2.metric_date = am_diag.date
               AND apm2.pack_id = p_pack_id
           )
-          OR pack_ids @> ARRAY[p_pack_id]::uuid[]
       )::int
     INTO existing_count, in_pack_count
     FROM public.ad_metrics am_diag
@@ -833,7 +830,6 @@ BEGIN
           AND apm.metric_date = am.date
           AND apm.pack_id = ANY(p_pack_ids)
       )
-      OR am.pack_ids && p_pack_ids
     )
     AND (p_account_ids IS NULL OR am.account_id = ANY(p_account_ids));
 END;
@@ -1651,6 +1647,21 @@ ALTER FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user_id uui
 
 COMMENT ON FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) IS 'Manager aggregated base v048: mesmo que _v047 mas com dual-read (EXISTS em ad_metric_pack_map + OR fallback pack_ids[]).';
 
+--
+-- Name: fetch_manager_analytics_aggregated_base_v049(uuid, date, date, text, uuid[], text[], text, text, text, boolean, boolean, integer, integer, text); Type: FUNCTION; Schema: public; Owner: postgres
+-- Migration: 072_remove_pack_ids_fallback_from_dual_reads.sql
+-- Igual à _v048 mas sem o fallback "or am.pack_ids && p_pack_ids" — usa apenas ad_metric_pack_map
+--
+
+-- (função definida em migration 072 — regenerar schema.sql via pg_dump após aplicar a migration)
+-- Resumo da diferença na cláusula WHERE de ad_metrics:
+--   v048: and (p_pack_ids is null or exists (...ad_metric_pack_map...) or am.pack_ids && p_pack_ids)
+--   v049: and (p_pack_ids is null or exists (...ad_metric_pack_map...))
+
+ALTER FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) OWNER TO postgres;
+
+COMMENT ON FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) IS 'Manager aggregated base v049: mesmo que _v048 mas sem o fallback pack_ids[] — usa somente ad_metric_pack_map.';
+
 
 --
 -- Name: fetch_manager_rankings_core_v2(uuid, date, date, text, uuid[], text[], text, text, text, text, boolean, boolean, integer, integer, text); Type: FUNCTION; Schema: public; Owner: postgres
@@ -1661,7 +1672,7 @@ CREATE FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_sta
     SET search_path TO 'public'
     AS $$
   with payload as (
-    select public.fetch_manager_rankings_core_v2_base_v059(
+    select public.fetch_manager_rankings_core_v2_base_v060(
       p_user_id,
       p_date_start,
       p_date_stop,
@@ -1795,7 +1806,7 @@ begin
             and apm.metric_date = am.date
             and apm.pack_id = any(p_pack_ids)
         )
-        or am.pack_ids && p_pack_ids
+        or am.pack_ids && p_pack_ids  -- legado: mantido em _v059 apenas; _v060 não tem este fallback
       )
       and (p_account_ids is null or am.account_id = any(p_account_ids))
       and (
@@ -2200,6 +2211,8 @@ begin
       'website_ctr', case when t.total_impressions > 0 then t.total_inline::numeric / t.total_impressions else 0 end,
       'connect_rate', case when t.total_inline > 0 then t.total_lpv::numeric / t.total_inline else 0 end,
       'cpm', case when t.total_impressions > 0 then (t.total_spend * 1000.0) / t.total_impressions else 0 end,
+      'cpc', case when t.total_clicks > 0 then t.total_spend / t.total_clicks else 0 end,
+      'cplc', case when t.total_inline > 0 then t.total_spend / t.total_inline else 0 end,
       'per_action_type', case when v_include_conv_types then paa.per_action_type else pas.per_action_type end
     ) as averages
     from totals t
@@ -2335,6 +2348,18 @@ ALTER FUNCTION public.fetch_manager_rankings_core_v2_base_v059(p_user_id uuid, p
 
 COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2_base_v059(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) IS 'Manager core v2 RPC: aggregated rows + header + pagination, dedup by (user_id, ad_id, date), selected action metrics only. Averages include hold_rate and video_watched_p50.';
 
+--
+-- Name: fetch_manager_rankings_core_v2_base_v060(uuid, date, date, text, uuid[], text[], text, text, text, text, boolean, boolean, integer, integer, text); Type: FUNCTION; Schema: public; Owner: postgres
+-- Migration: 072_remove_pack_ids_fallback_from_dual_reads.sql
+-- Igual à _v059 mas sem o fallback "or am.pack_ids && p_pack_ids" — usa apenas ad_metric_pack_map
+--
+
+-- (função definida em migration 072 — regenerar schema.sql via pg_dump após aplicar a migration)
+
+ALTER FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) OWNER TO postgres;
+
+COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) IS 'Manager core v2 RPC base v060: mesmo que _v059 mas sem fallback pack_ids[] — usa somente ad_metric_pack_map.';
+
 
 --
 -- Name: fetch_manager_rankings_retention_v2(uuid, date, date, text, uuid[], text[], text, text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
@@ -2381,7 +2406,6 @@ begin
             and apm.metric_date = am.date
             and apm.pack_id = any(p_pack_ids)
         )
-        or am.pack_ids && p_pack_ids
       )
       and (p_account_ids is null or am.account_id = any(p_account_ids))
       and (
@@ -2554,7 +2578,6 @@ begin
             and apm.metric_date = am.date
             and apm.pack_id = any(p_pack_ids)
         )
-        or am.pack_ids && p_pack_ids
       )
       and (p_account_ids is null or am.account_id = any(p_account_ids))
       and (

@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useRef } from "react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { VideoMetricCell } from "@/components/common/VideoMetricCell";
+import { StatePanel } from "@/components/common/States";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -674,7 +675,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           {isCreativeLoading ? (
             <VideoTabSkeleton showConversionFilter={allConversionTypes.length > 0} />
           ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) ? (
-            <div className="text-sm text-muted-foreground p-6 text-center">Mídia não disponível para este anúncio.</div>
+            <StatePanel kind="empty" message="Mídia não disponível para este anúncio." framed={false} fill />
           ) : (
             <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
               {/* Player de vídeo ou imagem (compartilhado — nunca desmonta ao trocar entre Geral e Copy) */}
@@ -685,14 +686,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   ) : resolvedCreativeImageUrl ? (
                     <img src={resolvedCreativeImageUrl} alt={adName} className="w-full h-full object-contain rounded-lg" />
                   ) : (
-                    <div className="w-full h-full bg-muted rounded-lg flex items-center justify-center text-sm text-muted-foreground">Imagem não disponível</div>
+                    <StatePanel kind="empty" message="Imagem não disponível." framed={false} fill />
                   )
                 ) : (
                   <>
                     {resolvedLoadingVideo && <RetentionVideoPlayerSkeleton />}
-                    {resolvedVideoError && <div className="text-sm text-destructive p-6">Falha ao carregar o vídeo. Tente novamente mais tarde.</div>}
+                    {resolvedVideoError && <StatePanel kind="error" message="Falha ao carregar o vídeo. Tente novamente mais tarde." framed={false} fill />}
                     {!resolvedLoadingVideo && !resolvedVideoError && resolvedVideoSourceUrl && <RetentionVideoPlayer src={resolvedVideoSourceUrl} autoplay={shouldAutoplay} initialTime={initialVideoTime} onTimeSet={() => setInitialVideoTime(null)} retentionCurve={resolvedRetentionSeries} showRetentionLoadingOverlay={isRetentionLoadingForResolvedVideo} />}
-                    {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <div className="text-sm text-muted-foreground p-6">URL do vídeo não disponível.</div>}
+                    {!resolvedLoadingVideo && !resolvedVideoError && !resolvedVideoSourceUrl && <StatePanel kind="empty" message="URL do vídeo não disponível." framed={false} fill />}
                   </>
                 )}
               </div>
@@ -824,34 +825,46 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                       <Skeleton className="h-4 w-4/5" />
                     </div>
                   ) : isTranscribing || transcriptionPending || transcriptionData?.status === "processing" ? (
-                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
-                      <IconMicrophone className="h-8 w-8 opacity-30 animate-pulse" />
-                      <p className="text-sm">Transcrevendo...</p>
-                    </div>
+                    <StatePanel kind="loading" icon={IconMicrophone} message="Transcrevendo..." framed={false} fill />
                   ) : transcriptionError ? (
-                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
-                      <IconMicrophone className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">Erro ao carregar transcrição.</p>
-                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
-                        Transcrever
-                      </Button>
-                    </div>
+                    <StatePanel
+                      kind="error"
+                      icon={IconMicrophone}
+                      message="Erro ao carregar transcrição."
+                      framed={false}
+                      fill
+                      action={
+                        <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
+                          Transcrever
+                        </Button>
+                      }
+                    />
                   ) : !transcriptionData ? (
-                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
-                      <IconMicrophone className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">Esse anúncio ainda não foi transcrito.</p>
-                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
-                        Transcrever
-                      </Button>
-                    </div>
+                    <StatePanel
+                      kind="empty"
+                      icon={IconMicrophone}
+                      message="Esse anúncio ainda não foi transcrito."
+                      framed={false}
+                      fill
+                      action={
+                        <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
+                          Transcrever
+                        </Button>
+                      }
+                    />
                   ) : transcriptionData.status === "failed" ? (
-                    <div className="flex flex-col items-center justify-center gap-3 text-muted-foreground py-12">
-                      <IconMicrophone className="h-8 w-8 opacity-30" />
-                      <p className="text-sm">A transcrição falhou para este anúncio.</p>
-                      <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
-                        Tentar novamente
-                      </Button>
-                    </div>
+                    <StatePanel
+                      kind="error"
+                      icon={IconMicrophone}
+                      message="A transcrição falhou para este anúncio."
+                      framed={false}
+                      fill
+                      action={
+                        <Button variant="outline" size="sm" disabled={isTranscribing || transcriptionPending} onClick={handleTranscribeAd}>
+                          Tentar novamente
+                        </Button>
+                      }
+                    />
                   ) : transcriptionData.full_text ? (
                     <>
                       {transcriptionViewMode === "plain" && <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{transcriptionData.full_text}</p>}
@@ -922,7 +935,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                 </div>
               </div>
             ) : !historyData?.data || historyData.data.length === 0 ? (
-              <div className="text-sm text-muted-foreground p-6 text-center">Sem dados históricos disponíveis para o período selecionado.</div>
+              <StatePanel kind="empty" message="Sem dados históricos disponíveis para o período selecionado." framed={false} fill />
             ) : (
               <div className="flex-1 min-h-0">
                 <MetricHistoryChart data={historyData.data} dateStart={historyDateRange.start || dateStart || ""} dateStop={historyDateRange.end || dateStop || ""} actionType={localActionType} availableMetrics={AVAILABLE_METRICS} selectedMetrics={selectedMetrics} onMetricsChange={handleMetricsChange} layoutGapClassName={detailsTabContentGapClassName} />

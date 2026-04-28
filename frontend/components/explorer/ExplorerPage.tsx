@@ -83,7 +83,149 @@ function FlowColumnLabel({ title, icon: Icon, tone }: { title: string; icon: typ
 }
 
 function ExplorerDetailSkeleton() {
-  return <WorkspaceState kind="loading" label="Carregando detalhe do criativo..." fill />;
+  return <ExplorerBodySkeleton />;
+}
+
+function SkeletonBlock({ className }: { className?: string }) {
+  return <div className={cn("animate-pulse rounded-md bg-muted", className)} aria-hidden="true" />;
+}
+
+function ExplorerAdCardSkeleton({ selected = false }: { selected?: boolean }) {
+  return (
+    <div className={cn("rounded-md border bg-card p-3", selected ? "border-primary" : "border-border")}>
+      <div className="flex gap-3">
+        <SkeletonBlock className="h-24 w-16 shrink-0" />
+        <div className="min-w-0 flex-1 space-y-3">
+          <SkeletonBlock className="h-5 w-4/5" />
+          <SkeletonBlock className="h-4 w-1/2" />
+          <div className="border-t border-border pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <SkeletonBlock className="h-4 w-20" />
+              <SkeletonBlock className="h-6 w-28" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExplorerSidebarSkeleton() {
+  return (
+    <section className="flex min-h-0 min-w-0 max-w-full flex-col md:h-full">
+      <div className="flex items-center justify-between gap-3 pb-3">
+        <h2 className="text-lg font-semibold tracking-tight text-foreground">Anuncios</h2>
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="h-4 w-14" />
+          <SkeletonBlock className="h-4 w-4" />
+        </div>
+      </div>
+
+      <div className="pb-3 text-xs">
+        <SkeletonBlock className="h-4 w-44" />
+      </div>
+
+      <div className="border-b border-border pb-3">
+        <SkeletonBlock className="h-10 w-full bg-background" />
+      </div>
+
+      <div className="mt-3 min-w-0 md:min-h-0 md:flex-1 md:overflow-y-hidden">
+        <div className="space-y-4">
+          <ExplorerAdCardSkeleton selected />
+          <ExplorerAdCardSkeleton />
+          <ExplorerAdCardSkeleton />
+          <ExplorerAdCardSkeleton />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ExplorerBodySkeleton() {
+  return (
+    <PageBodyStack className="space-y-8">
+      <div className="space-y-2">
+        <SkeletonBlock className="h-10 w-full max-w-xl" />
+        <div className="flex items-center gap-2">
+          <SkeletonBlock className="h-2 w-2 rounded-full bg-destructive" />
+          <SkeletonBlock className="h-5 w-44" />
+        </div>
+      </div>
+
+      <div className="grid gap-8 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
+        <div className="w-full max-w-[260px] shadow-md">
+          <div className="relative rounded-lg border-8 border-surface bg-black/60" style={{ aspectRatio: "9 / 16" }}>
+            <RetentionVideoPlayerSkeleton />
+          </div>
+        </div>
+
+        <div className="min-w-0">
+          <div className="grid gap-6 xl:grid-cols-2 xl:gap-8">
+            <ExplorerSignalSkeleton />
+            <ExplorerSignalSkeleton />
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-6">
+        <SkeletonBlock className="h-8 w-64" />
+        <div className="grid gap-1 xl:grid-cols-9 xl:items-start">
+          <ExplorerFlowColumnSkeleton spanClassName="xl:col-span-1" count={1} />
+          <ExplorerFlowColumnSkeleton spanClassName="xl:col-span-4" count={4} gridClassName="sm:grid-cols-2 xl:grid-cols-4" />
+          <ExplorerFlowColumnSkeleton spanClassName="xl:col-span-3" count={3} gridClassName="sm:grid-cols-2 xl:grid-cols-3" />
+          <ExplorerFlowColumnSkeleton spanClassName="xl:col-span-1" count={1} />
+        </div>
+      </div>
+    </PageBodyStack>
+  );
+}
+
+function ExplorerSignalSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <SkeletonBlock className="mt-0.5 h-10 w-10 shrink-0 rounded-full" />
+        <div className="min-w-0 flex-1 space-y-2">
+          <SkeletonBlock className="h-6 w-28" />
+          <SkeletonBlock className="h-4 w-56 max-w-full" />
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {[0, 1].map((index) => (
+          <div key={index} className="rounded-md border border-border bg-secondary p-5">
+            <div className="flex items-start gap-2">
+              <SkeletonBlock className="h-5 w-5 shrink-0 rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <SkeletonBlock className="h-4 w-4/5" />
+                <SkeletonBlock className="h-4 w-full" />
+                <SkeletonBlock className="h-4 w-2/3" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExplorerFlowColumnSkeleton({ spanClassName, count, gridClassName }: { spanClassName: string; count: number; gridClassName?: string }) {
+  return (
+    <div className={cn("min-w-0 space-y-3", spanClassName)}>
+      <SkeletonBlock className="h-11 w-full" />
+      <div className={cn("grid min-w-0 grid-cols-1 gap-1", gridClassName)}>
+        {Array.from({ length: count }).map((_, index) => (
+          <div key={index} className="rounded-md border border-border bg-card p-3">
+            <SkeletonBlock className="h-4 w-20" />
+            <div className="mt-5 space-y-2">
+              <SkeletonBlock className="h-6 w-24" />
+              <SkeletonBlock className="h-4 w-16" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function ExplorerPage() {
@@ -97,8 +239,18 @@ export function ExplorerPage() {
 
   if (status.kind === "loading") {
     return (
-      <PageContainer variant="analytics" title="Breakdown" description="Veja onde melhorar e o que fazer." fullWidth hideHeader contentClassName="min-w-0">
-        <WorkspaceState kind="loading" label="Montando Explorer..." fill />
+      <PageContainer
+        variant="analytics"
+        title="Explorer"
+        fullWidth
+        contentClassName="min-w-0"
+        pageSidebar={<ExplorerSidebarSkeleton />}
+        pageSidebarClassName="md:w-[360px]"
+        pageSidebarMobileBehavior="stack"
+      >
+        <AnalyticsWorkspace className="overflow-visible">
+          <ExplorerBodySkeleton />
+        </AnalyticsWorkspace>
       </PageContainer>
     );
   }

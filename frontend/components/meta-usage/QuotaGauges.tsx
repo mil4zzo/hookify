@@ -1,6 +1,7 @@
 "use client";
 
 import { MetaUsageSummaryResponse, MetaUsageBucEntry } from "@/lib/api/schemas";
+import { InlineNotice } from "@/components/common/States";
 import { cn } from "@/lib/utils/cn";
 
 interface QuotaGaugesProps {
@@ -65,13 +66,10 @@ export function QuotaGauges({ summary, isLoading }: QuotaGaugesProps) {
   return (
     <div className="space-y-4">
       {regainMinutes != null && regainMinutes > 0 && (
-        <div className="flex items-start gap-3 rounded-md border border-destructive-40 bg-destructive-10 px-4 py-3 text-sm text-destructive">
-          <span className="font-semibold shrink-0">⚠ Rate limit atingido</span>
-          <span>
-            Uma ou mais contas de anúncios está temporariamente bloqueada pela Meta.
-            Acesso estimado em <strong>{regainMinutes} min</strong>.
-          </span>
-        </div>
+        <InlineNotice tone="destructive" title="Rate limit atingido">
+          Uma ou mais contas de anúncios está temporariamente bloqueada pela Meta.
+          Acesso estimado em <strong>{regainMinutes} min</strong>.
+        </InlineNotice>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Gauge label="Call count" value={latest?.call_count_pct} />

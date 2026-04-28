@@ -997,60 +997,11 @@ def upsert_ad_metrics(
                         f"({len(map_batch)} vínculos)"
                     )
                 except Exception as e:
-                    # Durante rollout, ambientes sem a tabela nova devem continuar funcionando.
                     logger.warning(
-                        f"[UPSERT_AD_METRICS] Falha ao upsert em ad_metric_pack_map "
-                        f"(fallback legado pack_ids[] mantido): {e}"
+                        f"[UPSERT_AD_METRICS] Falha ao upsert em ad_metric_pack_map: {e}"
                     )
                     break
 
-    if pack_id and rows:
-        metric_ids = [r["id"] for r in rows]
-        batch_size_attach = 200
-        total_attach_batches = (len(metric_ids) + batch_size_attach - 1) // batch_size_attach
-        failed_attach_ids: List[str] = []
-
-        for attach_idx in range(0, len(metric_ids), batch_size_attach):
-            batch_ids = metric_ids[attach_idx:attach_idx + batch_size_attach]
-            batch_num = (attach_idx // batch_size_attach) + 1
-            for attempt in range(3):
-                try:
-                    sb.rpc(
-                        "batch_add_pack_id_to_arrays",
-                        {
-                            "p_user_id": user_id,
-                            "p_pack_id": pack_id,
-                            "p_table_name": "ad_metrics",
-                            "p_ids_to_update": batch_ids,
-                        },
-                    ).execute()
-                    logger.debug(
-                        f"[UPSERT_AD_METRICS] pack_id anexado ao lote {batch_num}/{total_attach_batches} "
-                        f"({len(batch_ids)} registros)"
-                    )
-                    break
-                except Exception as e:
-                    if attempt < 2:
-                        delay = 0.5 * (attempt + 1)
-                        logger.warning(
-                            f"[UPSERT_AD_METRICS] Tentativa {attempt + 1}/3 para attach pack_id lote {batch_num}: {e}"
-                        )
-                        time.sleep(delay)
-                    else:
-                        logger.critical(
-                            f"[UPSERT_AD_METRICS] Falha definitiva ao anexar pack_id no lote {batch_num}/{total_attach_batches}. "
-                            f"pack_id={pack_id}, metric_ids afetados={batch_ids}. Erro: {e}"
-                        )
-                        failed_attach_ids.extend(batch_ids)
-
-        if failed_attach_ids:
-            logger.error(
-                f"[UPSERT_AD_METRICS] {len(failed_attach_ids)} metricas ficaram sem pack_id={pack_id} vinculado. "
-                f"Necessario cleanup manual."
-            )
-            raise RuntimeError(
-                f"Falha ao vincular {len(failed_attach_ids)} metricas ao pack {pack_id} apos retries"
-            )
 
     logger.info(f"[UPSERT_AD_METRICS] Todos os {total_rows} registros processados com sucesso em {total_batches} lote(s)")
 
@@ -1771,9 +1722,8 @@ def delete_pack(
         # 1.1 Classificar ad_metrics via junction table ANTES de deletar os vínculos,
         #     para poder verificar quais (ad_id, metric_date) ainda têm outros packs.
         to_delete_metric_ids: List[str] = []
-        to_update_metric_ids: List[str] = []
         try:
-            to_delete_metric_ids, to_update_metric_ids = _classify_ad_metrics_for_pack_deletion(
+            to_delete_metric_ids, _ = _classify_ad_metrics_for_pack_deletion(
                 sb, user_id, pack_id, date_start, date_stop
             )
         except Exception as e:
@@ -1786,38 +1736,8 @@ def delete_pack(
             logger.warning(f"Erro ao remover vínculos de ad_metric_pack_map para pack {pack_id}: {e}")
 
         # 2. Ajustar/deletar ad_metrics com base na classificação via junction table.
-        #    Para registros compartilhados ainda remove pack_id do array legado pack_ids[]
-        #    para manter consistência durante a transição (dual-write ainda ativo).
         try:
-            # 2a. Limpar pack_id do array legado em registros compartilhados
-            if to_update_metric_ids:
-                _batch_size = 500
-                total_batches = (len(to_update_metric_ids) + _batch_size - 1) // _batch_size
-                total_updated = 0
-                logger.info(f"Removendo pack_id do array legado de {len(to_update_metric_ids)} ad_metrics compartilhados em {total_batches} lote(s)")
-                for i in range(0, len(to_update_metric_ids), _batch_size):
-                    batch = to_update_metric_ids[i:i + _batch_size]
-                    batch_num = (i // _batch_size) + 1
-                    try:
-                        rpc_result = sb.rpc(
-                            "batch_remove_pack_id_from_arrays",
-                            {
-                                "p_user_id": user_id,
-                                "p_pack_id": pack_id,
-                                "p_table_name": "ad_metrics",
-                                "p_ids_to_update": batch,
-                            }
-                        ).execute()
-                        if rpc_result.data:
-                            total_updated += rpc_result.data.get("rows_updated", 0)
-                            if rpc_result.data.get("status") == "error":
-                                logger.warning(f"Erro no batch update {batch_num}/{total_batches}: {rpc_result.data.get('error_message')}")
-                        logger.debug(f"Batch update {batch_num}/{total_batches}: {len(batch)} IDs")
-                    except Exception as batch_err:
-                        logger.warning(f"Erro ao fazer batch update {batch_num}/{total_batches} de ad_metrics: {batch_err}")
-                logger.info(f"Atualizados {total_updated} ad_metrics compartilhados (pack_id removido do array legado)")
-
-            # 2b. Deletar métricas exclusivas deste pack
+            # Deletar métricas exclusivas deste pack
             # IDs são compostos e longos (~30 chars), batch de 200 evita URLs > 8KB no Supabase
             if to_delete_metric_ids:
                 _batch_size = 200

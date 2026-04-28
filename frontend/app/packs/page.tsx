@@ -25,12 +25,12 @@ import { AdsPack } from "@/lib/types";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
-import { PageBodyStack, WorkspaceState } from "@/components/common/layout";
+import { StatePanel, StateSkeleton } from "@/components/common/States";
+import { PageBodyStack } from "@/components/common/layout";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { subDays } from "date-fns";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
-import { Skeleton } from "@/components/ui/skeleton";
 import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh";
 import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -44,6 +44,16 @@ const DEFAULT_REFRESH_TOGGLES: RefreshToggles = {
   leadscore: true,
   transcription: false,
 };
+
+function PacksPageSkeleton() {
+  return (
+    <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
+      <PageBodyStack>
+        <StateSkeleton variant="page" rows={4} className="rounded-md border border-border bg-card" />
+      </PageBodyStack>
+    </PageContainer>
+  );
+}
 
 // Funções auxiliares para gerenciar dateRange no localStorage
 const saveDateRange = (dateRange: { start?: string; end?: string }) => {
@@ -536,27 +546,15 @@ export default function PacksPage() {
 
   // Client-side only rendering
   if (!isClient) {
-    return (
-      <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
-        <WorkspaceState kind="loading" label="Carregando..." framed={false} />
-      </PageContainer>
-    );
+    return <PacksPageSkeleton />;
   }
 
   if (authStatus !== "authorized") {
-    return (
-      <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
-        <WorkspaceState kind="loading" label="Redirecionando para login..." framed={false} />
-      </PageContainer>
-    );
+    return <PacksPageSkeleton />;
   }
 
   if (onboardingStatus === "requires_onboarding") {
-    return (
-      <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
-        <WorkspaceState kind="loading" label="Redirecionando para configuração inicial..." framed={false} />
-      </PageContainer>
-    );
+    return <PacksPageSkeleton />;
   }
 
   return (
@@ -578,96 +576,21 @@ export default function PacksPage() {
         <PageBodyStack>
         {/* Packs Grid */}
         {isLoadingPacks ? (
-          // Skeleton enquanto carrega packs
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="relative inline-block w-full">
-                {/* Cards decorativos atrás */}
-                <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
-                <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
-
-                <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full overflow-hidden">
-                  <div className="p-6 space-y-6 flex flex-col justify-between h-full relative z-10">
-                    <div className="flex flex-col items-center gap-2">
-                      {/* Header: Nome do pack */}
-                      <div className="flex items-start justify-center">
-                        <div className="flex flex-col items-center justify-center min-w-0">
-                          <Skeleton className="h-7 w-32" />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="flex flex-col items-center">
-                        {/* Date range skeleton */}
-                        <Skeleton className="h-4 w-32" />
-                      </div>
-                      {/* Valor monetário em destaque */}
-                      <div className="flex items-center justify-center gap-2">
-                        <Skeleton className="h-9 w-32" />
-                      </div>
-                    </div>
-
-                    {/* Métricas: Lista vertical com separadores */}
-                    <div className="flex flex-col">
-                      <div className="flex items-center justify-between py-2 border-b border-border">
-                        <Skeleton className="h-4 w-16" />
-                        <Skeleton className="h-4 w-8" />
-                      </div>
-                      <div className="flex items-center justify-between py-2 border-b border-border">
-                        <Skeleton className="h-4 w-16" />
-                        <Skeleton className="h-4 w-8" />
-                      </div>
-                      <div className="flex items-center justify-between py-2 border-b border-border">
-                        <Skeleton className="h-4 w-16" />
-                        <Skeleton className="h-4 w-8" />
-                      </div>
-                      <div className="flex items-center justify-between py-2">
-                        <Skeleton className="h-4 w-16" />
-                        <Skeleton className="h-4 w-8" />
-                      </div>
-                    </div>
-
-                    {/* Footer: Toggles e última atualização */}
-                    <div className="flex flex-col gap-2">
-                      {/* Toggle Atualização automática */}
-                      <div className="flex items-center justify-between w-full">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-5 w-10 rounded-full" />
-                      </div>
-                      {/* Toggle Leadscore */}
-                      <div className="flex items-center justify-between w-full">
-                        <Skeleton className="h-4 w-32" />
-                        <Skeleton className="h-5 w-10 rounded-full" />
-                      </div>
-                      {/* Última atualização Meta */}
-                      <div className="flex items-center justify-between mt-3">
-                        <Skeleton className="h-3 w-16" />
-                        <Skeleton className="h-3 w-24" />
-                      </div>
-                      {/* Última atualização Leadscore (opcional) */}
-                      <div className="flex items-center justify-between">
-                        <Skeleton className="h-3 w-16" />
-                        <Skeleton className="h-3 w-24" />
-                      </div>
-                    </div>
-                  </div>
-                </StandardCard>
-              </div>
-            ))}
-          </div>
+          <StateSkeleton variant="page" rows={4} className="rounded-md border border-border bg-card" />
         ) : packs.length === 0 ? (
-          <StandardCard variant="card" padding="lg">
-            <div className="p-12 text-center">
-              <IconChartBar className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Nenhum Pack Carregado</h3>
-              <p className="text-muted-foreground mb-6">Carregue seu primeiro pack de anúncios para começar a análise</p>
+          <StatePanel
+            kind="empty"
+            icon={IconChartBar}
+            title="Nenhum Pack Carregado"
+            message="Carregue seu primeiro pack de anúncios para começar a análise"
+            density="spacious"
+            action={
               <Button onClick={() => setIsDialogOpen(true)}>
                 <IconPlus className="w-4 h-4 mr-2" />
                 Carregar Primeiro Pack
               </Button>
-            </div>
-          </StandardCard>
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {packs.map((pack) => (

@@ -202,8 +202,12 @@ export const useVideoSource = (params: GetVideoSourceRequest, enabled = true) =>
     queryKey: queryKeys.videoSource(params),
     queryFn: () => api.facebook.getVideoSource(params),
     enabled,
-    staleTime: 30 * 60 * 1000, // 30 minutos (videos são mais estáveis)
-    retry: 2,
+    staleTime: 30 * 60 * 1000,
+    retry: (failureCount, error) => {
+      const status = (error as AppError)?.status;
+      if (status !== undefined && status >= 400 && status < 500) return false;
+      return failureCount < 2;
+    },
   })
 }
 

@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
-import { IconPlus, IconTrash, IconCheck, IconAlertCircle, IconLoader2 } from "@tabler/icons-react";
+import { InlineNotice } from "@/components/common/States";
+import { IconPlus, IconTrash, IconCheck, IconLoader2 } from "@tabler/icons-react";
 import { getAdMetricsFieldsForSelect, getFieldInfo, getOperatorsForFieldType, isOperatorValidForFieldType } from "@/lib/config/adMetricsFields";
 
 export type ValidationCondition = {
@@ -529,19 +530,13 @@ export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = 
 
       {/* Mensagens de erro de validação */}
       {validationErrors.length > 0 && (
-        <div className="mt-4 p-3 bg-destructive-10 border border-destructive-20 rounded-lg">
-          <div className="flex items-start gap-2">
-            <IconAlertCircle className="w-5 h-5 text-destructive mt-0.5 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-destructive mb-1">Erros de validação:</p>
-              <ul className="text-sm text-destructive-90 list-disc list-inside space-y-1">
-                {validationErrors.map((error, index) => (
-                  <li key={index}>{error}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
+        <InlineNotice tone="destructive" title="Erros de validação:" className="mt-4">
+          <ul className="list-inside list-disc space-y-1 text-sm">
+            {validationErrors.map((error, index) => (
+              <li key={index}>{error}</li>
+            ))}
+          </ul>
+        </InlineNotice>
       )}
 
       {/* Botão Salvar */}

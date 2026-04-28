@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { LoadingState } from "@/components/common/States";
+import { StateSkeleton } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
@@ -14,12 +14,22 @@ import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validated
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
-import { AnalyticsWorkspace, WorkspaceState } from "@/components/common/layout";
+import { AnalyticsWorkspace } from "@/components/common/layout";
 import { logger } from "@/lib/utils/logger";
 import { toast } from "sonner";
 import { useFilters } from "@/lib/hooks/useFilters";
 
 type ManagerRow = RankingsItem & { series_loading?: boolean };
+
+function ManagerPageFallback() {
+  return (
+    <PageContainer variant="analytics" title="Manager">
+      <AnalyticsWorkspace>
+        <StateSkeleton variant="table" rows={10} className="rounded-md border border-border bg-card p-widget-default" />
+      </AnalyticsWorkspace>
+    </PageContainer>
+  );
+}
 
 function ManagerPageContent() {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
@@ -546,27 +556,15 @@ function ManagerPageContent() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!isClient) {
-    return (
-      <PageContainer variant="analytics" title="Otimize" description="Dados de performance dos seus anúncios">
-        <WorkspaceState kind="loading" label="Carregando..." framed={false} fill />
-      </PageContainer>
-    );
+    return <ManagerPageFallback />;
   }
 
   if (authStatus !== "authorized") {
-    return (
-      <PageContainer variant="analytics" title="Otimize" description="Dados de performance dos seus anúncios">
-        <WorkspaceState kind="loading" label="Redirecionando para login..." framed={false} fill />
-      </PageContainer>
-    );
+    return <ManagerPageFallback />;
   }
 
   if (onboardingStatus === "requires_onboarding") {
-    return (
-      <PageContainer variant="analytics" title="Otimize" description="Dados de performance dos seus anúncios">
-        <WorkspaceState kind="loading" label="Redirecionando para configuração inicial..." framed={false} fill />
-      </PageContainer>
-    );
+    return <ManagerPageFallback />;
   }
 
   return (
@@ -632,7 +630,7 @@ function ManagerPageContent() {
 
 export default function ManagerPage() {
   return (
-    <Suspense fallback={<LoadingState label="Carregando..." />}>
+    <Suspense fallback={<ManagerPageFallback />}>
       <ManagerPageContent />
     </Suspense>
   );

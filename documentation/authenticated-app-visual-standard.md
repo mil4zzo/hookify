@@ -39,7 +39,10 @@ Exemplo:
 - `PageSectionHeader`: renderizado por `PageContainer`.
 - `PageActions`: area de acoes do header.
 - `TabbedWorkspace`: receita preferida para tabs de pagina.
-- `WorkspaceState`: loading, empty e error de corpo.
+- `WorkspaceState`: empty e error de corpo.
+- `StatePanel`: estados internos de widget, tabela, painel ou dialog.
+- `InlineNotice`: avisos inline de warning, erro, info ou sucesso.
+- `StateSkeleton`: skeleton generico de pagina, widget, tabela ou media.
 
 ## Variantes de pagina
 
@@ -54,7 +57,10 @@ Receitas comuns:
 - `FormStepWorkspace`: paginas com steps, breadcrumb e acoes de navegacao.
 - `FormPageSection`: secoes de formulario, onboarding e settings com titulo,
   descricao, acoes e footer opcionais.
-- `WorkspaceState`: estados de loading/empty/error.
+- `WorkspaceState`: estados de empty/error.
+- `StateSkeleton`: loading estrutural de pagina/corpo.
+- `StatePanel`: vazio/erro/loading dentro de um painel existente.
+- `InlineNotice`: avisos de formulario, upload e validacao.
 
 ### `analytics`
 
@@ -69,7 +75,32 @@ Receitas comuns:
 - `KanbanWorkspace`: kanban horizontal ou vertical.
 - `DashboardGrid`: grids responsivos de cards/widgets.
 - `WidgetPanel`: paineis de widget com header, acoes, densidade e scroll.
-- `WorkspaceState`: estados centralizados.
+- `WorkspaceState`: estados empty/error centralizados.
+- `StatePanel`: estados de widget/tabela/modal quando o corpo ja existe.
+- `StateSkeleton`: skeletons genericos; preserve skeleton local apenas para
+  media, charts ou linhas de tabela com formato real.
+
+## Estados canonicos
+
+Use a menor camada que descreve o contexto:
+
+- Loading de pagina inteira ou corpo de workspace: `StateSkeleton`.
+- Empty/error de pagina inteira ou corpo de workspace: `WorkspaceState`.
+- Estado dentro de card, widget, tabela ou modal: `StatePanel`.
+- Aviso inline que nao substitui o conteudo: `InlineNotice`.
+- Loading estrutural generico: `StateSkeleton`.
+- Loading de video/media/chart/tabela com forma especifica: skeleton local
+  documentado pelo checker.
+
+Exemplos:
+
+```tsx
+<StateSkeleton variant="page" rows={4} />
+<WorkspaceState kind="error" message="Nao foi possivel carregar os dados." fill />
+<StatePanel kind="empty" message="Nenhum resultado com esses filtros." framed={false} />
+<InlineNotice tone="destructive">Falha ao validar os dados.</InlineNotice>
+<StateSkeleton variant="widget" rows={3} />
+```
 
 ## Densidade
 

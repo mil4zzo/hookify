@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { EmptyState } from "@/components/common/States";
+import { StatePanel, StateSkeleton } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { OpportunityWidget } from "@/components/insights/OpportunityWidget";
 import { calculateGlobalMetricRanks, createEmptyMetricRanks } from "@/lib/utils/metricRankings";
@@ -24,10 +24,9 @@ import { PageActions } from "@/components/common/PageActions";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
-import { Skeleton } from "@/components/ui/skeleton";
 import { HookifyWidget } from "@/components/common/HookifyWidget";
 import { TabbedContentItem } from "@/components/common/TabbedContent";
-import { AnalyticsWorkspace, DashboardGrid, TabbedWorkspace, WorkspaceState } from "@/components/common/layout";
+import { AnalyticsWorkspace, TabbedWorkspace } from "@/components/common/layout";
 import { useFilters } from "@/lib/hooks/useFilters";
 
 // Chaves específicas do Insights
@@ -45,6 +44,16 @@ const TAB_TITLES = {
   insights: "Melhorias pontuais por métrica",
   gems: "Os melhores de cada métrica",
 } as const;
+
+function InsightsPageSkeleton() {
+  return (
+    <PageContainer variant="analytics" title="Oportunidades" description="Melhorias para maximizar seus lucros, ordenada por maior impacto.">
+      <AnalyticsWorkspace>
+        <StateSkeleton variant="page" rows={4} className="rounded-md border border-border bg-card" />
+      </AnalyticsWorkspace>
+    </PageContainer>
+  );
+}
 
 // Configuração do header para cada tab
 const TAB_HEADER_CONFIG = {
@@ -386,27 +395,15 @@ export default function InsightsPage() {
 
   // ── Loading states ─────────────────────────────────────────────────────────
   if (!isClient) {
-    return (
-      <PageContainer variant="analytics" title="Oportunidades" description="Melhorias para maximizar seus lucros, ordenada por maior impacto.">
-        <WorkspaceState kind="loading" label="Carregando..." framed={false} fill />
-      </PageContainer>
-    );
+    return <InsightsPageSkeleton />;
   }
 
   if (authStatus !== "authorized") {
-    return (
-      <PageContainer variant="analytics" title="Oportunidades" description="Melhorias para maximizar seus lucros, ordenada por maior impacto.">
-        <WorkspaceState kind="loading" label="Redirecionando para login..." framed={false} fill />
-      </PageContainer>
-    );
+    return <InsightsPageSkeleton />;
   }
 
   if (onboardingStatus === "requires_onboarding") {
-    return (
-      <PageContainer variant="analytics" title="Oportunidades" description="Melhorias para maximizar seus lucros, ordenada por maior impacto.">
-        <WorkspaceState kind="loading" label="Redirecionando para configuração inicial..." framed={false} fill />
-      </PageContainer>
-    );
+    return <InsightsPageSkeleton />;
   }
 
   const hasData = serverData && serverData.length > 0;
@@ -414,52 +411,11 @@ export default function InsightsPage() {
   const isLoadingData = loading;
 
   // ── Skeletons ──────────────────────────────────────────────────────────────
-  const OpportunitiesSkeleton = () => (
-    <div className="space-y-6">
-      <div className="relative">
-        <div className="flex gap-4 overflow-hidden">
-          <DashboardGrid className="min-w-max grid-cols-[repeat(3,20rem)]">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-80 w-80 flex-shrink-0 rounded-lg" />
-            ))}
-          </DashboardGrid>
-        </div>
-      </div>
-    </div>
-  );
+  const OpportunitiesSkeleton = () => <StateSkeleton variant="widget" rows={3} />;
 
-  const InsightsSkeleton = () => (
-    <div className="space-y-6">
-      <div className="flex gap-4 overflow-x-auto">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="flex-shrink-0 w-80 space-y-4">
-            <Skeleton className="h-12 w-full rounded-md" />
-            <div className="space-y-2">
-              {[1, 2, 3].map((j) => <Skeleton key={j} className="h-32 w-full rounded-md" />)}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const InsightsSkeleton = () => <StateSkeleton variant="page" rows={4} />;
 
-  const GemsSkeleton = () => (
-    <div className="space-y-6">
-      <div className="flex items-center justify-end gap-4 mb-4">
-        <Skeleton className="h-10 w-48 rounded-md" />
-      </div>
-      <div className="flex gap-4 overflow-x-auto">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div key={i} className="flex-shrink-0 w-80 space-y-4">
-            <Skeleton className="h-12 w-full rounded-md" />
-            <div className="space-y-2">
-              {[1, 2, 3, 4, 5].map((j) => <Skeleton key={j} className="h-32 w-full rounded-md" />)}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const GemsSkeleton = () => <StateSkeleton variant="page" rows={6} />;
 
   return (
     <PageContainer
@@ -579,9 +535,7 @@ export default function InsightsPage() {
             {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
               <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} />
             ) : (
-              <div className="py-12">
-                <EmptyState message="Configure critérios de validação nas configurações para ver insights." />
-              </div>
+              <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
             )}
           </HookifyWidget>
         </TabbedContentItem>
@@ -601,9 +555,7 @@ export default function InsightsPage() {
             {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
               <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} />
             ) : (
-              <div className="py-12">
-                <EmptyState message="Configure critérios de validação nas configurações para ver gems." />
-              </div>
+              <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />
             )}
           </HookifyWidget>
         </TabbedContentItem>

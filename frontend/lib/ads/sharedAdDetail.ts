@@ -240,7 +240,7 @@ export function useSharedAdNameDetail({
     creativeData: creativeQuery.data,
     videoData: videoQuery.data,
     retentionData: retentionQuery.data,
-    isLoadingDetail: detailQuery.isLoading || retentionQuery.isLoading,
+    isLoadingDetail: detailQuery.isLoading,
     isLoadingMedia: creativeQuery.isLoading || videoQuery.isLoading,
     error: detailQuery.error || retentionQuery.error || creativeQuery.error || videoQuery.error || null,
   };

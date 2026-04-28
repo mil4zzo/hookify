@@ -10,6 +10,7 @@ import {
 import type { AdCreativeDetailResponse } from "@/lib/api/schemas"
 import { useAdCreative, useImageSource, useVideoSource } from "@/lib/api/hooks"
 import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection"
+import { InlineNotice } from "@/components/common/States"
 import { Skeleton } from "@/components/ui/skeleton"
 import { VideoPlayer } from "@/components/common/VideoPlayer"
 
@@ -206,9 +207,9 @@ export default function CreativePreview({ creative, adId }: CreativePreviewProps
 
   const surface = inferPreviewSurface(creative)
   const warningBanner = !creative.supports_bulk_clone && (
-    <div className="rounded-md border border-destructive-20 bg-destructive-5 p-3 text-xs text-destructive">
+    <InlineNotice tone="destructive" className="text-xs">
       Esse modelo ainda não pode ser usado com segurança no upload em massa.
-    </div>
+    </InlineNotice>
   )
 
   // Video ads: show proper player without mockup frame

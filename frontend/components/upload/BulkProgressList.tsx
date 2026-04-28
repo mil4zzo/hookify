@@ -11,6 +11,7 @@ import {
   IconLoader2,
   IconX,
 } from "@tabler/icons-react"
+import { InlineNotice } from "@/components/common/States"
 import type { BulkAdItemProgress, BulkAdProgressResponse, AdCreativeDetailResponse } from "@/lib/api/schemas"
 
 const ADS_PIPELINE = ["pending", "uploading_media", "creating_creative", "creating_ad", "success"]
@@ -257,10 +258,8 @@ export function ProgressItemCard({
           )}
 
           {isError ? (
-            <div className="flex items-start gap-2.5 rounded-lg border border-destructive-20 bg-destructive-5 px-3 py-2.5">
-              <IconAlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <p className="text-xs text-destructive">{errorMessage || "Erro desconhecido"}</p>
+            <InlineNotice tone="destructive" className="text-xs" title={errorMessage || "Erro desconhecido"}>
+              <div className="min-w-0 space-y-1.5">
                 {errorDetails && (
                   <div className="space-y-0.5 border-t border-destructive-20 pt-1.5">
                     {errorDetails.error_subcode != null && (
@@ -278,7 +277,7 @@ export function ProgressItemCard({
                   </div>
                 )}
               </div>
-            </div>
+            </InlineNotice>
           ) : (
             <div className="space-y-2">
               {pipeline.filter((step) => step !== "error").map((step, index) => {
