@@ -16,6 +16,7 @@ import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 import { usePausedSheetJobsStore } from "@/lib/store/pausedSheetJobs";
 import { useGoogleOAuthConnect } from "@/lib/hooks/useGoogleOAuthConnect";
 import { pollSheetsSyncJob } from "@/lib/utils/pollSheetsSyncJob";
+import { useInvalidatePackAds } from "@/lib/api/hooks";
 
 type ImportStep = "idle" | "saving" | "reading" | "processing" | "complete";
 
@@ -27,6 +28,7 @@ export function useGoogleSyncJob() {
 
   const { pauseJob, clearJob } = usePausedSheetJobsStore();
   const { connect: connectGoogle } = useGoogleOAuthConnect();
+  const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
 
@@ -86,6 +88,14 @@ export function useGoogleSyncJob() {
           pauseJob,
           clearJob,
           connectGoogle,
+          onSuccessInvalidate: async (_pId) => {
+            // Manager/Insights leem via useAdPerformance (staleTime: Infinity);
+            // sem invalidar, leadscore só atualiza após logout/login.
+            invalidateAdPerformance();
+            if (packId) {
+              await invalidatePackAds(packId);
+            }
+          },
           onPackIntegrationUpdated: packId
             ? (pId) => {
                 window.dispatchEvent(new CustomEvent("pack-integration-updated", { detail: { packId: pId } }));
@@ -106,7 +116,7 @@ export function useGoogleSyncJob() {
         finishProgressToast(toastId, false, msg);
       }
     },
-    [pauseJob, clearJob, connectGoogle]
+    [pauseJob, clearJob, connectGoogle, invalidatePackAds, invalidateAdPerformance]
   );
 
   /**
@@ -169,6 +179,14 @@ export function useGoogleSyncJob() {
               skipped_invalid: 0,
             });
           },
+          onSuccessInvalidate: async (_pId) => {
+            // Manager/Insights leem via useAdPerformance (staleTime: Infinity);
+            // sem invalidar, leadscore só atualiza após logout/login.
+            invalidateAdPerformance();
+            if (packId) {
+              await invalidatePackAds(packId);
+            }
+          },
           onPackIntegrationUpdated: packId
             ? (pId) => {
                 window.dispatchEvent(new CustomEvent("pack-integration-updated", { detail: { packId: pId } }));
@@ -187,7 +205,7 @@ export function useGoogleSyncJob() {
         setImportProgress(0);
       }
     },
-    [pauseJob, clearJob, connectGoogle]
+    [pauseJob, clearJob, connectGoogle, invalidatePackAds, invalidateAdPerformance]
   );
 
   const reset = useCallback(() => {

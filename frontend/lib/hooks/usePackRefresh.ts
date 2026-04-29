@@ -202,11 +202,17 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         pauseJob,
         clearJob,
         connectGoogle,
+        onSuccessInvalidate: async (pId) => {
+          // Sem isso, Manager mantém leadscore velho até logout/login
+          // (useAdPerformance tem staleTime: Infinity).
+          await invalidatePackAds(pId);
+          invalidateAdPerformance();
+        },
         onPackIntegrationUpdated: (pId) => {
           window.dispatchEvent(new CustomEvent("pack-integration-updated", { detail: { packId: pId } }));
         },
       }),
-    [pauseJob, clearJob, connectGoogle]
+    [pauseJob, clearJob, connectGoogle, invalidatePackAds, invalidateAdPerformance]
   );
 
   // ============================================================================

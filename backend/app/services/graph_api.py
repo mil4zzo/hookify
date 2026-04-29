@@ -1,17 +1,16 @@
 import json
-import mimetypes
-import os
-import subprocess
-import tempfile
 import time
 import urllib.parse
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, BinaryIO, Callable, Dict, List, Optional, Union
 import requests
-import httpx
-from app.core.config import META_GRAPH_BASE_URL, META_API_VERSION
+from app.core.config import META_GRAPH_BASE_URL
 from app.services.facebook_page_token_service import get_page_access_token_for_page_id
-from app.services.meta_api_errors import sanitize_error_dict_for_log
+from app.services.meta_api_errors import (
+    MetaAPIError,
+    extract_data_or_raise,
+    sanitize_error_dict_for_log,
+)
 from app.services.meta_usage_logger import log_meta_usage
 
 logger = logging.getLogger(__name__)
@@ -538,6 +537,7 @@ class GraphAPI:
         operation_name: str,
         params: Optional[Dict[str, Any]] = None,
         json_payload: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
         files: Optional[Dict[str, Any]] = None,
         timeout: int = 60,
     ) -> Dict[str, Any]:
@@ -552,6 +552,7 @@ class GraphAPI:
                 url=url,
                 params=request_params,
                 json=json_payload,
+                data=data,
                 files=files,
                 timeout=timeout,
             )
@@ -719,146 +720,177 @@ class GraphAPI:
             timeout=300,
         )
 
-    def upload_ad_video(self, act_id: str, filename: str, file_bytes: bytes) -> Dict[str, Any]:
+    # ── Chunked video upload via /act_{id}/advideos ───────────────────────────
+    # Mirrors Meta's official Python SDK (facebook-python-business-sdk).
+    # Server drives chunk sizing via start_offset/end_offset in each response;
+    # caller loops until start_offset == end_offset, then calls finish.
+
+    def start_chunked_video_upload(self, act_id: str, file_size: int) -> Dict[str, Any]:
         return self._handle_graph_request(
             method="POST",
             path=f"{act_id}/advideos",
-            operation_name="GraphAPI.upload_ad_video",
-            files={"source": (filename, file_bytes)},
-            timeout=900,
-        )
-
-    def upload_ad_video_curl(self, act_id: str, filename: str, file_bytes: bytes, timeout: int = 900) -> Dict[str, Any]:
-        url = f"{self.base_url}{act_id}/advideos"
-        mime_type, _ = mimetypes.guess_type(filename)
-        if not mime_type:
-            mime_type = "video/mp4"
-        _, ext = os.path.splitext(filename)
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=ext or ".mp4") as tmp:
-                tmp.write(file_bytes)
-                tmp_path = tmp.name
-
-            cmd = [
-                "curl.exe", "-s", "--show-error",
-                "-X", "POST", url,
-                "-F", f"access_token={self.access_token}",
-                "-F", f"source=@{tmp_path};type={mime_type};filename={filename}",
-                "--max-time", str(timeout),
-            ]
-
-            t0 = time.monotonic()
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout + 30)
-            elapsed = time.monotonic() - t0
-            mbps = (len(file_bytes) * 8 / (1024 * 1024)) / max(elapsed, 0.001)
-            logger.info(
-                "GraphAPI.upload_ad_video_curl elapsed_s=%.2f file_size=%d effective_mbps=%.1f curl_exit=%d",
-                elapsed, len(file_bytes), mbps, proc.returncode,
-            )
-
-            if proc.returncode != 0:
-                logger.error("upload_ad_video_curl curl_stderr=%r", proc.stderr[:500])
-                return {"status": "error", "message": f"curl.exe failed (code={proc.returncode}): {proc.stderr}"}
-
-            try:
-                data = json.loads(proc.stdout)
-            except json.JSONDecodeError as exc:
-                logger.error("upload_ad_video_curl JSON parse error: %s stdout=%r", exc, proc.stdout[:300])
-                return {"status": "error", "message": f"JSON parse error: {exc}"}
-
-            if "error" in data:
-                error_obj = data["error"]
-                error_code = error_obj.get("code")
-                error_message = error_obj.get("message") or str(data)
-                logger.warning("upload_ad_video_curl Meta API error: %s", sanitize_error_dict_for_log(dict(error_obj)))
-                if error_code == 190:
-                    return {"status": "auth_error", "message": error_message, "error": error_obj}
-                return {"status": "http_error", "message": error_message, "error": error_obj}
-
-            return {"status": "success", "data": data}
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
-
-    def start_video_upload(self, act_id: str) -> Dict[str, Any]:
-        return self._handle_graph_request(
-            method="POST",
-            path=f"{act_id}/video_ads",
-            operation_name="GraphAPI.start_video_upload",
-            params={"upload_phase": "start"},
+            operation_name="GraphAPI.start_chunked_video_upload",
+            data={"upload_phase": "start", "file_size": file_size},
             timeout=30,
         )
 
-    def transfer_video_resumable(
+    def transfer_video_chunk(
         self,
-        video_id: str,
-        data: bytes,
-        file_size: int,
-        offset: int = 0,
-        timeout: int = 1800,
+        act_id: str,
+        session_id: str,
+        start_offset: int,
+        chunk_bytes: bytes,
+        file_name: str,
+        timeout: int = 180,
     ) -> Dict[str, Any]:
-        url = f"https://rupload.facebook.com/video-ads-upload/{META_API_VERSION}/{video_id}"
-        headers = {
-            "Authorization": f"OAuth {self.access_token}",
-            "offset": str(offset),
-            "file_size": str(file_size),
-        }
-        try:
-            logger.info(
-                "[UPLOAD_DEBUG] transfer_start video_id=%s url=%s payload_size=%d payload_type=%s",
-                video_id, url, len(data), type(data).__name__,
-            )
-
-            t_send_start = time.monotonic()
-            # Use httpx with HTTP/2: avoids Python ssl.SSLSocket.write() 16KB-per-call
-            # limitation that caps throughput at ~70 KB/s on Windows via delayed ACK.
-            with httpx.Client(http2=True, timeout=httpx.Timeout(float(timeout))) as client:
-                resp = client.post(url, headers=headers, content=data)
-            t_send_end = time.monotonic()
-            resp.raise_for_status()
-
-            elapsed_s = t_send_end - t_send_start
-            effective_kbs = (file_size / 1024) / max(elapsed_s, 0.001)
-            effective_mbps = (file_size * 8 / (1024 * 1024)) / max(elapsed_s, 0.001)
-            logger.info(
-                "[UPLOAD_DEBUG] transfer_completed video_id=%s http_status=%s "
-                "http_version=%s elapsed_s=%.2f file_size=%d effective_kbs=%.1f effective_mbps=%.1f "
-                "resp_headers=%s",
-                video_id, resp.status_code, resp.http_version, elapsed_s, file_size,
-                effective_kbs, effective_mbps, dict(resp.headers),
-            )
-            resp_data = resp.json() if resp.content else {}
-            return {"status": "success", "data": resp_data}
-        except httpx.HTTPStatusError as http_err:
-            error_data = http_err.response.json() if http_err.response.content else {}
-            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
-            error_code = error_obj.get("code")
-            error_message = error_obj.get("message") or str(http_err)
-            if isinstance(error_obj, dict) and error_obj:
-                logger.warning(
-                    "GraphAPI.transfer_video_resumable Meta API HTTP error: %s",
-                    sanitize_error_dict_for_log(dict(error_obj)),
-                )
-            if error_code == 190:
-                return {"status": "auth_error", "message": error_message, "error": error_obj}
-            return {"status": "http_error", "message": error_message, "error": error_obj}
-        except httpx.RequestError as req_err:
-            logger.exception("GraphAPI.transfer_video_resumable network error: %s", req_err)
-            return {"status": "error", "message": str(req_err)}
-        # _JobCancelledError and other non-requests exceptions propagate up intentionally
-
-    def finish_video_upload(self, act_id: str, video_id: str) -> Dict[str, Any]:
         return self._handle_graph_request(
             method="POST",
-            path=f"{act_id}/video_ads",
-            operation_name="GraphAPI.finish_video_upload",
-            params={"upload_phase": "finish", "video_id": video_id},
+            path=f"{act_id}/advideos",
+            operation_name="GraphAPI.transfer_video_chunk",
+            data={
+                "upload_phase": "transfer",
+                "upload_session_id": session_id,
+                "start_offset": start_offset,
+            },
+            files={"video_file_chunk": (file_name, chunk_bytes, "application/octet-stream")},
+            timeout=timeout,
+        )
+
+    def finish_chunked_video_upload(
+        self, act_id: str, session_id: str, file_name: str,
+    ) -> Dict[str, Any]:
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{act_id}/advideos",
+            operation_name="GraphAPI.finish_chunked_video_upload",
+            data={
+                "upload_phase": "finish",
+                "upload_session_id": session_id,
+                "title": file_name,
+            },
             timeout=60,
         )
+
+    def upload_ad_video_chunked(
+        self,
+        act_id: str,
+        file_name: str,
+        file_source: BinaryIO,
+        file_size: int,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+        on_check_cancel: Optional[Callable[[], None]] = None,
+    ) -> Dict[str, Any]:
+        """Upload a video via Meta's chunked /advideos flow.
+
+        file_source must be a seekable binary stream (open file, BytesIO).
+        Caller owns the stream lifecycle (open/close).
+        Returns {'status': 'success', 'data': {'id': video_id}} matching the old
+        upload_ad_video shape so existing callers keep working.
+        """
+        t0 = time.monotonic()
+
+        # Phase 1 — start
+        start_result = self.start_chunked_video_upload(act_id, file_size)
+        try:
+            start_data = extract_data_or_raise(start_result, log_context="upload_ad_video_chunked")
+        except MetaAPIError:
+            return start_result
+
+        session_id = str(start_data["upload_session_id"])
+        video_id = str(start_data["video_id"])
+        start_offset = int(start_data["start_offset"])
+        end_offset = int(start_data["end_offset"])
+        logger.info(
+            "[CHUNKED_UPLOAD] start act_id=%s video_id=%s session_id=%s file_size=%d first_chunk=%d-%d",
+            act_id, video_id, session_id, file_size, start_offset, end_offset,
+        )
+
+        # Phase 2 — transfer loop
+        # Per-file retry budget mirrors Meta's SDK: ~1 retry per 10MB, min 2.
+        retry_budget = max(file_size // (10 * 1024 * 1024), 2)
+        transient_budget = 10
+        chunks_sent = 0
+
+        while start_offset != end_offset:
+            if on_check_cancel is not None:
+                on_check_cancel()  # caller raises to abort
+
+            file_source.seek(start_offset)
+            chunk = file_source.read(end_offset - start_offset)
+
+            t_chunk = time.monotonic()
+            transfer_result = self.transfer_video_chunk(
+                act_id, session_id, start_offset, chunk, file_name,
+            )
+
+            try:
+                transfer_data = extract_data_or_raise(transfer_result, log_context="upload_ad_video_chunked")
+            except MetaAPIError as exc:
+                # Meta subcode 1363037 means "we have a different offset for you" — recoverable.
+                if str(exc.subcode) == "1363037" and retry_budget > 0:
+                    raw = exc.raw_error or {}
+                    err_data = raw.get("error_data") or {}
+                    new_start = err_data.get("start_offset")
+                    new_end = err_data.get("end_offset")
+                    if new_start is not None and new_end is not None:
+                        retry_budget -= 1
+                        logger.warning(
+                            "[CHUNKED_UPLOAD] subcode_1363037_recover act_id=%s video_id=%s "
+                            "old=%d-%d new=%s-%s retries_left=%d",
+                            act_id, video_id, start_offset, end_offset, new_start, new_end, retry_budget,
+                        )
+                        start_offset = int(new_start)
+                        end_offset = int(new_end)
+                        continue
+                # Transient errors: short backoff, then retry the same chunk.
+                if (exc.raw_error or {}).get("is_transient") and transient_budget > 0:
+                    transient_budget -= 1
+                    logger.warning(
+                        "[CHUNKED_UPLOAD] transient_retry act_id=%s video_id=%s offset=%d retries_left=%d msg=%s",
+                        act_id, video_id, start_offset, transient_budget, str(exc.message)[:200],
+                    )
+                    time.sleep(1.0)
+                    continue
+                logger.error(
+                    "[CHUNKED_UPLOAD] transfer_failed act_id=%s video_id=%s offset=%d msg=%s",
+                    act_id, video_id, start_offset, str(exc.message)[:300],
+                )
+                return transfer_result
+
+            chunks_sent += 1
+            chunk_size = end_offset - start_offset
+            chunk_elapsed = time.monotonic() - t_chunk
+            chunk_mbps = (chunk_size * 8 / (1024 * 1024)) / max(chunk_elapsed, 0.001)
+            new_start = int(transfer_data["start_offset"])
+            new_end = int(transfer_data["end_offset"])
+            logger.info(
+                "[CHUNKED_UPLOAD] chunk_ok act_id=%s video_id=%s chunk=%d offset=%d->%d size=%d elapsed_s=%.2f mbps=%.1f next=%d-%d",
+                act_id, video_id, chunks_sent, start_offset, start_offset + chunk_size,
+                chunk_size, chunk_elapsed, chunk_mbps, new_start, new_end,
+            )
+            start_offset = new_start
+            end_offset = new_end
+
+            if on_progress is not None:
+                try:
+                    on_progress(start_offset, file_size)
+                except Exception:
+                    logger.debug("upload_ad_video_chunked on_progress raised", exc_info=True)
+
+        # Phase 3 — finish
+        finish_result = self.finish_chunked_video_upload(act_id, session_id, file_name)
+        try:
+            extract_data_or_raise(finish_result, log_context="upload_ad_video_chunked")
+        except MetaAPIError:
+            return finish_result
+
+        total_elapsed = time.monotonic() - t0
+        overall_mbps = (file_size * 8 / (1024 * 1024)) / max(total_elapsed, 0.001)
+        logger.info(
+            "[CHUNKED_UPLOAD] finish_ok act_id=%s video_id=%s chunks=%d total_elapsed_s=%.2f overall_mbps=%.1f",
+            act_id, video_id, chunks_sent, total_elapsed, overall_mbps,
+        )
+        return {"status": "success", "data": {"id": video_id}}
 
     def create_ad_creative(self, act_id: str, creative_params: Dict[str, Any]) -> Dict[str, Any]:
         return self._handle_graph_request(

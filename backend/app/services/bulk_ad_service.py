@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import io
 import logging
 import os
 import time
@@ -437,22 +438,21 @@ class BulkAdProcessor:
         file_name = str(meta["file_name"])
         content_type = str(meta.get("content_type") or "")
         media_type = "video" if content_type.startswith("video/") else "image"
-        upload_content = self._get_upload_content(file_data)
-        try:
-            uploaded = (
-                self.api.upload_ad_video(f"act_{self.context.account_id}", file_name, upload_content)
-                if media_type == "video"
-                else self.api.upload_ad_image(f"act_{self.context.account_id}", file_name, upload_content)
-            )
-        finally:
-            if hasattr(upload_content, "close"):
-                try:
-                    upload_content.close()
-                except Exception:
-                    logger.debug("[BULK_ADS] Falha ao fechar upload content", exc_info=True)
-        data = self._extract_data_or_raise(uploaded)
+        act_id = f"act_{self.context.account_id}"
 
         if media_type == "video":
+            file_size = self._get_file_size(file_data, meta)
+            file_source = self._open_seekable_source(file_data)
+            try:
+                uploaded = self.api.upload_ad_video_chunked(
+                    act_id, file_name, file_source, file_size,
+                )
+            finally:
+                try:
+                    file_source.close()
+                except Exception:
+                    pass
+            data = self._extract_data_or_raise(uploaded)
             video_id = str(data.get("id") or "")
             if not video_id:
                 raise MetaAPIError("Meta nao retornou video_id", "video_missing_id")
@@ -465,6 +465,16 @@ class BulkAdProcessor:
                 video_id=video_id,
             )
 
+        upload_content = self._get_upload_content(file_data)
+        try:
+            uploaded = self.api.upload_ad_image(act_id, file_name, upload_content)
+        finally:
+            if hasattr(upload_content, "close"):
+                try:
+                    upload_content.close()
+                except Exception:
+                    logger.debug("[BULK_ADS] Falha ao fechar upload content", exc_info=True)
+        data = self._extract_data_or_raise(uploaded)
         image_info = ((data.get("images") or {}).get(file_name) or {})
         image_hash = image_info.get("hash") or data.get("hash")
         if not image_hash:
@@ -606,6 +616,22 @@ class BulkAdProcessor:
         if temp_path:
             return open(temp_path, "rb")
         return file_data.get("content") or b""
+
+    def _open_seekable_source(self, file_data: Dict[str, Any]):
+        """Returns a seekable binary stream for chunked upload. Caller must close."""
+        temp_path = file_data.get("temp_path")
+        if temp_path:
+            return open(temp_path, "rb")
+        return io.BytesIO(file_data.get("content") or b"")
+
+    def _get_file_size(self, file_data: Dict[str, Any], meta: Dict[str, Any]) -> int:
+        size = meta.get("size")
+        if isinstance(size, int) and size > 0:
+            return size
+        temp_path = file_data.get("temp_path")
+        if temp_path:
+            return os.path.getsize(temp_path)
+        return len(file_data.get("content") or b"")
 
     def _cleanup_temp_files(self, file_metas: List[Dict[str, Any]]) -> None:
         for meta in file_metas:

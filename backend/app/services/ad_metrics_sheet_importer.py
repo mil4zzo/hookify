@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from app.core.supabase_client import get_supabase_for_user
+from app.core.supabase_retry import with_postgrest_retry
 from app.services.google_sheets_service import fetch_all_rows, GoogleSheetsError
 from app.services.google_errors import (
     GOOGLE_TOKEN_EXPIRED,
@@ -230,6 +231,8 @@ def _parse_and_aggregate_rows(
     aggregated_data = defaultdict(lambda: {'leadscore_values': [], 'row_count': 0})
     processed = 0
     skipped_invalid = 0
+    skipped_empty_rows = 0
+    parse_warnings_logged = 0
 
     def safe_get(values: List[str], idx: int | None) -> str | None:
         if idx is None:
@@ -237,6 +240,9 @@ def _parse_and_aggregate_rows(
         if idx < 0 or idx >= len(values):
             return None
         return values[idx]
+
+    def _is_blank(value: str | None) -> bool:
+        return value is None or str(value).strip() == ""
 
     for row in rows:
         processed += 1
@@ -249,6 +255,11 @@ def _parse_and_aggregate_rows(
         date_raw = safe_get(row, date_idx)
         leadscore_raw = safe_get(row, leadscore_idx)
 
+        # Linha totalmente vazia (típico de trailing rows da planilha): pula silenciosamente.
+        if _is_blank(ad_id_raw) and _is_blank(date_raw) and _is_blank(leadscore_raw):
+            skipped_empty_rows += 1
+            continue
+
         ad_id = _sanitize_ad_id(ad_id_raw)
         if not ad_id:
             skipped_invalid += 1
@@ -256,8 +267,9 @@ def _parse_and_aggregate_rows(
 
         date_norm = _parse_date(date_raw or "", date_format)
         if not date_norm:
-            if skipped_invalid < 10:
-                logger.warning(f"[AD_METRICS_IMPORT] DEBUG - Falha ao parsear data: '{date_raw}'")
+            if parse_warnings_logged < 10:
+                logger.warning(f"[AD_METRICS_IMPORT] Falha ao parsear data para ad_id={ad_id}: '{date_raw}'")
+                parse_warnings_logged += 1
             skipped_invalid += 1
             continue
 
@@ -274,6 +286,9 @@ def _parse_and_aggregate_rows(
         aggregated_data[key]['row_count'] += 1
         if leadscore_val is not None:
             aggregated_data[key]['leadscore_values'].append(leadscore_val)
+
+    if skipped_empty_rows:
+        logger.info(f"[AD_METRICS_IMPORT] Linhas vazias ignoradas silenciosamente: {skipped_empty_rows}")
 
     return aggregated_data, processed, skipped_invalid
 
@@ -350,14 +365,19 @@ def _execute_batch_update(
 
         for attempt in range(1, max_attempts + 1):
             try:
-                result = sb.rpc(
-                    "batch_update_ad_metrics_enrichment",
-                    {
-                        "p_user_id": user_id,
-                        "p_updates": batch,
-                        "p_pack_id": pack_id,
-                    },
-                ).execute()
+                # with_postgrest_retry cobre falhas transient de rede (HTTP/2 drops, RemoteProtocolError).
+                # O retry manual abaixo cobre timeouts do RPC (resposta lógica do servidor).
+                result = with_postgrest_retry(
+                    f"batch_update_ad_metrics_enrichment[batch={batch_num}/{total_batches}]",
+                    lambda: sb.rpc(
+                        "batch_update_ad_metrics_enrichment",
+                        {
+                            "p_user_id": user_id,
+                            "p_updates": batch,
+                            "p_pack_id": pack_id,
+                        },
+                    ).execute(),
+                )
 
                 if not result.data:
                     raise AdMetricsImportError("RPC de atualizacao nao retornou dados.")

@@ -54,6 +54,13 @@ export interface PollSheetsSyncJobConfig {
   onCompleted?: (stats: { rows_updated?: number; rows_processed?: number }) => void;
   /** Chamado ao concluir para disparar evento pack-integration-updated */
   onPackIntegrationUpdated?: (packId: string) => void;
+  /**
+   * Chamado ao concluir com sucesso, antes de onPackIntegrationUpdated.
+   * Aqui o caller deve invalidar caches (TanStack Query e IndexedDB) que dependem
+   * dos novos valores de leadscore em ad_metrics — sem isso, Manager exibe dados velhos
+   * até logout/login (useAdPerformance tem staleTime: Infinity).
+   */
+  onSuccessInvalidate?: (packId: string) => void | Promise<void>;
 }
 
 export type PollSheetsSyncJobResult = {
@@ -79,6 +86,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
     connectGoogle,
     onCompleted,
     onPackIntegrationUpdated,
+    onSuccessInvalidate,
   } = config;
 
   const pauseJobAndShowToast = (errorMessage: string) => {
@@ -172,6 +180,17 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
           rows_updated: updatedRows,
           rows_processed: stats.rows_processed,
         });
+
+        try {
+          const maybe = onSuccessInvalidate?.(packId);
+          if (maybe && typeof (maybe as Promise<void>).then === "function") {
+            (maybe as Promise<void>).catch((err) => {
+              logger.error("Erro ao invalidar caches após sync de leadscore:", err);
+            });
+          }
+        } catch (err) {
+          logger.error("Erro ao invalidar caches após sync de leadscore:", err);
+        }
 
         onPackIntegrationUpdated?.(packId);
 

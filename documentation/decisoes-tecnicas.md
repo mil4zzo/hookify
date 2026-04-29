@@ -214,3 +214,77 @@ WARNING [CALCULATE_PACK_STATS_ESSENTIAL] Erro ao buscar métricas para pack 27dd
 4. 200 é o batch size estabelecido no codebase para `.in_()` com ad_ids. Não inventar um número novo sem medir.
 
 **Arquivos alterados:** `backend/app/services/supabase_repo.py` (`calculate_pack_stats_essential`).
+
+---
+
+## Meta video upload — Padronizado em chunked /act_{id}/advideos (start/transfer-loop/finish)
+
+**Data:** 2026-04-29
+
+**Problema:** "Duplicar campanhas" funcionava só com vídeos pequenos. Para arquivos médios/grandes (>1 GB), o caminho falhava sempre. A implementação tinha duas etapas:
+
+1. **Não-resumável** — POST único em `/act_{id}/advideos` via `requests` (Linux) ou `curl.exe` subprocess (Windows). Limitado por HTTP 413 em ~1 GB.
+2. **Fallback "resumable"** em `rupload.facebook.com/video-ads-upload/{ver}/{video_id}` — mas era ainda outro **POST único** com headers `offset`/`file_size` e o arquivo inteiro no body, com timeout de 30 min e zero retry. Falhava reliably:
+   - Conexões HTTP/2 longas a CDN edges caem (NAT timeouts, proxies intermediários)
+   - Sem GET para descobrir o offset atual após drop
+   - Sem retry por chunk
+   - `upload_url` retornado pelo `start` era capturado e ignorado (URL própria hardcoded)
+   - Arquivo inteiro carregado em RAM (`upload_content.read()`)
+
+**Causa raiz:** O design "single-shot" é incompatível com a realidade da rede em uploads longos. O nome "resumable" no código era enganoso — não havia resume, só um POST grande disfarçado.
+
+**Solução:** Substituir os dois caminhos por um único orchestrator chunked espelhando o SDK oficial da Meta ([facebook-python-business-sdk/video_uploader.py](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/video_uploader.py)):
+
+- `GraphAPI.upload_ad_video_chunked(act_id, file_name, file_source, file_size, on_progress, on_check_cancel)` — único entry point.
+- Três métodos finos: `start_chunked_video_upload` (POST `/advideos` `upload_phase=start`), `transfer_video_chunk` (POST com `data=` form + `files={video_file_chunk}` multipart), `finish_chunked_video_upload`.
+- Server-driven chunking: cada response de transfer retorna `start_offset`/`end_offset` do próximo chunk. Loop até `start_offset == end_offset`.
+- **Recovery patterns** copiados do SDK oficial:
+  - Subcode `1363037`: o body do erro contém `error_data.start_offset`/`end_offset` para retomar. Budget `max(file_size_mb // 10, 2)`.
+  - `is_transient: true`: sleep 1s, retry mesmo chunk. Budget separado de 10.
+- `_handle_graph_request` ganhou parâmetro `data=` (form fields) além do `json_payload=`.
+- Callers: `CampaignBulkProcessor._upload_video` e `BulkAdProcessor._upload_single_media` (branch video) usam `_open_seekable_source(file_data)` que retorna `open(temp_path, 'rb')` ou `io.BytesIO(content)`.
+- `on_check_cancel` chama `_heartbeat` entre chunks → cancelamento detectado em ≤1 chunk sem precisar da `_HeartbeatThread` antiga.
+- **Removidos:** `upload_ad_video`, `upload_ad_video_curl` (subprocess curl no Windows não é mais necessário — chunks curtos não disparam o bug do urllib3 16KB-per-write), `start_video_upload`, `transfer_video_resumable`, `finish_video_upload`, `_HeartbeatThread`, `_ProgressStream`, `_is_request_entity_too_large`, `_upload_video_non_resumable`, `_upload_video_resumable`, `import platform`/`mimetypes`/`tempfile`/`subprocess`/`httpx` em graph_api.py.
+
+**Lições:**
+1. Quando a documentação da Meta lista um endpoint "resumable", verifique se o SDK oficial dela usa esse mesmo endpoint. Se o SDK usa outro caminho (ex.: chunked `/advideos`), siga o SDK — é o que está testado em escala.
+2. "Single POST com offset header" não é resumable de verdade. Resumable real = chunks múltiplos + recuperação por offset retornado pelo servidor.
+3. O subcode `1363037` da Meta é uma feature: o servidor te diz exatamente de onde retomar quando os offsets divergem (ex.: chunk parcialmente recebido). Tratar como "transient + offset corrigido", não como erro fatal.
+4. O bug do urllib3 16KB-per-write (que motivou o curl subprocess no Windows) **não afeta requests curtos**. Cada chunk de upload é um POST independente que termina rápido — o socket nunca acumula buffer suficiente pra disparar o pathological behavior. Deletar o curl hack foi seguro.
+5. Heartbeat thread em background era necessária quando o upload era um único bloqueio de 30 min. Com chunks (cada um <3 min), o callback `on_progress` per-chunk dá o mesmo efeito sem thread, sem race conditions, e com progresso real (`bytes_sent/file_size`).
+
+**Arquivos alterados:**
+- `backend/app/services/graph_api.py` — adicionado chunked flow, removidos 5 métodos obsoletos + 5 imports
+- `backend/app/services/campaign_bulk_service.py` — `_upload_video` único, `_open_seekable_source`, removidos `_HeartbeatThread`, `_ProgressStream`, `_is_request_entity_too_large`, `_upload_video_non_resumable`, `_upload_video_resumable`
+- `backend/app/services/bulk_ad_service.py` — branch video usa chunked, helpers `_open_seekable_source`/`_get_file_size` adicionados
+
+---
+
+## Sync de Leadscore — invalidação obrigatória de caches do Manager
+
+**Data:** 2026-04-29
+
+**Problema:** Usuário relatou que após atualizar o Leadscore de um pack, o Manager não exibia os novos valores até fazer logout/login. O sync persistia os dados em `ad_metrics` corretamente no Supabase.
+
+**Causa raiz:** O caminho do leadscore (frontend) só despachava `pack-integration-updated`, cujo único listener (`useLoadPacks`) atualiza apenas `sheet_integration` (metadata: data do último sync, status). Nenhum cache de dados de ad era invalidado. Como `useAdPerformance`, `useAdPerformanceSeries` e `usePackAds` têm `staleTime: Infinity` (decisão registrada no commit `5a7bc05`), o React Query nunca refazia fetch automático. Logout/login resolvia porque destrói o `QueryClient` em memória.
+
+Comparativamente, o caminho do **Meta refresh** já chamava `invalidatePackAds(packId)` + `invalidateAdPerformance()` corretamente.
+
+**Solução:**
+
+1. Novo callback `onSuccessInvalidate?: (packId) => void | Promise<void>` em `pollSheetsSyncJob.ts`, executado no completion path **antes** de `onPackIntegrationUpdated`.
+2. Os dois call sites (`usePackRefresh.runPollSheetsSyncJob` e `useGoogleSyncJob.startSync` + `startSyncWithToast`) passam o callback chamando `invalidateAdPerformance()` + `invalidatePackAds(packId)` (ambas vindas de `useInvalidatePackAds`).
+3. Quando `packId` é desconhecido (sync sem pack vinculado), só `invalidateAdPerformance()` é chamado.
+
+**Arquivos alterados:**
+- `frontend/lib/utils/pollSheetsSyncJob.ts` — adiciona callback `onSuccessInvalidate`
+- `frontend/lib/hooks/usePackRefresh.ts` — wira invalidações em `runPollSheetsSyncJob`
+- `frontend/components/ads/googleSheetsDialog/hooks/useGoogleSyncJob.tsx` — wira invalidações em `startSync` e `startSyncWithToast`
+
+**Melhorias incluídas no mesmo trabalho:**
+
+- **Resiliência HTTP/2 no RPC do importer:** `_execute_batch_update` (em `ad_metrics_sheet_importer.py`) agora envolve `sb.rpc("batch_update_ad_metrics_enrichment", ...).execute()` com `with_postgrest_retry` (4 tentativas). Antes, o retry manual cobria apenas timeouts lógicos do RPC; HTTP/2 transient drops (`RemoteProtocolError`, `ReadError` — ver memória `supabase_http2_transient_drops`) quebrariam o sync. O retry manual de timeout permanece como segunda camada.
+
+- **Log limpo:** linhas totalmente vazias da planilha (típico de trailing rows) agora são puladas silenciosamente em `_parse_and_aggregate_rows` em vez de gerar warnings `Falha ao parsear data: ''`. Warnings de data malformada permanecem apenas quando há `ad_id` válido.
+
+**Lição:** Quando uma view tem `staleTime: Infinity` por design, **toda** mutação backend que afeta dados dessa view precisa de uma invalidação explícita. Não basta despachar um event genérico — verifique que existe um listener real que invalide o `queryKey` correto. O caminho do Meta refresh é a referência canônica neste projeto.

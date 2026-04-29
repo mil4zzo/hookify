@@ -1,9 +1,8 @@
 from __future__ import annotations
 
+import io
 import logging
 import os
-import platform
-import threading
 import time
 from typing import Any, Dict, List, Optional
 
@@ -32,97 +31,6 @@ logger = logging.getLogger(__name__)
 
 class _JobCancelledError(Exception):
     pass
-
-
-class _ProgressStream:
-    """Wraps a file-like object, tracking bytes read without blocking on callbacks."""
-
-    def __init__(self, file_obj, file_size: int, job_id: str = "?"):
-        self._file = file_obj
-        self._file_size = file_size
-        self.bytes_read = 0  # read by heartbeat thread — GIL makes int writes atomic
-        self._job_id = job_id
-        self._read_count = 0
-        self._size_hist: Dict[int, int] = {}  # requested size -> count
-        self._start_time = time.monotonic()
-        self._last_log_bytes = 0
-        self._last_log_time = self._start_time
-        self._first_read_time: Optional[float] = None
-
-    def __len__(self) -> int:
-        return self._file_size
-
-    def read(self, n=-1):
-        t_read_start = time.monotonic()
-        chunk = self._file.read(n)
-        if chunk:
-            chunk_len = len(chunk)
-            self.bytes_read += chunk_len
-            self._read_count += 1
-            # track requested size distribution (top hint about urllib3 chunking behavior)
-            key = int(n) if isinstance(n, int) else -1
-            self._size_hist[key] = self._size_hist.get(key, 0) + 1
-            if self._first_read_time is None:
-                self._first_read_time = t_read_start
-                logger.info(
-                    "[UPLOAD_DEBUG] stream_first_read job_id=%s requested_size=%s chunk_len=%s "
-                    "time_since_start_ms=%d",
-                    self._job_id, n, chunk_len,
-                    int((t_read_start - self._start_time) * 1000),
-                )
-
-            now = time.monotonic()
-            bytes_since_last = self.bytes_read - self._last_log_bytes
-            time_since_last = now - self._last_log_time
-            # log every ~4MB or every 3s, whichever comes first
-            if bytes_since_last >= 4 * 1024 * 1024 or time_since_last >= 3.0:
-                instant_kbs = (bytes_since_last / 1024) / max(time_since_last, 0.001)
-                total_elapsed = now - self._start_time
-                overall_kbs = (self.bytes_read / 1024) / max(total_elapsed, 0.001)
-                # top 3 most-requested sizes
-                top_sizes = sorted(self._size_hist.items(), key=lambda x: -x[1])[:3]
-                logger.info(
-                    "[UPLOAD_DEBUG] stream_progress job_id=%s bytes=%d/%d reads=%d "
-                    "instant_kbs=%.1f overall_kbs=%.1f top_sizes=%s elapsed_s=%.1f",
-                    self._job_id, self.bytes_read, self._file_size, self._read_count,
-                    instant_kbs, overall_kbs, top_sizes, total_elapsed,
-                )
-                self._last_log_bytes = self.bytes_read
-                self._last_log_time = now
-        else:
-            # EOF — final stats
-            total_elapsed = time.monotonic() - self._start_time
-            overall_kbs = (self.bytes_read / 1024) / max(total_elapsed, 0.001)
-            top_sizes = sorted(self._size_hist.items(), key=lambda x: -x[1])[:5]
-            logger.info(
-                "[UPLOAD_DEBUG] stream_eof job_id=%s total_bytes=%d total_reads=%d "
-                "overall_kbs=%.1f elapsed_s=%.1f size_histogram=%s",
-                self._job_id, self.bytes_read, self._read_count,
-                overall_kbs, total_elapsed, top_sizes,
-            )
-        return chunk
-
-
-class _HeartbeatThread(threading.Thread):
-    """Fires heartbeats from a background thread so upload is never blocked by Supabase calls."""
-
-    def __init__(self, heartbeat_fn, get_message_fn, interval: float = 5.0):
-        super().__init__(daemon=True)
-        self._heartbeat_fn = heartbeat_fn
-        self._get_message_fn = get_message_fn  # () -> (message, progress)
-        self._interval = interval
-        self._stop_event = threading.Event()
-
-    def stop(self):
-        self._stop_event.set()
-
-    def run(self):
-        while not self._stop_event.wait(self._interval):
-            try:
-                message, progress = self._get_message_fn()
-                self._heartbeat_fn(message, progress)
-            except Exception:
-                pass  # never crash the upload over a heartbeat failure
 
 
 AD_NAME_VAR = "{ad_name}"
@@ -329,7 +237,7 @@ class CampaignBulkProcessor:
         act_id = f"act_{self.context.account_id}"
 
         if media_type == "video":
-            video_id = self._upload_video_non_resumable(
+            video_id = self._upload_video(
                 act_id=act_id,
                 file_name=file_name,
                 file_data=file_data,
@@ -694,12 +602,12 @@ class CampaignBulkProcessor:
             _elapsed_ms(t_item),
         )
 
-    # ── Non-resumable video upload (graph.facebook.com/advideos) ──────────────
-    # Endpoint padrão que Meta recomenda para vídeos <1GB. Multipart/form-data
-    # simples, um único POST. Evita rupload.facebook.com que throttla uploads
-    # em ~70 KB/s para clientes não-browser.
+    # ── Chunked video upload via /act_{id}/advideos ───────────────────────────
+    # Mirrors Meta's official Python SDK: server-driven chunk sizing, per-chunk
+    # retry, recovers from subcode 1363037 by reading the resume offset from the
+    # error body. Replaces the old single-POST non-resumable + rupload fallback.
 
-    def _upload_video_non_resumable(
+    def _upload_video(
         self,
         act_id: str,
         file_name: str,
@@ -711,170 +619,48 @@ class CampaignBulkProcessor:
         file_size = self._get_file_size(file_data, meta)
 
         logger.info(
-            "[CAMPAIGN_BULK] non_resumable_upload_start job_id=%s file_index=%s file_size=%s",
-            self.context.job_id, file_index, file_size,
+            "[CAMPAIGN_BULK] video_upload_start job_id=%s file_index=%s file_size=%s name=%s",
+            self.context.job_id, file_index, file_size, _log_str(file_name, 80),
         )
-        self._heartbeat("Enviando mídia ao Meta...", progress=5)
+        self._heartbeat("Enviando vídeo ao Meta...", progress=5)
 
-        upload_content = self._get_upload_content(file_data)
+        file_source = self._open_seekable_source(file_data)
         try:
-            t_read = time.monotonic()
-            if hasattr(upload_content, "read"):
-                upload_bytes = upload_content.read()
-            else:
-                upload_bytes = upload_content or b""
-            logger.info(
-                "[UPLOAD_DEBUG] bytes_loaded job_id=%s size=%d read_ms=%d",
-                self.context.job_id, len(upload_bytes), _elapsed_ms(t_read),
-            )
-
-            def _get_progress_msg():
-                return ("Enviando mídia ao Meta...", 8)
-
-            heartbeat_thread = _HeartbeatThread(self._heartbeat, _get_progress_msg, interval=5.0)
-            heartbeat_thread.start()
-            try:
-                t_send = time.monotonic()
-                if platform.system() == "Windows":
-                    result = self.api.upload_ad_video_curl(act_id, file_name, upload_bytes)
-                else:
-                    result = self.api.upload_ad_video(act_id, file_name, upload_bytes)
-                elapsed_s = time.monotonic() - t_send
-                effective_kbs = (file_size / 1024) / max(elapsed_s, 0.001)
-                effective_mbps = (file_size * 8 / (1024 * 1024)) / max(elapsed_s, 0.001)
-                logger.info(
-                    "[UPLOAD_DEBUG] non_resumable_completed job_id=%s elapsed_s=%.2f file_size=%d "
-                    "effective_kbs=%.1f effective_mbps=%.1f",
-                    self.context.job_id, elapsed_s, file_size, effective_kbs, effective_mbps,
+            def on_progress(bytes_sent: int, total: int) -> None:
+                pct = int(5 + (bytes_sent / max(total, 1)) * 10)  # 5–15% range
+                mb_sent = bytes_sent // (1024 * 1024)
+                mb_total = max(total // (1024 * 1024), 1)
+                self._heartbeat(
+                    f"Enviando vídeo... {mb_sent}/{mb_total} MB",
+                    progress=min(pct, 15),
                 )
-            finally:
-                heartbeat_thread.stop()
-                heartbeat_thread.join(timeout=10)
 
-            try:
-                data = self._extract_data_or_raise(result)
-            except MetaAPIError as exc:
-                if self._is_request_entity_too_large(result, exc):
-                    logger.warning(
-                        "[CAMPAIGN_BULK] non_resumable_upload_413_fallback job_id=%s file_index=%s file_size=%s",
-                        self.context.job_id, file_index, file_size,
-                    )
-                    self._heartbeat("Arquivo grande; alternando para envio em partes...", progress=6)
-                    return self._upload_video_resumable(act_id, file_name, file_data, meta, file_index)
-                raise
+            def on_check_cancel() -> None:
+                # Heartbeat raises _JobCancelledError if tracker rejected the claim.
+                self._heartbeat("Enviando vídeo...", progress=5)
 
-            video_id = str(data.get("id") or data.get("video_id") or "")
-            if not video_id:
-                raise MetaAPIError(
-                    f"Meta nao retornou video_id (data={data})",
-                    "video_missing_id",
-                )
-            logger.info(
-                "[CAMPAIGN_BULK] non_resumable_upload_ok job_id=%s video_id=%s duration_ms=%s",
-                self.context.job_id, video_id, _elapsed_ms(t0),
+            result = self.api.upload_ad_video_chunked(
+                act_id, file_name, file_source, file_size,
+                on_progress=on_progress,
+                on_check_cancel=on_check_cancel,
             )
-            return video_id
         finally:
-            if hasattr(upload_content, "close"):
-                try:
-                    upload_content.close()
-                except Exception:
-                    pass
-
-    # ── Resumable video upload (rupload.facebook.com) ─────────────────────────
-    # Mantido como fallback para vídeos >1GB se necessário no futuro.
-
-    def _upload_video_resumable(
-        self,
-        act_id: str,
-        file_name: str,
-        file_data: Dict[str, Any],
-        meta: Dict[str, Any],
-        file_index: int,
-    ) -> str:
-        t0 = time.monotonic()
-        file_size = self._get_file_size(file_data, meta)
-
-        # Phase 1 — Start
-        logger.info(
-            "[CAMPAIGN_BULK] resumable_upload_start job_id=%s file_index=%s file_size=%s",
-            self.context.job_id, file_index, file_size,
-        )
-        self._heartbeat("Enviando mídia ao Meta...", progress=5)
-        start_result = self.api.start_video_upload(act_id)
-        start_data = self._extract_data_or_raise(start_result)
-        video_id = str(start_data["video_id"])
-        upload_url = start_data.get("upload_url")
-        logger.info(
-            "[CAMPAIGN_BULK] resumable_upload_session job_id=%s video_id=%s file_size=%s start_keys=%s upload_url=%s",
-            self.context.job_id, video_id, file_size, sorted(start_data.keys()), upload_url,
-        )
-
-        # Phase 2 — Transfer (single POST to rupload.facebook.com)
-        # IMPORTANT: read the full file into bytes before sending. Passing a file-like
-        # object makes urllib3 iterate read(16384) and send each 16KB chunk as its own
-        # socket write, which serializes with TCP ACKs across a high-latency link to
-        # rupload.facebook.com and throttles upload to ~80 KB/s. Passing bytes lets
-        # urllib3 call sock.sendall() once, so the OS can stream at full bandwidth.
-        upload_content = self._get_upload_content(file_data)
-        try:
-            t_read = time.monotonic()
-            if hasattr(upload_content, "read"):
-                upload_bytes = upload_content.read()
-            else:
-                upload_bytes = upload_content or b""
-            logger.info(
-                "[UPLOAD_DEBUG] bytes_loaded job_id=%s size=%d read_ms=%d",
-                self.context.job_id, len(upload_bytes), _elapsed_ms(t_read),
-            )
-
-            # Heartbeat thread still runs so the UI shows progress messages
-            # during the transfer, even though we can't report byte-level progress
-            # when sending bytes in a single call.
-            def _get_progress_msg():
-                return ("Enviando mídia ao Meta...", 8)
-
-            heartbeat_thread = _HeartbeatThread(self._heartbeat, _get_progress_msg, interval=5.0)
-            heartbeat_thread.start()
             try:
-                self._heartbeat("Enviando mídia ao Meta...", progress=6)
-                transfer_result = self.api.transfer_video_resumable(
-                    video_id=video_id,
-                    data=upload_bytes,
-                    file_size=file_size,
-                )
-            finally:
-                heartbeat_thread.stop()
-                heartbeat_thread.join(timeout=10)
+                file_source.close()
+            except Exception:
+                pass
 
-            logger.info(
-                "[CAMPAIGN_BULK] resumable_upload_transfer_response job_id=%s video_id=%s "
-                "status=%s data=%s bytes_sent=%s",
-                self.context.job_id, video_id,
-                transfer_result.get("status"), transfer_result.get("data"), len(upload_bytes),
+        data = self._extract_data_or_raise(result)
+        video_id = str(data.get("id") or "")
+        if not video_id:
+            raise MetaAPIError(
+                f"Meta nao retornou video_id (data={data})",
+                "video_missing_id",
             )
-            self._extract_data_or_raise(transfer_result)
-        finally:
-            if hasattr(upload_content, "close"):
-                try:
-                    upload_content.close()
-                except Exception:
-                    pass
-
         logger.info(
-            "[CAMPAIGN_BULK] resumable_upload_transfer_done job_id=%s video_id=%s duration_ms=%s",
+            "[CAMPAIGN_BULK] video_upload_ok job_id=%s video_id=%s duration_ms=%s",
             self.context.job_id, video_id, _elapsed_ms(t0),
         )
-
-        # Phase 3 — Finish
-        self._heartbeat("Finalizando envio da mídia...", progress=15)
-        finish_result = self.api.finish_video_upload(act_id, video_id)
-        self._extract_data_or_raise(finish_result)
-        logger.info(
-            "[CAMPAIGN_BULK] resumable_upload_finish_ok job_id=%s video_id=%s duration_ms=%s",
-            self.context.job_id, video_id, _elapsed_ms(t0),
-        )
-
         return video_id
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -884,20 +670,6 @@ class CampaignBulkProcessor:
             result,
             log_context=f"[CAMPAIGN_BULK] job={self.context.job_id}",
         )
-
-    def _is_request_entity_too_large(self, result: Dict[str, Any], exc: MetaAPIError) -> bool:
-        if result.get("http_status") == 413:
-            return True
-
-        haystack = " ".join(
-            str(value or "")
-            for value in (
-                result.get("message"),
-                exc.message,
-                exc.user_msg,
-            )
-        ).lower()
-        return "413" in haystack or "request entity too large" in haystack
 
     def _heartbeat(self, message: str, progress: int) -> None:
         accepted = self.tracker.heartbeat(
@@ -934,6 +706,13 @@ class CampaignBulkProcessor:
         if temp_path:
             return open(temp_path, "rb")
         return file_data.get("content") or b""
+
+    def _open_seekable_source(self, file_data: Dict[str, Any]):
+        """Returns a seekable binary stream for chunked upload. Caller must close."""
+        temp_path = file_data.get("temp_path")
+        if temp_path:
+            return open(temp_path, "rb")
+        return io.BytesIO(file_data.get("content") or b"")
 
     def _get_file_size(self, file_data: Dict[str, Any], meta: Dict[str, Any]) -> int:
         size = meta.get("size")

@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ToggleSwitch } from "@/components/common/ToggleSwitch";
+import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -20,6 +20,11 @@ const FILTER_FIELDS = [
   { label: "Adset Name", value: "adset.name" },
   { label: "Ad Name", value: "ad.name" },
 ];
+
+const getFilterFieldLabel = (fieldValue: string) => {
+  const field = FILTER_FIELDS.find((f) => f.value === fieldValue);
+  return field ? field.label : fieldValue;
+};
 
 export interface PackCardProps {
   pack: AdsPack;
@@ -193,11 +198,6 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
     }
   };
 
-  const getFilterFieldLabel = (fieldValue: string) => {
-    const field = FILTER_FIELDS.find((f) => f.value === fieldValue);
-    return field ? field.label : fieldValue;
-  };
-
   // Calcular duração em dias
   const calculateDays = (start: string, end: string): number => {
     const startDate = new Date(start);
@@ -298,14 +298,29 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                 {/* Filtros */}
                 {pack.filters && pack.filters.length > 0 && (
                   <div className="flex justify-center flex-wrap gap-2">
-                    {pack.filters.map((filter: FilterRule, index: number) => (
-                      <div key={index} className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <IconFilter className="w-3.5 h-3.5 flex-shrink-0" />
-                        <span className="font-medium text-foreground-80">{getFilterFieldLabel(filter.field)}</span>
-                        <span className="opacity-60">{filter.operator.toLowerCase().replace("_", " ")}</span>
-                        <span className="font-medium text-foreground-80">"{filter.value}"</span>
-                      </div>
-                    ))}
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-default">
+                            <IconFilter className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span className="font-medium text-muted-foreground">
+                              Ver {pack.filters.length} {pack.filters.length === 1 ? "filtro" : "filtros"}
+                            </span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs">
+                          <div className="flex flex-col gap-1">
+                            {pack.filters.map((filter: FilterRule, index: number) => (
+                              <div key={index} className="flex items-center gap-1.5 text-xs">
+                                <span className="font-medium">{getFilterFieldLabel(filter.field)}</span>
+                                <span className="opacity-60">{filter.operator.toLowerCase().replace("_", " ")}</span>
+                                <span className="font-medium">"{filter.value}"</span>
+                              </div>
+                            ))}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 )}
               </div>
@@ -382,89 +397,95 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                 </div>
               </div>
 
-              {/* Footer: Toggles e última atualização */}
+              {/* Footer: Toggles com ícone e timestamp integrados */}
               <div className="flex flex-col gap-2">
+                {/* Manter atualizado */}
                 <div
                   className="relative z-20"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                  }}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                  }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
-                  <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} labelLeft="Manter atualizado:" variant="default" size="md" className="w-full justify-between" labelClassName="text-sm text-foreground" switchClassName="data-[state=checked]:bg-success" />
+                  <div className="flex items-center px-3 py-2 bg-muted border border-border rounded-md gap-2 w-full justify-between">
+                    <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
+                        <MetaIcon className="w-4 h-4 flex-shrink-0" />
+                      </div>
+                      <div className="flex flex-col">
+                        <label htmlFor={`auto-refresh-${pack.id}`} className="font-medium text-sm text-foreground cursor-pointer">
+                          Manter atualizado
+                        </label>
+                        <UpdatedAtText dateTime={pack.updated_at} className="text-[10px] text-muted-foreground" />
+                      </div>
+                    </div>
+                    <Switch
+                      id={`auto-refresh-${pack.id}`}
+                      checked={pack.auto_refresh || false}
+                      onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)}
+                      disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id}
+                      className="data-[state=checked]:bg-success"
+                    />
+                  </div>
                 </div>
+
+                {/* Leadscore */}
                 <div
                   className="relative z-20"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                  }}
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                  }}
-                  onMouseDown={(e) => {
-                    e.stopPropagation();
-                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
                 >
-                  <ToggleSwitch
-                    id={`leadscore-${pack.id}`}
-                    checked={!!pack.sheet_integration}
-                    onCheckedChange={(checked) => {
-                      if (checked && !pack.sheet_integration) {
-                        onSetSheetIntegration(pack);
-                      }
-                    }}
-                    disabled={!!pack.sheet_integration}
-                    labelLeft="Leadscore"
-                    variant="default"
-                    size="md"
-                    className="w-full justify-between"
-                    labelClassName="text-sm text-foreground"
-                    switchClassName="data-[state=checked]:bg-success"
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-3 text-xs text-foreground">
-                  <div className="flex items-center gap-1.5">
-                    <MetaIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                    <span>Meta:</span>
-                  </div>
-                  <UpdatedAtText dateTime={pack.updated_at} />
-                </div>
-                {hasAnyLeadscoreSyncInfo && (
-                  <div className="flex items-center justify-between text-xs text-foreground">
-                    <div className="flex items-center gap-1.5">
-                      <GoogleSheetsIcon className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span>Leadscore:</span>
+                  <div className="flex items-center px-3 py-2 bg-muted border border-border rounded-md gap-2 w-full justify-between">
+                    <div className="flex gap-2">
+                      <div className="flex items-center gap-2">
+                        <GoogleSheetsIcon className="w-3.5 h-3.5 flex-shrink-0" />
+                      </div>
+                      <div className="flex flex-col">
+                        <label htmlFor={`leadscore-${pack.id}`} className="font-medium text-sm text-foreground cursor-pointer">
+                          Leadscore
+                        </label>
+                        {!pack.sheet_integration ? (
+                          <span className="text-[10px] text-muted-foreground">Não conectado</span>
+                        ) : hasAnyLeadscoreSyncInfo ? (
+                          <div className="flex items-center gap-1">
+                            {leadscoreSyncFailed && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <IconAlertCircle className="w-3 h-3 text-warning flex-shrink-0 cursor-help" />
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>
+                                      {lastSuccessfulSyncAt
+                                        ? "A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida."
+                                        : "A última tentativa de sincronização falhou e ainda não há sincronização bem-sucedida para este pack."}
+                                    </p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                            {leadscoreDateForDisplay ? (
+                              <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-[10px] text-muted-foreground" />
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground">Sem sync bem-sucedido</span>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5">
-                      {leadscoreSyncFailed && (
-                        <TooltipProvider>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <IconAlertCircle className="w-3.5 h-3.5 text-warning flex-shrink-0 cursor-help" />
-                            </TooltipTrigger>
-                            <TooltipContent>
-                              <p>
-                                {lastSuccessfulSyncAt
-                                  ? "A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida."
-                                  : "A última tentativa de sincronização falhou e ainda não há sincronização bem-sucedida para este pack."}
-                              </p>
-                            </TooltipContent>
-                          </Tooltip>
-                        </TooltipProvider>
-                      )}
-                      {leadscoreDateForDisplay ? (
-                        <UpdatedAtText dateTime={leadscoreDateForDisplay} />
-                      ) : (
-                        <span className="text-muted-foreground">Sem sync bem-sucedido</span>
-                      )}
-                    </div>
+                    <Switch
+                      id={`leadscore-${pack.id}`}
+                      checked={!!pack.sheet_integration}
+                      onCheckedChange={(checked) => {
+                        if (checked && !pack.sheet_integration) {
+                          onSetSheetIntegration(pack);
+                        }
+                      }}
+                      disabled={!!pack.sheet_integration}
+                      className="data-[state=checked]:bg-success"
+                    />
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </StandardCard>
