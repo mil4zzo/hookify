@@ -20,8 +20,9 @@ export interface BackgroundTasksStatus {
 function isDone(status: BackgroundTasksStatus): boolean {
   const t = status.thumbnails;
   const s = status.stats_extended;
-  const tDone = t === "completed" || t === "failed";
-  const sDone = s === "completed" || s === "failed";
+  // Treat absent fields as done — if the backend doesn't report a task, don't wait for it.
+  const tDone = t === undefined || t === "completed" || t === "failed";
+  const sDone = s === undefined || s === "completed" || s === "failed";
   return tDone && sDone;
 }
 
@@ -71,13 +72,7 @@ export function pollPackBackgroundTasks(jobId: string, packId?: string): void {
           if (missingBgCount >= MAX_MISSING_BG) {
             if (packId && !refreshedThumbnailCache) {
               const refreshed = await refreshPackAdsCache(packId, true);
-              if (refreshed) {
-                refreshedThumbnailCache = true;
-                logger.debug("[pollPackBackgroundTasks] Refreshed thumbnail cache without background status");
-                break;
-              }
-              missingBgCount = 0;
-              continue;
+              if (refreshed) refreshedThumbnailCache = true;
             }
             logger.debug("[pollPackBackgroundTasks] Missing background status, stopping");
             break;

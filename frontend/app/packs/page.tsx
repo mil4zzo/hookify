@@ -891,7 +891,8 @@ export default function PacksPage() {
               return `${d}/${m}/${y}`;
             };
             const today = getTodayLocal();
-            const sinceLastRange = pack?.last_refreshed_at ? `${formatDateDisplay(formatDateLocal(subDays(new Date(pack.last_refreshed_at + "T12:00:00"), 1)))} → ${formatDateDisplay(today)}` : "—";
+            const sinceLastAnchor = pack?.last_refreshed_at || pack?.date_stop;
+            const sinceLastRange = sinceLastAnchor ? `${formatDateDisplay(formatDateLocal(subDays(new Date(sinceLastAnchor + "T12:00:00"), 1)))} → ${formatDateDisplay(today)}` : "—";
             const fullPeriodRange = pack?.date_start && pack?.date_stop ? (pack.auto_refresh ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(today)}` : `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(pack.date_stop)}`) : "—";
             return (
               <div className="w-full space-y-2">
@@ -899,7 +900,7 @@ export default function PacksPage() {
                   <div className="flex items-center gap-3">
                     <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${refreshType === "since_last_refresh" ? "border-primary" : "border-border"}`}>{refreshType === "since_last_refresh" && <div className="w-2 h-2 rounded-full bg-primary" />}</div>
                     <div>
-                      <div className="font-semibold text-text text-sm">Desde a última atualização</div>
+                      <div className="font-semibold text-text text-sm">Dados mais recentes</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{sinceLastRange}</div>
                     </div>
                   </div>

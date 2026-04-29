@@ -78,7 +78,6 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | created_at | timestamp | DEFAULT |
 | updated_at | timestamp | DEFAULT |
 | id | text | NOT NULL |
-| pack_ids | uuid[] | DEFAULT |
 | hold_rate | numeric |  |
 | leadscore_values | numeric[] |  |
 | lpv | integer | NOT NULL, DEFAULT |
@@ -265,6 +264,30 @@ Jobs assíncronos de longa duração (ex: criação em lote de anúncios).
 
 ---
 
+### meta_api_usage
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| user_id | uuid |  |
+| route | text |  |
+| service_name | text |  |
+| ad_account_id | text |  |
+| meta_endpoint | text |  |
+| http_method | text |  |
+| http_status | integer |  |
+| response_ms | integer |  |
+| call_count_pct | numeric |  |
+| cputime_pct | numeric |  |
+| total_time_pct | numeric |  |
+| business_use_case_usage | jsonb |  |
+| ad_account_usage | jsonb |  |
+| page_route | text |  |
+| regain_access_minutes | integer |  |
+
+---
+
 ### packs
 Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 
@@ -292,6 +315,23 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 
 ---
 
+### subscriptions
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| user_id | uuid | NOT NULL |
+| tier | text | NOT NULL, DEFAULT |
+| source | text | DEFAULT |
+| plan_id | text |  |
+| granted_by | uuid |  |
+| starts_at | timestamp | NOT NULL, DEFAULT |
+| expires_at | timestamp |  |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### user_preferences
 Preferências e configurações personalizadas por usuário.
 
@@ -312,34 +352,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-### meta_api_usage
-Registro de cada chamada à Meta Graph API com métricas de quota, contexto de rota e detecção de throttling.
-
-| Coluna | Tipo | Flags |
-|--------|------|-------|
-| id | uuid | NOT NULL, DEFAULT |
-| created_at | timestamptz | NOT NULL, DEFAULT |
-| user_id | uuid | FK auth.users, nullable (jobs de background ficam NULL) |
-| route | text | Rota do backend FastAPI (ex: `/facebook/ads/enriched`) |
-| page_route | text | Página do frontend que originou a chamada (ex: `/upload`) |
-| service_name | text | Label do serviço chamador (ex: `GraphAPI.get_ad_creative_details`) |
-| ad_account_id | text | Ad account extraído da URL (ex: `act_375919623592885`) |
-| meta_endpoint | text | Path da Meta API (ex: `/v24.0/act_XXX/insights`) |
-| http_method | text |  |
-| http_status | integer | 400 + error code 17/613 indica throttling |
-| response_ms | integer |  |
-| call_count_pct | numeric | % do limite de chamadas consumido (snapshot cumulativo) |
-| cputime_pct | numeric | % do limite de CPU time consumido (snapshot cumulativo) |
-| total_time_pct | numeric | % do limite de total time consumido (snapshot cumulativo) |
-| regain_access_minutes | integer | Minutos até liberar acesso; NULL ou 0 = conta não bloqueada |
-| business_use_case_usage | jsonb | Breakdown por BUC e ad account (header x-business-use-case-usage) |
-| ad_account_usage | jsonb | Breakdown por ad account (header x-ad-account-usage) |
-
-**Observação:** cada linha é um snapshot do quota total da conta no momento da chamada, não o custo individual daquela chamada. Para saber o custo de uma flow, compare snapshots consecutivos.
-
-**RLS:** usuários leem apenas suas próprias linhas (`user_id = auth.uid()`). Escrita exclusiva via service role.
-
----
-
-*Gerado em: 2026-04-21 — via `supabase/generate_schema_map.py`*  
-*Atualizado manualmente em: 2026-04-23 — adicionada tabela `meta_api_usage` (migrations 063–065)*
+*Gerado em: 2026-04-29 — via `supabase/generate_schema_map.py`*

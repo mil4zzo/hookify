@@ -1226,12 +1226,10 @@ def upsert_pack(
     if not normalized_name:
         raise ValueError("[UPSERT_PACK] missing name")
     
-    # Usar today_local se fornecido, senão usar date_stop como fallback (já vem do frontend no fuso local)
-    # Nunca usar UTC para datas lógicas
     today_str = today_local if today_local else date_stop
-    
+
     sb = _get_sb(user_jwt, sb_client)
-    
+
     pack_data = {
         "user_id": user_id,
         "adaccount_id": adaccount_id,
@@ -1241,11 +1239,18 @@ def upsert_pack(
         "level": level,
         "filters": filters if filters else [],
         "auto_refresh": auto_refresh,
-        "last_refreshed_at": today_str,
         "last_prompted_at": today_str,
         "refresh_status": "success",
         "updated_at": _now_iso(),
     }
+
+    # Na criação, usar date_stop como âncora de last_refreshed_at — representa
+    # até onde os dados do pack chegam, permitindo que since_last_refresh calcule
+    # o range correto (date_stop - 1 → hoje) desde o primeiro refresh.
+    # Em updates (pack_id informado), não tocar last_refreshed_at — gerenciado
+    # pelo job de refresh após conclusão.
+    if not pack_id:
+        pack_data["last_refreshed_at"] = date_stop
     
     logger.info(f"[UPSERT_PACK] Dados do pack preparados: {pack_data}")
     

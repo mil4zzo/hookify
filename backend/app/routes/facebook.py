@@ -2371,10 +2371,10 @@ def refresh_pack(
         # Calcular range de datas baseado no refresh_type (datas lógicas YYYY-MM-DD)
         if refresh_type == "since_last_refresh":
             # Opção 1: Desde a última atualização
-            if not pack.get("last_refreshed_at"):
+            # Fallback para date_stop em packs legados criados antes de last_refreshed_at ser preenchido na criação
+            last_refreshed_str = pack.get("last_refreshed_at") or pack.get("date_stop")
+            if not last_refreshed_str:
                 raise HTTPException(status_code=400, detail="Pack não tem last_refreshed_at configurado. Use 'full_period' para atualizar todo o período.")
-
-            last_refreshed_str = pack["last_refreshed_at"]
             # Parsing robusto: funciona com "YYYY-MM-DD" e "YYYY-MM-DDThh:mm:ss..."
             since_date = date.fromisoformat(last_refreshed_str[:10]) - timedelta(days=1)
             since_str = since_date.strftime("%Y-%m-%d")

@@ -354,6 +354,9 @@ autorizador.json
 hookify_gcvapi.json
 build.py
 
+# Supabase local secrets (DB password for pg_dump)
+supabase/.env
+
 # API Keys and sensitive data
 *.key
 *.pem

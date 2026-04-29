@@ -4,7 +4,7 @@ import { parseError, AppError } from '@/lib/utils/errors'
 import { env } from '@/lib/config/env'
 import { getSupabaseClient } from '@/lib/supabase/client'
 
-const SESSION_CACHE_TTL_MS = 300
+const SESSION_CACHE_TTL_MS = 30_000
 
 type SessionCacheEntry = {
   session: { access_token?: string; expires_at?: number } | null
