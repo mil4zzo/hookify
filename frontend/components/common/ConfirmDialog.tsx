@@ -46,12 +46,6 @@ export interface ConfirmDialogProps {
   loadingText?: string;
 }
 
-const variantClasses = {
-  default: "bg-success text-success-foreground hover:bg-success-90",
-  destructive: "bg-destructive text-destructive-foreground hover:bg-destructive-90",
-  success: "bg-success text-success-foreground hover:bg-success-90",
-};
-
 export function ConfirmDialog({ isOpen, onClose, title, message, children, confirmText = "Confirmar", cancelText = "Cancelar", variant = "default", onConfirm, onCancel, isLoading = false, size = "md", closeOnOverlayClick, closeOnEscape, showCloseButton = false, confirmIcon, cancelIcon, layout = "centered", loadingText = "Processando..." }: ConfirmDialogProps) {
   // Se não especificado, não permite fechar durante loading
   const canClose = !isLoading;
@@ -73,6 +67,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
   };
 
   const isCentered = layout === "centered";
+  const confirmButtonVariant = variant === "default" ? "success" : variant;
 
   return (
     <AppDialog isOpen={isOpen} onClose={handleCancel} title={title} size={size} padding="md" closeOnOverlayClick={effectiveCloseOnOverlayClick} closeOnEscape={effectiveCloseOnEscape} showCloseButton={showCloseButton && canClose}>
@@ -89,7 +84,7 @@ export function ConfirmDialog({ isOpen, onClose, title, message, children, confi
             {cancelText}
           </Button>
 
-          <Button onClick={handleConfirm} className={`flex-1 flex items-center justify-center gap-2 ${variantClasses[variant]}`} disabled={isLoading}>
+          <Button onClick={handleConfirm} variant={confirmButtonVariant} className="flex-1 flex items-center justify-center gap-2" disabled={isLoading}>
             {isLoading ? (
               <>
                 <IconLoader2 className="h-4 w-4 animate-spin" />

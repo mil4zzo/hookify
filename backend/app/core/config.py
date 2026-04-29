@@ -63,15 +63,6 @@ LOG_SUPPRESS_HTTPX = os.getenv("LOG_SUPPRESS_HTTPX", "true").lower() in ("true",
 #   Use para observar consumo de quota antes de atingir rate limit.
 LOG_META_USAGE = os.getenv("LOG_META_USAGE", "false").lower() in ("true", "1", "yes")
 
-# Analytics (cutover gradual da RPC agregada do Manager)
-ANALYTICS_MANAGER_RPC_ENABLED = os.getenv("ANALYTICS_MANAGER_RPC_ENABLED", "false").lower() in ("true", "1", "yes")
-ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED = os.getenv("ANALYTICS_MANAGER_RPC_AB_COMPARE_ENABLED", "false").lower() in ("true", "1", "yes")
-ANALYTICS_MANAGER_RPC_FAIL_OPEN = os.getenv("ANALYTICS_MANAGER_RPC_FAIL_OPEN", "true").lower() in ("true", "1", "yes")
-try:
-    ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE = float(os.getenv("ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE", "0.1"))
-except ValueError:
-    ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE = 0.1
-ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE = max(0.0, min(1.0, ANALYTICS_MANAGER_RPC_AB_SAMPLE_RATE))
 try:
     ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = float(
         os.getenv("ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS", "35")

@@ -80,7 +80,7 @@ $$;
 -- 2a. fetch_manager_rankings_core_v2_base_v060
 --     Único delta em relação à _v059: removido "or am.pack_ids && p_pack_ids"
 -- ═══════════════════════════════════════════════════════════════════════════
-CREATE FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text DEFAULT 'ad_name'::text, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text, p_action_type text DEFAULT NULL::text, p_include_leadscore boolean DEFAULT true, p_include_available_conversion_types boolean DEFAULT true, p_limit integer DEFAULT 500, p_offset integer DEFAULT 0, p_order_by text DEFAULT 'spend'::text) RETURNS jsonb
+CREATE OR REPLACE FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text DEFAULT 'ad_name'::text, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text, p_action_type text DEFAULT NULL::text, p_include_leadscore boolean DEFAULT true, p_include_available_conversion_types boolean DEFAULT true, p_limit integer DEFAULT 500, p_offset integer DEFAULT 0, p_order_by text DEFAULT 'spend'::text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
@@ -1202,7 +1202,7 @@ $$;
 -- 5a. fetch_manager_analytics_aggregated_base_v049
 --     Único delta em relação à _v048: removido "or am.pack_ids && p_pack_ids"
 -- ═══════════════════════════════════════════════════════════════════════════
-CREATE FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text DEFAULT 'ad_name'::text, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text, p_include_series boolean DEFAULT true, p_include_leadscore boolean DEFAULT true, p_series_window integer DEFAULT 7, p_limit integer DEFAULT 10000, p_order_by text DEFAULT 'spend'::text) RETURNS jsonb
+CREATE OR REPLACE FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text DEFAULT 'ad_name'::text, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text, p_include_series boolean DEFAULT true, p_include_leadscore boolean DEFAULT true, p_series_window integer DEFAULT 7, p_limit integer DEFAULT 10000, p_order_by text DEFAULT 'spend'::text) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$

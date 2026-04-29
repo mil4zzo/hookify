@@ -311,7 +311,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
         </div>
       </div>
 
-      <div className="mt-1.5 flex justify-between px-0.5 text-[10px] font-medium tabular-nums text-primary-foreground-45">
+      <div className="mt-1.5 flex justify-between px-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
         <span>0</span>
         <span>25</span>
         <span>50</span>
@@ -336,15 +336,14 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
   const dynamicLine = staged ? staged.dynamicLine : message || "...";
   const isSuccess = variant === "success";
   const showBar = !cancelling && !inlineError;
-  const showTerminalCloseButton = terminal && inlineError && Boolean(onCancel);
-  const showTransientErrorCancelButton = !terminal && inlineError && Boolean(onCancel);
-  const showLoadingCancelButton = showBar && Boolean(onCancel) && !(terminal && isSuccess);
+  const showActionButton = Boolean(onCancel) && !(terminal && isSuccess);
+  const actionButtonLabel = terminal && inlineError ? "Fechar" : "Cancelar";
 
   return (
     <ToastCardFrame variant={variant} progress={animatedProgress} animated={animated}>
       <div className="flex flex-col gap-3 px-4 pb-4 pt-3 text-primary-foreground" role="status" aria-live="polite" aria-valuemin={0} aria-valuemax={100} aria-valuenow={showBar ? animatedProgress : undefined}>
         <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex-shrink-0 [&_svg]:h-4 [&_svg]:w-4">{cancelling ? <IconLoader2 className="animate-spin opacity-90" /> : icon || <IconLoader2 className="animate-spin opacity-90" />}</span>
+          <span className="mt-0.5 flex-shrink-0 [&_svg]:h-5 [&_svg]:w-5">{cancelling ? <IconLoader2 className="animate-spin opacity-90" /> : icon || <IconLoader2 className="animate-spin opacity-90" />}</span>
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-[11px] font-medium leading-tight text-primary-foreground-75">{eyebrow}</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-primary-foreground">{titleText}</p>
@@ -356,43 +355,24 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
             ) : inlineError ? (
               <p className="pt-0.5 text-xs font-medium leading-snug text-destructive-300">{dynamicLine}</p>
             ) : (
-              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 pt-0.5">
-                <span className="text-2xl font-semibold tabular-nums leading-none tracking-tight text-primary-foreground">{animatedProgress}%</span>
-                <span className="text-xl font-semibold leading-none text-primary-foreground-40">•</span>
-                <span className="min-w-0 text-xs font-medium leading-snug text-primary-foreground-88">{dynamicLine}</span>
-              </div>
+              <p className="min-w-0 pt-0.5 text-xs font-medium leading-snug text-primary-foreground-88">{dynamicLine}</p>
             )}
           </div>
 
-          {showTerminalCloseButton && (
+          {showActionButton && (
             <button
               type="button"
               onClick={onCancel}
-              aria-label="Fechar"
-              className="ml-1 flex-shrink-0 rounded p-1 text-primary-foreground-75 hover:bg-primary-foreground-10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-primary-foreground-30"
+              aria-label={actionButtonLabel}
+              title={actionButtonLabel}
+              className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-primary-foreground-75 hover:bg-primary-foreground-10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-primary-foreground-30"
             >
               <IconX className="h-4 w-4" strokeWidth={2} />
             </button>
           )}
         </div>
 
-        {showTransientErrorCancelButton && (
-          <div className="flex justify-end pt-1">
-            <Button type="button" size="sm" variant="secondary" className="h-8 border-primary-foreground-20 bg-primary-foreground-10 text-primary-foreground hover:bg-primary-foreground-20" onClick={onCancel}>
-              Cancelar
-            </Button>
-          </div>
-        )}
-
         {showBar && <ProgressBar progress={animatedProgress} variant={variant} animated={animated} />}
-
-        {showLoadingCancelButton && (
-          <div className="flex justify-end">
-            <Button type="button" size="sm" variant="ghost" className="h-8 text-primary-foreground-90 hover:bg-primary-foreground-10 hover:text-primary-foreground" onClick={onCancel}>
-              Cancelar
-            </Button>
-          </div>
-        )}
       </div>
     </ToastCardFrame>
   );

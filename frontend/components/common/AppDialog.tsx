@@ -96,7 +96,7 @@ export function AppDialog({ isOpen, onClose, children, className, bodyClassName,
         <DialogPrimitive.Overlay className={cn("fixed inset-0 z-overlay bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0", overlayClassName)} style={overlayStyle} />
         <DialogPrimitive.Content onOpenAutoFocus={handleOpenAutoFocus} onInteractOutside={handleInteractOutside} onEscapeKeyDown={handleEscapeKeyDown} className={cn(
           // Base
-          "fixed z-modal border border-border bg-card shadow-elevation-overlay duration-200",
+          "fixed z-modal border border-border bg-card shadow-elevation-overlay duration-200 outline-none focus:outline-none focus-visible:outline-none",
           "data-[state=open]:animate-in data-[state=closed]:animate-out",
           "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
           // Variante mobile

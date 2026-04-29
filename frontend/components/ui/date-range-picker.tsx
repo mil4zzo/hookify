@@ -11,9 +11,8 @@ import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { FilterSelectButton } from "@/components/common/FilterSelectButton";
-import { Switch } from "@/components/ui/switch";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -316,7 +315,15 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
           {buttonContent}
         </div>
 
-        <Modal isOpen={isModalOpen} onClose={handleCancel} size="full" padding="lg" className="!max-w-[95vw] sm:!max-w-[min(95vw,45rem)] md:!max-w-[min(95vw,48rem)]">
+        <AppDialog
+          isOpen={isModalOpen}
+          onClose={handleCancel}
+          title="Selecionar Período"
+          size="full"
+          padding="lg"
+          className="z-[80] !max-w-[95vw] sm:!max-w-[min(95vw,45rem)] md:!max-w-[min(95vw,48rem)]"
+          overlayClassName="z-[70]"
+        >
           <div className="space-y-4 sm:space-y-6 w-full">
             <div className="space-y-1 sm:space-y-2">
               <h2 className="text-lg sm:text-xl md:text-2xl font-semibold text-foreground">Selecionar Período</h2>
@@ -340,7 +347,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
               </Button>
             </div>
           </div>
-        </Modal>
+        </AppDialog>
       </>
     );
   }

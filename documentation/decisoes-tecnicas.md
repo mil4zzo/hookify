@@ -110,3 +110,57 @@ Como `ANALYTICS_MANAGER_RPC_FAIL_OPEN=true`, qualquer falha do RPC cai para o le
 **Regra geral:** Em qualquer endpoint cuja resposta seja indexada por chaves requisitadas pelo cliente, todos os caminhos servidores devem garantir que toda chave pedida apareça na resposta (com payload vazio quando aplicável). Divergência silenciosa entre paths é particularmente perigosa em pares com `FAIL_OPEN`.
 
 **Arquivos alterados:** `backend/app/routes/analytics.py` (`_get_rankings_series_v2`).
+
+---
+
+## Schema drift do remoto — `_v066`/`_v067` ausentes nos migrations locais
+
+**Data:** 2026-04-28
+
+**Problema:** Após aplicar migration 074 (drop `ad_metrics.pack_ids`), todos os endpoints do Manager passaram a falhar com `column am.pack_ids does not exist`. Migrations 071 e 072 supostamente já tinham migrado todos os reads para `ad_metric_pack_map`.
+
+**Causa raiz:** O DB remoto tinha duas funções (`fetch_manager_rankings_core_v2_base_v066` e `_v067`) que **não existem em nenhum migration local** — foram introduzidas direto no remoto em algum momento, possivelmente via Supabase Studio ou SQL ad-hoc. A cadeia real de chamadas era:
+
+```
+wrapper fetch_manager_rankings_core_v2 (com p_campaign_id)
+  → _v067 (campaign_id filter)
+    → _v066 (passthrough)
+      → _v059  ← legado, ainda usava am.pack_ids
+```
+
+Migration 072 trocou o **wrapper** para apontar para `_v060` (sem fallback `pack_ids`), mas `_v066` continuou chamando `_v059`. `_v060` ficou órfão. Quando 074 dropou a coluna, a cadeia `_v067 → _v066 → _v059` quebrou.
+
+**Solução (migration 075):** Reescrever `_v066` para chamar `_v060` em vez de `_v059`. Mudança de uma única linha, sem efeito colateral conhecido (assinaturas idênticas, body de `_v060` é estritamente igual ao de `_v059` menos o fallback `or am.pack_ids && p_pack_ids`).
+
+**Lições:**
+1. Antes de qualquer drop de coluna ou alteração estrutural em RPCs, rodar `pg_dump --schema-only` para sincronizar `schema.sql` com o remoto. Os arquivos locais não são fonte de verdade.
+2. Se há overload de wrapper (mesma `proname`, signatures diferentes), Python/PostgREST roteia pelo conjunto de params nomeados. Verificar em `analytics.py` (ex: `p_campaign_id` ativa `_v067`).
+3. Funções base versionadas (`_v0XX`) podem se acumular silenciosamente. Antes de propor uma migration, listar todas:
+   ```sql
+   SELECT proname FROM pg_proc
+   WHERE proname LIKE 'fetch_manager_rankings_core_v2_base_v%'
+     AND pronamespace = 'public'::regnamespace;
+   ```
+
+**Cleanup pendente (futuro):** `_v059`, `_v047`, `_v048` ainda existem mas ficaram sem callers após 075. Podem ser dropadas quando o schema for ressincronizado e validado.
+
+**Arquivos alterados:** `supabase/migrations/075_fix_v066_route_to_v060.sql`.
+
+---
+
+## Supabase / PostgREST — Cap silencioso de 1000 linhas em `.select().execute()`
+
+**Data:** 2026-04-29
+
+**Problema:** Após criar um pack com 5019 (ad_id, date) entries, o card mostrava `totalSpend = 77.654,78` enquanto Meta Ads Manager (mesmos filtros e datas) mostrava `~191.000`. Os dados em `ad_metrics` e `ad_metric_pack_map` estavam corretos (191k somando via SQL direto), mas as stats salvas pelo backend estavam erradas.
+
+**Causa raiz:** PostgREST corta respostas de `.select().execute()` em **1000 linhas por padrão, sem erro nem warning**. Em `calculate_pack_stats_essential`, a primeira query — `sb.table("ad_metric_pack_map").select("ad_id").eq(...).execute()` — não tinha paginação. Para o pack com 5019 linhas no junction table, só as primeiras 1000 voltavam, então `ad_ids_in_pack` cobria ~52% dos ads únicos, e a soma de spend caía para ~40% do real (os ads truncados tendiam a ter mais cobertura de datas, então pesavam mais na soma).
+
+**Solução:** Trocar a query direta por `_fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id", ...)` (helper já existente em `supabase_repo.py`). A função usa `range(offset, offset + page_size - 1)` em loop até esgotar o resultado.
+
+**Lições:**
+1. Qualquer query contra tabelas de alto volume (`ad_metrics`, `ad_metric_pack_map`, `ads`) deve passar por `_fetch_all_paginated` — nunca `.execute()` direto. O cap não é configurável no client side; ele vem do servidor.
+2. "Pack pequeno" não existe para essas tabelas: 1 pack do usuário real já gerou 5019 linhas no map (1914 ads × ~2,6 datas em média). O bug ficou latente porque packs de teste anteriores tinham menos.
+3. Bugs causados por esse cap são **silenciosamente plausíveis**: a soma parcial não é zero nem absurdamente alta, então passa despercebida em revisão. Sempre conferir contra SQL direto quando há divergência com fonte externa (Ads Manager).
+
+**Arquivos alterados:** `backend/app/services/supabase_repo.py` (`calculate_pack_stats_essential`).

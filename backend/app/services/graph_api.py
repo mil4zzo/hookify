@@ -184,6 +184,17 @@ class GraphAPI:
         if json_filters:
             payload['filtering'] = '[' + ','.join(json_filters) + ']'
 
+        # Log full params for Graph API Explorer debugging (no token)
+        explorer_params = {k: v for k, v in payload.items()}
+        logger.info(
+            "[GraphAPI] === Graph API Explorer ===\n"
+            "  Endpoint : %s/insights\n"
+            "  Method   : POST\n"
+            "  Params   :\n%s",
+            act_id,
+            '\n'.join(f"    {k} = {v}" for k, v in explorer_params.items()),
+        )
+
         try:
             resp = requests.post(url, params=payload, timeout=30)
             resp.raise_for_status()

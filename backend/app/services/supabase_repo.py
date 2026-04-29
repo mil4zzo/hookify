@@ -1113,9 +1113,18 @@ def calculate_pack_stats_essential(
             return {}
 
         # Buscar ad_ids únicos do pack via junction table
-        map_res = sb.table("ad_metric_pack_map").select("ad_id") \
-            .eq("user_id", user_id).eq("pack_id", pack_id).execute()
-        ad_ids_in_pack = list({r["ad_id"] for r in (map_res.data or [])})
+        # IMPORTANTE: paginar — Supabase corta silenciosamente em 1000 linhas, e packs com
+        # muitos (ad_id, date) ultrapassam isso facilmente, gerando stats parciais.
+        def _map_filters(q):
+            return q.eq("user_id", user_id).eq("pack_id", pack_id)
+
+        map_rows = _fetch_all_paginated(
+            sb,
+            "ad_metric_pack_map",
+            "ad_id",
+            _map_filters,
+        )
+        ad_ids_in_pack = list({r["ad_id"] for r in map_rows})
 
         if not ad_ids_in_pack:
             return {
