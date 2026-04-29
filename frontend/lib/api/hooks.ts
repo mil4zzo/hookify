@@ -460,8 +460,8 @@ export const useRankings = (params: RankingsRequest, enabled: boolean = true) =>
     queryKey: queryKeys.rankings(params),
     queryFn: () => api.analytics.getRankings(params),
     enabled: enabled && !!params.date_start && !!params.date_stop,
-    staleTime: 2 * 60 * 1000, // 2 minutos - rankings podem mudar com novos dados
-    gcTime: 10 * 60 * 1000, // 10 minutos - manter em cache por 10min
+    staleTime: Infinity, // só muda com pack refresh (invalidação manual)
+    gcTime: 10 * 60 * 1000,
     retry: 2,
   })
 }
@@ -475,8 +475,8 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
     queryKey: queryKeys.adPerformance(params),
     queryFn: () => api.analytics.getAdPerformance(params),
     enabled: enabled && !!params.date_start && !!params.date_stop,
-    staleTime: 2 * 60 * 1000,
-    gcTime: 60 * 1000, // 1 min — liberar cache rápido para reduzir uso de memória com datasets grandes
+    staleTime: Infinity, // só muda com pack refresh (invalidação manual)
+    gcTime: 60 * 1000,
     retry: 2,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -499,7 +499,7 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
       !!params.date_start &&
       !!params.date_stop &&
       normalizedKeys.length > 0,
-    staleTime: 60 * 1000,
+    staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 2 * 60 * 1000,
     retry: 1,
     refetchOnWindowFocus: false,
@@ -512,7 +512,7 @@ export const useAdPerformanceRetention = (params: RankingsRetentionRequest, enab
     queryKey: queryKeys.adPerformanceRetention(params),
     queryFn: () => api.analytics.getRankingsRetention(params),
     enabled: enabled && !!params.date_start && !!params.date_stop && !!params.group_key,
-    staleTime: 5 * 60 * 1000,
+    staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 10 * 60 * 1000,
     retry: 1,
   })
@@ -695,18 +695,12 @@ export const useInvalidatePackAds = () => {
       })
     },
     invalidateRankings: () => {
-      // Invalida todas as queries de rankings / performance agregada e força refetch
-      queryClient.invalidateQueries({ 
-        queryKey: ['analytics', 'rankings'],
-        refetchType: 'active',
-      })
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings-series'], refetchType: 'active' })
     },
     invalidateAdPerformance: () => {
-      // Alias semântico para invalidação das mesmas queries
-      queryClient.invalidateQueries({
-        queryKey: ['analytics', 'rankings'],
-        refetchType: 'active',
-      })
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings-series'], refetchType: 'active' })
     },
   }
 }

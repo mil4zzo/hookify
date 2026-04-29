@@ -924,7 +924,10 @@ def upsert_ad_metrics(
         batch_num = (batch_idx // batch_size) + 1
         
         try:
-            sb.table("ad_metrics").upsert(batch, on_conflict="id,user_id").execute()
+            with_postgrest_retry(
+                f"upsert_ad_metrics[batch {batch_num}/{total_batches}]",
+                lambda b=batch: sb.table("ad_metrics").upsert(b, on_conflict="id,user_id").execute(),
+            )
             logger.info(f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
             # Chamar callback ANTES do delay para feedback imediato
             if on_batch_progress:
@@ -955,7 +958,10 @@ def upsert_ad_metrics(
                     for col in missing_optional_cols:
                         rr.pop(col, None)
                     cleaned.append(rr)
-                sb.table("ad_metrics").upsert(cleaned, on_conflict="id,user_id").execute()
+                with_postgrest_retry(
+                    f"upsert_ad_metrics[batch {batch_num}/{total_batches} cleaned]",
+                    lambda c=cleaned: sb.table("ad_metrics").upsert(c, on_conflict="id,user_id").execute(),
+                )
                 logger.info(
                     f"[UPSERT_AD_METRICS] Lote {batch_num}/{total_batches} reprocessado "
                     f"sem {missing_optional_cols} ({len(cleaned)} registros)"
@@ -988,10 +994,13 @@ def upsert_ad_metrics(
                 map_batch = map_rows[map_idx:map_idx + map_batch_size]
                 map_batch_num = (map_idx // map_batch_size) + 1
                 try:
-                    sb.table("ad_metric_pack_map").upsert(
-                        map_batch,
-                        on_conflict="user_id,pack_id,ad_id,metric_date",
-                    ).execute()
+                    with_postgrest_retry(
+                        f"upsert_ad_metric_pack_map[{map_batch_num}/{total_map_batches}]",
+                        lambda mb=map_batch: sb.table("ad_metric_pack_map").upsert(
+                            mb,
+                            on_conflict="user_id,pack_id,ad_id,metric_date",
+                        ).execute(),
+                    )
                     logger.debug(
                         f"[UPSERT_AD_METRICS] ad_metric_pack_map lote {map_batch_num}/{total_map_batches} "
                         f"({len(map_batch)} vínculos)"
@@ -1135,15 +1144,24 @@ def calculate_pack_stats_essential(
                 "uniqueAdsets": 0,
             }
 
-        def metrics_filters(q):
-            return q.eq("user_id", user_id).in_("ad_id", ad_ids_in_pack)
+        # IDs de ads são longos (~18 chars). Para 1900+ ad_ids, um único `.in_()`
+        # excede limite de URL do PostgREST (resulta em 400 "JSON could not be generated").
+        # Mesmo padrão usado em get_ads_for_pack: lotes de 200.
+        IN_BATCH_SIZE = 200
+        metrics: List[Dict[str, Any]] = []
+        for i in range(0, len(ad_ids_in_pack), IN_BATCH_SIZE):
+            batch_ad_ids = ad_ids_in_pack[i:i + IN_BATCH_SIZE]
 
-        metrics = _fetch_all_paginated(
-            sb,
-            "ad_metrics",
-            "ad_id, ad_name, campaign_id, adset_id, spend",
-            metrics_filters,
-        )
+            def metrics_filters(q, _batch=batch_ad_ids):
+                return q.eq("user_id", user_id).in_("ad_id", _batch)
+
+            batch_metrics = _fetch_all_paginated(
+                sb,
+                "ad_metrics",
+                "ad_id, ad_name, campaign_id, adset_id, spend",
+                metrics_filters,
+            )
+            metrics.extend(batch_metrics)
     except Exception as e:
         logger.warning(f"[CALCULATE_PACK_STATS_ESSENTIAL] Erro ao buscar métricas para pack {pack_id}: {e}")
         return {}

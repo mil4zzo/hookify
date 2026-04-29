@@ -164,3 +164,53 @@ Migration 072 trocou o **wrapper** para apontar para `_v060` (sem fallback `pack
 3. Bugs causados por esse cap são **silenciosamente plausíveis**: a soma parcial não é zero nem absurdamente alta, então passa despercebida em revisão. Sempre conferir contra SQL direto quando há divergência com fonte externa (Ads Manager).
 
 **Arquivos alterados:** `backend/app/services/supabase_repo.py` (`calculate_pack_stats_essential`).
+
+---
+
+## Supabase HTTP/2 — Conexões caem mid-request em bulk upserts (WinError 10054 / 10035)
+
+**Data:** 2026-04-29
+
+**Problema:** Após corrigir o cap de 1000 linhas, o refresh do mesmo pack falhou no batch 5 de 35 do `upsert_ad_metrics` com `httpx.ReadError: [WinError 10054] Foi forçado o cancelamento de uma conexão existente pelo host remoto`. O traceback nasceu em `httpcore/_sync/http2.py: _send_request_body`, durante a leitura de eventos HTTP/2 (controle de fluxo). A exceção subia até `PersistStageError` e abortava o job inteiro, deixando o pack com stats antigas (77k) e `ad_metric_pack_map` parcialmente atualizado.
+
+**Causa raiz:** A sessão HTTP/2 com o Supabase (multiplexada via httpx + httpcore) é encerrada de forma transitória no meio do upload — pode ser pgbouncer matando conexão lenta, statement_timeout do Postgres, ou comportamento específico do TCP stack do Windows com HTTP/2. O socket fica inutilizável; uma nova request em conexão fresca funciona.
+
+**Solução:** Envolver os três `.execute()` de `upsert_ad_metrics` em `with_postgrest_retry` (já existente em `app/core/supabase_retry.py`). O helper já cobre `httpx.ReadError`, `RemoteProtocolError`, `ConnectError`, `TimeoutException` e equivalentes do httpcore. Em loops, capturar variáveis via default arg (`lambda b=batch: ...`) para evitar late-binding.
+
+**Lições:**
+1. Qualquer `.execute()` que faz upload de payload não-trivial (multi-row upsert, jsonb pesado) deve usar `with_postgrest_retry`. Reads curtos geralmente não precisam.
+2. `WinError 10054` / `10035` no dev local Windows são equivalentes funcionais de `ECONNRESET` / `EAGAIN` — todos transitórios, todos resolvem com retry.
+3. Reduzir batch size NÃO é a primeira solução para drops transitórios — o problema não é tamanho, é a sessão HTTP/2 sendo encerrada. Retry-with-backoff resolve sem aumentar latência total no caso feliz.
+4. Bugs anteriores acharam que `WinError 10035` era "não-fatal e ignorável". Em refresh real (com 35 batches sequenciais), 1 falha = job inteiro abortado. Tratar como sempre.
+
+**Arquivos alterados:** `backend/app/services/supabase_repo.py` (`upsert_ad_metrics`).
+
+---
+
+## PostgREST — Cap silencioso de URL em `.in_()` (HTTP 400 "JSON could not be generated")
+
+**Data:** 2026-04-29
+
+**Problema (descoberto na mesma sessão de debugging do pack):** Após corrigir o cap de 1000 linhas em `calculate_pack_stats_essential`, dois novos sintomas apareceram:
+1. Refresh do Pack 01 não atualizava as stats (continuava 77k)
+2. Pack novo "El.29 - Captacao" criado com 1975 anúncios mostrava R$ 0,00 de spend, mesmo com `ad_metrics` populado corretamente
+
+Logs revelaram:
+```
+WARNING [CALCULATE_PACK_STATS_ESSENTIAL] Erro ao buscar métricas para pack 27dd1bd4...:
+{'message': 'JSON could not be generated', 'code': 400, 'details': "b'Bad Request'"}
+```
+
+**Causa raiz:** PostgREST serializa `.in_("col", [...])` na query string da URL. Cada ad_id da Meta tem ~18 chars. Com 1900+ ids, o `?ad_id=in.(...)` resultante passa de 32KB e o servidor rejeita com HTTP 400. O `try/except` em `calculate_pack_stats_essential` engolia a exceção, retornava `{}`, e o `job_processor` logava "best-effort" e seguia adiante — stats nunca eram salvas.
+
+**Os dois bugs se mascaravam mutuamente:** antes da correção do cap de 1000 linhas, a query truncada do `ad_metric_pack_map` retornava só ~995 ad_ids únicos, gerando URL ~18KB que cabia (apertado). Quando o cap foi corrigido e a query passou a retornar os 1914 ids reais, a URL inflou pra ~35KB e estourou.
+
+**Solução:** Aplicar o mesmo padrão de batching que `get_ads_for_pack` já usa (linha ~2287): dividir `ad_ids_in_pack` em lotes de 200, chamar `_fetch_all_paginated` uma vez por lote, acumular `metrics`. Captura via default arg (`def metrics_filters(q, _batch=batch_ad_ids)`) pra evitar late-binding na closure.
+
+**Lições:**
+1. Sempre presumir **duas camadas** de truncamento silencioso no PostgREST: tamanho da URL (request) E número de linhas da resposta (response). Resolver as duas juntas — paginação resolve só uma.
+2. A mensagem de erro "JSON could not be generated" é enganosa — soa como problema de serialização do lado do servidor, mas em `.in_()` quase sempre é URL longa demais. Sempre suspeitar de tamanho da URL primeiro.
+3. Bugs em camadas se mascaram. Corrigir um pode "criar" outro que sempre esteve lá. Não assumir que a primeira correção é suficiente — re-testar com volume real.
+4. 200 é o batch size estabelecido no codebase para `.in_()` com ad_ids. Não inventar um número novo sem medir.
+
+**Arquivos alterados:** `backend/app/services/supabase_repo.py` (`calculate_pack_stats_essential`).

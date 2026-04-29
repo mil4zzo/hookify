@@ -91,6 +91,7 @@ export function usePacksAds(packs: AdsPack[] | undefined | null) {
       if (!packId) return
       queryClient.invalidateQueries({ queryKey: queryKeys.packAds(packId), refetchType: 'active' })
       queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })
+      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings-series'], refetchType: 'active' })
     }
 
     window.addEventListener('hookify:pack-ads-cache-updated', handleCacheUpdated)
