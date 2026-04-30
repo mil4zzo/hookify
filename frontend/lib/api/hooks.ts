@@ -37,15 +37,15 @@ export const queryKeys = {
   ads: (params: GetAdsRequest) => ['facebook', 'ads', params] as const,
   videoSource: (params: GetVideoSourceRequest) => ['facebook', 'video-source', params] as const,
   imageSource: (params: GetImageSourceRequest) => ['facebook', 'image-source', params] as const,
-  adVariations: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'children', adName, dateStart, dateStop] as const,
-  adDetails: (adId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-details', adId, dateStart, dateStop] as const,
+  adVariations: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'children', adName, dateStart, dateStop, packIdsKey] as const,
+  adDetails: (adId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-details', adId, dateStart, dateStop, packIdsKey] as const,
   adCreative: (adId: string) => ['analytics', 'rankings', 'ad-creative', adId] as const,
-  adHistory: (adId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-history', adId, dateStart, dateStop] as const,
-  adNameDetails: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-details', adName, dateStart, dateStop] as const,
-  adNameHistory: (adName: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop] as const,
+  adHistory: (adId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-history', adId, dateStart, dateStop, packIdsKey] as const,
+  adNameDetails: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-name-details', adName, dateStart, dateStop, packIdsKey] as const,
+  adNameHistory: (adName: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'ad-name-history', adName, dateStart, dateStop, packIdsKey] as const,
   adTranscription: (adName: string) => ['analytics', 'transcription', adName] as const,
   campaignChildren: (campaignId: string, dateStart: string, dateStop: string, actionType: string, packIdsKey: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop, actionType, packIdsKey] as const,
-  adsetChildren: (adsetId: string, dateStart: string, dateStop: string) => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop] as const,
+  adsetChildren: (adsetId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop, packIdsKey] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
   rankings: (params: RankingsRequest) => [
     'analytics',
@@ -241,14 +241,17 @@ export const useAdVariations = (
   adName: string,
   dateStart: string,
   dateStop: string,
+  packIds: string[] = [],
   enabled: boolean = false
 ) => {
+  const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
-    queryKey: queryKeys.adVariations(adName, dateStart, dateStop),
+    queryKey: queryKeys.adVariations(adName, dateStart, dateStop, packIdsKey),
     queryFn: async () => {
       const response = await api.analytics.getRankingsChildren(adName, {
         date_start: dateStart,
         date_stop: dateStop,
+        pack_ids: packIds,
       });
       // Retornar apenas o array de dados, tipado corretamente
       return (response.data || []) as RankingsChildrenItem[];
@@ -296,14 +299,17 @@ export const useAdsetChildren = (
   adsetId: string,
   dateStart: string,
   dateStop: string,
+  packIds: string[] = [],
   enabled: boolean = false
 ) => {
+  const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
-    queryKey: queryKeys.adsetChildren(adsetId, dateStart, dateStop),
+    queryKey: queryKeys.adsetChildren(adsetId, dateStart, dateStop, packIdsKey),
     queryFn: async () => {
       const response = await api.analytics.getAdsetChildren(adsetId, {
         date_start: dateStart,
         date_stop: dateStop,
+        pack_ids: packIds,
       })
       return (response.data || []) as RankingsChildrenItem[]
     },
@@ -335,13 +341,16 @@ export const useAdDetails = (
   adId: string,
   dateStart: string,
   dateStop: string,
+  packIds: string[] = [],
   enabled: boolean = false
 ) => {
+  const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
-    queryKey: queryKeys.adDetails(adId, dateStart, dateStop),
+    queryKey: queryKeys.adDetails(adId, dateStart, dateStop, packIdsKey),
     queryFn: () => api.analytics.getAdDetails(adId, {
       date_start: dateStart,
       date_stop: dateStop,
+      pack_ids: packIds,
     }),
     enabled: enabled && !!adId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
@@ -393,13 +402,16 @@ export const useAdHistory = (
   adId: string,
   dateStart: string,
   dateStop: string,
+  packIds: string[] = [],
   enabled: boolean = false
 ) => {
+  const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
-    queryKey: queryKeys.adHistory(adId, dateStart, dateStop),
+    queryKey: queryKeys.adHistory(adId, dateStart, dateStop, packIdsKey),
     queryFn: () => api.analytics.getAdHistory(adId, {
       date_start: dateStart,
       date_stop: dateStop,
+      pack_ids: packIds,
     }),
     enabled: enabled && !!adId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
@@ -415,13 +427,16 @@ export const useAdNameDetails = (
   adName: string,
   dateStart: string,
   dateStop: string,
+  packIds: string[] = [],
   enabled: boolean = false
 ) => {
+  const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
-    queryKey: queryKeys.adNameDetails(adName, dateStart, dateStop),
+    queryKey: queryKeys.adNameDetails(adName, dateStart, dateStop, packIdsKey),
     queryFn: () => api.analytics.getAdNameDetails(adName, {
       date_start: dateStart,
       date_stop: dateStop,
+      pack_ids: packIds,
     }),
     enabled: enabled && !!adName && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000,
@@ -436,13 +451,16 @@ export const useAdNameHistory = (
   adName: string,
   dateStart: string,
   dateStop: string,
+  packIds: string[] = [],
   enabled: boolean = false
 ) => {
+  const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
-    queryKey: queryKeys.adNameHistory(adName, dateStart, dateStop),
+    queryKey: queryKeys.adNameHistory(adName, dateStart, dateStop, packIdsKey),
     queryFn: () => api.analytics.getAdNameHistory(adName, {
       date_start: dateStart,
       date_stop: dateStop,
+      pack_ids: packIds,
     }),
     enabled: enabled && !!adName && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000,

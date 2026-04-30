@@ -20,6 +20,8 @@ interface GoldKanbanWidgetProps {
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
+  /** Packs selecionados — propagado ao AdDetailsDialog para escopo correto */
+  packIds?: string[];
 }
 
 const STORAGE_KEY_GOLD_COLUMN_ORDER = "hookify-gold-column-order";
@@ -62,7 +64,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
  * Widget de Kanban para a página G.O.L.D.
  * Classifica anúncios em 5 categorias baseadas em CPR e métricas vs médias.
  */
-export function GoldKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [] }: GoldKanbanWidgetProps) {
+export function GoldKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [], packIds = [] }: GoldKanbanWidgetProps) {
   const formatCurrency = useFormatCurrency();
 
   const colorSchemes = goldBucketColorSchemes;
@@ -221,6 +223,7 @@ export function GoldKanbanWidget({ ads, averages, actionType, validationCriteria
         actionType,
         availableConversionTypes,
         averages,
+        packIds,
       }}
     />
   );

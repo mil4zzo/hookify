@@ -54,6 +54,8 @@ export interface BaseKanbanWidgetProps<T extends string> {
     actionType: string;
     availableConversionTypes?: string[];
     averages?: RankingsResponse["averages"];
+    /** Packs selecionados — restringe queries do dialog ao escopo do pack */
+    packIds?: string[];
   };
   /** Callback quando um anúncio é clicado */
   onAdClick?: (ad: RankingsItem, openVideo?: boolean) => void;
@@ -222,7 +224,7 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
           className="flex h-[90dvh] min-h-0 flex-col overflow-hidden"
           bodyClassName="flex min-h-0 flex-1 flex-col"
         >
-          {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={modalProps.dateStart} dateStop={modalProps.dateStop} actionType={modalProps.actionType} availableConversionTypes={modalProps.availableConversionTypes} initialTab="video" averages={dialogAverages} />}
+          {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={false} dateStart={modalProps.dateStart} dateStop={modalProps.dateStop} actionType={modalProps.actionType} packIds={modalProps.packIds} availableConversionTypes={modalProps.availableConversionTypes} initialTab="video" averages={dialogAverages} />}
         </AppDialog>
       )}
     </>

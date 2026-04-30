@@ -388,6 +388,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const [sorting, setSorting] = useState<SortingState>([{ id: "spend", desc: true }]);
 
   const [globalFilter, setGlobalFilter] = useState(() => loadGlobalFilter(initialTab));
+  // Versão deferida para alimentar filtragem/médias pesadas; o input usa o valor urgente
+  // para não perder caracteres durante digitação rápida.
+  const deferredGlobalFilter = useDeferredValue(globalFilter);
 
   // Estado para gerenciar o tamanho das colunas
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
@@ -503,15 +506,15 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     if (!adsEffective || !Array.isArray(adsEffective)) {
       return [];
     }
-    if (!globalFilter || globalFilter.trim() === "") {
+    if (!deferredGlobalFilter || deferredGlobalFilter.trim() === "") {
       return adsEffective;
     }
-    const searchValue = globalFilter.toLowerCase().trim();
+    const searchValue = deferredGlobalFilter.toLowerCase().trim();
     return adsEffective.filter((ad) => {
       const adName = String((ad as RankingsItem)?.ad_name || "").toLowerCase();
       return adName.includes(searchValue);
     });
-  }, [adsEffective, globalFilter]);
+  }, [adsEffective, deferredGlobalFilter]);
   const formatCurrency = useFormatCurrency();
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
@@ -782,7 +785,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     table: table as any,
     dataLength: data.length,
     columnFilters,
-    globalFilter,
+    globalFilter: deferredGlobalFilter,
     actionType,
     hasSheetIntegration,
     mqlLeadscoreMin,
@@ -802,7 +805,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   filteredAveragesRef.current = filteredAverages;
   formatFilteredAverageRef.current = formatFilteredAverage;
   columnFiltersRef.current = columnFilters;
-  globalFilterRef.current = globalFilter;
+  globalFilterRef.current = deferredGlobalFilter;
   averagesRef.current = averages;
   formatAverageRef.current = formatAverage;
   formatCurrencyRef.current = formatCurrency;
@@ -842,7 +845,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     return (
       <SearchInputWithClear
         value={globalFilter}
-        onChange={(v) => startTransition(() => setGlobalFilter(v))}
+        onChange={setGlobalFilter}
         placeholder={placeholder}
         wrapperClassName="w-full md:max-w-[min(20rem,100%)] md:flex-shrink-0"
         inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border h-10 w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
@@ -1014,12 +1017,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
       {/* Details Dialog */}
       <AppDialog isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} title="Detalhes do anúncio" size="5xl" padding="md" className="flex h-[90dvh] min-h-0 flex-col overflow-hidden" bodyClassName="flex min-h-0 flex-1 flex-col">
-        {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdNameEffective} dateStart={dateStart} dateStop={dateStop} actionType={actionType} availableConversionTypes={availableConversionTypes} averages={averages} />}
+        {selectedAd && <AdDetailsDialog ad={selectedAd} groupByAdName={groupByAdNameEffective} dateStart={dateStart} dateStop={dateStop} actionType={actionType} packIds={selectedPackIds} availableConversionTypes={availableConversionTypes} averages={averages} />}
       </AppDialog>
 
       {/* Adset Details Dialog */}
       <AppDialog isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} title="Detalhes do conjunto" size="4xl" padding="md">
-        {selectedAdset && <AdsetDetailsDialog adsetId={selectedAdset.adsetId} adsetName={selectedAdset.adsetName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} />}
+        {selectedAdset && <AdsetDetailsDialog adsetId={selectedAdset.adsetId} adsetName={selectedAdset.adsetName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} packIds={selectedPackIds} />}
       </AppDialog>
 
       {/* Video Dialog - Único para toda a tabela */}

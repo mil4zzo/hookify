@@ -133,6 +133,47 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
     return all_rows
 
 
+def get_pack_metric_ids(
+    sb,
+    user_id: str,
+    pack_ids: List[str],
+    date_start: str,
+    date_stop: str,
+) -> List[str]:
+    """Retorna composite ids `{date}-{ad_id}` de `ad_metrics` para os packs no range.
+
+    Usado para filtrar agregações per-pack sem over-counting de ads compartilhados
+    entre packs com date_ranges diferentes. Lê (ad_id, metric_date) do junction
+    table `ad_metric_pack_map` e reconstrói o id composto que `ad_metrics.id` usa
+    (gerado em upsert_ad_metrics como `f"{day}-{ad_id}"`).
+    """
+    if not user_id or not pack_ids:
+        return []
+
+    all_ids: set = set()
+    for pid in pack_ids:
+        pid_str = str(pid or "").strip()
+        if not pid_str:
+            continue
+
+        def _filters(q, _pid=pid_str):
+            return (
+                q.eq("user_id", user_id)
+                .eq("pack_id", _pid)
+                .gte("metric_date", date_start)
+                .lte("metric_date", date_stop)
+            )
+
+        rows = _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _filters)
+        for r in rows:
+            aid = str(r.get("ad_id") or "").strip()
+            d = str(r.get("metric_date") or "")[:10]
+            if aid and d:
+                all_ids.add(f"{d}-{aid}")
+
+    return list(all_ids)
+
+
 def _process_pack_deletion_in_batches(
     sb, 
     table_name: str, 
@@ -1038,13 +1079,28 @@ def update_pack_ad_ids(
     *,
     sb_client: Optional["Client"] = None,
 ) -> None:
-    """Atualiza packs.ad_ids com a lista fornecida (deduplicada).
+    """Atualiza packs.ad_ids fazendo MERGE com os ad_ids já salvos.
+
+    Refresh `since_last_refresh` traz só ads da janela recente; se substituíssemos,
+    perderíamos ads do range original que não estão ativos agora — quebrando
+    delete_pack (orfana ads/metrics) e get_pack_thumbnail_cache (thumbs faltando).
+    Merge é seguro tanto na criação (existente=[]) quanto no refresh.
     """
     if not user_id or not pack_id:
         return
     sb = _get_sb(user_jwt, sb_client)
-    unique_ad_ids = sorted(list({str(a) for a in (ad_ids or [])}))
-    sb.table("packs").update({"ad_ids": unique_ad_ids, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute()
+    new_ids = {str(a) for a in (ad_ids or []) if str(a or "").strip()}
+
+    existing_ids: set = set()
+    try:
+        pres = sb.table("packs").select("ad_ids").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
+        if pres.data:
+            existing_ids = {str(a) for a in (pres.data[0].get("ad_ids") or []) if str(a or "").strip()}
+    except Exception as e:
+        logger.warning(f"[UPDATE_PACK_AD_IDS] Falha ao ler ad_ids existentes do pack {pack_id}, prosseguindo só com novos: {e}")
+
+    merged = sorted(existing_ids | new_ids)
+    sb.table("packs").update({"ad_ids": merged, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute()
 
 
 def get_existing_ads_map(
@@ -1121,21 +1177,24 @@ def calculate_pack_stats_essential(
             logger.warning(f"[CALCULATE_PACK_STATS_ESSENTIAL] Pack {pack_id} não encontrado")
             return {}
 
-        # Buscar ad_ids únicos do pack via junction table
-        # IMPORTANTE: paginar — Supabase corta silenciosamente em 1000 linhas, e packs com
+        # Buscar (ad_id, metric_date) do pack via junction table.
+        # Paginar — Supabase corta silenciosamente em 1000 linhas, e packs com
         # muitos (ad_id, date) ultrapassam isso facilmente, gerando stats parciais.
+        # Pegamos metric_date também para reconstituir o id composto de ad_metrics
+        # ({date}-{ad_id}, ver upsert_ad_metrics) e filtrar SOMENTE as métricas
+        # que pertencem a este pack — sem isso, ads compartilhados entre packs com
+        # date_ranges diferentes super-contam spend.
         def _map_filters(q):
             return q.eq("user_id", user_id).eq("pack_id", pack_id)
 
         map_rows = _fetch_all_paginated(
             sb,
             "ad_metric_pack_map",
-            "ad_id",
+            "ad_id, metric_date",
             _map_filters,
         )
-        ad_ids_in_pack = list({r["ad_id"] for r in map_rows})
 
-        if not ad_ids_in_pack:
+        if not map_rows:
             return {
                 "totalSpend": 0.0,
                 "uniqueAds": 0,
@@ -1144,16 +1203,35 @@ def calculate_pack_stats_essential(
                 "uniqueAdsets": 0,
             }
 
-        # IDs de ads são longos (~18 chars). Para 1900+ ad_ids, um único `.in_()`
-        # excede limite de URL do PostgREST (resulta em 400 "JSON could not be generated").
-        # Mesmo padrão usado em get_ads_for_pack: lotes de 200.
+        # Reconstrói ids compostos de ad_metrics. Formato gerado em upsert_ad_metrics:
+        # `{day}-{ad_id}` onde day é YYYY-MM-DD (10 chars) e ad_id ~18 chars.
+        metric_ids: List[str] = []
+        for r in map_rows:
+            ad_id_v = str(r.get("ad_id") or "").strip()
+            date_v = str(r.get("metric_date") or "")[:10]
+            if ad_id_v and date_v:
+                metric_ids.append(f"{date_v}-{ad_id_v}")
+        metric_ids = list(set(metric_ids))
+
+        if not metric_ids:
+            return {
+                "totalSpend": 0.0,
+                "uniqueAds": 0,
+                "uniqueAdNames": 0,
+                "uniqueCampaigns": 0,
+                "uniqueAdsets": 0,
+            }
+
+        # IDs compostos têm ~30 chars. `.in_()` na URL do PostgREST tem limite de
+        # ~32KB; lotes de 200 ids = ~6KB. Mesmo padrão de batching usado em
+        # get_ads_for_pack para evitar HTTP 400 "JSON could not be generated".
         IN_BATCH_SIZE = 200
         metrics: List[Dict[str, Any]] = []
-        for i in range(0, len(ad_ids_in_pack), IN_BATCH_SIZE):
-            batch_ad_ids = ad_ids_in_pack[i:i + IN_BATCH_SIZE]
+        for i in range(0, len(metric_ids), IN_BATCH_SIZE):
+            batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
 
-            def metrics_filters(q, _batch=batch_ad_ids):
-                return q.eq("user_id", user_id).in_("ad_id", _batch)
+            def metrics_filters(q, _batch=batch_ids):
+                return q.eq("user_id", user_id).in_("id", _batch)
 
             batch_metrics = _fetch_all_paginated(
                 sb,
@@ -2256,70 +2334,65 @@ def update_pack_name(
 
 
 def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]) -> List[Dict[str, Any]]:
-    """Busca ads relacionados a um pack baseado nos parâmetros do pack.
-    
+    """Busca ads relacionados a um pack via `ad_metric_pack_map` (fonte de verdade).
+
     Nota: Os ads são filtrados por:
-    - user_id
-    - date_start e date_stop (via ad_metrics)
-    - filters do pack (aplicados em memória)
+    - user_id, pack_id (via ad_metric_pack_map — evita misturar ads de outros packs)
+    - filters do pack (aplicados em memória após a query, mantendo comportamento anterior)
     """
     if not user_id or not pack:
         return []
-    
-    date_start = pack.get("date_start")
-    date_stop = pack.get("date_stop")
-    
+
+    pack_id = str(pack.get("id") or "").strip()
+
     sb = get_supabase_for_user(user_jwt)
     ads = []
-    
+
     try:
-        # Buscar ad_ids que têm métricas no período do pack
-        if date_start and date_stop:
-            def metrics_filters(q):
-                return q.eq("user_id", user_id).gte("date", date_start).lte("date", date_stop)
-            
-            metrics_rows = _fetch_all_paginated(
-                sb,
-                "ad_metrics",
-                "ad_id",
-                metrics_filters
-            )
-            
-            ad_ids = list(set([m.get("ad_id") for m in metrics_rows if m.get("ad_id")]))
-            
+        # Buscar ad_ids do pack via junction table (fonte autoritativa pós-migração 072).
+        # Antes, esta função fazia date-range scan em ad_metrics e devolvia ads de
+        # quaisquer packs cuja métrica caísse no range — bug de cross-pack over-count.
+        if pack_id:
+            def _map_filters(q):
+                return q.eq("user_id", user_id).eq("pack_id", pack_id)
+
+            map_rows = _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id", _map_filters)
+            ad_ids = list({str(r.get("ad_id") or "").strip() for r in map_rows if r.get("ad_id")})
+            ad_ids = [a for a in ad_ids if a]
+
             if ad_ids:
-                # Processar ad_ids em lotes para evitar URLs muito longas e timeout
-                # IDs de ads são longos (ex: "120236981806920782" ~18-19 chars)
-                batch_size = 200  # Reduzido de 400 para 200 (alinhado a outros selects)
+                # IDs de ads são longos (~18 chars). Lotes de 200 evitam URLs >32KB
+                # no PostgREST (mesmo padrão de get_pack_metric_ids).
+                batch_size = 200
                 all_ads = []
 
                 logger.info(f"[GET_ADS_FOR_PACK] Processando {len(ad_ids)} ad_ids em lotes de {batch_size}")
-                
+
                 for i in range(0, len(ad_ids), batch_size):
                     batch_ad_ids = ad_ids[i:i + batch_size]
-                    
-                    def ads_filters(q):
-                        return q.eq("user_id", user_id).in_("ad_id", batch_ad_ids)
-                    
+
+                    def ads_filters(q, _b=batch_ad_ids):
+                        return q.eq("user_id", user_id).in_("ad_id", _b)
+
                     batch_ads = _fetch_all_paginated(
                         sb,
                         "ads",
                         "*",
                         ads_filters
                     )
-                    
+
                     all_ads.extend(batch_ads)
                     logger.debug(f"[GET_ADS_FOR_PACK] Lote {i // batch_size + 1}: {len(batch_ads)} ads encontrados")
-                
+
                 ads = all_ads
                 logger.info(f"[GET_ADS_FOR_PACK] Total de {len(ads)} ads encontrados após processar todos os lotes")
             else:
                 ads = []
         else:
-            # Se não tem período, buscar todos os ads do usuário
+            # Pack sem id (situação anômala) — fallback para todos os ads do usuário
             def all_ads_filters(q):
                 return q.eq("user_id", user_id)
-            
+
             ads = _fetch_all_paginated(
                 sb,
                 "ads",

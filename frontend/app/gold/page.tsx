@@ -197,7 +197,7 @@ export default function GoldPage() {
     <PageContainer variant="analytics" title="G.O.L.D." description="Classificação de anúncios por performance">
       {actionType && validatedAverages && (
         <AnalyticsWorkspace className="gap-8 overflow-visible">
-          <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria || []} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} />
+          <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria || []} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
 
           <div>
             <h2 className="text-xl font-semibold mb-4">Lista de Anúncios</h2>

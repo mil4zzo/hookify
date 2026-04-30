@@ -29,6 +29,8 @@ interface InsightsKanbanWidgetProps {
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
+  /** Packs selecionados — propagado ao AdDetailsDialog para escopo correto */
+  packIds?: string[];
 }
 
 /**
@@ -101,7 +103,7 @@ function formatMetric(value: number, metric: "hook" | "website_ctr" | "ctr" | "p
  * Usa a mesma estrutura e estilização de Gems.
  * Colunas são arrastáveis para reordenar.
  */
-export function InsightsKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [] }: InsightsKanbanWidgetProps) {
+export function InsightsKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [], packIds = [] }: InsightsKanbanWidgetProps) {
   const formatCurrency = useFormatCurrency();
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
@@ -785,6 +787,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
         actionType,
         availableConversionTypes,
         averages,
+        packIds,
       }}
     />
   );

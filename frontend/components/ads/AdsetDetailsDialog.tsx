@@ -14,9 +14,14 @@ interface AdsetDetailsDialogProps {
   dateStart?: string;
   dateStop?: string;
   actionType?: string;
+  /**
+   * Packs selecionados no contexto que abriu o dialog. Restringe métricas do
+   * conjunto e dos seus ad_ids filhos ao escopo do pack via ad_metric_pack_map.
+   */
+  packIds?: string[];
 }
 
-export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, actionType }: AdsetDetailsDialogProps) {
+export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, actionType, packIds = [] }: AdsetDetailsDialogProps) {
   const formatCurrency = useFormatCurrency();
   const [isLoading, setIsLoading] = useState(false);
   const [details, setDetails] = useState<any | null>(null);
@@ -32,8 +37,8 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
     setError(null);
 
     Promise.all([
-      api.analytics.getAdsetDetails(adsetId, { date_start: dateStart!, date_stop: dateStop! }),
-      api.analytics.getAdsetChildren(adsetId, { date_start: dateStart!, date_stop: dateStop! }),
+      api.analytics.getAdsetDetails(adsetId, { date_start: dateStart!, date_stop: dateStop!, pack_ids: packIds }),
+      api.analytics.getAdsetChildren(adsetId, { date_start: dateStart!, date_stop: dateStop!, pack_ids: packIds }),
     ])
       .then(([d, c]) => {
         if (cancelled) return;
@@ -54,7 +59,7 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
     return () => {
       cancelled = true;
     };
-  }, [adsetId, dateStart, dateStop]);
+  }, [adsetId, dateStart, dateStop, packIds.join("|")]);
 
   const headerTitle = useMemo(() => {
     const name = (adsetName || details?.adset_name || "").toString().trim();

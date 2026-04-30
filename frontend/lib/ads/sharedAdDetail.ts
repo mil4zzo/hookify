@@ -181,7 +181,7 @@ export function useSharedAdNameDetail({
   const packIds = useMemo(() => Array.from(selectedPackIds), [selectedPackIds]);
 
   const detailsEnabled = enabled && !!ad && !!adName && !!dateStart && !!dateStop;
-  const detailQuery = useAdNameDetails(adName, dateStart || "", dateStop || "", detailsEnabled);
+  const detailQuery = useAdNameDetails(adName, dateStart || "", dateStop || "", packIds, detailsEnabled);
   const creativeQuery = useAdCreative(adId, enabled && !!ad && !!adId);
 
   const creative = creativeQuery.data?.creative || {};

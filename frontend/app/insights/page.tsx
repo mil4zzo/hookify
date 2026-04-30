@@ -533,7 +533,7 @@ export default function InsightsPage() {
             contentSpacing="space-y-6"
           >
             {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
-              <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} />
+              <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
             ) : (
               <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
             )}
@@ -553,7 +553,7 @@ export default function InsightsPage() {
             contentSpacing="space-y-6"
           >
             {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
-              <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} />
+              <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
             ) : (
               <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />
             )}
@@ -579,6 +579,7 @@ export default function InsightsPage() {
             dateStart={dateRange.start}
             dateStop={dateRange.end}
             actionType={actionType}
+            packIds={Array.from(selectedPackIds)}
             availableConversionTypes={actionTypeOptions}
             initialTab="video"
             averages={

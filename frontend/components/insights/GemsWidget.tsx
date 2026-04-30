@@ -24,6 +24,8 @@ interface GemsWidgetProps {
   dateStop?: string;
   availableConversionTypes?: string[];
   activeColumns?: Set<GemsColumnType>; // Colunas ativas
+  /** Packs selecionados — propagado ao AdDetailsDialog para escopo correto */
+  packIds?: string[];
 }
 
 const STORAGE_KEY_GEMS_COLUMN_ORDER = "hookify-gems-column-order";
@@ -84,7 +86,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
   };
 }
 
-export function GemsWidget({ ads, averages, actionType, validationCriteria, limit = 5, dateStart, dateStop, availableConversionTypes = [], activeColumns }: GemsWidgetProps) {
+export function GemsWidget({ ads, averages, actionType, validationCriteria, limit = 5, dateStart, dateStop, availableConversionTypes = [], activeColumns, packIds = [] }: GemsWidgetProps) {
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
   // 1. Filtrar apenas anúncios validados
@@ -247,6 +249,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
         actionType,
         availableConversionTypes,
         averages,
+        packIds,
       }}
     />
   );

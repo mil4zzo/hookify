@@ -288,3 +288,94 @@ Comparativamente, o caminho do **Meta refresh** já chamava `invalidatePackAds(p
 - **Log limpo:** linhas totalmente vazias da planilha (típico de trailing rows) agora são puladas silenciosamente em `_parse_and_aggregate_rows` em vez de gerar warnings `Falha ao parsear data: ''`. Warnings de data malformada permanecem apenas quando há `ad_id` válido.
 
 **Lição:** Quando uma view tem `staleTime: Infinity` por design, **toda** mutação backend que afeta dados dessa view precisa de uma invalidação explícita. Não basta despachar um event genérico — verifique que existe um listener real que invalide o `queryKey` correto. O caminho do Meta refresh é a referência canônica neste projeto.
+
+---
+
+## Pack stats — filtrar por `(ad_id, date)` via composite id, não só por `ad_id`
+
+**Data:** 2026-04-29
+
+**Problema (gap residual identificado após correções de cap/URL):** `calculate_pack_stats_essential` filtrava `ad_metrics` apenas por `.in_("ad_id", ad_ids_in_pack)`. Como `ad_metrics` é global por `(user_id, ad_id, date)` (não pack-escopado), ads compartilhados entre packs com date_ranges diferentes super-contavam spend. Cenário: ad_X em Pack A [D1-D14] e Pack B [D15-D30] → stats do Pack A somavam todas as datas de ad_X (D1-D30), incluindo D15-D30 que pertencem só ao Pack B.
+
+Bug ficou silencioso por anos porque a truncação de 1000 linhas (corrigida hoje) sub-contava de forma mais agressiva, mascarando o over-count.
+
+**Causa raiz:** `ad_metrics.id` é composto `{date}-{ad_id}` (gerado em `upsert_ad_metrics`, linha ~814). `ad_metric_pack_map` tem tuplas `(user_id, pack_id, ad_id, metric_date)`. A arquitetura intencional é: métricas globais deduplicadas + map por pack. Mas a query de stats não usava o map como filtro autoritativo — usava só os ad_ids extraídos dele.
+
+**Solução:** Ler `(ad_id, metric_date)` do map filtrado por pack → reconstruir o composite id `{metric_date}-{ad_id}` → `.in_("id", batch_of_composite_ids)` em `ad_metrics`. Lotes de 200 (composite ids ~30 chars × 200 = ~6KB, dentro do limite de URL).
+
+**Por que NÃO adicionar `pack_id` ao id de `ad_metrics`:** quebraria a dedup intencional do modelo (mesma (ad_id, date) seria armazenada N vezes, uma por pack que contém o ad). O `pack_id` filter pertence ao map, não às métricas.
+
+**Gap #2 corrigido junto — `update_pack_ad_ids` agora faz MERGE em vez de replace:** refresh `since_last_refresh` traz só ads da janela recente; substituição purgava ads do range original. `pack.ad_ids` é usado por `delete_pack` (limpa ads/metrics órfãos) e `get_pack_thumbnail_cache` (thumbs do card) — replace causaria orfãos no delete e thumbs faltando. Função agora lê existing, faz union, escreve.
+
+**Lições:**
+1. `ad_metrics` é global por (user, ad_id, date) — pack ownership vive em `ad_metric_pack_map`. Qualquer agregação per-pack precisa passar pelo map como filtro autoritativo, não só por ad_id.
+2. Composite ids existentes (`{date}-{ad_id}`) já dão o filtro exato necessário; reconstruir e filtrar por `.in_("id", ...)` é mais correto E mais barato que filtrar por ad_id (menos linhas trafegadas).
+3. Mutações de campo "lista" (como `pack.ad_ids`) em fluxos parciais (refresh) devem ser merge por padrão — replace só quando explicitamente intencional. Default não-destrutivo previne regressões silenciosas em código que lê o campo.
+
+**Arquivos alterados:** `backend/app/services/supabase_repo.py` (`calculate_pack_stats_essential`, `update_pack_ad_ids`).
+
+---
+
+## Manager — endpoints `/children` por ad_name e adset_id agora suportam `pack_ids`
+
+**Data:** 2026-04-29
+
+**Problema:** Na tela "Criativos" do Manager, a linha-pai (agrupada por `ad_name`) já era pack-filtrada via RPC `fetch_manager_rankings_core_v2`, mas ao expandir as variações filhas, todas as variações desse `ad_name` em qualquer pack do usuário apareciam misturadas. Exemplo reportado: card mostrava "ADNI05 — R$ 149,12" (correto pra El.29 - Captação), mas a primeira variação expandida tinha R$ 4.447,98 (de outro pack que continha o mesmo criativo). O bug existia também em `/rankings/adset-id/{adset_id}/children` (tab "Por conjunto").
+
+**Causa raiz:** Os endpoints `get_rankings_children` (linha ~1539) e `get_adset_children` (linha ~2028) consultavam `ad_metrics` direto por `ad_name` (ou `adset_id`) + `date` range, sem nenhum filtro de pack. Diferente do RPC do parent (que aceita `p_pack_ids`), esses endpoints não tinham o parâmetro.
+
+**Solução:**
+1. Helper compartilhado `supabase_repo.get_pack_metric_ids(sb, user_id, pack_ids, date_start, date_stop)` que lê `(ad_id, metric_date)` do `ad_metric_pack_map` filtrado por pack e reconstrói os composite ids `{date}-{ad_id}` que `ad_metrics.id` usa.
+2. Ambos endpoints aceitam `pack_ids: List[str]` opcional via `Query`. Quando fornecido, substituem o filtro `ad_name=X + date BETWEEN ...` por `id IN (composite_ids do pack)`, em lotes de 200 (URL ~6KB). Quando ausente, mantêm comportamento legado.
+3. Frontend: `useAdVariations` e `useAdsetChildren` agora aceitam `packIds`; `ExpandedChildrenRow` propaga `selectedPackIds` do `MinimalTableContent`/`TableContent` (que já tinham o array no escopo via `ManagerTable`); `endpoints.ts` serializa via `URLSearchParams` (FastAPI espera múltiplos `pack_ids=` na query).
+
+**Lições:**
+1. Sempre que tem RPC parent suportando `pack_ids`, conferir se os endpoints children têm o mesmo. Aqui ficaram dois meses divergentes — só apareceu quando o usuário olhou as variações.
+2. `useCampaignChildren` já era pack-aware (servia de modelo). `useAdVariations` e `useAdsetChildren` ficaram pra trás. Lição: ao replicar padrão "endpoint+hook+queryKey+caller", checar todos os irmãos do mesmo cluster (children).
+3. queryKeys com pack scope: incluir `packIdsKey` (sorted-joined) na chave evita cache hit cruzado entre packs. Default `''` mantém compat com callers sem packs.
+
+**Arquivos alterados:**
+- `backend/app/services/supabase_repo.py` — novo helper `get_pack_metric_ids`
+- `backend/app/routes/analytics.py` — `get_rankings_children`, `get_adset_children`
+- `frontend/lib/api/endpoints.ts` — `getRankingsChildren`, `getAdsetChildren`
+- `frontend/lib/api/hooks.ts` — `useAdVariations`, `useAdsetChildren`, `queryKeys`
+- `frontend/components/manager/ExpandedChildrenRow.tsx` — prop `packIds`
+- `frontend/components/manager/{TableContent,MinimalTableContent}.tsx` — passa `selectedPackIds`
+- `frontend/components/ads/AdDetailsDialog.tsx` — passa `[]` (preserva all-packs)
+
+---
+
+## Sweep completo de pack-scoping em todos os agregadores de `ad_metrics`
+
+**Data:** 2026-04-29
+
+**Contexto:** Após corrigir os children endpoints e `calculate_pack_stats_essential`, fizemos uma auditoria completa do backend pra fechar o resto da classe de bug "agregar ad_metrics sem pack filter → over-count em ads compartilhados".
+
+**Endpoints fechados nesta passada (5):**
+- `/rankings/ad-id/{ad_id}` (`get_ad_details`)
+- `/rankings/ad-id/{ad_id}/history` (`get_ad_history`)
+- `/rankings/ad-name/{ad_name}/details` (`get_ad_name_details`)
+- `/rankings/ad-name/{ad_name}/history` (`get_ad_name_history`)
+- `/rankings/adset-id/{adset_id}` (`get_adset_details`)
+
+Todos seguem o mesmo padrão das correções anteriores: `pack_ids: Optional[List[str]] = Query(default=None)`; quando fornecido, usa `supabase_repo.get_pack_metric_ids` pra montar composite ids do pack e filtra `ad_metrics` por `.in_("id", batch_de_200)`. Quando ausente, mantém legacy (todos os packs do user) — preserva uso fora de contexto Manager.
+
+**Função interna refatorada:** `supabase_repo.get_ads_for_pack` deixou de fazer date-range scan em `ad_metrics` e passou a ler ad_ids únicos do `ad_metric_pack_map` filtrado por `pack_id`. Mantém os filtros em memória (campaign.name / adset.name / ad.name com CONTAIN/EQUALS) — só troca a fonte do ad_ids. Callers (transcription job, `GET /analytics/packs?include_ads=true`, `GET /analytics/packs/{pack_id}?include_ads=true`) não precisaram mudar.
+
+**Frontend — propagação de `selectedPackIds`:**
+- Hooks (`useAdDetails`, `useAdHistory`, `useAdNameDetails`, `useAdNameHistory`) aceitam `packIds: string[] = []` como 4º arg, antes do `enabled`. queryKeys incluem `packIdsKey` sorted-join.
+- `endpoints.ts` serializa `pack_ids` via `URLSearchParams` em todos os 5 endpoints novos + `getAdsetDetails` (que estava sendo chamado direto sem hook).
+- `AdDetailsDialog` e `AdsetDetailsDialog` aceitam prop `packIds`; ManagerTable passa `selectedPackIds` quando renderiza esses dialogs.
+- `BaseKanbanWidget.modalProps` ganhou campo `packIds`. `GemsWidget`, `InsightsKanbanWidget`, `GoldKanbanWidget` aceitam prop `packIds` e propagam ao modalProps. As páginas `/insights` e `/gold` passam `Array.from(selectedPackIds)`.
+- `sharedAdDetail.useSharedAdNameDetail` já lia `selectedPackIds` do `useFilters()` — agora propaga para `useAdNameDetails` (Explorer fica pack-scoped).
+
+**Migration:** nenhuma. Índice existente `ad_metric_pack_map_user_pack_date_ad_idx` em `(user_id, pack_id, metric_date, ad_id)` cobre todas as queries com index-only scan.
+
+**Lições:**
+1. Ao identificar uma classe de bug arquitetural ("X precisa filtrar por pack"), varrer TODOS os endpoints/funções da mesma classe — fixar dois e deixar outros cinco abertos vira regressão escondida.
+2. Hooks que ganham parâmetro novo entre args existentes (ex: `packIds` antes de `enabled`) podem quebrar callers silenciosamente em TypeScript se a tipagem for boolean-aceitando-array. Pesquisar TODOS os callers e atualizar antes de mergear.
+3. Componentes "wrapper" (`BaseKanbanWidget`, `*KanbanWidget`) precisam de prop drilling explícito — não dá pra contar com Context se a árvore atravessa fronteiras de feature.
+
+**Arquivos alterados:**
+- Backend: `routes/analytics.py` (5 endpoints), `services/supabase_repo.py` (`get_ads_for_pack`)
+- Frontend: `lib/api/{endpoints,hooks}.ts`, `components/ads/{AdDetailsDialog,AdsetDetailsDialog}.tsx`, `components/manager/ManagerTable.tsx`, `components/common/BaseKanbanWidget.tsx`, `components/insights/{GemsWidget,InsightsKanbanWidget}.tsx`, `components/gold/GoldKanbanWidget.tsx`, `lib/ads/sharedAdDetail.ts`, `app/{insights,gold}/page.tsx`

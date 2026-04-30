@@ -37,6 +37,13 @@ interface AdDetailsDialogProps {
   dateStart?: string;
   dateStop?: string;
   actionType?: string;
+  /**
+   * Packs selecionados no contexto que abriu o dialog. Quando não vazio, restringe
+   * variações/detalhes/histórico a métricas que pertencem a esses packs (via
+   * ad_metric_pack_map). Sem isso, ads compartilhados entre packs com date_ranges
+   * diferentes super-contam spend/CTR/etc.
+   */
+  packIds?: string[];
   availableConversionTypes?: string[]; // Tipos de conversão disponíveis (mesmos do seletor)
   initialTab?: "variations" | "video" | "history"; // Aba inicial
   averages?: {
@@ -56,7 +63,7 @@ interface AdDetailsDialogProps {
   };
 }
 
-export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, availableConversionTypes = [], initialTab = "video", averages }: AdDetailsDialogProps) {
+export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, packIds = [], availableConversionTypes = [], initialTab = "video", averages }: AdDetailsDialogProps) {
   const [activeTab, setActiveTab] = useState<"variations" | "video" | "copy" | "history">(initialTab);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
@@ -137,9 +144,9 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     enabled: groupByAdName && !!detailDateStart && !!detailDateStop,
   });
 
-  const { data: childrenData, isLoading: loadingChildren } = useAdVariations(adName, dateStart || "", dateStop || "", shouldLoadVariations);
+  const { data: childrenData, isLoading: loadingChildren } = useAdVariations(adName, dateStart || "", dateStop || "", packIds, shouldLoadVariations);
 
-  const { data: adDetails, isLoading: loadingAdDetails } = useAdDetails(adId, dateStart || "", dateStop || "", shouldLoadDetails);
+  const { data: adDetails, isLoading: loadingAdDetails } = useAdDetails(adId, dateStart || "", dateStop || "", packIds, shouldLoadDetails);
 
   // Detectar se o date range foi alterado pelo usuário (override)
   const isDateRangeOverridden = useMemo(() => {
@@ -149,7 +156,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   // Override de métricas: buscar dados frescos quando date range diferente do pai
   const shouldLoadOverriddenById = isDateRangeOverridden && !groupByAdName && !!adId;
-  const { data: overriddenById, isLoading: loadingOverriddenById } = useAdDetails(adId, historyDateRange.start || "", historyDateRange.end || "", shouldLoadOverriddenById);
+  const { data: overriddenById, isLoading: loadingOverriddenById } = useAdDetails(adId, historyDateRange.start || "", historyDateRange.end || "", packIds, shouldLoadOverriddenById);
   const overriddenDetails = overriddenById;
   const loadingOverridden = isDateRangeOverridden && loadingOverriddenById;
 
@@ -193,8 +200,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
 
-  const { data: historyDataById, isLoading: loadingHistoryById } = useAdHistory(adId, dateStart || "", dateStop || "", shouldLoadHistoryById);
-  const { data: historyDataByName, isLoading: loadingHistoryByName } = useAdNameHistory(adName, dateStart || "", dateStop || "", shouldLoadHistoryByName);
+  const { data: historyDataById, isLoading: loadingHistoryById } = useAdHistory(adId, dateStart || "", dateStop || "", packIds, shouldLoadHistoryById);
+  const { data: historyDataByName, isLoading: loadingHistoryByName } = useAdNameHistory(adName, dateStart || "", dateStop || "", packIds, shouldLoadHistoryByName);
   const loadingHistory = loadingHistoryById || loadingHistoryByName;
   const historyDataRaw = groupByAdName ? historyDataByName : historyDataById;
 

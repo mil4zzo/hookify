@@ -227,31 +227,67 @@ export const api = {
       apiClient.post('/analytics/rankings/retention', params),
     getRankingsChildren: (
       adName: string,
-      params: { date_start: string; date_stop: string; order_by?: string }
-    ): Promise<{ data: any[] }> =>
-      apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/children`, { params }),
+      params: { date_start: string; date_stop: string; order_by?: string; pack_ids?: string[] }
+    ): Promise<{ data: any[] }> => {
+      const qs = new URLSearchParams()
+      qs.append('date_start', params.date_start)
+      qs.append('date_stop', params.date_stop)
+      if (params.order_by) qs.append('order_by', params.order_by)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/children?${qs.toString()}`)
+    },
     getAdDetails: (
       adId: string,
-      params: { date_start: string; date_stop: string }
-    ): Promise<RankingsChildrenItem> =>
-      apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}`, { params }),
+      params: { date_start: string; date_stop: string; pack_ids?: string[] }
+    ): Promise<RankingsChildrenItem> => {
+      const qs = new URLSearchParams()
+      qs.append('date_start', params.date_start)
+      qs.append('date_stop', params.date_stop)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}?${qs.toString()}`)
+    },
     getAdCreative: (adId: string): Promise<AdCreativeResponse> =>
       apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/creative`),
     getAdHistory: (
       adId: string,
-      params: { date_start: string; date_stop: string }
-    ): Promise<{ data: any[] }> =>
-      apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/history`, { params }),
+      params: { date_start: string; date_stop: string; pack_ids?: string[] }
+    ): Promise<{ data: any[] }> => {
+      const qs = new URLSearchParams()
+      qs.append('date_start', params.date_start)
+      qs.append('date_stop', params.date_stop)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/history?${qs.toString()}`)
+    },
     getAdNameDetails: (
       adName: string,
-      params: { date_start: string; date_stop: string }
-    ): Promise<RankingsChildrenItem> =>
-      apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details`, { params }),
+      params: { date_start: string; date_stop: string; pack_ids?: string[] }
+    ): Promise<RankingsChildrenItem> => {
+      const qs = new URLSearchParams()
+      qs.append('date_start', params.date_start)
+      qs.append('date_stop', params.date_stop)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details?${qs.toString()}`)
+    },
     getAdNameHistory: (
       adName: string,
-      params: { date_start: string; date_stop: string }
-    ): Promise<{ data: any[] }> =>
-      apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/history`, { params }),
+      params: { date_start: string; date_stop: string; pack_ids?: string[] }
+    ): Promise<{ data: any[] }> => {
+      const qs = new URLSearchParams()
+      qs.append('date_start', params.date_start)
+      qs.append('date_stop', params.date_stop)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/history?${qs.toString()}`)
+    },
     getTranscription: async (adName: string): Promise<AdTranscriptionResponse | null> => {
       try {
         return await (apiClient.get('/analytics/transcription', { params: { ad_name: adName } }) as Promise<AdTranscriptionResponse>);
@@ -262,14 +298,29 @@ export const api = {
     },
     getAdsetDetails: (
       adsetId: string,
-      params: { date_start: string; date_stop: string }
-    ): Promise<any> =>
-      apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}`, { params }),
+      params: { date_start: string; date_stop: string; pack_ids?: string[] }
+    ): Promise<any> => {
+      const qs = new URLSearchParams()
+      qs.append('date_start', params.date_start)
+      qs.append('date_stop', params.date_stop)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}?${qs.toString()}`)
+    },
     getAdsetChildren: (
       adsetId: string,
-      params: { date_start: string; date_stop: string; order_by?: string }
-    ): Promise<{ data: any[] }> =>
-      apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children`, { params }),
+      params: { date_start: string; date_stop: string; order_by?: string; pack_ids?: string[] }
+    ): Promise<{ data: any[] }> => {
+      const qs = new URLSearchParams()
+      qs.append('date_start', params.date_start)
+      qs.append('date_stop', params.date_stop)
+      if (params.order_by) qs.append('order_by', params.order_by)
+      params.pack_ids?.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children?${qs.toString()}`)
+    },
     searchGlobal: (query: string, limit: number = 20): Promise<GlobalSearchResponse> =>
       apiClient.get('/analytics/search', { params: { query, limit } }),
     getCampaignChildren: (
