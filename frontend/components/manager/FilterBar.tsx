@@ -31,6 +31,9 @@ interface FilterBarProps {
   setColumnFilters: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   filterableColumns: FilterableColumn[];
   table?: any; // TanStack Table instance (opcional para uso em tabelas expandidas)
+  filteredCount?: number;
+  totalCount?: number;
+  itemLabel?: string;
 }
 
 const filterOperators: { value: FilterOperator; label: string }[] = [
@@ -63,10 +66,14 @@ function arePropsEqual(prev: FilterBarProps, next: FilterBarProps): boolean {
   // setColumnFilters should be stable (from useState)
   if (prev.setColumnFilters !== next.setColumnFilters) return false;
 
+  if (prev.filteredCount !== next.filteredCount) return false;
+  if (prev.totalCount !== next.totalCount) return false;
+  if (prev.itemLabel !== next.itemLabel) return false;
+
   return true;
 }
 
-export const FilterBar = React.memo(function FilterBar({ columnFilters, setColumnFilters, filterableColumns, table }: FilterBarProps) {
+export const FilterBar = React.memo(function FilterBar({ columnFilters, setColumnFilters, filterableColumns, table, filteredCount, totalCount, itemLabel }: FilterBarProps) {
   // Estado local para valores dos inputs (para não aplicar imediatamente)
   const [localInputValues, setLocalInputValues] = useState<Record<string, string>>({});
   const [savedValues, setSavedValues] = useState<Record<string, number | string | null>>({});
@@ -632,23 +639,30 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
           })}
         </div>
 
-        {availableColumns.length > 0 && (
-          <Select key={selectKey} value={selectValue || undefined} onValueChange={handleAddFilter}>
-            <SelectTrigger className="h-8 w-auto border-border bg-input-30 px-3">
-              <div className="flex items-center gap-1.5">
-                <IconPlus className="w-3.5 h-3.5 text-muted-foreground" />
-                <span className="text-xs">Add filter</span>
-              </div>
-            </SelectTrigger>
-            <SelectContent disablePortal={true}>
-              {availableColumns.map((col) => (
-                <SelectItem key={col.id} value={col.id}>
-                  {col.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex gap-4 items-center">
+          {filteredCount !== undefined && totalCount !== undefined && itemLabel && (
+            <span className="text-xs text-muted-foreground whitespace-nowrap">
+              Exibindo {filteredCount} de {totalCount} {itemLabel}
+            </span>
+          )}
+          {availableColumns.length > 0 && (
+            <Select key={selectKey} value={selectValue || undefined} onValueChange={handleAddFilter}>
+              <SelectTrigger className="h-8 w-auto border-border bg-input-30 px-3">
+                <div className="flex items-center gap-1.5">
+                  <IconPlus className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-xs">Add filter</span>
+                </div>
+              </SelectTrigger>
+              <SelectContent disablePortal={true}>
+                {availableColumns.map((col) => (
+                  <SelectItem key={col.id} value={col.id}>
+                    {col.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
     </>
   );

@@ -143,17 +143,18 @@ html body[data-scroll-locked] {
 /* Estilização global de scrollbars para todo o app */
 * {
   /* Firefox */
-  scrollbar-width: auto;
-  /* scrollbar-color: var(--primary) transparent; */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent) transparent;
 }
 
 *::-webkit-scrollbar {
-  width: 12px;
+  width: 10px;
+  height: 10px;
 }
 
 *::-webkit-scrollbar-track {
   border-radius: 10px;
-  background-color: var(--card);
+  background-color: transparent;
 }
 
 *::-webkit-scrollbar-corner {
@@ -162,12 +163,13 @@ html body[data-scroll-locked] {
 
 *::-webkit-scrollbar-thumb {
   border-radius: 10px;
-  background-color: var(--secondary);
-  border: 4px solid var(--card);
+  background-color: color-mix(in oklab, var(--muted-foreground) 40%, transparent);
+  border: 3px solid transparent;
+  background-clip: padding-box;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: var(--muted-foreground);
+  background-color: color-mix(in oklab, var(--muted-foreground) 70%, transparent);
   background-clip: padding-box;
 }
 

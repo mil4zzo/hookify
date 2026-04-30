@@ -11,7 +11,7 @@ const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog")
 const VideoDialog = dynamic(() => import("@/components/ads/VideoDialog").then((m) => m.VideoDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconArrowsHorizontal, IconLoader2 } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2 } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { api } from "@/lib/api/endpoints";
@@ -183,11 +183,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     },
     [debouncedStorage],
   );
-
-  // Função para resetar o tamanho das colunas para os valores padrão
-  const handleResetColumnSizes = useCallback(() => {
-    setColumnSizing({});
-  }, []);
 
   // Remover automaticamente cpmql e mqls quando hasSheetIntegration for false
   useEffect(() => {
@@ -853,17 +848,22 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     );
   }, [currentTab, globalFilter]);
 
-  const hasCustomColumnSizes = Object.keys(columnSizing).length > 0;
+  const filterBarItemLabel = currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios";
+  const filterBarFilteredCount = table.getFilteredRowModel().rows.length;
+
   const controls = useMemo(
     () => (
       <>
-        <div className="flex flex-wrap items-center justify-start gap-2 md:justify-end">
+        <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
+          <div className="w-full sm:w-[190px]">
+            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
+          </div>
           {/* Toggle de visualização: dois botões alternantes */}
           <TooltipProvider>
-            <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização">
+            <div className="flex rounded-lg border border-input bg-background items-stretch" role="group" aria-label="Modo de visualização">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant={viewMode === "detailed" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("detailed")} className="h-9 px-3 rounded-md" aria-label="Visualização detalhada" aria-pressed={viewMode === "detailed"}>
+                  <Button variant={viewMode === "detailed" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("detailed")} className="h-full py-2 px-3 rounded-md" aria-label="Visualização detalhada" aria-pressed={viewMode === "detailed"}>
                     <IconListDetails className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -873,7 +873,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant={viewMode === "minimal" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("minimal")} className="h-9 px-3 rounded-md" aria-label="Visualização minimal" aria-pressed={viewMode === "minimal"}>
+                  <Button variant={viewMode === "minimal" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("minimal")} className="h-full py-2 px-3 rounded-md" aria-label="Visualização minimal" aria-pressed={viewMode === "minimal"}>
                     <IconList className="h-4 w-4" />
                   </Button>
                 </TooltipTrigger>
@@ -883,26 +883,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </Tooltip>
             </div>
           </TooltipProvider>
-          <div className="w-full sm:w-[190px]">
-            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
-          </div>
-          {/* Botão para resetar tamanho das colunas */}
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="outline" size="sm" onClick={handleResetColumnSizes} className="h-10 px-3" aria-label="Resetar tamanho das colunas" disabled={!hasCustomColumnSizes}>
-                  <IconArrowsHorizontal className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Resetar tamanho das colunas</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration, handleResetColumnSizes, hasCustomColumnSizes],
+    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration],
   );
 
   const tableContentProps = useMemo(
@@ -936,7 +920,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       onVisibleRowKeysChange: handleVisibleRowKeysChange,
       isError: isError && currentTab === "por-anuncio",
     }),
-    [table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
+    [table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, adsEffectiveRaw, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
   );
   return (
     <>
@@ -957,7 +941,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <>
               {searchBar}
               <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
               </>
             }
@@ -973,7 +957,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <>
               {searchBar}
               <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
               </>
             }
@@ -989,7 +973,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <>
               {searchBar}
               <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
               </>
             }
@@ -1005,7 +989,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <>
               {searchBar}
               <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} />
+                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
               </>
             }

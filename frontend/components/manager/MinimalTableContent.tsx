@@ -3,7 +3,6 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { TableSummaryBar } from "@/components/manager/TableSummaryBar";
 import { StatePanel } from "@/components/common/States";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
@@ -48,7 +47,6 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
     return false;
   }
 
-  // Comparar dataLength para detectar quando dados chegam do servidor
   if (prev.dataLength !== next.dataLength) {
     return false;
   }
@@ -382,13 +380,6 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
         </table>
       </div>
 
-      <TableSummaryBar
-        filteredCount={table.getFilteredRowModel().rows.length}
-        totalCount={table.getPreFilteredRowModel().rows.length}
-        itemLabel={currentTab === "por-conjunto" ? "conjuntos" : currentTab === "por-campanha" ? "campanhas" : "anúncios"}
-        hasActiveFilters={columnFilters.length > 0}
-        onResetFilters={() => setColumnFilters([])}
-      />
     </div>
   );
 }, areMinimalTableContentPropsEqual);
