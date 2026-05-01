@@ -1,10 +1,54 @@
 import { useCallback, useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
 
 export type AdEntityType = "ad" | "adset" | "campaign";
 export type AdEntityStatus = "PAUSED" | "ACTIVE";
+
+/**
+ * Patch effective_status in all cached rankings entries for a given ad_id, in-place.
+ * Avoids broad invalidation that triggers a flood of duplicate RPC calls (fetch_manager_rankings_core_v2)
+ * — metrics don't change when status toggles, only the badge does.
+ */
+function patchAdStatusInCaches(qc: QueryClient, adId: string, nextStatus: AdEntityStatus): void {
+  if (!adId) return;
+  const patchRow = (row: any): any => {
+    if (!row || typeof row !== "object") return row;
+    if (row.ad_id !== adId) return row;
+    if (!Object.prototype.hasOwnProperty.call(row, "effective_status")) return row;
+    return { ...row, effective_status: nextStatus, status_resolved: true };
+  };
+  qc.setQueriesData<unknown>({ queryKey: ["analytics", "rankings"] }, (cached: unknown) => {
+    if (cached == null) return cached;
+    if (Array.isArray(cached)) {
+      let mutated = false;
+      const next = cached.map((row) => {
+        const patched = patchRow(row);
+        if (patched !== row) mutated = true;
+        return patched;
+      });
+      return mutated ? next : cached;
+    }
+    if (typeof cached === "object") {
+      const obj = cached as Record<string, any>;
+      // Shape: { data: Item[] } (RankingsResponse, ad-history, ad-name-history)
+      if (Array.isArray(obj.data)) {
+        let mutated = false;
+        const nextData = obj.data.map((row: any) => {
+          const patched = patchRow(row);
+          if (patched !== row) mutated = true;
+          return patched;
+        });
+        return mutated ? { ...obj, data: nextData } : cached;
+      }
+      // Shape: single item (ad-details, ad-name-details)
+      const patched = patchRow(obj);
+      return patched !== obj ? patched : cached;
+    }
+    return cached;
+  });
+}
 
 export interface UseAdStatusControlOptions {
   entityType: AdEntityType;
@@ -52,9 +96,16 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
 
       showSuccess(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.");
 
-      // Rankings/ad-performance usam a mesma base de queryKey: ['analytics','rankings', ...]
-      await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
-      // Também garantir que dados de /me e caches relacionados não fiquem defasados (seguro e barato)
+      if (entityType === "ad") {
+        // Toggle de status não muda métricas — só effective_status. Patch in-place
+        // evita o storm de refetches que causa timeouts no fetch_manager_rankings_core_v2.
+        patchAdStatusInCaches(qc, entityId, data.status);
+      } else {
+        // adset/campaign: o cascade para effective_status dos filhos (ADSET_PAUSED/CAMPAIGN_PAUSED)
+        // é complexo de inferir client-side. Toggles desses são raros — invalidação ampla aceitável.
+        await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+      }
+      // /me é cache pequeno e barato de revalidar
       await qc.invalidateQueries({ queryKey: ["facebook", "me"] });
     },
     onError: (e: any) => {
