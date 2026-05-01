@@ -625,6 +625,16 @@ class GraphAPI:
             timeout=30,
         )
 
+    def get_ad_account_compliance_defaults(self, act_id: str) -> Dict[str, Any]:
+        """Retorna os defaults de compliance DSA configurados na conta (beneficiario/pagador)."""
+        return self._handle_graph_request(
+            method="GET",
+            path=act_id,
+            operation_name="GraphAPI.get_ad_account_compliance_defaults",
+            params={"fields": "default_dsa_beneficiary,default_dsa_payor"},
+            timeout=30,
+        )
+
     def get_campaign_config(self, campaign_id: str) -> Dict[str, Any]:
         """Retorna configuracoes da campanha para duplicacao."""
         # Apenas campos do no Campaign (ex.: start_time/end_time/pacing_type sao do AdSet).
@@ -657,7 +667,11 @@ class GraphAPI:
             "id,name,status,targeting,optimization_goal,billing_event,"
             "bid_amount,daily_budget,lifetime_budget,promoted_object,"
             "attribution_spec,destination_type,frequency_control_specs,bid_constraints,"
-            "pacing_type,start_time,end_time,bid_strategy"
+            "pacing_type,start_time,end_time,bid_strategy,"
+            # Compliance fields required by Meta when targeting regulated countries.
+            # dsa_* are EU (DSA); regional_regulation_* cover TW, BR, SG, AU, IN, TH.
+            "dsa_beneficiary,dsa_payor,"
+            "regional_regulated_categories,regional_regulation_identities"
         )
         return self._handle_graph_request(
             method="GET",
@@ -675,6 +689,26 @@ class GraphAPI:
             operation_name="GraphAPI.create_campaign",
             json_payload=params,
             timeout=60,
+        )
+
+    def copy_adset(self, source_adset_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Copia um adset existente para outra campanha via POST /{id}/copies."""
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{source_adset_id}/copies",
+            operation_name="GraphAPI.copy_adset",
+            json_payload=params,
+            timeout=60,
+        )
+
+    def update_adset_name(self, adset_id: str, name: str) -> Dict[str, Any]:
+        """Renomeia um adset existente."""
+        return self._handle_graph_request(
+            method="POST",
+            path=adset_id,
+            operation_name="GraphAPI.update_adset_name",
+            json_payload={"name": name},
+            timeout=30,
         )
 
     def create_adset(self, act_id: str, params: Dict[str, Any]) -> Dict[str, Any]:

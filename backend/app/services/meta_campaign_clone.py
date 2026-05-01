@@ -115,6 +115,14 @@ ADSET_CLONE_FIELD_KEYS: tuple[str, ...] = (
     "start_time",
     "end_time",
     "bid_strategy",
+    # Compliance fields required by Meta when targeting regulated countries.
+    # Without these the adset creation fails with subcode 3858495 (blame field
+    # "compliance_section"). dsa_* are EU (DSA); regional_regulation_* cover
+    # TW, BR, SG, AU, IN, TH.
+    "dsa_beneficiary",
+    "dsa_payor",
+    "regional_regulated_categories",
+    "regional_regulation_identities",
 )
 
 
