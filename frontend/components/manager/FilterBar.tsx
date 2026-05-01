@@ -376,7 +376,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                     onBlur={handleValueBlur}
                     onKeyDown={handleValueKeyDown}
                     placeholder="Texto..."
-                    className="h-6 min-w-0 w-32 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus-visible:ring-1 focus-visible:ring-info focus-visible:ring-offset-0"
+                    className="h-6 min-w-0 w-32 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
                     onClick={(e) => e.stopPropagation()}
                   />
 
@@ -610,7 +610,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                     onBlur={handleValueBlur}
                     onKeyDown={handleValueKeyDown}
                     placeholder={placeholder}
-                    className="h-6 min-w-0 w-16 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus-visible:ring-1 focus-visible:ring-info focus-visible:ring-offset-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                    className="h-6 min-w-0 w-16 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                     onClick={(e) => e.stopPropagation()}
                   />
                   {column.isPercentage && <span className="text-muted-foreground text-xs">%</span>}

@@ -379,3 +379,104 @@ Todos seguem o mesmo padrão das correções anteriores: `pack_ids: Optional[Lis
 **Arquivos alterados:**
 - Backend: `routes/analytics.py` (5 endpoints), `services/supabase_repo.py` (`get_ads_for_pack`)
 - Frontend: `lib/api/{endpoints,hooks}.ts`, `components/ads/{AdDetailsDialog,AdsetDetailsDialog}.tsx`, `components/manager/ManagerTable.tsx`, `components/common/BaseKanbanWidget.tsx`, `components/insights/{GemsWidget,InsightsKanbanWidget}.tsx`, `components/gold/GoldKanbanWidget.tsx`, `lib/ads/sharedAdDetail.ts`, `app/{insights,gold}/page.tsx`
+
+---
+
+## Meta API — Compliance fields obrigatórios no clone de adsets para países regulados
+
+**Data:** 2026-04-30
+
+**Problema:** Ao duplicar campanhas via "Duplicar campanhas" (upload page), `create_adset` falhava com subcode `3858495` e `error_data: {"blame_field_specs":[["compliance_section"]]}`. A mensagem ao usuário em português dizia "Taiwan" mesmo com targeting no Brasil (mensagem genérica/confusa da Meta).
+
+**Causa raiz:** Meta exige campos de compliance nos adsets que miram países regulados. Existem **dois conjuntos distintos** de campos:
+
+- **EU (DSA):** `dsa_beneficiary`, `dsa_payor`
+- **TW, BR, SG, AU, IN, TH:** `regional_regulated_categories`, `regional_regulation_identities`
+
+Os adsets fonte têm esses campos preenchidos (por isso rodam). Nosso `get_adsets_for_campaign` não listava nenhum dos dois conjuntos no `fields=`, e o `ADSET_CLONE_FIELD_KEYS` também não os incluía — logo o novo adset era criado sem eles e a Meta rejeitava.
+
+A primeira tentativa de fix (apenas `dsa_*`) **não resolveu** porque o targeting era Brasil, que usa `regional_regulation_identities`, não `dsa_*`. O erro voltou e o `blame_field_specs=["compliance_section"]` foi a pista decisiva — `compliance_section` é nome da seção da UI da Meta, não um campo real da API. Os campos reais são `regional_regulated_categories` e `regional_regulation_identities`.
+
+O bug estava latente mas só surfacou após a correção do upload chunked (que pela primeira vez permitiu que jobs com vídeos maiores chegassem à etapa de criação de adsets).
+
+**Solução (final, 4 campos):**
+1. Adicionados `dsa_beneficiary,dsa_payor,regional_regulated_categories,regional_regulation_identities` ao `fields=` em `get_adsets_for_campaign` ([graph_api.py](../backend/app/services/graph_api.py))
+2. Adicionados os mesmos 4 ao `ADSET_CLONE_FIELD_KEYS` em [meta_campaign_clone.py](../backend/app/services/meta_campaign_clone.py)
+
+**Regras para o futuro:**
+- Sempre que adicionar campos ao `ADSET_CLONE_FIELD_KEYS`, também adicioná-los ao `fields=` de `get_adsets_for_campaign`. As duas listas devem ficar em sincronia.
+- Em erros da Meta com `blame_field_specs`, cuidado com nomes de **seção da UI** (`compliance_section`) que não são campos reais da API. Buscar quais campos da API compõem aquela seção.
+
+---
+
+## TanStack Query — Patch in-place vs invalidate broad em mutations de status
+
+**Data:** 2026-05-01
+
+**Sintoma:** Logs de produção mostrando `statement timeout` (Postgres 57014) na RPC `fetch_manager_rankings_core_v2` quando o usuário fazia toggles rápidos de status de ad. O usuário não percebia erro visual (toast de sucesso aparecia normalmente), mas algumas queries ficavam stale silenciosamente.
+
+**Causa raiz: amplificação de requests por invalidação broad.**
+
+Hierarquia do problema:
+1. `useAdStatusControl.onSuccess` chamava `qc.invalidateQueries({ queryKey: ["analytics","rankings"], refetchType: "active" })`
+2. O prefixo `["analytics","rankings"]` casa com **9+ query keys distintas** (`adVariations`, `adDetails`, `adCreative`, `adHistory`, `adNameDetails`, `adNameHistory`, `campaignChildren`, `adsetChildren`, `rankings`/`adPerformance`)
+3. Múltiplos componentes da Manager assinam variações com params diferentes (`limit=10000` vs `limit=1`, `group_by=ad_id` vs `group_by=ad_name`)
+4. Com `refetchType: "active"`, **todas** as queries ativas refazem em paralelo imediatamente
+5. 1 toggle → ~6 refetches paralelos. 5 toggles em ~20s → ~30 hits concorrentes na mesma RPC → Postgres mata por timeout
+
+**Solução:** Patch in-place via `qc.setQueriesData` em vez de `invalidateQueries`. Status toggle não muda métricas — só `effective_status` da row daquele ad. Helper `patchAdStatusInCaches` walk cega-shape (lida com `Item[]`, `{data: Item[]}`, single `Item`) e atualiza apenas rows com `ad_id` matching.
+
+**Decisão de escopo:**
+- `entityType === "ad"` → patch in-place, **zero refetch** de rankings
+- `entityType === "adset"` / `"campaign"` → mantém invalidate broad (cascade `ADSET_PAUSED`/`CAMPAIGN_PAUSED` nos filhos é difícil de inferir client-side; toggles de adset/campaign são raros e não amplificam)
+- `["facebook","me"]` → mantém invalidate (cache pequeno e barato)
+
+**Arquivos alterados:** [frontend/lib/hooks/useAdStatusControl.ts](../frontend/lib/hooks/useAdStatusControl.ts) — novo helper `patchAdStatusInCaches` + branch por `entityType` no `onSuccess`.
+
+**Regra geral aplicável:** Antes de usar `invalidateQueries` em uma mutation, perguntar: "essa mutation muda métricas/dados agregados ou só um campo derivado/display?" Se for só display, prefira `setQueriesData` para evitar amplificação. O custo de manter invalidação broad é proporcional a (componentes ativos) × (frequência da ação).
+
+---
+
+## Eliminação da probe de `available_conversion_types` (D + C + B)
+
+**Data:** 2026-05-01
+
+**Sintoma:** A cada load do Manager, 3 queries quase-idênticas para `/analytics/ad-performance` saíam em paralelo. A 3ª (`limit=1, include_available_conversion_types=true, include_leadscore=false`) servia apenas para popular o dropdown de actionType no topbar antes da Query 1 (`limit=10000`) terminar. O ganho de UX era real (~1s antes), mas o backend pagava o custo completo da agregação no `fetch_manager_rankings_core_v2_base_v060` (LIMIT é aplicado só no final das CTEs).
+
+**Causa raiz:** O RPC pesado é monolítico — não tem fast-path para "só me dê os conversion types". E não havia persistência client-side de lookup data raramente-mutável.
+
+**Solução tripla, em ordem D → C → B:**
+
+### D — Logging enriquecido ([backend/app/routes/analytics.py](../backend/app/routes/analytics.py))
+
+Logs `[rankings] request_start`, `rpc_success`, `rpc_failed` agora incluem: `include_available_conversion_types`, `limit`, `action_type`, `is_probe` (flag derivada), `act_count` (tamanho do array retornado). Permite detectar regressões futuras (ex: alguém adicionar uma 4ª query, ou probe deixar de ser usada).
+
+### C — Persistência seletiva via TanStack persister ([frontend/components/providers/ReactQueryProvider.tsx](../frontend/components/providers/ReactQueryProvider.tsx))
+
+- `PersistQueryClientProvider` envolvendo o root, com `createSyncStoragePersister` (localStorage)
+- `dehydrateOptions.shouldDehydrateQuery`: filtra **apenas** `["analytics", "conversion-types", ...]` — métricas dinâmicas NUNCA são persistidas
+- `maxAge: 7d`, `buster: "hookify-2026-05-01"` (constante — bumpar para invalidar tudo)
+- Cross-user safety: queryKey do `useConversionTypes` inclui `user_id` da sessão Supabase
+
+### B — RPC + endpoint dedicado para cache miss
+
+**Migration nova:** [`supabase/migrations/079_fetch_available_conversion_types_v1.sql`](../supabase/migrations/079_fetch_available_conversion_types_v1.sql)
+
+A função `fetch_available_conversion_types_v1` copia **verbatim** os filtros e dedup do v060 ([schema.sql:3819-3863](../supabase/schema.sql#L3819-L3863)) — mesma cláusula `WHERE` (date, account_ids, ILIKE name filters, pack_ids via `EXISTS` em `ad_metric_pack_map`), mesmo `DISTINCT ON (user_id, ad_id, date)` com mesmo `ORDER BY` tie-break. Reduz custo de ~500ms para <50ms.
+
+**Filtros intencionalmente omitidos:** `p_action_type`, `p_campaign_id` — não afetam o universo de conversion types disponíveis.
+
+**Permissões:** `SECURITY DEFINER` + `REVOKE EXECUTE FROM anon, authenticated` + `GRANT EXECUTE TO service_role` (alinhado com migration 078).
+
+**Endpoint backend:** `POST /analytics/conversion-types` em [analytics.py](../backend/app/routes/analytics.py).
+
+**Frontend:** novo hook `useConversionTypes` em [hooks.ts](../frontend/lib/api/hooks.ts) com `staleTime: 24h`, `gcTime: 7d`. Manager ([manager/page.tsx:271](../frontend/app/manager/page.tsx#L271)) mantém fallback `convTypesData?.available_conversion_types || managerData?.available_conversion_types` — se o endpoint dedicado falhar, dropdown ainda popula via Query 1.
+
+**Resultado esperado:**
+- Sessão repetida (cache hit do persister): **0 requests** para conversion types — popula instantaneamente do localStorage
+- Cache miss (filtros novos, primeiro acesso): chama endpoint dedicado em <50ms vs ~500ms anteriores
+- Probe pesado em `/analytics/ad-performance` com `limit=1` desaparece dos logs
+
+**Validação crítica antes de deploy:** rodar `SELECT fetch_available_conversion_types_v1(...)` e `SELECT (fetch_manager_rankings_core_v2(...))->'available_conversion_types'` lado a lado para o mesmo (user, packs, date range). Arrays devem ser **idênticos** (mesmo conteúdo, mesma ordem). Se divergir, NÃO migrar.
+
+**Regra geral aplicável:** quando uma probe (`limit=1`) é usada apenas para extrair metadata de uma RPC pesada, é sinal de que a RPC precisa de um fast-path ou de uma RPC dedicada. Combinada com persistência seletiva via TanStack, vira "0 requests no caso comum, request leve no caso raro".

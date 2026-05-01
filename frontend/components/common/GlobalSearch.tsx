@@ -181,7 +181,7 @@ export function GlobalSearch({ isCollapsed = false, className }: GlobalSearchPro
         placeholder="Buscar..."
         inputRef={inputRef}
         onFocus={handleInputFocus}
-        inputClassName="h-9 bg-input-30 border-border text-text placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-info"
+        inputClassName="h-9 bg-input-30 border-border text-text placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
       />
 
       {/* Dropdown de Resultados */}

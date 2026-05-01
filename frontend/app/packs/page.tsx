@@ -25,7 +25,8 @@ import { AdsPack } from "@/lib/types";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
-import { StatePanel, StateSkeleton } from "@/components/common/States";
+import { StatePanel } from "@/components/common/States";
+import { Skeleton } from "@/components/ui/skeleton";
 import { PageBodyStack } from "@/components/common/layout";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { subDays } from "date-fns";
@@ -45,11 +46,43 @@ const DEFAULT_REFRESH_TOGGLES: RefreshToggles = {
   transcription: false,
 };
 
+function PacksGridSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="relative inline-block w-full">
+          <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
+          <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
+          <div className="relative z-10 rounded-md border border-border bg-card overflow-hidden">
+            <div className="p-6 flex flex-col gap-6">
+              <div className="flex flex-col items-center gap-3">
+                <Skeleton className="h-7 w-32" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+              <div className="flex flex-col items-center gap-2">
+                <Skeleton className="h-8 w-28" />
+                <Skeleton className="h-4 w-16" />
+              </div>
+              <div className="grid grid-cols-4 gap-2">
+                <Skeleton className="h-10 rounded-md" />
+                <Skeleton className="h-10 rounded-md" />
+                <Skeleton className="h-10 rounded-md" />
+                <Skeleton className="h-10 rounded-md" />
+              </div>
+              <Skeleton className="h-6 w-24 self-center" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function PacksPageSkeleton() {
   return (
     <PageContainer variant="standard" title="Biblioteca" description="Gerencie seus Packs de anúncios.">
       <PageBodyStack>
-        <StateSkeleton variant="page" rows={4} className="rounded-md border border-border bg-card" />
+        <PacksGridSkeleton />
       </PageBodyStack>
     </PageContainer>
   );
@@ -119,7 +152,6 @@ interface PackFormData {
   filters: FilterRule[];
   auto_refresh?: boolean;
 }
-
 
 const FILTER_FIELDS = [
   { label: "Campaign Name", value: "campaign.name" },
@@ -347,7 +379,6 @@ export default function PacksPage() {
     }
   };
 
-
   const handleRemovePack = async (packId: string) => {
     const pack = packs.find((p) => p.id === packId);
     if (!pack) return;
@@ -574,30 +605,36 @@ export default function PacksPage() {
         }
       >
         <PageBodyStack>
-        {/* Packs Grid */}
-        {isLoadingPacks ? (
-          <StateSkeleton variant="page" rows={4} className="rounded-md border border-border bg-card" />
-        ) : packs.length === 0 ? (
-          <StatePanel
-            kind="empty"
-            icon={IconChartBar}
-            title="Nenhum Pack Carregado"
-            message="Carregue seu primeiro pack de anúncios para começar a análise"
-            density="spacious"
-            action={
-              <Button onClick={() => setIsDialogOpen(true)}>
-                <IconPlus className="w-4 h-4 mr-2" />
-                Carregar Primeiro Pack
-              </Button>
-            }
-          />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {packs.map((pack) => (
-              <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
-            ))}
-          </div>
-        )}
+          {/* Packs Grid */}
+          {isLoadingPacks ? (
+            <PacksGridSkeleton />
+          ) : packs.length === 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="relative inline-block w-full">
+                <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
+                <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
+                <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full overflow-hidden">
+                  <div className="p-6 flex flex-col items-center justify-center gap-4 h-full relative z-10 min-h-[220px]">
+                    <IconChartBar className="w-8 h-8 text-muted-foreground" />
+                    <div className="flex flex-col items-center gap-1 text-center">
+                      <span className="text-xl font-semibold">Nenhum Pack Carregado</span>
+                      <span className="text-sm text-muted-foreground">Carregue seu primeiro pack de anúncios para começar a análise</span>
+                    </div>
+                    <Button onClick={() => setIsDialogOpen(true)}>
+                      <IconPlus className="w-4 h-4 mr-2" />
+                      Carregar Primeiro Pack
+                    </Button>
+                  </div>
+                </StandardCard>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {packs.map((pack) => (
+                <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+              ))}
+            </div>
+          )}
         </PageBodyStack>
       </PageContainer>
 
@@ -621,12 +658,19 @@ export default function PacksPage() {
               }}
               className={packNameDuplicateError ? "border-destructive focus-visible:ring-destructive" : undefined}
             />
-            <p className={packNameDuplicateError ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>{packNameDuplicateError ? "Já existe um pack com esse nome. Escolha outro." : "Dê um nome descritivo para identificar facilmente seu pack"}</p>
+            {packNameDuplicateError && <p className="text-xs text-destructive">Já existe um pack com esse nome. Escolha outro.</p>}
           </div>
 
           {/* Ad Account */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Conta de Anúncios</label>
+            <label className="text-sm font-medium flex items-center gap-2">
+              Conta de Anúncios
+              {Array.isArray(adAccountsData) && adAccountsData.length > 0 && (
+                <span className="text-xs text-muted-foreground font-normal">
+                  ({adAccountsData.length} {adAccountsData.length === 1 ? "conta disponível" : "contas disponíveis"})
+                </span>
+              )}
+            </label>
             {adAccountsLoading ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <IconLoader2 className="w-4 h-4 animate-spin" />
@@ -712,11 +756,6 @@ export default function PacksPage() {
                 </Button>
               </div>
             )}
-            {Array.isArray(adAccountsData) && adAccountsData.length > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {adAccountsData.length} {adAccountsData.length === 1 ? "conta disponível" : "contas disponíveis"}
-              </p>
-            )}
           </div>
 
           {/* Date Range */}
@@ -739,18 +778,8 @@ export default function PacksPage() {
                   labelLeft="Manter atualizado"
                   variant="minimal"
                   size="md"
-                  labelClassName={formData.date_stop !== getTodayLocal() ? "text-muted-foreground cursor-not-allowed" : "cursor-pointer"}
+                  labelClassName={formData.date_stop !== getTodayLocal() ? "text-muted-foreground cursor-not-allowed" : "text-xs text-muted-foreground cursor-pointer"}
                 />
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <IconInfoCircle className="w-4 h-4 text-muted-foreground cursor-help" />
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>{formData.date_stop !== getTodayLocal() ? "Disponível apenas quando a data final é hoje." : "Quando ativado, o pack será atualizado automaticamente."}</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
               </div>
             </div>
             <DateRangeFilter
@@ -794,7 +823,7 @@ export default function PacksPage() {
             </div>
 
             {formData.filters.map((filter, index) => (
-              <div key={index} className="grid grid-cols-12 gap-2 items-end">
+              <div key={index} className="grid grid-cols-12 gap-2 items-stretch">
                 <div className="col-span-4">
                   <Select value={filter.field} onValueChange={(value) => handleFilterChange(index, "field", value)}>
                     <SelectTrigger className="w-full">
@@ -826,8 +855,8 @@ export default function PacksPage() {
                 <div className="col-span-4">
                   <Input placeholder="Valor..." value={filter.value} onChange={(e) => handleFilterChange(index, "value", e.target.value)} />
                 </div>
-                <div className="col-span-1">
-                  <Button type="button" variant="outline" size="sm" onClick={() => handleRemoveFilter(index)}>
+                <div className="col-span-1 flex">
+                  <Button type="button" variant="outline" className="h-full w-full hover:border-destructive hover:text-destructive hover:bg-destructive/10" onClick={() => handleRemoveFilter(index)}>
                     <IconTrash className="w-4 h-4" />
                   </Button>
                 </div>
@@ -969,7 +998,3 @@ export default function PacksPage() {
     </>
   );
 }
-
-
-
-

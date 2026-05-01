@@ -123,7 +123,7 @@ export function PacksOverflowMenu() {
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full hover:bg-accent transition-all focus:outline-none focus:ring-2 focus:ring-info"
+          className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full hover:bg-accent transition-all focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="Mais opções de packs"
         >
           <IconDotsVertical className="h-5 w-5 text-text" />

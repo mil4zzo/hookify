@@ -298,7 +298,7 @@ export default function Topbar() {
     return (
       <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
         <DropdownMenuTrigger asChild>
-          <button className="relative flex items-center justify-center w-10 h-10 rounded-full overflow-hidden hover:ring-2 hover:ring-border transition-all focus:outline-none focus:ring-2 focus:ring-info" aria-label="Perfil do usuário">
+          <button className="relative flex items-center justify-center w-10 h-10 rounded-full overflow-hidden hover:ring-2 hover:ring-border transition-all focus:outline-none focus:ring-2 focus:ring-ring" aria-label="Perfil do usuário">
             {renderTriggerAvatar()}
           </button>
         </DropdownMenuTrigger>
