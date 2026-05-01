@@ -6362,21 +6362,21 @@ ALTER TABLE ONLY public.subscriptions
 -- Name: bulk_ad_items Users insert own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users insert own bulk_ad_items" ON public.bulk_ad_items FOR INSERT WITH CHECK ((user_id = auth.uid()));
+CREATE POLICY "Users insert own bulk_ad_items" ON public.bulk_ad_items FOR INSERT WITH CHECK ((user_id = (SELECT auth.uid())));
 
 
 --
 -- Name: bulk_ad_items Users read own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users read own bulk_ad_items" ON public.bulk_ad_items FOR SELECT USING ((user_id = auth.uid()));
+CREATE POLICY "Users read own bulk_ad_items" ON public.bulk_ad_items FOR SELECT USING ((user_id = (SELECT auth.uid())));
 
 
 --
 -- Name: bulk_ad_items Users update own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users update own bulk_ad_items" ON public.bulk_ad_items FOR UPDATE USING ((user_id = auth.uid()));
+CREATE POLICY "Users update own bulk_ad_items" ON public.bulk_ad_items FOR UPDATE USING ((user_id = (SELECT auth.uid())));
 
 
 --
@@ -6512,7 +6512,7 @@ ALTER TABLE public.meta_api_usage ENABLE ROW LEVEL SECURITY;
 -- Name: meta_api_usage meta_usage_read_own; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY meta_usage_read_own ON public.meta_api_usage FOR SELECT TO authenticated USING ((user_id = auth.uid()));
+CREATE POLICY meta_usage_read_own ON public.meta_api_usage FOR SELECT TO authenticated USING ((user_id = (SELECT auth.uid())));
 
 
 --
@@ -6538,7 +6538,7 @@ ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 -- Name: subscriptions subscriptions_select_own; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY subscriptions_select_own ON public.subscriptions FOR SELECT USING ((user_id = auth.uid()));
+CREATE POLICY subscriptions_select_own ON public.subscriptions FOR SELECT USING ((user_id = (SELECT auth.uid())));
 
 
 --
