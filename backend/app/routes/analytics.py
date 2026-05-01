@@ -228,6 +228,13 @@ class UpdatePackNameRequest(BaseModel):
     name: str = Field(..., description="Novo nome do pack", min_length=1)
 
 
+class ConversionTypesRequest(BaseModel):
+    date_start: str
+    date_stop: str
+    pack_ids: List[str] = Field(default_factory=list, description="Lista de pack IDs para escopar a busca.")
+    filters: Optional[RankingsFilters] = None
+
+
 def _to_date(s: str) -> datetime:
     return datetime(int(s[0:4]), int(s[5:7]), int(s[8:10]))
 
@@ -1140,16 +1147,29 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         }
 
     started_at = time.perf_counter()
+    req_limit = int(req.limit or 0)
+    req_include_act = bool(req.include_available_conversion_types)
+    req_include_lead = bool(req.include_leadscore)
+    req_include_series = bool(req.include_series)
+    is_probe = (
+        req_limit == 1
+        and req_include_act
+        and not req_include_lead
+        and not req_include_series
+    )
     logger.info(
-        "[rankings] request_start group_by=%s range=%s..%s packs=%s include_series=%s include_leadscore=%s limit=%s offset=%s",
+        "[rankings] request_start group_by=%s range=%s..%s packs=%s include_series=%s include_leadscore=%s include_act=%s limit=%s offset=%s action_type=%s is_probe=%s",
         req.group_by,
         req.date_start,
         req.date_stop,
         len(req.pack_ids or []),
-        bool(req.include_series),
-        bool(req.include_leadscore),
-        int(req.limit or 0),
+        req_include_series,
+        req_include_lead,
+        req_include_act,
+        req_limit,
         int(req.offset or 0),
+        req.action_type or "",
+        is_probe,
     )
     try:
         max_rpc_attempts = 2 if req.group_by == "ad_id" else 1
@@ -1162,12 +1182,14 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     except Exception as e:
         elapsed_ms = (time.perf_counter() - started_at) * 1000.0
         logger.exception(
-            "[rankings] rpc_failed elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s error=%s",
+            "[rankings] rpc_failed elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s limit=%s is_probe=%s error=%s",
             elapsed_ms,
             req.group_by,
             req.date_start,
             req.date_stop,
             len(req.pack_ids or []),
+            req_limit,
+            is_probe,
             e,
         )
         raise HTTPException(status_code=500, detail="Erro ao consultar analytics agregados.")
@@ -1183,19 +1205,75 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         user_id=str(user["user_id"]),
         rows=primary.get("data") or [],
     )
+    act_count = len(primary.get("available_conversion_types") or []) if isinstance(primary.get("available_conversion_types"), list) else 0
     logger.info(
-        "[rankings] rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s hydrated=%s transcription_flagged=%s",
+        "[rankings] rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s act_count=%s is_probe=%s hydrated=%s transcription_flagged=%s",
         elapsed_ms,
         req.group_by,
         req.date_start,
         req.date_stop,
         len(req.pack_ids or []),
         len(primary.get("data") or []),
+        act_count,
+        is_probe,
         hydration_stats,
         transcription_flagged,
     )
 
     return primary
+
+
+@router.post("/conversion-types")
+def get_conversion_types(req: ConversionTypesRequest, user=Depends(get_current_user)):
+    """Lookup leve para available_conversion_types.
+
+    Substitui o probe (limit=1) sobre /analytics/rankings, que pagava o custo
+    completo da agregação no fetch_manager_rankings_core_v2 só pra extrair
+    o array de conversion types. A nova RPC fetch_available_conversion_types_v1
+    espelha exatamente os mesmos filtros e dedup do v060 (ver migration 079).
+    """
+    if not req.pack_ids:
+        return {"available_conversion_types": []}
+    sb = _get_analytics_supabase(user["token"])
+    f = req.filters or RankingsFilters()
+    started_at = time.perf_counter()
+    try:
+        rpc_result = sb.rpc(
+            "fetch_available_conversion_types_v1",
+            {
+                "p_user_id": user["user_id"],
+                "p_date_start": req.date_start,
+                "p_date_stop": req.date_stop,
+                "p_pack_ids": req.pack_ids,
+                "p_account_ids": f.adaccount_ids,
+                "p_campaign_name_contains": f.campaign_name_contains,
+                "p_adset_name_contains": f.adset_name_contains,
+                "p_ad_name_contains": f.ad_name_contains,
+            },
+        ).execute()
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        raw = rpc_result.data
+        types: List[str] = [str(v) for v in raw if v is not None] if isinstance(raw, list) else []
+        logger.info(
+            "[conversion_types] success elapsed_ms=%.2f packs=%s range=%s..%s count=%s",
+            elapsed_ms,
+            len(req.pack_ids),
+            req.date_start,
+            req.date_stop,
+            len(types),
+        )
+        return {"available_conversion_types": types}
+    except Exception as e:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        logger.exception(
+            "[conversion_types] failed elapsed_ms=%.2f packs=%s range=%s..%s error=%s",
+            elapsed_ms,
+            len(req.pack_ids),
+            req.date_start,
+            req.date_stop,
+            e,
+        )
+        raise HTTPException(status_code=500, detail="Erro ao consultar conversion types.")
 
 
 @router.post("/rankings/series")

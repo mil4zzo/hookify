@@ -11,6 +11,7 @@ import {
   AuthTokenResponse,
   AuthUrlResponse,
   RankingsRequest,
+  RankingsFilters,
   RankingsResponse,
   RankingsSeriesRequest,
   RankingsSeriesResponse,
@@ -223,6 +224,10 @@ export const api = {
       apiClient.post('/analytics/ad-performance', params),
     getRankingsSeries: (params: RankingsSeriesRequest): Promise<RankingsSeriesResponse> =>
       apiClient.post('/analytics/rankings/series', params),
+    getConversionTypes: (
+      params: { date_start: string; date_stop: string; pack_ids: string[]; filters?: RankingsFilters }
+    ): Promise<{ available_conversion_types: string[] }> =>
+      apiClient.post('/analytics/conversion-types', params),
     getRankingsRetention: (params: RankingsRetentionRequest): Promise<RankingsRetentionResponse> =>
       apiClient.post('/analytics/rankings/retention', params),
     getRankingsChildren: (

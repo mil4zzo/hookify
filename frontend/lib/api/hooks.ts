@@ -84,6 +84,16 @@ export const queryKeys = {
     ['analytics', 'rankings-series', params.date_start, params.date_stop, params.group_by, params.action_type, params.pack_ids, params.window, groupKeysHash] as const,
   adPerformanceRetention: (params: RankingsRetentionRequest) =>
     ['analytics', 'rankings-retention', params.date_start, params.date_stop, params.group_by, params.group_key, params.pack_ids] as const,
+  // Lookup leve para available_conversion_types — persistido em localStorage
+  // (ver ReactQueryProvider.tsx). userId no key garante isolamento entre usuários
+  // que compartilhem o mesmo browser.
+  conversionTypes: (
+    userId: string,
+    dateStart: string,
+    dateStop: string,
+    packIdsKey: string,
+    filtersKey: string = '',
+  ) => ['analytics', 'conversion-types', userId, dateStart, dateStop, packIdsKey, filtersKey] as const,
 }
 
 const hashStringArray = (values: string[]): string => {
@@ -496,6 +506,37 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 60 * 1000,
     retry: 2,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+  })
+}
+
+/**
+ * Lookup leve para `available_conversion_types`. Substitui o probe (`limit=1`)
+ * que era feito em `useAdPerformance`. Persiste em localStorage por 7 dias
+ * (ver ReactQueryProvider.tsx) — em sessões repetidas o dropdown popula
+ * instantaneamente sem rede.
+ */
+export const useConversionTypes = (
+  params: { date_start: string; date_stop: string; pack_ids: string[]; filters?: any },
+  enabled: boolean = true,
+) => {
+  const { user } = useSupabaseAuth()
+  const userId = String(user?.id || '')
+  const packIdsKey = [...(params.pack_ids || [])].sort().join('|')
+  const filtersKey = params.filters ? JSON.stringify(params.filters) : ''
+  return useQuery<{ available_conversion_types: string[] }>({
+    queryKey: queryKeys.conversionTypes(userId, params.date_start, params.date_stop, packIdsKey, filtersKey),
+    queryFn: () => api.analytics.getConversionTypes({
+      date_start: params.date_start,
+      date_stop: params.date_stop,
+      pack_ids: params.pack_ids,
+      filters: params.filters,
+    }),
+    enabled: enabled && !!userId && !!params.date_start && !!params.date_stop && (params.pack_ids?.length ?? 0) > 0,
+    staleTime: 24 * 60 * 60 * 1000, // 24h — conversion types raramente mudam
+    gcTime: 7 * 24 * 60 * 60 * 1000, // 7d — alinhado com maxAge do persister
+    retry: 1,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })

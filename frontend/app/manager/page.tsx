@@ -6,7 +6,7 @@ import { StateSkeleton } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
-import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
+import { useAdPerformance, useAdPerformanceSeries, useConversionTypes } from "@/lib/api/hooks";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
@@ -252,25 +252,16 @@ function ManagerPageContent() {
   const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
   const { data: managerDataCampaign, isLoading: loadingCampaign } = useAdPerformance(managerRequestCampaign, shouldFetchCampaign);
 
-  // Light request for available_conversion_types
-  const managerConversionTypesRequest: RankingsRequest = useMemo(
+  // Lookup leve persistido em localStorage — substitui o probe (limit=1) que pagava o RPC pesado
+  const conversionTypesParams = useMemo(
     () => ({
       date_start: dateRange.start || "",
       date_stop: dateRange.end || "",
-      group_by: "ad_name",
-      action_type: actionType || undefined,
-      limit: 1,
-      offset: 0,
-      filters: {},
       pack_ids: Array.from(selectedPackIds),
-      include_series: false,
-      include_leadscore: false,
-      series_window: SERIES_WINDOW,
-      include_available_conversion_types: true,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds, actionType],
+    [dateRange.start, dateRange.end, selectedPackIds],
   );
-  const { data: convTypesData } = useAdPerformance(managerConversionTypesRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
+  const { data: convTypesData } = useConversionTypes(conversionTypesParams, isAuthorized);
 
   // ── Derived from API data ──────────────────────────────────────────────────
   const serverData = managerData?.data || null;
