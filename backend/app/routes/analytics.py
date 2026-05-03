@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, HTTPException, Body, Depends, Query
 from pydantic import BaseModel, Field
 
-from app.core.supabase_client import get_supabase_for_user
+from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
@@ -1234,7 +1234,7 @@ def get_conversion_types(req: ConversionTypesRequest, user=Depends(get_current_u
     """
     if not req.pack_ids:
         return {"available_conversion_types": []}
-    sb = _get_analytics_supabase(user["token"])
+    sb = get_supabase_service()
     f = req.filters or RankingsFilters()
     started_at = time.perf_counter()
     try:
