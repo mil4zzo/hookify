@@ -785,6 +785,7 @@ export const CampaignAdsetConfigSchema = z.object({
   attribution_spec: z.array(z.any()).nullable().optional(),
   destination_type: z.string().nullable().optional(),
   pacing_type: z.array(z.string()).nullable().optional(),
+  has_ads_transparency: z.boolean().default(false),
 })
 
 export const CampaignTemplateResponseSchema = z.object({
@@ -798,6 +799,8 @@ export const CampaignTemplateResponseSchema = z.object({
   adsets: z.array(CampaignAdsetConfigSchema),
   ad_id: z.string(),
   ad_name: z.string(),
+  account_id: z.string().nullable().optional(),
+  account_requires_ads_transparency: z.boolean().default(false),
 })
 
 export const CampaignBulkItemConfigSchema = z.object({
@@ -873,6 +876,20 @@ export interface AdTranscriptionResponse {
   metadata: any | null
   created_at?: string
   updated_at?: string
+}
+
+export interface TranscriptionAdInfo {
+  ad_name: string
+  thumbnail_url?: string | null
+}
+
+export interface PackTranscriptionStatus {
+  transcribed: number
+  untranscribed: number
+  no_voice: number
+  processing: number
+  untranscribed_ads: TranscriptionAdInfo[]
+  processing_ads: TranscriptionAdInfo[]
 }
 
 // ========== Meta API Usage ==========

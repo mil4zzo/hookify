@@ -202,6 +202,10 @@ class CampaignAdsetConfig(BaseModel):
     attribution_spec: Optional[List] = None
     destination_type: Optional[str] = None
     pacing_type: Optional[List] = None
+    # True quando o adset tem regional_regulated_categories preenchido (i.e. cumpre
+    # o requisito de "Transparência dos anúncios"). Usado pelo frontend para
+    # bloquear seleção quando a conta exige compliance.
+    has_ads_transparency: bool = False
 
 
 class CampaignTemplateResponse(BaseModel):
@@ -215,6 +219,8 @@ class CampaignTemplateResponse(BaseModel):
     adsets: List[CampaignAdsetConfig]
     ad_id: str
     ad_name: str
+    account_id: Optional[str] = None
+    account_requires_ads_transparency: bool = False
 
 
 class BulkAdRetryRequest(BaseModel):

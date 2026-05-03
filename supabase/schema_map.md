@@ -26,6 +26,7 @@ Contas de anúncios do Meta vinculadas a um usuário.
 | created_at | timestamp | DEFAULT |
 | updated_at | timestamp | DEFAULT |
 | connection_id | uuid |  |
+| requires_ads_transparency | boolean | NOT NULL DEFAULT false |
 
 ---
 
@@ -352,4 +353,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-04-29 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-05-01 — via `supabase/generate_schema_map.py`*

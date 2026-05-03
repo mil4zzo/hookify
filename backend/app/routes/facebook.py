@@ -1433,8 +1433,29 @@ def get_campaign_template(
     parent_data = parent_result.get("data") or {}
     campaign_id = str(parent_data.get("campaign_id") or "")
     ad_name = str(parent_data.get("name") or "")
+    account_id_raw = str(parent_data.get("account_id") or "")
     if not campaign_id:
         raise HTTPException(status_code=404, detail={"error": "campaign_not_found", "message": "Campanha nao encontrada para este anuncio"})
+
+    # Verifica se a conta de anúncios já bateu no requisito de "Transparência dos anúncios"
+    # (subcode 3858495). A flag é setada pelo backend quando o erro ocorre.
+    account_requires_transparency = False
+    if account_id_raw:
+        try:
+            sb = get_supabase_for_user(user["token"])
+            res = (
+                sb.table("ad_accounts")
+                .select("requires_ads_transparency")
+                .eq("id", account_id_raw)
+                .eq("user_id", user["user_id"])
+                .limit(1)
+                .execute()
+            )
+            rows = res.data or []
+            if rows:
+                account_requires_transparency = bool(rows[0].get("requires_ads_transparency") or False)
+        except Exception as exc:
+            logger.warning("[campaign-template] failed to fetch requires_ads_transparency: %s", exc)
 
     # Buscar config da campanha
     campaign_result = api.get_campaign_config(campaign_id)
@@ -1465,6 +1486,7 @@ def get_campaign_template(
             attribution_spec=a.get("attribution_spec"),
             destination_type=a.get("destination_type"),
             pacing_type=a.get("pacing_type"),
+            has_ads_transparency=bool(a.get("regional_regulated_categories")),
         )
         for a in adsets_raw
         if a.get("id")
@@ -1481,6 +1503,8 @@ def get_campaign_template(
         adsets=adsets,
         ad_id=ad_id,
         ad_name=ad_name,
+        account_id=account_id_raw or None,
+        account_requires_ads_transparency=account_requires_transparency,
     )
 
 

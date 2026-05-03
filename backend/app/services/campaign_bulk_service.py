@@ -521,27 +521,6 @@ class CampaignBulkProcessor:
             n_adsets,
             uses_cbo_budget,
         )
-        # Fetch account-level DSA compliance defaults (beneficiario/pagador).
-        # Meta started requiring these on adset creation for regulated-country targeting
-        # (BR, TW, SG, EU, AU, IN, TH) — subcode 3858495. Running adsets may lack them
-        # because they were created before enforcement. We inject the account defaults so
-        # new adsets are always compliant regardless of the source adset's state.
-        account_compliance: Dict[str, Any] = {}
-        try:
-            compliance_result = self.api.get_ad_account_compliance_defaults(act_id)
-            if compliance_result.get("status") == "success":
-                d = compliance_result.get("data") or {}
-                if d.get("default_dsa_beneficiary"):
-                    account_compliance["dsa_beneficiary"] = d["default_dsa_beneficiary"]
-                if d.get("default_dsa_payor"):
-                    account_compliance["dsa_payor"] = d["default_dsa_payor"]
-            logger.info(
-                "[CAMPAIGN_BULK] account_compliance job_id=%s act_id=%s fields=%s",
-                self.context.job_id, act_id, list(account_compliance.keys()),
-            )
-        except Exception as exc:
-            logger.warning("[CAMPAIGN_BULK] compliance_defaults_fetch_failed act_id=%s err=%s", act_id, exc)
-
         # Com orçamento no nivel da campanha (CBO), a Meta nao aceita orcamento nos ad sets.
         adset_ord = 0
         for adset_cfg in adset_configs:
@@ -568,16 +547,38 @@ class CampaignBulkProcessor:
             adset_params.update(adset_budget_params_from_template(adset_cfg, uses_cbo_budget))
             # Doc Meta (AdSet end_time): 0 = conjunto contínuo, sem data de término — não herdar do modelo.
             adset_params["end_time"] = 0
-            # Inject account-level DSA defaults so Meta accepts adsets on regulated-country
-            # targeting even when the source adset was created before enforcement started.
-            # account_compliance is {} when the account has no defaults configured.
-            if account_compliance:
-                adset_params.update(account_compliance)
 
             t_adset = time.monotonic()
             tpl_adset_id = str(adset_cfg.get("id") or "")
-            adset_result = self.api.create_adset(act_id, adset_params)
-            adset_response = self._extract_data_or_raise(adset_result)
+            try:
+                adset_result = self.api.create_adset(act_id, adset_params)
+                adset_response = self._extract_data_or_raise(adset_result)
+            except MetaAPIError as exc:
+                # subcode 3858495 = a conta exige "Transparência dos anúncios" (beneficiário/pagador)
+                # mas o adset-modelo foi criado antes da exigência, então não tem esses campos.
+                # O Meta aplica essa regra com critérios próprios — não é puramente por país.
+                if str(exc.subcode) == "3858495":
+                    # Marca a conta como exigindo transparência para que o frontend
+                    # possa avisar antes de submeter na próxima vez.
+                    try:
+                        self.sb.table("ad_accounts").update(
+                            {"requires_ads_transparency": True}
+                        ).eq("id", self.context.account_id).eq(
+                            "user_id", self.context.user_id
+                        ).execute()
+                    except Exception as flag_exc:
+                        logger.warning(
+                            "[CAMPAIGN_BULK] failed to flag requires_ads_transparency act_id=%s err=%s",
+                            self.context.account_id, flag_exc,
+                        )
+                    raise MetaAPIError(
+                        f"O conjunto '{adset_name}' não tem 'Transparência dos anúncios' "
+                        f"(beneficiário e pagador) configurada, e essa conta de anúncios exige "
+                        f"essa informação. Selecione como modelo um anúncio cujos conjuntos já "
+                        f"tenham essas informações preenchidas no Gerenciador de Anúncios.",
+                        "adset_missing_compliance",
+                    ) from exc
+                raise
             new_adset_id = adset_response.get("id")
             if not new_adset_id:
                 raise MetaAPIError("Meta nao retornou adset_id", "adset_missing_id")

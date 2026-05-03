@@ -265,6 +265,7 @@ function CampaignProgressView({
   creative,
   onCancel,
   onRetry,
+  onSelectNewTemplate,
   processStartedAtMs,
   processEndedAtMs,
 }: {
@@ -273,6 +274,7 @@ function CampaignProgressView({
   creative?: import("@/lib/api/schemas").AdCreativeDetailResponse | null
   onCancel: () => void
   onRetry?: (itemIds: string[]) => void
+  onSelectNewTemplate?: () => void
   processStartedAtMs: number | null
   processEndedAtMs: number | null
 }) {
@@ -369,19 +371,30 @@ function CampaignProgressView({
               Cancelar job
             </Button>
           )}
-          {isCompleted && summary.error > 0 && onRetry && (
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => {
-                const failedIds = items.filter((i) => i.status === "error").map((i) => i.id)
-                onRetry(failedIds)
-              }}
-              className="gap-1.5"
-            >
-              Tentar novamente ({summary.error} falha{summary.error !== 1 ? "s" : ""})
-            </Button>
-          )}
+          {isCompleted && summary.error > 0 && (() => {
+            const failedItems = items.filter((i) => i.status === "error")
+            const allComplianceErrors = failedItems.length > 0 && failedItems.every((i) => i.error_code === "adset_missing_compliance")
+            if (allComplianceErrors && onSelectNewTemplate) {
+              return (
+                <Button type="button" size="sm" onClick={onSelectNewTemplate} className="gap-1.5">
+                  Selecionar outro modelo
+                </Button>
+              )
+            }
+            if (onRetry) {
+              return (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => onRetry(failedItems.map((i) => i.id))}
+                  className="gap-1.5"
+                >
+                  Tentar novamente ({summary.error} falha{summary.error !== 1 ? "s" : ""})
+                </Button>
+              )
+            }
+            return null
+          })()}
         </div>
       )}
     </div>
@@ -742,8 +755,12 @@ export default function UploadPage() {
         setCampaignNameTemplate(`Cópia de ${template.campaign_name} [{ad_name}]`)
         setAdsetNameTemplate("Cópia de {ad_name} - [{index}]")
         setCampaignBudget(template.campaign_daily_budget ?? null)
-        // Pre-select all template adsets
-        setCampaignSelectedAdsetIds(template.adsets.map((a) => a.id))
+        // Pre-select all template adsets, exceto se a conta exige Transparência
+        // dos anúncios — nesse caso só pré-seleciona os conjuntos compliantes.
+        const eligibleAdsets = template.account_requires_ads_transparency
+          ? template.adsets.filter((a) => a.has_ads_transparency)
+          : template.adsets
+        setCampaignSelectedAdsetIds(eligibleAdsets.map((a) => a.id))
         const preview = await api.bulkAds.getAdCreative(adId)
         setCreative(preview)
       } else {
@@ -858,6 +875,15 @@ export default function UploadPage() {
     await retryCampaignFailed(jobId, itemIds)
   }, [retryCampaignFailed])
 
+  const handleSelectNewTemplate = useCallback(() => {
+    resetCampaignBulk()
+    setCampaignProcessStartedAtMs(null)
+    setCampaignProcessEndedAtMs(null)
+    setSelectedTemplateAdId(null)
+    setCampaignTemplate(null)
+    setCurrentStep(1)
+  }, [resetCampaignBulk])
+
   // ── navigation ────────────────────────────────────────────────────────────────
   const steps = uploadMode === "campaign" ? stepsCampaign : stepsAds
 
@@ -869,9 +895,18 @@ export default function UploadPage() {
     ? campaignSelectedAdsetIds.length > 0
     : selectedAdsetIds.length > 0
 
+  // Em modo "campaign", se a conta exige Transparência dos anúncios e o template
+  // escolhido não tem nenhum conjunto compliante, bloqueia o avanço.
+  const campaignTemplateBlockedByTransparency =
+    uploadMode === "campaign"
+    && !!campaignTemplate
+    && campaignTemplate.account_requires_ads_transparency
+    && !campaignTemplate.adsets.some((a) => a.has_ads_transparency)
+
   const step1Ready = uploadMode === "ads"
     ? !!selectedTemplateAdId && !!creative && !!creative.supports_bulk_clone
     : !!selectedTemplateAdId && !!campaignTemplate && !!creative && !!creative.supports_bulk_clone
+      && !campaignTemplateBlockedByTransparency
 
   const isAnyCreating = isCreating || isCampaignCreating || isCampaignStarting
   const campaignProcessElapsedLabel = useElapsedLabel(campaignProcessStartedAtMs, campaignProcessEndedAtMs)
@@ -971,7 +1006,6 @@ export default function UploadPage() {
         value={uploadMode}
         onValueChange={switchMode as (v: string) => void}
         tabs={uploadTabs}
-        separatorAfterTabs={true}
         fullHeight={false}
       >
       {/* ── Content area (shared between tabs) ── */}
@@ -1004,17 +1038,48 @@ export default function UploadPage() {
               ) : campaignTemplate ? (
                 <div className="space-y-3">
                   <CreativePreview creative={creative} adId={selectedTemplateAdId} />
+                  {campaignTemplate.account_requires_ads_transparency && (
+                    <div
+                      className={`rounded-md border p-3 text-xs space-y-1 ${
+                        campaignTemplateBlockedByTransparency
+                          ? "border-destructive/40 bg-destructive/5 text-destructive"
+                          : "border-warning/40 bg-warning/5 text-warning-foreground"
+                      }`}
+                    >
+                      <div className="font-semibold">
+                        {campaignTemplateBlockedByTransparency
+                          ? "Esta conta exige Transparência dos anúncios"
+                          : "Atenção: alguns conjuntos não têm Transparência"}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {campaignTemplateBlockedByTransparency
+                          ? "Nenhum conjunto deste anúncio tem beneficiário/pagador configurado. Selecione um modelo cujos conjuntos já estejam de acordo com a política da conta."
+                          : "Apenas os conjuntos com Transparência preenchida serão duplicados. Os demais foram desmarcados automaticamente."}
+                      </div>
+                    </div>
+                  )}
                   {/* Campaign structure */}
                   <div className="rounded-md border border-border bg-background p-4 space-y-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estrutura da campanha</div>
                     <div className="text-sm font-medium truncate">{campaignTemplate.campaign_name}</div>
                     <div className="space-y-1">
-                      {campaignTemplate.adsets.map((adset) => (
-                        <div key={adset.id} className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <div className="h-1 w-1 rounded-full bg-muted-foreground-40 shrink-0" />
-                          <span className="truncate">{adset.name}</span>
-                        </div>
-                      ))}
+                      {campaignTemplate.adsets.map((adset) => {
+                        const isBlocked =
+                          campaignTemplate.account_requires_ads_transparency
+                          && !adset.has_ads_transparency
+                        return (
+                          <div
+                            key={adset.id}
+                            className={`flex items-center gap-2 text-xs ${
+                              isBlocked ? "text-destructive line-through" : "text-muted-foreground"
+                            }`}
+                            title={isBlocked ? "Conjunto sem Transparência dos anúncios — não será duplicado" : undefined}
+                          >
+                            <div className="h-1 w-1 rounded-full bg-muted-foreground-40 shrink-0" />
+                            <span className="truncate">{adset.name}</span>
+                          </div>
+                        )
+                      })}
                     </div>
                     <div className="text-[10px] text-muted-foreground border-t border-border pt-2">
                       {campaignTemplate.adsets.length} conjunto(s) · {campaignTemplate.campaign_objective ?? "objetivo desconhecido"}
@@ -1135,6 +1200,7 @@ export default function UploadPage() {
                     creative={creative}
                     onCancel={() => void cancelCampaignBulk()}
                     onRetry={(itemIds) => void handleRetryCampaign(campaignProgress.job_id, itemIds)}
+                    onSelectNewTemplate={handleSelectNewTemplate}
                     processStartedAtMs={campaignProcessStartedAtMs}
                     processEndedAtMs={campaignProcessEndedAtMs}
                   />

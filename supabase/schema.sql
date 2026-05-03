@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 8sGWEXHQpg1DQpanF9Dwl4gc6jm1rRXDu9pRUPC3piNtF8ZJV2ezbMBj5wg5e5x
+\restrict br37viGpd8VYVxXDBKA1vDwNR0GyuPE607segVaQh6X2RDlSN5kZtCO2UpKHmg3
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -835,6 +835,94 @@ $$;
 
 
 ALTER FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) OWNER TO postgres;
+
+--
+-- Name: fetch_available_conversion_types_v1(uuid, date, date, uuid[], text[], text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text) RETURNS jsonb
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  WITH base_candidates AS (
+    SELECT am.user_id, am.ad_id, am.date, am.updated_at, am.created_at, am.id,
+           am.conversions, am.actions
+    FROM public.ad_metrics am
+    WHERE am.user_id = p_user_id
+      AND am.date >= p_date_start
+      AND am.date <= p_date_stop
+      AND (
+        p_pack_ids IS NULL
+        OR EXISTS (
+          SELECT 1
+          FROM public.ad_metric_pack_map apm
+          WHERE apm.user_id = am.user_id
+            AND apm.ad_id = am.ad_id
+            AND apm.metric_date = am.date
+            AND apm.pack_id = ANY(p_pack_ids)
+        )
+      )
+      AND (p_account_ids IS NULL OR am.account_id = ANY(p_account_ids))
+      AND (
+        p_campaign_name_contains IS NULL
+        OR p_campaign_name_contains = ''
+        OR coalesce(am.campaign_name, '') ILIKE '%' || p_campaign_name_contains || '%'
+      )
+      AND (
+        p_adset_name_contains IS NULL
+        OR p_adset_name_contains = ''
+        OR coalesce(am.adset_name, '') ILIKE '%' || p_adset_name_contains || '%'
+      )
+      AND (
+        p_ad_name_contains IS NULL
+        OR p_ad_name_contains = ''
+        OR coalesce(am.ad_name, '') ILIKE '%' || p_ad_name_contains || '%'
+      )
+  ),
+  base AS (
+    SELECT DISTINCT ON (am.user_id, am.ad_id, am.date)
+      am.conversions, am.actions
+    FROM base_candidates am
+    ORDER BY
+      am.user_id,
+      am.ad_id,
+      am.date,
+      am.updated_at DESC NULLS LAST,
+      am.created_at DESC NULLS LAST,
+      am.id DESC
+  ),
+  conv_entries_all AS (
+    SELECT 'conversion:' || nullif(elem ->> 'action_type', '') AS conv_key
+    FROM base b
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(b.conversions) = 'array' THEN b.conversions ELSE '[]'::jsonb END
+    ) elem
+    WHERE nullif(elem ->> 'action_type', '') IS NOT NULL
+
+    UNION ALL
+
+    SELECT 'action:' || nullif(elem ->> 'action_type', '') AS conv_key
+    FROM base b
+    CROSS JOIN LATERAL jsonb_array_elements(
+      CASE WHEN jsonb_typeof(b.actions) = 'array' THEN b.actions ELSE '[]'::jsonb END
+    ) elem
+    WHERE nullif(elem ->> 'action_type', '') IS NOT NULL
+  )
+  SELECT coalesce(jsonb_agg(t.conv_key ORDER BY t.conv_key), '[]'::jsonb)
+  FROM (
+    SELECT DISTINCT conv_key FROM conv_entries_all
+  ) t;
+$$;
+
+
+ALTER FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) OWNER TO postgres;
+
+--
+-- Name: FUNCTION fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) IS 'Lightweight lookup for available_conversion_types. Replaces the limit=1 probe on fetch_manager_rankings_core_v2. Logic mirrors v060 conv_entries_all/available_types CTEs verbatim. See migration 079.';
+
 
 --
 -- Name: fetch_manager_analytics_aggregated(uuid, date, date, text, uuid[], text[], text, text, text, boolean, boolean, integer, integer, text); Type: FUNCTION; Schema: public; Owner: postgres
@@ -5873,6 +5961,13 @@ ALTER TABLE ONLY public.user_preferences
 
 
 --
+-- Name: ad_accounts_connection_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX ad_accounts_connection_id_idx ON public.ad_accounts USING btree (connection_id);
+
+
+--
 -- Name: ad_accounts_user_connection_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5964,13 +6059,6 @@ CREATE INDEX ad_sheet_integrations_connection_id_idx ON public.ad_sheet_integrat
 
 
 --
--- Name: ad_sheet_integrations_last_successful_sync_at_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX ad_sheet_integrations_last_successful_sync_at_idx ON public.ad_sheet_integrations USING btree (last_successful_sync_at) WHERE (last_successful_sync_at IS NOT NULL);
-
-
---
 -- Name: ad_sheet_integrations_owner_global_unique; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -5996,13 +6084,6 @@ CREATE UNIQUE INDEX ad_sheet_integrations_owner_pack_unique ON public.ad_sheet_i
 --
 
 CREATE INDEX ad_sheet_integrations_pack_id_idx ON public.ad_sheet_integrations USING btree (pack_id);
-
-
---
--- Name: ad_transcriptions_ad_ids_gin_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX ad_transcriptions_ad_ids_gin_idx ON public.ad_transcriptions USING gin (ad_ids);
 
 
 --
@@ -6118,13 +6199,6 @@ CREATE INDEX bulk_ad_items_job_idx ON public.bulk_ad_items USING btree (job_id);
 
 
 --
--- Name: bulk_ad_items_user_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX bulk_ad_items_user_idx ON public.bulk_ad_items USING btree (user_id);
-
-
---
 -- Name: facebook_connections_fbuser_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -6220,13 +6294,6 @@ CREATE INDEX packs_refresh_status_date_idx ON public.packs USING btree (refresh_
 --
 
 CREATE INDEX packs_sheet_integration_id_idx ON public.packs USING btree (sheet_integration_id);
-
-
---
--- Name: packs_user_adaccount_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX packs_user_adaccount_idx ON public.packs USING btree (user_id, adaccount_id);
 
 
 --
@@ -6362,21 +6429,21 @@ ALTER TABLE ONLY public.subscriptions
 -- Name: bulk_ad_items Users insert own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users insert own bulk_ad_items" ON public.bulk_ad_items FOR INSERT WITH CHECK ((user_id = (SELECT auth.uid())));
+CREATE POLICY "Users insert own bulk_ad_items" ON public.bulk_ad_items FOR INSERT WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
 
 
 --
 -- Name: bulk_ad_items Users read own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users read own bulk_ad_items" ON public.bulk_ad_items FOR SELECT USING ((user_id = (SELECT auth.uid())));
+CREATE POLICY "Users read own bulk_ad_items" ON public.bulk_ad_items FOR SELECT USING ((user_id = ( SELECT auth.uid() AS uid)));
 
 
 --
 -- Name: bulk_ad_items Users update own bulk_ad_items; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY "Users update own bulk_ad_items" ON public.bulk_ad_items FOR UPDATE USING ((user_id = (SELECT auth.uid())));
+CREATE POLICY "Users update own bulk_ad_items" ON public.bulk_ad_items FOR UPDATE USING ((user_id = ( SELECT auth.uid() AS uid)));
 
 
 --
@@ -6512,7 +6579,7 @@ ALTER TABLE public.meta_api_usage ENABLE ROW LEVEL SECURITY;
 -- Name: meta_api_usage meta_usage_read_own; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY meta_usage_read_own ON public.meta_api_usage FOR SELECT TO authenticated USING ((user_id = (SELECT auth.uid())));
+CREATE POLICY meta_usage_read_own ON public.meta_api_usage FOR SELECT TO authenticated USING ((user_id = ( SELECT auth.uid() AS uid)));
 
 
 --
@@ -6538,7 +6605,7 @@ ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
 -- Name: subscriptions subscriptions_select_own; Type: POLICY; Schema: public; Owner: postgres
 --
 
-CREATE POLICY subscriptions_select_own ON public.subscriptions FOR SELECT USING ((user_id = (SELECT auth.uid())));
+CREATE POLICY subscriptions_select_own ON public.subscriptions FOR SELECT USING ((user_id = ( SELECT auth.uid() AS uid)));
 
 
 --
@@ -6568,7 +6635,6 @@ GRANT USAGE ON SCHEMA public TO service_role;
 -- Name: FUNCTION batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO anon;
 GRANT ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO authenticated;
 GRANT ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO service_role;
 
@@ -6577,7 +6643,6 @@ GRANT ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_
 -- Name: FUNCTION batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO anon;
 GRANT ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO authenticated;
 GRANT ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO service_role;
 
@@ -6586,7 +6651,6 @@ GRANT ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_
 -- Name: FUNCTION batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid) TO anon;
 GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid) TO authenticated;
 GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid) TO service_role;
 
@@ -6595,7 +6659,6 @@ GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, 
 -- Name: FUNCTION claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO anon;
 GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO authenticated;
 GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO service_role;
 
@@ -6604,7 +6667,6 @@ GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid,
 -- Name: FUNCTION diagnose_manager_rpc_timing(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[]); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.diagnose_manager_rpc_timing(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[]) TO anon;
 GRANT ALL ON FUNCTION public.diagnose_manager_rpc_timing(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[]) TO authenticated;
 GRANT ALL ON FUNCTION public.diagnose_manager_rpc_timing(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[]) TO service_role;
 
@@ -6613,16 +6675,22 @@ GRANT ALL ON FUNCTION public.diagnose_manager_rpc_timing(p_user_id uuid, p_date_
 -- Name: FUNCTION fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO anon;
 GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO service_role;
+
+
+--
+-- Name: FUNCTION fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) TO service_role;
 
 
 --
 -- Name: FUNCTION fetch_manager_analytics_aggregated(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO service_role;
 
@@ -6631,7 +6699,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated(p_user_id uuid, 
 -- Name: FUNCTION fetch_manager_analytics_aggregated_base_v047(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v047(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v047(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v047(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO service_role;
 
@@ -6640,7 +6707,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v047(p_user
 -- Name: FUNCTION fetch_manager_analytics_aggregated_base_v048(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO service_role;
 
@@ -6649,7 +6715,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v048(p_user
 -- Name: FUNCTION fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_include_series boolean, p_include_leadscore boolean, p_series_window integer, p_limit integer, p_order_by text) TO service_role;
 
@@ -6658,7 +6723,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_analytics_aggregated_base_v049(p_user
 -- Name: FUNCTION fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO service_role;
 
@@ -6667,7 +6731,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_da
 -- Name: FUNCTION fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) TO service_role;
 
@@ -6676,7 +6739,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_da
 -- Name: FUNCTION fetch_manager_rankings_core_v2_base_v059(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v059(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v059(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v059(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO service_role;
 
@@ -6685,7 +6747,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v059(p_user_id 
 -- Name: FUNCTION fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO service_role;
 
@@ -6694,7 +6755,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v060(p_user_id 
 -- Name: FUNCTION fetch_manager_rankings_core_v2_base_v066(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v066(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v066(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v066(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text) TO service_role;
 
@@ -6703,7 +6763,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v066(p_user_id 
 -- Name: FUNCTION fetch_manager_rankings_core_v2_base_v067(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v067(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v067(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v067(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) TO service_role;
 
@@ -6712,7 +6771,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_core_v2_base_v067(p_user_id 
 -- Name: FUNCTION fetch_manager_rankings_retention_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_group_key text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_retention_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_group_key text) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_retention_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_group_key text) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_retention_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_group_key text) TO service_role;
 
@@ -6721,7 +6779,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_retention_v2(p_user_id uuid,
 -- Name: FUNCTION fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) TO anon;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) TO service_role;
 
@@ -6730,7 +6787,6 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_
 -- Name: FUNCTION get_admin_users_list(); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.get_admin_users_list() TO anon;
 GRANT ALL ON FUNCTION public.get_admin_users_list() TO authenticated;
 GRANT ALL ON FUNCTION public.get_admin_users_list() TO service_role;
 
@@ -6739,7 +6795,6 @@ GRANT ALL ON FUNCTION public.get_admin_users_list() TO service_role;
 -- Name: FUNCTION handle_new_user_subscription(); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.handle_new_user_subscription() TO anon;
 GRANT ALL ON FUNCTION public.handle_new_user_subscription() TO authenticated;
 GRANT ALL ON FUNCTION public.handle_new_user_subscription() TO service_role;
 
@@ -6748,7 +6803,6 @@ GRANT ALL ON FUNCTION public.handle_new_user_subscription() TO service_role;
 -- Name: FUNCTION release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text) TO anon;
 GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text) TO authenticated;
 GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text) TO service_role;
 
@@ -6757,7 +6811,6 @@ GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_
 -- Name: FUNCTION renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO anon;
 GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO authenticated;
 GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO service_role;
 
@@ -6766,7 +6819,6 @@ GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id
 -- Name: FUNCTION set_subscriptions_updated_at(); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.set_subscriptions_updated_at() TO anon;
 GRANT ALL ON FUNCTION public.set_subscriptions_updated_at() TO authenticated;
 GRANT ALL ON FUNCTION public.set_subscriptions_updated_at() TO service_role;
 
@@ -6970,5 +7022,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 8sGWEXHQpg1DQpanF9Dwl4gc6jm1rRXDu9pRUPC3piNtF8ZJV2ezbMBj5wg5e5x
+\unrestrict br37viGpd8VYVxXDBKA1vDwNR0GyuPE607segVaQh6X2RDlSN5kZtCO2UpKHmg3
 

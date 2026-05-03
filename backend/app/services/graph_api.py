@@ -625,16 +625,6 @@ class GraphAPI:
             timeout=30,
         )
 
-    def get_ad_account_compliance_defaults(self, act_id: str) -> Dict[str, Any]:
-        """Retorna os defaults de compliance DSA configurados na conta (beneficiario/pagador)."""
-        return self._handle_graph_request(
-            method="GET",
-            path=act_id,
-            operation_name="GraphAPI.get_ad_account_compliance_defaults",
-            params={"fields": "default_dsa_beneficiary,default_dsa_payor"},
-            timeout=30,
-        )
-
     def get_campaign_config(self, campaign_id: str) -> Dict[str, Any]:
         """Retorna configuracoes da campanha para duplicacao."""
         # Apenas campos do no Campaign (ex.: start_time/end_time/pacing_type sao do AdSet).
