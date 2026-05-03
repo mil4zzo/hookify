@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.4
 FROM node:20-alpine AS builder
 
 WORKDIR /app
@@ -24,12 +25,12 @@ ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN
 ENV SENTRY_ORG=$SENTRY_ORG
 ENV SENTRY_PROJECT=$SENTRY_PROJECT
 
-# Copiar apenas arquivos de dependências primeiro (para cache de layers)
+# Copiar apenas arquivos de dependências primeiro (cache de layers)
 COPY package*.json ./
 
-# Instalar dependências com limpeza automática de cache
-RUN npm ci --prefer-offline --no-audit && \
-    npm cache clean --force
+# npm install com cache mount do BuildKit (sobrevive entre builds)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --prefer-offline --no-audit
 
 # Copiar arquivos de configuração
 COPY tsconfig.json ./
@@ -42,7 +43,6 @@ COPY components.json ./
 COPY app/ ./app/
 COPY components/ ./components/
 COPY lib/ ./lib/
-# Garantir que public existe e copiar
 RUN mkdir -p ./public
 COPY public/ ./public/
 COPY middleware.ts ./
@@ -52,17 +52,14 @@ COPY instrumentation-client.ts ./
 COPY sentry.server.config.ts ./
 COPY sentry.edge.config.ts ./
 
-# Build da aplicação
-RUN npm run build
+# Build com cache mount do .next/cache (incremental compile)
+RUN --mount=type=cache,target=/app/.next/cache \
+    npm run build
 
-# Limpar node_modules de desenvolvimento após o build e reinstalar apenas produção
-# IMPORTANTE: Manter TypeScript para next.config.ts funcionar em runtime
-RUN rm -rf node_modules && \
-    npm ci --only=production --prefer-offline --no-audit && \
-    npm install --save-exact --save-dev typescript && \
-    npm cache clean --force
-
-# Imagem de produção
+# ─────────────────────────────────────────────────────────────────────
+# Imagem de produção: usa output 'standalone' do Next.js
+# Apenas os arquivos estritamente necessários para rodar o server.
+# ─────────────────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
 WORKDIR /app
@@ -73,12 +70,10 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copiar arquivos necessários
-COPY --from=builder /app/package*.json ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+# Standalone output: server.js + node_modules mínimos
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/next.config.ts ./
 
 USER nextjs
 
@@ -87,5 +82,4 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-CMD ["npm", "start"]
-
+CMD ["node", "server.js"]

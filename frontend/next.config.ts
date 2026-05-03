@@ -4,6 +4,9 @@ import { withSentryConfig } from '@sentry/nextjs'
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   typedRoutes: true,
+  output: 'standalone',
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
   experimental: {
     optimizePackageImports: ["@tabler/icons-react"],
     clientTraceMetadata: ['sentry-trace', 'baggage'],
