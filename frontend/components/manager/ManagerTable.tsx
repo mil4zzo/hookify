@@ -930,7 +930,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         variant="with-controls"
         tabs={MANAGER_TABS}
         controls={controls}
-        separatorAfterTabs={true}
         tabsContainerClassName="flex-col items-stretch gap-3 md:flex-row md:items-center md:gap-4"
         tabsListClassName="w-full overflow-x-auto md:w-fit"
       >

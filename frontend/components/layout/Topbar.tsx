@@ -6,7 +6,7 @@ import Image from "next/image";
 import { useRouter, usePathname } from "next/navigation";
 import { TopbarFilters } from "@/components/layout/TopbarFilters";
 import { Button } from "@/components/ui/button";
-import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
+import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useAuthManager } from "@/lib/hooks/useAuthManager";
 import { useFacebookAccountConnection } from "@/lib/hooks/useFacebookAccountConnection";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
@@ -47,6 +47,7 @@ import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/com
 import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
 import { cn } from "@/lib/utils/cn";
 import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
+import { APP_PAGE_SHELL_X } from "@/lib/constants/pageLayout";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
@@ -58,14 +59,15 @@ export default function Topbar() {
   const { currency: userCurrency, isLoading: isLoadingCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
   const { language: userLanguage, isLoading: isLoadingLanguage, isSaving: isSavingLanguage, saveLanguage } = useLanguage();
   const { niche: userNiche, isLoading: isLoadingNiche, isSaving: isSavingNiche, updateNiche, saveNiche } = useNiche();
-  const { isAuthenticated, user, isClient } = useClientAuth();
   const { packs } = useClientPacks();
   const { handleLogout } = useAuthManager();
   const { settings, setLanguage, setNiche, updateSettings } = useSettings();
   const { connections, connect, disconnect, refreshPicture, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
   const syncAdAccounts = useSyncAdAccounts();
-  const { user: supabaseUser } = useSupabaseAuth();
+  const { user: supabaseUser, isLoading: isAuthLoading } = useSupabaseAuth();
+  const user = supabaseUser;
+  const isAuthenticated = !!supabaseUser;
   const queryClient = useQueryClient();
   const router = useRouter();
   const pathname = usePathname();
@@ -78,6 +80,9 @@ export default function Topbar() {
   const [isConfirmingUpdate, setIsConfirmingUpdate] = useState(false);
   const [profilePopupAvatarError, setProfilePopupAvatarError] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [cachedAvatarUrl, setCachedAvatarUrl] = useState<string | null>(() =>
+    typeof window !== "undefined" ? localStorage.getItem("hookify_avatar_url") : null
+  );
   const { refreshPack, isRefreshing, refreshingPackIds } = usePackRefresh();
 
   // Hook para retomar jobs pausados quando o Google for reconectado
@@ -102,6 +107,50 @@ export default function Topbar() {
       }
     }
   }, []);
+
+  // Foto de perfil do Facebook (conexão primária ou primeira ativa)
+  const facebookAvatarUrl = useMemo(() => {
+    if (!activeConnections || activeConnections.length === 0) return null;
+    const primary = activeConnections.find((c: any) => c.is_primary);
+    const conn = primary || activeConnections[0];
+    return getFacebookAvatarUrl(conn);
+  }, [activeConnections]);
+
+  // URL única do avatar: Facebook prioridade, depois Supabase OAuth
+  const displayAvatarUrl = facebookAvatarUrl || user?.user_metadata?.avatar_url || null;
+  // Falls back to cached Facebook avatar while connections query is in-flight
+  const effectiveAvatarUrl = facebookAvatarUrl || cachedAvatarUrl || user?.user_metadata?.avatar_url || null;
+
+  // Cache only the Facebook avatar URL (slow to load — requires connections query)
+  const AVATAR_CACHE_KEY = "hookify_avatar_url";
+  // Preload the cached image so it's decoded by the time the <img> element actually mounts.
+  // Without this, the <img> mounts → browser fetches/decodes → brief transparent moment where initials show through.
+  useEffect(() => {
+    if (cachedAvatarUrl && typeof window !== "undefined") {
+      const preloader = new Image();
+      preloader.src = cachedAvatarUrl;
+    }
+  }, [cachedAvatarUrl]);
+  useEffect(() => {
+    if (facebookAvatarUrl) {
+      localStorage.setItem(AVATAR_CACHE_KEY, facebookAvatarUrl);
+      setCachedAvatarUrl(facebookAvatarUrl);
+    }
+  }, [facebookAvatarUrl]);
+  useEffect(() => {
+    // Only clear on confirmed logout — not on initial mount where user is null because Supabase auth is still resolving.
+    // Without the isAuthLoading gate, this effect fires on every page load and wipes the cache before it can be used.
+    if (!isAuthLoading && !user) {
+      localStorage.removeItem(AVATAR_CACHE_KEY);
+      setCachedAvatarUrl(null);
+    }
+  }, [user, isAuthLoading]);
+  useEffect(() => {
+    setProfilePopupAvatarError(false);
+  }, [displayAvatarUrl]);
+  useEffect(() => {
+    if (profileMenuOpen) setProfilePopupAvatarError(false);
+  }, [profileMenuOpen]);
 
   // Stats dos packs são carregados globalmente por PacksLoader/useLoadPacks
 
@@ -146,13 +195,6 @@ export default function Topbar() {
   // Só considera que tem conexão quando não está carregando E há conexões ativas
   const hasFacebookConnection = hasActiveConnection;
 
-  // Foto de perfil do Facebook (conexão primária ou primeira ativa)
-  const facebookAvatarUrl = useMemo(() => {
-    if (!activeConnections || activeConnections.length === 0) return null;
-    const primary = activeConnections.find((c: any) => c.is_primary);
-    const conn = primary || activeConnections[0];
-    return getFacebookAvatarUrl(conn);
-  }, [activeConnections]);
   // Só mostra botão de conectar quando carregamento terminou E não há conexões ativas
   const shouldShowConnectButton = !connections.isLoading && !hasActiveConnection;
 
@@ -260,40 +302,24 @@ export default function Topbar() {
     return null;
   };
 
-  // URL única do avatar (Facebook prioridade; depois Supabase) para trigger e popup usarem a mesma fonte/cache
-  const displayAvatarUrl = facebookAvatarUrl || user?.user_metadata?.avatar_url || null;
-
-  useEffect(() => {
-    setProfilePopupAvatarError(false);
-  }, [displayAvatarUrl]);
-
-  useEffect(() => {
-    if (profileMenuOpen) setProfilePopupAvatarError(false);
-  }, [profileMenuOpen]);
-
   // Função para renderizar o menu dropdown do perfil com Radix
   const renderProfileMenu = () => {
     if (!isAuthenticated || !user) return null;
 
     const initials = getUserInitials(user);
 
-    const renderTriggerAvatar = () => {
-      if (displayAvatarUrl) {
-        return <img src={displayAvatarUrl} alt="Profile" className="w-full h-full object-cover" referrerPolicy="no-referrer" />;
-      }
-      if (initials) {
-        return (
-          <div className="w-full h-full bg-brand flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary-foreground">{initials}</span>
-          </div>
-        );
-      }
-      return (
-        <div className="w-full h-full bg-brand flex items-center justify-center">
+    const renderTriggerAvatar = () => (
+      <div className="relative w-full h-full bg-brand flex items-center justify-center">
+        {initials ? (
+          <span className="text-sm font-semibold text-primary-foreground">{initials}</span>
+        ) : (
           <IconUserFilled className="h-5 w-5 text-primary-foreground" />
-        </div>
-      );
-    };
+        )}
+        {effectiveAvatarUrl && (
+          <img src={effectiveAvatarUrl} alt="Profile" className="absolute inset-0 w-full h-full object-cover" referrerPolicy="no-referrer" />
+        )}
+      </div>
+    );
 
     return (
       <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
@@ -303,12 +329,12 @@ export default function Topbar() {
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-64">
-          {/* User Info: mesma displayAvatarUrl que o trigger; onError evita ícone genérico quando a img falha no portal */}
+          {/* User Info: mesma effectiveAvatarUrl que o trigger; onError evita ícone genérico quando a img falha no portal */}
           <div className="p-4">
             <div className="flex items-center gap-3">
-              {displayAvatarUrl && !profilePopupAvatarError ? (
+              {effectiveAvatarUrl && !profilePopupAvatarError ? (
                 <img
-                  src={displayAvatarUrl}
+                  src={effectiveAvatarUrl}
                   alt="Profile"
                   className="w-12 h-12 rounded-full object-cover"
                   referrerPolicy="no-referrer"
@@ -749,68 +775,14 @@ export default function Topbar() {
     </div>
   );
 
-  if (!isClient) {
-    return (
-      <>
-        <ServerStatusBanner />
-        <header className="z-40 w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
-          <div className="container mx-auto flex h-16 items-center justify-between px-4">
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <h1 className="text-xl font-bold text-text">Hookify</h1>
-            </div>
-            {/* Center placeholder — keeps layout stable during SSR */}
-            <div className="flex-1" />
-            <div className="flex items-center gap-4">
-              {isAuthenticated && (
-                <>
-                  {/* Stats Info - only show when authenticated and has packs */}
-                  {packs.length > 0 && (
-                    <div className="flex flex-col items-end gap-0 pr-3 border-r border-border">
-                      <p className="text-xs font-medium text-text leading-tight">
-                        {packs.length} {packs.length === 1 ? "pack" : "packs"}
-                      </p>
-                      <p className="text-xs font-medium text-muted-foreground leading-tight">
-                        {packStats.uniqueAds} {packStats.uniqueAds === 1 ? "anúncio" : "anúncios"}
-                      </p>
-                    </div>
-                  )}
-
-                  {connections.isLoading ? (
-                    <Skeleton className="h-9 w-[140px] rounded-md" />
-                  ) : shouldShowConnectButton ? (
-                    <Button variant="default" size="sm" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2">
-                      {connect.isPending ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconBrandFacebook className="h-4 w-4" />}
-                      {connect.isPending ? "Conectando..." : "Conectar Facebook"}
-                    </Button>
-                  ) : hasFacebookConnection ? (
-                    renderUpdateDataButton()
-                  ) : null}
-
-                  {/* Profile Avatar - apenas visual no SSR */}
-                  {user ? (
-                    renderProfileMenu()
-                  ) : (
-                    <Button asChild size="sm">
-                      <Link href="/login">Entrar</Link>
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        </header>
-      </>
-    );
-  }
-
   return (
     <>
       <ServerStatusBanner />
       <header className="z-40 w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
-        <div className="container mx-auto flex h-16 items-center justify-between gap-3 px-4 md:px-8">
+        <div className={cn("container mx-auto grid grid-cols-[1fr_auto_1fr] h-16 items-center", APP_PAGE_SHELL_X)}>
           {/* Left: Título (desktop) ou Logo (mobile) */}
-          <div className="flex min-w-0 items-center gap-3 flex-shrink-0">
+          <div className="flex min-w-0 items-center gap-3">
             <div className="hidden md:flex md:items-center md:gap-3">
               {Icon && <Icon className="h-6 w-6 text-brand" />}
               <h1 className="text-2xl font-bold text-text">{title}</h1>
@@ -821,17 +793,17 @@ export default function Topbar() {
           </div>
 
           {/* Center: global filters (desktop only) */}
-          <div className="flex-1 flex items-center justify-center min-w-0">
+          <div className="flex items-center justify-center">
             <TopbarFilters />
           </div>
 
           {/* Right: seção única com update/reset/profile (profile menu renderizado apenas 1x) */}
-          <div className="flex items-center gap-3 flex-shrink-0">
+          <div className="flex items-center justify-end gap-3">
             {/* Conectar Facebook ou Atualizar Dados Button - only show when authenticated */}
             {isAuthenticated && (
               <>
                 {/* Stats Info - only show when authenticated and has packs */}
-                {isClient && packs.length > 0 && (
+                {packs.length > 0 && (
                   <div className="hidden md:flex flex-col items-end gap-0 pr-3 border-r border-border">
                     <p className="text-xs font-medium text-text leading-tight">
                       {packs.length} {packs.length === 1 ? "pack" : "packs"}
@@ -842,7 +814,9 @@ export default function Topbar() {
                   </div>
                 )}
 
-                {connections.isLoading ? (
+                {connections.data === undefined ? (
+                  // data === undefined covers both "query disabled" (during isClient/auth gate) and "currently fetching"
+                  // — which is broader than connections.isLoading and prevents a "Conectar Facebook" flash on first paint.
                   <Skeleton className="h-9 w-[140px] rounded-md" />
                 ) : shouldShowConnectButton ? (
                   <Button variant="default" size="sm" onClick={handleConnectFacebook} disabled={connect.isPending} className="flex items-center gap-2">
@@ -856,13 +830,11 @@ export default function Topbar() {
             )}
 
             {/* Profile Avatar - única instância (evita 2 popups ao abrir) */}
-            {isAuthenticated && user ? (
+            {user ? (
               renderProfileMenu()
-            ) : !isAuthenticated ? (
-              <Button asChild size="sm">
-                <Link href="/login">Entrar</Link>
-              </Button>
-            ) : null}
+            ) : (
+              <Skeleton className="w-10 h-10 rounded-full" />
+            )}
           </div>
         </div>
 

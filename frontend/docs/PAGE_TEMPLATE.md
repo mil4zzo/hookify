@@ -71,8 +71,8 @@ comum não resolve.
 
 ## Páginas com abas
 
-Use `TabbedContent` + `TabbedContentItem` e **sempre** passe `separatorAfterTabs={true}` para
-manter o mesmo respiro entre a barra de abas e o conteúdo em todas as páginas:
+Use `TabbedContent` + `TabbedContentItem`. O espaço entre a barra de abas e o conteúdo
+é aplicado automaticamente — não há props para controlar isso:
 
 ```tsx
 import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
@@ -87,7 +87,6 @@ const tabs: TabItem[] = [
     value={activeTab}
     onValueChange={setActiveTab}
     tabs={tabs}
-    separatorAfterTabs={true}
   >
     <TabbedContentItem value="a">{/* ... */}</TabbedContentItem>
     <TabbedContentItem value="b">{/* ... */}</TabbedContentItem>
@@ -104,7 +103,6 @@ visualização), use também `variant="with-controls"` e passe `controls={<…/>
   onValueChange={setMode}
   tabs={tabs}
   variant="with-controls"
-  separatorAfterTabs={true}
   controls={<ViewModeToggle ... />}
   tabsContainerClassName="flex-col items-stretch gap-3 md:flex-row md:items-center md:gap-4"
   tabsListClassName="w-full overflow-x-auto md:w-fit"
@@ -133,7 +131,7 @@ Mudar o spacing lá afeta todas as páginas automaticamente — é o ponto.
 
 - [ ] Importou `PageContainer` de `@/components/common/PageContainer`
 - [ ] Forneceu `title` descritivo e `description` curta
-- [ ] Se a página tem abas, usou `TabbedContent` com `separatorAfterTabs={true}`
+- [ ] Se a página tem abas, usou `TabbedContent` + `TabbedContentItem`
 - [ ] Não passou `variant`, `spacing`, `titleClassName`, etc — essas props não existem mais
 - [ ] Usou `fullHeight={true}` apenas se realmente precisa de scroll interno
 - [ ] Testou em mobile e desktop

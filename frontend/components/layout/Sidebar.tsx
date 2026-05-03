@@ -4,8 +4,6 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { useClientAuth } from "@/lib/hooks/useClientSession";
-import { useOnboardingStatus } from "@/lib/hooks/useOnboardingStatus";
 import { useUserTier } from "@/lib/hooks/useUserTier";
 import { IconBook2, IconChevronLeft, IconChevronRight, IconFileText, IconShieldLock, IconTrash } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
@@ -19,37 +17,20 @@ const SIDEBAR_ANIMATION_DURATION = 300; // ms
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { isAuthenticated, isClient } = useClientAuth();
   const { isCollapsed, toggleCollapse } = useSidebar();
   const [showLabels, setShowLabels] = useState(!isCollapsed);
-  const { data: onboardingData, isLoading: isLoadingOnboarding } = useOnboardingStatus(isAuthenticated);
   const { data: userTier = "standard" } = useUserTier();
 
-  // Controla a exibição dos labels baseado no estado de colapso e na animação
   useEffect(() => {
     if (isCollapsed) {
-      // Quando colapsa, esconde os labels imediatamente
       setShowLabels(false);
     } else {
-      // Quando expande, aguarda o fim da animação antes de mostrar os labels
       const timer = setTimeout(() => {
         setShowLabels(true);
       }, SIDEBAR_ANIMATION_DURATION);
-
       return () => clearTimeout(timer);
     }
   }, [isCollapsed]);
-
-  // Não mostrar se não estiver no cliente ou não autenticado
-  // AppLayout já filtra rotas de auth/onboarding, então não precisamos verificar novamente
-  if (!isClient || !isAuthenticated) {
-    return null;
-  }
-
-  // Verificar se onboarding está completo (com fallback otimista)
-  // Se ainda está carregando, assumimos que está completo para evitar flick
-  const hasCompletedOnboarding = onboardingData?.has_completed_onboarding ?? (isLoadingOnboarding ? true : false);
-  const isReady = !isLoadingOnboarding && hasCompletedOnboarding;
 
   return (
     <aside className={cn("hidden md:flex fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground border-r border-border backdrop-blur supports-[backdrop-filter]:bg-background-60 z-40 flex-col transition-all duration-300 overflow-hidden", isCollapsed ? "w-16 ease-in" : "w-64 ease-out")}>
@@ -77,53 +58,38 @@ export default function Sidebar() {
       <div className="h-6" />
 
       {/* Menu Label */}
-      <div className={cn("px-6 mb-2 transition-all duration-300 overflow-hidden", showLabels && isReady ? "opacity-100 max-h-10 ease-out" : "opacity-0 max-h-0 mb-0 ease-in")}>
+      <div className={cn("px-6 mb-2 transition-all duration-300 overflow-hidden", showLabels ? "opacity-100 max-h-10 ease-out" : "opacity-0 max-h-0 mb-0 ease-in")}>
         <h2 className="text-sm font-medium text-sidebar-foreground/70">Menu</h2>
       </div>
 
       {/* Menu Items */}
       <nav className={cn("px-3 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
-        {isReady ? (
-          <ul className="space-y-1">
-            {getMenuItems(userTier).map((item) => {
-              const Icon = item.icon;
-              const isActive = pathname === item.path;
+        <ul className="space-y-1">
+          {getMenuItems(userTier).map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.path;
 
-              return (
-                <li key={item.path}>
-                  <Link href={item.path as any} className={cn("flex items-center rounded-md text-sm font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? item.label : undefined}>
-                    <Icon className={cn("h-5 w-5 flex-shrink-0 transition-colors duration-300", isActive ? "text-primary" : "text-muted-foreground")} />
-                    <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          // Skeleton enquanto carrega
-          <ul className="space-y-1">
-            {[1, 2, 3, 4].map((i) => (
-              <li key={i} className={cn("flex items-center rounded-md transition-all duration-300", isCollapsed ? "justify-center px-2 py-2" : "gap-3 px-3 py-2")}>
-                <div className={cn("h-5 w-5 rounded bg-muted animate-pulse", isCollapsed && "mx-auto")} />
-                {!isCollapsed && <div className="h-4 w-20 rounded bg-muted animate-pulse" />}
+            return (
+              <li key={item.path}>
+                <Link href={item.path as any} className={cn("flex items-center rounded-md text-sm font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? item.label : undefined}>
+                  <Icon className={cn("h-5 w-5 flex-shrink-0 transition-colors duration-300", isActive ? "text-text" : "text-muted-foreground")} />
+                  <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
+                </Link>
               </li>
-            ))}
-          </ul>
-        )}
+            );
+          })}
+        </ul>
       </nav>
 
       {/* Development Section */}
-      {env.IS_DEV && isReady && (
+      {env.IS_DEV && (
         <>
-          {/* Spacing */}
           <div className="h-8" />
 
-          {/* Development Label */}
           <div className={cn("px-6 mb-2 transition-all duration-300 overflow-hidden", showLabels ? "opacity-100 max-h-10 ease-out" : "opacity-0 max-h-0 mb-0 ease-in")}>
             <h2 className="text-sm font-medium text-muted-foreground">Development</h2>
           </div>
 
-          {/* Development Items */}
           <nav className={cn("px-3 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
             <ul className="space-y-1">
               {getDevelopmentItems().map((item) => {
@@ -132,7 +98,7 @@ export default function Sidebar() {
 
                 return (
                   <li key={item.path}>
-                    <Link href={item.path as any} className={cn("flex items-center rounded text-sm font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-border text-text" : "text-text hover:bg-border hover:text-text")} title={isCollapsed ? item.label : undefined}>
+                    <Link href={item.path as any} className={cn("flex items-center rounded text-sm font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-3 px-3 py-2 ease-out", isActive ? "bg-primary text-text" : "text-text hover:bg-border hover:text-text")} title={isCollapsed ? item.label : undefined}>
                       <Icon className={cn("h-5 w-5 flex-shrink-0 text-text transition-colors duration-300")} />
                       <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>{item.label}</span>
                     </Link>
@@ -147,61 +113,21 @@ export default function Sidebar() {
       {/* Footer Links */}
       <div className="mt-auto border-t border-border">
         <div className={cn("px-3 py-4 space-y-1 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
-          <Link
-            href="/docs"
-            className={cn(
-              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
-              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
-              pathname === "/docs" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
-            )}
-            title={isCollapsed ? "Docs" : undefined}
-          >
-            <IconBook2 className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/docs" ? "text-primary" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
-              Docs
-            </span>
+          <Link href="/docs" className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/docs" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Docs" : undefined}>
+            <IconBook2 className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/docs" ? "text-text" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Docs</span>
           </Link>
-          <Link
-            href="/termos-de-uso"
-            className={cn(
-              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
-              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
-              pathname === "/termos-de-uso" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
-            )}
-            title={isCollapsed ? "Termos de Uso" : undefined}
-          >
-            <IconFileText className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/termos-de-uso" ? "text-primary" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
-              Termos de Uso
-            </span>
+          <Link href="/termos-de-uso" className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/termos-de-uso" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Termos de Uso" : undefined}>
+            <IconFileText className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/termos-de-uso" ? "text-text" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Termos de Uso</span>
           </Link>
-          <Link
-            href="/politica-de-privacidade"
-            className={cn(
-              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
-              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
-              pathname === "/politica-de-privacidade" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
-            )}
-            title={isCollapsed ? "Política de Privacidade" : undefined}
-          >
-            <IconShieldLock className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/politica-de-privacidade" ? "text-primary" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
-              Política de Privacidade
-            </span>
+          <Link href="/politica-de-privacidade" className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/politica-de-privacidade" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Política de Privacidade" : undefined}>
+            <IconShieldLock className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/politica-de-privacidade" ? "text-text" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Política de Privacidade</span>
           </Link>
-          <Link
-            href="/exclusao-de-dados"
-            className={cn(
-              "flex items-center rounded-md text-xs font-normal text-text transition-all duration-300",
-              isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out",
-              pathname === "/exclusao-de-dados" ? "bg-border text-text" : "text-text hover:bg-input-30 hover:text-text"
-            )}
-            title={isCollapsed ? "Exclusão de Dados" : undefined}
-          >
-            <IconTrash className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/exclusao-de-dados" ? "text-primary" : "text-muted-foreground")} />
-            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>
-              Exclusão de Dados
-            </span>
+          <Link href="/exclusao-de-dados" className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/exclusao-de-dados" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Exclusão de Dados" : undefined}>
+            <IconTrash className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/exclusao-de-dados" ? "text-text" : "text-muted-foreground")} />
+            <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Exclusão de Dados</span>
           </Link>
         </div>
       </div>

@@ -25,12 +25,10 @@ export interface TabbedContentProps {
   contentClassName?: string;
   tabsContainerClassName?: string;
   showTooltips?: boolean;
-  separatorAfterTabs?: boolean;
 }
 
-export function TabbedContent({ value, onValueChange, tabs, children, variant = "simple", orientation = "horizontal", controls, tabsListClassName, contentClassName, tabsContainerClassName, showTooltips = false, separatorAfterTabs = false }: TabbedContentProps) {
+export function TabbedContent({ value, onValueChange, tabs, children, variant = "simple", orientation = "horizontal", controls, tabsListClassName, contentClassName, tabsContainerClassName, showTooltips = false }: TabbedContentProps) {
   const renderTabTrigger = (tab: TabItem) => {
-    // Mostrar ícone se fornecido, independente da variante
     const hasIcon = !!tab.icon;
     const IconComponent = tab.icon;
     const triggerContent = (
@@ -68,7 +66,7 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
   };
 
   const tabsContent = (
-    <TabsList className={cn(orientation === "vertical" ? "flex-col w-full h-full bg-secondary rounded-none border-r border-border p-2 space-y-1" : variant === "with-controls" ? "flex-shrink-0" : "mb-6", orientation === "horizontal" && "max-w-full", tabsListClassName)}>
+    <TabsList className={cn(orientation === "vertical" ? "flex-col w-full h-full bg-secondary rounded-none border-r border-border p-2 space-y-1" : variant === "with-controls" ? "flex-shrink-0" : "", orientation === "horizontal" && "max-w-full", tabsListClassName)}>
       {tabs.map((tab) => (
         <React.Fragment key={tab.value}>{renderTabTrigger(tab)}</React.Fragment>
       ))}
@@ -82,7 +80,7 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
         <div className="flex-1 overflow-y-auto">{children}</div>
       </div>
     ) : (
-      <div className={cn(variant === "with-controls" ? "flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:gap-4" : "", orientation === "horizontal" && separatorAfterTabs && "mb-8", tabsContainerClassName)}>
+      <div className={cn(variant === "with-controls" ? "flex min-w-0 flex-col gap-3 md:flex-row md:items-center md:gap-4" : "", tabsContainerClassName)}>
         <div className={cn(orientation === "horizontal" && "max-w-full overflow-x-auto")}>{tabsContent}</div>
         {variant === "with-controls" && controls && <div className="flex w-full min-w-0 flex-wrap items-center gap-2 md:flex-1 md:justify-end">{controls}</div>}
       </div>
@@ -92,7 +90,7 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
 
   return (
     <Wrapper>
-      <Tabs value={value} onValueChange={onValueChange} className={cn("w-full h-full flex-1 flex", orientation === "vertical" ? "flex-row" : "flex-col min-h-0")}>
+      <Tabs value={value} onValueChange={onValueChange} className={cn("w-full h-full flex-1 flex", orientation === "vertical" ? "flex-row" : "flex-col gap-8 min-h-0")}>
         {tabsWrapper}
         {orientation === "horizontal" && children}
       </Tabs>
@@ -100,7 +98,6 @@ export function TabbedContent({ value, onValueChange, tabs, children, variant = 
   );
 }
 
-// Componente helper para renderizar TabsContent com className padrão
 export interface TabbedContentItemProps {
   value: string;
   children: React.ReactNode;

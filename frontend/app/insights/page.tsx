@@ -24,7 +24,6 @@ import { PageActions } from "@/components/common/PageActions";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
-import { HookifyWidget } from "@/components/common/HookifyWidget";
 import { TabbedContentItem } from "@/components/common/TabbedContent";
 import { AnalyticsWorkspace, TabbedWorkspace } from "@/components/common/layout";
 import { useFilters } from "@/lib/hooks/useFilters";
@@ -34,9 +33,6 @@ const STORAGE_KEY_GROUP_BY_PACKS = "hookify-insights-group-by-packs";
 const STORAGE_KEY_PACK_ACTION_TYPES = "hookify-insights-pack-action-types";
 const STORAGE_KEY_GEMS_COLUMNS = "hookify-insights-gems-columns";
 const STORAGE_KEY_ACTIVE_TAB = "hookify-insights-active-tab";
-
-// Classe padronizada para títulos das tabs
-const TAB_TITLE_CLASS = "text-xl font-normal";
 
 // Títulos das tabs para tooltips
 const TAB_TITLES = {
@@ -434,6 +430,10 @@ export default function InsightsPage() {
               variant="minimal"
             />
           </PageActions>
+        ) : activeTab === "gems" ? (
+          <PageActions>
+            <GemsColumnFilter activeColumns={activeGemsColumns} onToggleColumn={handleToggleGemsColumn} />
+          </PageActions>
         ) : undefined
       }
     >
@@ -443,7 +443,6 @@ export default function InsightsPage() {
           onValueChange={handleTabChange}
           variant="with-icons"
           showTooltips={true}
-          separatorAfterTabs={true}
           tabs={[
             { value: "opportunities", label: "Oportunidades", icon: IconStarFilled, tooltip: TAB_TITLES.opportunities },
             { value: "insights", label: "Insights", icon: IconSparkles, tooltip: TAB_TITLES.insights },
@@ -452,16 +451,11 @@ export default function InsightsPage() {
         >
         {/* Tab Oportunidades */}
         <TabbedContentItem value="opportunities" variant="with-icons">
-          <HookifyWidget
-            title={TAB_TITLES.opportunities}
-            titleClassName={TAB_TITLE_CLASS}
-            isLoading={isLoadingData || isInitialLoad}
-            isEmpty={!hasData}
-            emptyMessage="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período."
-            skeleton={<OpportunitiesSkeleton />}
-            contentSpacing="space-y-6"
-          >
-            {groupByPacks && opportunityRowsByPack ? (
+          {isLoadingData || isInitialLoad ? (
+            <OpportunitiesSkeleton />
+          ) : !hasData ? (
+            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+          ) : groupByPacks && opportunityRowsByPack ? (
               Array.from(opportunityRowsByPack.entries()).length > 0 ? (
                 Array.from(opportunityRowsByPack.entries())
                   .filter(([packId]) => packs.find((p) => p.id === packId))
@@ -518,46 +512,32 @@ export default function InsightsPage() {
                 <OpportunityWidget rows={opportunityRows} averages={validatedAverages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
               </div>
             )}
-          </HookifyWidget>
         </TabbedContentItem>
 
         {/* Tab Insights */}
         <TabbedContentItem value="insights" variant="with-icons">
-          <HookifyWidget
-            title={TAB_TITLES.insights}
-            titleClassName={TAB_TITLE_CLASS}
-            isLoading={isLoadingData || isInitialLoad}
-            isEmpty={!hasData}
-            emptyMessage="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período."
-            skeleton={<InsightsSkeleton />}
-            contentSpacing="space-y-6"
-          >
-            {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
-              <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
-            ) : (
-              <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
-            )}
-          </HookifyWidget>
+          {isLoadingData || isInitialLoad ? (
+            <InsightsSkeleton />
+          ) : !hasData ? (
+            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+          ) : validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
+            <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
+          ) : (
+            <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
+          )}
         </TabbedContentItem>
 
         {/* Tab Gems */}
         <TabbedContentItem value="gems" variant="with-icons">
-          <HookifyWidget
-            title={TAB_TITLES.gems}
-            titleClassName={TAB_TITLE_CLASS}
-            isLoading={isLoadingData || isInitialLoad}
-            isEmpty={!hasData}
-            emptyMessage="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período."
-            skeleton={<GemsSkeleton />}
-            headerActions={<GemsColumnFilter activeColumns={activeGemsColumns} onToggleColumn={handleToggleGemsColumn} />}
-            contentSpacing="space-y-6"
-          >
-            {validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
-              <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
-            ) : (
-              <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />
-            )}
-          </HookifyWidget>
+          {isLoadingData || isInitialLoad ? (
+            <GemsSkeleton />
+          ) : !hasData ? (
+            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+          ) : validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
+            <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
+          ) : (
+            <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />
+          )}
         </TabbedContentItem>
         </TabbedWorkspace>
       </AnalyticsWorkspace>

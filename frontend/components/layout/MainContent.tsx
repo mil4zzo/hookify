@@ -59,15 +59,20 @@ export function MainContent({ children }: { children: React.ReactNode }) {
 
   const layoutValue = useMemo(() => ({ layoutConfig, setLayoutConfig: updateLayoutConfig }), [layoutConfig, updateLayoutConfig]);
 
+  // Non-sidebar-shell, non-wide pages use a contained layout — the scroll lives on <main>
+  // (full-width) so the scrollbar appears at the viewport edge, while the inner div
+  // applies the container + padding constraint for content centering.
+  const isContainedPage = !usesSidebarShell && !usesWideShell && !isAuthRoute && !isManagerRoute;
+
   return (
     <MainContentLayoutContext.Provider value={layoutValue}>
       <main
         className={cn(
           "flex-1 min-h-0",
           usesSidebarShell ? "flex w-full max-w-none flex-col md:flex-row" : "flex flex-col",
-          !usesSidebarShell && (usesWideShell ? "w-full max-w-none" : "container mx-auto"),
+          !usesSidebarShell && "w-full max-w-none",
           isAuthRoute && "p-0",
-          usesSidebarShell ? (isManagerRoute ? "overflow-hidden" : "overflow-y-auto md:overflow-hidden") : !isAuthRoute && !isManagerRoute ? cn("overflow-y-auto", APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y) : undefined,
+          usesSidebarShell ? (isManagerRoute ? "overflow-hidden" : "overflow-y-auto md:overflow-hidden") : !isAuthRoute && !isManagerRoute ? cn("overflow-y-auto", !isContainedPage && cn(APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y)) : undefined,
           !usesSidebarShell && isManagerRoute && cn("overflow-hidden", APP_PAGE_SHELL_X, APP_PAGE_SHELL_Y),
         )}
       >
@@ -87,8 +92,11 @@ export function MainContent({ children }: { children: React.ReactNode }) {
           className={cn(
             "min-w-0 flex flex-1 flex-col",
             (usesSidebarShell || isManagerRoute) && "min-h-0",
+            isContainedPage && "container mx-auto",
             usesSidebarShell && !isAuthRoute && APP_PAGE_SHELL_X,
             usesSidebarShell && !isAuthRoute && APP_PAGE_SHELL_Y,
+            isContainedPage && APP_PAGE_SHELL_X,
+            isContainedPage && APP_PAGE_SHELL_Y,
             !isAuthRoute && !isManagerRoute && APP_PAGE_SHELL_BOTTOM_SCROLL,
             usesSidebarShell && (isManagerRoute ? "overflow-hidden" : "md:overflow-y-auto"),
           )}
