@@ -88,8 +88,8 @@ export interface UsePackRefreshReturn {
   refreshPack: (params: StartRefreshParams) => Promise<void>;
   /** Cancel an in-progress refresh */
   cancelRefresh: (packId: string) => Promise<void>;
-  /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). */
-  startTranscriptionOnly: (packId: string, packName: string) => Promise<void>;
+  /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). adNames filtra quais ads transcrever. */
+  startTranscriptionOnly: (packId: string, packName: string, adNames?: string[]) => Promise<void>;
   /** Check if a specific pack is currently refreshing */
   isRefreshing: (packId: string) => boolean;
   /** Get all currently refreshing pack IDs */
@@ -316,7 +316,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
   // ============================================================================
 
   const startTranscriptionOnly = useCallback(
-    async (packId: string, packName: string): Promise<void> => {
+    async (packId: string, packName: string, adNames?: string[]): Promise<void> => {
       const toastId = `transcription-only-${packId}`;
       let cancelled = false;
       let cancelWarningShown = false;
@@ -353,7 +353,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       );
 
       try {
-        const res = await api.facebook.startPackTranscription(packId);
+        const res = await api.facebook.startPackTranscription(packId, adNames);
         if (cancelled) {
           if (res.transcription_job_id) {
             try {
@@ -867,10 +867,20 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       let leadscoreResult: { success: boolean; paused?: boolean; error?: string } = { success: false, error: "Leadscore não executado" };
 
       try {
-        // Start all selected processes in parallel
-        if (toggles.meta) {
-          promises.push(
-            runMetaRefresh(packId, packName, refreshType, activeRefresh).catch((error) => {
+        // Meta → (Leadscore ∥ Transcrição): dependentes esperam Meta concluir.
+        // Leadscore atualiza ad_metrics; Transcrição processa ads novos. Meta é quem
+        // cria essas linhas para ads recém-ativos. Em paralelo, dependentes terminam
+        // antes de Meta popular o estado e perdem updates dos ads novos do dia.
+        // Se Meta falhar/cancelar, dependentes abortam (dados ficariam imprecisos).
+        const metaThenDependents = (async () => {
+          let metaSucceeded = !toggles.meta;
+
+          if (toggles.meta) {
+            try {
+              await runMetaRefresh(packId, packName, refreshType, activeRefresh);
+              metaSucceeded = !activeRefresh.metaCancelled;
+            } catch (error) {
+              metaSucceeded = false;
               if (!activeRefresh.metaCancelled) {
                 logger.error(`Erro ao atualizar pack ${packId} (Meta):`, error);
                 finishProgressToast(
@@ -881,43 +891,59 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
                   optionsRef.current?.onError?.(error instanceof Error ? error : new Error(String(error)));
                 }
               }
-            })
-          );
-        }
+            }
+          }
 
-        if (toggles.leadscore && sheetIntegrationId) {
-          leadscoreStarted = true;
-          promises.push(
-            runLeadscoreSync(packId, packName, sheetIntegrationId, activeRefresh)
-              .then((result) => {
-                leadscoreResult = result;
-                if (!result.success && !result.paused && !activeRefresh.sheetsCancelled && mountedRef.current) {
-                  optionsRef.current?.onError?.(
-                    new Error(result.error || `Falha na sincronização de Leadscore para "${packName}"`)
-                  );
-                }
-              })
-              .catch((error) => {
-                logger.error(`Erro no Leadscore do pack ${packId}:`, error);
-                leadscoreResult = { success: false, error: error instanceof Error ? error.message : String(error) };
-                if (!activeRefresh.sheetsCancelled && mountedRef.current) {
-                  optionsRef.current?.onError?.(
-                    error instanceof Error ? error : new Error(String(error))
-                  );
-                }
-              })
-          );
-        } else if (toggles.leadscore && !sheetIntegrationId) {
-          logger.warn(`[PACK_REFRESH] Leadscore habilitado, mas pack ${packId} não possui integração de planilha`);
-        }
+          if (toggles.meta && !metaSucceeded) {
+            if (toggles.leadscore) {
+              logger.warn(`[PACK_REFRESH] Leadscore abortado para pack ${packId}: Meta não concluiu com sucesso`);
+            }
+            if (toggles.transcription) {
+              logger.warn(`[PACK_REFRESH] Transcrição abortada para pack ${packId}: Meta não concluiu com sucesso`);
+            }
+            return;
+          }
 
-        if (toggles.transcription) {
-          promises.push(
-            runTranscription(packId, packName, activeRefresh).catch((error) => {
-              logger.error(`Erro na transcrição do pack ${packId}:`, error);
-            })
-          );
-        }
+          const dependents: Promise<any>[] = [];
+
+          if (toggles.leadscore && sheetIntegrationId && !activeRefresh.sheetsCancelled) {
+            leadscoreStarted = true;
+            dependents.push(
+              runLeadscoreSync(packId, packName, sheetIntegrationId, activeRefresh)
+                .then((result) => {
+                  leadscoreResult = result;
+                  if (!result.success && !result.paused && !activeRefresh.sheetsCancelled && mountedRef.current) {
+                    optionsRef.current?.onError?.(
+                      new Error(result.error || `Falha na sincronização de Leadscore para "${packName}"`)
+                    );
+                  }
+                })
+                .catch((error) => {
+                  logger.error(`Erro no Leadscore do pack ${packId}:`, error);
+                  leadscoreResult = { success: false, error: error instanceof Error ? error.message : String(error) };
+                  if (!activeRefresh.sheetsCancelled && mountedRef.current) {
+                    optionsRef.current?.onError?.(
+                      error instanceof Error ? error : new Error(String(error))
+                    );
+                  }
+                })
+            );
+          } else if (toggles.leadscore && !sheetIntegrationId) {
+            logger.warn(`[PACK_REFRESH] Leadscore habilitado, mas pack ${packId} não possui integração de planilha`);
+          }
+
+          if (toggles.transcription && !activeRefresh.transcriptionCancelled) {
+            dependents.push(
+              runTranscription(packId, packName, activeRefresh).catch((error) => {
+                logger.error(`Erro na transcrição do pack ${packId}:`, error);
+              })
+            );
+          }
+
+          await Promise.allSettled(dependents);
+        })();
+
+        promises.push(metaThenDependents);
 
         // Wait for all processes to complete
         await Promise.allSettled(promises);

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
+import { TranscriptionStatusDialog } from "@/components/packs/TranscriptionStatusDialog";
 import { PacksOverflowMenu } from "@/components/packs/PacksOverflowMenu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -48,11 +49,11 @@ const DEFAULT_REFRESH_TOGGLES: RefreshToggles = {
 
 function PacksGridSkeleton() {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="relative inline-block w-full">
-          <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
-          <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
+          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
+          <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
           <div className="relative z-10 rounded-md border border-border bg-card overflow-hidden">
             <div className="p-6 flex flex-col gap-6">
               <div className="flex flex-col items-center gap-3">
@@ -171,6 +172,7 @@ export default function PacksPage() {
   const [refreshToggles, setRefreshToggles] = useState<RefreshToggles>(() => loadRefreshToggles() ?? DEFAULT_REFRESH_TOGGLES);
   const [packToDisableAutoRefresh, setPackToDisableAutoRefresh] = useState<{ id: string; name: string } | null>(null);
   const [isTogglingAutoRefresh, setIsTogglingAutoRefresh] = useState<string | null>(null);
+  const [transcriptionDialogPack, setTranscriptionDialogPack] = useState<{ id: string; name: string } | null>(null);
   const { isPackUpdating } = useUpdatingPacksStore();
   const { refreshPack, isRefreshing, startTranscriptionOnly } = usePackRefresh();
   const { startCreation, isCreating } = usePackCreation({
@@ -500,6 +502,13 @@ export default function PacksPage() {
     }
   };
 
+  const handleConfirmTranscription = (adNames: string[]) => {
+    if (!transcriptionDialogPack) return;
+    const { id, name } = transcriptionDialogPack;
+    setTranscriptionDialogPack(null);
+    startTranscriptionOnly(id, name, adNames);
+  };
+
   const cancelRefreshPack = () => {
     // Verifica se algum pack está atualizando
     const currentPackId = packToRefresh?.id;
@@ -609,10 +618,10 @@ export default function PacksPage() {
           {isLoadingPacks ? (
             <PacksGridSkeleton />
           ) : packs.length === 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
               <div className="relative inline-block w-full">
-                <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
-                <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
+                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom -rotate-[1.5deg] opacity-60 pointer-events-none" />
+                <div className="absolute inset-x-0 top-4 bottom-0 rounded-md bg-card border border-border-50 origin-bottom rotate-[1.5deg] opacity-60 pointer-events-none" />
                 <StandardCard variant="default" padding="none" className="relative flex flex-col z-10 w-full overflow-hidden">
                   <div className="p-6 flex flex-col items-center justify-center gap-4 h-full relative z-10 min-h-[220px]">
                     <IconChartBar className="w-8 h-8 text-muted-foreground" />
@@ -629,9 +638,9 @@ export default function PacksPage() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-8">
               {packs.map((pack) => (
-                <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => startTranscriptionOnly(packId, packName)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
               ))}
             </div>
           )}
@@ -672,10 +681,14 @@ export default function PacksPage() {
               )}
             </label>
             {adAccountsLoading ? (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <IconLoader2 className="w-4 h-4 animate-spin" />
-                Carregando contas de anúncios...
-              </div>
+              <Select disabled>
+                <SelectTrigger className="w-full">
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    <IconLoader2 className="w-4 h-4 animate-spin" />
+                    <span>Carregando contas de anúncios...</span>
+                  </div>
+                </SelectTrigger>
+              </Select>
             ) : Array.isArray(adAccountsData) && adAccountsData.length > 0 ? (
               <Select value={formData.adaccount_id} onValueChange={(value) => setFormData((prev) => ({ ...prev, adaccount_id: value }))}>
                 <SelectTrigger className="w-full">
@@ -905,7 +918,6 @@ export default function PacksPage() {
                       </TooltipProvider>
                     )}
                   </div>
-                  <ToggleSwitch id="refresh-toggle-transcription" checked={refreshToggles.transcription} onCheckedChange={(checked) => setRefreshToggles((prev) => ({ ...prev, transcription: checked }))} label="Transcrição" variant="minimal" icon={<IconMicrophone className="h-4 w-4 flex-shrink-0 text-warning" />} />
                 </div>
               </div>
             );
@@ -984,6 +996,9 @@ export default function PacksPage() {
 
       {/* Disable Auto-Refresh Confirmation Dialog */}
       <ConfirmDialog isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} title="Desativar atualização automática?" message="Ao desativar você precisará lembrar de atualizá-lo manualmente quando necessário." onConfirm={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} onCancel={cancelDisableAutoRefresh} confirmText="Desativar" isLoading={!!isTogglingAutoRefresh} />
+
+      {/* Transcription Status Dialog */}
+      <TranscriptionStatusDialog isOpen={!!transcriptionDialogPack} onClose={() => setTranscriptionDialogPack(null)} packId={transcriptionDialogPack?.id ?? ""} packName={transcriptionDialogPack?.name ?? ""} onConfirm={handleConfirmTranscription} />
 
       {/* Booster de planilha por pack (Google Sheets) */}
       <GoogleSheetIntegrationDialog

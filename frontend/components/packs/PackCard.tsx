@@ -62,25 +62,29 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
   const [editingName, setEditingName] = useState(pack.name);
   const [isSavingName, setIsSavingName] = useState(false);
   const [hasNameError, setHasNameError] = useState(false);
-  const nameInputRef = useRef<HTMLTextAreaElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const isSavingNameRef = useRef(false);
+  const nameRef = useRef<HTMLHeadingElement>(null);
+  const [isNameOverflowing, setIsNameOverflowing] = useState(false);
+  const [marqueeDistance, setMarqueeDistance] = useState(0);
+  const [isNameHovered, setIsNameHovered] = useState(false);
 
-  const resizeNameTextarea = (el: HTMLTextAreaElement | null) => {
+  useEffect(() => {
+    const el = nameRef.current;
     if (!el) return;
-    // Auto-resize para caber o conteúdo sem empurrar o layout com scroll interno
-    el.style.height = "0px";
-    el.style.height = `${el.scrollHeight}px`;
-  };
+    const overflowing = el.scrollWidth > el.clientWidth;
+    setIsNameOverflowing(overflowing);
+    if (overflowing) {
+      setMarqueeDistance(el.scrollWidth - el.clientWidth);
+    }
+  }, [pack.name]);
 
   // Focar no input quando começar a editar
   useEffect(() => {
     if (isEditingName && nameInputRef.current) {
       nameInputRef.current.focus();
-      // Colocar o cursor no final do texto em vez de selecionar tudo
-      // Isso permite que o usuário clique em qualquer posição para editar parcialmente
       const length = nameInputRef.current.value.length;
       nameInputRef.current.setSelectionRange(length, length);
-      resizeNameTextarea(nameInputRef.current);
     }
   }, [isEditingName]);
 
@@ -188,7 +192,7 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
     handleSaveName();
   };
 
-  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
       handleSaveName();
@@ -222,17 +226,17 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
   const lastSyncAttemptAt = pack.sheet_integration?.last_synced_at;
   const leadscoreSyncFailed = pack.sheet_integration?.last_sync_status === "failed";
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
-  const leadscoreDateForDisplay = leadscoreSyncFailed ? (lastSuccessfulSyncAt || "") : (lastSuccessfulSyncAt || lastSyncAttemptAt || "");
+  const leadscoreDateForDisplay = leadscoreSyncFailed ? lastSuccessfulSyncAt || "" : lastSuccessfulSyncAt || lastSyncAttemptAt || "";
 
   return (
-    <div className="relative inline-block w-full">
-      {/* Cards decorativos atrás */}
-      <div className="absolute inset-0 rounded-md bg-card rotate-2 pointer-events-none" />
-      <div className="absolute inset-0 rounded-md bg-secondary rotate-1 pointer-events-none" />
+    <div className="relative inline-block w-full group">
+      {/* Cards decorativos: leque sutil, pivotando do bottom — inspirado em pasta de papéis */}
+      <div className="absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border border-border-50 opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85" />
+      <div className="absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border border-border-50 opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85" />
 
       <DropdownMenu open={isEditingName ? false : undefined}>
-        <DropdownMenuTrigger asChild disabled={isEditingName}>
-          <StandardCard variant="default" padding="none" interactive={!isEditingName} className="relative flex flex-col cursor-pointer hover:opacity-90 transition-opacity z-10 w-full overflow-hidden">
+        <DropdownMenuTrigger asChild>
+          <StandardCard variant="default" padding="none" interactive className="relative flex flex-col cursor-pointer z-10 w-full overflow-hidden hover:bg-card hover:border-border hover:shadow-elevation-overlay">
             {/* Feedback visual de atualização */}
             {isUpdating && (
               <>
@@ -252,46 +256,64 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
             <div className="p-6 space-y-6 flex flex-col justify-between h-full relative z-10">
               <div className="flex flex-col items-center gap-2">
                 {/* Header: Nome do pack */}
-                <div className="flex items-start justify-center">
-                  <div className="flex flex-col items-center justify-center min-w-0">
+                <div className="flex items-start justify-center w-full">
+                  <div className="flex flex-col items-center justify-center min-w-0 w-full">
                     {isEditingName ? (
                       <div className="inline-flex items-center gap-2 relative z-20 max-w-full" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
-                        <textarea
+                        <input
+                          type="text"
                           ref={nameInputRef}
                           value={editingName}
                           onChange={(e) => {
                             setEditingName(e.target.value);
-                            resizeNameTextarea(e.currentTarget);
-                            // Validar em tempo real se o nome é único
                             checkNameUniqueness(e.target.value);
                           }}
                           onKeyDown={handleNameKeyDown}
                           onBlur={handleInputBlur}
                           disabled={isSavingName}
-                          rows={1}
-                          // `textarea` permite quebra de linha (ao contrário de `input`), evitando overflow e deslocamento do card.
-                          // `fit-content` + `maxWidth: 100%` faz a borda acompanhar o conteúdo até o limite do card.
-                          className={`text-xl font-semibold leading-tight px-0 text-center bg-transparent border-0 border-b-2 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 resize-none overflow-hidden max-w-full break-words [overflow-wrap:anywhere] transition-colors ${hasNameError ? "border-destructive" : "border-primary-foreground"}`}
-                          style={{ width: "fit-content", maxWidth: "100%" }}
+                          className={`text-xl font-semibold leading-tight px-0 w-full text-center bg-transparent border-0 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-[box-shadow] ${hasNameError ? "shadow-[inset_0_-2px_0_0_var(--destructive)]" : "shadow-[inset_0_-2px_0_0_var(--primary-foreground)]"}`}
                           maxLength={100}
                           onClick={(e) => e.stopPropagation()}
                           onPointerDown={(e) => e.stopPropagation()}
                         />
                       </div>
                     ) : (
-                      <div
-                        className="relative z-20"
-                        onClick={handleStartEditName}
-                        onPointerDown={handleNamePointerDown}
-                        onMouseDown={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                        }}
-                      >
-                        <h3 className="text-xl font-semibold cursor-text text-center whitespace-normal break-words [overflow-wrap:anywhere] leading-tight" title={`Clique para editar: ${pack.name}`}>
-                          {pack.name}
-                        </h3>
-                      </div>
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div
+                              className="relative z-20 w-full"
+                              onClick={handleStartEditName}
+                              onPointerDown={handleNamePointerDown}
+                              onMouseDown={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                              }}
+                              onMouseEnter={() => isNameOverflowing && setIsNameHovered(true)}
+                              onMouseLeave={() => setIsNameHovered(false)}
+                            >
+                              <h3 ref={nameRef} className="text-xl font-semibold cursor-text whitespace-nowrap leading-tight text-center overflow-hidden w-full" style={{ textOverflow: isNameOverflowing && isNameHovered ? "clip" : "ellipsis" }}>
+                                <span
+                                  style={
+                                    isNameOverflowing && isNameHovered
+                                      ? ({
+                                          "--marquee-distance": `-${marqueeDistance}px`,
+                                          animation: `pack-name-scroll ${Math.min(marqueeDistance / 60, 3)}s ease-in-out forwards`,
+                                          display: "inline-block",
+                                        } as React.CSSProperties)
+                                      : {}
+                                  }
+                                >
+                                  {pack.name}
+                                </span>
+                              </h3>
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            <p>{pack.name}</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     )}
                   </div>
                 </div>
@@ -400,12 +422,7 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
               {/* Footer: Toggles com ícone e timestamp integrados */}
               <div className="flex flex-col gap-2">
                 {/* Manter atualizado */}
-                <div
-                  className="relative z-20"
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
+                <div className="relative z-20" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                   <div className="flex items-center px-3 py-2 bg-muted border border-border rounded-md gap-2 w-full justify-between">
                     <div className="flex gap-2">
                       <div className="flex items-center gap-2">
@@ -418,23 +435,12 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                         <UpdatedAtText dateTime={pack.updated_at} className="text-[10px] text-muted-foreground" />
                       </div>
                     </div>
-                    <Switch
-                      id={`auto-refresh-${pack.id}`}
-                      checked={pack.auto_refresh || false}
-                      onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)}
-                      disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id}
-                      className="data-[state=checked]:bg-success"
-                    />
+                    <Switch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} className="data-[state=checked]:bg-success" />
                   </div>
                 </div>
 
                 {/* Leadscore */}
-                <div
-                  className="relative z-20"
-                  onClick={(e) => e.stopPropagation()}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
+                <div className="relative z-20" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
                   <div className="flex items-center px-3 py-2 bg-muted border border-border rounded-md gap-2 w-full justify-between">
                     <div className="flex gap-2">
                       <div className="flex items-center gap-2">
@@ -455,20 +461,12 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                                     <IconAlertCircle className="w-3 h-3 text-warning flex-shrink-0 cursor-help" />
                                   </TooltipTrigger>
                                   <TooltipContent>
-                                    <p>
-                                      {lastSuccessfulSyncAt
-                                        ? "A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida."
-                                        : "A última tentativa de sincronização falhou e ainda não há sincronização bem-sucedida para este pack."}
-                                    </p>
+                                    <p>{lastSuccessfulSyncAt ? "A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida." : "A última tentativa de sincronização falhou e ainda não há sincronização bem-sucedida para este pack."}</p>
                                   </TooltipContent>
                                 </Tooltip>
                               </TooltipProvider>
                             )}
-                            {leadscoreDateForDisplay ? (
-                              <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-[10px] text-muted-foreground" />
-                            ) : (
-                              <span className="text-[10px] text-muted-foreground">Sem sync bem-sucedido</span>
-                            )}
+                            {leadscoreDateForDisplay ? <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-[10px] text-muted-foreground" /> : <span className="text-[10px] text-muted-foreground">Sem sync bem-sucedido</span>}
                           </div>
                         ) : null}
                       </div>

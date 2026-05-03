@@ -6,6 +6,23 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Thumbnails — sempre Storage cache, nunca Meta CDN
+
+**Data:** 2026-05-02
+
+**Regra:** Backend nunca expõe `thumbnail_url` cru do Meta para o frontend. Todo endpoint que retornar info de ad com thumbnail deve usar `_resolve_ad_thumbnail_url(row)` em `backend/app/routes/facebook.py` — que retorna URL gerada do `thumb_storage_path` no Supabase Storage, ou `None` se ainda não houver cache.
+
+**Por quê:** Os links da Meta CDN (`thumbnail_url`) expiram silenciosamente em horas/dias. Quando expostos ao frontend, imagens "somem" sem erro visível, parecendo bug de loading intermitente. O cache em Supabase Storage é a única fonte estável.
+
+**Como aplicar:**
+- Endpoints novos: chamar `_resolve_ad_thumbnail_url(ad)` — não fazer `ad.get("thumbnail_url")` direto, e não duplicar a lógica inline em outros endpoints.
+- Frontend: tratar `thumbnail_url: null` como "sem cache ainda" e renderizar placeholder cinza, não como erro.
+- A função NÃO tem fallback para Meta CDN (removido em 2026-05-02 após bug em `TranscriptionStatusDialog` mostrar links expirados).
+
+**Arquivos:** `backend/app/routes/facebook.py:73`
+
+---
+
 ## Meta API — Acesso a vídeo de anúncios via `source_ad`
 
 **Data:** 2026-04-21
@@ -407,6 +424,25 @@ O bug estava latente mas só surfacou após a correção do upload chunked (que 
 - Sempre que adicionar campos ao `ADSET_CLONE_FIELD_KEYS`, também adicioná-los ao `fields=` de `get_adsets_for_campaign`. As duas listas devem ficar em sincronia.
 - Em erros da Meta com `blame_field_specs`, cuidado com nomes de **seção da UI** (`compliance_section`) que não são campos reais da API. Buscar quais campos da API compõem aquela seção.
 
+**Atualização 2026-05-02 — UX proativa (flag persistida + bloqueio na UI):**
+
+Tentativas adicionais (copy endpoint, fetch de `default_dsa_beneficiary` na conta, hardcode de países regulados) falharam ou eram frágeis. Insights chave:
+- A regra é aplicada pelo Meta **por conta**, com critérios próprios — não puramente por país. Hardcodar `BR/TW/SG/AU/IN/TH` é imprudente.
+- A identidade de compliance (`universal_beneficiary`/`universal_payer`) é uma entidade Meta Business, **não derivável** de nenhum campo único do ad account (`business`, `owner_business`, `promoted_pages` todos retornam null ou IDs distintos).
+- Adsets antigos (criados antes da exigência) genuinamente não têm os campos preenchidos. Não há como injetá-los automaticamente — o usuário precisa editar o adset original no Gerenciador da Meta.
+
+**Abordagem final:**
+1. **Reativa no backend** ([campaign_bulk_service.py](../backend/app/services/campaign_bulk_service.py)): try/except em `create_adset`. No `subcode == 3858495`:
+   - `UPDATE ad_accounts SET requires_ads_transparency = true` (best-effort)
+   - Re-raise `MetaAPIError("adset_missing_compliance", ...)` com mensagem clara
+2. **Proativa no frontend** ([app/upload/page.tsx](../frontend/app/upload/page.tsx)): `/campaign-template/{ad_id}` agora retorna `account_requires_ads_transparency` e `has_ads_transparency` por adset. Frontend pré-seleciona apenas adsets compliantes, bloqueia "Continuar" se zero adsets forem compliantes, e mostra banner explicativo.
+3. **Schema:** `ad_accounts.requires_ads_transparency boolean NOT NULL DEFAULT false` (migration 080). Nunca limpa automaticamente — Meta não retira a exigência uma vez aplicada.
+
+**Arquivos alterados:**
+- `supabase/migrations/080_add_requires_ads_transparency_to_ad_accounts.sql` (novo)
+- `backend/app/{schemas,routes/facebook,services/campaign_bulk_service}.py`
+- `frontend/{lib/api/schemas.ts,app/upload/page.tsx}`
+
 ---
 
 ## TanStack Query — Patch in-place vs invalidate broad em mutations de status
@@ -480,3 +516,80 @@ A função `fetch_available_conversion_types_v1` copia **verbatim** os filtros e
 **Validação crítica antes de deploy:** rodar `SELECT fetch_available_conversion_types_v1(...)` e `SELECT (fetch_manager_rankings_core_v2(...))->'available_conversion_types'` lado a lado para o mesmo (user, packs, date range). Arrays devem ser **idênticos** (mesmo conteúdo, mesma ordem). Se divergir, NÃO migrar.
 
 **Regra geral aplicável:** quando uma probe (`limit=1`) é usada apenas para extrair metadata de uma RPC pesada, é sinal de que a RPC precisa de um fast-path ou de uma RPC dedicada. Combinada com persistência seletiva via TanStack, vira "0 requests no caso comum, request leve no caso raro".
+
+---
+
+## Refresh de Pack — Meta → (Leadscore ∥ Transcrição) sequencial
+
+**Data:** 2026-05-02
+
+**Problema:** Usuário relatou que o Leadscore "não atualiza no primeiro refresh do dia". Abria o app, aceitava o modal de auto-refresh dos 5 packs, e dados de leadscore vinham incompletos. Refresh manual subsequente trazia os dados corretos.
+
+**Causa raiz** (confirmada pelos logs em produção): em [usePackRefresh.ts](../frontend/lib/hooks/usePackRefresh.ts), Meta refresh, Leadscore sync e Transcrição rodavam **em paralelo** via `Promise.allSettled`. Leadscore termina em ~30s (read planilha + RPC `batch_update_ad_metrics_enrichment`), enquanto Meta leva minutos polling. O RPC do Leadscore atualiza linhas existentes em `ad_metrics`; o Meta refresh é quem **cria** essas linhas para ads recém-ativos. Mesma lógica vale para Transcrição: ads novos só aparecem em `ads` depois do Meta upsert. Resultado: Leadscore/Transcrição consultavam o estado antes de Meta popular → ads novos passavam batido silenciosamente até o próximo refresh manual.
+
+**Evidência nos logs:** em todas as 5 integrações analisadas, `not_found` do Leadscore caía entre run 1 e run 2 do mesmo dia (ex: integração `42a78a69` 220→63, `1866f259` 162→63, `e53e30c0` 140→63). Os ~50–150 ads "rescatados" no run 2 são exatamente os que o Meta refresh criou no intervalo.
+
+**Solução:** Meta roda primeiro dentro de uma async IIFE. Leadscore e Transcrição rodam em paralelo entre si, mas só **depois** que Meta concluir com sucesso. Se Meta falhar ou for cancelado pelo usuário, **ambos abortam** com warning específico no console (`[PACK_REFRESH] Leadscore abortado / Transcrição abortada para pack X: Meta não concluiu com sucesso`). Dados parciais não justificam confusão.
+
+**Edge cases:**
+- Quando `toggles.meta === false` (usuário escolhe rodar só dependentes via modal de toggles), `metaSucceeded` começa `true` e Leadscore/Transcrição rodam normalmente em paralelo — não há gating contra Meta que não foi pedido.
+- Cancelamento individual de Leadscore (`sheetsCancelled`) ou Transcrição (`transcriptionCancelled`) continua respeitado independentemente.
+
+**Arquivos alterados:** [frontend/lib/hooks/usePackRefresh.ts](../frontend/lib/hooks/usePackRefresh.ts) — única mudança de código.
+
+**Call-sites cobertos automaticamente:** os 3 entry points convergem em `refreshPack` e herdam o gating sem mudança própria — modal de auto-refresh ([useAutoRefreshPacks.ts](../frontend/lib/hooks/useAutoRefreshPacks.ts)), página /packs ([packs/page.tsx](../frontend/app/packs/page.tsx)) e ícone do topbar ([Topbar.tsx](../frontend/components/layout/Topbar.tsx)).
+
+**Tradeoff:** tempo total de refresh por pack vira `meta + max(leadscore, transcrição)` em vez de `max(meta, leadscore, transcrição)`. Como Meta domina (minutos vs ~30s), o overhead percebido é ~10–15% — aceitável em troca de dados consistentes no primeiro refresh.
+
+**Regra geral aplicável:** orquestração de jobs paralelos só é segura quando **nenhum job lê dados que outro está escrevendo**. Aqui, Meta era escritor de `ad_metrics`/`ads` e Leadscore/Transcrição eram leitores — relação produtor-consumidor que exige sequenciamento. Antes de paralelizar processos, mapear quem cria/modifica vs quem lê cada tabela.
+
+---
+
+## Design System — Opacidade: hífen para tokens do projeto, slash para cores default do Tailwind
+
+**Data:** 2026-05-02
+
+**Regra:** Existem **duas famílias de cores** no projeto, com **sintaxes diferentes** para opacidade. Escolher a sintaxe certa depende de qual família a cor pertence.
+
+### Família 1 — Tokens semânticos do projeto → **hífen**
+
+Tokens definidos em [frontend/tailwind.config.ts](../frontend/tailwind.config.ts) via `alphaScale(cssVar)`: primary, destructive, success, muted, accent, border, input, ring, warning, info, attention, foreground, background, card-foreground, popover-foreground, brand, chart-1..5, etc.
+
+`alphaScale()` gera tokens nomeados nos passos `[5, 10, 20, 30, 40, 45, 50, 60, 70, 75, 80, 82, 88, 90, 95]`, cada um expandindo para `color-mix(in oklab, var(--token) N%, var(--background))` — uma **mistura com a superfície**, não alpha transparency.
+
+**Por que hífen e não slash:** comentário no próprio config: *"Evita `transparent` em color-mix (OKLab trata transparent como preto sem alpha e pode virar branco)."* Usar `/N` faria Tailwind aplicar transparência alpha, que sob interpolação OKLab pode renderizar como preto/branco em vez do tom mixed esperado.
+
+| ✅ Correto | ❌ Evitar |
+|---|---|
+| `bg-primary-10` | `bg-primary/10` |
+| `border-border-50` | `border-border/50` |
+| `hover:bg-destructive-10` | `hover:bg-destructive/10` |
+| `bg-muted-30` | `bg-muted/30` |
+
+Passos disponíveis: apenas os definidos em `alphaSteps` — 5, 10, 20, 30, 40, 45, 50, 60, 70, 75, 80, 82, 88, 90, 95.
+
+### Família 2 — Cores default do Tailwind → **slash**
+
+Cores padrão (white, black, gray, slate, zinc, red, blue, green, yellow, amber, orange, purple, pink, indigo, cyan, teal, emerald, lime, rose, violet, fuchsia, sky, etc.) são RGB-based e suportam o modificador nativo `/N` do Tailwind sem problemas de OKLab.
+
+| ✅ Correto |
+|---|
+| `bg-black/60` |
+| `text-white/90` |
+| `bg-white/20` |
+| `dark:bg-amber-900/20` |
+| `hover:bg-black/70` |
+
+❌ `bg-black-60` resolveria para nada — esses tokens não existem na config.
+
+**Já em uso confirmado:** AdPlayArea, ExplorerPage, RetentionVideoPlayer, MetricHistoryChart, SlotUploadZone, CreativePreview, etc.
+
+### Como decidir
+
+1. Identifique a cor: é do `tailwind.config.ts` (semântica, do tema do app) ou da paleta default do Tailwind?
+2. Semântica → hífen. Default → slash.
+3. Se em dúvida, conferir `tailwind.config.ts` — qualquer cor que passa por `alphaScale()` é hífen.
+
+**Inconsistências existentes:** alguns arquivos antigos usam slash em tokens semânticos (`bg-muted/40` em [QuotaGauges.tsx](../frontend/components/meta-usage/QuotaGauges.tsx) e [MetaUsageTable.tsx](../frontend/components/meta-usage/MetaUsageTable.tsx)). São desvios, não a convenção — não replicar.
+
+**Regra geral aplicável:** quando um design system define tokens semânticos via `color-mix` para evitar bugs de gamut (OKLab/transparent), o sistema **substitui** o modificador opacity nativo do Tailwind para essa família — mas **não afeta** cores default que continuam usando a sintaxe original. Sempre identifique a família da cor antes de aplicar opacidade.

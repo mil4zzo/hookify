@@ -71,13 +71,16 @@ router = APIRouter(prefix="/facebook", tags=["facebook"])
 
 
 def _resolve_ad_thumbnail_url(row: Dict[str, Any]) -> Optional[str]:
-    """Retorna URL de thumbnail preferindo Supabase Storage sobre Meta CDN (que expira)."""
+    """Retorna URL de thumbnail somente do Supabase Storage cache.
+
+    Nunca expõe `thumbnail_url` cru do Meta — os links da CDN expiram e quebram
+    silenciosamente no frontend. Se o cache ainda não tem thumb, retorna None
+    e o frontend mostra placeholder.
+    """
     storage_path = str(row.get("thumb_storage_path") or "").strip()
-    if storage_path:
-        url = build_public_storage_url(DEFAULT_BUCKET, storage_path)
-        if url:
-            return url
-    return row.get("thumbnail_url")
+    if not storage_path:
+        return None
+    return build_public_storage_url(DEFAULT_BUCKET, storage_path)
 
 
 ALLOWED_IMAGE_CONTENT_TYPES = {"image/jpeg", "image/png"}
@@ -2687,9 +2690,14 @@ def start_transcription(
     )
 
 
+class TranscribePackRequest(BaseModel):
+    ad_names: Optional[List[str]] = None
+
+
 @router.post("/packs/{pack_id}/transcribe", status_code=202)
 def start_pack_transcription(
     pack_id: str,
+    body: Optional[TranscribePackRequest] = None,
     api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
@@ -2727,6 +2735,13 @@ def start_pack_transcription(
             if not isinstance(a.get("creative"), dict):
                 a["creative"] = {}
             formatted_ads.append(a)
+
+        # Filtrar por ad_names específicos se fornecido no body
+        if body and body.ad_names:
+            name_set = set(body.ad_names)
+            filtered = [a for a in formatted_ads if a.get("ad_name") in name_set]
+            if filtered:
+                formatted_ads = filtered
 
         pending = count_pending_transcriptions(
             user_jwt=user["token"],
@@ -2799,6 +2814,108 @@ def start_pack_transcription(
     except Exception as e:
         logger.exception(f"[TRANSCRIBE_PACK] Erro ao iniciar transcrição do pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail="Erro ao iniciar transcrição")
+
+
+@router.get("/packs/{pack_id}/transcription-status")
+def get_pack_transcription_status(
+    pack_id: str,
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Retorna contagens e listas de ads por categoria de transcrição para um pack."""
+    from app.services.supabase_repo import _is_no_audio_failure
+
+    try:
+        sb = get_supabase_for_user(user["token"])
+        pack_res = (
+            sb.table("packs")
+            .select("*")
+            .eq("id", pack_id)
+            .eq("user_id", user["user_id"])
+            .limit(1)
+            .execute()
+        )
+        if not pack_res.data:
+            raise HTTPException(status_code=404, detail="Pack não encontrado")
+
+        pack = pack_res.data[0]
+        ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
+
+        # Filtrar ads de vídeo e deduplicar por ad_name, mantendo melhor thumbnail
+        seen: dict = {}  # ad_name -> {"thumbnail_url": ...}
+        for ad in (ads or []):
+            ad_name = str(ad.get("ad_name") or "").strip()
+            if not ad_name:
+                continue
+            media_type = str(ad.get("media_type") or "").strip().lower()
+            primary_video_id = str(ad.get("primary_video_id") or "").strip()
+            is_video = media_type == "video" or (media_type not in ("image",) and bool(primary_video_id))
+            if not is_video:
+                continue
+            thumbnail_url = _resolve_ad_thumbnail_url(ad)
+            if ad_name not in seen or (thumbnail_url and not seen[ad_name]["thumbnail_url"]):
+                seen[ad_name] = {"thumbnail_url": thumbnail_url}
+
+        if not seen:
+            return {
+                "transcribed": 0, "untranscribed": 0, "no_voice": 0, "processing": 0,
+                "untranscribed_ads": [], "processing_ads": [],
+            }
+
+        ad_names = list(seen.keys())
+
+        # Busca status existentes (completed, processing, pending, failed-no-audio)
+        existing = supabase_repo.get_existing_transcriptions(user["token"], user["user_id"], ad_names)
+
+        # Busca metadata dos failed para classificar no_voice
+        no_voice_names: set = set()
+        failed_names = [n for n, s in existing.items() if s == "failed"]
+        if failed_names:
+            failed_rows = (
+                sb.table("ad_transcriptions")
+                .select("ad_name,metadata")
+                .eq("user_id", user["user_id"])
+                .eq("status", "failed")
+                .in_("ad_name", failed_names)
+                .execute()
+            ).data or []
+            for row in failed_rows:
+                if _is_no_audio_failure(row.get("metadata")):
+                    no_voice_names.add(str(row.get("ad_name") or "").strip())
+
+        # Categorizar
+        transcribed = 0
+        no_voice = 0
+        processing_count = 0
+        untranscribed_ads = []
+        processing_ads = []
+
+        for ad_name, thumb in seen.items():
+            status = existing.get(ad_name)
+            thumbnail_url = thumb.get("thumbnail_url")
+            if status == "completed":
+                transcribed += 1
+            elif status in ("processing", "pending"):
+                processing_count += 1
+                processing_ads.append({"ad_name": ad_name, "thumbnail_url": thumbnail_url})
+            elif status == "failed" and ad_name in no_voice_names:
+                no_voice += 1
+            else:
+                # sem registro ou failed retriable
+                untranscribed_ads.append({"ad_name": ad_name, "thumbnail_url": thumbnail_url})
+
+        return {
+            "transcribed": transcribed,
+            "untranscribed": len(untranscribed_ads),
+            "no_voice": no_voice,
+            "processing": processing_count,
+            "untranscribed_ads": untranscribed_ads,
+            "processing_ads": processing_ads,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"[TRANSCRIPTION_STATUS] Erro ao obter status de transcrição do pack {pack_id}: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao obter status de transcrição")
 
 
 @router.get("/transcription-progress/{job_id}")

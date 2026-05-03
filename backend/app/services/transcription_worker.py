@@ -19,6 +19,7 @@ from app.services.job_tracker import (
     STATUS_PROCESSING,
     get_job_tracker,
 )
+from app.services.supabase_repo import _NO_SPOKEN_AUDIO_PHRASE
 from app.services.graph_api import GraphAPI
 from app.services.transcription_service import TranscriptionResult, transcribe_video
 from app.services import supabase_repo
@@ -43,8 +44,10 @@ def _extract_video_info(
         creative = ad.get("creative") or {}
         video_id = str(ad.get("primary_video_id") or "").strip()
         actor_id = str(creative.get("actor_id") or "").strip()
+        media_type = str(ad.get("media_type") or "").strip().lower()
 
-        if video_id and actor_id:
+        is_video = media_type == "video" or (media_type not in ("image",) and bool(video_id))
+        if is_video and video_id:
             result[ad_name] = {"video_id": video_id, "actor_id": actor_id}
 
     return result
@@ -123,12 +126,15 @@ def _transcribe_single(
         )
         return result
 
+    error_message = result.error or "Transcrição cancelada pelo usuário"
     metadata = {
         "provider": "assemblyai",
         "source_video_id": video_id,
         "actor_id": actor_id,
-        "error_message": result.error or "Transcrição cancelada pelo usuário",
+        "error_message": error_message,
     }
+    if result.error and _NO_SPOKEN_AUDIO_PHRASE in result.error.lower():
+        metadata["no_voice_detected"] = True
     supabase_repo.upsert_transcription(
         user_jwt,
         user_id,

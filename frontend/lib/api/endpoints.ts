@@ -37,6 +37,7 @@ import {
   CampaignBulkConfig,
   CampaignBulkProgressResponse,
   AdTranscriptionResponse,
+  PackTranscriptionStatus,
   MetaUsageSummaryResponse,
   MetaUsageCallsParams,
   MetaUsageCallsResponse,
@@ -122,9 +123,13 @@ export const api = {
     refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh", skipSheetsSync: boolean = false): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string }> =>
       apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType, skip_sheets_sync: skipSheetsSync }),
 
+    /** Retorna contagens e listas de ads por categoria de transcrição para um pack. */
+    getPackTranscriptionStatus: (packId: string): Promise<PackTranscriptionStatus> =>
+      apiClient.get(`/facebook/packs/${packId}/transcription-status`),
+
     /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Retorna transcription_job_id para polling. */
-    startPackTranscription: (packId: string): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null }> =>
-      apiClient.post(`/facebook/packs/${packId}/transcribe`),
+    startPackTranscription: (packId: string, adNames?: string[]): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null }> =>
+      apiClient.post(`/facebook/packs/${packId}/transcribe`, adNames ? { ad_names: adNames } : {}),
 
     /** Inicia ou reinicia a transcrição de um anúncio por ad_name. */
     transcribeAd: (adName: string): Promise<{ message: string; ad_name: string }> =>

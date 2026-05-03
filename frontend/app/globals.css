@@ -4,6 +4,11 @@
 
 @import "./theme-generated.css";
 
+@keyframes pack-name-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--marquee-distance, 0px)); }
+}
+
 /* Receitas de gradiente compartilhadas entre botões e cards */
 .neutral-gradient {
   --gradient-fill: radial-gradient(
