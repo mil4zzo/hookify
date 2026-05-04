@@ -54,6 +54,7 @@ from app.services.job_processor import process_job_async
 from app.services.background_tasks import get_background_status
 from app.services.bulk_ad_service import BulkAdJobContext, BulkAdProcessor
 from app.services.campaign_bulk_service import CampaignBulkProcessor
+from app.services.meta_api_errors import derive_error_category
 from app.services.meta_campaign_clone import (
     merge_page_id_from_promoted_object,
     object_story_actor_from_creative,
@@ -1265,6 +1266,11 @@ def get_bulk_ads_progress(
                 "meta_creative_id": item.get("meta_creative_id"),
                 "error_message": item.get("error_message"),
                 "error_code": item.get("error_code"),
+                "error_category": (
+                    derive_error_category(item.get("error_code"))
+                    if item.get("status") == "error"
+                    else None
+                ),
             }
             for item in items
         ],
@@ -1842,6 +1848,11 @@ def get_campaign_bulk_progress(
                 "meta_creative_id": item.get("meta_creative_id"),
                 "error_message": item.get("error_message"),
                 "error_code": item.get("error_code"),
+                "error_category": (
+                    derive_error_category(item.get("error_code"))
+                    if item.get("status") == "error"
+                    else None
+                ),
             }
             for item in items
         ],

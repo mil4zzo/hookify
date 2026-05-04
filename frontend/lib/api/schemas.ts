@@ -740,6 +740,7 @@ export const BulkAdItemProgressSchema = z.object({
   meta_creative_id: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
   error_code: z.string().nullable().optional(),
+  error_category: z.string().nullable().optional(),
   error_details: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
@@ -825,6 +826,9 @@ export const CampaignBulkConfigSchema = z.object({
   items: z.array(CampaignBulkItemConfigSchema).min(1).max(100),
 })
 
+export const ErrorCategorySchema = z.enum(["retryable", "template_replaceable", "auth", "fatal"])
+export type ErrorCategory = z.infer<typeof ErrorCategorySchema>
+
 export const CampaignBulkItemProgressSchema = z.object({
   id: z.string(),
   ad_name: z.string(),
@@ -835,6 +839,7 @@ export const CampaignBulkItemProgressSchema = z.object({
   meta_creative_id: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
   error_code: z.string().nullable().optional(),
+  error_category: ErrorCategorySchema.nullable().optional(),
   error_details: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 

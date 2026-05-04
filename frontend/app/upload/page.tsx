@@ -373,15 +373,18 @@ function CampaignProgressView({
           )}
           {isCompleted && summary.error > 0 && (() => {
             const failedItems = items.filter((i) => i.status === "error")
-            const allComplianceErrors = failedItems.length > 0 && failedItems.every((i) => i.error_code === "adset_missing_compliance")
-            if (allComplianceErrors && onSelectNewTemplate) {
+            if (failedItems.length === 0) return null
+            const categories = new Set(failedItems.map((i) => i.error_category || "fatal"))
+            // Prioridade quando misturadas: template_replaceable resolve mais erros (1 ação),
+            // depois retryable. Fatal/auth = sem botão (auth é raro mid-job e o Topbar mostra status).
+            if (categories.has("template_replaceable") && onSelectNewTemplate) {
               return (
                 <Button type="button" size="sm" onClick={onSelectNewTemplate} className="gap-1.5">
                   Selecionar outro modelo
                 </Button>
               )
             }
-            if (onRetry) {
+            if (categories.has("retryable") && onRetry) {
               return (
                 <Button
                   type="button"
