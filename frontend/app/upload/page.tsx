@@ -906,10 +906,17 @@ export default function UploadPage() {
     && campaignTemplate.account_requires_ads_transparency
     && !campaignTemplate.adsets.some((a) => a.has_ads_transparency)
 
+  // Em modo "campaign", se o token do usuário não administra a Page do creative.
+  const campaignTemplateBlockedByPage =
+    uploadMode === "campaign"
+    && !!campaignTemplate
+    && campaignTemplate.user_can_publish === false
+
   const step1Ready = uploadMode === "ads"
     ? !!selectedTemplateAdId && !!creative && !!creative.supports_bulk_clone
     : !!selectedTemplateAdId && !!campaignTemplate && !!creative && !!creative.supports_bulk_clone
       && !campaignTemplateBlockedByTransparency
+      && !campaignTemplateBlockedByPage
 
   const isAnyCreating = isCreating || isCampaignCreating || isCampaignStarting
   const campaignProcessElapsedLabel = useElapsedLabel(campaignProcessStartedAtMs, campaignProcessEndedAtMs)
@@ -1041,6 +1048,18 @@ export default function UploadPage() {
               ) : campaignTemplate ? (
                 <div className="space-y-3">
                   <CreativePreview creative={creative} adId={selectedTemplateAdId} />
+                  {campaignTemplateBlockedByPage && (
+                    <div className="rounded-md border border-destructive/40 bg-destructive/5 text-destructive p-3 text-xs space-y-1">
+                      <div className="font-semibold">Você não administra a Page deste anúncio</div>
+                      <div className="text-muted-foreground">
+                        {campaignTemplate.missing_page_name
+                          ? `A Page "${campaignTemplate.missing_page_name}" (${campaignTemplate.missing_page_id}) não está sob sua administração.`
+                          : `A Page ${campaignTemplate.missing_page_id} não está sob sua administração.`
+                        }
+                        {" "}Selecione um anúncio cuja Page você administre.
+                      </div>
+                    </div>
+                  )}
                   {campaignTemplate.account_requires_ads_transparency && (
                     <div
                       className={`rounded-md border p-3 text-xs space-y-1 ${

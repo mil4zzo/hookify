@@ -802,6 +802,9 @@ export const CampaignTemplateResponseSchema = z.object({
   ad_name: z.string(),
   account_id: z.string().nullable().optional(),
   account_requires_ads_transparency: z.boolean().default(false),
+  user_can_publish: z.boolean().default(true),
+  missing_page_id: z.string().nullable().optional(),
+  missing_page_name: z.string().nullable().optional(),
 })
 
 export const CampaignBulkItemConfigSchema = z.object({

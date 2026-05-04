@@ -24,6 +24,7 @@ from app.services.facebook_connections_repo import (
     list_connections,
     update_connection_status
 )
+from app.services.facebook_page_token_service import get_user_page_access_info
 from app.core.auth import get_current_user
 from pydantic import BaseModel
 from pydantic import ValidationError
@@ -1466,6 +1467,34 @@ def get_campaign_template(
         except Exception as exc:
             logger.warning("[campaign-template] failed to fetch requires_ads_transparency: %s", exc)
 
+    # Verificar se o token do usuário administra a Page usada pelo creative
+    user_can_publish = True
+    missing_page_id: Optional[str] = None
+    missing_page_name: Optional[str] = None
+    try:
+        creative_result = api.get_ad_creative_details(ad_id)
+        if creative_result.get("status") == "success":
+            creative_raw = creative_result.get("data") or {}
+            creative_node = creative_raw.get("creative") or {}
+            oss = creative_node.get("object_story_spec") or {}
+            page_id_from_creative = str(oss.get("page_id") or "").strip()
+            if page_id_from_creative:
+                is_administered, page_name = get_user_page_access_info(
+                    user_id=user["user_id"],
+                    user_access_token=api.access_token,
+                    page_id=page_id_from_creative,
+                )
+                if not is_administered:
+                    user_can_publish = False
+                    missing_page_id = page_id_from_creative
+                    missing_page_name = page_name
+                    logger.info(
+                        "[campaign-template] ad_id=%s page_id=%s not in user pages → user_can_publish=False",
+                        ad_id, page_id_from_creative,
+                    )
+    except Exception as exc:
+        logger.warning("[campaign-template] page access check failed (non-blocking): %s", exc)
+
     # Buscar config da campanha
     campaign_result = api.get_campaign_config(campaign_id)
     if campaign_result.get("status") != "success":
@@ -1514,6 +1543,9 @@ def get_campaign_template(
         ad_name=ad_name,
         account_id=account_id_raw or None,
         account_requires_ads_transparency=account_requires_transparency,
+        user_can_publish=user_can_publish,
+        missing_page_id=missing_page_id,
+        missing_page_name=missing_page_name,
     )
 
 

@@ -221,6 +221,9 @@ class CampaignTemplateResponse(BaseModel):
     ad_name: str
     account_id: Optional[str] = None
     account_requires_ads_transparency: bool = False
+    user_can_publish: bool = True
+    missing_page_id: Optional[str] = None
+    missing_page_name: Optional[str] = None
 
 
 class BulkAdRetryRequest(BaseModel):
