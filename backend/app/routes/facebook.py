@@ -2930,11 +2930,13 @@ def get_pack_transcription_status(
         ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
 
         # Filtrar ads de vídeo e deduplicar por ad_name, mantendo melhor thumbnail
+        all_ad_names: set = set()
         seen: dict = {}  # ad_name -> {"thumbnail_url": ...}
         for ad in (ads or []):
             ad_name = str(ad.get("ad_name") or "").strip()
             if not ad_name:
                 continue
+            all_ad_names.add(ad_name)
             media_type = str(ad.get("media_type") or "").strip().lower()
             primary_video_id = str(ad.get("primary_video_id") or "").strip()
             is_video = media_type == "video" or (media_type not in ("image",) and bool(primary_video_id))
@@ -2944,8 +2946,12 @@ def get_pack_transcription_status(
             if ad_name not in seen or (thumbnail_url and not seen[ad_name]["thumbnail_url"]):
                 seen[ad_name] = {"thumbnail_url": thumbnail_url}
 
+        total_ads = len(all_ad_names)
+        total_video_ads = len(seen)
+
         if not seen:
             return {
+                "total_ads": total_ads, "total_video_ads": 0,
                 "transcribed": 0, "untranscribed": 0, "no_voice": 0, "processing": 0,
                 "untranscribed_ads": [], "processing_ads": [],
             }
@@ -2993,6 +2999,8 @@ def get_pack_transcription_status(
                 untranscribed_ads.append({"ad_name": ad_name, "thumbnail_url": thumbnail_url})
 
         return {
+            "total_ads": total_ads,
+            "total_video_ads": total_video_ads,
             "transcribed": transcribed,
             "untranscribed": len(untranscribed_ads),
             "no_voice": no_voice,

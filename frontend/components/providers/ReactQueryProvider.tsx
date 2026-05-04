@@ -36,7 +36,11 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
         shouldDehydrateQuery: (query) => {
           if (query.state.status !== 'success') return false
           const key = query.queryKey
-          return Array.isArray(key) && key[0] === 'analytics' && key[1] === 'conversion-types'
+          if (Array.isArray(key) && key[0] === 'analytics' && key[1] === 'conversion-types') return true
+          // Persist connections so the button area renders instantly on return visits (optimistic),
+          // then revalidates in the background. Logout clears this via invalidateSessionCache.
+          if (Array.isArray(key) && key[0] === 'facebook' && key[1] === 'connections') return true
+          return false
         },
       },
     }

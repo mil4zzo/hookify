@@ -79,14 +79,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
       showCloseButton={false}
     >
       <div className="flex flex-col gap-6 py-4">
-        <div>
-          <h2 className="text-xl font-semibold text-text mb-2">Transcrição — {packName}</h2>
-          {!isLoading && status && !allDone && totalSelectable > 0 && (
-            <p className="text-sm text-muted-foreground">
-              Selecione quais anúncios deseja transcrever:
-            </p>
-          )}
-        </div>
+        <h2 className="text-xl font-semibold text-text">Transcrição — {packName}</h2>
 
         {isLoading && (
           <div className="flex items-center justify-center py-8">
@@ -102,45 +95,25 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
 
         {!isLoading && status && (
           <>
-            {/* Status badges */}
-            <div className="flex flex-wrap gap-2">
-              {status.transcribed > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-success/30 bg-success/10 px-2.5 py-1 text-xs font-medium text-success">
-                  <IconCheck className="h-3.5 w-3.5" />
-                  {status.transcribed} {status.transcribed === 1 ? "transcrito" : "transcritos"}
-                </span>
-              )}
-              {status.untranscribed > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-input-30 px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                  <IconMicrophone className="h-3.5 w-3.5" />
-                  {status.untranscribed} sem transcrição
-                </span>
-              )}
-              {status.no_voice > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-1 text-xs font-medium text-warning">
-                  <IconMicrophoneOff className="h-3.5 w-3.5" />
-                  {status.no_voice} sem voz detectada
-                </span>
-              )}
-              {status.processing > 0 && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                  <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-                  {status.processing} em processamento
-                </span>
-              )}
-              {status.transcribed === 0 && status.untranscribed === 0 && status.no_voice === 0 && status.processing === 0 && (
-                <span className="text-sm text-muted-foreground">
-                  Nenhum anúncio de vídeo encontrado neste pack.
-                </span>
-              )}
-            </div>
+            <AdBreakdownBar status={status} />
 
             {allDone ? (
               <p className="text-sm text-muted-foreground">
                 Todos os anúncios de vídeo deste pack já foram transcritos.
               </p>
             ) : (
-              <>
+              <div className="flex flex-col gap-2">
+                {totalSelectable > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      {confirmCount} de {totalSelectable} selecionado{confirmCount !== 1 ? "s" : ""}
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={handleToggleAll}>
+                      {confirmCount === totalSelectable ? "Desmarcar todos" : "Marcar todos"}
+                    </Button>
+                  </div>
+                )}
+
                 <div className="space-y-1 max-h-[300px] overflow-y-auto border border-border rounded-lg p-2">
                   {status.untranscribed_ads.map((ad) => (
                     <AdRow
@@ -161,18 +134,7 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
                     />
                   ))}
                 </div>
-
-                {totalSelectable > 0 && (
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">
-                      {confirmCount} de {totalSelectable} selecionado{confirmCount !== 1 ? "s" : ""}
-                    </span>
-                    <Button variant="ghost" size="sm" onClick={handleToggleAll}>
-                      {confirmCount === totalSelectable ? "Desmarcar todos" : "Marcar todos"}
-                    </Button>
-                  </div>
-                )}
-              </>
+              </div>
             )}
           </>
         )}
@@ -239,4 +201,92 @@ function Thumbnail({ url }: { url?: string | null }) {
     return <img src={url} alt="" className="h-9 w-9 shrink-0 rounded object-cover" />;
   }
   return <div className="h-9 w-9 shrink-0 rounded bg-input-30" />;
+}
+
+const STRIPE_BG =
+  "repeating-linear-gradient(-45deg, color-mix(in oklab, var(--muted-foreground) 22%, transparent) 0, color-mix(in oklab, var(--muted-foreground) 22%, transparent) 2px, transparent 2px, transparent 7px)";
+const TRANSCRIBED_BG = "color-mix(in oklab, var(--success) 40%, transparent)";
+const UNTRANSCRIBED_BG = "var(--attention)";
+
+function AdBreakdownBar({ status }: { status: PackTranscriptionStatus }) {
+  const total = status.total_video_ads;
+  const untranscribedTotal = status.untranscribed + status.processing;
+
+  if (total === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        Nenhum anúncio de vídeo neste pack.
+      </p>
+    );
+  }
+
+  const barSegments = [
+    { key: "transcribed", count: status.transcribed, bg: TRANSCRIBED_BG },
+    { key: "untranscribed", count: untranscribedTotal, bg: UNTRANSCRIBED_BG },
+    { key: "no_voice", count: status.no_voice, bg: STRIPE_BG },
+  ].filter((s) => s.count > 0);
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <span className="text-sm text-muted-foreground">
+        Dos{" "}
+        <span className="font-semibold text-text">{total}</span>{" "}
+        de vídeo:
+      </span>
+
+      <div
+        className="flex h-4 w-full overflow-hidden rounded-full"
+        style={{ background: "color-mix(in oklab, var(--border) 60%, transparent)" }}
+      >
+        {barSegments.map((seg) => {
+          const pct = (seg.count / total) * 100;
+          return (
+            <div
+              key={seg.key}
+              className="h-full transition-all"
+              style={{ width: `max(${pct}%, 6px)`, background: seg.bg }}
+            />
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-x-5 gap-y-1 pt-0.5">
+        <LegendItem
+          dotBg={TRANSCRIBED_BG}
+          textClass={status.transcribed > 0 ? "text-success/80" : "text-muted-foreground/40"}
+          label={`${status.transcribed} ${status.transcribed === 1 ? "transcrito" : "transcritos"}`}
+        />
+        <LegendItem
+          dotBg={UNTRANSCRIBED_BG}
+          textClass={untranscribedTotal > 0 ? "text-attention" : "text-muted-foreground/40"}
+          label={`${untranscribedTotal} sem transcrição${status.processing > 0 ? ` · ${status.processing} em andamento` : ""}`}
+        />
+        <LegendItem
+          dotBg={STRIPE_BG}
+          textClass={status.no_voice > 0 ? "text-muted-foreground/70" : "text-muted-foreground/40"}
+          label={`${status.no_voice} sem áudio`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function LegendItem({
+  dotBg,
+  textClass,
+  label,
+}: {
+  dotBg: string;
+  textClass: string;
+  label: string;
+}) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs ${textClass}`}>
+      <span
+        className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm"
+        style={{ background: dotBg }}
+      />
+      {label}
+    </span>
+  );
 }

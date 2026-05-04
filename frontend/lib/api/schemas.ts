@@ -892,6 +892,8 @@ export interface TranscriptionAdInfo {
 }
 
 export interface PackTranscriptionStatus {
+  total_ads: number
+  total_video_ads: number
   transcribed: number
   untranscribed: number
   no_voice: number

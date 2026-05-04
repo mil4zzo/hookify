@@ -126,8 +126,9 @@ export default function Topbar() {
   // Preload the cached image so it's decoded by the time the <img> element actually mounts.
   // Without this, the <img> mounts → browser fetches/decodes → brief transparent moment where initials show through.
   useEffect(() => {
+    // window.Image (not the next/image import shadowing the global) — native browser preloader
     if (cachedAvatarUrl && typeof window !== "undefined") {
-      const preloader = new Image();
+      const preloader = new window.Image();
       preloader.src = cachedAvatarUrl;
     }
   }, [cachedAvatarUrl]);
@@ -802,7 +803,7 @@ export default function Topbar() {
             {/* Conectar Facebook ou Atualizar Dados Button - only show when authenticated */}
             {isAuthenticated && (
               <>
-                {/* Stats Info - only show when authenticated and has packs */}
+                {/* Stats: sourced from Zustand/IndexedDB — no dependency on connections query */}
                 {packs.length > 0 && (
                   <div className="hidden md:flex flex-col items-end gap-0 pr-3 border-r border-border">
                     <p className="text-xs font-medium text-text leading-tight">
