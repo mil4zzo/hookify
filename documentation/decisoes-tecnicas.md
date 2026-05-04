@@ -6,6 +6,70 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Meta `/copies` — valida targeting mais estrito que `/adsets`
+
+**Data:** 2026-05-04
+
+**Regra:** `/copies` em adset aplica validação de `targeting` mais estrita que `create_adset`. Adsets rodando ativamente, criados via Ads Manager e aceitos sem problema, podem falhar `/copies` com subcode `2490392` ("Você também deve selecionar o Explorar do Instagram") — `instagram_positions: [..., 'explore_home']` sem `'explore'` junto.
+
+**Por quê:** descoberto empiricamente. Source aceito por `create_adset`/Ads Manager passa pela validação mais permissiva; `/copies` rejeita pela mesma config. **Não mutar source** — é dado do usuário, está rodando, e mudar `instagram_positions` mudaria comportamento das ads em produção (passariam a aparecer também no Explore principal, não só Explore Home).
+
+**Como aplicar:**
+1. Tentar `/copies` primeiro (caminho feliz, código simples).
+2. Se falhar com subcode `2490392` + `'instagram_positions'` em `blame_field_specs`: cair para `create_adset` manual.
+3. Buscar config completa do source via GET, normalizar targeting localmente (`['explore'] + ig`), POST `/act_X/adsets` com a config corrigida.
+4. Source intocado — apenas o payload novo é normalizado.
+
+**Não generalizar:** outros subcodes de validação propagam. Não voltar a fazer `create_adset` pra tudo — é fallback narrow só pro caso específico.
+
+**Arquivos:** `backend/app/services/campaign_bulk_service.py:_copy_adset_with_targeting_normalization`.
+
+---
+
+## Meta `/copies` — limite <3 entidades em modo sync
+
+**Data:** 2026-05-04
+
+**Regra:** `POST /{id}/copies` da Meta em modo síncrono rejeita com subcode `1885194` ("A solicitação de cópia é muito grande") se o **total** de campanhas + adsets + ads a copiar for **>= 3**. Em duplicação via `/copies`, **nunca usar `deep_copy=true`** em campanhas com adsets/ads reais.
+
+**Por quê:** descoberto empiricamente ao tentar duplicar campanha com 3 adsets via `deep_copy=true`. Total = 1 campanha + 3 adsets + N ads >= 4 entidades = bloqueado. A mensagem do Meta sugere `asynchronous-batch-requests` como alternativa, mas isso é overkill — iterar é mais simples e correto.
+
+**Como aplicar:**
+1. `POST /{campaign_id}/copies` com `deep_copy=false` → copia shell vazia (1 entidade ✓)
+2. Para cada adset que quer copiar: `POST /{source_adset_id}/copies?campaign_id={new}&deep_copy=false` → copia adset sem ads (1 entidade ✓)
+3. Para cada ad: `POST /{source_ad_id}/copies?adset_id={new_adset}` → 1 entidade ✓
+4. Aplicar PATCHs (nome, status, schedule) entre as cópias.
+
+**Bônus de simplicidade do `deep_copy=false` iterativo:**
+- Sem polling de async session — cada chamada é 1 entidade, síncrona.
+- Sem mapeamento `source_adset` — resposta retorna direto o id da nova entidade.
+- Sem deletar adsets não-selecionados — só copia o que vai usar.
+- Sem deletar ads copiados — nem copia em primeiro lugar.
+
+**Arquivos:** `backend/app/services/campaign_bulk_service.py` (`_create_single_campaign`); `selected_adsets_meta` no payload carrega `{id, name, end_time}` por adset.
+
+---
+
+## Meta API — Nunca chutar nome de campo, sempre validar no SDK
+
+**Data:** 2026-05-04
+
+**Regra:** Para qualquer chamada à Meta Graph API, **sempre confirmar nomes de campo em fonte oficial antes de incluí-los** numa requisição. Nunca codificar com base em "acho que esse campo existe" ou extrapolando de blog post.
+
+**Por quê:** Ao adicionar `is_smart_promotion` (que parecia óbvio) na lista de fields de `get_campaign_config`, o Meta retornou `(#100) Tried accessing nonexisting field (is_smart_promotion)` e derrubou o endpoint `/facebook/campaign-template/{ad_id}` com 502 em produção. O campo correto era `smart_promotion_type` (legacy ASC/AAC) + `advantage_state_info{advantage_state}` (Advantage+ unificado). Um único campo chutado = endpoint inteiro inutilizado.
+
+**Como aplicar:**
+1. **Fonte canônica primária:** SDK Python oficial em `https://raw.githubusercontent.com/facebook/facebook-python-business-sdk/main/facebook_business/adobjects/<node>.py`. A classe `Field` lista todos os campos readables — se não tá lá, não pede no `?fields=`.
+2. **Para parâmetros de POST/PATCH:** ler o `param_types` dict do método relevante no SDK (`create_*`, `update_*`, `create_copy`).
+3. **Para enums** (status_option, optimization_goal, etc.): inner classes do SDK (ex.: `Campaign.StatusOption`).
+4. **Doc HTML do Meta** (`developers.facebook.com/docs/marketing-api/reference/...`) é boa pra contexto, mas trunca via WebFetch — usar como complementar, não como única fonte.
+5. **Marcadores de Advantage+ que existem:** `smart_promotion_type` (legacy: `AUTOMATED_SHOPPING_ADS`/ASC, `SMART_APP_PROMOTION`/AAC) e `advantage_state_info{advantage_state}` (`ADVANTAGE_PLUS_SALES`/`APP`/`LEADS`/`DISABLED`). **Que não existem:** `is_smart_promotion`, `is_advantage_plus`, `ad_strategy_id`.
+6. **`GUIDED_CREATION` ≠ Advantage+** (descoberto empiricamente em 2026-05-04): valor `GUIDED_CREATION` em `smart_promotion_type` apenas indica que a campanha foi criada via fluxo guiado da Meta — pode ser tanto Advantage+ quanto tradicional. Campanha tradicional com `advantage_state=DISABLED` e `smart_promotion_type=GUIDED_CREATION` é caso comum. **Bloquear apenas pelo `GUIDED_CREATION` quebra duplicação de campanhas comuns.** Detecção correta de Advantage+ ativo é via `advantage_state` ∈ `{ADVANTAGE_PLUS_SALES, ADVANTAGE_PLUS_APP, ADVANTAGE_PLUS_LEADS}`.
+
+**Custo:** Validar 1 campo no SDK leva ~30s. Endpoint quebrado em produção custa muito mais — incluindo a confiança do usuário em mudanças futuras.
+
+---
+
 ## Thumbnails — sempre Storage cache, nunca Meta CDN
 
 **Data:** 2026-05-02
@@ -591,5 +655,71 @@ Cores padrão (white, black, gray, slate, zinc, red, blue, green, yellow, amber,
 3. Se em dúvida, conferir `tailwind.config.ts` — qualquer cor que passa por `alphaScale()` é hífen.
 
 **Inconsistências existentes:** alguns arquivos antigos usam slash em tokens semânticos (`bg-muted/40` em [QuotaGauges.tsx](../frontend/components/meta-usage/QuotaGauges.tsx) e [MetaUsageTable.tsx](../frontend/components/meta-usage/MetaUsageTable.tsx)). São desvios, não a convenção — não replicar.
+
+---
+
+## Cross-type media adaptation no upload de campanhas
+
+**Data:** 2026-05-03
+
+**Problema:** A duplicação de campanhas falhava com `error_code=media_type_mismatch` quando o tipo do arquivo (image/video) não batia com o tipo esperado pelo slot do template. Usuário batia em hard-fail mesmo quando a Meta API aceitava perfeitamente o tipo enviado nos placements relevantes.
+
+**Investigação:** Confirmado via documentação Meta que image ads são suportados em Instagram Reels (9:16, 1440×2560, JPG/PNG, max 30 MB), Stories+Reels combinado, Feed, etc. A restrição no Hookify era infundada.
+
+**Decisão:** Adaptar silenciosamente em vez de bloquear. Detectar o tipo real do arquivo no upload e construir o `object_story_spec` apropriado:
+- Template tem `video_data` + upload é imagem → converte para `link_data` preservando `message`/`call_to_action`/`name`/`description`; resolve `link` via `resolve_creative_destination_url`
+- Template tem `link_data` + upload é vídeo → mantém `link_data` shape com `video_id` (Meta aceita)
+- Bare-spec (sem link/photo/video data) + upload é imagem → `photo_data` (não exige `link`)
+- `AssetFeedCreativeBuilder`: dispatch de `videos`/`images` por tipo real de cada asset (não por `template.media_slots[0].media_type`); rules reescritas com `target_key` apropriado
+
+**Gates removidos** (substituídos por log informativo):
+- [backend/app/routes/facebook.py:207-211 e 219-223](../backend/app/routes/facebook.py#L207) — pré-validação no endpoint
+- [backend/app/services/campaign_bulk_service.py:90-94](../backend/app/services/campaign_bulk_service.py#L90) — `_map_slot_files_to_template`
+- [backend/app/services/bulk_ad_service.py:513-518](../backend/app/services/bulk_ad_service.py#L513) — `_build_creative_params`
+
+**Por que não restringir Reels:** verificado que image ads são suportados em Reels — minha suposição inicial era infundada. Documentação Meta confirma.
+
+**Por que adaptação silenciosa (sem warning UI):** usuário pediu IDEAL — flexibilidade transparente. Se feedback indicar surpresa, podemos adicionar hint no `SlotUploadZone` depois.
+
+---
+
+## Smart retry button — categorização de erros no bulk
+
+**Data:** 2026-05-03
+
+**Problema:** Botão "Tentar novamente" aparecia em erros determinísticos onde retry nunca funciona (compliance, bundle incompleto, template inválido). Frustrava usuário.
+
+**Decisão:** Categorizar cada `MetaAPIError` em uma de 4 categorias e expor ao frontend para escolher a ação certa:
+- `retryable` — transient (timeout, 5xx, `is_transient`, subcode 1363037): botão "Tentar novamente"
+- `template_replaceable` — precisa trocar template/bundle (`adset_missing_compliance`, `bundle_missing_slot`, `template_missing_slots`, `unsupported_template_family`, etc): botão "Selecionar outro modelo"
+- `auth` — code 190, TokenExpiredError: hoje sem botão dedicado (Topbar mostra)
+- `fatal` — Meta retornou OK sem ID, indeterminado: sem botão
+
+**Implementação:** `MetaAPIError.__init__` ganhou kwarg `category`. Default mapping vive em `derive_error_category(error_code, subcode, raw_error)` em [meta_api_errors.py](../backend/app/services/meta_api_errors.py). Endpoints `/campaign-bulk/{job_id}` e `/bulk-ads/{job_id}` derivam `error_category` em runtime — sem migration de DB.
+
+**Frontend:** [`CampaignProgressView`](../frontend/app/upload/page.tsx) coleta categorias dos itens com erro; prioridade `template_replaceable > retryable > nenhum`. `template_replaceable` chama `onSelectNewTemplate` (volta pra step 1, preserva creatives já uploadados).
+
+**Idempotência confirmada:** retry endpoint copia `media_refs` do payload; processor pula re-upload via `_upload_all_media` cache.
+
+---
+
+## Performance + robustez no upload chunked de vídeos
+
+**Data:** 2026-05-03
+
+**Problema:** Bulk de 100 items + uploads de >1 GB sofrem com (a) ~200 heartbeat DB writes por GB de vídeo, (b) 0.2s de sleep proativo após **cada** chamada Meta (5 calls × 100 items = 100s overhead), (c) polling fixo de 5s no `_wait_for_video_ready`.
+
+**Mudanças:**
+
+1. **Heartbeat throttle 1/seg** ([campaign_bulk_service.py:_ThrottledCallback](../backend/app/services/campaign_bulk_service.py)): wrapper que limita `tracker.heartbeat()` a 1/seg wallclock. `.flush()` no final do upload pra UI não travar em 99%.
+
+2. **Rate-limit reativo** ([graph_api.py:_handle_graph_request](../backend/app/services/graph_api.py)): floor `META_RATE_LIMIT_DELAY_SECONDS` 0.2 → 0.05; em HTTP 429, backoff exponencial (1s, 2s, 4s) com até 3 retries; honra `Retry-After` quando Meta envia. Token bucket per-account NÃO implementado (overkill para workflow sequencial atual).
+
+3. **Polling adaptativo** ([campaign_bulk_service.py:_wait_for_video_ready](../backend/app/services/campaign_bulk_service.py) + [bulk_ad_service.py:_wait_for_video_ready](../backend/app/services/bulk_ad_service.py)): intervalo cresce 2s → 1.5× → 10s; exige **2 leituras consecutivas** de `video_status in {ready, active}` antes de retornar (Meta às vezes flipa ready→error em finalização de encoding).
+
+**Out of scope (deferido):**
+- Paralelismo intra-bundle (complexidade vs ganho)
+- Cleanup de assets órfãos no Meta (vídeo upload OK + creative create FAIL)
+- Streaming de image upload (RAM) — só importa para imagens >100 MB
 
 **Regra geral aplicável:** quando um design system define tokens semânticos via `color-mix` para evitar bugs de gamut (OKLab/transparent), o sistema **substitui** o modificador opacity nativo do Tailwind para essa família — mas **não afeta** cores default que continuam usando a sintaxe original. Sempre identifique a família da cor antes de aplicar opacidade.
