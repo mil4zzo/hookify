@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.core.supabase_client import get_supabase_service
@@ -20,17 +22,29 @@ from app.services.bulk_ad_service import (
 )
 from app.services.creative_template import CreativeMediaSlot, CreativeTemplate
 from app.services.meta_api_errors import MetaAPIError, TokenExpiredError, extract_data_or_raise
-from app.services.meta_campaign_clone import (
-    adset_budget_params_from_template,
-    adset_clone_fields_for_create,
-    campaign_has_campaign_level_budget,
-    merge_template_campaign_fields,
-)
 
 logger = logging.getLogger(__name__)
 
 class _JobCancelledError(Exception):
     pass
+
+
+class _ThrottledCallback:
+    """Limita chamadas a min_interval segundos. .flush() força execução final."""
+    def __init__(self, callback, min_interval: float = 1.0):
+        self._callback = callback
+        self._min_interval = min_interval
+        self._last_fired = 0.0
+
+    def __call__(self, *args, **kwargs) -> None:
+        now = time.monotonic()
+        if now - self._last_fired >= self._min_interval:
+            self._last_fired = now
+            self._callback(*args, **kwargs)
+
+    def flush(self, *args, **kwargs) -> None:
+        self._last_fired = time.monotonic()
+        self._callback(*args, **kwargs)
 
 
 AD_NAME_VAR = "{ad_name}"
@@ -61,6 +75,31 @@ def _interpolate_name(
     return result
 
 
+def _is_meta_datetime_in_past(raw: Any) -> bool:
+    """True se raw (string ISO ou epoch retornado pelo Graph API) ja passou em UTC."""
+    if raw is None:
+        return False
+    try:
+        if isinstance(raw, (int, float)):
+            dt = datetime.fromtimestamp(float(raw), tz=timezone.utc)
+        else:
+            s = str(raw).strip()
+            if not s:
+                return False
+            if s.isdigit():
+                dt = datetime.fromtimestamp(int(s), tz=timezone.utc)
+            else:
+                # Graph API as vezes manda offset sem ':' (+0000) — fromisoformat exige +00:00.
+                if len(s) >= 6 and s[-5] in "+-" and s[-4:].isdigit():
+                    s = f"{s[:-5]}{s[-5]}{s[-4:-2]}:{s[-2:]}"
+                dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+        return dt <= datetime.now(timezone.utc)
+    except (ValueError, OSError, OverflowError):
+        return False
+
+
 def _map_slot_files_to_template(
     slot_media: Dict[str, int],
     media_refs: Dict[int, MediaRef],
@@ -88,9 +127,9 @@ def _map_slot_files_to_template(
                 "invalid_file_index",
             )
         if slot.media_type != ref.media_type:
-            raise MetaAPIError(
-                f"Slot '{slot.display_name}' espera {slot.media_type}, recebeu {ref.media_type}.",
-                "media_type_mismatch",
+            logger.info(
+                "[CAMPAIGN_BULK] cross_type_swap slot=%s expected=%s uploaded=%s file_index=%s",
+                slot.slot_key, slot.media_type, ref.media_type, file_index,
             )
         slot_refs[slot.slot_key] = ref
 
@@ -282,7 +321,11 @@ class CampaignBulkProcessor:
         return MediaRef(file_index=int(meta["file_index"]), file_name=file_name, media_type="image", image_hash=str(image_hash))
 
     def _wait_for_video_ready(self, video_id: str, max_wait_seconds: int = 300) -> None:
+        # Backoff adaptativo: começa em 2s, aumenta até 10s. Exige 2 leituras consecutivas
+        # de "ready" para evitar flip de Meta em finalização (ready→error em encoding).
         started_at = time.monotonic()
+        sleep_seconds = 2.0
+        consecutive_ready = 0
         while (time.monotonic() - started_at) < max_wait_seconds:
             result = self.api.get_video_status(video_id)
             data = self._extract_data_or_raise(result)
@@ -300,7 +343,11 @@ class CampaignBulkProcessor:
                 self.context.job_id, video_id, video_status, uploading_status, processing_status, publishing_status,
             )
             if video_status in {"ready", "active"}:
-                return
+                consecutive_ready += 1
+                if consecutive_ready >= 2:
+                    return
+            else:
+                consecutive_ready = 0
             if video_status in {"error", "failed"} or processing_status in {"error", "failed"} or uploading_status in {"error", "failed"}:
                 logger.error(
                     "[CAMPAIGN_BULK] video_processing_failed job_id=%s video_id=%s "
@@ -314,7 +361,8 @@ class CampaignBulkProcessor:
                 )
             elapsed = int(time.monotonic() - started_at)
             self._heartbeat(f"Processando vídeo no Meta... ({elapsed}s)", progress=17)
-            time.sleep(5)
+            time.sleep(sleep_seconds)
+            sleep_seconds = min(sleep_seconds * 1.5, 10.0)
         raise MetaAPIError("Timeout aguardando processamento do video no Meta", "video_processing_timeout")
 
     # ── Campaign creation ─────────────────────────────────────────────────────
@@ -392,9 +440,17 @@ class CampaignBulkProcessor:
             item_id,
             _log_str(ad_name),
         )
-        campaign_template = payload.get("campaign_config") or {}
-        adset_configs: List[Dict[str, Any]] = payload.get("adset_configs") or []
         act_id = f"act_{self.context.account_id}"
+        template_campaign_id = str(
+            payload.get("template_campaign_id")
+            or (payload.get("campaign_config") or {}).get("id")
+            or ""
+        )
+        if not template_campaign_id:
+            raise MetaAPIError(
+                "template_campaign_id ausente no payload do job. Reinicie a duplicacao.",
+                "missing_template_campaign_id",
+            )
         template_payload = payload.get("creative_template")
         if not template_payload:
             raise MetaAPIError(
@@ -415,7 +471,7 @@ class CampaignBulkProcessor:
             slot_media,
         )
 
-        # 2. Criar criativo
+        # 2. Criar criativo (nosso, com a midia do upload)
         supabase_repo.update_bulk_ad_item_status(self.sb, item["id"], "creating_creative")
         if template.family == "story_spec_simple":
             creative_params = self.story_builder.build(item, template, bundle_media_ref)
@@ -446,161 +502,149 @@ class CampaignBulkProcessor:
         )
         self._sleep_rate_limit()
 
-        # 3. Criar campanha
-        # Nome da campanha: valor por item tem prioridade sobre o template global
+        # 3. Copiar shell vazia da campanha (deep_copy=false → 1 entidade, sync).
+        # IMPORTANTE: Meta /copies em modo sync limita TOTAL de campanhas+adsets+ads <3
+        # (subcode 1885194). Alternativa async-batch e overkill — iteramos 1 entidade
+        # por vez (campanha vazia + cada adset sem filhos + nosso ad).
+        t_copy = time.monotonic()
+        self._heartbeat(
+            f"Copiando campanha-modelo {index}/{total}...",
+            progress=max(20, int((index / max(total, 1)) * 100)),
+        )
+        copy_resp = self.api.copy_campaign(
+            template_campaign_id,
+            {"deep_copy": False, "status_option": "PAUSED"},
+        )
+        copy_data = self._extract_data_or_raise(copy_resp)
+        new_campaign_id = self._resolve_copy_response(copy_data, item_id=item_id)
+        logger.info(
+            "[CAMPAIGN_BULK] campaign_copied job_id=%s item_id=%s template=%s new=%s duration_ms=%s",
+            self.context.job_id,
+            item_id,
+            template_campaign_id,
+            new_campaign_id,
+            _elapsed_ms(t_copy),
+        )
+        self._sleep_rate_limit()
+
+        # 4. Patch da campanha: nome final + budget override (se enviado pelo usuario).
+        # Nome: valor por item > template global > ad_name como fallback.
         campaign_name_override = item.get("campaign_name")
         if campaign_name_override:
             campaign_name = str(campaign_name_override)
         else:
             campaign_name = _interpolate_name(
-                str(item.get("campaign_name_template") or payload.get("campaign_name_template") or campaign_template.get("name") or ad_name),
+                str(item.get("campaign_name_template") or payload.get("campaign_name_template") or ad_name),
                 ad_name,
                 index=index,
             )
-        campaign_params: Dict[str, Any] = {
-            "name": campaign_name,
-            "objective": campaign_template.get("objective", "OUTCOME_TRAFFIC"),
-            "status": payload.get("status", "ACTIVE"),
-            "special_ad_categories": campaign_template.get("special_ad_categories") or [],
-        }
-        if campaign_template.get("buying_type"):
-            campaign_params["buying_type"] = campaign_template["buying_type"]
-        if campaign_template.get("bid_strategy"):
-            campaign_params["bid_strategy"] = campaign_template["bid_strategy"]
-        # Orçamento: override global > template
+        campaign_patch: Dict[str, Any] = {"name": campaign_name}
         budget_override = payload.get("campaign_budget_override")
         if budget_override:
-            campaign_params["daily_budget"] = budget_override
-        elif campaign_template.get("daily_budget"):
-            campaign_params["daily_budget"] = campaign_template["daily_budget"]
-        elif campaign_template.get("lifetime_budget"):
-            campaign_params["lifetime_budget"] = campaign_template["lifetime_budget"]
-
-        merge_template_campaign_fields(campaign_params, campaign_template)
-        uses_cbo_budget = campaign_has_campaign_level_budget(campaign_params)
-        # Meta exige is_adset_budget_sharing_enabled quando a campanha não tem orçamento CBO.
-        if not uses_cbo_budget and "is_adset_budget_sharing_enabled" not in campaign_params:
-            template_val = campaign_template.get("is_adset_budget_sharing_enabled")
-            campaign_params["is_adset_budget_sharing_enabled"] = bool(template_val) if template_val is not None else False
-
-        t_camp = time.monotonic()
-        campaign_result = self.api.create_campaign(act_id, campaign_params)
-        campaign_response = self._extract_data_or_raise(campaign_result)
-        new_campaign_id = campaign_response.get("id")
-        if not new_campaign_id:
-            raise MetaAPIError("Meta nao retornou campaign_id", "campaign_missing_id")
-        logger.info(
-            "[CAMPAIGN_BULK] campaign_created job_id=%s item_id=%s campaign_id=%s name=%s cbo=%s duration_ms=%s",
-            self.context.job_id,
-            item_id,
-            new_campaign_id,
-            _log_str(campaign_name),
-            uses_cbo_budget,
-            _elapsed_ms(t_camp),
-        )
+            # Nota: PATCH daily_budget so funciona em campanha CBO. Se template e ABO,
+            # Meta retorna erro — frontend deveria avisar antes.
+            campaign_patch["daily_budget"] = budget_override
+        patch_resp = self.api.update_campaign(new_campaign_id, campaign_patch)
+        self._extract_data_or_raise(patch_resp)
         self._sleep_rate_limit()
 
         supabase_repo.update_bulk_ad_item_status(self.sb, item["id"], "creating_adsets")
 
-        # 4. Criar adsets e ads
-        selected_adset_ids: List[str] = payload.get("adset_ids") or []
-        # Template do conjunto: valor por item (coluna adset_name) tem prioridade sobre o template global
+        # 5. Para cada adset selecionado: copia individual (deep_copy=false, 1 entidade)
+        #    + PATCH nome/status/schedule + cria nosso ad apontando pra creative nova.
+        selected_adsets_meta: List[Dict[str, Any]] = payload.get("selected_adsets_meta") or []
+        if not selected_adsets_meta:
+            # Compat: jobs antigos podem nao ter selected_adsets_meta. Fallback para
+            # adset_ids sem nomes (interpolacao {template_adset_name} fica vazia).
+            selected_adsets_meta = [
+                {"id": aid, "name": "", "end_time": None}
+                for aid in (payload.get("adset_ids") or [])
+            ]
+
         adset_name_template = str(
             item.get("adset_name")
             or payload.get("adset_name_template")
             or "{ad_name}"
         )
-        n_adsets = sum(
-            1 for c in adset_configs if c.get("id") in selected_adset_ids
-        )
+        payload_status = str(payload.get("status", "ACTIVE")).upper()
+
         logger.info(
-            "[CAMPAIGN_BULK] adsets_phase job_id=%s item_id=%s new_campaign_id=%s adsets_to_create=%s cbo=%s",
+            "[CAMPAIGN_BULK] adsets_phase job_id=%s item_id=%s new_campaign_id=%s selected=%s",
             self.context.job_id,
             item_id,
             new_campaign_id,
-            n_adsets,
-            uses_cbo_budget,
+            len(selected_adsets_meta),
         )
-        # Com orçamento no nivel da campanha (CBO), a Meta nao aceita orcamento nos ad sets.
-        adset_ord = 0
-        for adset_cfg in adset_configs:
-            if adset_cfg.get("id") not in selected_adset_ids:
-                continue
-            adset_ord += 1
-            original_adset_name = str(adset_cfg.get("name") or "")
-            adset_name = _interpolate_name(
-                adset_name_template,
-                ad_name,
-                index=adset_ord,
-                template_adset_name=original_adset_name,  # substitui {template_adset_name} pelo nome original
-            )
-            adset_params: Dict[str, Any] = {
-                "name": adset_name,
-                "campaign_id": new_campaign_id,
-                "status": payload.get("status", "ACTIVE"),
-            }
-            adset_params.update(adset_clone_fields_for_create(adset_cfg))
-            if "optimization_goal" not in adset_params:
-                adset_params["optimization_goal"] = adset_cfg.get("optimization_goal", "REACH")
-            if "billing_event" not in adset_params:
-                adset_params["billing_event"] = adset_cfg.get("billing_event", "IMPRESSIONS")
-            adset_params.update(adset_budget_params_from_template(adset_cfg, uses_cbo_budget))
-            # Doc Meta (AdSet end_time): 0 = conjunto contínuo, sem data de término — não herdar do modelo.
-            adset_params["end_time"] = 0
 
+        adset_ord = 0
+        for source_meta in selected_adsets_meta:
+            adset_ord += 1
+            source_adset_id = str(source_meta.get("id") or "")
+            if not source_adset_id:
+                continue
+            original_name = str(source_meta.get("name") or "")
+            source_end_time = source_meta.get("end_time")
+
+            # 5a. Copia o adset SEM filhos (deep_copy=false, 1 entidade).
             t_adset = time.monotonic()
-            tpl_adset_id = str(adset_cfg.get("id") or "")
-            try:
-                adset_result = self.api.create_adset(act_id, adset_params)
-                adset_response = self._extract_data_or_raise(adset_result)
-            except MetaAPIError as exc:
-                # subcode 3858495 = a conta exige "Transparência dos anúncios" (beneficiário/pagador)
-                # mas o adset-modelo foi criado antes da exigência, então não tem esses campos.
-                # O Meta aplica essa regra com critérios próprios — não é puramente por país.
-                if str(exc.subcode) == "3858495":
-                    # Marca a conta como exigindo transparência para que o frontend
-                    # possa avisar antes de submeter na próxima vez.
-                    try:
-                        self.sb.table("ad_accounts").update(
-                            {"requires_ads_transparency": True}
-                        ).eq("id", self.context.account_id).eq(
-                            "user_id", self.context.user_id
-                        ).execute()
-                    except Exception as flag_exc:
-                        logger.warning(
-                            "[CAMPAIGN_BULK] failed to flag requires_ads_transparency act_id=%s err=%s",
-                            self.context.account_id, flag_exc,
-                        )
-                    raise MetaAPIError(
-                        f"O conjunto '{adset_name}' não tem 'Transparência dos anúncios' "
-                        f"(beneficiário e pagador) configurada, e essa conta de anúncios exige "
-                        f"essa informação. Selecione como modelo um anúncio cujos conjuntos já "
-                        f"tenham essas informações preenchidas no Gerenciador de Anúncios.",
-                        "adset_missing_compliance",
-                    ) from exc
-                raise
-            new_adset_id = adset_response.get("id")
+            adset_copy_data = self._copy_adset_with_targeting_normalization(
+                source_adset_id,
+                {
+                    "campaign_id": new_campaign_id,
+                    "deep_copy": False,
+                    "status_option": "PAUSED",
+                },
+                item_id=item_id,
+            )
+            new_adset_id = (
+                adset_copy_data.get("copied_adset_id")
+                or adset_copy_data.get("id")
+            )
             if not new_adset_id:
-                raise MetaAPIError("Meta nao retornou adset_id", "adset_missing_id")
+                raise MetaAPIError(
+                    f"Resposta de /copies (adset) sem id: {adset_copy_data}",
+                    "adset_copy_missing_id",
+                )
+            new_adset_id = str(new_adset_id)
             logger.info(
-                "[CAMPAIGN_BULK] adset_created job_id=%s item_id=%s ord=%s/%s template_adset_id=%s new_adset_id=%s duration_ms=%s",
+                "[CAMPAIGN_BULK] adset_copied job_id=%s item_id=%s ord=%s source=%s new=%s duration_ms=%s",
                 self.context.job_id,
                 item_id,
                 adset_ord,
-                n_adsets,
-                tpl_adset_id,
+                source_adset_id,
                 new_adset_id,
                 _elapsed_ms(t_adset),
             )
             self._sleep_rate_limit()
 
-            # 5. Criar anúncio
+            # 5b. PATCH: nome interpolado + status + reset de schedule expirado.
+            new_adset_name = _interpolate_name(
+                adset_name_template,
+                ad_name,
+                index=adset_ord,
+                template_adset_name=original_name,
+            )
+            adset_patch: Dict[str, Any] = {"name": new_adset_name}
+            if payload_status == "ACTIVE":
+                adset_patch["status"] = "ACTIVE"
+            if _is_meta_datetime_in_past(source_end_time):
+                adset_patch["end_time"] = ""
+                adset_patch["start_time"] = ""
+                logger.info(
+                    "[CAMPAIGN_BULK] adset_schedule_reset new_adset=%s source_end=%s",
+                    new_adset_id, source_end_time,
+                )
+            adset_patch_resp = self.api.update_adset(new_adset_id, adset_patch)
+            self._extract_data_or_raise(adset_patch_resp)
+            self._sleep_rate_limit()
+
+            # 5c. Cria nosso ad apontando pra creative recem-criada.
             t_ad = time.monotonic()
             ad_params = {
                 "name": ad_name,
                 "adset_id": new_adset_id,
                 "creative": {"creative_id": creative_id},
-                "status": payload.get("status", "ACTIVE"),
+                "status": payload_status,
             }
             ad_result = self.api.create_ad(act_id, ad_params)
             ad_response = self._extract_data_or_raise(ad_result)
@@ -617,16 +661,197 @@ class CampaignBulkProcessor:
             )
             self._sleep_rate_limit()
 
+        if adset_ord == 0:
+            raise MetaAPIError(
+                "Nenhum adset valido para copiar (selected_adsets_meta vazio).",
+                "no_adsets_to_copy",
+            )
+
+        # 6. Ativar campanha se o usuario pediu ACTIVE (adsets+ads ja vieram ACTIVE acima).
+        if payload_status == "ACTIVE":
+            self.api.update_campaign(new_campaign_id, {"status": "ACTIVE"})
+
         supabase_repo.update_bulk_ad_item_status(
             self.sb, item["id"], "success", meta_creative_id=creative_id,
         )
         logger.info(
-            "[CAMPAIGN_BULK] item_success job_id=%s item_id=%s campaign_id=%s creative_id=%s duration_ms=%s",
+            "[CAMPAIGN_BULK] item_success job_id=%s item_id=%s campaign_id=%s creative_id=%s "
+            "adsets_copied=%s duration_ms=%s",
             self.context.job_id,
             item_id,
             new_campaign_id,
             creative_id,
+            adset_ord,
             _elapsed_ms(t_item),
+        )
+
+    # ── Adset copy com fallback pra create_adset manual ──────────────────────
+
+    # Campos que vamos puxar do source quando o /copies falhar e precisarmos
+    # criar o adset manualmente. Lista enxuta — Meta valida o que importa.
+    _ADSET_FALLBACK_FIELDS = (
+        "id,name,targeting,optimization_goal,billing_event,bid_amount,bid_strategy,"
+        "daily_budget,lifetime_budget,promoted_object,attribution_spec,destination_type,"
+        "frequency_control_specs,bid_constraints,pacing_type,start_time,end_time,"
+        "dsa_beneficiary,dsa_payor,regional_regulated_categories,regional_regulation_identities"
+    )
+
+    def _copy_adset_with_targeting_normalization(
+        self,
+        source_adset_id: str,
+        copy_params: Dict[str, Any],
+        *,
+        item_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Tenta /copies primeiro. Se Meta rejeitar com subcode 2490392 (instagram_positions
+        com 'explore_home' sem 'explore' — caso real onde adset criado pelo Ads Manager
+        passa pela validacao de create mas falha na de /copies), faz fallback para
+        create_adset manual com targeting normalizado.
+
+        Source NUNCA e mutado — a normalizacao acontece so no payload do novo adset.
+        Outros subcodes propagam.
+        """
+        try:
+            resp = self.api.copy_adset(source_adset_id, copy_params)
+            return self._extract_data_or_raise(resp)
+        except MetaAPIError as exc:
+            if str(exc.subcode) != "2490392":
+                raise
+            blame = (exc.raw_error or {}).get("error_data", {}).get("blame_field_specs") or []
+            if not any("instagram_positions" in (spec or []) for spec in blame):
+                raise
+            logger.info(
+                "[CAMPAIGN_BULK] adset_copy_fallback_to_create source=%s subcode=2490392 item_id=%s",
+                source_adset_id, item_id,
+            )
+
+        # Fallback: buscar config completa do source e criar adset manualmente
+        # com targeting corrigido. Source intocado.
+        src_resp = self.api.get_adset_fields(source_adset_id, self._ADSET_FALLBACK_FIELDS)
+        src_data = self._extract_data_or_raise(src_resp)
+
+        new_params: Dict[str, Any] = {
+            "name": str(src_data.get("name") or f"adset-{source_adset_id}"),
+            "campaign_id": copy_params["campaign_id"],
+            "status": copy_params.get("status_option", "PAUSED"),
+        }
+        # Copiar campos seguros do source. Listamos explicitamente — nada de **src_data
+        # pra nao acidentalmente mandar 'id', 'effective_status', etc.
+        passthrough_keys = (
+            "optimization_goal", "billing_event", "bid_amount", "bid_strategy",
+            "daily_budget", "lifetime_budget", "promoted_object", "attribution_spec",
+            "destination_type", "frequency_control_specs", "bid_constraints",
+            "pacing_type", "dsa_beneficiary", "dsa_payor",
+            "regional_regulated_categories", "regional_regulation_identities",
+        )
+        for k in passthrough_keys:
+            v = src_data.get(k)
+            if v not in (None, "", []):
+                new_params[k] = v
+
+        # Targeting com normalizacao explore_home → adicionar explore.
+        targeting = src_data.get("targeting") or {}
+        ig = list(targeting.get("instagram_positions") or [])
+        if "explore_home" in ig and "explore" not in ig:
+            normalized_targeting = dict(targeting)
+            normalized_targeting["instagram_positions"] = ["explore"] + ig
+            logger.info(
+                "[CAMPAIGN_BULK] targeting_normalized_for_create source=%s before=%s after=%s",
+                source_adset_id, ig, normalized_targeting["instagram_positions"],
+            )
+            new_params["targeting"] = normalized_targeting
+        else:
+            new_params["targeting"] = targeting
+
+        # Schedule: se end_time do source ja passou, nao herdar — adset travaria em ended.
+        end_raw = src_data.get("end_time")
+        if not _is_meta_datetime_in_past(end_raw):
+            if src_data.get("start_time"):
+                new_params["start_time"] = src_data["start_time"]
+            if end_raw:
+                new_params["end_time"] = end_raw
+
+        act_id = f"act_{self.context.account_id}"
+        create_resp = self.api.create_adset(act_id, new_params)
+        return self._extract_data_or_raise(create_resp)
+
+    # ── Async copy resolution ─────────────────────────────────────────────────
+
+    def _resolve_copy_response(self, data: Dict[str, Any], *, item_id: str) -> str:
+        """
+        Extrai new_campaign_id de um response de POST /{campaign_id}/copies,
+        lidando com sync (`id`/`copied_campaign_id`) e async (`async_session_id`).
+
+        Mesmo quando vem direct_id, se houver async_session_id polla ate completion
+        — Meta as vezes cria a campanha sync mas continua copiando filhos async.
+        """
+        direct_id = data.get("copied_campaign_id") or data.get("id")
+        async_session_field = data.get("async_session")
+        async_session_id = data.get("async_session_id")
+        if not async_session_id and isinstance(async_session_field, dict):
+            async_session_id = async_session_field.get("id")
+
+        if async_session_id:
+            completed = self._wait_for_async_session(str(async_session_id), item_id=item_id)
+            if not direct_id:
+                result = completed.get("result")
+                if isinstance(result, str):
+                    try:
+                        result = json.loads(result)
+                    except (json.JSONDecodeError, TypeError):
+                        result = None
+                if isinstance(result, dict):
+                    direct_id = (
+                        result.get("copied_campaign_id")
+                        or result.get("id")
+                        or result.get("new_campaign_id")
+                    )
+
+        if not direct_id:
+            raise MetaAPIError(
+                f"Resposta de /copies sem id resolvivel (data={data}).",
+                "copy_response_missing_id",
+            )
+        return str(direct_id)
+
+    def _wait_for_async_session(
+        self,
+        session_id: str,
+        *,
+        item_id: str,
+        max_wait_seconds: int = 600,
+    ) -> Dict[str, Any]:
+        """Polla async session ate Job Completed. Backoff 2s -> 10s, mesmo padrao do video poll."""
+        started = time.monotonic()
+        sleep_seconds = 2.0
+        while (time.monotonic() - started) < max_wait_seconds:
+            resp = self.api.get_async_session(session_id)
+            sd = self._extract_data_or_raise(resp)
+            status = str(sd.get("status") or "").strip().lower()
+            if status in {"job completed", "completed"}:
+                logger.info(
+                    "[CAMPAIGN_BULK] async_copy_done job_id=%s item_id=%s session=%s elapsed_s=%s",
+                    self.context.job_id, item_id, session_id, int(time.monotonic() - started),
+                )
+                return sd
+            if status in {"job failed", "failed", "job skipped"}:
+                err = sd.get("error_code") or ""
+                exc = sd.get("exception") or ""
+                raise MetaAPIError(
+                    f"Meta async copy falhou (status={status} error_code={err} exception={exc})",
+                    "async_session_failed",
+                )
+            elapsed = int(time.monotonic() - started)
+            self._heartbeat(
+                f"Aguardando Meta copiar campanha... ({elapsed}s)",
+                progress=30,
+            )
+            time.sleep(sleep_seconds)
+            sleep_seconds = min(sleep_seconds * 1.5, 10.0)
+        raise MetaAPIError(
+            f"Timeout {max_wait_seconds}s aguardando async session {session_id}",
+            "async_session_timeout",
         )
 
     # ── Chunked video upload via /act_{id}/advideos ───────────────────────────
@@ -653,7 +878,7 @@ class CampaignBulkProcessor:
 
         file_source = self._open_seekable_source(file_data)
         try:
-            def on_progress(bytes_sent: int, total: int) -> None:
+            def _emit_progress(bytes_sent: int, total: int) -> None:
                 pct = int(5 + (bytes_sent / max(total, 1)) * 10)  # 5–15% range
                 mb_sent = bytes_sent // (1024 * 1024)
                 mb_total = max(total // (1024 * 1024), 1)
@@ -662,15 +887,21 @@ class CampaignBulkProcessor:
                     progress=min(pct, 15),
                 )
 
-            def on_check_cancel() -> None:
+            def _emit_cancel_check() -> None:
                 # Heartbeat raises _JobCancelledError if tracker rejected the claim.
                 self._heartbeat("Enviando vídeo...", progress=5)
+
+            # Throttle DB writes to ≤1/seg; flush at completion para UI nao travar em 99%.
+            on_progress = _ThrottledCallback(_emit_progress, min_interval=1.0)
+            on_check_cancel = _ThrottledCallback(_emit_cancel_check, min_interval=1.0)
 
             result = self.api.upload_ad_video_chunked(
                 act_id, file_name, file_source, file_size,
                 on_progress=on_progress,
                 on_check_cancel=on_check_cancel,
             )
+            # Final flush garante que a UI veja o progresso completo do upload.
+            on_progress.flush(file_size, file_size)
         finally:
             try:
                 file_source.close()

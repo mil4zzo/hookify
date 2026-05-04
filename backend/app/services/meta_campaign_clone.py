@@ -1,11 +1,18 @@
+"""
+Helpers que sobreviveram a refatoracao de "Duplicar Campanhas" (uso de /copies).
+
+Hoje este modulo guarda apenas:
+  - extracao de page_id/atores do creative.object_story_spec
+  - resolucao de link de destino do creative
+
+Tudo relacionado a recriar adsets/campanhas manualmente foi removido —
+agora o Meta `POST /{campaign_id}/copies` cuida disso.
+"""
 from __future__ import annotations
 
 import json
-import logging
-from datetime import datetime, timezone
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, Optional
 
-logger = logging.getLogger(__name__)
 
 _OBJECT_STORY_ACTOR_KEYS: tuple[str, ...] = (
     "page_id",
@@ -68,213 +75,6 @@ def merge_page_id_from_promoted_object(
     if pid not in (None, ""):
         object_story_actor["page_id"] = str(pid)
 
-# Campos opcionais da campanha (GET) que podem ser repassados no POST se ainda não definidos.
-CAMPAIGN_CREATE_EXTRA_KEYS: Set[str] = frozenset(
-    {
-        "spend_cap",
-        "special_ad_category_country",
-        "is_adset_budget_sharing_enabled",
-    },
-)
-
-READONLY_CAMPAIGN_KEYS: Set[str] = frozenset(
-    {
-        "id",
-        "account_id",
-        "effective_status",
-        "configured_status",
-        "issues_info",
-        "recommendations",
-    },
-)
-
-READONLY_ADSET_KEYS: Set[str] = frozenset(
-    {
-        "id",
-        "account_id",
-        "campaign_id",
-        "effective_status",
-        "configured_status",
-        "issues_info",
-        "recommendations",
-        "bid_info",
-        "budget_remaining",
-    },
-)
-
-# Campos de ad set (além dos obrigatórios manuais) seguros para clonar no POST.
-ADSET_CLONE_FIELD_KEYS: tuple[str, ...] = (
-    "targeting",
-    "bid_amount",
-    "promoted_object",
-    "attribution_spec",
-    "destination_type",
-    "frequency_control_specs",
-    "bid_constraints",
-    "pacing_type",
-    "start_time",
-    "end_time",
-    "bid_strategy",
-    # Compliance fields required by Meta when targeting regulated countries.
-    # Without these the adset creation fails with subcode 3858495 (blame field
-    # "compliance_section"). dsa_* are EU (DSA); regional_regulation_* cover
-    # TW, BR, SG, AU, IN, TH.
-    "dsa_beneficiary",
-    "dsa_payor",
-    "regional_regulated_categories",
-    "regional_regulation_identities",
-)
-
-
-def _positive_budget(val: Any) -> bool:
-    try:
-        if val is None:
-            return False
-        return int(val) > 0
-    except (TypeError, ValueError):
-        return False
-
-
-def campaign_has_campaign_level_budget(campaign_params: Dict[str, Any]) -> bool:
-    """
-    True se a campanha nova usa orçamento no nível de campanha (CBO).
-    Nesse caso os ad sets não devem enviar daily_budget/lifetime_budget.
-    """
-    return _positive_budget(campaign_params.get("daily_budget")) or _positive_budget(
-        campaign_params.get("lifetime_budget"),
-    )
-
-
-def adset_budget_params_from_template(
-    adset_cfg: Dict[str, Any],
-    campaign_uses_cbo: bool,
-) -> Dict[str, Any]:
-    """Retorna apenas daily_budget ou lifetime_budget do template, exceto em CBO."""
-    if campaign_uses_cbo:
-        return {}
-    out: Dict[str, Any] = {}
-    if _positive_budget(adset_cfg.get("daily_budget")):
-        out["daily_budget"] = adset_cfg["daily_budget"]
-    elif _positive_budget(adset_cfg.get("lifetime_budget")):
-        out["lifetime_budget"] = adset_cfg["lifetime_budget"]
-    return out
-
-
-def merge_template_campaign_fields(
-    campaign_params: Dict[str, Any],
-    campaign_template: Dict[str, Any],
-) -> None:
-    """
-    Copia campos opcionais permitidos do GET da campanha modelo para o POST.
-    Não sobrescreve chaves já definidas em campaign_params.
-    """
-    for key in CAMPAIGN_CREATE_EXTRA_KEYS:
-        if key in campaign_params:
-            continue
-        if key in READONLY_CAMPAIGN_KEYS:
-            continue
-        if key not in campaign_template:
-            continue
-        val = campaign_template[key]
-        if val is None:
-            continue
-        campaign_params[key] = val
-
-
-def _normalize_graph_iso_datetime(s: str) -> str:
-    """Graph API costuma enviar offset +0000 sem ':' — fromisoformat exige +00:00."""
-    s = s.strip()
-    # Sufixo [+-]HHMM (4 dígitos) sem dois pontos
-    if len(s) >= 6 and s[-5] in "+-" and s[-4:].isdigit():
-        return f"{s[:-5]}{s[-5]}{s[-4:-2]}:{s[-2:]}"
-    return s
-
-
-def _parse_meta_datetime(val: Any) -> Optional[datetime]:
-    """Converte start_time/end_time retornados pela Graph API para datetime em UTC."""
-    if val is None:
-        return None
-    if isinstance(val, (int, float)):
-        try:
-            return datetime.fromtimestamp(float(val), tz=timezone.utc)
-        except (OSError, ValueError, OverflowError):
-            return None
-    s = str(val).strip()
-    if not s:
-        return None
-    if s.isdigit():
-        try:
-            return datetime.fromtimestamp(int(s), tz=timezone.utc)
-        except (OSError, ValueError, OverflowError):
-            return None
-    try:
-        iso = _normalize_graph_iso_datetime(s.replace("Z", "+00:00"))
-        dt = datetime.fromisoformat(iso)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc)
-    except ValueError:
-        return None
-
-
-def _drop_adset_schedule_if_end_in_past(cloned: Dict[str, Any]) -> None:
-    """
-    Remove start_time/end_time se end_time do modelo ja passou.
-    Evita OAuthException 100 / subcode 1487033 (time_stop no passado).
-    """
-    end_raw = cloned.get("end_time")
-    if end_raw is None:
-        return
-    end_dt = _parse_meta_datetime(end_raw)
-    if end_dt is None:
-        return
-    if end_dt > datetime.now(timezone.utc):
-        return
-    cloned.pop("start_time", None)
-    cloned.pop("end_time", None)
-    logger.debug(
-        "adset_clone: removido agendamento (end_time modelo no passado), "
-        "novo ad set fica sem datas — defina no Ads Manager se precisar."
-    )
-
-
-def _normalize_targeting_placements(targeting: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Enforces Meta API placement constraints before creating an ad set.
-
-    Rule (subcode 2490392): if 'explore_home' is in instagram_positions,
-    'explore' must also be present.
-    """
-    ig_positions = targeting.get("instagram_positions")
-    if not isinstance(ig_positions, list):
-        return targeting
-    if "explore_home" in ig_positions and "explore" not in ig_positions:
-        import copy
-        targeting = copy.deepcopy(targeting)
-        targeting["instagram_positions"] = ["explore"] + ig_positions
-        logger.debug(
-            "adset_clone: added 'explore' to instagram_positions "
-            "(required when 'explore_home' is present)"
-        )
-    return targeting
-
-
-def adset_clone_fields_for_create(adset_cfg: Dict[str, Any]) -> Dict[str, Any]:
-    """Subconjunto do ad set lido na Graph API que é aceito na criação (sem id, sem orçamento)."""
-    out: Dict[str, Any] = {}
-    for k in ADSET_CLONE_FIELD_KEYS:
-        if k in READONLY_ADSET_KEYS:
-            continue
-        if k not in adset_cfg:
-            continue
-        v = adset_cfg[k]
-        if v is not None:
-            out[k] = v
-    _drop_adset_schedule_if_end_in_past(out)
-    if isinstance(out.get("targeting"), dict):
-        out["targeting"] = _normalize_targeting_placements(out["targeting"])
-    return out
-
 
 def resolve_creative_destination_url(creative_data: Dict[str, Any]) -> Optional[str]:
     """link_url no criativo ou call_to_action.value.link."""
@@ -293,24 +93,3 @@ def resolve_creative_destination_url(creative_data: Dict[str, Any]) -> Optional[
                 if s:
                     return s
     return None
-
-
-# CTAs que tipicamente não exigem website_url no asset_feed_spec (heurística).
-_CTAS_WITHOUT_WEBSITE_URL: Set[str] = frozenset(
-    {
-        "",
-        "LIKE_PAGE",
-        "MESSAGE_PAGE",
-        "INSTAGRAM_MESSAGE",
-        "WHATSAPP_MESSAGE",
-        "CALL_NOW",
-    },
-)
-
-
-def asset_feed_requires_destination_url(asset_feed_spec: Dict[str, Any]) -> bool:
-    types = asset_feed_spec.get("call_to_action_types") or []
-    if not types:
-        return False
-    t = str(types[0]).strip().upper()
-    return t not in _CTAS_WITHOUT_WEBSITE_URL

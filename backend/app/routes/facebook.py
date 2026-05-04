@@ -1622,6 +1622,41 @@ async def start_campaign_bulk(
         _raise_meta_error(campaign_result, user=user, default_not_found_error="campaign_not_found")
     campaign_config = campaign_result.get("data") or {}
 
+    # Guard ASC/AAC legacy + Advantage+ unificado ativo. Marcadores corretos:
+    #   smart_promotion_type ∈ {AUTOMATED_SHOPPING_ADS (ASC), SMART_APP_PROMOTION (AAC)}
+    #     — sao APIs deprecated em v25, /copies bloqueado.
+    #   advantage_state ∈ {ADVANTAGE_PLUS_SALES, ADVANTAGE_PLUS_APP, ADVANTAGE_PLUS_LEADS}
+    #     — campanha Advantage+ ativa.
+    # Importante: GUIDED_CREATION em smart_promotion_type apenas indica que a campanha
+    # foi criada via fluxo guiado — campanhas tradicionais com advantage_state=DISABLED
+    # tambem podem ter esse valor. Confirmado empiricamente em campanhas reais.
+    smart_type = str(campaign_config.get("smart_promotion_type") or "").strip().upper()
+    advantage_state = ""
+    asi = campaign_config.get("advantage_state_info")
+    if isinstance(asi, dict):
+        advantage_state = str(asi.get("advantage_state") or "").strip().upper()
+    legacy_advantage_smart_types = {"AUTOMATED_SHOPPING_ADS", "SMART_APP_PROMOTION"}
+    advantage_plus_states = {"ADVANTAGE_PLUS_SALES", "ADVANTAGE_PLUS_APP", "ADVANTAGE_PLUS_LEADS"}
+    logger.info(
+        "[CAMPAIGN_BULK] template_inspect campaign_id=%s smart_promotion_type=%r advantage_state=%r",
+        campaign_id, smart_type or None, advantage_state or None,
+    )
+    if smart_type in legacy_advantage_smart_types or advantage_state in advantage_plus_states:
+        _cleanup_uploaded_temp_files(file_metas)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "advantage_plus_not_supported",
+                "message": (
+                    "Campanhas Advantage+ (ASC/AAC/Sales/App/Leads) nao podem ser duplicadas "
+                    "pela API do Meta a partir da v25 (deprecated). Selecione um anuncio de "
+                    "uma campanha tradicional como modelo."
+                ),
+                "smart_promotion_type": smart_type or None,
+                "advantage_state": advantage_state or None,
+            },
+        )
+
     adsets_result = api.get_adsets_for_campaign(campaign_id)
     if adsets_result.get("status") != "success":
         _cleanup_uploaded_temp_files(file_metas)
@@ -1681,15 +1716,26 @@ async def start_campaign_bulk(
             payload={
                 "type": "campaign_bulk",
                 "template_ad_id": parsed_config.template_ad_id,
+                "template_campaign_id": campaign_id,
                 "account_id": _normalize_account_id(parsed_config.account_id),
                 "connection_id": resolved_connection_id,
                 "status": parsed_config.status,
                 "adset_ids": parsed_config.adset_ids,
+                # Lista (preserva ordem) com metadata minima dos adsets selecionados.
+                # Worker usa pra interpolar {template_adset_name} e detectar end_time
+                # expirado pos-copia, sem precisar de GET extra por adset.
+                "selected_adsets_meta": [
+                    {
+                        "id": str(row.get("id") or ""),
+                        "name": str(row.get("name") or ""),
+                        "end_time": row.get("end_time"),
+                    }
+                    for row in adsets_raw
+                    if str(row.get("id") or "") in parsed_config.adset_ids
+                ],
                 "campaign_name_template": parsed_config.campaign_name_template,
                 "adset_name_template": parsed_config.adset_name_template,
                 "campaign_budget_override": parsed_config.campaign_budget_override,
-                "campaign_config": campaign_config,
-                "adset_configs": adsets_raw,
                 "creative_template": creative_template.to_payload(),
                 "creative_family": creative_template.family,
                 "media_refs": {},

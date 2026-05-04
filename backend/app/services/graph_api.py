@@ -546,50 +546,71 @@ class GraphAPI:
         if params:
             request_params.update(params)
 
-        try:
-            response = requests.request(
-                method=method,
-                url=url,
-                params=request_params,
-                json=json_payload,
-                data=data,
-                files=files,
-                timeout=timeout,
-            )
-            response.raise_for_status()
-            log_meta_usage(response, operation_name)
-            return {"status": "success", "data": response.json() if response.content else {}}
-        except requests.exceptions.HTTPError as http_err:
-            status_code = http_err.response.status_code if http_err.response is not None else None
-            error_data = {}
-            response_text = ""
-            if http_err.response is not None and http_err.response.content:
-                response_text = http_err.response.text
-                try:
-                    error_data = http_err.response.json()
-                except ValueError:
-                    error_data = {}
-            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
-            error_code = error_obj.get("code")
-            error_message = error_obj.get("message") or response_text[:500] or str(http_err)
-            if isinstance(error_obj, dict) and error_obj:
-                logger.warning(
-                    "%s Meta API HTTP error: %s",
-                    operation_name,
-                    sanitize_error_dict_for_log(dict(error_obj)),
+        # Reactive 429 backoff: tenta até 3x com sleep exponencial (1s, 2s, 4s).
+        # Honra Retry-After se Meta enviar; caso contrario fallback fixo de 5s.
+        max_429_retries = 3
+        attempt = 0
+        while True:
+            try:
+                response = requests.request(
+                    method=method,
+                    url=url,
+                    params=request_params,
+                    json=json_payload,
+                    data=data,
+                    files=files,
+                    timeout=timeout,
                 )
-            if json_payload:
-                logger.warning(
-                    "%s request_payload: %s",
-                    operation_name,
-                    json.dumps(sanitize_error_dict_for_log(json_payload), ensure_ascii=False)[:3000],
-                )
-            if error_code == 190:
-                return {"status": "auth_error", "message": error_message, "error": error_obj, "http_status": status_code}
-            return {"status": "http_error", "message": error_message, "error": error_obj, "http_status": status_code}
-        except Exception as err:
-            logger.exception("%s error: %s", operation_name, err)
-            return {"status": "error", "message": str(err)}
+                response.raise_for_status()
+                log_meta_usage(response, operation_name)
+                return {"status": "success", "data": response.json() if response.content else {}}
+            except requests.exceptions.HTTPError as http_err:
+                status_code = http_err.response.status_code if http_err.response is not None else None
+                # Reactive rate-limit backoff
+                if status_code == 429 and attempt < max_429_retries:
+                    retry_after_header = http_err.response.headers.get("Retry-After") if http_err.response is not None else None
+                    try:
+                        sleep_for = float(retry_after_header) if retry_after_header else 0.0
+                    except (TypeError, ValueError):
+                        sleep_for = 0.0
+                    if sleep_for <= 0:
+                        sleep_for = min(2 ** attempt, 8)  # 1s, 2s, 4s
+                    logger.warning(
+                        "%s rate_limited http_429 attempt=%s sleep_for=%ss",
+                        operation_name, attempt + 1, sleep_for,
+                    )
+                    time.sleep(sleep_for)
+                    attempt += 1
+                    continue
+                error_data = {}
+                response_text = ""
+                if http_err.response is not None and http_err.response.content:
+                    response_text = http_err.response.text
+                    try:
+                        error_data = http_err.response.json()
+                    except ValueError:
+                        error_data = {}
+                error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+                error_code = error_obj.get("code")
+                error_message = error_obj.get("message") or response_text[:500] or str(http_err)
+                if isinstance(error_obj, dict) and error_obj:
+                    logger.warning(
+                        "%s Meta API HTTP error: %s",
+                        operation_name,
+                        sanitize_error_dict_for_log(dict(error_obj)),
+                    )
+                if json_payload:
+                    logger.warning(
+                        "%s request_payload: %s",
+                        operation_name,
+                        json.dumps(sanitize_error_dict_for_log(json_payload), ensure_ascii=False)[:3000],
+                    )
+                if error_code == 190:
+                    return {"status": "auth_error", "message": error_message, "error": error_obj, "http_status": status_code}
+                return {"status": "http_error", "message": error_message, "error": error_obj, "http_status": status_code}
+            except Exception as err:
+                logger.exception("%s error: %s", operation_name, err)
+                return {"status": "error", "message": str(err)}
 
     def update_ad_status(self, ad_id: str, status: str) -> Dict[str, Any]:
         """Atualiza status de um anúncio (PAUSED/ACTIVE) via Meta Graph API."""
@@ -628,10 +649,14 @@ class GraphAPI:
     def get_campaign_config(self, campaign_id: str) -> Dict[str, Any]:
         """Retorna configuracoes da campanha para duplicacao."""
         # Apenas campos do no Campaign (ex.: start_time/end_time/pacing_type sao do AdSet).
+        # smart_promotion_type: marcador legacy de ASC/AAC (AUTOMATED_SHOPPING_ADS,
+        #   SMART_APP_PROMOTION, GUIDED_CREATION). Confirmado no SDK Python (Campaign.Field).
+        # advantage_state_info: marcador unificado novo de Advantage+ (ADVANTAGE_PLUS_SALES,
+        #   ADVANTAGE_PLUS_APP, ADVANTAGE_PLUS_LEADS, DISABLED). Tambem no SDK.
         fields = (
             "id,name,objective,status,buying_type,bid_strategy,"
             "daily_budget,lifetime_budget,special_ad_categories,special_ad_category_country,"
-            "spend_cap"
+            "spend_cap,smart_promotion_type,advantage_state_info{advantage_state}"
         )
         return self._handle_graph_request(
             method="GET",
@@ -691,13 +716,90 @@ class GraphAPI:
             timeout=60,
         )
 
-    def update_adset_name(self, adset_id: str, name: str) -> Dict[str, Any]:
-        """Renomeia um adset existente."""
+    def copy_campaign(self, source_campaign_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Duplica uma campanha inteira via POST /{id}/copies.
+
+        Params aceitos pelo Meta (Marketing API v24+):
+          - deep_copy: bool       — copia adsets+ads filhos junto
+          - status_option: str    — ACTIVE | INHERITED_FROM_SOURCE | PAUSED
+          - rename_options: dict  — { rename_strategy, rename_prefix, rename_suffix }
+          - start_time, end_time: datetime
+          - parameter_overrides: dict
+          - migrate_to_advantage_plus: bool
+
+        Resposta pode ser sync (id direto) ou async (async_session_id) — caller decide.
+        """
+        return self._handle_graph_request(
+            method="POST",
+            path=f"{source_campaign_id}/copies",
+            operation_name="GraphAPI.copy_campaign",
+            json_payload=params,
+            timeout=60,
+        )
+
+    def get_async_session(self, session_id: str) -> Dict[str, Any]:
+        """Le o estado de uma async session (usado para pollar deep copies)."""
+        fields = "id,status,percent_completed,result,error_code,exception,complete_time,start_time,method,uri"
+        return self._handle_graph_request(
+            method="GET",
+            path=session_id,
+            operation_name="GraphAPI.get_async_session",
+            params={"fields": fields},
+            timeout=15,
+        )
+
+    def update_campaign(self, campaign_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """PATCH-like: POST /{campaign_id} com os campos a alterar (name, daily_budget, status, ...)."""
+        return self._handle_graph_request(
+            method="POST",
+            path=campaign_id,
+            operation_name="GraphAPI.update_campaign",
+            json_payload=params,
+            timeout=30,
+        )
+
+    def update_adset(self, adset_id: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """PATCH-like: POST /{adset_id} com os campos a alterar (name, end_time, status, ...)."""
         return self._handle_graph_request(
             method="POST",
             path=adset_id,
-            operation_name="GraphAPI.update_adset_name",
-            json_payload={"name": name},
+            operation_name="GraphAPI.update_adset",
+            json_payload=params,
+            timeout=30,
+        )
+
+    def delete_object(self, object_id: str) -> Dict[str, Any]:
+        """DELETE /{id} — usado para apagar adsets nao-selecionados e ads copiados."""
+        return self._handle_graph_request(
+            method="DELETE",
+            path=object_id,
+            operation_name="GraphAPI.delete_object",
+            timeout=30,
+        )
+
+    def list_campaign_adsets_with_source(self, campaign_id: str) -> Dict[str, Any]:
+        """
+        Lista adsets de uma campanha incluindo source_adset (entidade da qual foram copiados).
+        Usado apos /copies pra mapear source_adset_id -> copied_adset_id.
+        """
+        fields = "id,name,status,end_time,start_time,source_adset{id}"
+        return self._handle_graph_request(
+            method="GET",
+            path=f"{campaign_id}/adsets",
+            operation_name="GraphAPI.list_campaign_adsets_with_source",
+            params={"fields": fields, "limit": 100},
+            timeout=30,
+        )
+
+    def list_adset_ads_with_source(self, adset_id: str) -> Dict[str, Any]:
+        """Lista ads de um adset incluindo source_ad — usado pra DELETE em massa pos-copia."""
+        fields = "id,name,status,source_ad{id}"
+        return self._handle_graph_request(
+            method="GET",
+            path=f"{adset_id}/ads",
+            operation_name="GraphAPI.list_adset_ads_with_source",
+            params={"fields": fields, "limit": 100},
             timeout=30,
         )
 
