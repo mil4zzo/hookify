@@ -20,10 +20,13 @@ from app.services.creative_template import (
     parse_creative_template,
     validate_template_for_bulk_clone,
 )
+from app.services.meta_campaign_clone import resolve_creative_destination_url
 
 logger = logging.getLogger(__name__)
 
-META_RATE_LIMIT_DELAY_SECONDS = 0.2
+# Floor mínimo de espaçamento entre chamadas Meta (insurance contra bursts).
+# Backoff reativo em 429 vive em GraphAPI._handle_graph_request — esse delay aqui é só a base.
+META_RATE_LIMIT_DELAY_SECONDS = 0.05
 
 
 class TemplateError(RuntimeError):
@@ -138,9 +141,17 @@ class StorySpecCreativeBuilder:
             return story_spec
 
         if link_data:
+            # cross-type: image template + video upload → keep link_data shape with video_id (Meta accepts)
             link_data["video_id"] = media_ref.video_id
             link_data.pop("image_hash", None)
+            link_data.pop("picture", None)
             story_spec["link_data"] = link_data
+            return story_spec
+
+        if story_spec.get("photo_data"):
+            # photo_data has no video_id support → convert to video_data
+            story_spec.pop("photo_data")
+            story_spec["video_data"] = {"video_id": media_ref.video_id}
             return story_spec
 
         story_spec["video_data"] = {"video_id": media_ref.video_id}
@@ -157,10 +168,22 @@ class StorySpecCreativeBuilder:
             story_spec["photo_data"]["image_hash"] = media_ref.image_hash
             return story_spec
         if story_spec.get("video_data"):
-            story_spec["video_data"]["image_hash"] = media_ref.image_hash
-            story_spec["video_data"].pop("video_id", None)
+            # cross-type: video template + image upload → convert video_data → link_data
+            video_data = story_spec.pop("video_data") or {}
+            link_data: Dict[str, Any] = {"image_hash": media_ref.image_hash}
+            for key in ("message", "call_to_action", "name", "description"):
+                if video_data.get(key) is not None:
+                    link_data[key] = video_data[key]
+            link_url = resolve_creative_destination_url({
+                "link_url": video_data.get("link"),
+                "call_to_action": video_data.get("call_to_action"),
+            })
+            if link_url:
+                link_data["link"] = link_url
+            story_spec["link_data"] = link_data
             return story_spec
-        story_spec["link_data"] = {"image_hash": media_ref.image_hash}
+        # fallback: bare spec — photo_data does not require link
+        story_spec["photo_data"] = {"image_hash": media_ref.image_hash}
         return story_spec
 
 
@@ -196,26 +219,42 @@ class AssetFeedCreativeBuilder:
                     }
                 )
 
-        primary_media_type = template.media_slots[0].media_type if template.media_slots else template.media_kind
-        if primary_media_type == "video":
-            asset_feed_spec["videos"] = media_assets
-            asset_feed_spec.pop("images", None)
-            rule_key = "video_label"
-            opposite_rule_key = "image_label"
+        # Dispatch wrapper key by ACTUAL uploaded media type, not template's expected.
+        # Handles cross-type swap (video template + image upload) and mixed-type bundles.
+        videos_assets = [a for a in media_assets if "video_id" in a]
+        images_assets = [a for a in media_assets if "hash" in a]
+        if videos_assets:
+            asset_feed_spec["videos"] = videos_assets
         else:
-            asset_feed_spec["images"] = media_assets
             asset_feed_spec.pop("videos", None)
-            rule_key = "image_label"
-            opposite_rule_key = "video_label"
+        if images_assets:
+            asset_feed_spec["images"] = images_assets
+        else:
+            asset_feed_spec.pop("images", None)
+
+        slot_actual_type: Dict[str, str] = {
+            slot.slot_key: bundle_media_ref.slot_refs[slot.slot_key].media_type
+            for slot in template.media_slots
+            if slot.slot_key in bundle_media_ref.slot_refs
+        }
 
         rules = copy.deepcopy(asset_feed_spec.get("asset_customization_rules") or [])
         rewritten_rules: List[Dict[str, Any]] = []
         for rule in rules:
             rewritten_rule = copy.deepcopy(rule)
-            original_label = str(((rewritten_rule.get(rule_key) or {}).get("name")) or "").strip()
-            slot = self._resolve_rule_slot(rule_key, original_label, template.media_slots, slot_by_key)
-            rewritten_rule[rule_key] = {"name": new_labels[slot.slot_key]}
-            rewritten_rule.pop(opposite_rule_key, None)
+            src_key = "video_label" if rewritten_rule.get("video_label") else (
+                "image_label" if rewritten_rule.get("image_label") else None
+            )
+            if not src_key:
+                rewritten_rules.append(rewritten_rule)
+                continue
+            original_label = str(((rewritten_rule.get(src_key) or {}).get("name")) or "").strip()
+            slot = self._resolve_rule_slot(src_key, original_label, template.media_slots, slot_by_key)
+            actual = slot_actual_type.get(slot.slot_key, slot.media_type)
+            target_key = "video_label" if actual == "video" else "image_label"
+            rewritten_rule.pop("video_label", None)
+            rewritten_rule.pop("image_label", None)
+            rewritten_rule[target_key] = {"name": new_labels[slot.slot_key]}
             rewritten_rules.append(rewritten_rule)
         if rewritten_rules:
             asset_feed_spec["asset_customization_rules"] = rewritten_rules
@@ -488,7 +527,10 @@ class BulkAdProcessor:
         )
 
     def _wait_for_video_ready(self, video_id: str, max_wait_seconds: int = 300) -> None:
+        # Backoff adaptativo + 2 leituras consecutivas de "ready" (evita flip mid-encoding).
         started_at = time.monotonic()
+        sleep_seconds = 2.0
+        consecutive_ready = 0
         while (time.monotonic() - started_at) < max_wait_seconds:
             result = self.api.get_video_status(video_id)
             data = self._extract_data_or_raise(result)
@@ -496,12 +538,17 @@ class BulkAdProcessor:
             video_status = str(status.get("video_status") or "").lower()
             processing_phase = str(status.get("processing_phase") or "").lower()
             if video_status in {"ready", "active"}:
-                return
+                consecutive_ready += 1
+                if consecutive_ready >= 2:
+                    return
+            else:
+                consecutive_ready = 0
             if video_status in {"error", "failed"}:
                 raise MetaAPIError("Meta falhou ao processar o video", "video_processing_failed")
             if processing_phase in {"error", "failed"}:
                 raise MetaAPIError("Meta falhou ao processar o video", "video_processing_failed")
-            time.sleep(5)
+            time.sleep(sleep_seconds)
+            sleep_seconds = min(sleep_seconds * 1.5, 10.0)
         raise MetaAPIError("Timeout aguardando processamento do video no Meta", "video_processing_timeout")
 
     def _build_creative_params(
@@ -512,9 +559,9 @@ class BulkAdProcessor:
     ) -> Dict[str, Any]:
         for slot_key, media_ref in bundle_media_ref.slot_refs.items():
             if creative_template.media_kind != media_ref.media_type:
-                raise MetaAPIError(
-                    f"Template espera midia do tipo {creative_template.media_kind}, mas o slot {slot_key} recebeu {media_ref.media_type}",
-                    "media_type_mismatch",
+                logger.info(
+                    "[BULK_ADS] cross_type_swap slot=%s template_kind=%s uploaded=%s",
+                    slot_key, creative_template.media_kind, media_ref.media_type,
                 )
         if creative_template.family == "story_spec_simple":
             return self.story_builder.build(item, creative_template, bundle_media_ref)

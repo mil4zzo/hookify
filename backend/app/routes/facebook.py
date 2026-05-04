@@ -205,9 +205,9 @@ def _validate_bulk_items_against_template(
                 slot = slot_map[slot_key]
                 file_meta = file_metas[int(file_index)]
                 if file_meta["media_type"] != slot.media_type:
-                    raise _validation_error(
-                        f"O slot {slot_key} aceita apenas midia do tipo {slot.media_type}",
-                        field=f"files[{file_index}]",
+                    logger.info(
+                        "[BULK_VALIDATE] cross_type_swap slot=%s expected=%s uploaded=%s file_index=%s",
+                        slot_key, slot.media_type, file_meta["media_type"], file_index,
                     )
         else:
             if item.file_index is None:
@@ -217,9 +217,9 @@ def _validate_bulk_items_against_template(
                 )
             file_meta = file_metas[int(item.file_index)]
             if creative_template.media_kind and file_meta["media_type"] != creative_template.media_kind:
-                raise _validation_error(
-                    f"O template selecionado aceita apenas midia do tipo {creative_template.media_kind}",
-                    field=f"files[{item.file_index}]",
+                logger.info(
+                    "[BULK_VALIDATE] cross_type_swap template_kind=%s uploaded=%s file_index=%s",
+                    creative_template.media_kind, file_meta["media_type"], item.file_index,
                 )
 
 def _raise_meta_error(result: Dict[str, Any], *, user: Dict[str, Any], default_not_found_error: str) -> None:
