@@ -1,8 +1,14 @@
 """
 Retries para chamadas PostgREST via cliente Supabase (httpx).
 
-HTTP/2 com Supabase/Cloudflare as vezes encerra a conexao (RemoteProtocolError);
-repetir a operacao costuma resolver sem mudar a logica de negocio.
+Cobre dois tipos de falha transitória:
+1. HTTP/2 drops com Supabase/Cloudflare (RemoteProtocolError, ReadError, etc.)
+2. Deadlocks do Postgres (SQLSTATE 40P01) entre caminhos concorrentes que
+   tocam ad_metrics — ex: upsert_ad_metrics (Meta refresh) vs
+   batch_update_ad_metrics_enrichment (Leadscore RPC). Postgres mata uma das
+   tx no ciclo; retry da vítima é seguro porque ambas as operações são
+   idempotentes (escrevem valores absolutos, não read-modify-write) e tocam
+   colunas disjuntas.
 """
 from __future__ import annotations
 
@@ -49,6 +55,22 @@ def _transient_httpx_exceptions() -> tuple:
     return tuple(errs)
 
 
+def _is_deadlock(exc: BaseException) -> bool:
+    """Detecta erro de deadlock do Postgres (SQLSTATE 40P01).
+
+    O erro pode chegar como postgrest.APIError (com .code/.details) ou como
+    Exception genérica com a mensagem JSON serializada — checa ambos.
+    """
+    code = getattr(exc, "code", None)
+    if code == "40P01":
+        return True
+    details = getattr(exc, "details", None)
+    if isinstance(details, dict) and details.get("code") == "40P01":
+        return True
+    msg = str(exc) if exc else ""
+    return "40P01" in msg or "deadlock detected" in msg.lower()
+
+
 def with_postgrest_retry(
     operation: str,
     fn: Callable[[], T],
@@ -56,40 +78,48 @@ def with_postgrest_retry(
     attempts: int = 4,
     base_delay: float = 0.15,
 ) -> T:
-    """Executa fn() repetindo em falhas transitórias de rede/HTTP2."""
+    """Executa fn() repetindo em falhas transitórias de rede/HTTP2 e deadlocks (40P01)."""
     transient = _transient_httpx_exceptions()
-    if not transient:
-        return fn()
 
     last: BaseException | None = None
     for attempt in range(attempts):
         try:
             return fn()
-        except transient as exc:  # type: ignore[misc]
+        except Exception as exc:
+            is_transient = bool(transient) and isinstance(exc, transient)
+            is_deadlock = _is_deadlock(exc)
+            if not (is_transient or is_deadlock):
+                raise
             last = exc
             if attempt + 1 >= attempts:
                 logger.warning(
-                    "%s: PostgREST/httpx falhou apos %s tentativas: %s: %s",
+                    "%s: falha persistente apos %s tentativas (%s): %s: %s",
                     operation,
                     attempts,
+                    "deadlock" if is_deadlock else "transitoria",
                     type(exc).__name__,
                     exc,
                 )
                 raise
-            delay = base_delay * (2**attempt) + random.uniform(0, 0.1)
+            # Jitter maior em deadlock dispersa tx concorrentes que retornam juntas
+            jitter_max = 0.4 if is_deadlock else 0.1
+            delay = base_delay * (2**attempt) + random.uniform(0, jitter_max)
+            kind = "deadlock" if is_deadlock else "transitoria"
             if attempt == 0:
                 logger.info(
-                    "%s: falha transitória (%s), haverá até %s tentativas no total",
+                    "%s: falha %s (%s), havera ate %s tentativas no total",
                     operation,
+                    kind,
                     type(exc).__name__,
                     attempts,
                 )
             logger.info(
-                "%s: retry %s/%s em %.2fs (%s)",
+                "%s: retry %s/%s em %.2fs (%s, %s)",
                 operation,
                 attempt + 2,
                 attempts,
                 delay,
+                kind,
                 type(exc).__name__,
             )
             time.sleep(delay)

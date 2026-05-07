@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Body, Depends, Query
 from pydantic import BaseModel, Field
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.core.supabase_retry import with_postgrest_retry
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
@@ -143,18 +144,21 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
         q = filters_func(q)
         q = q.range(offset, offset + page_size - 1)
         
-        result = q.execute()
+        result = with_postgrest_retry(
+            f"_fetch_all_paginated[{table_name} offset={offset}]",
+            q.execute,
+        )
         page_data = result.data or []
-        
+
         if not page_data:
             break
-        
+
         all_rows.extend(page_data)
-        
+
         # Se retornou menos que page_size, chegamos ao fim
         if len(page_data) < page_size:
             break
-        
+
         offset += page_size
     
     return all_rows

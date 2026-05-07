@@ -6,6 +6,29 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## `with_postgrest_retry` absorve deadlocks 40P01 (Meta upsert vs Leadscore RPC)
+
+**Data:** 2026-05-06
+
+**Regra:** o helper `with_postgrest_retry` em `backend/app/core/supabase_retry.py` agora detecta SQLSTATE `40P01` (deadlock_detected) via `.code`, `.details.code` ou string da exception e faz retry com backoff exponencial e jitter de 0–400ms (vs 0–100ms para HTTP/2 drops). Aplica-se automaticamente a todos os callers existentes — não precisa tratar 40P01 manualmente.
+
+**Por quê:** confirmado por log do Postgres que `upsert_ad_metrics` (INSERT bulk do Meta refresh) e `batch_update_ad_metrics_enrichment` (UPDATE bulk do Leadscore sync) podem deadlockar quando rodam concorrentes sobre `ad_metrics`. Mesmo com `ad_id` disjuntos entre packs (zero overlap em `ad_metric_pack_map`), há contenção a nível de página/índice quando os 6 packs com `auto_refresh=true` + `sheet_integration_id` rodam em sequência rápida — o `BackgroundTasks` do FastAPI cria janela onde leadscore RPC do pack N ainda processa enquanto Meta upsert do pack N+1 começa.
+
+**Por que retry é seguro:** as duas operações escrevem em **colunas disjuntas** de `ad_metrics`:
+- Meta UPSERT: `clicks, impressions, spend, hook_rate, ctr, actions, ...` + `updated_at`
+- Leadscore RPC: apenas `leadscore_values` + `updated_at`
+
+E **nenhuma faz read-modify-write** — ambas escrevem valores absolutos vindos de fontes externas (Meta API / Sheet). Postgres mata uma das tx (ROLLBACK 100%, atomicidade garante zero estado parcial); a vítima retry roda contra o estado da vencedora e converge para o mesmo resultado final, independente da ordem. Sem perda de dado nem sobrescrita de versão mais nova.
+
+**Como aplicar:**
+1. Para fluxos que escrevem em `ad_metrics` ou `ad_metric_pack_map`, sempre envolver em `with_postgrest_retry` — caso contrário ficam expostos ao deadlock.
+2. Se aparecer `falha persistente apos 4 tentativas` no log com `kind=deadlock`, suspeitar de deadlock determinístico (raríssimo) — investigar query.
+3. **Não confundir com overlap real de chave:** se múltiplos jobs upsertam **mesmas** linhas, o caminho é serialização (advisory lock por `user_id`), não retry. Retry só cobre conflito a nível de página/índice em rows disjuntos.
+
+**Arquivos:** `backend/app/core/supabase_retry.py` (`_is_deadlock`, retry expandido); cobertura automática em `backend/app/services/supabase_repo.py:968,1038` (Meta upserts) e `backend/app/services/ad_metrics_sheet_importer.py:370` (Leadscore RPC).
+
+---
+
 ## Meta `/copies` — valida targeting mais estrito que `/adsets`
 
 **Data:** 2026-05-04
