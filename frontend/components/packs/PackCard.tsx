@@ -10,7 +10,7 @@ import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { api } from "@/lib/api/endpoints";
-import { showSuccess, showError } from "@/lib/utils/toast";
+import { showError } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
@@ -60,7 +60,6 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
   const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(pack.name);
-  const [isSavingName, setIsSavingName] = useState(false);
   const [hasNameError, setHasNameError] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const isSavingNameRef = useRef(false);
@@ -148,42 +147,29 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
     }
 
     isSavingNameRef.current = true;
-    setIsSavingName(true);
 
     // Guardar nome anterior para reverter em caso de erro
     const previousName = pack.name;
 
-    // Atualizar estado local imediatamente (optimistic update)
-    updatePack(pack.id, {
-      name: trimmedName,
-    } as Partial<AdsPack>);
+    // Optimistic: atualizar estado local e fechar input imediatamente
+    updatePack(pack.id, { name: trimmedName } as Partial<AdsPack>);
+    setIsEditingName(false);
+    setHasNameError(false);
 
     try {
       await api.analytics.updatePackName(pack.id, trimmedName);
-      showSuccess(`Pack renomeado para "${trimmedName}"`);
-      // Sair do modo de edição apenas após sucesso
-      setIsEditingName(false);
-      setHasNameError(false); // Resetar erro ao salvar com sucesso
     } catch (error) {
       console.error("Erro ao renomear pack:", error);
-      // REVERTER em caso de erro
-      updatePack(pack.id, {
-        name: previousName,
-      } as Partial<AdsPack>);
+      // Reverter em caso de erro e reabrir o input
+      updatePack(pack.id, { name: previousName } as Partial<AdsPack>);
       setEditingName(previousName);
-      // Verificar se o erro é de nome duplicado
+      setIsEditingName(true);
       const errorMessage = error instanceof Error ? error.message : String(error);
       if (errorMessage.includes("já existe") || errorMessage.includes("already exists")) {
         setHasNameError(true);
-        // Manter o input aberto (já está aberto)
-      } else {
-        // Para outros erros, também manter aberto
-        setIsEditingName(true);
-        setHasNameError(false);
       }
       showError({ message: `Erro ao renomear pack: ${errorMessage}` });
     } finally {
-      setIsSavingName(false);
       isSavingNameRef.current = false;
     }
   };
@@ -193,6 +179,7 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
   };
 
   const handleNameKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    e.stopPropagation();
     if (e.key === "Enter") {
       e.preventDefault();
       handleSaveName();
@@ -270,7 +257,7 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                           }}
                           onKeyDown={handleNameKeyDown}
                           onBlur={handleInputBlur}
-                          disabled={isSavingName}
+
                           className={`text-xl font-semibold leading-tight px-0 w-full text-center bg-transparent border-0 rounded-none outline-none focus:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 transition-[box-shadow] ${hasNameError ? "shadow-[inset_0_-2px_0_0_var(--destructive)]" : "shadow-[inset_0_-2px_0_0_var(--primary-foreground)]"}`}
                           maxLength={100}
                           onClick={(e) => e.stopPropagation()}
