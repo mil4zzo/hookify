@@ -5,9 +5,6 @@ import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { StatePanel } from "@/components/common/States";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
-import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
-import { ExpandedRowCell } from "@/components/manager/ExpandedRowCell";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { SharedTableContentProps } from "@/components/manager/tableContentTypes";
 
@@ -27,7 +24,7 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
   }
 
   // 2. Comparação de funções (devem ser estáveis via useCallback)
-  if (prev.getRowKey !== next.getRowKey || prev.setExpanded !== next.setExpanded || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setColumnFilters !== next.setColumnFilters || prev.onVisibleRowKeysChange !== next.onVisibleRowKeysChange) {
+  if (prev.getRowKey !== next.getRowKey || prev.onOpenDrill !== next.onOpenDrill || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setColumnFilters !== next.setColumnFilters || prev.onVisibleRowKeysChange !== next.onVisibleRowKeysChange) {
     return false;
   }
 
@@ -85,35 +82,11 @@ function areMinimalTableContentPropsEqual(prev: MinimalTableContentProps, next: 
     }
   }
 
-  // 5. Comparação de expanded (shallow comparison otimizada)
-  const prevKeys = Object.keys(prev.expanded);
-  const nextKeys = Object.keys(next.expanded);
-
-  if (prevKeys.length !== nextKeys.length) {
-    return false;
-  }
-
-  for (const key of prevKeys) {
-    if (prev.expanded[key] !== next.expanded[key]) {
-      return false;
-    }
-  }
-
-  // 6. Filtros das tabelas expandidas (referência primeiro)
-  const prevExpFilters = prev.expandedTableColumnFilters ?? [];
-  const nextExpFilters = next.expandedTableColumnFilters ?? [];
-  if (prevExpFilters !== nextExpFilters && JSON.stringify(prevExpFilters) !== JSON.stringify(nextExpFilters)) {
-    return false;
-  }
-  if (prev.setExpandedTableColumnFilters !== next.setExpandedTableColumnFilters) {
-    return false;
-  }
-
   // Todas as props relevantes são iguais - não re-renderizar
   return true;
 }
 
-export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, setSelectedAd, setSelectedAdset, dateStart, dateStop, selectedPackIds = [], actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, expandedTableColumnFilters = [], setExpandedTableColumnFilters, onVisibleRowKeysChange }: MinimalTableContentProps) {
+export const MinimalTableContent = React.memo(function MinimalTableContent({ table, isLoadingEffective, currentTab, setSelectedAd, sorting, onVisibleRowKeysChange, onOpenDrill }: MinimalTableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
@@ -179,15 +152,14 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
         return;
       }
       const original = row.original as RankingsItem;
-      // Abas com expansão inline (por-campanha e por-conjunto)
+      // Abas drillable (por-campanha e por-conjunto): abrir modal de drill
       if (currentTab === "por-campanha" || currentTab === "por-conjunto") {
-        const rowKey = getRowKey(row);
-        setExpanded((prev) => ({ ...prev, [rowKey]: !prev[rowKey] }));
+        onOpenDrill?.(original);
         return;
       }
       setSelectedAd(original);
     },
-    [isResizing, currentTab, getRowKey, setExpanded, setSelectedAd],
+    [isResizing, currentTab, onOpenDrill, setSelectedAd],
   );
 
   const rowVirtualizer = useVirtualizer({
@@ -342,27 +314,13 @@ export const MinimalTableContent = React.memo(function MinimalTableContent({ tab
               // Virtualized rows
               virtualRows.map((virtualRow) => {
                 const row = rows[virtualRow.index];
-                const key = getRowKey(row);
-                const isExpanded = !!expanded[key];
-                const original = row.original as RankingsItem;
-                const adName = String(original?.ad_name || "");
-
-                const expandedContent =
-                  (groupByAdNameEffective && isExpanded && adName ? <ExpandedChildrenRow adName={adName} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} packIds={selectedPackIds} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null) ??
-                  (currentTab === "por-conjunto" && isExpanded && String((original as any)?.adset_id || "").trim() ? <ExpandedChildrenRow adsetId={String((original as any)?.adset_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} actionType={actionType} packIds={selectedPackIds} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null) ??
-                  (currentTab === "por-campanha" && isExpanded && String((original as any)?.campaign_id || "").trim() ? <CampaignChildrenRow campaignId={String((original as any)?.campaign_id || "").trim()} dateStart={dateStart || ""} dateStop={dateStop || ""} packIds={selectedPackIds} actionType={actionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={activeColumns} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={expandedTableColumnFilters} setColumnFilters={setExpandedTableColumnFilters!} asContent /> : null);
-
-                if (isExpanded && expandedContent) {
-                  return <ExpandedRowCell key={row.id} ref={rowVirtualizer.measureElement} row={row} table={table} expandedContent={expandedContent} tdClassName="p-0 align-top border border-primary rounded-md bg-input-30" onRowClick={handleRowClick} trClassName={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"} bg-muted-30`} dataIndex={virtualRow.index} summaryCellClassName="py-1.5 px-2" />;
-                }
 
                 return (
-                  <tr key={row.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"} ${isExpanded ? "bg-muted-30" : ""}`} onClick={(e) => handleRowClick(e, row)}>
-                    {row.getVisibleCells().map((cell, cellIndex) => {
+                  <tr key={row.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"}`} onClick={(e) => handleRowClick(e, row)}>
+                    {row.getVisibleCells().map((cell) => {
                       const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
-                      const isFirst = cellIndex === 0;
                       return (
-                        <td key={cell.id} className={`py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0 ${isExpanded && isFirst ? "!border-l-2 !border-l-primary" : ""}`}>
+                        <td key={cell.id} className={`py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0`}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );

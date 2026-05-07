@@ -29,6 +29,8 @@ interface ManagerChildrenTableProps {
   columnFilters?: ColumnFiltersState;
   setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   asContent?: boolean;
+  /** Quando definido, cada linha vira clicável e dispara este callback. */
+  onRowClick?: (child: RankingsChildrenItem) => void;
 }
 
 export function ManagerChildrenTable({
@@ -45,6 +47,7 @@ export function ManagerChildrenTable({
   columnFilters = [],
   setColumnFilters,
   asContent = false,
+  onRowClick,
 }: ManagerChildrenTableProps) {
   const [sortConfig, setSortConfig] = useState<{ column: string | null; direction: "asc" | "desc" }>({
     column: "spend",
@@ -200,7 +203,7 @@ export function ManagerChildrenTable({
 
   const innerContent = (
     <div className={asContent ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden" : undefined}>
-      <div className="flex-shrink-0 bg-muted-50 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
+      <div className="flex-shrink-0 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
         <div className="flex flex-nowrap items-center gap-3">
           <SearchInputWithClear
             value={searchTerm}
@@ -254,7 +257,7 @@ export function ManagerChildrenTable({
         <div className={asContent ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}>
           <table className="w-full border-collapse text-xs">
             <thead className={asContent ? "sticky top-0 z-sticky" : undefined}>
-              <tr className="bg-border">
+              <tr className="bg-card">
                 <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
@@ -279,8 +282,12 @@ export function ManagerChildrenTable({
             </thead>
             <tbody>
               {sortedData.map((child) => (
-                <tr key={child.ad_id} className="border-b border-border hover:bg-muted">
-                  <td className="px-4 py-3 text-center">
+                <tr
+                  key={child.ad_id}
+                  className={`bg-background border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
+                  onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
+                >
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab="individual" />
                   </td>
                   <td className="px-4 py-3 text-left">

@@ -5,70 +5,38 @@ import { Button } from "@/components/ui/button";
 import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
-import { IconChevronDown, IconMicrophone } from "@tabler/icons-react";
+import { IconChevronRight, IconMicrophone } from "@tabler/icons-react";
 
 interface AdNameCellProps {
   original: RankingsItem;
   value: string;
-  getRowKey: (row: any) => string;
-  expanded: Record<string, boolean>;
-  setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   groupByAdNameEffective: boolean;
   currentTab: string;
   /** Quando true (visualização minimal), thumbnail usa tamanho menor (w-10 h-10) */
   minimal?: boolean;
+  /** Acionado ao clicar no chevron — abre o modal de drill no nível apropriado. */
+  onOpenDrill?: (original: RankingsItem) => void;
 }
 
-// Custom comparison function for React.memo
 function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
-  // Value comparison
   if (prev.value !== next.value) return false;
-
-  // Original object reference comparison
   if (prev.original !== next.original) return false;
-
-  // Current tab comparison
   if (prev.currentTab !== next.currentTab) return false;
-
-  // Minimal (view mode) comparison
   if (prev.minimal !== next.minimal) return false;
-
-  // GroupBy comparison
   if (prev.groupByAdNameEffective !== next.groupByAdNameEffective) return false;
-
-  // Function references (should be stable from parent)
-  if (prev.getRowKey !== next.getRowKey) return false;
-  if (prev.setExpanded !== next.setExpanded) return false;
-
-  // CRITICAL: Check if THIS row's expanded state changed
-  const prevKey = prev.getRowKey({ original: prev.original });
-  const nextKey = next.getRowKey({ original: next.original });
-
-  // If the row key changed, re-render
-  if (prevKey !== nextKey) return false;
-
-  // Get the expanded state for this specific row
-  const prevExpanded = prev.expanded[prevKey];
-  const nextExpanded = next.expanded[nextKey];
-
-  // If expanded state changed for THIS row, re-render
-  if (prevExpanded !== nextExpanded) return false;
-
-  // Don't care about other rows' expanded states
+  if (prev.onOpenDrill !== next.onOpenDrill) return false;
   return true;
 }
 
-export const AdNameCell = React.memo(function AdNameCell({ original, value, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, minimal = false }: AdNameCellProps) {
+export const AdNameCell = React.memo(function AdNameCell({ original, value, groupByAdNameEffective, currentTab, minimal = false, onOpenDrill }: AdNameCellProps) {
   const showThumbnail = currentTab !== "por-conjunto" && currentTab !== "por-campanha";
   const thumbnail = getAdThumbnail(original);
   const name = String(value || "—");
   const id = original?.ad_id;
   const adCount = original?.ad_count ?? 0;
   const activeCount = original?.active_count ?? adCount;
-  const key = getRowKey({ original });
-  const isExpanded = !!expanded[key];
-  const hasActive = (original?.effective_status || "").toUpperCase() === "ACTIVE";
   const thumbnailSize = minimal ? "sm" : "md";
+  const canDrill = !!onOpenDrill && (groupByAdNameEffective || currentTab === "por-conjunto" || currentTab === "por-campanha");
 
   let secondLine = "";
   let activeCountForDisplay: number | undefined;
@@ -85,7 +53,6 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
       secondLine = `${x} / ${total} ${countLabel}`;
     }
   }
-  // Bolinha verde quando há anúncios ativos; cinza quando há 0 ativos (sempre exibir quando temos "X / Y anúncios")
   const dotActive = activeCountForDisplay !== undefined && activeCountForDisplay > 0;
   const showDot = activeCountForDisplay !== undefined;
   if (currentTab === "individual") {
@@ -97,10 +64,10 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
     secondLine = count === 1 ? `ID: ${id || "-"}` : `ID: ${id || "-"} (${count} ${countLabel})`;
   }
 
-  const handleToggleExpand = (e?: React.MouseEvent) => {
+  const handleOpenDrill = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    const next = !isExpanded;
-    setExpanded((prev) => ({ ...prev, [key]: next }));
+    if (!onOpenDrill) return;
+    onOpenDrill(original);
   };
 
   return (
@@ -110,7 +77,7 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
           <ThumbnailImage src={thumbnail} alt="thumb" size={thumbnailSize} />
           {original.has_transcription && (
             <div className="absolute bottom-0.5 right-0.5 rounded bg-background/80 p-0.5 backdrop-blur-sm">
-              <IconMicrophone className="h-2.5 w-2.5 text-primary" />
+              <IconMicrophone className="h-2.5 w-2.5 text-primary" aria-hidden />
             </div>
           )}
         </div>
@@ -119,21 +86,19 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, getR
         <div className="flex items-center gap-2 truncate">
           <span className="truncate flex-1">{name}</span>
         </div>
-        {groupByAdNameEffective || currentTab === "por-campanha" || currentTab === "por-conjunto" ? (
+        {canDrill ? (
           <div className="mt-1">
-            <Button size="sm" variant={isExpanded ? "default" : "ghost"} onClick={handleToggleExpand} className={`h-auto py-1 px-2 text-xs gap-1.5 ${isExpanded ? "text-primary-foreground" : "text-muted-foreground"} hover:text-text`}>
-              {isExpanded ? (
-                "- Recolher"
-              ) : currentTab === "por-campanha" ? (
+            <Button size="sm" variant="ghost" onClick={handleOpenDrill} className="h-auto py-1 px-2 text-xs gap-1.5 text-muted-foreground hover:text-text">
+              {currentTab === "por-campanha" ? (
                 <>
                   {secondLine}
-                  <IconChevronDown className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+                  <IconChevronRight className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
                 </>
               ) : (
                 <>
                   {showDot && <span className={`shrink-0 rounded-full w-1.5 h-1.5 ${dotActive ? "bg-success" : "bg-destructive"}`} aria-hidden />}
                   {secondLine}
-                  <IconChevronDown className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
+                  <IconChevronRight className="w-3 h-3 shrink-0 opacity-70" aria-hidden />
                 </>
               )}
             </Button>

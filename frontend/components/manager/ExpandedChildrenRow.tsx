@@ -5,6 +5,7 @@ import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
 import { useAdVariations, useAdsetChildren } from "@/lib/api/hooks";
+import type { RankingsChildrenItem } from "@/lib/api/schemas";
 
 interface ExpandedChildrenRowProps {
   adName?: string;
@@ -27,6 +28,8 @@ interface ExpandedChildrenRowProps {
   setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   /** Quando true, retorna apenas o conteúdo interno (sem tr/td) para uso dentro de uma célula pai */
   asContent?: boolean;
+  /** Quando definido, cada linha vira clicável e dispara este callback. */
+  onRowClick?: (child: RankingsChildrenItem) => void;
 }
 
 function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: ExpandedChildrenRowProps): boolean {
@@ -49,7 +52,8 @@ function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: 
     prev.hasSheetIntegration === next.hasSheetIntegration &&
     prev.mqlLeadscoreMin === next.mqlLeadscoreMin &&
     columnFiltersEqual &&
-    prev.setColumnFilters === next.setColumnFilters
+    prev.setColumnFilters === next.setColumnFilters &&
+    prev.onRowClick === next.onRowClick
   );
 }
 
@@ -68,6 +72,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   columnFilters = [],
   setColumnFilters,
   asContent = false,
+  onRowClick,
 }: ExpandedChildrenRowProps) {
   const adVariationsQuery = useAdVariations(adName || "", dateStart, dateStop, packIds, !!adName);
   const adsetChildrenQuery = useAdsetChildren(adsetId || "", dateStart, dateStop, packIds, !!adsetId);
@@ -88,6 +93,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
       columnFilters={columnFilters}
       setColumnFilters={setColumnFilters}
       asContent={asContent}
+      onRowClick={onRowClick}
     />
   );
 }, areExpandedChildrenRowPropsEqual);

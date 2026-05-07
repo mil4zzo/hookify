@@ -13,8 +13,6 @@ export interface SharedTableContentProps {
   table: Table<RankingsItem>;
   isLoadingEffective: boolean;
   getRowKey: (row: { original?: RankingsItem } | RankingsItem) => string;
-  expanded: Record<string, boolean>;
-  setExpanded: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   groupByAdNameEffective: boolean;
   currentTab: ManagerTab;
   setSelectedAd: (ad: RankingsItem) => void;
@@ -38,12 +36,11 @@ export interface SharedTableContentProps {
   dataRef: readonly any[] | any[];
   /** Toggle Médias vs Tendências: quando muda, a tabela deve re-renderizar para mostrar sparklines ou médias */
   showTrends?: boolean;
-  /** Filtros das tabelas expandidas (compartilhados por aba) */
-  expandedTableColumnFilters?: ColumnFiltersState;
-  setExpandedTableColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   /** Chaves de grupo visiveis no viewport virtualizado (ordem atual da tabela). */
   onVisibleRowKeysChange?: (keys: string[]) => void;
   /** Indica que a requisição falhou (ex: timeout do RPC). Exibe estado de erro no lugar de "Nenhum resultado". */
   isError?: boolean;
+  /** Acionado ao clicar no chevron / linha de uma row drillable (campanha, conjunto, anúncio agrupado). */
+  onOpenDrill?: (original: RankingsItem) => void;
 }
 

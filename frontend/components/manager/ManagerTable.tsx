@@ -30,13 +30,14 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDialog").then((m) => m.AdsetDetailsDialog), { ssr: false });
 import { MetricCell } from "@/components/manager/MetricCell";
-import { AdNameCell } from "@/components/manager/AdNameCell";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { DEFAULT_MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
 import { MinimalTableContent } from "@/components/manager/MinimalTableContent";
+import { ManagerDrillModal } from "@/components/manager/ManagerDrillModal";
+import { useDrillState, type DrillKind } from "@/lib/manager/useDrillState";
 import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStorage";
 import { logger } from "@/lib/utils/logger";
 import { getColumnId } from "@/lib/utils/columnFilters";
@@ -118,7 +119,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // SortIcon foi movido para `managerTableMetricColumns.tsx` junto do factory de colunas.
 
-// ExpandedChildrenRow foi extraído para arquivo próprio em `frontend/components/manager/ExpandedChildrenRow.tsx`
+// ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
 export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
@@ -323,15 +324,44 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
   const [videoOpen, setVideoOpen] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<{ videoId: string; actorId: string; title: string } | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const hydratingTabRef = useRef<ManagerTab | null>(null);
-  const expandedRef = useRef<Record<string, boolean>>({});
 
-  // Manter referência estável/atualizada do estado de expansão.
-  // Isso permite que `columns` não dependa diretamente de `expanded`, evitando recriações em hot paths (ex.: resize onChange).
+  // Drill state (URL-backed). Substitui a expansão inline por um modal único com breadcrumb.
+  const drill = useDrillState();
+  const drillPushRef = useRef(drill.push);
+  const drillCloseRef = useRef(drill.close);
   useEffect(() => {
-    expandedRef.current = expanded;
-  }, [expanded]);
+    drillPushRef.current = drill.push;
+    drillCloseRef.current = drill.close;
+  }, [drill.push, drill.close]);
+
+  const handleOpenDrill = useCallback(
+    (original: RankingsItem) => {
+      const tabToKind: Record<ManagerTab, DrillKind | null> = {
+        "por-anuncio": "adname",
+        "por-conjunto": "adset",
+        "por-campanha": "campaign",
+        individual: null,
+      };
+      const kind = tabToKind[currentTab];
+      if (!kind) return;
+      let id = "";
+      let name: string | null = null;
+      if (kind === "campaign") {
+        id = String((original as any).campaign_id || "").trim();
+        name = String((original as any).campaign_name || (original as any).ad_name || "") || null;
+      } else if (kind === "adset") {
+        id = String((original as any).adset_id || "").trim();
+        name = String((original as any).adset_name || (original as any).ad_name || "") || null;
+      } else {
+        id = String(original.ad_name || "").trim();
+        name = id || null;
+      }
+      if (!id) return;
+      drillPushRef.current({ kind, id, name });
+    },
+    [currentTab],
+  );
 
   const getFiltersStorageKey = (tab: ManagerTab) => `hookify-manager-filters:${tab}`;
   const getGlobalFilterStorageKey = (tab: ManagerTab) => `hookify-manager-global-filter:${tab}`;
@@ -390,18 +420,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Estado para gerenciar o tamanho das colunas
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
 
-  // Filtros das tabelas expandidas (compartilhados por aba, independentes entre abas)
-  const [expandedTableFilters, setExpandedTableFilters] = useState<Record<string, ColumnFiltersState>>({});
-  const setExpandedTableColumnFilters = useCallback(
-    (updater: React.SetStateAction<ColumnFiltersState>) => {
-      setExpandedTableFilters((prev) => ({
-        ...prev,
-        [currentTab]: typeof updater === "function" ? updater(prev[currentTab] ?? []) : updater,
-      }));
-    },
-    [currentTab],
-  );
-
   // Refs para evitar recriação das colunas durante mudanças de filtros (performance optimization)
   const columnFiltersRef = useRef<ColumnFiltersState>([]);
   const globalFilterRef = useRef<string>("");
@@ -459,8 +477,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     hydratingTabRef.current = currentTab;
     setColumnFilters(loadColumnFilters(currentTab));
     setGlobalFilter(loadGlobalFilter(currentTab));
-    // Resetar expansão ao trocar de tab para evitar estados inconsistentes
-    setExpanded({});
+    // Fechar modal de drill ao trocar de tab — drill perde sentido em outra aba.
+    drillCloseRef.current();
   }, [currentTab]);
 
   // Liberar persistência após hidratar o tab atual
@@ -692,8 +710,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       activeColumns,
       groupByAdNameEffective,
       byKey,
-      expandedRef,
-      setExpanded,
+      onOpenDrill: handleOpenDrill,
       currentTab,
       getRowKey,
       endDate,
@@ -713,7 +730,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -894,8 +911,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       table,
       isLoadingEffective,
       getRowKey,
-      expanded,
-      setExpanded,
       groupByAdNameEffective,
       currentTab,
       setSelectedAd: handleSelectAd,
@@ -915,12 +930,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       dataLength: data.length,
       dataRef: data,
       showTrends,
-      expandedTableColumnFilters: expandedTableFilters[currentTab] ?? [],
-      setExpandedTableColumnFilters,
       onVisibleRowKeysChange: handleVisibleRowKeysChange,
       isError: isError && currentTab === "por-anuncio",
+      onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, expanded, setExpanded, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, adsEffectiveRaw, showTrends, expandedTableFilters, setExpandedTableColumnFilters, handleVisibleRowKeysChange],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, adsEffectiveRaw, showTrends, handleVisibleRowKeysChange, handleOpenDrill],
   );
   return (
     <>
@@ -997,6 +1011,20 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           </TableWorkspace>
         </TabbedContentItem>
       </TabbedWorkspace>
+
+      {/* Drill Modal — substitui a expansão inline (campanha → conjuntos → anúncios) */}
+      <ManagerDrillModal
+        dateStart={dateStart}
+        dateStop={dateStop}
+        selectedPackIds={selectedPackIds}
+        actionType={actionType}
+        formatCurrency={formatCurrency}
+        formatPct={formatPct}
+        activeColumns={activeColumns}
+        hasSheetIntegration={hasSheetIntegration}
+        mqlLeadscoreMin={mqlLeadscoreMin}
+        onSelectAd={handleSelectAd}
+      />
 
       {/* Details Dialog */}
       <AppDialog isOpen={!!selectedAd} onClose={() => setSelectedAd(null)} title="Detalhes do anúncio" size="5xl" padding="md" className="flex h-[90dvh] min-h-0 flex-col overflow-hidden" bodyClassName="flex min-h-0 flex-1 flex-col">

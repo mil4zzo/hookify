@@ -28,6 +28,8 @@ interface CampaignChildrenRowProps {
   setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   /** Quando true, retorna apenas o conteúdo interno (sem tr/td) para uso dentro de uma célula pai */
   asContent?: boolean;
+  /** Quando definido, cada linha vira clicável e dispara este callback (passa o adset). */
+  onRowClick?: (adset: RankingsItem) => void;
 }
 
 function areCampaignChildrenRowPropsEqual(prev: CampaignChildrenRowProps, next: CampaignChildrenRowProps): boolean {
@@ -41,7 +43,7 @@ function areCampaignChildrenRowPropsEqual(prev: CampaignChildrenRowProps, next: 
   return prev.asContent === next.asContent && prev.campaignId === next.campaignId && prev.dateStart === next.dateStart && prev.dateStop === next.dateStop && prev.actionType === next.actionType && prev.formatCurrency === next.formatCurrency && prev.formatPct === next.formatPct && activeColumnsEqual && prev.hasSheetIntegration === next.hasSheetIntegration && prev.mqlLeadscoreMin === next.mqlLeadscoreMin && columnFiltersEqual && prevPackIdsKey === nextPackIdsKey && prev.setColumnFilters === next.setColumnFilters;
 }
 
-export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, packIds = [], actionType, formatCurrency, formatPct, activeColumns, hasSheetIntegration = false, mqlLeadscoreMin = 0, columnFilters = [], setColumnFilters, asContent = false }: CampaignChildrenRowProps) {
+export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, packIds = [], actionType, formatCurrency, formatPct, activeColumns, hasSheetIntegration = false, mqlLeadscoreMin = 0, columnFilters = [], setColumnFilters, asContent = false, onRowClick }: CampaignChildrenRowProps) {
   const { data: childrenData, isLoading, isError } = useCampaignChildren(campaignId, dateStart, dateStop, actionType, packIds, true);
 
   const [sortConfig, setSortConfig] = useState<{
@@ -180,7 +182,7 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
   const innerContent = (
     <div>
       {/* Busca e filtros - flex horizontal: search à esquerda, filterbar à direita */}
-      <div className="px-4 py-3 bg-muted-50" role="region" aria-label="Busca e filtros da tabela expandida">
+      <div className="px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
         <div className="flex items-center gap-3 flex-nowrap">
           <SearchInputWithClear
             value={searchTerm}
@@ -223,7 +225,7 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead>
-              <tr className="bg-border">
+              <tr>
                 <th className={`p-4 text-center w-20 cursor-pointer select-none hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
@@ -250,8 +252,12 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
               {sortedData.map((child) => {
                 const key = String((child as any).adset_id || "") || String((child as any).adset_name || "") || String((child as any).ad_name || "");
                 return (
-                  <tr key={key} className="hover:bg-muted border-b border-border">
-                    <td className="px-4 py-3 text-center">
+                  <tr
+                    key={key}
+                    className={`bg-background hover:bg-muted border-b border-border ${onRowClick ? "cursor-pointer" : ""}`}
+                    onClick={onRowClick ? () => onRowClick(child as RankingsItem) : undefined}
+                  >
+                    <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                       <StatusCell original={child as any} currentTab="por-conjunto" />
                     </td>
                     <td className="px-4 py-3 text-left">
