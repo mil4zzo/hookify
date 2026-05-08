@@ -1123,7 +1123,8 @@ def get_existing_ads_map(
         "ad_id,account_id,campaign_id,campaign_name,adset_id,adset_name,ad_name,"
         "effective_status,creative,creative_video_id,thumbnail_url,"
         "instagram_permalink_url,primary_video_id,media_type,"
-        "adcreatives_videos_ids,adcreatives_videos_thumbs"
+        "adcreatives_videos_ids,adcreatives_videos_thumbs,"
+        "video_owner_page_id"
     )
     batch_size = 200  # Reduzido de 400 para evitar timeout/URL longa
     existing_ads: Dict[str, Dict[str, Any]] = {}

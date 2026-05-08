@@ -6,6 +6,24 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Otimização "skip se já tem campo X" depende do SELECT do helper de leitura
+
+**Data:** 2026-05-07
+
+**Regra:** ao introduzir uma otimização que pula trabalho com base na presença de um campo X no estado existente (e.g. "se já tem `video_owner_page_id`, não re-enriquece"), o helper que carrega esse estado **precisa** incluir X no `SELECT`. Caso contrário, X estará ausente do dict, `.get("X")` retorna None, o trigger sempre dispara, e a otimização nunca acontece — sem nenhum erro visível.
+
+**Por quê:** caso real em `backend/app/services/supabase_repo.py:get_existing_ads_map`. O `select_fields` listava 16 colunas mas omitia `video_owner_page_id`. O `AdsEnricher.enrich` (linha 498-502) usava ausência desse campo como gatilho de re-enriquecimento. Resultado: TODO refresh re-enriquecia 100% dos ads existentes (e.g. 766 ads em pack `e19c454c`), mesmo com o DB tendo o campo 100% preenchido (confirmado por SQL: 7072 ads, todos `filled`). Métrica `enrichment_total` no payload do job ficava sempre 0. Custo: 1 round-trip Meta `/details` por refresh, eternamente.
+
+**Como aplicar:**
+1. Ao introduzir um novo campo em uma tabela cujo helper-de-leitura faz `SELECT` explícito (não `*`), conferir e atualizar o `SELECT` no MESMO PR.
+2. Code review de otimizações condicionais: traçar o caminho `DB → SELECT → dict → trigger`. Se qualquer elo intermediário não carrega o campo, a otimização é morta-viva.
+3. **Sintoma de detecção em produção:** contadores de "reuso/cache hit" sempre 0 com volume crescente sem outra explicação. Confronte log do app com SQL real do DB — divergência de 100% delata o bug.
+4. **Não substituir** `SELECT` explícito por `select("*")` só por segurança — a explicitação é boa prática. A vigilância tem que estar no review.
+
+**Arquivos:** `backend/app/services/supabase_repo.py:1122-1128` (fix: incluir `video_owner_page_id`); `backend/app/services/ads_enricher.py:498-502` (consumidor do trigger).
+
+---
+
 ## `with_postgrest_retry` absorve deadlocks 40P01 (Meta upsert vs Leadscore RPC)
 
 **Data:** 2026-05-06

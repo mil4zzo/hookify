@@ -127,7 +127,25 @@ class MetaJobClient:
                     "percent": 100
                 }
             elif async_status == "Job Failed":
-                error_msg = status_data.get("error", "Job failed without specific error")
+                # Meta raramente popula `error` neste endpoint; o diagnóstico fica
+                # diluído na response inteira (ex.: async_status_error, percent parcial).
+                # Logar tudo para não voltar a cegar o debug em produção.
+                logger.error(
+                    f"[MetaJobClient] Meta async report falhou job_id={job_id} "
+                    f"percent={percent_completion} response={json.dumps(status_data)[:1500]}"
+                )
+                error_detail = (
+                    status_data.get("error")
+                    or status_data.get("async_status_error")
+                    or status_data.get("error_message")
+                )
+                if error_detail:
+                    error_msg = str(error_detail)
+                else:
+                    error_msg = (
+                        f"Meta async_status=Job Failed (percent={percent_completion}%). "
+                        f"Resposta sem campo de erro explícito: {json.dumps(status_data)[:500]}"
+                    )
                 return {
                     "success": True,
                     "status": "failed",
