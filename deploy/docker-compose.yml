@@ -18,6 +18,10 @@ services:
       - CORS_ORIGINS=https://hookifyads.com,https://www.hookifyads.com,https://api.hookifyads.com
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
+      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
+      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
+      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
     env_file:
       - ../backend/.env
     networks:

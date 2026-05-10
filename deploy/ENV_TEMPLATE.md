@@ -19,6 +19,15 @@ SUPABASE_JWKS_URL=https://seu-projeto.supabase.co/auth/v1/.well-known/jwks.json
 CORS_ORIGINS=https://hookifyads.com,https://www.hookifyads.com
 LOG_LEVEL=info
 ENCRYPTION_KEY=sua_chave_de_criptografia_aqui
+
+# AssemblyAI (transcrição de vídeos)
+ASSEMBLYAI_API_KEY=sua_chave_assemblyai_aqui
+
+# Google OAuth (Leadscore via Google Sheets)
+GOOGLE_OAUTH_CLIENT_ID=seu_google_client_id_aqui
+GOOGLE_OAUTH_CLIENT_SECRET=seu_google_client_secret_aqui
+# Opcional: fixar um redirect por ambiente (senão é derivado do request)
+# GOOGLE_OAUTH_REDIRECT_URI=https://hookifyads.com/callback/google
 ```
 
 ## Frontend - frontend/.env.local
@@ -58,4 +67,16 @@ Use uma chave segura de 32 caracteres. Você pode gerar com:
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
+
+### AssemblyAI
+1. Acesse https://www.assemblyai.com/app/account
+2. Em "API Keys", copie a chave existente ou crie uma nova
+3. Cole em `ASSEMBLYAI_API_KEY`. Sem essa chave a transcrição falha com `ASSEMBLYAI_API_KEY não configurada`.
+
+### Google OAuth (Leadscore via Sheets)
+1. Acesse https://console.cloud.google.com/apis/credentials no projeto Google Cloud
+2. Em "OAuth 2.0 Client IDs", abra o client (ou crie um do tipo "Web application")
+3. Adicione como Authorized redirect URI: `https://hookifyads.com/callback/google`
+4. Copie Client ID e Client Secret para `GOOGLE_OAUTH_CLIENT_ID` e `GOOGLE_OAUTH_CLIENT_SECRET`
+5. Confirme que as APIs "Google Sheets API" e "Google Drive API" estão habilitadas no projeto
 
