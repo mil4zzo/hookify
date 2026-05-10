@@ -19,6 +19,7 @@ export type ProgressToastCardStaged = {
   stageTitle: string;
   dynamicLine: string;
   stageContext?: string;
+  diagnosticLine?: string;
 };
 
 type ToastCardFrameProps = {
@@ -343,7 +344,17 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
     <ToastCardFrame variant={variant} progress={animatedProgress} animated={animated}>
       <div className="flex flex-col gap-3 px-4 pb-4 pt-3 text-primary-foreground" role="status" aria-live="polite" aria-valuemin={0} aria-valuemax={100} aria-valuenow={showBar ? animatedProgress : undefined}>
         <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex-shrink-0 [&_svg]:h-5 [&_svg]:w-5">{cancelling ? <IconLoader2 className="animate-spin opacity-90" /> : icon || <IconLoader2 className="animate-spin opacity-90" />}</span>
+          <span className="mt-0.5 flex-shrink-0 [&_svg]:h-5 [&_svg]:w-5">
+            {cancelling ? (
+              <IconLoader2 className="animate-spin opacity-90" />
+            ) : icon ? (
+              icon
+            ) : inlineError ? (
+              <IconAlertCircle className="text-destructive-300" />
+            ) : (
+              <IconLoader2 className="animate-spin opacity-90" />
+            )}
+          </span>
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-[11px] font-medium leading-tight text-primary-foreground-75">{eyebrow}</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-primary-foreground">{titleText}</p>
@@ -353,7 +364,12 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
                 Cancelando atualização de <strong className="font-semibold text-primary-foreground">{packName}</strong>...
               </p>
             ) : inlineError ? (
-              <p className="pt-0.5 text-xs font-medium leading-snug text-destructive-300">{dynamicLine}</p>
+              <>
+                <p className="pt-0.5 text-xs font-medium leading-snug text-destructive-300">{dynamicLine}</p>
+                {staged?.diagnosticLine && (
+                  <p className="pt-1 font-mono text-[10px] leading-snug text-destructive-300/70 break-all">{staged.diagnosticLine}</p>
+                )}
+              </>
             ) : (
               <p className="min-w-0 pt-0.5 text-xs font-medium leading-snug text-primary-foreground-88">{dynamicLine}</p>
             )}

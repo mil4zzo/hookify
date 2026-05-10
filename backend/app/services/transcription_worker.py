@@ -248,6 +248,7 @@ def run_transcription_batch(
     success_count = 0
     fail_count = 0
     processed = 0
+    last_error_message: Optional[str] = None
 
     def _mark_job_cancelled() -> None:
         logger.info(
@@ -276,6 +277,7 @@ def run_transcription_batch(
         try:
             video_url = _resolve_video_url(api, video_id, actor_id)
             if not video_url:
+                last_error_message = "Não foi possível obter URL do vídeo via Meta API"
                 supabase_repo.upsert_transcription(
                     user_jwt,
                     user_id,
@@ -285,7 +287,7 @@ def run_transcription_batch(
                         "provider": "assemblyai",
                         "source_video_id": video_id,
                         "actor_id": actor_id,
-                        "error_message": "Não foi possível obter URL do vídeo via Meta API",
+                        "error_message": last_error_message,
                     },
                 )
                 fail_count += 1
@@ -321,6 +323,8 @@ def run_transcription_batch(
                 success_count += 1
             else:
                 fail_count += 1
+                if result.error:
+                    last_error_message = result.error
             processed += 1
             _heartbeat(
                 status=STATUS_PROCESSING,
@@ -331,6 +335,7 @@ def run_transcription_batch(
             )
         except Exception as e:
             logger.warning(f"[TRANSCRIPTION] Erro ao transcrever ad_name={ad_name!r}: {e}")
+            last_error_message = str(e) or last_error_message
             try:
                 supabase_repo.upsert_transcription(
                     user_jwt,
@@ -371,7 +376,12 @@ def run_transcription_batch(
         else:
             final_message = f"Transcrição concluída com sucesso: {success_count} sucesso(s)"
     else:
-        final_message = f"Transcrição falhou: {fail_count} falha(s)"
+        if last_error_message:
+            final_message = (
+                f"Transcrição falhou ({fail_count} de {total}): {last_error_message}"
+            )
+        else:
+            final_message = f"Transcrição falhou: {fail_count} falha(s)"
     _heartbeat(
         status=final_status,
         done=processed,
@@ -382,6 +392,7 @@ def run_transcription_batch(
             "fail_count": fail_count,
             "skipped_existing": len(existing),
             "completed_with_failures": completed_with_failures,
+            "last_error_message": last_error_message,
         },
     )
     logger.info(

@@ -6,6 +6,24 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Toast terminal de erro precisa de ícone de contexto (senão parece "loading")
+
+**Data:** 2026-05-10
+
+**Regra:** ao chamar `finishProgressToast(toastId, false, message)` no frontend, **sempre** passar `{ context: "meta" | "sheets" | "transcription", packName }`. Sem `context`, o `ProgressToastCard` ficava sem ícone e caía no fallback `IconLoader2 animate-spin` — toast vermelho com spinner girando, lido pelo usuário como "ainda processando" em vez de erro.
+
+**Por quê:** caso real — transcrição falhava no VPS por `ASSEMBLYAI_API_KEY` não configurada (metadata em `ad_transcriptions.metadata.error_message`). As 4 chamadas de `finishProgressToast` no fluxo de transcrição (`failed`, `onTimeout`, `onMaxConsecutiveErrors`, `catch` de `startTranscriptionOnly`) não passavam `context`, e a mensagem do backend era genérica (`"Transcrição falhou: 1 falha(s)"`), sem mencionar a causa raiz.
+
+**Como aplicar:**
+1. Qualquer novo `finishProgressToast(_, false, _)` deve passar `context` + `packName` no options.
+2. Para erros sistêmicos (API key, scope OAuth, timeout), incluir também `diagnosticLine` — renderiza em mono-space abaixo da mensagem principal e dá pista pra suporte.
+3. **Backend de jobs em batch:** quando o batch termina como `FAILED`, capturar `last_error_message` durante o loop e incluí-lo tanto no `message` final do heartbeat quanto em `details.last_error_message`. "X falha(s)" sem causa raiz é inútil pro usuário.
+4. Reforço extra: `ProgressToastCard` agora também tem fallback `IconAlertCircle` quando `inlineError=true` sem `icon` — defensivo, mas não substitui passar o `context` correto.
+
+**Arquivos:** `frontend/components/common/ProgressToastCard.tsx` (fallback de erro); `frontend/lib/hooks/usePackRefresh.ts` (4 callsites de transcription); `backend/app/services/transcription_worker.py:374-394` (`last_error_message` capturado e propagado).
+
+---
+
 ## Otimização "skip se já tem campo X" depende do SELECT do helper de leitura
 
 **Data:** 2026-05-07

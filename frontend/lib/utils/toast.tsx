@@ -282,6 +282,8 @@ export interface ProgressToastContent {
   dynamicLine: string;
   /** Contexto da etapa (ex.: "Meta", "Transcrevendo") para exibição no toast. */
   stageContext?: string;
+  /** Linha auxiliar mono-space exibida apenas no estado de erro (ex.: trace_id, account_id). */
+  diagnosticLine?: string;
 }
 
 /** @deprecated Use ProgressToastContent */
@@ -569,7 +571,7 @@ export function finishProgressToast(
   toastId: string,
   success: boolean,
   message: string,
-  options?: { visibleDurationOnly?: number; context?: "meta" | "sheets" | "transcription"; packName?: string },
+  options?: { visibleDurationOnly?: number; context?: "meta" | "sheets" | "transcription"; packName?: string; diagnosticLine?: string },
 ) {
   const { stageContext, icon } = getTerminalContextMeta(options?.context);
   const packName = options?.packName ?? "";
@@ -579,6 +581,7 @@ export function finishProgressToast(
     stageTitle: success ? "Concluído" : "Erro",
     dynamicLine: message,
     stageContext,
+    diagnosticLine: success ? undefined : options?.diagnosticLine,
   };
 
   const card = (
