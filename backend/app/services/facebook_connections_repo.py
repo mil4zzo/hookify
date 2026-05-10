@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from app.core.supabase_client import get_supabase_for_user
 from app.services.token_encryption import encrypt_token, decrypt_token
 from app.services.thumbnail_cache import build_public_storage_url, storage_thumb_exists, DEFAULT_BUCKET
+from app.services.facebook_scopes import CRITICAL_SCOPES
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,14 @@ def list_connections(user_jwt: str) -> List[Dict[str, Any]]:
         else:
             row["picture_storage_path"] = None
             row["facebook_picture_url"] = None
+
+        # Calcular scopes críticos faltantes a partir da lista granted persistida.
+        # `scopes=NULL` em conexões antigas (pré-validação) → sem aviso.
+        granted = row.get("scopes") or []
+        if granted:
+            row["missing_scopes"] = [s for s in CRITICAL_SCOPES if s not in granted]
+        else:
+            row["missing_scopes"] = []
     return rows
 
 

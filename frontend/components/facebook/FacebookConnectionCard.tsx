@@ -2,9 +2,10 @@
 
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { IconBrandFacebook, IconCheck, IconLoader2, IconRefresh, IconTrash, IconAlertCircle } from "@tabler/icons-react";
+import { IconBrandFacebook, IconCheck, IconLoader2, IconRefresh, IconTrash, IconAlertCircle, IconShieldExclamation } from "@tabler/icons-react";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
 import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
+import { getScopeImpact } from "@/lib/utils/facebookScopeImpact";
 
 interface FacebookConnection {
   id: string;
@@ -15,6 +16,8 @@ interface FacebookConnection {
   picture_storage_path?: string | null;
   status?: string;
   is_primary?: boolean;
+  scopes?: string[] | null;
+  missing_scopes?: string[] | null;
 }
 
 interface FacebookConnectionCardProps {
@@ -37,7 +40,9 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
 
   const isTesting = testingConnections.has(connection.id);
   const isExpired = expiredConnections.has(connection.id) || connection.status === "expired" || connection.status === "invalid";
-  const isValid = connection.status === "active" && !isExpired;
+  const missingScopes = connection.missing_scopes || [];
+  const isDegraded = !isExpired && (connection.status === "degraded" || missingScopes.length > 0);
+  const isValid = connection.status === "active" && !isExpired && !isDegraded;
   const canSelect = !isExpired && !isTesting;
 
   const handleRetest = async (e: React.MouseEvent) => {
@@ -61,7 +66,8 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
   };
 
   return (
-    <div className={`flex items-center justify-between p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-5 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-5 cursor-not-allowed opacity-75" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelect && onSelect(connection.id)}>
+    <div className={`flex flex-col gap-3 p-3 border rounded-lg transition-colors ${isSelected && canSelect ? "border-primary bg-primary-5 cursor-pointer" : isExpired ? "border-destructive-50 bg-destructive-5 cursor-not-allowed opacity-75" : isDegraded ? "border-warning-30 bg-warning-5" : canSelect ? "border-border hover:bg-accent cursor-pointer" : "border-border cursor-not-allowed opacity-50"}`} onClick={() => canSelect && onSelect && onSelect(connection.id)}>
+      <div className="flex items-center justify-between gap-2">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           {/* Avatar */}
@@ -102,6 +108,12 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                 <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning-20 text-warning border border-warning-30">
                   <IconAlertCircle className="w-3 h-3" />
                   {connection.status === "expired" ? "Expirada" : "Inválida"}
+                </span>
+              )}
+              {!isTesting && !isExpired && isDegraded && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-warning-20 text-warning border border-warning-30">
+                  <IconShieldExclamation className="w-3 h-3" />
+                  Permissões incompletas ({missingScopes.length})
                 </span>
               )}
               {connection.is_primary && <span className="text-xs px-2 py-0.5 rounded bg-primary-20 text-primary font-medium">Primária</span>}
@@ -148,6 +160,51 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                 </Button>
               )}
             </>
+          )}
+        </div>
+      )}
+      </div>
+
+      {!isTesting && !isExpired && isDegraded && missingScopes.length > 0 && (
+        <div
+          className="rounded-md border border-warning-30 bg-warning-10 p-3 text-xs leading-relaxed text-foreground"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-2 flex items-center gap-2 text-warning">
+            <IconShieldExclamation className="w-4 h-4 shrink-0" />
+            <span className="font-semibold">O que essa conexão deixa de fazer:</span>
+          </div>
+          <ul className="space-y-2">
+            {missingScopes.map((scope) => {
+              const info = getScopeImpact(scope);
+              if (!info) {
+                return (
+                  <li key={scope} className="text-muted-foreground">
+                    <span className="font-mono text-[11px]">{scope}</span>
+                  </li>
+                );
+              }
+              return (
+                <li key={scope}>
+                  <div className="font-medium text-foreground">{info.label}</div>
+                  <div className="text-muted-foreground">{info.impact}</div>
+                </li>
+              );
+            })}
+          </ul>
+          {onReconnect && (
+            <div className="mt-3 flex justify-end">
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                className="h-8 text-xs"
+                onClick={handleReconnect}
+                disabled={isDeleting}
+              >
+                Atualizar permissões
+              </Button>
+            </div>
           )}
         </div>
       )}

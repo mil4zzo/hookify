@@ -28,6 +28,7 @@ from app.services.facebook_connections_repo import (
     update_connection_status,
 )
 from app.services.graph_api import GraphAPI, test_facebook_connection
+from app.services.facebook_scopes import evaluate_token_scopes
 from app.services.thumbnail_cache import (
     cache_profile_picture,
     build_public_storage_url,
@@ -175,7 +176,16 @@ def connect_callback(
         else None
     )
 
-    # Persist connection with expires_at and status="active" (new connection or reconnection)
+    # Validar scopes via /me/permissions: usuário pode ter desmarcado scopes
+    # opcionais durante o consent. Connection com crítico ausente = 'degraded'.
+    granted_scopes, missing_scopes, scope_status = evaluate_token_scopes(access_token)
+    if missing_scopes:
+        logger.warning(
+            "[OAuthCallback] connection com scopes incompletos user_id=%s missing=%s granted=%s",
+            user_id, missing_scopes, granted_scopes,
+        )
+
+    # Persist connection with expires_at, scopes reais, e status calculado
     rec = upsert_connection(
         user_jwt=user["token"],
         user_id=user_id,
@@ -186,7 +196,8 @@ def connect_callback(
         # Nunca salvar URL direta do Meta; somente URL de Storage (ou null).
         facebook_picture_url=cached_picture_public_url,
         expires_at=expires_at_str,
-        status="active",  # Sempre "active" ao conectar/reconectar
+        scopes=granted_scopes if granted_scopes else None,
+        status=scope_status,
         picture_storage_path=picture_storage_path,
         picture_cached_at=picture_cached_at,
         picture_source_url=picture_source_url,
