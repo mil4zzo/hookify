@@ -2199,8 +2199,10 @@ def get_job_progress(
         elif meta_job_status == "failed":
             # Meta falhou
             error_msg = meta_status.get("error", "Job falhou na Meta API")
-            tracker.mark_failed(job_id, error_msg)
-            
+            meta_error_details = meta_status.get("meta_error") or {}
+            fail_details = {"meta_error": meta_error_details} if meta_error_details else None
+            tracker.mark_failed(job_id, error_msg, details=fail_details)
+
             if check_meta_error_for_token_expiry(error_msg):
                 mark_connection_as_expired(user_jwt, user_id)
                 raise HTTPException(

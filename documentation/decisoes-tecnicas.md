@@ -782,3 +782,34 @@ Cores padrão (white, black, gray, slate, zinc, red, blue, green, yellow, amber,
 - Streaming de image upload (RAM) — só importa para imagens >100 MB
 
 **Regra geral aplicável:** quando um design system define tokens semânticos via `color-mix` para evitar bugs de gamut (OKLab/transparent), o sistema **substitui** o modificador opacity nativo do Tailwind para essa família — mas **não afeta** cores default que continuam usando a sintaxe original. Sempre identifique a família da cor antes de aplicar opacidade.
+
+---
+
+## Async insights `Job Failed 0%` mascarando scope OAuth incompleto
+
+**Data:** 2026-05-08
+
+**Problema:** Pack El.29 - Captação CA5 em `act_1088942488268239` falhava sistematicamente com `async_status=Job Failed`, `async_percent_completion=0`, e o GET de status do job retornava sem campo `error`. Outros packs do mesmo usuário em outros ad accounts atualizavam normalmente. Mesmo payload (fields, time_range, filtering) rodado no Graph API Explorer com o mesmo app `Hookify Ads` selecionado completava normalmente.
+
+**Diagnóstico:**
+
+1. Descartado quota — `meta_api_usage` mostrou `cputime_pct=1`, `regain_access_minutes=null`, `estimated_time_to_regain_access=0`, tier `standard_access`.
+2. Descartado payload — `filtering=[{campaign.name CONTAIN "DOR29] [CAP"}, {NOT_CONTAIN "TESTE"}]` rodou síncrono no Explorer e retornou data válida.
+3. Descartado conta — outros packs em outros acts funcionavam com o mesmo token salvo.
+4. `GET /act_1088942488268239?fields=name` com token salvo retornou `(#3) AdAccount must pass GK: plr_beta_gk_existing_feature` — Gate Keeper interno da Meta.
+5. Comparação com Explorer (mesmo app `Hookify Ads`, permissões `ads_management, ads_read, business_management, pages_read_engagement, email, pages_show_list` granted) confirmou que era state do token, não do app.
+
+**Causa raiz:** desde 2018 a Meta tornou quase todos os scopes opcionais com checkbox na tela de consent OAuth. Durante o OAuth original do Hookify, o usuário não marcou (ou desmarcou) `business_management`. O token salvo autenticava normalmente, lia ad accounts pessoais e ad accounts de Business onde o scope não é exigido — mas falhava em queries async no `act_1088942488268239` porque essa conta pertence a uma Business Manager que exige `business_management` para ler dados via API.
+
+**Por que o sintoma é tão enganoso:**
+- `start_ads_job` faz checagem rasa de scope (`ads_read`) e aceita o pedido com HTTP 200 + `report_run_id`.
+- Worker async re-valida no nível do ad account, dispara o GK e mata o job.
+- Como a falha é via GK interno (não OAuth), Meta não popula `error` no status response. Sintoma idêntico a quota/throttle.
+
+**Como confirmar:** `GET /me/permissions` com o token salvo decriptado. Se `business_management` aparecer com `status=declined` (ou ausente da lista), é scope incompleto.
+
+**Solução para o usuário afetado:** reconectar Facebook via fluxo `?reauth=true` (já existente em [connectors_facebook.py:69](../backend/app/routes/connectors_facebook.py)), e na tela de consent **marcar todos os scopes**.
+
+**Solução estrutural (proposta):** após callback OAuth, validar que scopes críticos (`business_management`, `ads_management`) vieram `granted`; se não, marcar a connection como `degraded` e exigir reauth antes de qualquer refresh de pack.
+
+**Lição:** `Job Failed 0%` sem `error` é três coisas em ordem de probabilidade — quota/throttle, payload inválido, e **scope OAuth faltando**. Antes de assumir as duas primeiras, testar o mesmo payload no Explorer com app igual + token regenerado. Se Explorer funciona e backend não, o token salvo é o suspeito — mas pode ser scope, não expiração.

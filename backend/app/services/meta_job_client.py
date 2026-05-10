@@ -20,6 +20,74 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT = 30  # 30 segundos para verificação de status
 
 
+def _extract_meta_error_fields(status_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extrai campos de erro estruturados de uma response de async report da Meta.
+
+    Meta às vezes popula `error` (objeto), às vezes apenas `failure_reason`,
+    às vezes nada. Esta função normaliza para um dict consumível pelo frontend.
+    """
+    err_obj = status_data.get("error") if isinstance(status_data.get("error"), dict) else {}
+    extracted: Dict[str, Any] = {
+        "code": err_obj.get("code"),
+        "subcode": err_obj.get("error_subcode"),
+        "type": err_obj.get("type"),
+        "message": err_obj.get("message"),
+        "user_title": err_obj.get("error_user_title"),
+        "user_msg": err_obj.get("error_user_msg"),
+        "fbtrace_id": err_obj.get("fbtrace_id"),
+        "failure_reason": status_data.get("failure_reason") or status_data.get("async_status_error"),
+        "account_id": status_data.get("account_id"),
+        "time_ref": status_data.get("time_ref"),
+        "date_start": status_data.get("date_start"),
+        "date_stop": status_data.get("date_stop"),
+    }
+    return {k: v for k, v in extracted.items() if v not in (None, "")}
+
+
+def _build_async_failure_message(
+    *,
+    job_id: str,
+    percent: int,
+    status_data: Dict[str, Any],
+    meta_error: Dict[str, Any],
+) -> str:
+    """Mensagem curta e legível para o usuário (a versão estruturada vai em `meta_error`)."""
+    headline = (
+        meta_error.get("user_msg")
+        or meta_error.get("message")
+        or meta_error.get("failure_reason")
+    )
+    if headline:
+        return f"Meta async report falhou (job={job_id}, {percent}%): {headline}"
+
+    # Sem campo de erro: provavelmente quota/throttle ou job killed silenciosamente.
+    hint = (
+        "sem erro explícito na resposta — geralmente quota de async insights "
+        "ou throttle no act_id; verifique meta_api_usage e tente novamente em alguns minutos"
+    )
+    return f"Meta async report falhou (job={job_id}, {percent}%): {hint}"
+
+
+def _parse_error_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Normaliza um envelope `{"error": {...}}` da Meta em dict consumível.
+
+    A Meta às vezes retorna `error_user_msg`/`error_user_title` no nível do error,
+    às vezes não popula. Mantemos só os campos com valor.
+    """
+    err = payload.get("error") if isinstance(payload.get("error"), dict) else {}
+    extracted = {
+        "code": err.get("code"),
+        "subcode": err.get("error_subcode"),
+        "type": err.get("type"),
+        "message": err.get("message"),
+        "user_title": err.get("error_user_title"),
+        "user_msg": err.get("error_user_msg"),
+        "fbtrace_id": err.get("fbtrace_id"),
+    }
+    return {k: v for k, v in extracted.items() if v not in (None, "")}
+
+
 class MetaJobClient:
     """Cliente para operações de jobs na Meta API."""
     
@@ -118,7 +186,7 @@ class MetaJobClient:
             
             async_status = status_data.get("async_status", "Unknown")
             percent_completion = status_data.get("async_percent_completion", 0)
-            
+
             # Mapear status da Meta para nosso status
             if async_status == "Job Completed" and percent_completion == 100:
                 return {
@@ -127,30 +195,42 @@ class MetaJobClient:
                     "percent": 100
                 }
             elif async_status == "Job Failed":
-                # Meta raramente popula `error` neste endpoint; o diagnóstico fica
-                # diluído na response inteira (ex.: async_status_error, percent parcial).
-                # Logar tudo para não voltar a cegar o debug em produção.
+                # O endpoint /<job_id> raramente popula `error` direto. Truque descoberto
+                # em produção: `GET /<job_id>?fields=error_message` retorna o envelope
+                # de erro real (`(#3) ...`, `(#100) ...`, etc.). Combinamos as duas fontes.
                 logger.error(
                     f"[MetaJobClient] Meta async report falhou job_id={job_id} "
                     f"percent={percent_completion} response={json.dumps(status_data)[:1500]}"
                 )
-                error_detail = (
-                    status_data.get("error")
-                    or status_data.get("async_status_error")
-                    or status_data.get("error_message")
-                )
-                if error_detail:
-                    error_msg = str(error_detail)
-                else:
-                    error_msg = (
-                        f"Meta async_status=Job Failed (percent={percent_completion}%). "
-                        f"Resposta sem campo de erro explícito: {json.dumps(status_data)[:500]}"
+                status_error = _extract_meta_error_fields(status_data)
+                fetched_error = self._fetch_job_error(job_id)
+
+                # Mergear: campos do fetch dedicado têm prioridade, mas mantemos
+                # account_id/time_ref/dates do status (não vêm no fetch).
+                meta_error = {**status_error, **fetched_error}
+
+                if fetched_error:
+                    logger.info(
+                        "[MetaJobClient.error_fetch] job_id=%s code=%s subcode=%s fbtrace=%s message=%s",
+                        job_id,
+                        fetched_error.get("code"),
+                        fetched_error.get("subcode"),
+                        fetched_error.get("fbtrace_id"),
+                        fetched_error.get("message"),
                     )
+
+                error_msg = _build_async_failure_message(
+                    job_id=job_id,
+                    percent=percent_completion,
+                    status_data=status_data,
+                    meta_error=meta_error,
+                )
                 return {
                     "success": True,
                     "status": "failed",
                     "percent": percent_completion,
-                    "error": error_msg
+                    "error": error_msg,
+                    "meta_error": meta_error,
                 }
             else:
                 return {
@@ -184,6 +264,34 @@ class MetaJobClient:
                 "percent": 0,
                 "error": str(err)
             }
+
+    def _fetch_job_error(self, job_id: str) -> Dict[str, Any]:
+        """
+        Recupera o envelope de erro real de um async report que falhou.
+
+        Truque descoberto: `GET /<job_id>?fields=error_message` retorna a envelope
+        `{"error": {message, code, type, error_subcode, error_user_msg, fbtrace_id}}`
+        com a causa real do `Job Failed`. `?fields=error_code` retorna meta-erro de
+        campo inválido — não usar.
+
+        Defensivo: timeout curto, qualquer erro retorna dict vazio para não cascatear.
+        """
+        try:
+            url = f"{self.base_url}{job_id}?access_token={self.access_token}&fields=error_message"
+            response = requests.get(url, timeout=10)
+            try:
+                data = response.json()
+            except ValueError:
+                logger.warning("[MetaJobClient._fetch_job_error] resposta não-JSON para job_id=%s", job_id)
+                return {}
+
+            return _parse_error_envelope(data)
+        except requests.exceptions.Timeout:
+            logger.warning("[MetaJobClient._fetch_job_error] timeout para job_id=%s", job_id)
+            return {}
+        except Exception as err:
+            logger.warning("[MetaJobClient._fetch_job_error] erro para job_id=%s: %s", job_id, err)
+            return {}
 
 
 def get_meta_job_client(access_token: str) -> MetaJobClient:

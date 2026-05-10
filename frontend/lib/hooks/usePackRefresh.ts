@@ -46,6 +46,42 @@ import { pollJob } from "@/lib/utils/pollJob";
 import { pollPackBackgroundTasks } from "@/lib/utils/pollPackBackgroundTasks";
 import { pollSheetsSyncJob } from "@/lib/utils/pollSheetsSyncJob";
 
+/**
+ * Monta linha de diagnóstico (mono) para erros vindos do `meta_error` do backend.
+ * Mostra apenas IDs úteis para suporte (account_id, time_ref, fbtrace_id, code/subcode).
+ */
+function buildMetaErrorDiagnosticLine(metaError: Record<string, unknown> | undefined): string | undefined {
+  if (!metaError) return undefined;
+  const parts: string[] = [];
+  const account = metaError.account_id;
+  const timeRef = metaError.time_ref;
+  const trace = metaError.fbtrace_id;
+  const code = metaError.code;
+  const subcode = metaError.subcode;
+  if (account) parts.push(`account=${account}`);
+  if (timeRef) parts.push(`time_ref=${timeRef}`);
+  if (trace) parts.push(`trace=${trace}`);
+  if (code != null) parts.push(`code=${code}${subcode != null ? `/${subcode}` : ""}`);
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+/**
+ * Detecta se o erro retornado pela Meta indica scope OAuth faltando.
+ * Padrões observados:
+ * - `code=3` + mensagem com "GK" / "must pass" — Gate Keeper interno disparado por scope ausente
+ * - `code=200` + "Missing Permission" — clássica falta de permissão
+ * - `code=10` + mensagem mencionando permissão específica
+ */
+function isMetaScopeError(metaError: Record<string, unknown> | undefined): boolean {
+  if (!metaError) return false;
+  const code = metaError.code;
+  const message = String(metaError.message || "").toLowerCase();
+  if (code === 200) return true;
+  if (code === 3 && (message.includes("gk") || message.includes("must pass"))) return true;
+  if (message.includes("missing permission") || message.includes("permissão")) return true;
+  return false;
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -278,7 +314,15 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           if (progress.status === "failed") {
             const transcriptionError = new Error(progress.message || `Transcrição de "${packName}" falhou`);
             logger.error(transcriptionError);
-            finishProgressToast(toastId, false, transcriptionError.message);
+            const lastError = (details as any)?.last_error_message;
+            const diagnosticLine = lastError && typeof lastError === "string" && !transcriptionError.message.includes(lastError)
+              ? lastError
+              : undefined;
+            finishProgressToast(toastId, false, transcriptionError.message, {
+              context: "transcription",
+              packName,
+              diagnosticLine,
+            });
             return { done: true, result: { success: false, error: progress.message || "Falha na transcrição" } };
           }
 
@@ -297,13 +341,13 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         },
 
         onTimeout: () => {
-          finishProgressToast(toastId, false, `Timeout ao transcrever vídeos de "${packName}" (demorou mais de 10 minutos)`);
+          finishProgressToast(toastId, false, `Timeout ao transcrever vídeos de "${packName}" (demorou mais de 10 minutos)`, { context: "transcription", packName });
           return { success: false, error: "Timeout" };
         },
         onCancelled: () => ({ success: false, error: "Cancelado pelo usuário" }),
         onUnmounted: () => ({ success: false, error: "Componente desmontado" }),
         onMaxConsecutiveErrors: () => {
-          finishProgressToast(toastId, false, `Erro persistente ao transcrever vídeos. Tente novamente.`);
+          finishProgressToast(toastId, false, `Erro persistente ao transcrever vídeos. Tente novamente.`, { context: "transcription", packName });
           return { success: false, error: "Erros consecutivos" };
         },
       });
@@ -383,7 +427,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }
       } catch (error) {
         logger.error("Erro ao iniciar transcrição:", error);
-        finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao iniciar transcrição");
+        finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao iniciar transcrição", { context: "transcription", packName });
       }
     },
     [pollTranscriptionJob]
@@ -558,9 +602,19 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
           }
 
           if (progress.status === "failed") {
-            const failError = new Error(`Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`);
+            const metaError = (details as any)?.meta_error as Record<string, unknown> | undefined;
+            const diagnosticLine = buildMetaErrorDiagnosticLine(metaError);
+
+            // Se Meta indicou scope faltando, mostrar mensagem direcionada à reauth
+            // em vez do erro técnico cru.
+            const scopeError = isMetaScopeError(metaError);
+            const userMessage = scopeError
+              ? `Esta conta de anúncios exige uma permissão que não está autorizada na conexão Facebook. Vá em "Configurações → Conexões" e clique em "Atualizar permissões".`
+              : `Erro ao atualizar "${packName}": ${progress.message || "Erro desconhecido"}`;
+
+            const failError = new Error(userMessage);
             logger.error(failError);
-            finishProgressToast(toastId, false, failError.message);
+            finishProgressToast(toastId, false, userMessage, { context: "meta", packName, diagnosticLine });
             if (mountedRef.current) {
               optionsRef.current?.onError?.(failError);
             }
@@ -807,7 +861,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         }
       } catch (error) {
         logger.error("Erro ao iniciar transcrição:", error);
-        finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao iniciar transcrição");
+        finishProgressToast(toastId, false, error instanceof Error ? error.message : "Erro ao iniciar transcrição", { context: "transcription", packName });
         return { success: false };
       }
     },
