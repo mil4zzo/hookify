@@ -38,7 +38,16 @@ export async function middleware(req: NextRequest) {
   )
 
   // Touch the session to ensure refresh happens if close to expiring
-  const { data: { session } } = await supabase.auth.getSession()
+  // Wrap in try/catch: if Supabase is unreachable (status 0), fail open so
+  // the app doesn't hard-block on every request during a transient outage.
+  let session = null
+  try {
+    const { data } = await supabase.auth.getSession()
+    session = data.session
+  } catch {
+    // Network failure reaching Supabase auth — treat as unauthenticated.
+    // Protected routes will redirect to login; public routes pass through.
+  }
   
   const pathname = req.nextUrl.pathname
 
