@@ -11,7 +11,7 @@ const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog")
 const VideoDialog = dynamic(() => import("@/components/ads/VideoDialog").then((m) => m.VideoDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2 } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { api } from "@/lib/api/endpoints";
@@ -43,6 +43,7 @@ import { logger } from "@/lib/utils/logger";
 import { getColumnId } from "@/lib/utils/columnFilters";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
+import { exportManagerToCsv } from "@/lib/utils/exportManagerCsv";
 
 type Ad = RankingsItem;
 
@@ -823,6 +824,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   formatCurrencyRef.current = formatCurrency;
   actionTypeRef.current = actionType;
 
+  // Ref estável para o handler de exportação — evita adicionar `table` como dep do controls useMemo
+  const handleExportRef = useRef<() => void>(() => {});
+  handleExportRef.current = () =>
+    exportManagerToCsv({ table, activeColumns, hasSheetIntegration, currentTab, dateStart, dateStop });
+
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
     const visibleColumns = getVisibleManagerColumns({ activeColumns, hasSheetIntegration });
@@ -872,6 +878,18 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     () => (
       <>
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="sm" onClick={() => handleExportRef.current()} className="h-full py-2 px-3 border border-input bg-background rounded-lg" aria-label="Exportar CSV">
+                  <IconDownload className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Exportar CSV</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
           <div className="w-full sm:w-[190px]">
             <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
           </div>
