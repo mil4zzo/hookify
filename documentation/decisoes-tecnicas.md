@@ -6,6 +6,24 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## docker-compose `environment:` sobrescreve `env_file:` com vazio
+
+**Data:** 2026-05-10
+
+**Regra:** quando um service do compose tem `env_file: ../backend/.env`, **não duplicar as mesmas variáveis em `environment:`** com `- VAR=${VAR}`. A precedência é `environment > env_file`. Se `${VAR}` resolver para string vazia (porque `deploy/.env` não existe e o shell não exportou), o vazio **sobrescreve** o valor que vinha do `env_file`.
+
+**Por quê:** caso real — login no VPS começou a entrar em loop com 401 em `/facebook/connections`, `/analytics/packs`, `/onboarding/status`. `/health` passava (não exige auth). Causa: as 12+ linhas `- SUPABASE_URL=${SUPABASE_URL}` etc. no compose expandiam contra `deploy/.env` (inexistente). Container subia com `SUPABASE_URL=""`, `SUPABASE_JWKS_URL=None`, e JWT validation falhava. Sintoma diagnóstico no output do `docker compose`: `WARN[0000] The "X" variable is not set. Defaulting to a blank string.` para cada var listada como `${X}`.
+
+**Como aplicar:**
+1. **Vars de runtime do backend** (Supabase, OAuth, API keys) ficam SÓ em `env_file: ../backend/.env`. Bloco `environment:` lista apenas vars hardcoded (ex.: `CORS_ORIGINS=https://...`) ou com defaults (`${LOG_LEVEL:-info}`).
+2. **Build args do Next** (`NEXT_PUBLIC_*`, `SENTRY_*`) NÃO podem vir de `env_file` — build acontece antes do runtime. Eles precisam de `deploy/.env` ou de vars exportadas no shell.
+3. **Atalho no VPS:** `ln -sf ../frontend/.env.local deploy/.env` se os valores são os mesmos.
+4. **Detecção rápida:** `docker compose config` mostra o valor renderizado que vai pro container. Var vazia ali = esse bug.
+
+**Arquivos:** `deploy/docker-compose.yml` (limpeza); `deploy/ENV_TEMPLATE.md` (seção "Deploy - deploy/.env" documentando o `deploy/.env` para build args).
+
+---
+
 ## Toast terminal de erro precisa de ícone de contexto (senão parece "loading")
 
 **Data:** 2026-05-10

@@ -40,7 +40,41 @@ NEXT_PUBLIC_FB_REDIRECT_URI=https://hookifyads.com/callback
 NEXT_PUBLIC_USE_REMOTE_API=true
 NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_anon_key_aqui
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sua_publishable_key_aqui
+NEXT_PUBLIC_SENTRY_DSN=
+SENTRY_AUTH_TOKEN=
+SENTRY_ORG=
+SENTRY_PROJECT=
 ```
+
+## Deploy - deploy/.env (necessário em produção)
+
+`docker-compose` resolve `${VAR}` em **build args** consultando o `.env` da pasta onde o compose roda (ou variáveis exportadas no shell). Como os build args do Next (`NEXT_PUBLIC_*`, `SENTRY_*`) precisam ser resolvidos em build-time — e não podem vir do `env_file` — você **precisa** ter um `deploy/.env` no servidor com pelo menos os valores que o Next embeda no bundle:
+
+```bash
+# deploy/.env (no VPS, NÃO commitar — fica fora do git)
+NEXT_PUBLIC_API_BASE_URL=https://api.hookifyads.com
+NEXT_PUBLIC_FB_REDIRECT_URI=https://hookifyads.com/callback
+NEXT_PUBLIC_USE_REMOTE_API=true
+NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sua_publishable_key_aqui
+NEXT_PUBLIC_SENTRY_DSN=
+SENTRY_AUTH_TOKEN=
+SENTRY_ORG=
+SENTRY_PROJECT=
+```
+
+**Atalho prático (assumindo que `frontend/.env.local` já contém os mesmos valores):**
+
+```bash
+cd /var/www/hookify/deploy
+ln -sf ../frontend/.env.local .env
+chmod 600 ../frontend/.env.local
+```
+
+Sem esse arquivo o build do Next sai com `NEXT_PUBLIC_SUPABASE_URL=""` embedado no bundle e o frontend não consegue autenticar (login redireciona infinitamente).
+
+> Vars de **runtime** do backend (Supabase, Facebook, AssemblyAI, etc.) NÃO precisam estar em `deploy/.env` — elas vêm via `env_file: ../backend/.env` direto pro container.
 
 ## Como obter as credenciais
 

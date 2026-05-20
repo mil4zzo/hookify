@@ -5,23 +5,13 @@ services:
       dockerfile: ../deploy/Dockerfile.backend
     container_name: hookify-backend
     restart: unless-stopped
+    # Vars de runtime do backend vêm 100% de ../backend/.env (env_file abaixo).
+    # Não duplicar com "- VAR=${VAR}" no environment: lá o ${VAR} é resolvido
+    # pelo docker-compose contra deploy/.env (ou shell), e quando vazio sobrescreve
+    # o valor do env_file com string vazia.
     environment:
-      - FACEBOOK_CLIENT_ID=${FACEBOOK_CLIENT_ID}
-      - FACEBOOK_CLIENT_SECRET=${FACEBOOK_CLIENT_SECRET}
-      - FACEBOOK_AUTH_BASE_URL=${FACEBOOK_AUTH_BASE_URL:-https://www.facebook.com/v24.0/dialog/oauth}
-      - FACEBOOK_TOKEN_URL=${FACEBOOK_TOKEN_URL:-https://graph.facebook.com/v24.0/oauth/access_token}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
-      - SUPABASE_JWKS_URL=${SUPABASE_JWKS_URL}
       - CORS_ORIGINS=https://hookifyads.com,https://www.hookifyads.com,https://api.hookifyads.com
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
-      - ASSEMBLYAI_API_KEY=${ASSEMBLYAI_API_KEY}
-      - GOOGLE_OAUTH_CLIENT_ID=${GOOGLE_OAUTH_CLIENT_ID}
-      - GOOGLE_OAUTH_CLIENT_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}
-      - GOOGLE_OAUTH_REDIRECT_URI=${GOOGLE_OAUTH_REDIRECT_URI:-}
     env_file:
       - ../backend/.env
     networks:
@@ -43,6 +33,11 @@ services:
       - "traefik.docker.network=hookify-network"
 
   frontend:
+    # IMPORTANTE: build args do Next.js são resolvidos em build-time, então
+    # NÃO podem vir de env_file (que injeta só em runtime). Os ${NEXT_PUBLIC_*}
+    # e ${SENTRY_*} abaixo precisam estar em deploy/.env (ou exportados no shell)
+    # ANTES do `docker compose build/up`, senão são embedados como string vazia
+    # no bundle do Next e o app sobe sem URL do Supabase no cliente.
     build:
       context: ../frontend
       dockerfile: ../deploy/Dockerfile.frontend
