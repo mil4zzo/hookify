@@ -2701,6 +2701,33 @@ def get_transcription_by_id(
         return None
 
 
+def get_transcriptions_batch(
+    user_jwt: str,
+    user_id: str,
+    ad_names: List[str],
+) -> Dict[str, Optional[str]]:
+    """Busca full_text de múltiplas transcrições por ad_name. Retorna {ad_name: full_text}."""
+    if not user_id or not ad_names:
+        return {}
+
+    sb = get_supabase_for_user(user_jwt)
+    result: Dict[str, Optional[str]] = {}
+    try:
+        res = (
+            sb.table("ad_transcriptions")
+            .select("ad_name, full_text")
+            .eq("user_id", user_id)
+            .eq("status", "completed")
+            .in_("ad_name", ad_names)
+            .execute()
+        )
+        for row in (res.data or []):
+            result[row["ad_name"]] = row.get("full_text")
+    except Exception as e:
+        logger.warning(f"[TRANSCRIPTION] Erro ao buscar batch de transcrições: {e}")
+    return result
+
+
 def get_transcription(
     user_jwt: str,
     user_id: str,

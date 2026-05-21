@@ -2,6 +2,7 @@ import type { Table } from "@tanstack/react-table"
 import type { RankingsItem } from "@/lib/api/schemas"
 import { MANAGER_COLUMNS } from "@/components/manager/managerColumns"
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
+import { api } from "@/lib/api/endpoints"
 
 type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha"
 
@@ -39,13 +40,28 @@ function escapeCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
 
-export function exportManagerToCsv({
+function triggerDownload(csvContent: string, filename: string): void {
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+const TABS_WITH_TRANSCRIPTION = new Set<ManagerTab>(["por-anuncio", "individual"])
+
+export async function exportManagerToCsv({
   table,
   activeColumns,
   hasSheetIntegration,
   currentTab,
   dateStart,
   dateStop,
+  withTranscriptions = false,
 }: {
   table: Table<RankingsItem>
   activeColumns: Set<ManagerColumnType>
@@ -53,9 +69,11 @@ export function exportManagerToCsv({
   currentTab: ManagerTab
   dateStart?: string
   dateStop?: string
-}): void {
+  withTranscriptions?: boolean
+}): Promise<void> {
   const rows = table.getSortedRowModel().rows
   const showStatus = currentTab !== "por-anuncio"
+  const showTranscriptions = withTranscriptions && TABS_WITH_TRANSCRIPTION.has(currentTab)
 
   const visibleMetricColumns = MANAGER_COLUMNS.filter((col) => {
     if (!activeColumns.has(col.id)) return false
@@ -63,17 +81,34 @@ export function exportManagerToCsv({
     return true
   })
 
+  // Buscar transcrições em batch se necessário
+  let transcriptionMap: Record<string, string> = {}
+  if (showTranscriptions) {
+    const adNamesWithTranscription = Array.from(
+      new Set(
+        rows
+          .filter((r) => r.original.has_transcription)
+          .map((r) => String(r.original.ad_name ?? ""))
+          .filter(Boolean)
+      )
+    )
+    if (adNamesWithTranscription.length > 0) {
+      transcriptionMap = await api.analytics.getTranscriptionsBatch(adNamesWithTranscription)
+    }
+  }
+
   const headers: string[] = [TAB_NAME_HEADER[currentTab]]
   if (showStatus) headers.push("Status")
-  for (const col of visibleMetricColumns) {
-    headers.push(col.name)
-  }
+  for (const col of visibleMetricColumns) headers.push(col.name)
+  if (showTranscriptions) headers.push("Transcrição")
 
   const dataRows = rows.map((row) => {
     const cells: string[] = [getNameValue(currentTab, row)]
     if (showStatus) cells.push(String(row.original.effective_status ?? ""))
-    for (const col of visibleMetricColumns) {
-      cells.push(formatValue(col.id, row.getValue(col.id)))
+    for (const col of visibleMetricColumns) cells.push(formatValue(col.id, row.getValue(col.id)))
+    if (showTranscriptions) {
+      const adName = String(row.original.ad_name ?? "")
+      cells.push(transcriptionMap[adName] ?? "")
     }
     return cells
   })
@@ -81,13 +116,5 @@ export function exportManagerToCsv({
   const csvLines = [headers, ...dataRows].map((row) => row.map(escapeCell).join(";"))
   const csvContent = "﻿" + csvLines.join("\n")
 
-  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement("a")
-  link.href = url
-  link.download = `hookify-manager-${currentTab}-${dateStart ?? "inicio"}-${dateStop ?? "fim"}.csv`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
+  triggerDownload(csvContent, `hookify-manager-${currentTab}-${dateStart ?? "inicio"}-${dateStop ?? "fim"}.csv`)
 }

@@ -3691,6 +3691,21 @@ def update_pack_name(
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar nome: {str(e)}")
 
 
+@router.post("/transcriptions/batch")
+def get_transcriptions_batch(
+    body: Dict[str, Any],
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Retorna {ad_name: full_text} para uma lista de ad_names. Omite entradas sem transcrição concluída."""
+    ad_names = body.get("ad_names", [])
+    if not isinstance(ad_names, list) or not ad_names:
+        return {}
+    ad_names = [str(n).strip() for n in ad_names if n]
+    if not ad_names:
+        return {}
+    return supabase_repo.get_transcriptions_batch(user["token"], user["user_id"], ad_names)
+
+
 @router.get("/transcription")
 def get_transcription(
     ad_name: str = Query(None, description="Nome do anÃºncio (alternativa a transcription_id)"),

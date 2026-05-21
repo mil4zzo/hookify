@@ -306,6 +306,10 @@ export const api = {
         throw err;
       }
     },
+    getTranscriptionsBatch: async (adNames: string[]): Promise<Record<string, string>> => {
+      if (!adNames.length) return {};
+      return apiClient.post('/analytics/transcriptions/batch', { ad_names: adNames }) as Promise<Record<string, string>>;
+    },
     getAdsetDetails: (
       adsetId: string,
       params: { date_start: string; date_stop: string; pack_ids?: string[] }

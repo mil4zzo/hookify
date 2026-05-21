@@ -11,7 +11,8 @@ const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog")
 const VideoDialog = dynamic(() => import("@/components/ads/VideoDialog").then((m) => m.VideoDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText } from "@tabler/icons-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { api } from "@/lib/api/endpoints";
@@ -825,9 +826,13 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   actionTypeRef.current = actionType;
 
   // Ref estável para o handler de exportação — evita adicionar `table` como dep do controls useMemo
-  const handleExportRef = useRef<() => void>(() => {});
-  handleExportRef.current = () =>
-    exportManagerToCsv({ table, activeColumns, hasSheetIntegration, currentTab, dateStart, dateStop });
+  const [isExporting, setIsExporting] = useState(false);
+  const handleExportRef = useRef<(withTranscriptions: boolean) => void>(() => {});
+  handleExportRef.current = (withTranscriptions: boolean) => {
+    setIsExporting(true);
+    exportManagerToCsv({ table, activeColumns, hasSheetIntegration, currentTab, dateStart, dateStop, withTranscriptions })
+      .finally(() => setIsExporting(false));
+  };
 
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
@@ -878,18 +883,23 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     () => (
       <>
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button variant="ghost" size="sm" onClick={() => handleExportRef.current()} className="h-full py-2 px-3 border border-input bg-background rounded-lg" aria-label="Exportar CSV">
-                  <IconDownload className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p className="text-xs">Exportar CSV</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" disabled={isExporting} className="h-full py-2 px-3 border border-input bg-background rounded-lg" aria-label="Exportar CSV">
+                {isExporting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconDownload className="h-4 w-4" />}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleExportRef.current(false)}>
+                <IconDownload className="h-4 w-4 mr-2" />
+                Exportar métricas
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportRef.current(true)}>
+                <IconFileText className="h-4 w-4 mr-2" />
+                Exportar com transcrições
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <div className="w-full sm:w-[190px]">
             <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
           </div>
@@ -921,7 +931,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration],
+    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration, isExporting],
   );
 
   const tableContentProps = useMemo(
