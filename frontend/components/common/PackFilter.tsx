@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils/cn";
 import { FilterSelectButton } from "@/components/common/FilterSelectButton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { Switch } from "@/components/ui/switch";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 
 interface Pack {

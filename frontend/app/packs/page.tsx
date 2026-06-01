@@ -27,6 +27,7 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
 import { StatePanel } from "@/components/common/States";
+// design-system-exception: direct-skeleton-import - skeleton replica o card de pack (efeito leque) com formato real, fora do escopo dos variants de StateSkeleton
 import { Skeleton } from "@/components/ui/skeleton";
 import { PageBodyStack } from "@/components/common/layout";
 import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";

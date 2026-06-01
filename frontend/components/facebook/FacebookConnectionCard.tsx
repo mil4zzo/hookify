@@ -3,6 +3,7 @@
 import { useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { IconBrandFacebook, IconCheck, IconLoader2, IconRefresh, IconTrash, IconAlertCircle, IconShieldExclamation } from "@tabler/icons-react";
+import { InlineNotice } from "@/components/common/States";
 import { useFacebookConnectionVerification } from "@/lib/hooks/useFacebookConnectionVerification";
 import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
 import { getScopeImpact } from "@/lib/utils/facebookScopeImpact";
@@ -166,15 +167,9 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
       </div>
 
       {!isTesting && !isExpired && isDegraded && missingScopes.length > 0 && (
-        <div
-          className="rounded-md border border-warning-30 bg-warning-10 p-3 text-xs leading-relaxed text-foreground"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-2 flex items-center gap-2 text-warning">
-            <IconShieldExclamation className="w-4 h-4 shrink-0" />
-            <span className="font-semibold">O que essa conexão deixa de fazer:</span>
-          </div>
-          <ul className="space-y-2">
+        <div onClick={(e) => e.stopPropagation()}>
+          <InlineNotice tone="warning" title="O que essa conexão deixa de fazer:" className="text-xs leading-relaxed">
+            <ul className="mt-1 space-y-2">
             {missingScopes.map((scope) => {
               const info = getScopeImpact(scope);
               if (!info) {
@@ -191,21 +186,22 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                 </li>
               );
             })}
-          </ul>
-          {onReconnect && (
-            <div className="mt-3 flex justify-end">
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                className="h-8 text-xs"
-                onClick={handleReconnect}
-                disabled={isDeleting}
-              >
-                Atualizar permissões
-              </Button>
-            </div>
-          )}
+            </ul>
+            {onReconnect && (
+              <div className="mt-3 flex justify-end">
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  className="h-8 text-xs"
+                  onClick={handleReconnect}
+                  disabled={isDeleting}
+                >
+                  Atualizar permissões
+                </Button>
+              </div>
+            )}
+          </InlineNotice>
         </div>
       )}
     </div>

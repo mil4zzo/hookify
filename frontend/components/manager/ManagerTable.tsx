@@ -8,10 +8,9 @@ import dynamic from "next/dynamic";
 import { AdInfoCard } from "@/components/ads/AdInfoCard";
 
 const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
-const VideoDialog = dynamic(() => import("@/components/ads/VideoDialog").then((m) => m.VideoDialog), { ssr: false });
-import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState } from "@tanstack/react-table";
+import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState, RowSelectionState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText, IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
@@ -324,8 +323,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
-  const [videoOpen, setVideoOpen] = useState(false);
-  const [selectedVideo, setSelectedVideo] = useState<{ videoId: string; actorId: string; title: string } | null>(null);
   const hydratingTabRef = useRef<ManagerTab | null>(null);
 
   // Drill state (URL-backed). Substitui a expansão inline por um modal único com breadcrumb.
@@ -1063,18 +1060,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       <AppDialog isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} title="Detalhes do conjunto" size="4xl" padding="md">
         {selectedAdset && <AdsetDetailsDialog adsetId={selectedAdset.adsetId} adsetName={selectedAdset.adsetName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} packIds={selectedPackIds} />}
       </AppDialog>
-
-      {/* Video Dialog - Único para toda a tabela */}
-      <VideoDialog
-        open={videoOpen}
-        onOpenChange={(open) => {
-          setVideoOpen(open);
-          if (!open) setSelectedVideo(null);
-        }}
-        videoId={selectedVideo?.videoId}
-        actorId={selectedVideo?.actorId}
-        title={selectedVideo?.title}
-      />
     </>
   );
 }

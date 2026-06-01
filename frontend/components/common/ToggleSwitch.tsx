@@ -46,6 +46,7 @@ export interface ToggleSwitchProps extends VariantProps<typeof containerVariants
   labelLeft?: string; // Label à esquerda do switch
   labelRight?: string; // Label à direita do switch
   disabled?: boolean;
+  ariaLabel?: string; // aria-label para o switch quando não há label visível (ex: célula densa de tabela)
   helperText?: ReactNode;
   icon?: ReactNode; // Ícone para exibir junto com o label (geralmente à esquerda do texto)
   className?: string;
@@ -101,7 +102,7 @@ export interface ToggleSwitchProps extends VariantProps<typeof containerVariants
  *   variant="minimal"
  * />
  */
-export function ToggleSwitch({ id, checked, onCheckedChange, label, labelLeft, labelRight, disabled = false, helperText, icon, className, labelClassName, switchClassName, variant = "default", size = "md" }: ToggleSwitchProps) {
+export function ToggleSwitch({ id, checked, onCheckedChange, label, labelLeft, labelRight, disabled = false, ariaLabel, helperText, icon, className, labelClassName, switchClassName, variant = "default", size = "md" }: ToggleSwitchProps) {
   // Determinar labels: usar labelLeft/labelRight se definidos, senão usar label como fallback à direita
   // Se labelLeft estiver definido, mostra à esquerda
   // Se labelRight estiver definido, mostra à direita
@@ -141,7 +142,7 @@ export function ToggleSwitch({ id, checked, onCheckedChange, label, labelLeft, l
         </label>
       )}
 
-      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className={switchClassName} />
+      <Switch id={id} checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} className={switchClassName} aria-label={ariaLabel} />
 
       {effectiveLabelRight && (
         <label htmlFor={id} className={rightLabelClasses}>

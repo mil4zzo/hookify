@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { Switch } from "@/components/ui/switch";
+import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { useAdStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { RankingsItem } from "@/lib/api/schemas";
 
@@ -73,7 +73,7 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
 
   return (
     <div className="flex items-center justify-center w-full" onClick={(e) => e.stopPropagation()}>
-      <Switch checked={!isPaused} onCheckedChange={handleCheckedChange} disabled={isLoading} aria-label={label} />
+      <ToggleSwitch id={`status-${entityType}-${entityId}`} variant="minimal" checked={!isPaused} onCheckedChange={handleCheckedChange} disabled={isLoading} ariaLabel={label} />
     </div>
   );
 }

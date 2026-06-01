@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Switch } from "@/components/ui/switch";
+import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -422,7 +422,7 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                         <UpdatedAtText dateTime={pack.updated_at} className="text-[10px] text-muted-foreground" />
                       </div>
                     </div>
-                    <Switch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} className="data-[state=checked]:bg-success" />
+                    <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} variant="minimal" switchClassName="data-[state=checked]:bg-success" />
                   </div>
                 </div>
 
@@ -458,7 +458,7 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                         ) : null}
                       </div>
                     </div>
-                    <Switch
+                    <ToggleSwitch
                       id={`leadscore-${pack.id}`}
                       checked={!!pack.sheet_integration}
                       onCheckedChange={(checked) => {
@@ -467,7 +467,8 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                         }
                       }}
                       disabled={!!pack.sheet_integration}
-                      className="data-[state=checked]:bg-success"
+                      variant="minimal"
+                      switchClassName="data-[state=checked]:bg-success"
                     />
                   </div>
                 </div>

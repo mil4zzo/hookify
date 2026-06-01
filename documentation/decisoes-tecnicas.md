@@ -20,6 +20,31 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Design system: padronização fase a fase com a allowlist do checker como backlog
+
+**Data:** 2026-05-31
+
+**Regra:** a padronização do design system do frontend é feita **uma fase por vez**, e a `RULE_ALLOWLIST` em `frontend/scripts/check-design-system.ts` é o **rastreador oficial do backlog**. Entradas marcadas `"legacy ... phase"` = dívida a migrar; entradas como `components/ui/`, `components/icons/`, `components/charts/`, `TopBadge` e fallbacks de framework = exceções **permanentes**. "Pronto" de uma fase = a allowlist encolheu e `npm run check:design-system` continua verde.
+
+**Por quê:** o checker fica verde com ~0 violações ativas porque o grosso da dívida está escondido na allowlist. Sem tratar a allowlist como backlog, "padronizar o que falta" vira invisível. Encolher a allowlist a cada fase torna o progresso mensurável e impede regressão (o checker volta a falhar se alguém reintroduzir o padrão antigo num arquivo já migrado).
+
+**Como aplicar:**
+1. Cada fase isolada (um commit): migrar arquivos → remover/estreitar a entrada da allowlist → `cd frontend && npx tsx scripts/check-design-system.ts` (verde) + `tsc --noEmit`.
+2. Ordem por valor/esforço: switches → dialogs → form-step → upload → kanban.
+3. Antes de remover uma entrada, confirme que o arquivo não dispara mais a regra (grep dos imports de primitivas). Entradas combinadas (ex.: `ManagerTable|StatusCell`) podem ficar obsoletas inteiras.
+4. Skeleton de **formato real** (card, linha de tabela, media, chart) é exceção legítima documentada inline com `// design-system-exception: direct-skeleton-import - motivo`, não na allowlist global.
+5. `Switch` cru sem label visível (célula densa) → `ToggleSwitch variant="minimal" ariaLabel={...}` (o `ToggleSwitch` agora repassa `aria-label`).
+
+**STATUS: CONCLUÍDA.** Todas as fases fechadas. A `RULE_ALLOWLIST` não tem mais nenhuma entrada `"legacy ... phase"` — só exceções **permanentes** (brand icons, platform/chart previews, badge recipes, overlay opacity, framework fallbacks, dev/demo, primitivas `ui/`, wrappers compartilhados, skeletons bespoke).
+
+Histórico: verde inicial (PackCard switch, FacebookConnectionCard banner→InlineNotice, packs skeleton exception) → switches (StatusCell→ToggleSwitch com `ariaLabel`, PackFilter import órfão) → dialogs (VideoDialog `Modal`→`AppDialog`, depois descoberto **código morto** desde 2025-12-30 e deletado junto com o wiring no ManagerTable) → form-step/upload/kanban/Topbar: **todas eram entradas stale** (nenhum arquivo importava primitivo flagged); só removi/estreitei entradas da allowlist. Topbar estreitado de `[primitive, skeleton]` para `[skeleton]` (avatar redondo + botão de conectar são skeletons bespoke).
+
+**Lição central:** a allowlist **exagerava muito** a dívida — de ~6 fases aparentes, só a de switches teve migração real de código; o resto eram entradas obsoletas de trabalho anterior. Antes de dimensionar uma fase, faça **grep dos imports reais** (`@/components/ui/{card,switch,dialog}`, `@/components/common/Modal`, `@/components/ui/skeleton`) e valide empiricamente removendo a entrada + rodando `npx tsx scripts/check-design-system.ts`. Manutenção futura: ao tocar num arquivo allowlisted, reconfira se a entrada ainda é necessária.
+
+**Arquivos:** `frontend/scripts/check-design-system.ts`; `frontend/components/common/ToggleSwitch.tsx` (`ariaLabel`); `frontend/components/manager/StatusCell.tsx`; `frontend/components/common/PackFilter.tsx`; `frontend/components/packs/PackCard.tsx`; `frontend/components/facebook/FacebookConnectionCard.tsx`.
+
+---
+
 ## conversion_types: materializar como metadado do pack em vez de RPC no read-path
 
 **Data:** 2026-05-31
