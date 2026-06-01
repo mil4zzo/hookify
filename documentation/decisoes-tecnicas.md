@@ -6,6 +6,49 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## conversion_types: materializar como metadado do pack em vez de RPC no read-path
+
+**Data:** 2026-05-31
+
+**Regra:** a lista de conversion types do dropdown do Manager é **materializada** em `packs.conversion_types text[]` (migration 081) via **union incremental monotônico** no refresh, e o frontend deriva o dropdown da **união dos packs selecionados** (metadado que já vem no payload de `/analytics/packs`). Não calcular no read-path.
+
+**Por quê:** o endpoint dedicado `fetch_available_conversion_types_v1` (`/analytics/conversion-types`) não era leve de verdade — varre `ad_metrics` do range + `DISTINCT ON` + unnest (~10s) — e, por rodar sob `service_role` (que tem `statement_timeout` **menor** que `authenticated` neste projeto), estourava `statement_timeout` (57014) onde o rankings (sob authenticated) passava em 17s. Conversion types mudam devagar (só quando entram `ad_metrics` novos = no refresh), então o custo certo é compute-on-write. Bônus: os packs já são carregados em toda tela pelo PacksLoader → dropdown vira `union(packs selecionados.conversion_types)`, zero request/RPC, instantâneo em qualquer página.
+
+**Como aplicar:**
+1. **Union INCREMENTAL, nunca recompute completo no refresh.** Um refresh de "últimos 2 dias" não enxerga tipos só presentes em dias antigos; recompute apagaria opções válidas. Acumula, nunca remove (self-healing). Scan completo só no backfill (migration 081).
+2. Write-path: `_union_pack_conversion_types` em `upsert_ad_metrics` (já recebe `pack_id`) extrai `'conversion:'|'action:' || action_type` dos `formatted_ads` em memória e faz read-modify-write union (best-effort, não derruba refresh). Seguro sem RPC atômico porque refresh do mesmo pack é serializado por job lease.
+3. Read-path é grátis: `list_packs` usa `select("*")` e a rota retorna dict cru (sem response_model) → campo passa direto. Frontend: `AdsPack.conversion_types` + map em `useLoadPacks` + dropdown no Manager.
+4. Mudança de semântica aceita: dropdown reflete o pack inteiro (all-range), não o sub-range. Selecionar tipo sem dados no range mostra zeros — ok.
+5. Endpoint dedicado + RPC ficam deprecados (não removidos — fallback manual).
+
+**Lição geral:** para lookup derivado que muda devagar, materializar no write-path > RPC dedicada no read-path. E atenção: `service_role` tem `statement_timeout` menor que `authenticated` aqui — a escolha do cliente (`get_supabase_service()` vs JWT do user) muda o timeout efetivo, não só RLS.
+
+**Arquivos:** `supabase/migrations/081_add_conversion_types_to_packs.sql`; `backend/app/services/supabase_repo.py` (`_extract_conv_keys`, `_union_pack_conversion_types`, call em `upsert_ad_metrics`); `frontend/lib/types/index.ts`; `frontend/lib/hooks/useLoadPacks.ts`; `frontend/app/manager/page.tsx`.
+
+---
+
+## Logout durante carga: guard de auth deve ceder navegação + queries pesadas precisam de AbortSignal
+
+**Data:** 2026-05-30
+
+**Regra (parte 1 — tela de login travada):** o guard de auth `useRequireAuth` **não pode** disparar `router.replace('/login')` concorrente durante um logout — precisa checar `getIsLoggingOut()` e ceder a navegação ao fluxo dono (`handleLogout` / `AuthSessionExpiredHandler`), que redireciona com o param correto (`?logout=true` / `?expired=true`).
+
+**Regra (parte 2 — timeouts 57014):** os hooks de query pesada de analytics (rankings, ad-performance, conversion-types, series, retention) devem threadar o `signal` do TanStack Query (`queryFn: ({ signal }) => api...(params, { signal })`) até o `apiClient.post(url, data, { signal })`.
+
+**Por quê:** caso real — logout durante o carregamento do Manager travou na tela de login (só "Entrar / Carregando...", form nunca aparece, URL `/login` limpa) **e** deixou requests pesados rodando no backend por 16–31s, estourando `statement_timeout` (57014) com 500 + Sentry. Duas causas independentes:
+1. **Corrida de redirects.** `handleLogout` navega via `window.location.href = '/login?logout=true'`, mas no instante em que a sessão vira `null` o guard do Manager dispara `router.replace('/login')` **sem** o param. O `?logout=true` existe pra o middleware não rebater `/login → /packs` enquanto os cookies residuais do Supabase ainda não limparam. Sem ele: middleware rebate pra `/packs` → sem sessão → rebate pra `/login?redirect=/packs`, colidindo com o `window.location.href` → tela meio-carregada/travada.
+2. **Soft-cancel não aborta HTTP.** `handleLogout` chama `queryClient.cancelQueries()`, que só impede novos fetches — não aborta o HTTP em-voo. Sem o `signal` threadado, o backend segue executando a RPC abandonada até o timeout. Sinal de contenção (não query patológica): um rankings falhou em 31s enquanto outro passou em 29s, e o conversion-types "leve" levou 16s.
+
+**Como aplicar:**
+1. Redirect client-side de guard durante transição de sessão deve checar `getIsLoggingOut()` (de `lib/api/client.ts`) e abortar se true. O param na URL de `/login` não é cosmético — o middleware o usa.
+2. Threadar `signal` em toda query pesada faz `cancelQueries()` virar abort de HTTP real → libera o DB no logout e some o ruído de 500/Sentry de requests abandonados. Endpoints aceitam `options?: { signal?: AbortSignal }`.
+3. O interceptor de resposta silencia `axios.isCancel(error)` — cancelamento não é erro (sem log/Sentry/toast).
+4. **Não resolve** o storm estrutural de RPCs pesadas concorrentes no mount do Manager (3× rankings + 2× conversion-types + pack-details) — esse continua sendo item de fundo a perfilar/serializar.
+
+**Arquivos:** `frontend/lib/hooks/useRequireAuth.ts` (early-return se `getIsLoggingOut()`); `frontend/lib/api/endpoints.ts` (param `options.signal` nos analytics POSTs); `frontend/lib/api/hooks.ts` (queryFn passa `{ signal }`); `frontend/lib/api/client.ts` (silencia `axios.isCancel`).
+
+---
+
 ## docker-compose `environment:` sobrescreve `env_file:` com vazio
 
 **Data:** 2026-05-10
@@ -831,3 +874,21 @@ Cores padrão (white, black, gray, slate, zinc, red, blue, green, yellow, amber,
 **Solução estrutural (proposta):** após callback OAuth, validar que scopes críticos (`business_management`, `ads_management`) vieram `granted`; se não, marcar a connection como `degraded` e exigir reauth antes de qualquer refresh de pack.
 
 **Lição:** `Job Failed 0%` sem `error` é três coisas em ordem de probabilidade — quota/throttle, payload inválido, e **scope OAuth faltando**. Antes de assumir as duas primeiras, testar o mesmo payload no Explorer com app igual + token regenerado. Se Explorer funciona e backend não, o token salvo é o suspeito — mas pode ser scope, não expiração.
+
+---
+
+## Landing de waitlist `/waitlist` e o padrão de rota pública de 3 pontos
+
+**Data:** 2026-06-01
+
+**Contexto:** criada a landing de captação de early access em `/waitlist` (tom de exclusividade/vagas limitadas), reaproveitando o design system existente (tokens semânticos + shadcn) em vez do default dark-saas do gerador.
+
+**Captura de lead:** tabela `public.waitlist` (migration `083_create_waitlist_table.sql`) com RLS de **INSERT para `anon`/`authenticated`, sem policy de SELECT**. O formulário client (`components/waitlist/WaitlistForm.tsx`) insere direto via `getSupabaseClient()` (publishable key) — sem endpoint backend. Dedup por índice único em `lower(email)`; duplicata retorna `23505` e o front trata como "você já está na lista". Ninguém lê a lista pelo cliente (só service_role/dashboard).
+
+**Lição — rota pública = 3 pontos coordenados:** todas as rotas são protegidas por padrão. Para uma rota pública nova é preciso atualizar **três** listas independentes, e esquecer qualquer uma quebra silenciosamente:
+
+1. `frontend/middleware.ts` → `PUBLIC_ROUTES` (senão redireciona pro `/login`).
+2. `frontend/components/layout/AppLayout.tsx` → `isPublicRoute` (senão herda Sidebar/Topbar/BottomNav do app autenticado).
+3. `frontend/scripts/check-design-system.ts` → `RULE_ALLOWLIST` (páginas de marketing usam `Card` raw; `opengraph-image.tsx` em edge/satori exige hex literal — não enxerga CSS vars). Precedente seguido: entradas `pv|waitlist` nas regras de COLOR_RULES (OG image) e DIRECT_PRIMITIVE/SKELETON/INLINE_NOTICE (pasta).
+
+**Observação operacional:** a migration `083` ainda precisa ser aplicada no banco remoto para o formulário persistir de verdade.

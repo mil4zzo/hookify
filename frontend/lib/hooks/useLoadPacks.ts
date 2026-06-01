@@ -115,6 +115,7 @@ export function useLoadPacks() {
                 updated_at: pack.updated_at,
                 last_refreshed_at: pack.last_refreshed_at || undefined, // Incluir last_refreshed_at se disponível
                 sheet_integration: pack.sheet_integration || undefined, // Incluir dados de integração se disponível
+                conversion_types: Array.isArray(pack.conversion_types) ? pack.conversion_types : [], // Metadado materializado (dropdown de eventos)
               }
             })
           )
@@ -131,6 +132,10 @@ export function useLoadPacks() {
               // Atualizar sheet_integration se mudou
               if (JSON.stringify(pack.sheet_integration) !== JSON.stringify(existing.sheet_integration)) {
                 updatePack(pack.id, { sheet_integration: pack.sheet_integration } as any)
+              }
+              // Atualizar conversion_types se mudou (refresh adiciona tipos novos)
+              if (JSON.stringify(pack.conversion_types || []) !== JSON.stringify(existing.conversion_types || [])) {
+                updatePack(pack.id, { conversion_types: Array.isArray(pack.conversion_types) ? pack.conversion_types : [] } as any)
               }
             }
           })

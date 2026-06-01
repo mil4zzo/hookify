@@ -31,12 +31,9 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
       maxAge: SEVEN_DAYS_MS,
       buster: PERSIST_BUSTER,
       dehydrateOptions: {
-        // Persistir SOMENTE queries de conversion-types — array pequeno e raramente-mutável.
-        // Cross-user safety: o queryKey do useConversionTypes inclui user_id, evitando vazamento.
         shouldDehydrateQuery: (query) => {
           if (query.state.status !== 'success') return false
           const key = query.queryKey
-          if (Array.isArray(key) && key[0] === 'analytics' && key[1] === 'conversion-types') return true
           // Persist connections so the button area renders instantly on return visits (optimistic),
           // then revalidates in the background. Logout clears this via invalidateSessionCache.
           if (Array.isArray(key) && key[0] === 'facebook' && key[1] === 'connections') return true

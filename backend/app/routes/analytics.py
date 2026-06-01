@@ -232,13 +232,6 @@ class UpdatePackNameRequest(BaseModel):
     name: str = Field(..., description="Novo nome do pack", min_length=1)
 
 
-class ConversionTypesRequest(BaseModel):
-    date_start: str
-    date_stop: str
-    pack_ids: List[str] = Field(default_factory=list, description="Lista de pack IDs para escopar a busca.")
-    filters: Optional[RankingsFilters] = None
-
-
 def _to_date(s: str) -> datetime:
     return datetime(int(s[0:4]), int(s[5:7]), int(s[8:10]))
 
@@ -1222,62 +1215,10 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         is_probe,
         hydration_stats,
         transcription_flagged,
+        media_type_hydrated,
     )
 
     return primary
-
-
-@router.post("/conversion-types")
-def get_conversion_types(req: ConversionTypesRequest, user=Depends(get_current_user)):
-    """Lookup leve para available_conversion_types.
-
-    Substitui o probe (limit=1) sobre /analytics/rankings, que pagava o custo
-    completo da agregação no fetch_manager_rankings_core_v2 só pra extrair
-    o array de conversion types. A nova RPC fetch_available_conversion_types_v1
-    espelha exatamente os mesmos filtros e dedup do v060 (ver migration 079).
-    """
-    if not req.pack_ids:
-        return {"available_conversion_types": []}
-    sb = get_supabase_service()
-    f = req.filters or RankingsFilters()
-    started_at = time.perf_counter()
-    try:
-        rpc_result = sb.rpc(
-            "fetch_available_conversion_types_v1",
-            {
-                "p_user_id": user["user_id"],
-                "p_date_start": req.date_start,
-                "p_date_stop": req.date_stop,
-                "p_pack_ids": req.pack_ids,
-                "p_account_ids": f.adaccount_ids,
-                "p_campaign_name_contains": f.campaign_name_contains,
-                "p_adset_name_contains": f.adset_name_contains,
-                "p_ad_name_contains": f.ad_name_contains,
-            },
-        ).execute()
-        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
-        raw = rpc_result.data
-        types: List[str] = [str(v) for v in raw if v is not None] if isinstance(raw, list) else []
-        logger.info(
-            "[conversion_types] success elapsed_ms=%.2f packs=%s range=%s..%s count=%s",
-            elapsed_ms,
-            len(req.pack_ids),
-            req.date_start,
-            req.date_stop,
-            len(types),
-        )
-        return {"available_conversion_types": types}
-    except Exception as e:
-        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
-        logger.exception(
-            "[conversion_types] failed elapsed_ms=%.2f packs=%s range=%s..%s error=%s",
-            elapsed_ms,
-            len(req.pack_ids),
-            req.date_start,
-            req.date_stop,
-            e,
-        )
-        raise HTTPException(status_code=500, detail="Erro ao consultar conversion types.")
 
 
 @router.post("/rankings/series")

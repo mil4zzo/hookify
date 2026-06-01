@@ -6,7 +6,7 @@ import { StateSkeleton } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
-import { useAdPerformance, useAdPerformanceSeries, useConversionTypes } from "@/lib/api/hooks";
+import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
@@ -18,6 +18,7 @@ import { AnalyticsWorkspace } from "@/components/common/layout";
 import { logger } from "@/lib/utils/logger";
 import { toast } from "sonner";
 import { useFilters } from "@/lib/hooks/useFilters";
+import { usePacksLoading } from "@/components/layout/PacksLoader";
 
 type ManagerRow = RankingsItem & { series_loading?: boolean };
 
@@ -48,6 +49,20 @@ function ManagerPageContent() {
     packs,
     packsClient,
   } = useFilters();
+
+  // Gate de readiness: só dispara as queries pesadas depois que os packs
+  // estiverem carregados no store E o carregamento global ter terminado.
+  // NÃO basta usar !packsLoading: useLoadPacks faz setIsLoading(false) na fase
+  // pré-auth (não autenticado), então packsLoading já é false quando isAuthorized
+  // flipa, abrindo o gate antes dos packs chegarem → dispara rankings com
+  // packsLen=0 / hasSheetIntegration=false (leadscore=false), e re-dispara quando
+  // os packs chegam (ver debug #3, run 3). Gatear em packs.length>0 garante que
+  // hasSheetIntegration / effectiveDateRange já estão estáveis no 1º disparo.
+  // !packsLoading cobre o caso de cache stale rehidratado (espera o fetch fresco).
+  // Usuário sem packs: packsLen=0 → query não dispara; isLoading={loading||packsLoading}
+  // já é false → mostra estado vazio (não skeleton infinito).
+  const { isLoading: packsLoading } = usePacksLoading();
+  const packsReady = packsClient && packs.length > 0 && !packsLoading;
 
   // ── Page-specific state ────────────────────────────────────────────────────
   const [serverAverages, setServerAverages] = useState<any | null>(null);
@@ -182,12 +197,14 @@ function ManagerPageContent() {
       include_series: false,
       include_leadscore: hasSheetIntegration,
       series_window: SERIES_WINDOW,
-      include_available_conversion_types: true,
+      // available_conversion_types vem do metadado packs.conversion_types (union no refresh),
+      // não do rankings — manter false pra não pagar o CTE extra que ~dobra o custo da query.
+      include_available_conversion_types: false,
     }),
     [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
-  const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && !!dateRange.start && !!dateRange.end);
+  const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && packsReady && !!dateRange.start && !!dateRange.end);
 
   const managerRequestIndividual: RankingsRequest = useMemo(
     () => ({
@@ -207,7 +224,7 @@ function ManagerPageContent() {
     [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
-  const shouldFetchIndividual = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
+  const shouldFetchIndividual = isAuthorized && packsReady && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
   const { data: managerDataIndividual, isLoading: loadingIndividual } = useAdPerformance(managerRequestIndividual, shouldFetchIndividual);
 
   const managerRequestAdset: RankingsRequest = useMemo(
@@ -228,7 +245,7 @@ function ManagerPageContent() {
     [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
-  const shouldFetchAdset = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
+  const shouldFetchAdset = isAuthorized && packsReady && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
   const { data: managerDataAdset, isLoading: loadingAdset } = useAdPerformance(managerRequestAdset, shouldFetchAdset);
 
   const managerRequestCampaign: RankingsRequest = useMemo(
@@ -249,26 +266,30 @@ function ManagerPageContent() {
     [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
   );
 
-  const shouldFetchCampaign = isAuthorized && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
+  const shouldFetchCampaign = isAuthorized && packsReady && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
   const { data: managerDataCampaign, isLoading: loadingCampaign } = useAdPerformance(managerRequestCampaign, shouldFetchCampaign);
-
-  // Lookup leve persistido em localStorage — substitui o probe (limit=1) que pagava o RPC pesado
-  const conversionTypesParams = useMemo(
-    () => ({
-      date_start: dateRange.start || "",
-      date_stop: dateRange.end || "",
-      pack_ids: Array.from(selectedPackIds),
-    }),
-    [dateRange.start, dateRange.end, selectedPackIds],
-  );
-  const { data: convTypesData } = useConversionTypes(conversionTypesParams, isAuthorized);
 
   // ── Derived from API data ──────────────────────────────────────────────────
   const serverData = managerData?.data || null;
   const serverDataIndividual = managerDataIndividual?.data || null;
   const serverDataAdset = managerDataAdset?.data || null;
   const serverDataCampaign = managerDataCampaign?.data || null;
-  const availableConversionTypes = convTypesData?.available_conversion_types || managerData?.available_conversion_types || [];
+  // Dropdown de conversion types = união dos packs selecionados (metadado materializado
+  // packs.conversion_types, que já chega no payload de /packs carregado pelo PacksLoader).
+  // Zero request, zero RPC no read-path — a lista é mantida via union incremental no
+  // refresh (ver migration 081 / upsert_ad_metrics). Substitui o endpoint dedicado.
+  const availableConversionTypes = useMemo(() => {
+    if (selectedPackIds.size === 0 || packs.length === 0) return [] as string[];
+    const set = new Set<string>();
+    for (const p of packs) {
+      if (!selectedPackIds.has(p.id)) continue;
+      const types = (p as any).conversion_types;
+      if (Array.isArray(types)) {
+        for (const t of types) if (t) set.add(String(t));
+      }
+    }
+    return Array.from(set).sort();
+  }, [packs, selectedPackIds]);
 
   // Propagate available conversion types to global store
   useEffect(() => {
@@ -591,8 +612,8 @@ function ManagerPageContent() {
           availableConversionTypes={actionTypeOptions}
           showTrends={showTrends}
           hasSheetIntegration={hasSheetIntegration}
-          isLoading={loading}
-          isError={!!managerError && !loading}
+          isLoading={loading || packsLoading}
+          isError={!!managerError && !loading && packsReady}
           initialFilters={initialFilters}
           averagesOverride={(() => {
             const base = validatedAveragesForAverages || serverAverages || null;

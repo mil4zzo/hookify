@@ -84,16 +84,6 @@ export const queryKeys = {
     ['analytics', 'rankings-series', params.date_start, params.date_stop, params.group_by, params.action_type, params.pack_ids, params.window, groupKeysHash] as const,
   adPerformanceRetention: (params: RankingsRetentionRequest) =>
     ['analytics', 'rankings-retention', params.date_start, params.date_stop, params.group_by, params.group_key, params.pack_ids] as const,
-  // Lookup leve para available_conversion_types — persistido em localStorage
-  // (ver ReactQueryProvider.tsx). userId no key garante isolamento entre usuários
-  // que compartilhem o mesmo browser.
-  conversionTypes: (
-    userId: string,
-    dateStart: string,
-    dateStop: string,
-    packIdsKey: string,
-    filtersKey: string = '',
-  ) => ['analytics', 'conversion-types', userId, dateStart, dateStop, packIdsKey, filtersKey] as const,
 }
 
 const hashStringArray = (values: string[]): string => {
@@ -486,7 +476,7 @@ export const useAdNameHistory = (
 export const useRankings = (params: RankingsRequest, enabled: boolean = true) => {
   return useQuery<RankingsResponse>({
     queryKey: queryKeys.rankings(params),
-    queryFn: () => api.analytics.getRankings(params),
+    queryFn: ({ signal }) => api.analytics.getRankings(params, { signal }),
     enabled: enabled && !!params.date_start && !!params.date_stop,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 10 * 60 * 1000,
@@ -501,42 +491,11 @@ export const useRankings = (params: RankingsRequest, enabled: boolean = true) =>
 export const useAdPerformance = (params: RankingsRequest, enabled: boolean = true) => {
   return useQuery<RankingsResponse>({
     queryKey: queryKeys.adPerformance(params),
-    queryFn: () => api.analytics.getAdPerformance(params),
+    queryFn: ({ signal }) => api.analytics.getAdPerformance(params, { signal }),
     enabled: enabled && !!params.date_start && !!params.date_stop,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 60 * 1000,
     retry: 2,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-  })
-}
-
-/**
- * Lookup leve para `available_conversion_types`. Substitui o probe (`limit=1`)
- * que era feito em `useAdPerformance`. Persiste em localStorage por 7 dias
- * (ver ReactQueryProvider.tsx) — em sessões repetidas o dropdown popula
- * instantaneamente sem rede.
- */
-export const useConversionTypes = (
-  params: { date_start: string; date_stop: string; pack_ids: string[]; filters?: any },
-  enabled: boolean = true,
-) => {
-  const { user } = useSupabaseAuth()
-  const userId = String(user?.id || '')
-  const packIdsKey = [...(params.pack_ids || [])].sort().join('|')
-  const filtersKey = params.filters ? JSON.stringify(params.filters) : ''
-  return useQuery<{ available_conversion_types: string[] }>({
-    queryKey: queryKeys.conversionTypes(userId, params.date_start, params.date_stop, packIdsKey, filtersKey),
-    queryFn: () => api.analytics.getConversionTypes({
-      date_start: params.date_start,
-      date_stop: params.date_stop,
-      pack_ids: params.pack_ids,
-      filters: params.filters,
-    }),
-    enabled: enabled && !!userId && !!params.date_start && !!params.date_stop && (params.pack_ids?.length ?? 0) > 0,
-    staleTime: 24 * 60 * 60 * 1000, // 24h — conversion types raramente mudam
-    gcTime: 7 * 24 * 60 * 60 * 1000, // 7d — alinhado com maxAge do persister
-    retry: 1,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
@@ -548,11 +507,11 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
 
   return useQuery<RankingsSeriesResponse>({
     queryKey: queryKeys.adPerformanceSeries(params, groupKeysHash),
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       api.analytics.getRankingsSeries({
         ...params,
         group_keys: normalizedKeys,
-      }),
+      }, { signal }),
     enabled:
       enabled &&
       !!params.date_start &&
@@ -569,7 +528,7 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
 export const useAdPerformanceRetention = (params: RankingsRetentionRequest, enabled: boolean = true) => {
   return useQuery<RankingsRetentionResponse>({
     queryKey: queryKeys.adPerformanceRetention(params),
-    queryFn: () => api.analytics.getRankingsRetention(params),
+    queryFn: ({ signal }) => api.analytics.getRankingsRetention(params, { signal }),
     enabled: enabled && !!params.date_start && !!params.date_stop && !!params.group_key,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 10 * 60 * 1000,

@@ -822,6 +822,80 @@ def update_ad_video_owner(
         logger.warning(f"[UPDATE_AD_VIDEO_OWNER] Falha (best-effort) para ad_id={ad_id}: {e}")
 
 
+def _extract_conv_keys(rows: List[Dict[str, Any]]) -> List[str]:
+    """Extrai os conv_keys distintos das linhas de ad_metrics em memória.
+
+    Cada linha tem `conversions` e `actions` = lista de {action_type, value}.
+    Retorna chaves no formato 'conversion:<action_type>' / 'action:<action_type>'
+    (mesmo universo do antigo available_conversion_types — ver migration 081).
+    """
+    keys: set = set()
+    for r in rows:
+        for prefix, field in (("conversion:", "conversions"), ("action:", "actions")):
+            arr = r.get(field)
+            if not isinstance(arr, list):
+                continue
+            for elem in arr:
+                if not isinstance(elem, dict):
+                    continue
+                at = elem.get("action_type")
+                if at is None:
+                    continue
+                at = str(at).strip()
+                if at:
+                    keys.add(prefix + at)
+    return sorted(keys)
+
+
+def _union_pack_conversion_types(
+    sb: "Client", user_id: str, pack_id: str, rows: List[Dict[str, Any]]
+) -> None:
+    """Union incremental (monotônico, nunca remove) dos conversion types no pack.
+
+    Materializa em packs.conversion_types os tipos vistos nas métricas recém-ingeridas,
+    unindo com o que já existe. Tira o cálculo do read-path (que estourava statement_timeout
+    sob service_role) e alimenta o dropdown do Manager via metadado do pack (migration 081).
+
+    Read-modify-write é seguro aqui: refresh do mesmo pack é serializado por job lease,
+    então não há writers concorrentes na mesma linha; e o union é self-healing (o próximo
+    refresh re-adiciona qualquer tipo eventualmente perdido).
+    """
+    new_keys = set(_extract_conv_keys(rows))
+    if not new_keys:
+        return
+
+    res = with_postgrest_retry(
+        f"select_pack_conversion_types[{pack_id}]",
+        lambda: sb.table("packs")
+        .select("conversion_types")
+        .eq("id", pack_id)
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute(),
+    )
+    current = []
+    if res is not None and getattr(res, "data", None):
+        current = res.data[0].get("conversion_types") or []
+    current_set = set(current)
+
+    if new_keys.issubset(current_set):
+        return  # nada novo — evita UPDATE desnecessário
+
+    merged = sorted(current_set | new_keys)
+    with_postgrest_retry(
+        f"update_pack_conversion_types[{pack_id}]",
+        lambda: sb.table("packs")
+        .update({"conversion_types": merged})
+        .eq("id", pack_id)
+        .eq("user_id", user_id)
+        .execute(),
+    )
+    logger.info(
+        f"[UPSERT_AD_METRICS] conversion_types do pack {pack_id}: "
+        f"+{len(new_keys - current_set)} novo(s) (total {len(merged)})"
+    )
+
+
 def upsert_ad_metrics(
     user_jwt: str,
     formatted_ads: List[Dict[str, Any]],
@@ -1015,6 +1089,17 @@ def upsert_ad_metrics(
             else:
                 # Re-lançar para que caller possa tratar o erro
                 raise
+
+    # ── Materializar conversion_types do pack (union incremental, monotônico) ──
+    # Best-effort: nunca derruba o refresh. pack_id None → não dá pra atribuir, skip.
+    # Ver migration 081 e o dropdown do Manager (deriva da união dos packs selecionados).
+    if pack_id:
+        try:
+            _union_pack_conversion_types(sb, user_id, pack_id, rows)
+        except Exception as e:
+            logger.warning(
+                f"[UPSERT_AD_METRICS] Falha ao atualizar conversion_types do pack {pack_id} (ignorado): {e}"
+            )
 
     if pack_id and rows:
         map_rows = [

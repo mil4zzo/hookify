@@ -150,6 +150,13 @@ class ApiClient {
         if (error?.cancelled === true) {
           return Promise.reject(error)
         }
+        // Requisição abortada via AbortSignal (ex.: queryClient.cancelQueries() no
+        // logout aborta queries de analytics em-voo). Não é erro de verdade: não
+        // logar, não mandar pro Sentry, não disparar toasts — só propagar pro
+        // TanStack Query tratar como cancelamento.
+        if (axios.isCancel(error)) {
+          return Promise.reject(error)
+        }
         if (error?.response?.status === 401) {
           invalidateSessionCache()
           // Se estamos em processo de logout, silenciar o 401 — não propagar toasts/retries

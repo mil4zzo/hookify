@@ -28,6 +28,7 @@ import {
   SaveSheetIntegrationResponse,
   SheetSyncJobProgress,
   UpdateEntityStatusResponse,
+  BatchStatusResponse,
   AdsTreeResponse,
   AdsSearchResponse,
   AdCreativeDetailResponse,
@@ -146,6 +147,9 @@ export const api = {
 
     updateCampaignStatus: (campaignId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
       apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/status`, { status }),
+
+    batchUpdateAdStatus: (adIds: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
+      apiClient.post("/facebook/ads/batch-status", { ad_ids: adIds, status }),
   },
 
   bulkAds: {
@@ -221,20 +225,19 @@ export const api = {
 
   // Analytics (Supabase)
   analytics: {
-    // Endpoint histórico, mantido por compatibilidade
-    getRankings: (params: RankingsRequest): Promise<RankingsResponse> =>
-      apiClient.post('/analytics/rankings', params),
+    // Endpoint histórico, mantido por compatibilidade.
+    // `options.signal` permite que o TanStack Query aborte o HTTP em-voo
+    // (ex.: queryClient.cancelQueries() no logout) — sem ele a query pesada
+    // continua rodando no backend até estourar o statement_timeout (57014).
+    getRankings: (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
+      apiClient.post('/analytics/rankings', params, { signal: options?.signal }),
     // Alias semântico para evolução futura: mesma payload, rota nova
-    getAdPerformance: (params: RankingsRequest): Promise<RankingsResponse> =>
-      apiClient.post('/analytics/ad-performance', params),
-    getRankingsSeries: (params: RankingsSeriesRequest): Promise<RankingsSeriesResponse> =>
-      apiClient.post('/analytics/rankings/series', params),
-    getConversionTypes: (
-      params: { date_start: string; date_stop: string; pack_ids: string[]; filters?: RankingsFilters }
-    ): Promise<{ available_conversion_types: string[] }> =>
-      apiClient.post('/analytics/conversion-types', params),
-    getRankingsRetention: (params: RankingsRetentionRequest): Promise<RankingsRetentionResponse> =>
-      apiClient.post('/analytics/rankings/retention', params),
+    getAdPerformance: (params: RankingsRequest, options?: { signal?: AbortSignal }): Promise<RankingsResponse> =>
+      apiClient.post('/analytics/ad-performance', params, { signal: options?.signal }),
+    getRankingsSeries: (params: RankingsSeriesRequest, options?: { signal?: AbortSignal }): Promise<RankingsSeriesResponse> =>
+      apiClient.post('/analytics/rankings/series', params, { signal: options?.signal }),
+    getRankingsRetention: (params: RankingsRetentionRequest, options?: { signal?: AbortSignal }): Promise<RankingsRetentionResponse> =>
+      apiClient.post('/analytics/rankings/retention', params, { signal: options?.signal }),
     getRankingsChildren: (
       adName: string,
       params: { date_start: string; date_stop: string; order_by?: string; pack_ids?: string[] }

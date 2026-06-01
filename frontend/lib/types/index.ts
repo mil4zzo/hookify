@@ -22,6 +22,9 @@ export interface AdsPack {
     spreadsheet_name?: string // Adicionado pelo backend ao buscar nomes das planilhas
   }
   last_refreshed_at?: string // Data do último refresh no formato YYYY-MM-DD
+  // Lista materializada (union incremental no refresh) dos conversion types do pack.
+  // Chaves: 'conversion:<type>' / 'action:<type>'. Fonte do dropdown de eventos no Manager.
+  conversion_types?: string[]
   created_at: string
   updated_at: string
 }
