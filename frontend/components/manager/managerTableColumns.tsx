@@ -11,6 +11,7 @@ import type { ColumnFiltersState } from "@tanstack/react-table";
 import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
 import { AdNameCell } from "@/components/manager/AdNameCell";
 import { StatusCell } from "@/components/manager/StatusCell";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export type ViewMode = "detailed" | "minimal";
 
@@ -100,7 +101,40 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
 
-  // Status column (primeira coluna - visível exceto na aba "por-anuncio")
+  // Coluna de seleção em lote (somente na aba "individual" onde ad_id está disponível por linha)
+  if (currentTab === "individual") {
+    cols.push({
+      id: "select",
+      header: ({ table }) => {
+        const allSelected = table.getIsAllPageRowsSelected();
+        const someSelected = table.getIsSomePageRowsSelected();
+        return (
+          <Checkbox
+            checked={allSelected ? true : someSelected ? "indeterminate" : false}
+            onCheckedChange={(v) => table.toggleAllPageRowsSelected(!!v)}
+            aria-label="Selecionar todos"
+            onClick={(e) => e.stopPropagation()}
+          />
+        );
+      },
+      cell: ({ row }) => (
+        <Checkbox
+          checked={row.getIsSelected()}
+          onCheckedChange={(v) => row.toggleSelected(!!v)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Selecionar linha"
+          disabled={!row.getCanSelect()}
+        />
+      ),
+      enableSorting: false,
+      enableColumnFilters: false,
+      enableResizing: false,
+      size: 44,
+      minSize: 44,
+    } as ColumnDef<RankingsItem, any>);
+  }
+
+  // Status column (visível exceto na aba "por-anuncio")
   if (currentTab !== "por-anuncio") {
     cols.push(
       columnHelper.accessor("effective_status", {

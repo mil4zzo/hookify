@@ -624,6 +624,85 @@ class GraphAPI:
         """Atualiza status de uma campanha (PAUSED/ACTIVE) via Meta Graph API."""
         return self._update_entity_status(campaign_id, status)
 
+    def batch_update_ad_status(self, ad_ids: List[str], status: str) -> Dict[str, Any]:
+        """
+        Atualiza status de múltiplos anúncios em lote via Meta Graph API Batch Requests.
+
+        Divide automaticamente em chunks de 50 (limite da API).
+        Endpoint: POST https://graph.facebook.com/v24.0/
+        Body: batch=[{"method":"POST","relative_url":"{ad_id}","body":"status=PAUSED"},...] (form data)
+
+        Retorna: {"status": "success", "updated_ids": [...], "failed_ids": [...]}
+        """
+        if not ad_ids:
+            return {"status": "success", "updated_ids": [], "failed_ids": []}
+        if status not in ("PAUSED", "ACTIVE"):
+            return {"status": "error", "message": "status deve ser PAUSED ou ACTIVE"}
+
+        updated_ids: List[str] = []
+        failed_ids: List[str] = []
+        batch_url = self.base_url  # https://graph.facebook.com/v24.0/
+
+        for i in range(0, len(ad_ids), 50):
+            chunk = ad_ids[i : i + 50]
+            batch_items = [
+                {"method": "POST", "relative_url": str(ad_id), "body": f"status={status}"}
+                for ad_id in chunk
+            ]
+            try:
+                resp = requests.post(
+                    batch_url,
+                    params={"access_token": self.access_token, "include_headers": "false"},
+                    data={"batch": json.dumps(batch_items)},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                log_meta_usage(resp, "GraphAPI.batch_update_ad_status")
+                results = resp.json()
+
+                if not isinstance(results, list):
+                    logger.warning("batch_update_ad_status: resposta inesperada do Meta: %s", results)
+                    for ad_id in chunk:
+                        failed_ids.append(str(ad_id))
+                    continue
+
+                for ad_id, item in zip(chunk, results):
+                    if item is None:
+                        failed_ids.append(str(ad_id))
+                        continue
+
+                    code = item.get("code")
+                    body_raw = item.get("body", "{}")
+                    try:
+                        body_data = json.loads(body_raw) if isinstance(body_raw, str) else (body_raw or {})
+                    except Exception:
+                        body_data = {}
+
+                    err_obj = body_data.get("error", {}) if isinstance(body_data, dict) else {}
+                    if err_obj.get("code") == 190:
+                        return {"status": "auth_error", "message": err_obj.get("message", "Token expirado"), "error": err_obj}
+
+                    if code == 200 and not err_obj:
+                        updated_ids.append(str(ad_id))
+                    else:
+                        logger.warning("batch_update_ad_status: ad_id=%s code=%s erro=%s", ad_id, code, err_obj)
+                        failed_ids.append(str(ad_id))
+
+            except requests.exceptions.HTTPError as http_err:
+                error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+                error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+                if error_obj.get("code") == 190:
+                    return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
+                logger.warning("batch_update_ad_status HTTP error no chunk %d: %s", i // 50, http_err)
+                for ad_id in chunk:
+                    failed_ids.append(str(ad_id))
+            except Exception as err:
+                logger.exception("batch_update_ad_status error no chunk %d: %s", i // 50, err)
+                for ad_id in chunk:
+                    failed_ids.append(str(ad_id))
+
+        return {"status": "success", "updated_ids": updated_ids, "failed_ids": failed_ids}
+
     ## BULK CREATE ADS
 
     def get_ad_parent_info(self, ad_id: str) -> Dict[str, Any]:

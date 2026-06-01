@@ -180,6 +180,13 @@ export const UpdateEntityStatusResponseSchema = z.object({
   status: z.enum(["PAUSED", "ACTIVE"]),
 })
 
+export const BatchStatusResponseSchema = z.object({
+  success: z.boolean(),
+  updated_ids: z.array(z.string()),
+  failed_ids: z.array(z.string()),
+  total: z.number(),
+})
+
 // Type exports
 export type FacebookUser = z.infer<typeof FacebookUserSchema>
 export type FacebookAdAccount = z.infer<typeof FacebookAdAccountSchema>
@@ -200,6 +207,7 @@ export type AuthTokenResponse = z.infer<typeof AuthTokenResponseSchema>
 export type AuthUrlResponse = z.infer<typeof AuthUrlResponseSchema>
 export type UpdateEntityStatusRequest = z.infer<typeof UpdateEntityStatusRequestSchema>
 export type UpdateEntityStatusResponse = z.infer<typeof UpdateEntityStatusResponseSchema>
+export type BatchStatusResponse = z.infer<typeof BatchStatusResponseSchema>
 
 // ========== Google Sheets Integration Schemas ==========
 

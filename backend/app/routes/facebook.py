@@ -28,7 +28,7 @@ from app.services.facebook_page_token_service import get_user_page_access_info
 from app.core.auth import get_current_user
 from pydantic import BaseModel
 from pydantic import ValidationError
-from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
+from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, BatchStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
 from app.core.config import (
     FACEBOOK_CLIENT_ID,
     FACEBOOK_CLIENT_SECRET,
@@ -756,6 +756,97 @@ def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: 
     except Exception:
         # Nunca falhar a operação por erro ao atualizar cache local; logar e seguir
         logger.exception("[UPDATE_STATUS] Falha ao atualizar effective_status local (cache) no Supabase")
+
+
+def _filter_ads_belonging_to_user(*, user_jwt: str, user_id: str, ad_ids: List[str]) -> List[str]:
+    """
+    Retorna apenas os ad_ids da lista que pertencem ao usuário.
+    Chunks de 200 para não estourar o limite de URL do PostgREST.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+    sb = get_supabase_for_user(user_jwt)
+    valid: set = set()
+    for i in range(0, len(ad_ids), 200):
+        chunk = ad_ids[i : i + 200]
+        res = sb.table("ads").select("ad_id").eq("user_id", user_id).in_("ad_id", chunk).execute()
+        for row in (res.data or []):
+            valid.add(row["ad_id"])
+    return [aid for aid in ad_ids if aid in valid]
+
+
+def _update_bulk_local_effective_status(*, user_jwt: str, user_id: str, ad_ids: List[str], new_status: str) -> None:
+    """
+    Atualiza effective_status local (Supabase) para múltiplos ads em lote.
+    Chunks de 200 para não estourar o limite de URL do PostgREST.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+    sb = get_supabase_for_user(user_jwt)
+    effective = "PAUSED" if new_status == "PAUSED" else "ACTIVE"
+    try:
+        for i in range(0, len(ad_ids), 200):
+            chunk = ad_ids[i : i + 200]
+            query = sb.table("ads").update({"effective_status": effective}).eq("user_id", user_id).in_("ad_id", chunk)
+            if new_status == "ACTIVE":
+                # Só reverter pausas individuais (evita sobrescrever ADSET_PAUSED/CAMPAIGN_PAUSED)
+                query = query.eq("effective_status", "PAUSED")
+            query.execute()
+    except Exception:
+        logger.exception("[BATCH_UPDATE_STATUS] Falha ao atualizar effective_status local no Supabase")
+
+
+@router.post("/ads/batch-status", response_model=BatchStatusResult)
+def update_ads_batch_status(
+    request: BatchStatusRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Atualiza status (PAUSED/ACTIVE) de múltiplos anúncios em lote via Meta Batch API.
+    Máximo de 1000 ad_ids por requisição (internamente processa em chunks de 50 para a Meta).
+    """
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    # Filtrar apenas ads que pertencem ao usuário (segurança)
+    owned_ids = _filter_ads_belonging_to_user(user_jwt=user_jwt, user_id=user_id, ad_ids=request.ad_ids)
+    if not owned_ids:
+        raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": "Nenhum dos anúncios encontrado para este usuário"})
+
+    result = api.batch_update_ad_status(owned_ids, request.status)
+
+    if result.get("status") == "auth_error":
+        mark_connection_as_expired(user_jwt, user_id)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+
+    if result.get("status") not in ("success",):
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "message": result.get("message") or "Falha ao atualizar status em lote no Meta",
+                "details": result.get("error"),
+            },
+        )
+
+    updated_ids: List[str] = result.get("updated_ids", [])
+    failed_ids: List[str] = result.get("failed_ids", [])
+
+    if updated_ids:
+        _update_bulk_local_effective_status(user_jwt=user_jwt, user_id=user_id, ad_ids=updated_ids, new_status=request.status)
+
+    return BatchStatusResult(
+        success=len(updated_ids) > 0,
+        updated_ids=updated_ids,
+        failed_ids=failed_ids,
+        total=len(owned_ids),
+    )
 
 
 @router.post("/ads/{ad_id}/status")

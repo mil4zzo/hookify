@@ -44,6 +44,7 @@ import { getColumnId } from "@/lib/utils/columnFilters";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { exportManagerToCsv } from "@/lib/utils/exportManagerCsv";
+import { useBulkAdStatusControl } from "@/lib/hooks/useAdStatusControl";
 
 type Ad = RankingsItem;
 
@@ -255,6 +256,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     if (activeTab === undefined) {
       setInternalTab(next);
     }
+    setRowSelection({});
     onTabChange?.(next);
   };
 
@@ -395,6 +397,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }
   };
 
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
   const [columnFilters, setColumnFiltersRaw] = useState<ColumnFiltersState>(() => loadColumnFilters(initialTab));
 
   // Wrapper com startTransition: mudanças de filtro (especialmente remoção de status)
@@ -696,6 +699,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   );
 
   const { openSettings } = useSettingsModalStore();
+  const { bulkPause, bulkActivate, isLoading: isBulkLoading } = useBulkAdStatusControl();
+
+  const selectedAdIds = useMemo(() => Object.keys(rowSelection), [rowSelection]);
+  const selectedCount = selectedAdIds.length;
 
   // Refs para valores que mudam frequentemente mas NÃO devem invalidar columns (evita recriação de colunas pelo TanStack Table)
   const averagesRef = useRef(averages);
@@ -768,11 +775,14 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     getFilteredRowModel: getFilteredRowModel(),
     enableSorting: true,
     enableColumnFilters: true,
+    enableRowSelection: currentTab === "individual",
     columnResizeMode: "onEnd", // Atualiza apenas ao soltar o mouse (melhor performance)
+    getRowId: (row) => row.ad_id ?? "",
     state: {
       columnFilters: tableColumnFilters,
       sorting,
       columnSizing,
+      rowSelection,
       columnVisibility: {
         adset_name_filter: false,
         campaign_name_filter: false,
@@ -781,6 +791,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     onColumnFiltersChange: () => {}, // Fonte de verdade é FilterBar; não sobrescrever estado com formato agregado
     onSortingChange: handleSortingChange,
     onColumnSizingChange: setColumnSizing,
+    onRowSelectionChange: setRowSelection,
     initialState: {
       sorting: [{ id: "spend", desc: true }],
     },
@@ -880,26 +891,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     () => (
       <>
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="sm" disabled={isExporting} className="h-full py-2 px-3 border border-input bg-background rounded-lg" aria-label="Exportar CSV">
-                {isExporting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconDownload className="h-4 w-4" />}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => handleExportRef.current(false)}>
-                <IconDownload className="h-4 w-4 mr-2" />
-                Exportar métricas
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportRef.current(true)}>
-                <IconFileText className="h-4 w-4 mr-2" />
-                Exportar com transcrições
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <div className="w-full sm:w-[190px]">
-            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
-          </div>
           {/* Toggle de visualização: dois botões alternantes */}
           <TooltipProvider>
             <div className="flex rounded-lg border border-input bg-background items-stretch" role="group" aria-label="Modo de visualização">
@@ -925,6 +916,26 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </Tooltip>
             </div>
           </TooltipProvider>
+          <div className="w-full sm:w-[190px]">
+            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" disabled={isExporting} className="py-2 px-3 border border-input bg-background rounded-lg" aria-label="Exportar CSV">
+                {isExporting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconDownload className="h-4 w-4" />}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => handleExportRef.current(false)}>
+                <IconDownload className="h-4 w-4 mr-2" />
+                Exportar métricas
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => handleExportRef.current(true)}>
+                <IconFileText className="h-4 w-4 mr-2" />
+                Exportar com transcrições
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </>
     ),
@@ -981,6 +992,42 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
+              {selectedCount > 0 && (
+                <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 text-sm shrink-0">
+                  <span className="text-muted-foreground font-medium">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
+                  <div className="h-4 w-px bg-border" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto py-0.5 px-2 text-xs gap-1"
+                    disabled={isBulkLoading}
+                    onClick={() => { bulkPause(selectedAdIds); setRowSelection({}); }}
+                  >
+                    {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
+                    Pausar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto py-0.5 px-2 text-xs gap-1"
+                    disabled={isBulkLoading}
+                    onClick={() => { bulkActivate(selectedAdIds); setRowSelection({}); }}
+                  >
+                    {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
+                    Ativar
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto py-0.5 px-1 text-muted-foreground"
+                    disabled={isBulkLoading}
+                    onClick={() => setRowSelection({})}
+                    aria-label="Limpar seleção"
+                  >
+                    <IconX className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              )}
               </>
             }
           >

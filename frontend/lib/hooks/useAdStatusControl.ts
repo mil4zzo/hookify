@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
+import { toast } from "sonner";
 
 export type AdEntityType = "ad" | "adset" | "campaign";
 export type AdEntityStatus = "PAUSED" | "ACTIVE";
@@ -70,6 +71,99 @@ function isPausedStatus(status?: string | null): boolean {
   if (!status) return false;
   const s = String(status).toUpperCase();
   return s === "PAUSED" || s === "ADSET_PAUSED" || s === "CAMPAIGN_PAUSED";
+}
+
+function patchBulkAdStatusInCaches(qc: QueryClient, updates: { adId: string; status: AdEntityStatus }[]): void {
+  if (!updates.length) return;
+  const updateMap = new Map(updates.map((u) => [u.adId, u.status]));
+  const patchRow = (row: any): any => {
+    if (!row || typeof row !== "object") return row;
+    const nextStatus = updateMap.get(row.ad_id);
+    if (!nextStatus) return row;
+    if (!Object.prototype.hasOwnProperty.call(row, "effective_status")) return row;
+    return { ...row, effective_status: nextStatus, status_resolved: true };
+  };
+  qc.setQueriesData<unknown>({ queryKey: ["analytics", "rankings"] }, (cached: unknown) => {
+    if (cached == null) return cached;
+    if (Array.isArray(cached)) {
+      let mutated = false;
+      const next = cached.map((row) => {
+        const patched = patchRow(row);
+        if (patched !== row) mutated = true;
+        return patched;
+      });
+      return mutated ? next : cached;
+    }
+    if (typeof cached === "object") {
+      const obj = cached as Record<string, any>;
+      if (Array.isArray(obj.data)) {
+        let mutated = false;
+        const nextData = obj.data.map((row: any) => {
+          const patched = patchRow(row);
+          if (patched !== row) mutated = true;
+          return patched;
+        });
+        return mutated ? { ...obj, data: nextData } : cached;
+      }
+      const patched = patchRow(obj);
+      return patched !== obj ? patched : cached;
+    }
+    return cached;
+  });
+}
+
+export interface UseBulkAdStatusControlReturn {
+  bulkPause: (adIds: string[]) => void;
+  bulkActivate: (adIds: string[]) => void;
+  isLoading: boolean;
+}
+
+export function useBulkAdStatusControl(): UseBulkAdStatusControlReturn {
+  const qc = useQueryClient();
+
+  const mutation = useMutation({
+    mutationFn: ({ adIds, status }: { adIds: string[]; status: "PAUSED" | "ACTIVE" }) =>
+      api.facebook.batchUpdateAdStatus(adIds, status),
+    onSuccess: (data, variables) => {
+      const { status } = variables;
+      const { updated_ids, failed_ids } = data;
+
+      if (updated_ids.length > 0) {
+        patchBulkAdStatusInCaches(
+          qc,
+          updated_ids.map((id) => ({ adId: id, status: status as AdEntityStatus })),
+        );
+      }
+
+      if (failed_ids.length === 0) {
+        const label = status === "PAUSED" ? "pausados" : "ativados";
+        showSuccess(`${updated_ids.length} anúncio${updated_ids.length !== 1 ? "s" : ""} ${label}.`);
+      } else if (updated_ids.length > 0) {
+        toast.warning(
+          `${updated_ids.length} ${status === "PAUSED" ? "pausados" : "ativados"}, ${failed_ids.length} falharam.`,
+          { duration: 6000 },
+        );
+      } else {
+        showError(`Falha ao atualizar ${failed_ids.length} anúncio${failed_ids.length !== 1 ? "s" : ""}.`);
+      }
+    },
+    onError: (e: any) => {
+      const msg = e?.message || "Falha ao atualizar status em lote.";
+      showError(msg);
+    },
+  });
+
+  const bulkPause = useCallback(
+    (adIds: string[]) => mutation.mutate({ adIds, status: "PAUSED" }),
+    [mutation],
+  );
+
+  const bulkActivate = useCallback(
+    (adIds: string[]) => mutation.mutate({ adIds, status: "ACTIVE" }),
+    [mutation],
+  );
+
+  return { bulkPause, bulkActivate, isLoading: mutation.isPending };
 }
 
 export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdStatusControlReturn {

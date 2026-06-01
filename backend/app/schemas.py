@@ -37,6 +37,29 @@ class UpdateStatusRequest(BaseModel):
     status: Literal["PAUSED", "ACTIVE"]
 
 
+class BatchStatusRequest(BaseModel):
+    """Request para atualizar status de múltiplos anúncios em lote via Meta Batch API."""
+    ad_ids: List[str]
+    status: Literal["PAUSED", "ACTIVE"]
+
+    @field_validator("ad_ids")
+    @classmethod
+    def validate_ad_ids(cls, value: List[str]) -> List[str]:
+        if not value:
+            raise ValueError("ad_ids não pode ser vazio")
+        if len(value) > 1000:
+            raise ValueError("ad_ids deve conter no máximo 1000 ids por requisição")
+        return [str(v).strip() for v in value if str(v).strip()]
+
+
+class BatchStatusResult(BaseModel):
+    """Resultado da atualização de status em lote."""
+    success: bool
+    updated_ids: List[str]
+    failed_ids: List[str]
+    total: int
+
+
 class BulkAdItem(BaseModel):
     file_index: Optional[int] = None
     bundle_id: Optional[str] = None
