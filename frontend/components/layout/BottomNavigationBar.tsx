@@ -12,7 +12,7 @@ export default function BottomNavigationBar() {
   const { data: userTier = "standard" } = useUserTier();
 
   // Não mostrar em rotas de autenticação
-  const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/signup") || pathname?.startsWith("/callback");
+  const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/callback");
 
   if (!isClient || !isAuthenticated || isAuthRoute) {
     return null;

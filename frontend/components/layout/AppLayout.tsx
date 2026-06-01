@@ -12,13 +12,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   
   // Rotas que não devem ter layout completo (sidebar, topbar, etc.)
-  const isAuthRoute = pathname?.startsWith("/login") || 
-                      pathname?.startsWith("/signup") || 
+  const isAuthRoute = pathname?.startsWith("/login") ||
                       pathname?.startsWith("/callback");
   const isPublicRoute = pathname?.startsWith("/politica-de-privacidade") ||
                        pathname?.startsWith("/termos-de-uso") ||
                        pathname?.startsWith("/exclusao-de-dados") ||
-                       pathname?.startsWith("/pv");
+                       pathname?.startsWith("/pv") ||
+                       pathname?.startsWith("/waitlist");
   
   // Se for rota de autenticação ou pública, renderiza apenas o conteúdo
   if (isAuthRoute || isPublicRoute) {

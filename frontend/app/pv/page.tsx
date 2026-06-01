@@ -167,7 +167,7 @@ export default async function PvPage({
 
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <Button asChild size="lg">
-                  <Link href="/signup">{copy.ctaPrimary}</Link>
+                  <Link href="/login?mode=signup">{copy.ctaPrimary}</Link>
                 </Button>
                 <Button asChild size="lg" variant="secondary">
                   <a href="#como-funciona">{copy.ctaSecondary}</a>
@@ -419,7 +419,7 @@ export default async function PvPage({
               </div>
               <div className="flex flex-col gap-3">
                 <Button asChild size="lg" className="w-full">
-                  <Link href="/signup">{copy.ctaPrimary}</Link>
+                  <Link href="/login?mode=signup">{copy.ctaPrimary}</Link>
                 </Button>
                 <Button asChild size="lg" variant="outline" className="w-full">
                   <Link href="/docs">Ver docs</Link>

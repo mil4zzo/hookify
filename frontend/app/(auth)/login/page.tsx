@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, Suspense } from "react";
 import Image from "next/image";
-import { IconEye, IconEyeOff } from "@tabler/icons-react";
+import { IconEye, IconEyeOff, IconBrandGoogle } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -15,8 +15,8 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isClient } = useClientAuth();
-  const { signInWithEmail, signUpWithEmail } = useSupabaseAuth();
-  const [isSignUp, setIsSignUp] = useState(false);
+  const { signInWithEmail, signUpWithEmail, signInWithGoogle } = useSupabaseAuth();
+  const [isSignUp, setIsSignUp] = useState(searchParams.get("mode") === "signup");
   const [isProcessing, setIsProcessing] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -71,6 +71,16 @@ function LoginContent() {
     } catch (error: any) {
       showError(error);
     } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleGoogle = async () => {
+    try {
+      setIsProcessing(true);
+      await signInWithGoogle();
+    } catch (error: any) {
+      showError(error);
       setIsProcessing(false);
     }
   };
@@ -130,6 +140,17 @@ function LoginContent() {
               </Button>
             </div>
           </form>
+
+          <div className="mt-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">ou</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <Button type="button" variant="secondary" className="mt-4 w-full h-[42px]" onClick={handleGoogle} disabled={isProcessing}>
+            <IconBrandGoogle className="h-4 w-4 mr-2" />
+            {isSignUp ? "Cadastrar com Google" : "Entrar com Google"}
+          </Button>
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
             {isSignUp ? (

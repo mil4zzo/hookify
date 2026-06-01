@@ -50,7 +50,7 @@ export function MainContent({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/signup") || pathname?.startsWith("/callback");
+  const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/callback");
   const isManagerRoute = pathname?.startsWith("/manager");
   const hasPageSidebar = Boolean(layoutConfig.pageSidebar);
   const usesWideShell = layoutConfig.fullWidth || hasPageSidebar;

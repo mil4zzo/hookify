@@ -52,7 +52,7 @@ export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname
 
   // Rotas públicas que não requerem autenticação
-  const PUBLIC_ROUTES = ['/login', '/signup', '/callback', '/termos-de-uso', '/politica-de-privacidade', '/exclusao-de-dados', '/docs', '/pv']
+  const PUBLIC_ROUTES = ['/login', '/callback', '/termos-de-uso', '/politica-de-privacidade', '/exclusao-de-dados', '/docs', '/pv', '/waitlist', '/waitlist-v2']
 
   // Todas as rotas são protegidas por padrão, exceto as explicitamente públicas acima
   const isPublicRoute = PUBLIC_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))
@@ -65,13 +65,13 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url)
   }
   
-  // Se está logado e tenta acessar login/signup, redirecionar para packs
+  // Se está logado e tenta acessar login, redirecionar para packs
   // EXCETO se houver parâmetro ?logout=true ou ?expired=true
   // (permite acesso após logout/expiração mesmo com cookies residuais)
   // Isso resolve o problema onde cookies ainda não foram completamente limpos após signOut
   const isLogoutRequest = req.nextUrl.searchParams.get('logout') === 'true'
   const isExpiredSessionRequest = req.nextUrl.searchParams.get('expired') === 'true'
-  if ((pathname === '/login' || pathname === '/signup') && session && !isLogoutRequest && !isExpiredSessionRequest) {
+  if (pathname === '/login' && session && !isLogoutRequest && !isExpiredSessionRequest) {
     const url = req.nextUrl.clone()
     url.pathname = '/packs'
     return NextResponse.redirect(url)

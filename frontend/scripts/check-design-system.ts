@@ -61,7 +61,7 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^components\/common\/TopBadge\.tsx$/, rules: COLOR_RULES, reason: "centralized gold/silver/bronze badge rendering" },
   { pattern: /^components\/common\/(?:Modal|AppDialog)\.tsx$/, rules: COLOR_RULES, reason: "runtime overlay opacity escape hatch" },
   { pattern: /^components\/charts\//, rules: [...COLOR_RULES, DIRECT_SKELETON_RULE], reason: "chart components compare computed runtime colors and render chart-shaped loading" },
-  { pattern: /^app\/pv\/opengraph-image\.tsx$/, rules: COLOR_RULES, reason: "generated image fallback styling" },
+  { pattern: /^app\/(?:pv|waitlist)\/opengraph-image\.tsx$/, rules: COLOR_RULES, reason: "generated image fallback styling" },
   { pattern: /^app\/global-error\.tsx$/, rules: COLOR_RULES, reason: "framework-level fallback page before theme hydration" },
   { pattern: /^app\/design-system\/page\.tsx$/, reason: "design-system catalog demonstrates raw primitives and swatches" },
 
@@ -69,7 +69,8 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^components\/common\/(?:Modal|AppDialog|StandardCard|ToggleSwitch|ConfirmDialog|AutoRefreshConfirmModal|BaseKanbanWidget|StatCard)\.tsx$/, rules: [DIRECT_PRIMITIVE_RULE], reason: "shared component definitions and legacy wrappers" },
   { pattern: /^components\/charts\//, rules: [DIRECT_PRIMITIVE_RULE], reason: "compact chart controls may use raw primitives" },
   { pattern: /^app\/\(auth\)\//, rules: [DIRECT_PRIMITIVE_RULE], reason: "auth pages are outside authenticated app shell recipes" },
-  { pattern: /^app\/(?:api-test|ui-demo|design-system|pv)\//, rules: [DIRECT_PRIMITIVE_RULE, DIRECT_SKELETON_RULE, INLINE_NOTICE_RULE], reason: "dev/demo/public surfaces" },
+  { pattern: /^app\/(?:api-test|ui-demo|design-system|pv|waitlist|waitlist-v2)\//, rules: [DIRECT_PRIMITIVE_RULE, DIRECT_SKELETON_RULE, INLINE_NOTICE_RULE], reason: "dev/demo/public surfaces" },
+  { pattern: /^components\/waitlist\/(?:WaitlistV2|CanvasRevealEffect)\.tsx$/, rules: [...COLOR_RULES, DIRECT_PRIMITIVE_RULE], reason: "cinematic public waitlist v2 keeps a raw black/white/accent palette" },
 
   { pattern: /^components\/common\/(?:States|RetentionVideoPlayer|ThumbnailImage|SparklineSkeleton|ActionTypeFilter|PackFilter)\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "canonical state/media/filter skeleton definitions" },
   { pattern: /^components\/manager\/(?:TableContent|MinimalTableContent)\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "dense table rows keep row-shaped skeletons" },

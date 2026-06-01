@@ -167,7 +167,7 @@ export default function Topbar() {
   };
 
   // Não mostrar em rotas de autenticação (DEPOIS de todos os hooks)
-  const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/signup") || pathname?.startsWith("/callback");
+  const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/callback");
 
   if (isAuthRoute) {
     return null;
