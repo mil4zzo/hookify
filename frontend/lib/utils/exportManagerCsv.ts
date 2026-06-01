@@ -53,6 +53,12 @@ function triggerDownload(csvContent: string, filename: string): void {
 }
 
 const TABS_WITH_TRANSCRIPTION = new Set<ManagerTab>(["por-anuncio", "individual"])
+const TABS_WITH_MEDIA_TYPE = new Set<ManagerTab>(["por-anuncio", "individual"])
+
+const MEDIA_TYPE_LABEL: Record<string, string> = {
+  video: "Vídeo",
+  image: "Imagem",
+}
 
 export async function exportManagerToCsv({
   table,
@@ -72,8 +78,8 @@ export async function exportManagerToCsv({
   withTranscriptions?: boolean
 }): Promise<void> {
   const rows = table.getSortedRowModel().rows
-  const showStatus = currentTab !== "por-anuncio"
   const showTranscriptions = withTranscriptions && TABS_WITH_TRANSCRIPTION.has(currentTab)
+  const showMediaType = TABS_WITH_MEDIA_TYPE.has(currentTab)
 
   const visibleMetricColumns = MANAGER_COLUMNS.filter((col) => {
     if (!activeColumns.has(col.id)) return false
@@ -97,14 +103,20 @@ export async function exportManagerToCsv({
     }
   }
 
+  // Ordem: Nome | Status | Media type | [métricas] | Transcrição
   const headers: string[] = [TAB_NAME_HEADER[currentTab]]
-  if (showStatus) headers.push("Status")
+  headers.push("Status")
+  if (showMediaType) headers.push("Media type")
   for (const col of visibleMetricColumns) headers.push(col.name)
   if (showTranscriptions) headers.push("Transcrição")
 
   const dataRows = rows.map((row) => {
     const cells: string[] = [getNameValue(currentTab, row)]
-    if (showStatus) cells.push(String(row.original.effective_status ?? ""))
+    cells.push(String(row.original.effective_status ?? ""))
+    if (showMediaType) {
+      const mt = row.original.media_type ?? ""
+      cells.push(MEDIA_TYPE_LABEL[mt] ?? "")
+    }
     for (const col of visibleMetricColumns) cells.push(formatValue(col.id, row.getValue(col.id)))
     if (showTranscriptions) {
       const adName = String(row.original.ad_name ?? "")

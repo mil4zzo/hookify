@@ -48,12 +48,11 @@ def resolve_media_type(ad: Dict[str, Any], primary_video_id: Optional[str] = Non
     object_story_spec = creative.get("object_story_spec") or {}
     asset_feed_spec = creative.get("asset_feed_spec") or {}
 
+    # thumbnail_url e thumb_storage_path existem em todos os ads (inclusive vídeo) —
+    # não são indicadores confiáveis de imagem
     image_candidates = [
-        ad.get("thumbnail_url"),
-        creative.get("thumbnail_url"),
         creative.get("image_url"),
         creative.get("image_hash"),
-        ad.get("thumb_storage_path"),
     ]
 
     if isinstance(object_story_spec, dict):

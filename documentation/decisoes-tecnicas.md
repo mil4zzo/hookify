@@ -6,6 +6,20 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Eixo Y de retenção precisa de ancestrais overflow-visible
+
+**Data:** 2026-05-31
+
+**Regra:** o eixo Y de retenção (0%–100%) do `AdDetailsDialog` é desenhado **fora** da borda esquerda do player, em `left-[-2rem]` (no `RetentionChartOverlay` e no `RetentionVideoPlayerSkeleton`). O contêiner do vídeo deve reservar `ml-8` à esquerda e permanecer `overflow-visible`. Qualquer ancestral com `overflow-hidden`/`overflow-y-auto` corta o eixo.
+
+**Por quê:** caso real — uma edição adicionou `overflow-hidden bg-black rounded-lg` ao contêiner do player (para frame preto arredondado) e o eixo sumiu no player e no skeleton. O `VideoPlayer` já aplica `bg-black rounded-lg overflow-hidden` internamente, então clipar no wrapper externo era redundante **e** quebrava o eixo.
+
+**Como aplicar:** `overflow-hidden bg-black` só no caso **imagem** (`isImageAd`); no vídeo, contêiner com `ml-8 rounded-lg` sem `overflow-hidden`, deixando o `VideoPlayer` cuidar do clip/fundo. Ao embutir `RetentionVideoPlayer` em qualquer lugar, garantir ancestrais `overflow-visible`.
+
+**Arquivos:** `frontend/components/ads/AdDetailsDialog.tsx` (contêiner do player + `VideoTabSkeleton`); `frontend/components/common/RetentionVideoPlayer.tsx`; `frontend/components/common/VideoPlayer.tsx`; `frontend/components/charts/RetentionChartOverlay.tsx`.
+
+---
+
 ## conversion_types: materializar como metadado do pack em vez de RPC no read-path
 
 **Data:** 2026-05-31

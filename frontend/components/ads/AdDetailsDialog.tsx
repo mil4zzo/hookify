@@ -269,7 +269,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     return `${sign}${(diff * 100).toFixed(1)}%`;
   }
 
-  function MetricSection({ title, children, contentBeforeChildren, headerAction }: { title: string; children: React.ReactNode; contentBeforeChildren?: React.ReactNode; headerAction?: React.ReactNode }) {
+  function MetricSection({ title, children, contentBeforeChildren, headerAction, disabled }: { title: string; children: React.ReactNode; contentBeforeChildren?: React.ReactNode; headerAction?: React.ReactNode; disabled?: boolean }) {
     const sectionIconMap = {
       Retenção: IconBrandParsinta,
       Funil: IconChartFunnel,
@@ -289,7 +289,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
           {headerAction}
         </div>
         {contentBeforeChildren}
-        {children ? <div className="grid grid-cols-4 gap-3">{children}</div> : null}
+        {children ? <div className={`grid grid-cols-4 gap-3 ${disabled ? "opacity-40 pointer-events-none select-none" : ""}`}>{children}</div> : null}
       </div>
     );
   }
@@ -328,21 +328,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     );
   }
 
-  function VideoTabSkeleton({ showConversionFilter }: { showConversionFilter: boolean }) {
+  function VideoTabSkeleton() {
     return (
       <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
-        <div className="relative ml-8 h-[min(70vh,42rem)] min-h-0 flex-shrink-0 aspect-[9/16] md:h-full md:max-h-full">
+        <div className="relative ml-8 h-[min(70vh,42rem)] min-h-0 flex-shrink-0 aspect-[9/16] rounded-lg md:h-full md:max-h-full">
           <RetentionVideoPlayerSkeleton />
         </div>
 
         <div className="flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-between">
-          {showConversionFilter && (
-            <div className="space-y-1.5">
-              <Skeleton className="h-3 w-28" />
-              <Skeleton className="h-10 w-full max-w-xs rounded-md" />
-            </div>
-          )}
-
           <VideoSectionSkeleton />
           <VideoSectionSkeleton />
           <VideoSectionSkeleton showInlineSubtitle />
@@ -552,7 +545,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
 
   const isCreativeLoading = (!groupByAdName && loadingCreative) || (groupByAdName && groupedSharedDetail.isLoadingMedia);
   const hasCreativeMediaData = groupByAdName ? !!groupedSharedDetail.creativeData : !!creativeData;
-  const isImageAd = !isCreativeLoading && hasCreativeMediaData && (resolvedMediaType === "image" || (!resolvedMediaType && !resolvedVideoId));
+  const isImageAd = !isCreativeLoading && hasCreativeMediaData && resolvedMediaType === "image";
   const imageActorId = groupByAdName ? (groupedSharedDetail.creativeData as any)?.creative?.actor_id || null : actorId || null;
   const shouldLoadImageSource = isImageAd && !!adId && !!imageActorId;
   const { data: imageSourceData, isLoading: loadingImageSource } = useImageSource({ ad_id: adId, actor_id: imageActorId || "" }, shouldLoadImageSource);
@@ -680,16 +673,16 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         {/* Layout compartilhado entre "Geral" e "Copy": renderizado fora de TabsContent para manter o vídeo montado ao trocar de aba */}
         <div className={`flex-1 flex flex-col min-h-0 ${activeTab !== "video" && activeTab !== "copy" ? "hidden" : ""}`}>
           {isCreativeLoading ? (
-            <VideoTabSkeleton showConversionFilter={allConversionTypes.length > 0} />
+            <VideoTabSkeleton />
           ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) ? (
             <StatePanel kind="empty" message="Mídia não disponível para este anúncio." framed={false} fill />
           ) : (
             <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>
               {/* Player de vídeo ou imagem (compartilhado — nunca desmonta ao trocar entre Geral e Copy) */}
-              <div className="ml-8 flex h-[min(70vh,42rem)] min-h-0 flex-shrink-0 aspect-[9/16] items-center justify-center rounded-lg md:h-full md:max-h-full">
+              <div className={`${isImageAd ? "overflow-hidden bg-black" : "ml-8"} flex h-[min(70vh,42rem)] min-h-0 flex-shrink-0 aspect-[9/16] items-center justify-center rounded-lg md:h-full md:max-h-full`}>
                 {isImageAd ? (
                   loadingImageSource ? (
-                    <RetentionVideoPlayerSkeleton />
+                    <Skeleton className="w-full h-full" />
                   ) : resolvedCreativeImageUrl ? (
                     <img src={resolvedCreativeImageUrl} alt={adName} className="w-full h-full object-contain rounded-lg" />
                   ) : (
@@ -711,7 +704,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                   {/* Retenção */}
                   <MetricSection
                     title="Retenção"
-                    headerAction={
+                    disabled={isImageAd}
+                    headerAction={isImageAd ? undefined : (
                       <TooltipProvider>
                         <div className="flex rounded-lg border border-input bg-background" role="group" aria-label="Modo de visualização da retenção">
                           <Tooltip>
@@ -736,10 +730,17 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                           </Tooltip>
                         </div>
                       </TooltipProvider>
-                    }
-                    contentBeforeChildren={retentionViewMode === "chart" && resolvedRetentionSeries && resolvedRetentionSeries.length > 0 ? <RetentionChart videoPlayCurve={resolvedRetentionSeries} videoWatchedP50={resolvedVideoWatchedP50} showTitle={false} chartHeightClassName="h-52" averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={resolvedHookValue} onPointClick={handleRetentionPointClick} /> : null}
+                    )}
+                    contentBeforeChildren={!isImageAd && retentionViewMode === "chart" && resolvedRetentionSeries && resolvedRetentionSeries.length > 0 ? <RetentionChart videoPlayCurve={resolvedRetentionSeries} videoWatchedP50={resolvedVideoWatchedP50} showTitle={false} chartHeightClassName="h-52" averagesHook={averages?.hook ?? null} averagesScrollStop={averages?.scroll_stop ?? null} hookValue={resolvedHookValue} onPointClick={handleRetentionPointClick} /> : null}
                   >
-                    {retentionViewMode === "metrics" && (
+                    {isImageAd ? (
+                      <>
+                        <VideoMetricCell label={getMetricLabel("scroll_stop")} value="—" />
+                        <VideoMetricCell label={getMetricLabel("hook")} value="—" />
+                        <VideoMetricCell label={getMetricLabel("hold_rate")} value="—" />
+                        <VideoMetricCell label={getMetricLabel("video_watched_p50")} value="—" />
+                      </>
+                    ) : retentionViewMode === "metrics" && (
                       <>
                         <VideoMetricCell label={getMetricLabel("scroll_stop")} value={formatPct(resolvedScrollStop * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedScrollStop, avgRaw: averages?.scroll_stop ?? null })} averageDisplay={averages?.scroll_stop != null ? formatPct(averages.scroll_stop * 100) : undefined} averageTooltip={getMetricAverageTooltip("scroll_stop")} series={resolvedSeries?.scroll_stop} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedScrollStop} avgRaw={averages?.scroll_stop ?? null} better={getMetricBetterDirection("scroll_stop")} packAverage={averages?.scroll_stop ?? null} />
                         <VideoMetricCell label={getMetricLabel("hook")} value={formatPct(resolvedHookValue * 100)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHookValue, avgRaw: averages?.hook ?? null })} averageDisplay={averages?.hook != null ? formatPct(averages.hook * 100) : undefined} averageTooltip={getMetricAverageTooltip("hook")} series={resolvedSeries?.hook} formatFn={(n: number) => formatPct(n * 100)} valueRaw={resolvedHookValue} avgRaw={averages?.hook ?? null} better={getMetricBetterDirection("hook")} packAverage={averages?.hook ?? null} />

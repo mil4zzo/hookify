@@ -889,6 +889,50 @@ def _hydrate_storage_thumbnails_for_rankings_rows(
     }
 
 
+def _hydrate_media_type_for_rankings_rows(
+    sb,
+    user_id: str,
+    rows: List[Dict[str, Any]],
+) -> int:
+    """Set media_type on each row by looking up ad_name in the ads table."""
+    if not rows:
+        return 0
+
+    ad_names: List[str] = list({str(r.get("ad_name") or "").strip() for r in rows if r.get("ad_name")})
+    if not ad_names:
+        return 0
+
+    name_to_media_type: Dict[str, str] = {}
+    batch_size = 200
+    for i in range(0, len(ad_names), batch_size):
+        batch = ad_names[i : i + batch_size]
+        try:
+            res = (
+                sb.table("ads")
+                .select("ad_name, media_type")
+                .eq("user_id", user_id)
+                .in_("ad_name", batch)
+                .execute()
+            )
+            for ad_row in (res.data or []):
+                name = str(ad_row.get("ad_name") or "").strip()
+                mt = str(ad_row.get("media_type") or "").strip()
+                if name and mt and name not in name_to_media_type:
+                    name_to_media_type[name] = mt
+        except Exception as e:
+            logger.warning("[rankings_media_type] hydration failed batch=%s err=%s", len(batch), e)
+
+    hydrated = 0
+    for row in rows:
+        name = str(row.get("ad_name") or "").strip()
+        mt = name_to_media_type.get(name)
+        if mt:
+            row["media_type"] = mt
+            hydrated += 1
+
+    return hydrated
+
+
 def _hydrate_transcription_flags_for_rankings_rows(
     sb,
     user_id: str,
@@ -1202,9 +1246,14 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         user_id=str(user["user_id"]),
         rows=primary.get("data") or [],
     )
+    media_type_hydrated = _hydrate_media_type_for_rankings_rows(
+        sb=sb,
+        user_id=str(user["user_id"]),
+        rows=primary.get("data") or [],
+    )
     act_count = len(primary.get("available_conversion_types") or []) if isinstance(primary.get("available_conversion_types"), list) else 0
     logger.info(
-        "[rankings] rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s act_count=%s is_probe=%s hydrated=%s transcription_flagged=%s",
+        "[rankings] rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s act_count=%s is_probe=%s hydrated=%s transcription_flagged=%s media_type_hydrated=%s",
         elapsed_ms,
         req.group_by,
         req.date_start,
