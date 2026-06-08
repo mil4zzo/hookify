@@ -18,7 +18,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                        pathname?.startsWith("/termos-de-uso") ||
                        pathname?.startsWith("/exclusao-de-dados") ||
                        pathname?.startsWith("/pv") ||
-                       pathname?.startsWith("/waitlist");
+                       pathname?.startsWith("/waitlist") ||
+                       pathname?.startsWith("/suporte");
   
   // Se for rota de autenticação ou pública, renderiza apenas o conteúdo
   if (isAuthRoute || isPublicRoute) {

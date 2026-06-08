@@ -52,7 +52,7 @@ export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname
 
   // Rotas públicas que não requerem autenticação
-  const PUBLIC_ROUTES = ['/login', '/callback', '/termos-de-uso', '/politica-de-privacidade', '/exclusao-de-dados', '/docs', '/pv', '/waitlist', '/waitlist-v2']
+  const PUBLIC_ROUTES = ['/login', '/callback', '/termos-de-uso', '/politica-de-privacidade', '/exclusao-de-dados', '/docs', '/pv', '/waitlist', '/waitlist-v2', '/suporte']
 
   // Todas as rotas são protegidas por padrão, exceto as explicitamente públicas acima
   const isPublicRoute = PUBLIC_ROUTES.some(route => pathname === route || pathname.startsWith(route + '/'))
