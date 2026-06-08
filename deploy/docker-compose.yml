@@ -19,7 +19,7 @@ services:
     labels:
       - "traefik.enable=true"
       # Rota via hookifyads.com/api (proxied pelo Cloudflare - sem uploads grandes)
-      - "traefik.http.routers.backend.rule=Host(`hookifyads.com`) && (PathPrefix(`/api`) || PathPrefix(`/facebook`) || PathPrefix(`/analytics`) || Path(`/health`))"
+      - "traefik.http.routers.backend.rule=Host(`hookifyads.com`) && (PathPrefix(`/api`) || PathPrefix(`/facebook`) || PathPrefix(`/analytics`) || PathPrefix(`/billing`) || Path(`/health`))"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls.certresolver=mytlschallenge"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"

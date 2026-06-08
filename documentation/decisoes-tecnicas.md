@@ -930,4 +930,35 @@ Cores padrão (white, black, gray, slate, zinc, red, blue, green, yellow, amber,
 2. `frontend/components/layout/AppLayout.tsx` → `isPublicRoute` (senão herda Sidebar/Topbar/BottomNav do app autenticado).
 3. `frontend/scripts/check-design-system.ts` → `RULE_ALLOWLIST` (páginas de marketing usam `Card` raw; `opengraph-image.tsx` em edge/satori exige hex literal — não enxerga CSS vars). Precedente seguido: entradas `pv|waitlist` nas regras de COLOR_RULES (OG image) e DIRECT_PRIMITIVE/SKELETON/INLINE_NOTICE (pasta).
 
+---
+
+## Stripe Billing — Hosted Checkout + Billing Portal para tier Insider
+
+**Data:** 2026-06-07
+
+**Regra:** o upgrade para Insider usa **Stripe Hosted Checkout** (`mode=subscription`) e o **Billing Portal** para self-service. O webhook é a única fonte de verdade para flips de tier — o frontend nunca concede tier com base no retorno do checkout.
+
+**Por quê:**
+- Hosted Checkout elimina toda a superfície PCI no servidor (SAQ A); nenhum dado de cartão passa pelo backend.
+- A preocupação "servidor cai enquanto alguém paga" é resolvida pelo próprio Stripe: o pagamento é capturado na infraestrutura deles, e o webhook é reenviado com backoff exponencial por até 72h. Quando o servidor volta, os eventos enfileirados entregam e o tier flipa. Por isso o handler de webhook deve ser **idempotente** (tabela `stripe_events` com PK no `event_id`).
+- Guardar `source='stripe'` na linha de `subscriptions` permite o guard que impede o webhook de sobrescrever concessões manuais (`source='manual'` ou `source='promo'`) de admin/promo.
+
+**Preços (2026-06-07):**
+- Mensal: R$97 (`STRIPE_PRICE_INSIDER_MONTHLY`)
+- Anual: R$790 (`STRIPE_PRICE_INSIDER_ANNUAL`) com parcelamento BR (`payment_method_options.card.installments.enabled=true` no Checkout Session — ativo só se o Dashboard tiver installments habilitado)
+
+**Arquivos críticos:**
+- `supabase/migrations/070_subscriptions_stripe.sql` — colunas `stripe_customer_id`, `stripe_subscription_id`, `stripe_status`, `cancel_at_period_end` + tabela `stripe_events`
+- `backend/app/routes/billing.py` — router `/billing` (checkout-session, portal-session, webhook)
+- `backend/app/core/config.py` — vars `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_INSIDER_MONTHLY`, `STRIPE_PRICE_INSIDER_ANNUAL`, `FRONTEND_BASE_URL`
+- `frontend/lib/api/endpoints.ts` — `api.billing.createCheckoutSession` / `createPortalSession`
+- `frontend/app/planos/page.tsx` — toggle mensal/anual, botão "Assinar Insider" / "Gerenciar assinatura", invalidação de `["user-tier"]` no retorno do checkout
+
+**Como testar localmente:**
+```bash
+stripe listen --forward-to localhost:8000/billing/webhook
+# copiar o webhook secret impresso como STRIPE_WEBHOOK_SECRET no backend/.env
+# testar com cartão 4242 4242 4242 4242
+```
+
 **Observação operacional:** a migration `083` ainda precisa ser aplicada no banco remoto para o formulário persistir de verdade.

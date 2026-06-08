@@ -28,6 +28,13 @@ GOOGLE_OAUTH_CLIENT_ID=seu_google_client_id_aqui
 GOOGLE_OAUTH_CLIENT_SECRET=seu_google_client_secret_aqui
 # Opcional: fixar um redirect por ambiente (senão é derivado do request)
 # GOOGLE_OAUTH_REDIRECT_URI=https://hookifyads.com/callback/google
+
+# Stripe billing
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_INSIDER_MONTHLY=price_...
+STRIPE_PRICE_INSIDER_ANNUAL=price_...
+FRONTEND_BASE_URL=https://hookifyads.com
 ```
 
 ## Frontend - frontend/.env.local
@@ -106,6 +113,21 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 1. Acesse https://www.assemblyai.com/app/account
 2. Em "API Keys", copie a chave existente ou crie uma nova
 3. Cole em `ASSEMBLYAI_API_KEY`. Sem essa chave a transcrição falha com `ASSEMBLYAI_API_KEY não configurada`.
+
+### Stripe (billing Insider)
+1. Acesse https://dashboard.stripe.com → **Products** → crie produto "Insider"
+2. Adicione dois preços recorrentes:
+   - Mensal: R$97,00 / mês → copie o `price_...` como `STRIPE_PRICE_INSIDER_MONTHLY`
+   - Anual: R$790,00 / ano → copie o `price_...` como `STRIPE_PRICE_INSIDER_ANNUAL`
+3. Para parcelamento no plano anual: **Settings → Payment methods → Card installments** → habilitar
+4. **Developers → Webhooks** → Add endpoint: `https://api.hookifyads.com/billing/webhook`
+   - Eventos: `checkout.session.completed`, `customer.subscription.updated`,
+     `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`
+   - Copie o Signing secret como `STRIPE_WEBHOOK_SECRET`
+5. **Developers → API keys** → copie a Secret key como `STRIPE_SECRET_KEY`
+6. **Settings → Customer portal** → habilitar e configurar opções de cancelamento/troca
+7. Em desenvolvimento, use `stripe listen --forward-to localhost:8000/billing/webhook` e copie
+   o webhook secret impresso no terminal como `STRIPE_WEBHOOK_SECRET`
 
 ### Google OAuth (Leadscore via Sheets)
 1. Acesse https://console.cloud.google.com/apis/credentials no projeto Google Cloud

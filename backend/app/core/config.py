@@ -95,4 +95,11 @@ ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 
 # Chave de criptografia para tokens de conectores (se usar app-level encryption)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+
+# Stripe billing
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_PRICE_INSIDER_MONTHLY = os.getenv("STRIPE_PRICE_INSIDER_MONTHLY")
+STRIPE_PRICE_INSIDER_ANNUAL = os.getenv("STRIPE_PRICE_INSIDER_ANNUAL")
+FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
  

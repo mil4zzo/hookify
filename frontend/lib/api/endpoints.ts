@@ -459,6 +459,15 @@ export const api = {
     },
   },
 
+  // Billing (Stripe)
+  billing: {
+    createCheckoutSession: (plan: 'monthly' | 'annual'): Promise<{ url: string }> =>
+      apiClient.post('/billing/checkout-session', { plan }),
+
+    createPortalSession: (): Promise<{ url: string }> =>
+      apiClient.post('/billing/portal-session'),
+  },
+
   // Admin
   admin: {
     listUsers: (): Promise<AdminUser[]> =>
