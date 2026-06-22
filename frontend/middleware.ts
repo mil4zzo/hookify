@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
-import { ROUTE_MINIMUM_TIER, canAccess, type Tier } from '@/lib/config/tierConfig'
+import { ROUTE_MINIMUM_TIER, canAccess, getEffectiveTier, type Tier } from '@/lib/config/tierConfig'
 
 export async function middleware(req: NextRequest) {
   const res = NextResponse.next({ request: { headers: req.headers } })
@@ -77,15 +77,17 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Tier-based route protection
-  const requiredTier = ROUTE_MINIMUM_TIER[pathname]
+  // Tier-based route protection — exact match or prefix (covers /upload/sub-route)
+  const requiredTier = ROUTE_MINIMUM_TIER[pathname] ??
+    Object.entries(ROUTE_MINIMUM_TIER).find(([route]) => pathname.startsWith(route + '/'))?.[1]
   if (requiredTier && session) {
     const { data: sub } = await supabase
       .from('subscriptions')
-      .select('tier')
-      .single()
+      .select('tier, expires_at')
+      .maybeSingle()
 
-    const userTier = (sub?.tier ?? 'standard') as Tier
+    const rawTier = (sub?.tier ?? 'standard') as Tier
+    const userTier = getEffectiveTier(rawTier, sub?.expires_at ?? null)
     if (!canAccess(userTier, requiredTier)) {
       const url = req.nextUrl.clone()
       url.pathname = '/planos'

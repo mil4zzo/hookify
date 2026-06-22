@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.auth import get_current_user
+from app.core.tier import require_insider
 from app.core.supabase_client import get_supabase_service
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ _SELECT_COLUMNS = (
 
 
 @router.get("/summary")
-def get_summary(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+def get_summary(current_user: Dict[str, Any] = Depends(require_insider)) -> Dict[str, Any]:
     """Current quota state + quick top-routes breakdown for the user."""
     user_id = current_user["user_id"]
     sb = get_supabase_service()
@@ -68,7 +69,7 @@ def get_summary(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dic
 
 @router.get("/calls")
 def list_calls(
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_insider),
     route: Optional[str] = Query(default=None),
     service_name: Optional[str] = Query(default=None),
     ad_account_id: Optional[str] = Query(default=None),
@@ -122,7 +123,7 @@ def list_calls(
 
 @router.get("/distinct")
 def distinct_filters(
-    current_user: Dict[str, Any] = Depends(get_current_user),
+    current_user: Dict[str, Any] = Depends(require_insider),
 ) -> Dict[str, List[str]]:
     """Distinct values for filter dropdowns: routes, services, ad accounts."""
     user_id = current_user["user_id"]

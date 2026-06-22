@@ -9,7 +9,8 @@ import { PageIcon } from "@/lib/utils/pageIcon";
 import { StandardCard } from "@/components/common/StandardCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useUserTier } from "@/lib/hooks/useUserTier";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useUserTier, useSubscription } from "@/lib/hooks/useUserTier";
 import { api } from "@/lib/api/endpoints";
 import {
   IconSparkles,
@@ -17,6 +18,7 @@ import {
   IconLock,
   IconLoader2,
   IconExternalLink,
+  IconAlertTriangle,
 } from "@tabler/icons-react";
 
 const STANDARD_FEATURES = [
@@ -47,11 +49,23 @@ function PlanosContent() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { data: tier } = useUserTier();
+  const { data: sub } = useSubscription();
 
   const from = searchParams.get("from");
   const checkout = searchParams.get("checkout");
   const blockedPage = from ? PAGE_LABELS[from] : null;
+
+  // A user is treated as insider for UI purposes if effective tier says so,
+  // OR if they have a stripe sub in past_due/requires_action (still in grace — show "Manage")
   const isInsider = tier === "insider" || tier === "admin";
+  const hasActiveStripeSub =
+    isInsider ||
+    sub?.stripe_status === "past_due" ||
+    sub?.stripe_status === "requires_action";
+
+  const requiresAction = sub?.stripe_status === "requires_action";
+  const cancelAtPeriodEnd = sub?.cancel_at_period_end === true;
+  const expiresAt = sub?.expires_at;
 
   const [selectedPlan, setSelectedPlan] = useState<BillingPlan>("monthly");
   const [loading, setLoading] = useState<"checkout" | "portal" | null>(null);
@@ -97,6 +111,10 @@ function PlanosContent() {
     }
   }
 
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" });
+  }
+
   return (
     <PageContainer
       variant="standard"
@@ -108,6 +126,38 @@ function PlanosContent() {
       }
       icon={<PageIcon icon={IconSparkles} />}
     >
+      {/* Payment action required banner */}
+      {requiresAction && (
+        <Alert variant="destructive" className="max-w-2xl mb-4">
+          <IconAlertTriangle className="h-4 w-4" />
+          <AlertTitle>Ação necessária — autenticação de pagamento</AlertTitle>
+          <AlertDescription className="flex items-center justify-between gap-4 flex-wrap">
+            <span>
+              Seu último pagamento exige autenticação 3DS. Complete-o antes do vencimento
+              para manter o acesso Insider.
+            </span>
+            <Button size="sm" variant="destructive" onClick={handlePortal} disabled={loading === "portal"}>
+              {loading === "portal" ? (
+                <IconLoader2 className="w-3 h-3 animate-spin mr-1" />
+              ) : (
+                <IconExternalLink className="w-3 h-3 mr-1" />
+              )}
+              Autenticar pagamento
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Cancel at period end notice */}
+      {cancelAtPeriodEnd && expiresAt && !requiresAction && (
+        <Alert className="max-w-2xl mb-4">
+          <AlertDescription>
+            Seu plano Insider foi cancelado e permanece ativo até{" "}
+            <strong>{formatDate(expiresAt)}</strong>. Reative no portal para continuar.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
         {/* Standard */}
         <StandardCard padding="lg">
@@ -150,7 +200,9 @@ function PlanosContent() {
             ))}
           </ul>
 
-          {isInsider ? (
+          {/* Show "Manage" when user has or had an active Stripe subscription —
+              prevents creating a duplicate subscription after grace period expires */}
+          {hasActiveStripeSub ? (
             <Button
               variant="outline"
               className="w-full"

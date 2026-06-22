@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import Any, Dict, Literal
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Request
+from postgrest.exceptions import APIError
 from pydantic import BaseModel
 
 from app.core.auth import get_current_user
@@ -24,36 +26,72 @@ stripe.api_key = STRIPE_SECRET_KEY
 
 PlanType = Literal["monthly", "annual"]
 
+# Tier states that constitute an active/paid subscription
+_ACTIVE_STATUSES = {"active", "trialing", "past_due"}
 
-def _price_id_for_plan(plan: PlanType) -> str:
-    if plan == "monthly":
-        if not STRIPE_PRICE_INSIDER_MONTHLY:
-            raise HTTPException(status_code=503, detail="Monthly price not configured")
-        return STRIPE_PRICE_INSIDER_MONTHLY
-    if not STRIPE_PRICE_INSIDER_ANNUAL:
-        raise HTTPException(status_code=503, detail="Annual price not configured")
-    return STRIPE_PRICE_INSIDER_ANNUAL
+
+# ── Stripe API compatibility helpers ─────────────────────────────────────────
+# The "basil" Stripe API (2025+) moved several fields. These helpers read both
+# locations so the code works regardless of the API version on the dashboard.
+
+
+def _invoice_subscription_id(invoice: dict) -> str:
+    """Return subscription id from an invoice object (basil-proof)."""
+    sid = invoice.get("subscription") or ""
+    if not sid:
+        # basil API: invoice.parent.subscription_details.subscription
+        parent = invoice.get("parent") or {}
+        sid = (parent.get("subscription_details") or {}).get("subscription") or ""
+    return sid
+
+
+def _subscription_period_end(sub: dict) -> int | None:
+    """Return current_period_end from a subscription object (basil-proof).
+
+    Never returns a value that would justify writing expires_at=None — callers
+    should omit expires_at from the update dict when this returns None.
+    """
+    ts = sub.get("current_period_end")
+    if ts:
+        return ts
+    # basil API: items.data[].current_period_end
+    items_data = (sub.get("items") or {}).get("data") or []
+    ends = [item.get("current_period_end") for item in items_data if item.get("current_period_end")]
+    return max(ends) if ends else None
+
+
+def _unix_to_iso(ts: int | float) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
+# ── Customer helpers ──────────────────────────────────────────────────────────
 
 
 def _get_or_create_stripe_customer(user_id: str, user_email: str | None) -> str:
     """Return existing stripe_customer_id or create one and persist it."""
     sb = get_supabase_service()
-    row = (
+    result = (
         sb.table("subscriptions")
         .select("stripe_customer_id")
         .eq("user_id", user_id)
-        .single()
+        .limit(1)
         .execute()
     )
-    if row.data and row.data.get("stripe_customer_id"):
-        return row.data["stripe_customer_id"]
+    row = result.data[0] if result.data else None
+    if row and row.get("stripe_customer_id"):
+        return row["stripe_customer_id"]
 
+    # idempotency_key prevents duplicate customers on concurrent calls
     customer = stripe.Customer.create(
         email=user_email,
         metadata={"user_id": user_id},
+        idempotency_key=f"customer-create-{user_id}",
     )
-    sb.table("subscriptions").update({"stripe_customer_id": customer.id}).eq(
-        "user_id", user_id
+    # Upsert in case the subscription row doesn't exist yet (pre-068 user who
+    # hits checkout before migration 084 backfill runs)
+    sb.table("subscriptions").upsert(
+        {"user_id": user_id, "stripe_customer_id": customer.id},
+        on_conflict="user_id",
     ).execute()
     return customer.id
 
@@ -84,6 +122,7 @@ async def create_checkout_session(
         session_params: Dict[str, Any] = {
             "customer": customer_id,
             "mode": "subscription",
+            "payment_method_types": ["card"],
             "line_items": [{"price": price_id, "quantity": 1}],
             "client_reference_id": user_id,
             "metadata": {"user_id": user_id, "plan": body.plan},
@@ -92,7 +131,6 @@ async def create_checkout_session(
             "allow_promotion_codes": True,
         }
 
-        # Enable Brazilian card installments for annual plan
         if body.plan == "annual":
             session_params["payment_method_options"] = {
                 "card": {"installments": {"enabled": True}}
@@ -104,6 +142,16 @@ async def create_checkout_session(
     except stripe.StripeError as e:
         logger.error(f"[BILLING] Checkout session error for user={user_id}: {e}")
         raise HTTPException(status_code=502, detail="Failed to create checkout session") from e
+
+
+def _price_id_for_plan(plan: PlanType) -> str:
+    if plan == "monthly":
+        if not STRIPE_PRICE_INSIDER_MONTHLY:
+            raise HTTPException(status_code=503, detail="Monthly price not configured")
+        return STRIPE_PRICE_INSIDER_MONTHLY
+    if not STRIPE_PRICE_INSIDER_ANNUAL:
+        raise HTTPException(status_code=503, detail="Annual price not configured")
+    return STRIPE_PRICE_INSIDER_ANNUAL
 
 
 # ── POST /billing/portal-session ─────────────────────────────────────────────
@@ -119,14 +167,15 @@ async def create_portal_session(
         raise HTTPException(status_code=503, detail="Stripe not configured")
 
     sb = get_supabase_service()
-    row = (
+    result = (
         sb.table("subscriptions")
         .select("stripe_customer_id")
         .eq("user_id", user_id)
-        .single()
+        .limit(1)
         .execute()
     )
-    customer_id = row.data.get("stripe_customer_id") if row.data else None
+    row = result.data[0] if result.data else None
+    customer_id = row.get("stripe_customer_id") if row else None
     if not customer_id:
         raise HTTPException(status_code=404, detail="No Stripe customer found for this account")
 
@@ -143,10 +192,57 @@ async def create_portal_session(
 
 # ── POST /billing/webhook ─────────────────────────────────────────────────────
 
+EVENT_HANDLERS = {
+    "checkout.session.completed": "_handle_checkout_completed",
+    "customer.subscription.updated": "_handle_subscription_updated",
+    "customer.subscription.deleted": "_handle_subscription_deleted",
+    "invoice.payment_succeeded": "_handle_invoice_succeeded",
+    "invoice.payment_failed": "_handle_invoice_failed",
+    "invoice.payment_action_required": "_handle_invoice_action_required",
+}
+
+
+def _record_event(sb, event_id: str, event_type: str) -> str:
+    """Insert event with status='processing'. Returns 'new', 'processing', or 'processed'.
+
+    Only treats duplicate-key (23505) as already-seen. Any other insert error
+    propagates so Stripe retries the delivery instead of silently losing it.
+    """
+    try:
+        sb.table("stripe_events").insert(
+            {"event_id": event_id, "type": event_type, "status": "processing"}
+        ).execute()
+        return "new"
+    except APIError as e:
+        if getattr(e, "code", None) == "23505":
+            # Truly duplicate — fetch current status
+            row = (
+                sb.table("stripe_events")
+                .select("status")
+                .eq("event_id", event_id)
+                .limit(1)
+                .execute()
+            )
+            return (row.data[0].get("status") or "processed") if row.data else "processed"
+        raise
+
+
+def _mark_event_processed(sb, event_id: str) -> None:
+    sb.table("stripe_events").update(
+        {"status": "processed", "processed_at": datetime.now(tz=timezone.utc).isoformat()}
+    ).eq("event_id", event_id).execute()
+
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
-    """Stripe sends events here. No JWT auth — verified by signature instead."""
+    """Stripe sends events here. No JWT auth — verified by signature instead.
+
+    Idempotency model: event is inserted as 'processing' before the handler
+    runs; marked 'processed' only on success. If the handler raises, the event
+    stays 'processing' and Stripe will retry — the retry finds 'processing'
+    and re-runs the handler (handlers are idempotent via live Stripe retrieve).
+    Concurrent duplicate delivery is benign for the same reason.
+    """
     if not STRIPE_WEBHOOK_SECRET:
         raise HTTPException(status_code=503, detail="Webhook secret not configured")
 
@@ -165,51 +261,43 @@ async def stripe_webhook(request: Request):
     event_id: str = event["id"]
     event_type: str = event["type"]
 
-    # Idempotency: skip if already processed
     sb = get_supabase_service()
-    try:
-        sb.table("stripe_events").insert(
-            {"event_id": event_id, "type": event_type}
-        ).execute()
-    except Exception:
-        # Duplicate key → already processed
-        logger.info(f"[BILLING] Skipping duplicate event {event_id} ({event_type})")
+    record_status = _record_event(sb, event_id, event_type)
+
+    if record_status == "processed":
+        logger.info(f"[BILLING] Skipping already-processed event {event_id} ({event_type})")
         return {"received": True}
 
+    # record_status is 'new' or 'processing' (retry) — run handler
     logger.info(f"[BILLING] Processing event {event_id} type={event_type}")
 
+    handler_name = EVENT_HANDLERS.get(event_type)
     try:
-        if event_type == "checkout.session.completed":
-            _handle_checkout_completed(sb, event["data"]["object"])
-        elif event_type == "customer.subscription.updated":
-            _handle_subscription_updated(sb, event["data"]["object"])
-        elif event_type == "customer.subscription.deleted":
-            _handle_subscription_deleted(sb, event["data"]["object"])
-        elif event_type == "invoice.payment_succeeded":
-            _handle_invoice_succeeded(sb, event["data"]["object"])
-        elif event_type == "invoice.payment_failed":
-            _handle_invoice_failed(sb, event["data"]["object"])
+        if handler_name:
+            _HANDLER_FN_MAP[handler_name](sb, event["data"]["object"])
+        else:
+            logger.debug(f"[BILLING] Unhandled event type {event_type}, acking")
     except Exception as e:
         logger.error(f"[BILLING] Handler error for {event_id} ({event_type}): {e}", exc_info=True)
-        # Return 500 so Stripe retries
+        # Do NOT mark processed — stay 'processing' so Stripe retries
         raise HTTPException(status_code=500, detail="Handler error") from e
 
+    _mark_event_processed(sb, event_id)
     return {"received": True}
 
 
 # ── Webhook handlers ──────────────────────────────────────────────────────────
 
 
-def _find_user_by_subscription_id(sb, subscription_id: str) -> str | None:
+def _find_user_by_subscription_id(sb, subscription_id: str) -> dict | None:
     row = (
         sb.table("subscriptions")
-        .select("user_id, source")
+        .select("user_id, source, tier")
         .eq("stripe_subscription_id", subscription_id)
+        .limit(1)
         .execute()
     )
-    if row.data:
-        return row.data[0]
-    return None
+    return row.data[0] if row.data else None
 
 
 def _is_stripe_managed(row: dict | None) -> bool:
@@ -229,31 +317,45 @@ def _handle_checkout_completed(sb, session: dict) -> None:
     if not subscription_id:
         return
 
-    # Fetch subscription to get period end
+    # Fetch live subscription — guards against out-of-order deleted events
     sub = stripe.Subscription.retrieve(subscription_id)
-    period_end = sub.get("current_period_end")
-    price_id = (sub.get("items", {}).get("data") or [{}])[0].get("price", {}).get("id", "")
-    expires_at = (
-        f"{_unix_to_iso(period_end)}" if period_end else None
+    live_status = sub.get("status", "")
+    period_end = _subscription_period_end(sub)
+    price_id = ((sub.get("items") or {}).get("data") or [{}])[0].get("price", {}).get("id", "")
+
+    # Read current tier to protect admin rows
+    existing = (
+        sb.table("subscriptions")
+        .select("tier, source")
+        .eq("user_id", user_id)
+        .limit(1)
+        .execute()
     )
+    current_tier = (existing.data[0].get("tier") or "standard") if existing.data else "standard"
 
-    row = sb.table("subscriptions").select("source").eq("user_id", user_id).execute()
-    existing = row.data[0] if row.data else None
-    if not _is_stripe_managed(existing):
-        logger.info(f"[BILLING] Skipping checkout grant: user={user_id} has source={existing and existing.get('source')}")
-        return
-
-    sb.table("subscriptions").update({
-        "tier": "insider",
+    payload: dict = {
         "source": "stripe",
         "stripe_subscription_id": subscription_id,
-        "stripe_status": sub.get("status"),
+        "stripe_status": live_status,
         "plan_id": price_id,
-        "expires_at": expires_at,
         "cancel_at_period_end": sub.get("cancel_at_period_end", False),
-    }).eq("user_id", user_id).execute()
+    }
+    if period_end:
+        payload["expires_at"] = _unix_to_iso(period_end)
 
-    logger.info(f"[BILLING] Granted insider to user={user_id} sub={subscription_id}")
+    # Grant insider only for active-ish status and never overwrite admin tier
+    if live_status in _ACTIVE_STATUSES and current_tier != "admin":
+        payload["tier"] = "insider"
+
+    sb.table("subscriptions").upsert(
+        {"user_id": user_id, **payload},
+        on_conflict="user_id",
+    ).execute()
+
+    logger.info(
+        f"[BILLING] checkout completed user={user_id} sub={subscription_id} "
+        f"live_status={live_status} tier_granted={payload.get('tier', 'unchanged')}"
+    )
 
 
 def _handle_subscription_updated(sb, sub: dict) -> None:
@@ -262,12 +364,19 @@ def _handle_subscription_updated(sb, sub: dict) -> None:
     if not row_info or not _is_stripe_managed(row_info):
         return
 
-    period_end = sub.get("current_period_end")
-    sb.table("subscriptions").update({
+    period_end = _subscription_period_end(sub)
+    update: dict = {
         "stripe_status": sub.get("status"),
-        "expires_at": _unix_to_iso(period_end) if period_end else None,
         "cancel_at_period_end": sub.get("cancel_at_period_end", False),
-    }).eq("stripe_subscription_id", subscription_id).execute()
+    }
+    if period_end:
+        update["expires_at"] = _unix_to_iso(period_end)
+    # Intentionally omitting expires_at when unknown — NULL means never-expire,
+    # so writing None would silently grant permanent access.
+
+    sb.table("subscriptions").update(update).eq(
+        "stripe_subscription_id", subscription_id
+    ).execute()
 
     logger.info(f"[BILLING] Updated subscription {subscription_id} status={sub.get('status')}")
 
@@ -276,6 +385,10 @@ def _handle_subscription_deleted(sb, sub: dict) -> None:
     subscription_id: str = sub.get("id", "")
     row_info = _find_user_by_subscription_id(sb, subscription_id)
     if not row_info or not _is_stripe_managed(row_info):
+        return
+
+    if row_info.get("tier") == "admin":
+        logger.info(f"[BILLING] Skipping deleted handler for admin user sub={subscription_id}")
         return
 
     sb.table("subscriptions").update({
@@ -288,27 +401,35 @@ def _handle_subscription_deleted(sb, sub: dict) -> None:
 
 
 def _handle_invoice_succeeded(sb, invoice: dict) -> None:
-    subscription_id: str = invoice.get("subscription", "")
+    subscription_id: str = _invoice_subscription_id(invoice)
     if not subscription_id:
         return
     row_info = _find_user_by_subscription_id(sb, subscription_id)
     if not row_info or not _is_stripe_managed(row_info):
         return
 
-    # Refresh period end from the subscription object
+    # Fetch live subscription to refresh period_end and re-grant tier on recovery
     sub = stripe.Subscription.retrieve(subscription_id)
-    period_end = sub.get("current_period_end")
-    if period_end:
-        sb.table("subscriptions").update({
-            "expires_at": _unix_to_iso(period_end),
-            "stripe_status": sub.get("status"),
-        }).eq("stripe_subscription_id", subscription_id).execute()
+    live_status = sub.get("status", "")
+    period_end = _subscription_period_end(sub)
 
-    logger.info(f"[BILLING] Invoice paid, renewed sub={subscription_id}")
+    update: dict = {"stripe_status": live_status}
+    if period_end:
+        update["expires_at"] = _unix_to_iso(period_end)
+
+    # Re-grant insider on payment recovery (past_due → active after retried charge)
+    if live_status in {"active", "trialing"} and row_info.get("tier") != "admin":
+        update["tier"] = "insider"
+
+    sb.table("subscriptions").update(update).eq(
+        "stripe_subscription_id", subscription_id
+    ).execute()
+
+    logger.info(f"[BILLING] Invoice paid, renewed sub={subscription_id} live_status={live_status}")
 
 
 def _handle_invoice_failed(sb, invoice: dict) -> None:
-    subscription_id: str = invoice.get("subscription", "")
+    subscription_id: str = _invoice_subscription_id(invoice)
     if not subscription_id:
         return
     row_info = _find_user_by_subscription_id(sb, subscription_id)
@@ -322,6 +443,34 @@ def _handle_invoice_failed(sb, invoice: dict) -> None:
     logger.warning(f"[BILLING] Invoice failed, past_due sub={subscription_id}")
 
 
-def _unix_to_iso(ts: int | float) -> str:
-    from datetime import datetime, timezone
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+def _handle_invoice_action_required(sb, invoice: dict) -> None:
+    """Fires when a recurring payment requires 3DS authentication (common with BR
+    installments). Access is kept during the grace period; status flags that the
+    user must act. The hosted_invoice_url lets the customer complete auth."""
+    subscription_id: str = _invoice_subscription_id(invoice)
+    if not subscription_id:
+        return
+    row_info = _find_user_by_subscription_id(sb, subscription_id)
+    if not row_info or not _is_stripe_managed(row_info):
+        return
+
+    hosted_url: str = invoice.get("hosted_invoice_url", "")
+    sb.table("subscriptions").update({
+        "stripe_status": "requires_action",
+    }).eq("stripe_subscription_id", subscription_id).execute()
+
+    logger.warning(
+        f"[BILLING] Payment requires action for sub={subscription_id} "
+        f"— customer must authenticate at: {hosted_url}"
+    )
+
+
+# Late binding map so handler functions are defined before this dict
+_HANDLER_FN_MAP = {
+    "_handle_checkout_completed": _handle_checkout_completed,
+    "_handle_subscription_updated": _handle_subscription_updated,
+    "_handle_subscription_deleted": _handle_subscription_deleted,
+    "_handle_invoice_succeeded": _handle_invoice_succeeded,
+    "_handle_invoice_failed": _handle_invoice_failed,
+    "_handle_invoice_action_required": _handle_invoice_action_required,
+}

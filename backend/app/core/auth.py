@@ -32,17 +32,17 @@ async def _get_jwks() -> Dict[str, Any]:
     global _jwks_cache, _jwks_cache_expires_at
     now = time.time()
     if _jwks_cache and now < _jwks_cache_expires_at:
-        _logger.info(f"[JWKS] Using cached JWKS (expires in {int(_jwks_cache_expires_at - now)}s)")
+        _logger.debug(f"[JWKS] Using cached JWKS (expires in {int(_jwks_cache_expires_at - now)}s)")
         return _jwks_cache
 
     if not SUPABASE_JWKS_URL:
         raise RuntimeError("SUPABASE_JWKS_URL is not configured")
 
-    _logger.info(f"[JWKS] Fetching JWKS from: {SUPABASE_JWKS_URL}")
+    _logger.debug(f"[JWKS] Fetching JWKS from: {SUPABASE_JWKS_URL}")
     async with httpx.AsyncClient(timeout=10) as client:
         try:
             resp = await client.get(SUPABASE_JWKS_URL)
-            _logger.info(f"[JWKS] HTTP Response: {resp.status_code}")
+            _logger.debug(f"[JWKS] HTTP Response: {resp.status_code}")
             resp.raise_for_status()
             _jwks_cache = resp.json()
             keys_list = _jwks_cache.get("keys", [])
@@ -50,13 +50,13 @@ async def _get_jwks() -> Dict[str, Any]:
             
             # Log detalhado das chaves encontradas
             if keys_count > 0:
-                _logger.info(f"[JWKS] Received {keys_count} key(s)")
+                _logger.debug(f"[JWKS] Received {keys_count} key(s)")
                 for idx, key in enumerate(keys_list):
                     kid = key.get("kid", "N/A")
                     kty = key.get("kty", "N/A")
                     alg = key.get("alg", "N/A")
                     crv = key.get("crv", "N/A")
-                    _logger.info(f"[JWKS] Key #{idx+1}: kid={kid}, kty={kty}, alg={alg}, crv={crv}")
+                    _logger.debug(f"[JWKS] Key #{idx+1}: kid={kid}, kty={kty}, alg={alg}, crv={crv}")
             else:
                 _logger.warning(f"[JWKS] WARNING: Received empty keys array! JWKS may be invalid.")
             
@@ -95,17 +95,17 @@ def _get_pem_key_from_jwks(jwks: Dict[str, Any], kid: str) -> str:
     Suporta tanto RSA (RS256) quanto Elliptic Curve (ES256) conforme as práticas
     recomendadas do Supabase.
     """
-    _logger.info(f"[KEY_EXTRACT] Looking for kid: '{kid}'")
+    _logger.debug(f"[KEY_EXTRACT] Looking for kid: '{kid}'")
     
     # Verificar cache primeiro
     if kid in _public_keys_cache:
-        _logger.info(f"[KEY_EXTRACT] Found kid '{kid}' in public keys cache")
+        _logger.debug(f"[KEY_EXTRACT] Found kid '{kid}' in public keys cache")
         return _public_keys_cache[kid]
     
     keys = jwks.get("keys", [])
     available_kids = [k.get("kid") for k in keys if k.get("kid")]
     
-    _logger.info(f"[KEY_EXTRACT] JWKS contains {len(keys)} key(s). Available kids: {available_kids}")
+    _logger.debug(f"[KEY_EXTRACT] JWKS contains {len(keys)} key(s). Available kids: {available_kids}")
     
     if kid not in available_kids:
         _logger.error(
@@ -117,39 +117,39 @@ def _get_pem_key_from_jwks(jwks: Dict[str, Any], kid: str) -> str:
         key_kid = key.get("kid")
         # Comparação case-insensitive (alguns sistemas podem variar)
         if key_kid == kid or (key_kid and key_kid.lower() == kid.lower()):
-            _logger.info(f"[KEY_EXTRACT] ✓ Match found! Processing key with kid={key_kid}")
+            _logger.debug(f"[KEY_EXTRACT] ✓ Match found! Processing key with kid={key_kid}")
             try:
                 kty = key.get("kty", "").upper()
                 alg = key.get("alg", "").upper()
                 
-                _logger.info(f"[KEY_EXTRACT] Key type: {kty}, Algorithm: {alg}")
+                _logger.debug(f"[KEY_EXTRACT] Key type: {kty}, Algorithm: {alg}")
                 
                 if kty == "RSA" or alg == "RS256":
-                    _logger.info(f"[KEY_EXTRACT] Building RSA public key...")
+                    _logger.debug(f"[KEY_EXTRACT] Building RSA public key...")
                     # Chave RSA - usar componentes n e e
                     if "n" not in key or "e" not in key:
                         raise ValueError("RSA key missing required components 'n' or 'e'")
                     
-                    _logger.info(f"[KEY_EXTRACT] Decoding RSA components: n and e")
+                    _logger.debug(f"[KEY_EXTRACT] Decoding RSA components: n and e")
                     n_bytes = base64url_decode(key["n"])
                     e_bytes = base64url_decode(key["e"])
                     
                     n_int = _decode_base64url(n_bytes)
                     e_int = _decode_base64url(e_bytes)
                     
-                    _logger.info(f"[KEY_EXTRACT] Creating RSA public numbers...")
+                    _logger.debug(f"[KEY_EXTRACT] Creating RSA public numbers...")
                     public_numbers = rsa.RSAPublicNumbers(e_int, n_int)
                     public_key = public_numbers.public_key()
-                    _logger.info(f"[KEY_EXTRACT] ✓ Successfully built RSA public key")
+                    _logger.debug(f"[KEY_EXTRACT] ✓ Successfully built RSA public key")
                     
                 elif kty == "EC" or alg == "ES256":
-                    _logger.info(f"[KEY_EXTRACT] Building Elliptic Curve public key...")
+                    _logger.debug(f"[KEY_EXTRACT] Building Elliptic Curve public key...")
                     # Chave Elliptic Curve - usar componentes x, y e crv
                     if "x" not in key or "y" not in key:
                         raise ValueError("EC key missing required components 'x' or 'y'")
                     
                     crv_name = key.get("crv", "P-256")
-                    _logger.info(f"[KEY_EXTRACT] Curve: {crv_name}, Decoding components: x and y")
+                    _logger.debug(f"[KEY_EXTRACT] Curve: {crv_name}, Decoding components: x and y")
                     x_bytes = base64url_decode(key["x"])
                     y_bytes = base64url_decode(key["y"])
                     
@@ -166,26 +166,26 @@ def _get_pem_key_from_jwks(jwks: Dict[str, Any], kid: str) -> str:
                     else:
                         raise ValueError(f"Unsupported curve: {crv_name}. Supported: P-256, P-384, P-521")
                     
-                    _logger.info(f"[KEY_EXTRACT] Creating EC public numbers...")
+                    _logger.debug(f"[KEY_EXTRACT] Creating EC public numbers...")
                     public_numbers = ec.EllipticCurvePublicNumbers(x_int, y_int, curve)
                     public_key = public_numbers.public_key()
-                    _logger.info(f"[KEY_EXTRACT] ✓ Successfully built EC public key with curve {crv_name}")
+                    _logger.debug(f"[KEY_EXTRACT] ✓ Successfully built EC public key with curve {crv_name}")
                     
                 else:
                     raise ValueError(f"Unsupported key type: kty={kty}, alg={alg}. Supported: RSA/RS256, EC/ES256")
                 
                 # Converter para formato PEM (funciona para ambos RSA e EC)
-                _logger.info(f"[KEY_EXTRACT] Converting to PEM format...")
+                _logger.debug(f"[KEY_EXTRACT] Converting to PEM format...")
                 pem_public_key = public_key.public_bytes(
                     encoding=serialization.Encoding.PEM,
                     format=serialization.PublicFormat.SubjectPublicKeyInfo
                 ).decode('utf-8')
                 
-                _logger.info(f"[KEY_EXTRACT] ✓ PEM key generated (length: {len(pem_public_key)} chars)")
+                _logger.debug(f"[KEY_EXTRACT] ✓ PEM key generated (length: {len(pem_public_key)} chars)")
                 
                 # Cachear para próxima vez
                 _public_keys_cache[kid] = pem_public_key
-                _logger.info(f"[KEY_EXTRACT] ✓ Key cached for kid: {kid}")
+                _logger.debug(f"[KEY_EXTRACT] ✓ Key cached for kid: {kid}")
                 return pem_public_key
             except KeyError as e:
                 _logger.error(f"Missing required key component: {e}")
@@ -290,14 +290,8 @@ async def verify_supabase_jwt(token: str) -> Dict[str, Any]:
             "verify_aud": False,  # Supabase tokens podem ter aud diferente
         }
         
-        # Suportar tanto RS256 quanto ES256 conforme o algoritmo do token
-        if token_alg == "ES256":
-            algorithms = ["ES256"]
-        elif token_alg == "RS256":
-            algorithms = ["RS256"]
-        else:
-            # Tentar o algoritmo do token, mas aceitar ambos como fallback
-            algorithms = [token_alg, "ES256", "RS256"]
+        # Fixed allowlist — never derive algorithms from the unverified token header
+        algorithms = ["RS256", "ES256"]
         
         try:
             claims = jwt.decode(token, pem_public_key, algorithms=algorithms, options=options)
@@ -306,13 +300,6 @@ async def verify_supabase_jwt(token: str) -> Dict[str, Any]:
         except jwt.JWTError:
             raise
 
-        # Basic issuer check if configured (mais flexível)
-        if SUPABASE_URL:
-            expected_iss_prefix = f"{SUPABASE_URL}/auth/v1"
-            iss = claims.get("iss")
-            # Aceitar tanto o formato completo quanto variações
-            # Não falhar, apenas logar - pode ser variação válida
-        
         return claims
     except HTTPException:
         raise

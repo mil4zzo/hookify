@@ -26,6 +26,7 @@ from app.services.facebook_connections_repo import (
 )
 from app.services.facebook_page_token_service import get_user_page_access_info
 from app.core.auth import get_current_user
+from app.core.tier import require_insider
 from pydantic import BaseModel
 from pydantic import ValidationError
 from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, BatchStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
@@ -970,7 +971,7 @@ def update_campaign_status(
 
 
 @router.get("/ads/tree")
-def get_ads_tree(user: Dict[str, Any] = Depends(get_current_user)):
+def get_ads_tree(user: Dict[str, Any] = Depends(require_insider)):
     try:
         sb = get_supabase_for_user(user["token"])
         _SELECT = "account_id,campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,effective_status,thumbnail_url,thumb_storage_path"
@@ -1008,7 +1009,7 @@ def search_ads(
     pack_id: Optional[str] = Query(None, description="Filtra por pack (pack_ids @> [pack_id])"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     """Busca paginada de ads (flat) para o seletor de template da tela /upload.
 
@@ -1123,7 +1124,7 @@ async def start_bulk_ads(
     files: List[UploadFile] = File(...),
     config: str = Form(...),
     api: GraphAPI = Depends(get_graph_api),
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     try:
         parsed_config = BulkAdConfig.model_validate(json.loads(config))
@@ -1325,7 +1326,7 @@ async def start_bulk_ads(
 @router.get("/bulk-ads/{job_id}")
 def get_bulk_ads_progress(
     job_id: str,
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
     job = tracker.get_job(job_id)
@@ -1374,7 +1375,7 @@ def get_bulk_ads_progress(
 def retry_bulk_ads(
     job_id: str,
     request: BulkAdRetryRequest,
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     if request.job_id != job_id:
         raise _validation_error("job_id do body deve coincidir com o path", field="job_id")
@@ -1517,7 +1518,7 @@ def retry_bulk_ads(
 def get_campaign_template(
     ad_id: str,
     api: GraphAPI = Depends(get_graph_api),
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     """Retorna a estrutura completa de campanha a partir de um anuncio modelo."""
     _assert_entity_belongs_to_user(
@@ -1645,7 +1646,7 @@ async def start_campaign_bulk(
     files: List[UploadFile] = File(...),
     config: str = Form(...),
     api: GraphAPI = Depends(get_graph_api),
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     """Inicia criacao em massa de campanhas duplicando estrutura de um modelo."""
     try:
@@ -1943,7 +1944,7 @@ async def start_campaign_bulk(
 @router.get("/campaign-bulk/{job_id}")
 def get_campaign_bulk_progress(
     job_id: str,
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     """Retorna progresso de um job de criacao de campanhas em massa."""
     tracker = get_job_tracker(user["token"], user["user_id"], use_service_role=True)
@@ -1986,7 +1987,7 @@ def get_campaign_bulk_progress(
 def retry_campaign_bulk(
     job_id: str,
     request: BulkAdRetryRequest,
-    user: Dict[str, Any] = Depends(get_current_user),
+    user: Dict[str, Any] = Depends(require_insider),
 ):
     """Reprocessa itens com erro de um job de criacao de campanhas em massa."""
     if request.job_id != job_id:

@@ -6,24 +6,15 @@ from typing import Any, Dict, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_service
+from app.core.tier import require_min_tier
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 VALID_TIERS = {"standard", "insider", "admin"}
 
-
-async def _require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    """Dependency: raises 403 if the caller does not have the admin tier."""
-    user_id = current_user["user_id"]
-    sb = get_supabase_service()
-    result = sb.table("subscriptions").select("tier").eq("user_id", user_id).single().execute()
-    tier = result.data.get("tier") if result.data else "standard"
-    if tier != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return current_user
+_require_admin = require_min_tier("admin")
 
 
 # ── GET /admin/users ──────────────────────────────────────────────────────────

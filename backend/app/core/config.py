@@ -7,7 +7,7 @@ backend_dir = Path(__file__).parent.parent.parent
 env_path = backend_dir / ".env"
 load_dotenv(env_path)
 
-CORS_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:3000,https://localhost:3000,http://localhost:8501").split(",")
+CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,https://localhost:3000,http://localhost:8501").split(",") if o.strip()]
 
 # Meta Graph API – versão centralizada
 META_API_VERSION = os.getenv("META_API_VERSION", "v24.0")
