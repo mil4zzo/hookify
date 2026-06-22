@@ -9,6 +9,7 @@ import {
   IconShieldLock,
   IconSitemapFilled,
   IconSunFilled,
+  IconTarget,
   IconUpload,
 } from "@tabler/icons-react";
 import { ComponentType } from "react";
@@ -65,6 +66,15 @@ export const pageConfigs: PageConfig[] = [
     label: "G.O.L.D.",
     icon: IconDiamond,
     description: "G.O.L.D.",
+    showInMenu: true,
+    minimumTier: "insider",
+  },
+  {
+    path: "/plano",
+    title: "Plano de Ação",
+    label: "Plano de Ação",
+    icon: IconTarget,
+    description: "To-do list prescritivo: o que escalar, otimizar, aprender e pausar",
     showInMenu: true,
     minimumTier: "insider",
   },

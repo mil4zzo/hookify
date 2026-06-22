@@ -10,6 +10,7 @@ import {
   DEFAULT_LANGUAGE,
   DEFAULT_MQL_LEADSCORE_MIN,
   DEFAULT_NICHE,
+  DEFAULT_TARGET_CPR_BY_ACTION_TYPE,
   UserPreferencesValues,
   useUserPreferencesStore,
 } from "@/lib/store/userPreferences";
@@ -17,7 +18,7 @@ import type { ValidationCondition } from "@/components/common/ValidationCriteria
 import { logger } from "@/lib/utils/logger";
 
 const VALIDATION_STORAGE_KEY = "hookify-validation-criteria";
-const USER_PREFERENCES_COLUMNS = "locale,currency,niche,validation_criteria,mql_leadscore_min";
+const USER_PREFERENCES_COLUMNS = "locale,currency,niche,validation_criteria,mql_leadscore_min,target_cpr";
 
 type DbUserPreferences = {
   locale?: string | null;
@@ -25,6 +26,7 @@ type DbUserPreferences = {
   niche?: string | null;
   validation_criteria?: ValidationCondition[] | null;
   mql_leadscore_min?: number | string | null;
+  target_cpr?: Record<string, number> | null;
 };
 
 type InFlightLoad = {
@@ -58,12 +60,19 @@ function normalizePreferences(data: DbUserPreferences | null, fallbackSettings: 
   const storageCriteria = loadValidationCriteriaFromStorage();
   const mqlValue = data?.mql_leadscore_min;
 
+  const rawTargetCpr = data?.target_cpr;
+  const targetCprByActionType =
+    rawTargetCpr && typeof rawTargetCpr === "object" && !Array.isArray(rawTargetCpr)
+      ? (rawTargetCpr as Record<string, number>)
+      : DEFAULT_TARGET_CPR_BY_ACTION_TYPE;
+
   return {
     language: data?.locale || fallbackSettings.language || DEFAULT_LANGUAGE,
     currency: data?.currency || fallbackSettings.currency || DEFAULT_CURRENCY,
     niche: data?.niche || fallbackSettings.niche || DEFAULT_NICHE,
     validationCriteria: Array.isArray(data?.validation_criteria) ? data.validation_criteria : storageCriteria,
     mqlLeadscoreMin: mqlValue !== null && mqlValue !== undefined ? Number(mqlValue) : DEFAULT_MQL_LEADSCORE_MIN,
+    targetCprByActionType,
   };
 }
 
@@ -75,6 +84,7 @@ function toDbPatch(values: Partial<UserPreferencesValues>) {
   if (values.niche !== undefined) patch.niche = values.niche;
   if (values.validationCriteria !== undefined) patch.validation_criteria = values.validationCriteria;
   if (values.mqlLeadscoreMin !== undefined) patch.mql_leadscore_min = values.mqlLeadscoreMin;
+  if (values.targetCprByActionType !== undefined) patch.target_cpr = values.targetCprByActionType;
 
   return patch;
 }

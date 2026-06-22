@@ -5,6 +5,7 @@ export const DEFAULT_LANGUAGE = "pt-BR";
 export const DEFAULT_CURRENCY = "BRL";
 export const DEFAULT_NICHE = "";
 export const DEFAULT_MQL_LEADSCORE_MIN = 0;
+export const DEFAULT_TARGET_CPR_BY_ACTION_TYPE: Record<string, number> = {};
 
 export interface UserPreferencesValues {
   language: string;
@@ -12,6 +13,7 @@ export interface UserPreferencesValues {
   niche: string;
   validationCriteria: ValidationCondition[];
   mqlLeadscoreMin: number;
+  targetCprByActionType: Record<string, number>;
 }
 
 interface UserPreferencesState extends UserPreferencesValues {
@@ -38,6 +40,7 @@ export const useUserPreferencesStore = create<UserPreferencesStore>()((set) => (
   niche: DEFAULT_NICHE,
   validationCriteria: [],
   mqlLeadscoreMin: DEFAULT_MQL_LEADSCORE_MIN,
+  targetCprByActionType: DEFAULT_TARGET_CPR_BY_ACTION_TYPE,
   isLoading: false,
   isSaving: false,
   error: null,
