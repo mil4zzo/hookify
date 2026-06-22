@@ -80,6 +80,9 @@ export const FormattedAdSchema = z.object({
     instagram_permalink_url: z.string().optional(),
 
     video_id: z.string().optional(),
+    effective_instagram_media_id: z.string().optional(),
+    image_url: z.string().optional(),
+    image_hash: z.string().optional(),
     body: z.string().optional(),
     call_to_action_type: z.string().optional(),
     title: z.string().optional(),
@@ -124,6 +127,7 @@ export const GetAdsRequestSchema = z.object({
 
 export const GetVideoSourceRequestSchema = z.object({
   video_id: z.string(),
+  ig_media_id: z.string().optional(),
   actor_id: z.string().optional(),
   ad_id: z.string().optional(),
   video_owner_page_id: z.string().optional(),

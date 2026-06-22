@@ -26,7 +26,7 @@ import { retentionToColor, findHookBoundary, secondToRetentionIndex } from "@/li
 import type { TimestampedWord } from "@/lib/api/schemas";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
-import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
+import { extractActorIdFromCreative, extractInstagramMediaId, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { showProgressToast, finishProgressToast, buildTranscriptionToastContent } from "@/lib/utils/toast";
@@ -193,12 +193,13 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   // Extrair video_id e actor_id do creative buscado
   const creative = creativeData?.creative || {};
   const videoId = resolvePrimaryVideoId(creativeData as any, creative, creativeData?.adcreatives_videos_ids);
+  const igMediaId = extractInstagramMediaId(creative);
   const mediaType = normalizeMediaType((creativeData as any)?.media_type);
   const actorId = extractActorIdFromCreative(creative);
   const videoOwnerPageId = (creativeData as any)?.video_owner_page_id;
-  const shouldLoadVideo = (activeTab === "video" || activeTab === "copy") && mediaType !== "image" && !!videoId && !loadingCreative;
+  const shouldLoadVideo = (activeTab === "video" || activeTab === "copy") && mediaType !== "image" && (!!videoId || !!igMediaId) && !loadingCreative;
 
-  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
+  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", ig_media_id: igMediaId || undefined, actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
 
   const { data: historyDataById, isLoading: loadingHistoryById } = useAdHistory(adId, dateStart || "", dateStop || "", packIds, shouldLoadHistoryById);
   const { data: historyDataByName, isLoading: loadingHistoryByName } = useAdNameHistory(adName, dateStart || "", dateStop || "", packIds, shouldLoadHistoryByName);
@@ -492,6 +493,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const resolvedDetailModel = groupByAdName ? groupedSharedDetail.model : null;
   const resolvedThumbnail = groupByAdName ? (resolvedDetailModel?.thumbnailUrl ?? getAdThumbnail(ad)) : getAdThumbnail(ad);
   const resolvedVideoId = groupByAdName ? (resolvedDetailModel?.videoId ?? null) : videoId || null;
+  const resolvedIgMediaId = groupByAdName ? (resolvedDetailModel?.igMediaId ?? null) : igMediaId || null;
   const resolvedMediaType = groupByAdName ? (resolvedDetailModel?.mediaType ?? null) : mediaType;
   const resolvedActorId = groupByAdName ? (resolvedDetailModel?.actorId ?? null) : actorId || null;
   const resolvedLoadingVideo = groupByAdName ? groupedSharedDetail.isLoadingMedia : loadingVideo;
@@ -674,7 +676,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         <div className={`flex-1 flex flex-col min-h-0 ${activeTab !== "video" && activeTab !== "copy" ? "hidden" : ""}`}>
           {isCreativeLoading ? (
             <VideoTabSkeleton />
-          ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) ? (
+          ) : !isImageAd && (!resolvedVideoId || !resolvedActorId) && !resolvedIgMediaId ? (
             <StatePanel kind="empty" message="Mídia não disponível para este anúncio." framed={false} fill />
           ) : (
             <div className={`flex-1 flex flex-col md:flex-row min-h-0 ${detailsTabContentGapClassName}`}>

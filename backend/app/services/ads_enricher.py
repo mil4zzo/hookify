@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 import requests
 
 from app.core.config import META_GRAPH_BASE_URL
+from app.services.ad_media import resolve_structural_media_type
 from app.services.meta_usage_logger import log_meta_usage
 
 if TYPE_CHECKING:
@@ -362,12 +363,91 @@ class AdsEnricher:
     _DETAILS_FIELDS = (
         "id,name,effective_status,source_ad_id,"
         "source_ad{creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
-        "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
+        "object_type,title,video_id,thumbnail_url,"
+        "effective_instagram_media_id,image_url,image_hash,"
+        "effective_object_story_id{attachments,properties}},"
         "adcreatives{asset_feed_spec,object_story_spec}},"
         "creative{actor_id,body,call_to_action_type,instagram_permalink_url,"
-        "object_type,title,video_id,thumbnail_url,effective_object_story_id{attachments,properties}},"
+        "object_type,title,video_id,thumbnail_url,"
+        "effective_instagram_media_id,image_url,image_hash,"
+        "effective_object_story_id{attachments,properties}},"
         "adcreatives{asset_feed_spec,object_story_spec}"
     )
+
+    def fetch_ig_media_types(self, igm_ids: List[str]) -> Dict[str, str]:
+        """Batch GET effective_instagram_media_id -> normalized media_type ("video"/"image").
+
+        Best-effort: batch errors split-on-error per-chunk. Never raises.
+        """
+        if not igm_ids:
+            return {}
+
+        result: Dict[str, str] = {}
+        base = self.base_url.rstrip("/") + "/"
+
+        def _fetch_chunk(chunk: List[str], depth: int = 0) -> None:
+            if not chunk:
+                return
+            if not self._ensure_not_cancelled(f"igm batch {chunk[0][:8]}"):
+                return
+            try:
+                resp = requests.get(
+                    base,
+                    params={
+                        "ids": ",".join(chunk),
+                        "fields": "id,media_type,children{media_type}",
+                        "access_token": self.access_token,
+                    },
+                    timeout=REQUEST_TIMEOUT,
+                )
+                if resp.status_code >= 400 and len(chunk) > 1 and depth < 3:
+                    logger.warning(
+                        "[AdsEnricher] igm batch status=%s len=%d, splitting", resp.status_code, len(chunk)
+                    )
+                    mid = len(chunk) // 2
+                    _fetch_chunk(chunk[:mid], depth + 1)
+                    _fetch_chunk(chunk[mid:], depth + 1)
+                    return
+                resp.raise_for_status()
+                log_meta_usage(resp, "AdsEnricher.igm")
+                data = resp.json()
+                if not isinstance(data, dict):
+                    return
+                for igm_id, payload in data.items():
+                    if not isinstance(payload, dict) or "error" in payload:
+                        continue
+                    raw_type = str(payload.get("media_type") or "").upper()
+                    if raw_type == "VIDEO":
+                        result[igm_id] = "video"
+                    elif raw_type == "IMAGE":
+                        result[igm_id] = "image"
+                    elif raw_type == "CAROUSEL_ALBUM":
+                        # Categorizar pelo primeiro filho (consistente com _fetch_igm_media_url,
+                        # que serve a media_url do primeiro filho do álbum)
+                        children = (payload.get("children") or {}).get("data") or []
+                        child_type = str((children[0] if children else {}).get("media_type") or "").upper()
+                        if child_type == "VIDEO":
+                            result[igm_id] = "video"
+                        elif child_type == "IMAGE":
+                            result[igm_id] = "image"
+            except Exception as exc:
+                if len(chunk) > 1 and depth < 3:
+                    logger.warning("[AdsEnricher] igm fetch exception (%s), splitting chunk", exc)
+                    mid = len(chunk) // 2
+                    _fetch_chunk(chunk[:mid], depth + 1)
+                    _fetch_chunk(chunk[mid:], depth + 1)
+                else:
+                    logger.warning("[AdsEnricher] igm fetch failed for %d ids: %s", len(chunk), exc)
+
+        total = len(igm_ids)
+        logger.info("[AdsEnricher] fetch_ig_media_types: %d igm ids", total)
+        for i in range(0, total, BATCH_SIZE):
+            _fetch_chunk(igm_ids[i:i + BATCH_SIZE])
+            if i + BATCH_SIZE < total:
+                time.sleep(0.2)
+
+        logger.info("[AdsEnricher] fetch_ig_media_types: resolved %d/%d", len(result), total)
+        return result
 
     def fetch_details(
         self, act_id: str, ad_ids: List[str], *, _split_depth: int = 0
@@ -399,17 +479,30 @@ class AdsEnricher:
 
         # Prioriza source_ad.creative / source_ad.adcreatives (video_id do asset original,
         # com owner resolvivel). Cai para creative/adcreatives diretos se nao houver source_ad.
-        creative_map: Dict[str, Optional[Dict[str, Any]]] = {}
-        videos_map: Dict[str, List[Dict[str, Any]]] = {}
-        primary_video_id_map: Dict[str, str] = {}
-        page_id_map: Dict[str, str] = {}
+        # Indexacao dupla: por ad_id (detail["id"]) E por nome — o representante fica exato por id,
+        # homônimos herdam por nome (comportamento mantido por decisao de custo/beneficio).
+        creative_by_id: Dict[str, Optional[Dict[str, Any]]] = {}
+        creative_by_name: Dict[str, Optional[Dict[str, Any]]] = {}
+        videos_by_id: Dict[str, List[Dict[str, Any]]] = {}
+        videos_by_name: Dict[str, List[Dict[str, Any]]] = {}
+        images_by_id: Dict[str, List[Dict[str, Any]]] = {}
+        images_by_name: Dict[str, List[Dict[str, Any]]] = {}
+        primary_video_id_by_id: Dict[str, str] = {}
+        primary_video_id_by_name: Dict[str, str] = {}
+        page_id_by_id: Dict[str, str] = {}
+        page_id_by_name: Dict[str, str] = {}
         source_ad_hits = 0
+
         for detail in details:
             name = detail.get("name")
+            ad_id = str(detail.get("id") or "").strip()
             source_ad = detail.get("source_ad") or {}
 
             creative = source_ad.get("creative") or detail.get("creative")
-            creative_map[name] = creative
+            if ad_id:
+                creative_by_id[ad_id] = creative
+            if name:
+                creative_by_name[name] = creative
 
             adcreatives = source_ad.get("adcreatives") or detail.get("adcreatives") or {}
             if source_ad.get("adcreatives"):
@@ -418,15 +511,34 @@ class AdsEnricher:
             if data:
                 first = data[0] or {}
                 asset_feed_spec = first.get("asset_feed_spec") or {}
+
                 videos = asset_feed_spec.get("videos")
                 if isinstance(videos, list) and videos:
-                    videos_map[name] = videos
+                    if ad_id:
+                        videos_by_id[ad_id] = videos
+                    if name:
+                        videos_by_name[name] = videos
                     first_video = videos[0] or {}
                     if isinstance(first_video, dict) and first_video.get("video_id"):
-                        primary_video_id_map[name] = str(first_video.get("video_id"))
+                        pvid = str(first_video.get("video_id"))
+                        if ad_id:
+                            primary_video_id_by_id[ad_id] = pvid
+                        if name:
+                            primary_video_id_by_name[name] = pvid
+
+                images = asset_feed_spec.get("images")
+                if isinstance(images, list) and images:
+                    if ad_id:
+                        images_by_id[ad_id] = images
+                    if name:
+                        images_by_name[name] = images
+
                 page_id = (first.get("object_story_spec") or {}).get("page_id")
                 if page_id:
-                    page_id_map[name] = page_id
+                    if ad_id:
+                        page_id_by_id[ad_id] = page_id
+                    if name:
+                        page_id_by_name[name] = page_id
 
         logger.info(
             "[AdsEnricher] merge_details: %d/%d detalhes com source_ad.adcreatives",
@@ -436,14 +548,21 @@ class AdsEnricher:
 
         for ad in raw_data:
             ad_name = ad.get("ad_name")
-            if not ad_name:
+            ad_id_key = str(ad.get("ad_id") or "").strip()
+            if not ad_id_key and not ad_name:
                 continue
 
-            creative = creative_map.get(ad_name)
+            creative = creative_by_id.get(ad_id_key) if ad_id_key else None
+            if creative is None and ad_name:
+                creative = creative_by_name.get(ad_name)
             if creative is not None:
                 ad["creative"] = creative
 
-            videos = videos_map.get(ad_name, [])
+            videos = (
+                (videos_by_id.get(ad_id_key) if ad_id_key else None)
+                or (videos_by_name.get(ad_name) if ad_name else None)
+                or []
+            )
             video_ids = []
             video_thumbs = []
             for video in videos:
@@ -453,13 +572,45 @@ class AdsEnricher:
                     video_thumbs.append(video.get("thumbnail_url"))
             ad["adcreatives_videos_ids"] = video_ids
             ad["adcreatives_videos_thumbs"] = video_thumbs
-            primary_video_id = primary_video_id_map.get(ad_name)
+
+            primary_video_id = (
+                (primary_video_id_by_id.get(ad_id_key) if ad_id_key else None)
+                or (primary_video_id_by_name.get(ad_name) if ad_name else None)
+            )
             if primary_video_id:
                 ad["primary_video_id"] = primary_video_id
 
-            page_id = page_id_map.get(ad_name)
+            page_id = (
+                (page_id_by_id.get(ad_id_key) if ad_id_key else None)
+                or (page_id_by_name.get(ad_name) if ad_name else None)
+            )
             if page_id:
                 ad["video_owner_page_id"] = page_id
+
+            # Injetar asset_feed_spec enxuto no creative quando ele nao tem um proprio —
+            # permite que resolve_primary_video_id / resolve_media_type usem os dados do adcreatives
+            if isinstance(ad.get("creative"), dict) and not ad["creative"].get("asset_feed_spec"):
+                afs_videos = (
+                    (videos_by_id.get(ad_id_key) if ad_id_key else None)
+                    or (videos_by_name.get(ad_name) if ad_name else None)
+                )
+                afs_images = (
+                    (images_by_id.get(ad_id_key) if ad_id_key else None)
+                    or (images_by_name.get(ad_name) if ad_name else None)
+                )
+                afs_subset: Dict[str, Any] = {}
+                if afs_videos:
+                    afs_subset["videos"] = [
+                        {"video_id": v.get("video_id"), "thumbnail_url": v.get("thumbnail_url")}
+                        for v in afs_videos if isinstance(v, dict) and v.get("video_id")
+                    ]
+                if afs_images:
+                    afs_subset["images"] = [
+                        {"hash": img.get("hash"), "url": img.get("url")}
+                        for img in afs_images if isinstance(img, dict)
+                    ]
+                if afs_subset:
+                    ad["creative"]["asset_feed_spec"] = afs_subset
 
         logger.info("[AdsEnricher] Detalhes mesclados em %d anuncios", len(raw_data))
         return raw_data
@@ -524,6 +675,40 @@ class AdsEnricher:
                 status_details = self.fetch_status_only(act_id, unique_ad_ids)
 
             enriched = self.merge_details(raw_data, media_details)
+
+            # Passe de ig_media_type: resolver media_type oficial via effective_instagram_media_id
+            # APENAS para ads enriquecidos neste ciclo (creative fresco vindo de media_details).
+            # Ads reusados no refresh (creative hidratado do DB, media_type ja definitivo) NAO sao
+            # re-buscados — sem isso, todo refresh re-buscaria o igm de todo o inventario, custo que
+            # contradiz a otimizacao de refresh (fetch_details ja parte do rep_ids reduzido).
+            fresh_ids = {str(d.get("id") or "").strip() for d in media_details if d.get("id")}
+            fresh_names = {d.get("name") for d in media_details if d.get("name")}
+            igm_to_ads: Dict[str, List[Dict[str, Any]]] = {}
+            igm_ids_list: List[str] = []
+            for ad in enriched:
+                ad_id_key = str(ad.get("ad_id") or "").strip()
+                ad_name = ad.get("ad_name")
+                if ad_id_key not in fresh_ids and ad_name not in fresh_names:
+                    continue
+                # Só SHARE single-asset precisa do igm pra categorizar: clássicos (video_id/
+                # image_hash diretos) e SHARE multi-asset (asset_feed videos/images) já têm tipo
+                # estrutural seguro. Pular esses evita lookups redundantes (ex.: ~95/120 do bucket
+                # share_video_with_id têm igm mas ja sao video pelo video_id).
+                if resolve_structural_media_type(ad) is not None:
+                    continue
+                igm = str((ad.get("creative") or {}).get("effective_instagram_media_id") or "").strip()
+                if igm:
+                    if igm not in igm_to_ads:
+                        igm_to_ads[igm] = []
+                        igm_ids_list.append(igm)
+                    igm_to_ads[igm].append(ad)
+            if igm_ids_list:
+                igm_types = self.fetch_ig_media_types(igm_ids_list)
+                for igm, ads_list in igm_to_ads.items():
+                    ig_type = igm_types.get(igm)
+                    if ig_type:
+                        for ad in ads_list:
+                            ad["ig_media_type"] = ig_type
 
             status_map = {d.get("id"): d.get("effective_status") for d in status_details}
             for ad in enriched:

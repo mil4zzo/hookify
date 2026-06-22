@@ -45,6 +45,10 @@ export function normalizeMediaType(value: unknown): "video" | "image" | "unknown
   return null;
 }
 
+export function extractInstagramMediaId(creative: Record<string, any> | null | undefined): string {
+  return String((creative || {}).effective_instagram_media_id || "").trim();
+}
+
 export function extractActorIdFromCreative(creative: Record<string, any> | null | undefined): string {
   const c = creative || {};
   const objectStorySpec = c.object_story_spec || {};

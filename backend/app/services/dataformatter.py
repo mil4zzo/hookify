@@ -156,6 +156,12 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
 
             # Data do registro (útil para agrupamentos no frontend)
             "date": day,
+
+            # Passthrough do enricher (_apply_existing_fixed_fields preserva valores do DB);
+            # sem isso, classificação existente é perdida e recomputada do zero a cada sync
+            "primary_video_id": ad.get("primary_video_id") or None,
+            "media_type": ad.get("media_type") or None,
+            "ig_media_type": ad.get("ig_media_type") or None,
         }
         primary_video_id = resolve_primary_video_id(formatted_ad)
         formatted_ad["primary_video_id"] = primary_video_id

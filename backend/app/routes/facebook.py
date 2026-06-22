@@ -2349,7 +2349,8 @@ def get_job_progress(
 
 @router.get("/video-source")
 def get_video_source(
-    video_id: str,
+    video_id: str = "",
+    ig_media_id: str = "",
     actor_id: str = "",
     ad_id: str = "",
     video_owner_page_id: str = "",
@@ -2358,8 +2359,11 @@ def get_video_source(
 ):
     """Get Facebook video source URL, resolving video owner page when needed."""
     try:
+        if not video_id and not ig_media_id:
+            raise HTTPException(status_code=422, detail="video_id or ig_media_id is required")
         result = api.get_video_source_url(
-            video_id, actor_id, video_owner_page_id=video_owner_page_id or None
+            video_id or None, actor_id, video_owner_page_id=video_owner_page_id or None,
+            ig_media_id=ig_media_id or None,
         )
 
         # Check if result is an error dict

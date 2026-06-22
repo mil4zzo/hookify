@@ -30,9 +30,11 @@ logger = logging.getLogger(__name__)
 def _extract_video_info(
     formatted_ads: List[Dict[str, Any]],
 ) -> Dict[str, Dict[str, str]]:
-    """Extrai mapa ad_name -> {video_id, actor_id} (primeiro encontrado com vídeo).
+    """Extrai mapa ad_name -> {video_id, actor_id, ig_media_id} (primeiro com vídeo).
 
-    A transcrição usa apenas primary_video_id + creative.actor_id.
+    Fonte da mídia para transcrever: primary_video_id (clássico/multi-asset) OU
+    effective_instagram_media_id (SHARE single-asset, sem video_id) — em ambos a
+    URL reproduzível é resolvida por get_video_source_url.
     """
     result: Dict[str, Dict[str, str]] = {}
 
@@ -43,12 +45,14 @@ def _extract_video_info(
 
         creative = ad.get("creative") or {}
         video_id = str(ad.get("primary_video_id") or "").strip()
+        ig_media_id = str(creative.get("effective_instagram_media_id") or "").strip()
         actor_id = str(creative.get("actor_id") or "").strip()
         media_type = str(ad.get("media_type") or "").strip().lower()
 
         is_video = media_type == "video" or (media_type not in ("image",) and bool(video_id))
-        if is_video and video_id:
-            result[ad_name] = {"video_id": video_id, "actor_id": actor_id}
+        # SHARE single-asset (vídeo): sem video_id, mas a mídia vem do igm.
+        if is_video and (video_id or ig_media_id):
+            result[ad_name] = {"video_id": video_id, "actor_id": actor_id, "ig_media_id": ig_media_id}
 
     return result
 
@@ -70,10 +74,12 @@ def count_pending_transcriptions(
     return len(pending)
 
 
-def _resolve_video_url(api: GraphAPI, video_id: str, actor_id: str) -> Optional[str]:
-    """Resolve URL do vídeo via Meta Graph API. Retorna None se falhar."""
+def _resolve_video_url(api: GraphAPI, video_id: str, actor_id: str, ig_media_id: str = "") -> Optional[str]:
+    """Resolve URL do vídeo via Meta Graph API. Retorna None se falhar.
+
+    Aceita ig_media_id como fonte para SHARE single-asset (sem video_id)."""
     try:
-        result = api.get_video_source_url(video_id, actor_id)
+        result = api.get_video_source_url(video_id or None, actor_id, ig_media_id=ig_media_id or None)
         if isinstance(result, dict):
             source = result.get("source")
             if source and isinstance(source, str) and source.startswith("http"):
@@ -273,9 +279,10 @@ def run_transcription_batch(
         info = video_map[ad_name]
         video_id = info["video_id"]
         actor_id = info["actor_id"]
+        ig_media_id = info.get("ig_media_id", "")
 
         try:
-            video_url = _resolve_video_url(api, video_id, actor_id)
+            video_url = _resolve_video_url(api, video_id, actor_id, ig_media_id)
             if not video_url:
                 last_error_message = "Não foi possível obter URL do vídeo via Meta API"
                 supabase_repo.upsert_transcription(

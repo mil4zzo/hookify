@@ -40,7 +40,28 @@ def resolve_primary_video_id(ad: Dict[str, Any]) -> Optional[str]:
     return _first_non_empty(candidates)
 
 
-def resolve_media_type(ad: Dict[str, Any], primary_video_id: Optional[str] = None) -> str:
+def _has_video_play_evidence(ad: Dict[str, Any]) -> bool:
+    """Um ad com video plays registrados é vídeo por definição — só vídeo gera
+    video_play_actions. Sinal decisivo para creatives SHARE (post boostado) cujo
+    video_id não aparece no creative.
+
+    NÃO usamos a curva de retenção (video_play_curve_actions): em casos raros ela
+    aparece com valor > 0 em ads de imagem, enquanto video_total_plays é confiável."""
+    try:
+        return float(ad.get("video_total_plays") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+def resolve_structural_media_type(ad: Dict[str, Any], primary_video_id: Optional[str] = None) -> Optional[str]:
+    """Tipo derivável APENAS de sinais estruturais (o asset está presente no payload):
+    video_id (clássico ou asset_feed) ou campos de imagem (image_hash/url, photo_data,
+    asset_feed images). Retorna None quando a estrutura não determina o tipo — caso dos
+    ads SHARE single-asset, cuja mídia só existe como effective_instagram_media_id.
+
+    Serve tanto à classificação (resolve_media_type) quanto ao gate do enricher, que só
+    dispara o lookup do igm para ads cujo tipo estrutural é None (evita chamadas redundantes
+    para clássicos e SHARE multi-asset, que já vêm categorizados)."""
     if primary_video_id or resolve_primary_video_id(ad):
         return MEDIA_TYPE_VIDEO
 
@@ -70,4 +91,31 @@ def resolve_media_type(ad: Dict[str, Any], primary_video_id: Optional[str] = Non
                 if isinstance(image, dict):
                     image_candidates.extend([image.get("hash"), image.get("url")])
 
-    return MEDIA_TYPE_IMAGE if _first_non_empty(image_candidates) else MEDIA_TYPE_UNKNOWN
+    if _first_non_empty(image_candidates):
+        return MEDIA_TYPE_IMAGE
+
+    return None
+
+
+def resolve_media_type(ad: Dict[str, Any], primary_video_id: Optional[str] = None) -> str:
+    # ig_media_type is set from effective_instagram_media_id lookup (authoritative; only "video"/"image" accepted)
+    ig_media_type = str(ad.get("ig_media_type") or "").strip().lower()
+    if ig_media_type in (MEDIA_TYPE_VIDEO, MEDIA_TYPE_IMAGE):
+        return ig_media_type
+
+    # Sinais estruturais (asset presente) têm precedência sobre evidência de métrica —
+    # uma imagem pode registrar plays/curva espúrios em casos raros
+    structural = resolve_structural_media_type(ad, primary_video_id)
+    if structural:
+        return structural
+
+    if _has_video_play_evidence(ad):
+        return MEDIA_TYPE_VIDEO
+
+    # Sem evidência nova: preservar classificação definitiva anterior (vinda do DB via
+    # enricher) em vez de regredir para unknown — dias sem delivery não apagam o tipo
+    preserved = str(ad.get("media_type") or "").strip().lower()
+    if preserved in (MEDIA_TYPE_VIDEO, MEDIA_TYPE_IMAGE):
+        return preserved
+
+    return MEDIA_TYPE_UNKNOWN

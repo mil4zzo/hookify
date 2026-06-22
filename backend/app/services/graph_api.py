@@ -277,45 +277,88 @@ class GraphAPI:
         except Exception:
             return None
 
-    def get_video_source_url(self, video_id: Union[str, int], actor_id: Optional[str] = None, video_owner_page_id: Optional[str] = None) -> Union[str, Dict[str, Any]]:
-        if not video_id:
-            raise ValueError("video_id is required")
+    def _fetch_igm_media_url(self, ig_media_id: Optional[str]) -> Optional[str]:
+        """media_url (CDN) de um IG media de anúncio via user token. Retorna None em falha.
+
+        CAROUSEL_ALBUM não expõe media_url no topo — cai no primeiro filho (children),
+        consistente com fetch_ig_media_types, que categoriza o álbum pelo primeiro filho."""
+        if not ig_media_id:
+            return None
+        try:
+            igm_url = self.base_url + str(ig_media_id)
+            resp = requests.get(
+                igm_url,
+                params={"fields": "media_url,children{media_url}", "access_token": self.access_token},
+                timeout=15,
+            )
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.igm_media_url")
+            data = resp.json() or {}
+            media_url = data.get("media_url")
+            if media_url:
+                return media_url
+            for child in ((data.get("children") or {}).get("data") or []):
+                child_url = (child or {}).get("media_url")
+                if child_url:
+                    return child_url
+            return None
+        except Exception as exc:
+            logger.warning("igm media_url fetch failed for %s: %s", ig_media_id, exc)
+            return None
+
+    def get_video_source_url(self, video_id: Optional[Union[str, int]] = None, actor_id: Optional[str] = None, video_owner_page_id: Optional[str] = None, ig_media_id: Optional[str] = None) -> Union[str, Dict[str, Any]]:
+        if not video_id and not ig_media_id:
+            raise ValueError("video_id or ig_media_id is required")
 
         actor_id = str(actor_id or "").strip()
         resolved_owner_page_id = str(video_owner_page_id or "").strip() or None
+        ig_media_id_str = str(ig_media_id or "").strip() or None
 
         try:
-            # 1. Se já temos o owner, usar direto
-            if resolved_owner_page_id:
-                owner_token = self.get_page_access_token(resolved_owner_page_id)
-                source = self._fetch_video_source_with_token(video_id, owner_token)
-                if source:
-                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
+            if video_id:
+                # 1. Se já temos o owner, usar direto
+                if resolved_owner_page_id:
+                    owner_token = self.get_page_access_token(resolved_owner_page_id)
+                    source = self._fetch_video_source_with_token(video_id, owner_token)
+                    if source:
+                        return {"source": source, "video_owner_page_id": resolved_owner_page_id}
 
-            # 2. Se não temos owner, resolver via GET /{video_id}?fields=from
-            if not resolved_owner_page_id:
-                resolved_owner_page_id = self.get_video_owner_page_id(video_id)
+                # 2. Se não temos owner, resolver via GET /{video_id}?fields=from
+                if not resolved_owner_page_id:
+                    resolved_owner_page_id = self.get_video_owner_page_id(video_id)
 
-            # 3. Tentar com token do owner resolvido (se diferente do actor_id)
-            if resolved_owner_page_id and resolved_owner_page_id != actor_id:
-                owner_token = self.get_page_access_token(resolved_owner_page_id)
-                source = self._fetch_video_source_with_token(video_id, owner_token)
-                if source:
-                    return {"source": source, "video_owner_page_id": resolved_owner_page_id}
+                # 3. Tentar com token do owner resolvido (se diferente do actor_id)
+                if resolved_owner_page_id and resolved_owner_page_id != actor_id:
+                    owner_token = self.get_page_access_token(resolved_owner_page_id)
+                    source = self._fetch_video_source_with_token(video_id, owner_token)
+                    if source:
+                        return {"source": source, "video_owner_page_id": resolved_owner_page_id}
 
-            # 4. Fallback: tentar com actor_id (comportamento original)
-            if actor_id:
-                page_token = self.get_page_access_token(actor_id)
-                video_url = self.base_url + str(video_id) + page_token
-                payload = {'fields': 'source'}
-                resp = requests.get(video_url, params=payload, timeout=15)
-                resp.raise_for_status()
-                log_meta_usage(resp, "GraphAPI.get_video_source_url")
-                source = resp.json().get('source')
-                if source:
-                    return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}
+                # 4. Fallback: tentar com actor_id (comportamento original)
+                if actor_id:
+                    page_token = self.get_page_access_token(actor_id)
+                    video_url = self.base_url + str(video_id) + page_token
+                    payload = {'fields': 'source'}
+                    resp = requests.get(video_url, params=payload, timeout=15)
+                    resp.raise_for_status()
+                    log_meta_usage(resp, "GraphAPI.get_video_source_url")
+                    source = resp.json().get('source')
+                    if source:
+                        return {"source": source, "video_owner_page_id": resolved_owner_page_id or actor_id}
+
+            # 5. Fallback: ig_media_id -> media_url (SHARE sem video_id resolvivel)
+            igm_source = self._fetch_igm_media_url(ig_media_id_str)
+            if igm_source:
+                return {"source": igm_source}
+
             return {"status": "not_found", "message": "No video source returned"}
         except requests.exceptions.HTTPError as http_err:
+            # Antes de devolver erro, tentar o fallback igm — cobre video_id cujo
+            # owner page é inacessível (erro 100) quando o ad tem IG media
+            igm_source = self._fetch_igm_media_url(ig_media_id_str)
+            if igm_source:
+                return {"source": igm_source}
+
             decoded_text = urllib.parse.unquote(http_err.response.text)
             owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
             try:
@@ -363,6 +406,10 @@ class GraphAPI:
                 'message': user_friendly_message
             }
         except Exception as err:
+            igm_source = self._fetch_igm_media_url(ig_media_id_str)
+            if igm_source:
+                return {"source": igm_source}
+
             error_message = str(err)
             owner_reference = resolved_owner_page_id or actor_id or "desconhecida"
             if "Page with ID" in error_message and "not found" in error_message:
@@ -392,7 +439,7 @@ class GraphAPI:
         try:
             page_token = self.get_page_access_token(actor_id)
             ad_url = self.base_url + str(ad_id) + page_token
-            fields = "account_id,creative{id,image_hash,image_url,asset_feed_spec,object_story_spec}"
+            fields = "account_id,creative{id,effective_instagram_media_id,image_hash,image_url,asset_feed_spec,object_story_spec}"
             resp = requests.get(ad_url, params={"fields": fields}, timeout=15)
             resp.raise_for_status()
             log_meta_usage(resp, "GraphAPI.get_image_source_url.ad_read")
@@ -462,7 +509,12 @@ class GraphAPI:
                 except Exception as lookup_err:
                     logger.warning("get_image_source_url adimages_lookup failed: %s", lookup_err)
 
-            # Step 4: fallback to creative.image_url. Never thumbnail_url.
+            # Step 4: effective_instagram_media_id -> media_url (SHARE ads sem image_hash)
+            igm_media_url = self._fetch_igm_media_url(creative.get("effective_instagram_media_id"))
+            if igm_media_url:
+                return {"image_url": igm_media_url}
+
+            # Step 5: fallback to creative.image_url. Never thumbnail_url.
             if creative_image_url:
                 logger.info(
                     "get_image_source_url falling back to creative.image_url ad_id=%s hashes_found=%d",

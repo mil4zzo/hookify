@@ -6,7 +6,7 @@ import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
-import { extractActorIdFromCreative, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
+import { extractActorIdFromCreative, extractInstagramMediaId, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 
 type SharedMetricSource = RankingsItem & Record<string, any>;
 
@@ -15,6 +15,7 @@ export interface SharedAdDetailModel {
   thumbnailUrl: string | null;
   videoSourceUrl: string | null;
   videoId: string | null;
+  igMediaId: string | null;
   mediaType: "video" | "image" | "unknown" | null;
   actorId: string | null;
   videoOwnerPageId: string | null;
@@ -115,6 +116,7 @@ export function buildSharedAdDetailModel({
 
   const creative = creativeData?.creative || {};
   const resolvedVideoId = resolvePrimaryVideoId(creativeData as any, creative, creativeData?.adcreatives_videos_ids);
+  const resolvedIgMediaId = extractInstagramMediaId(creative);
   const resolvedMediaType = normalizeMediaType((creativeData as any)?.media_type);
   const resolvedActorId = extractActorIdFromCreative(creative);
   const resolvedVideoOwnerPageId = String((creativeData as any)?.video_owner_page_id || "");
@@ -132,6 +134,7 @@ export function buildSharedAdDetailModel({
     thumbnailUrl: getAdThumbnail(sourceForMedia),
     videoSourceUrl: videoData?.source_url || null,
     videoId: resolvedVideoId || null,
+    igMediaId: resolvedIgMediaId || null,
     mediaType: resolvedMediaType,
     actorId: resolvedActorId || null,
     videoOwnerPageId: resolvedVideoOwnerPageId || null,
@@ -186,6 +189,7 @@ export function useSharedAdNameDetail({
 
   const creative = creativeQuery.data?.creative || {};
   const videoId = resolvePrimaryVideoId(creativeQuery.data as any, creative, creativeQuery.data?.adcreatives_videos_ids);
+  const igMediaId = extractInstagramMediaId(creative);
   const mediaType = normalizeMediaType((creativeQuery.data as any)?.media_type);
   const actorId = extractActorIdFromCreative(creative);
   const videoOwnerPageId = String((creativeQuery.data as any)?.video_owner_page_id || "");
@@ -211,11 +215,12 @@ export function useSharedAdNameDetail({
   const videoQuery = useVideoSource(
     {
       video_id: videoId,
+      ig_media_id: igMediaId || undefined,
       actor_id: actorId || undefined,
       ad_id: adId || undefined,
       video_owner_page_id: videoOwnerPageId || undefined,
     },
-    enabled && !!ad && mediaType !== "image" && !!videoId,
+    enabled && !!ad && mediaType !== "image" && (!!videoId || !!igMediaId),
   );
 
   const model = useMemo(() => {
