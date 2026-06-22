@@ -1,16 +1,27 @@
 from __future__ import annotations
 
 import base64
-import os
+import logging
 from typing import Optional
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.core.config import ENCRYPTION_KEY
 
+logger = logging.getLogger(__name__)
+
+_warned_no_key = False
+
 
 def _get_fernet() -> Optional[Fernet]:
+    global _warned_no_key
     key = ENCRYPTION_KEY
     if not key:
+        if not _warned_no_key:
+            logger.error(
+                "[ENCRYPTION] ENCRYPTION_KEY is not set — tokens will be stored in plaintext. "
+                "Set ENCRYPTION_KEY in backend/.env to enable at-rest encryption."
+            )
+            _warned_no_key = True
         return None
     # Accept raw 32-byte key or base64-encoded
     try:
@@ -26,7 +37,6 @@ def _get_fernet() -> Optional[Fernet]:
 def encrypt_token(token: str) -> str:
     f = _get_fernet()
     if not f:
-        # Fallback: return plain if no key is configured
         return token
     return f.encrypt(token.encode()).decode()
 
@@ -38,7 +48,7 @@ def decrypt_token(token_enc: str) -> str:
     try:
         return f.decrypt(token_enc.encode()).decode()
     except InvalidToken:
-        # Not encrypted with our key; return as-is
+        logger.warning("[ENCRYPTION] decrypt_token: InvalidToken — returning as-is (may be plaintext fallback)")
         return token_enc
 
 

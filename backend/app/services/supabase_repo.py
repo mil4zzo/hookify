@@ -471,7 +471,15 @@ def upsert_ads(
             "video_owner_page_id": ad.get("video_owner_page_id") or None,
             "updated_at": _now_iso(),
         }
-        # Mantém apenas uma ocorrência por ad_id (sobrescreve se houver duplicata)
+        # Mantém apenas uma ocorrência por ad_id (sobrescreve se houver duplicata),
+        # mas nunca deixa uma linha sem evidência (unknown/sem video_id) apagar a
+        # classificação definitiva derivada de outra linha diária do mesmo ad
+        prev = rows_dict.get(ad_id)
+        if prev:
+            if row["media_type"] == "unknown" and prev["media_type"] in ("video", "image"):
+                row["media_type"] = prev["media_type"]
+            if not row["primary_video_id"] and prev["primary_video_id"]:
+                row["primary_video_id"] = prev["primary_video_id"]
         rows_dict[ad_id] = row
 
     if not rows_dict:

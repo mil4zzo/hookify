@@ -136,16 +136,30 @@ class GraphAPI:
 
     def get_adaccounts(self) -> Dict[str, Any]:
         url = self.base_url + 'me/adaccounts' + self.user_token
-        payload = {'fields': 'name,id,account_status,user_tasks,instagram_accounts{username,id}'}
+        payload = {
+            'fields': 'name,id,account_status,user_tasks,instagram_accounts{username,id}',
+            'limit': 200,
+        }
         try:
             response = requests.get(url, params=payload, timeout=10)
             response.raise_for_status()
             log_meta_usage(response, "GraphAPI.get_adaccounts")
             data = response.json()
 
-            logger.debug("get_adaccounts status=%s count=%d", response.status_code, len(data.get('data', [])))
+            # Coletar todas as páginas do edge me/adaccounts (default da Meta é 25 por página).
+            accounts: List[Dict[str, Any]] = list(data.get('data', []))
+            node = data
+            while isinstance(node, dict) and node.get('paging') and node['paging'].get('next'):
+                next_url = node['paging']['next']
+                next_resp = requests.get(next_url, timeout=10)
+                next_resp.raise_for_status()
+                log_meta_usage(next_resp, "GraphAPI.get_adaccounts.pagination")
+                node = next_resp.json()
+                accounts.extend(node.get('data', []))
 
-            return {'status': 'success', 'data': data.get('data', [])}
+            logger.debug("get_adaccounts status=%s count=%d", response.status_code, len(accounts))
+
+            return {'status': 'success', 'data': accounts}
         except requests.exceptions.HTTPError as http_err:
             decoded_text = urllib.parse.unquote(http_err.response.text)
             logger.error("get_adaccounts http_error: status=%s body=%s", http_err.response.status_code, decoded_text[:300])

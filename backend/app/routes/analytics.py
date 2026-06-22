@@ -6,7 +6,7 @@ import logging
 import time
 
 from fastapi import APIRouter, HTTPException, Body, Depends, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
@@ -167,6 +167,14 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
 GroupBy = Literal["ad_id", "ad_name", "adset_id", "campaign_id"]
 
 
+def _validate_iso_date(v: str) -> str:
+    try:
+        datetime.strptime(v, "%Y-%m-%d")
+    except ValueError:
+        raise ValueError("date must be YYYY-MM-DD")
+    return v
+
+
 class RankingsFilters(BaseModel):
     adaccount_ids: Optional[List[str]] = None
     campaign_name_contains: Optional[str] = None
@@ -193,6 +201,11 @@ class RankingsRequest(BaseModel):
         description="Se False, omite available_conversion_types para reduzir processamento.",
     )
 
+    @field_validator("date_start", "date_stop")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        return _validate_iso_date(v)
+
 
 class RankingsSeriesRequest(BaseModel):
     date_start: str
@@ -204,6 +217,11 @@ class RankingsSeriesRequest(BaseModel):
     group_keys: List[str] = Field(default_factory=list, description="Chaves dos grupos para retornar sÃ©ries.")
     window: int = Field(default=5, ge=1, le=30, description="Janela da sÃ©rie em dias.")
 
+    @field_validator("date_start", "date_stop")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        return _validate_iso_date(v)
+
 
 class RankingsRetentionRequest(BaseModel):
     date_start: str
@@ -212,6 +230,11 @@ class RankingsRetentionRequest(BaseModel):
     pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar mÃ©tricas.")
     filters: Optional[RankingsFilters] = None
     group_key: str = Field(..., description="Chave do grupo para calcular curva de retenÃ§Ã£o.")
+
+    @field_validator("date_start", "date_stop")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        return _validate_iso_date(v)
 
 
 class DashboardRequest(BaseModel):
@@ -953,7 +976,7 @@ def _hydrate_transcription_flags_for_rankings_rows(
 
     unique_names = list(set(ad_names))
     completed_names: Set[str] = set()
-    batch_size = 500
+    batch_size = 200
     for i in range(0, len(unique_names), batch_size):
         batch = unique_names[i : i + batch_size]
         try:

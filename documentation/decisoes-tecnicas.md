@@ -6,6 +6,123 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Plano de Ação (to-do list v0) = reuso de G.O.L.D. + Oportunidades, não motor novo
+
+**Data:** 2026-06-14 · atualizado 2026-06-17
+
+**Contexto:** O norte do produto é um motor de ação prescritivo (to-do list Manage/Recycle/Create). O v0 do modo **Manage** (read-only) foi desenhado em brainstorming. Decisão central: **não reconstruir regras** — o Plano de Ação é uma camada de apresentação + veredito sobre dois motores que já existem, evitando uma segunda fonte de verdade que silenciosamente diverge.
+
+**Reuso:**
+- **G.O.L.D.** (`splitAdsIntoGoldBuckets`/`classifyGoldBucket`) dá o **veredito**: classifica ads validados em Golds/Oportunidades/Lições/Descartes/Neutros. Eixo **CPR=spend/results**; métricas {hook, website_ctr, page_conv} vs médias do set validado.
+- **Oportunidades** (`lib/utils/opportunity.ts` `computeOpportunityScores`) dá **prioridade + porquê**: `below_avg_flags` {website_ctr, connect_rate, page_conv}, `cpr_potential`, `cpr_if_X_only`, `impact_abs_savings`, `impact_relative = improvement_pct × (spend/totalSpend)`.
+
+**Modelo de veredito hierárquico (§8.6) — eixo absoluto é PRIMÁRIO:**
+```
+1. Não passou em validation_criteria → OBSERVAR
+2. custo ≤ target_cpr[actionType]:
+     todas as 3 métricas acima da média → GEM (escalar + duplicar)
+     senão → OTIMIZAR (escalar + corrigir lever fraco)
+3. custo > target_cpr[actionType]:
+     todas as 3 métricas abaixo da média → DESCARTAR (pausar)
+     pelo menos 1 acima → LIÇÃO (pausar + reciclar traço forte)
+Sem target_cpr → fallback relativo: golds=GEM, opors=OTIMIZAR, licoes=LIÇÃO, descartes=DESCARTAR, neutros=OBSERVAR
+```
+Função central: `classifyActionVerdict(custo, alvo, metricsAboveCount)` em `lib/utils/actionPlan.ts`. Badge "poucos dados" quando `impressions < 3000`.
+
+**`target_cpr` (nova user_preference):** coluna `target_cpr jsonb` na tabela `user_preferences` (migration 085). No store: `targetCprByActionType: Record<string, number>`. Configurado diretamente na página `/plano`. **Não usar `cpr_max` legado.** Fallback relativo quando não definido.
+
+**3 costuras reconciliadas:** (1) CPR oficial = spend/results (veredito), funil só p/ potencial; (2) **sets de métrica DISTINTOS por propósito** — hook = alavanca criativa (hook abaixo da média → futuro Recycle/Create, não fix de funil); website_ctr/connect_rate/page_conv = otimização; (3) Oportunidades exclui Golds → Scale ordena por spend.
+
+**Loop de medição:** nada no v0. Tier 1 (`action_plan_log`) ao lançar para medir adesão. Historizar `target_cpr` descartado — reconstrução infiel (ad_metrics enriquecido depois + precisa re-rodar pipeline).
+
+**Fase 2:** `target_cpmql` + eixo CPR↔CPMQL; cobertura leadscore ≥90% por resultado na conexão da planilha; funil de custo multi-alvo.
+
+**Fixo:** ad-level (group_by ad_name); UI = lista agrupada por veredito ordenada por impacto R$ (não Kanban); página nova `/plano` herdando `useFilters`; **read-only**; client-side; Insider tier.
+
+**Arquivos criados:** `frontend/lib/utils/actionPlan.ts`, `frontend/app/plano/page.tsx`, `frontend/components/plano/ActionPlanList.tsx`, `frontend/components/plano/ActionPlanRow.tsx`, `frontend/lib/utils/metricColor.ts`, `supabase/migrations/085_add_target_cpr_to_user_preferences.sql`.
+
+**Design completo:** `documentation/plano-de-acao-design.md`. Espelho na memória: `memory/plano_de_acao_reuse_architecture.md`.
+
+---
+
+## /insights omite ads sem entrega — e o read path parte de ad_metrics
+
+**Data:** 2026-06-12
+
+**Sintoma:** adset mostra "3/16 ativos" no Hookify quando o real é "11/24" — os ads ativos que nunca gastaram não existem no app.
+
+**Três fatos que governam o fix:**
+
+1. **`/act_X/insights` é endpoint de performance, não de inventário.** Por design só retorna linhas de ads com atividade (impressions/spend > 0) no `time_range`. Não há parâmetro para incluir zerados.
+2. **O inventário completo já é baixado hoje e descartado.** `AdsEnricher.fetch_status_by_filter` chama `/act_X/ads?filtering=[pack]` paginado e recebe todos os ads que casam com os filtros — incluindo os zerados — mas usa o resultado só como lookup de `effective_status` para ads vindos do insights. Promover essa chamada a fonte canônica do universo custa **zero chamadas extras** à Meta, pode rodar em paralelo com o insights async, e libera o enrichment para rodar durante o polling.
+3. **Consertar o fetch é só metade.** Todas as RPCs do read path (`fetch_ad_metrics_for_analytics`, `fetch_manager_rankings_core/series/retention_v2` e bases `_v0xx`) partem de `FROM public.ad_metrics`; `ads` entra só como LEFT JOIN. Ad sem linha de métrica é invisível no Manager mesmo salvo em `ads` + `packs.ad_ids`. E `ad_metric_pack_map` é keyed por `(ad_id, metric_date, pack_id)` — ad sem métrica não tem entrada no map.
+
+**Arquitetura recomendada (pendente implementação):**
+
+- **Write path inventário-first:** `/ads` leve (id, name, effective_status, adset/campaign ids+names) com filtros do pack + bound de `effective_status` (excluir DELETED/ARCHIVED) define o universo; universo final = inventário ∪ ad_ids do insights; enrichment pesado continua por id-batches com o skip de refresh intacto.
+- **Read path por síntese:** gerar linhas zero em `ad_metrics` (uma por dia do range, clamped ao `created_time` do ad) para ads do universo sem métrica. É dado factualmente verdadeiro ("entregou 0 nesse dia"), flui pelo mesmo `formatted_data` do job_processor, e todo o read path (RPCs, pack stats, apm map) funciona sem mudar SQL.
+- **Rejeitado:** `insights{}` aninhado em `/ads` (vira sync, paginação 2D por ad, mata o skip de refresh, mesmo nº de páginas pesadas); reescrita das RPCs (drift do wrapper chain `_v066/_v067` + statement_timeout).
+
+**Como aplicar:** validar nomes de campos/params no SDK Python oficial antes de codar (regra "no guessing"). Filtros de pack já são compatíveis com o /ads edge na prática — `fetch_status_by_filter` os envia hoje sem erro 400.
+
+**Arquivos:** `backend/app/services/graph_api.py` (start_ads_job); `backend/app/services/ads_enricher.py` (fetch_status_by_filter, enrich); `backend/app/services/job_processor.py`; `supabase/schema.sql` (RPCs `fetch_manager_*`).
+
+---
+
+## useLoadPacks deve sincronizar todos os campos mutáveis de packs existentes
+
+**Data:** 2026-06-12
+
+**Problema:** O Zustand store de packs é persistido (`persist` middleware, `partialize` em `session.ts` salva packs com datas mas sem ads). Isso significa que toda reload de página cai no branch `else` ("pack já existe") de `useLoadPacks` — nunca no `addPack`. O branch `else` original só atualizava `stats`, `sheet_integration` e `conversion_types`. `date_start`, `date_stop`, `name`, `auto_refresh` e `last_refreshed_at` nunca eram sincronizados. Um pack com range estendido fora desta sessão (cron de auto_refresh, outro device) fazia o Manager consultar o período antigo — dados novos existiam no banco mas não apareciam, sem nenhum erro visível.
+
+**Fix:** no branch `else`, acumular um `patch` com comparação direta (`!==`) para campos escalares e `JSON.stringify` para objetos, e chamar `updatePack(id, patch)` uma única vez apenas se `Object.keys(patch).length > 0` (evita re-render desnecessário).
+
+**Regra:** sempre que um campo mutável for adicionado ao schema do pack (vindo do `listPacks`), incluí-lo na lista de sincronização do branch `else`.
+
+**Arquivos:** `frontend/lib/hooks/useLoadPacks.ts` (branch `else`, linhas 123-150).
+
+---
+
+## Todo hook de query de analytics (performance E drill) deve threadar o abort signal
+
+**Data:** 2026-06-12
+
+**Contexto:** Já era regra threadar o `signal` do TanStack Query até o Axios nos hooks de **performance** (rankings/series/retention) — sem isso, `cancelQueries()` no logout é soft-cancel e o HTTP em-voo segue moendo o DB até `statement_timeout` (57014) + 500/Sentry. Os hooks de **drill** (`useAdVariations`, `useCampaignChildren`, `useAdsetChildren`, `useAdDetails`, `useAdCreative`, `useAdHistory`, `useAdNameDetails`, `useAdNameHistory`) eram a exceção: não threadavam.
+
+**Fix:** os endpoints GET de drill em `endpoints.ts` ganharam `options?: { signal?: AbortSignal }` repassado como `apiClient.get(url, { signal })`, e os hooks passaram a `queryFn: ({ signal }) => api...(..., { signal })`. Abrir um modal de drill e fazer logout deixava o GET pendente até o timeout — agora aborta junto.
+
+**Regra:** **todo** hook de query de analytics threada o signal, não só os pesados.
+
+**Arquivos:** `frontend/lib/api/endpoints.ts`, `frontend/lib/api/hooks.ts`.
+
+---
+
+## Export CSV neutraliza formula-injection só em texto livre
+
+**Data:** 2026-06-12
+
+**Problema:** Células de CSV que começam com `=`, `+`, `-`, `@` (ou tab/CR) são interpretadas como fórmula ao abrir no Excel/Sheets — vetor de injection, já que nomes de ad/campanha vêm do Meta e transcrições vêm do usuário.
+
+**Fix:** `neutralizeFormula(value)` em `exportManagerCsv.ts` prefixa `'` quando o valor casa `/^[=+\-@\t\r]/`. **Armadilha:** aplicar indiscriminadamente quebraria métricas numéricas negativas (`-1,50` → `'-1,50`, tratado como texto). Por isso a neutralização roda **só nos campos de texto livre** (nome, status, transcrição), nunca no resultado de `formatValue`.
+
+**Regra:** todo export CSV com strings de fonte externa passa os campos textuais por `neutralizeFormula` antes do quoting; números ficam de fora.
+
+**Arquivos:** `frontend/lib/utils/exportManagerCsv.ts`.
+
+---
+
+## Setter compartilhado de actionTypeOptions limpa seleção órfã quando o conjunto é vazio
+
+**Data:** 2026-06-12
+
+**Problema:** `setActionTypeOptions` (em `filters.ts`, compartilhado por Manager/Explorer/Insights/Gold) só auto-selecionava `options[0]` quando `options.length > 0`. Quando os packs/período atuais não têm nenhum conversion type (`options=[]`), um `actionType` selecionado anteriormente ficava órfão e produzia `results=0` em tudo, sem aviso.
+
+**Fix:** branch `else if (actionType)` no setter limpa `actionType` para `''` quando `options=[]`. **Por que é seguro mexer no setter compartilhado:** Explorer só chama com guard `length > 0` (nunca passa `[]`); Insights/Gold só chamam no `.then` de fetch bem-sucedida (`[]` ali é resultado real); Manager rehidrata packs com `conversion_types` persistidos (sem transiente vazio durante load) e tem gate `selectedPackIds.size > 0`.
+
+**Arquivos:** `frontend/lib/store/filters.ts` (`setActionTypeOptions`).
+
+---
+
 ## Eixo Y de retenção precisa de ancestrais overflow-visible
 
 **Data:** 2026-05-31
@@ -962,3 +1079,198 @@ stripe listen --forward-to localhost:8000/billing/webhook
 ```
 
 **Observação operacional:** a migration `083` ainda precisa ser aplicada no banco remoto para o formulário persistir de verdade.
+
+---
+
+## Billing Stripe — P0 fix, idempotência segura e tier enforcement
+
+**Data:** 2026-06-12
+
+**Contexto:** revisão completa do codebase identificou que todo comprador de primeira viagem pagava e não recebia o tier Insider.
+
+### P0: source='manual' bloqueava grant
+
+Migration 068 cria toda `subscription` com `source='manual'`. O guard `_is_stripe_managed` em `_handle_checkout_completed` rejeitava essas rows, então `tier`, `source` e `stripe_subscription_id` nunca eram gravados. Todos os webhooks subsequentes ficavam no-op (lookup por `stripe_subscription_id` retornava vazio).
+
+**Fix:** `_handle_checkout_completed` agora usa `upsert(on_conflict="user_id")` sem skip por source. Migration 084 faz backfill de usuários pré-068 sem row.
+
+**Remediação de vítimas:** `stripe events resend` não funciona (event_id já dedupado em `stripe_events`). Corrigir via SQL manual por usuário afetado.
+
+### Idempotência correta
+
+**Bug antigo:** evento inserido em `stripe_events` antes do handler — se handler falhasse, retry do Stripe encontrava o registro e skippava para sempre.
+
+**Fix (migration 084 + billing.py):** `stripe_events` ganha coluna `status CHECK('processing','processed')`. Fluxo:
+1. `_record_event` insere com `status='processing'` — só `APIError code='23505'` é tratado como duplicado
+2. Handler executa
+3. `_mark_event_processed` seta `status='processed'` após sucesso
+4. Handler com exceção mantém `processing` → Stripe retenta → retry reexecuta o handler (idempotente via `stripe.Subscription.retrieve` live)
+
+### Basil API (Stripe 2025+)
+
+Campos movidos que quebraram silenciosamente:
+- `invoice.subscription` → `invoice.parent.subscription_details.subscription`
+- `current_period_end` (top-level) → `items.data[].current_period_end`
+
+Helpers `_invoice_subscription_id` e `_subscription_period_end` lêem ambas as localizações.
+
+**Regra crítica:** NUNCA escrever `expires_at=None` num update — NULL = nunca expira. Omitir a chave quando `period_end` for desconhecido.
+
+### Tier enforcement com grace period
+
+**Por quê:** `expires_at` não era enforçado — Insider era eterno se qualquer webhook se perdesse.
+
+**Regra (espelhada em backend e frontend):**
+- `expires_at = NULL` → nunca expira
+- Expirado há ≤7 dias → grace period (cobre ciclo de retry Stripe em `past_due`)
+- Expirado há >7 dias → downgrade para standard
+
+Backend: `backend/app/core/tier.py` → `get_effective_tier` + `require_min_tier(minimum)`. Aplicado em 12 endpoints (9 do facebook.py + 3 do meta_usage.py). `require_min_tier("admin")` substituiu `_require_admin` em admin.py (corrigindo `.single()` → row ausente virava 500 em vez de 403).
+
+Frontend: `getEffectiveTier` em `tierConfig.ts`; middleware usa `.maybeSingle()` + prefix-match de rotas.
+
+### Proteção do tier admin
+
+Webhooks nunca rebaixam tier `admin` (guard explícito em `_handle_checkout_completed`, `_handle_invoice_succeeded` e `_handle_subscription_deleted`).
+
+### Recovery de pagamento
+
+`_handle_invoice_succeeded` re-concede `tier='insider'` quando status live ∈ {active, trialing} — sem isso, usuário que recupera `past_due` após carência ficava standard para sempre mesmo pagando.
+
+**Arquivos:** `backend/app/routes/billing.py`; `backend/app/core/tier.py` (novo); `backend/app/routes/facebook.py`; `backend/app/routes/meta_usage.py`; `backend/app/routes/admin.py`; `frontend/lib/config/tierConfig.ts`; `frontend/lib/hooks/useUserTier.ts`; `frontend/middleware.ts`; `frontend/app/planos/page.tsx`; `supabase/migrations/084_billing_fixes.sql`; `backend/tests/test_billing_webhooks.py` (novo); `backend/tests/test_tier_dependency.py` (novo).
+
+---
+
+## Classificação de media_type: creatives SHARE e evidência por métricas (2026-05)
+
+### O problema
+
+Creatives `object_type: SHARE` (posts boostados do Instagram/Facebook) só expõem `id`, `actor_id`, `thumbnail_url`, `instagram_permalink_url` e `effective_object_story_id` — **sem `video_id` e sem campos de imagem**. O vídeo pertence ao post original, não ao criativo do ad.
+
+`resolve_media_type` usava `thumbnail_url`/`thumb_storage_path` como sinal de imagem — mas **todo ad tem thumbnail, inclusive vídeos**. Resultado: ~8 mil ads de vídeo SHARE gravados como `media_type='image'`; o modal tratava como imagem e chamava `/facebook/image-source` (400), com seção de Retenção desabilitada indevidamente.
+
+Bug agravante: o `dataformatter` descartava `media_type`/`primary_video_id` preservados pelo enricher (`_apply_existing_fixed_fields`) — o dict `formatted_ad` não incluía esses campos do ad de entrada — então a classificação era recomputada do zero a cada sync e **qualquer correção manual no banco era desfeita pelo sync seguinte**.
+
+### A solução: cadeia de classificação com evidência de métricas
+
+Um ad com `video_total_plays > 0` **é vídeo por definição** — só vídeo gera `video_play_actions`. Sinal gratuito (já vem nos insights), decisivo e auto-corretivo. Validação: 0,12% de falso-imagem em 3.354 vídeos confirmados; imagens nunca registram video plays (autoplay garante plays≈impressões em vídeos).
+
+**Não usar a curva (`video_play_curve_actions`) como sinal:** em casos raros ela aparece com valor > 0 em ads de imagem (no banco: 1 linha com curva e zero plays, contra 25.379 com curva+plays). Só `video_total_plays` é confiável. Por isso os campos de imagem são checados ANTES da evidência de métrica — uma imagem com curva/plays espúrios não pode ser derrubada para vídeo.
+
+Ordem em `ad_media.resolve_media_type` (a ordem importa):
+1. `video_id` presente → video
+2. Campos genuínos de imagem (`image_hash`, `image_url`, `photo_data`, asset images) → image
+3. Evidência de plays (`video_total_plays > 0`) → video (corrige `image` stale automaticamente)
+4. Classificação anterior preservada (`video`/`image`) → mantém (dia sem delivery não regride o tipo)
+5. unknown
+
+**`object_type` retorna `SHARE` (esconde a mídia real):** o drill-down canônico via `effective_object_story_id{attachments}` (traz `media_type` photo/video + a mídia) é requisitado pelo enricher mas vem vazio — a Meta devolve só o ID string (0 de 19.412 SHARE têm attachments). **Causa raiz confirmada:** o enricher faz a requisição com o token da conta de anúncios (`self.access_token`), que não tem permissão para ler o post da página — a expansão de attachments exige **page token**. Por isso `video_total_plays > 0` virou o sinal mais confiável disponível.
+
+**❌ Hipótese page token testada e descartada (2026-06-12):** smoke test (`backend/scripts/test_share_attachments.py`) confirmou que o page token desbloqueia o erro #10, mas os attachments retornam `type=share, media_type=link, target=None` — os "posts" dos ads SHARE são **dark posts gerados pelo próprio ad** (macros `{{campaign.name}}`/`{{product.name}}` na URL), sem objeto de vídeo/foto no post. A solução real está na seção seguinte.
+
+Três pontos coordenados:
+- `ad_media.py` — regras acima
+- `dataformatter.py` — passthrough de `media_type`/`primary_video_id` do ad de entrada para o `formatted_ad`
+- `supabase_repo.upsert_ads` — dedup por ad_id não deixa linha `unknown` (dia sem delivery) sobrescrever classificação definitiva de outra linha do mesmo batch
+
+Frontend: `isImageAd` exige `media_type === "image"` explícito — sem catch-all "sem video_id = imagem".
+
+### Remediação executada (2026-05-25)
+
+Com aprovação prévia e SELECT de verificação antes de cada UPDATE:
+- 2.214 ads (plays > 0) → `video`; `video_owner_page_id=NULL` para forçar re-enriquecimento (próximo refresh re-busca `adcreatives`+`source_ad` e pode recuperar o `video_id` reproduzível)
+- 6.777 ads (zero plays, ≥100 impressões) → `image`
+- +699 ads (zero plays, 1-99 impressões) → `image` numa segunda passada, após validar que vídeos conhecidos nessa faixa registram plays em 99,5% dos casos (372 de 374) → **zero `unknown` restantes**
+
+**Lição de processo:** UPDATE em produção sempre precedido de SELECT com os mesmos filtros + announce do impacto. A primeira tentativa de remediação (sessão anterior) marcou tudo como `unknown` sem validar evidência de vídeo — funcionou por sorte, não por método.
+
+**Arquivos:** `backend/app/services/ad_media.py`; `backend/app/services/dataformatter.py`; `backend/app/services/supabase_repo.py`; `backend/tests/test_ad_media_type.py` (novo); `frontend/components/ads/AdDetailsDialog.tsx`.
+
+## Resolução definitiva de mídia de QUALQUER ad: `effective_instagram_media_id` + `asset_feed_spec` (2026-06-12)
+
+### Descoberta
+
+Investigação empírica (360 ads estratificados por tempo do inventário de 9.640 ads do usuário autenticado, batches reais na Graph API) encontrou o caminho oficial que cobre **100% dos ads** — incluindo os SHARE que escondem a mídia:
+
+1. **`effective_instagram_media_id`** no creative (~90–95% dos SHARE): `GET /{igm}?fields=media_type,media_url,thumbnail_url,permalink` com **user token comum** retorna:
+   - `media_type` **autoritativo** (`VIDEO`/`IMAGE`/`CAROUSEL_ALBUM`) — fim da heurística como sinal primário
+   - `media_url` direto do CDN — vídeo é `video/mp4` HTTP 200 reproduzível, imagem é jpg
+   - **Funciona mesmo com `instagram_basic` declined** — o contexto da Marketing API (`ads_read`) autoriza leitura de IG media de anúncios. Sem App Review extra, sem page token.
+   - Batchável via `?ids=` (50 por chamada)
+2. **`asset_feed_spec.videos[].video_id` / `.images[]`** no creative direto (criativos flexíveis): resolveu **37/37** dos ads sem igm na amostra — cobertura combinada 100%.
+3. Nativo: `video_id` / `image_url` / `image_hash` (ads clássicos não-SHARE).
+4. Playback: `GET /{video_id}?fields=source` com page token (fluxo existente) OU a própria `media_url` do IG.
+
+### Auditoria da heurística de plays
+
+Comparando `media_type` do DB vs IG oficial em 213 medias: 318/323 corretos (98,5%); **5 falso-vídeo** detectados (ads de imagem marcados `video` pela remediação). A rota IG permite corrigir em massa e rebaixar a heurística a fallback de última instância.
+
+### Implementação (2026-06-12)
+
+Todos os gaps corrigidos nas etapas abaixo:
+
+**Etapa 1** — `ad_media.resolve_media_type`: checa `ig_media_type` (normalizado pelo enricher via igm) **antes** de qualquer outra regra. `dataformatter.py` passa o campo adiante.
+
+**Etapa 2** — `_DETAILS_FIELDS`: `effective_instagram_media_id,image_url,image_hash` adicionados aos dois blocos `creative{}` (source_ad e direto). `merge_details` indexa por `detail["id"]` (ad_id) com fallback por nome — representante recebe creative exato; asset_feed_spec enxuto injetado no creative quando ausente.
+
+**Etapa 3** — `fetch_ig_media_types()`: batch `GET /?ids=&fields=media_type` (50/call, split-on-error, best-effort). Chamado em `enrich()` após `merge_details`; escreve `ad["ig_media_type"]` normalizado. **Passe restrito aos ads frescos do ciclo** (`ad_id`/`name` presente em `media_details`): ads reusados no refresh não re-buscam o igm — caso contrário, todo refresh re-buscaria o media_type de todo o inventário, contradizendo a otimização que já restringe `fetch_details` ao `rep_ids` reduzido. Full sync resolve todos (media_details = todos os representantes); refresh resolve só novos + sem `video_owner_page_id`. A auto-correção em massa dos falso-vídeo fica a cargo do backfill (uma vez), não do refresh diário.
+
+**Etapa 4** — `get_image_source_url`: campo `effective_instagram_media_id` incluído no read do ad; step 4 novo: `GET /{igm}?fields=media_url` → `{"image_url": media_url}`. Resolve 400 atual dos SHARE sem image_hash.
+
+**Etapa 5** — `get_video_source_url`: param `ig_media_id` optional, `video_id` optional; step 5: `GET /{igm}?fields=media_url` → `{"source": media_url}`. Rota `/video-source`: `video_id` vira opcional, `ig_media_id` adicionado. Frontend: `extractInstagramMediaId()` helper; `shouldLoadVideo` relaxado para `!!videoId || !!igMediaId`; `useVideoSource` recebe `ig_media_id`; guard de empty state considera igm; schemas atualizados.
+
+**Etapa 6** — `backend/scripts/backfill_media_classification.py`: corrige inventário legado do Igor (unknown + video sem fonte + image sem hash), com `--dry-run` default e SELECT antes de UPDATE.
+
+**Decisão mantida:** `merge_details` dedup por nome preservado (custo > correção de homônimos raros). `media_url` do igm não persiste (CDN assínado + expira) — só `media_type` + igm id persistidos; URL on-demand.
+
+### Modelo fechado (revisão final 2026-06-12)
+
+**Taxonomia — 3 grupos, disjuntos por DECISÃO (não por campo):** os campos brutos se sobrepõem (um ad pode ter `video_id` *e* `igm` — 95/120 do bucket with_id têm), mas o gate parte o universo em conjuntos disjuntos:
+
+| Grupo | Mídia mora em | Categorização | Busca igm? |
+|---|---|---|---|
+| Clássico (não-SHARE) | `video_id` / `image_hash` direto | estrutural | não |
+| SHARE multi-asset | `asset_feed_spec.videos` / `.images` | estrutural | não |
+| SHARE single-asset | **só** `effective_instagram_media_id` | igm (autoritativo) | **sim** |
+
+`Grupo estrutural ∩ Grupo single-asset = ∅` **por construção**: o lookup do igm é gateado em `resolve_structural_media_type(ad) is None` (extraída em `ad_media.py`, compartilhada por categorização e gate). Soma-se ao gate de frescos → igm só busca **single-asset recém-ingerido ainda não categorizável**; igms distintos deduplicados (1 chamada por post boostado).
+
+**Escada de categorização** (`resolve_media_type`, curto-circuito): `ig_media_type` (só single-asset, pós-gate) → estrutural (`video_id`|`image_hash`) → `video_total_plays>0` → preservado do DB → unknown.
+
+**Cascata do modal** (ramifica pelo `media_type` persistido, independente da categorização):
+- `image` → `get_image_source_url`: hashes→`/adimages` → **igm→media_url** → `creative.image_url`
+- vídeo/unknown → `get_video_source_url`: `video_id`? cascata page-token : **igm→media_url**
+
+O endpoint do modal (`analytics.py /rankings/ad-id/{id}/creative`) devolve o `creative` cru do DB, que já carrega o `effective_instagram_media_id` persistido — `extractInstagramMediaId` no frontend o consome.
+
+**Carrossel (suporte mínimo):** `fetch_ig_media_types` e `_fetch_igm_media_url` expandem `children{}` e categorizam/servem pelo **primeiro filho** (vídeo/imagem) — não quebra o modal e dá suporte básico. Galeria swipeable completa (novo `media_type="carousel"`, UI multi-card) **adiada** — carrossel não apareceu em 360 ads da amostra.
+
+**Transcrição agnóstica de origem:** `_extract_video_info` + `_resolve_video_url` (transcription_worker) threadam `ig_media_id` → SHARE single-asset de vídeo (sem `video_id`) agora transcreve via `media_url` do igm. Antes era pulado.
+
+**Resíduos aceitos:** (1) carrossel mostra só o 1º item (galeria adiada); (2) falso-vídeo + falha de rede no igm → player recebe jpg, auto-cura no próximo sync; (3) ads legados pré-deploy só ganham igm no creative após re-sync ou backfill.
+
+**Testes:** `test_ad_media_type.py` (estrutural + igm), `test_ads_enricher_merge.py` (merge por id/nome + asset_feed inject), `test_transcription_extract.py` (origem da mídia).
+
+**Evidência:** `backend/scripts/test_share_attachments.py`, `test_media_discovery.py`, `test_media_coverage.py`, `test_media_gaps.py` + relatórios JSON em `backend/scripts/debug_output/`.
+
+## Plano de Ação — alavancas por grupo (2026-06-21)
+
+**Bug corrigido:** o grupo **Aprender** (`licao`) exibia "Ponto forte: Link CTR — recicle esse elemento" apontando para uma métrica **abaixo** da média (-26.5%). Causa: `pickLever()` (em `actionPlan.ts`) só seleciona de `below_avg_flags` (métricas a *corrigir*) e era reusado tanto em `otimizar` quanto em `licao`. Em `otimizar` o copy é "Corrija X" (correto: métrica fraca); em `licao` o copy é "Ponto forte" — semântica **oposta**, mas alimentada pela mesma alavanca. Resultado: a métrica mais fraca era rotulada como ponto forte.
+
+**Correção + melhoria pedida:** `pickLever` → duas funções, e os campos `fixLever?` viraram dois arrays ordenados em `ActionItem`:
+- `fixLevers: FixLeverKey[]` (só `otimizar`) — **todas** as métricas abaixo da média (`website_ctr`/`connect_rate`/`page_conv`), ordenadas por impacto: menor `cpr_if_*_only` (maior ganho de CPR) primeiro.
+- `strongLevers: StrongLeverKey[]` (só `licao`) — **todas** as métricas acima da média, ordenadas da mais forte para a menos forte por margem relativa `(valor-média)/média`. Inclui `hook` (eixo do veredito, embora não componha o CPR); funnel levers seguem `website_ctr`/`connect_rate`/`page_conv`.
+
+A UI (`ActionPlanRow.tsx`) lista todas as alavancas separadas por vírgula; singular/plural no copy. `LEVER_LABEL` ganhou `hook: "Hook"`.
+
+**Limitação herdada:** `opportunityRows` só existem para ads com ≥1 métrica de funil abaixo da média (filtro `withDeficit` em `computeOpportunityScores`); um ad `licao` sem nenhum déficit de funil não tem opp row → `strongLevers` vazio → cai em "Pausar e aprender com este anúncio". Não é regressão (o `pickLever` antigo tinha a mesma dependência).
+
+## Meta `/me/adaccounts` pagina em 25 por página (2026-06-21)
+
+**Bug:** uma BM mostrava menos ad accounts no Hookify do que o usuário via no Ads Manager. Causa: o edge `GET /me/adaccounts` da Meta retorna **no máximo 25 contas por página** (default), com o restante atrás de `paging.next`. `GraphAPI.get_adaccounts` (`graph_api.py`) lia só a primeira página (`data.get('data', [])`) — então qualquer conexão com **>25 ad accounts** perdia as excedentes **silenciosamente** (sem erro, sem log).
+
+**Correção:** loop seguindo `paging.next` acumulando todas as páginas (mesmo padrão que `get_account_info` já usava no sub-edge `adaccounts{}`) + `limit: 200` no payload para reduzir round-trips.
+
+**Por que era invisível:** o sync (`/adaccounts/sync`) e o read (`list_ad_accounts`) **não filtram** por status nem nada — o Hookify espelha exatamente o que `me/adaccounts` devolve. Se uma conta some, ou (a) o token não a retornou (grant granular do OAuth / falta de role direto na conta) ou (b) ficou atrás da paginação. Esta correção cobre (b); para (a) o diagnóstico é a tela **Business Integrations** do Facebook (mostra os assets concedidos especificamente ao app) + comparar `me/adaccounts` com `owned_ad_accounts`/`client_ad_accounts` da BM no Graph API Explorer.
+
+**Regra geral:** todo edge de lista da Meta (`/me/adaccounts`, `/me/businesses`, `owned_ad_accounts`, `client_ad_accounts`, `/ads`, `/insights`) tem cap de página — **sempre** seguir `paging.next`. Mesma classe de bug do cap silencioso de 1000 linhas do PostgREST.

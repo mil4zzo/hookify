@@ -247,12 +247,12 @@ export const useAdVariations = (
   const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
     queryKey: queryKeys.adVariations(adName, dateStart, dateStop, packIdsKey),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const response = await api.analytics.getRankingsChildren(adName, {
         date_start: dateStart,
         date_stop: dateStop,
         pack_ids: packIds,
-      });
+      }, { signal });
       // Retornar apenas o array de dados, tipado corretamente
       return (response.data || []) as RankingsChildrenItem[];
     },
@@ -277,13 +277,13 @@ export const useCampaignChildren = (
   const actionTypeKey = String(actionType || "").trim()
   return useQuery({
     queryKey: queryKeys.campaignChildren(campaignId, dateStart, dateStop, actionTypeKey, packIdsKey),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const response = await api.analytics.getCampaignChildren(campaignId, {
         date_start: dateStart,
         date_stop: dateStop,
         action_type: actionTypeKey || undefined,
         pack_ids: packIds,
-      })
+      }, { signal })
       return (response.data || []) as RankingsItem[]
     },
     enabled: enabled && !!campaignId && !!dateStart && !!dateStop,
@@ -305,12 +305,12 @@ export const useAdsetChildren = (
   const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
     queryKey: queryKeys.adsetChildren(adsetId, dateStart, dateStop, packIdsKey),
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const response = await api.analytics.getAdsetChildren(adsetId, {
         date_start: dateStart,
         date_stop: dateStop,
         pack_ids: packIds,
-      })
+      }, { signal })
       return (response.data || []) as RankingsChildrenItem[]
     },
     enabled: enabled && !!adsetId && !!dateStart && !!dateStop,
@@ -347,11 +347,11 @@ export const useAdDetails = (
   const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
     queryKey: queryKeys.adDetails(adId, dateStart, dateStop, packIdsKey),
-    queryFn: () => api.analytics.getAdDetails(adId, {
+    queryFn: ({ signal }) => api.analytics.getAdDetails(adId, {
       date_start: dateStart,
       date_stop: dateStop,
       pack_ids: packIds,
-    }),
+    }, { signal }),
     enabled: enabled && !!adId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
     retry: 2,
@@ -375,7 +375,7 @@ export const useAdDetails = (
 export const useAdCreative = (adId: string, enabled: boolean = false) => {
   return useQuery({
     queryKey: queryKeys.adCreative(adId),
-    queryFn: () => api.analytics.getAdCreative(adId),
+    queryFn: ({ signal }) => api.analytics.getAdCreative(adId, { signal }),
     enabled: enabled && !!adId,
     staleTime: 30 * 60 * 1000, // Cache de 30 minutos (dados raramente mudam)
     retry: 2,
@@ -408,11 +408,11 @@ export const useAdHistory = (
   const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
     queryKey: queryKeys.adHistory(adId, dateStart, dateStop, packIdsKey),
-    queryFn: () => api.analytics.getAdHistory(adId, {
+    queryFn: ({ signal }) => api.analytics.getAdHistory(adId, {
       date_start: dateStart,
       date_stop: dateStop,
       pack_ids: packIds,
-    }),
+    }, { signal }),
     enabled: enabled && !!adId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
     retry: 2,
@@ -433,11 +433,11 @@ export const useAdNameDetails = (
   const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
     queryKey: queryKeys.adNameDetails(adName, dateStart, dateStop, packIdsKey),
-    queryFn: () => api.analytics.getAdNameDetails(adName, {
+    queryFn: ({ signal }) => api.analytics.getAdNameDetails(adName, {
       date_start: dateStart,
       date_stop: dateStop,
       pack_ids: packIds,
-    }),
+    }, { signal }),
     enabled: enabled && !!adName && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000,
     retry: 2,
@@ -457,11 +457,11 @@ export const useAdNameHistory = (
   const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
     queryKey: queryKeys.adNameHistory(adName, dateStart, dateStop, packIdsKey),
-    queryFn: () => api.analytics.getAdNameHistory(adName, {
+    queryFn: ({ signal }) => api.analytics.getAdNameHistory(adName, {
       date_start: dateStart,
       date_stop: dateStop,
       pack_ids: packIds,
-    }),
+    }, { signal }),
     enabled: enabled && !!adName && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000,
     retry: 2,
@@ -711,10 +711,6 @@ export const useInvalidatePackAds = () => {
         queryKey: ['analytics', 'pack-ads'],
         refetchType: 'active' // Força refetch imediato das queries ativas (páginas abertas)
       })
-    },
-    invalidateRankings: () => {
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })
-      queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings-series'], refetchType: 'active' })
     },
     invalidateAdPerformance: () => {
       queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })

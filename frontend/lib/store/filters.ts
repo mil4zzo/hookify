@@ -146,9 +146,17 @@ export const useFiltersStore = create<FiltersStore>()(
       setActionTypeOptions: (options) => {
         const { actionType } = get()
         const updates: Partial<FiltersStore> = { actionTypeOptions: options }
-        // Auto-select first option if current is empty or no longer available
-        if (options.length > 0 && (!actionType || !options.includes(actionType))) {
-          updates.actionType = options[0]
+        if (options.length > 0) {
+          // Auto-select first option if current is empty or no longer available
+          if (!actionType || !options.includes(actionType)) {
+            updates.actionType = options[0]
+          }
+        } else if (actionType) {
+          // Nenhum tipo disponível nos packs/período atuais → limpar seleção órfã.
+          // Sem isso, um actionType selecionado que não existe nos dados atuais produz
+          // results=0 em tudo, sem aviso. Seguro: Explorer só chama com length>0;
+          // Insights/Gold/Manager só chamam após dados reais (não em loading transiente).
+          updates.actionType = ''
         }
         set(updates)
       },

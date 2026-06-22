@@ -36,6 +36,17 @@ function getNameValue(tab: ManagerTab, row: { original: RankingsItem; getValue: 
   return String(row.getValue("ad_name") ?? original.ad_name ?? "")
 }
 
+/**
+ * Neutraliza CSV/formula injection: uma célula que começa com = + - @ (ou tab/CR)
+ * é interpretada como fórmula ao abrir no Excel/Sheets. Prefixar com apóstrofo força
+ * o app a tratá-la como texto. Aplicar APENAS em campos de texto livre (nome,
+ * transcrição, status) — NÃO em métricas numéricas, que podem ser negativas.
+ */
+function neutralizeFormula(value: string): string {
+  if (/^[=+\-@\t\r]/.test(value)) return `'${value}`
+  return value
+}
+
 function escapeCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`
 }
@@ -111,8 +122,8 @@ export async function exportManagerToCsv({
   if (showTranscriptions) headers.push("Transcrição")
 
   const dataRows = rows.map((row) => {
-    const cells: string[] = [getNameValue(currentTab, row)]
-    cells.push(String(row.original.effective_status ?? ""))
+    const cells: string[] = [neutralizeFormula(getNameValue(currentTab, row))]
+    cells.push(neutralizeFormula(String(row.original.effective_status ?? "")))
     if (showMediaType) {
       const mt = row.original.media_type ?? ""
       cells.push(MEDIA_TYPE_LABEL[mt] ?? "")
@@ -120,7 +131,7 @@ export async function exportManagerToCsv({
     for (const col of visibleMetricColumns) cells.push(formatValue(col.id, row.getValue(col.id)))
     if (showTranscriptions) {
       const adName = String(row.original.ad_name ?? "")
-      cells.push(transcriptionMap[adName] ?? "")
+      cells.push(neutralizeFormula(transcriptionMap[adName] ?? ""))
     }
     return cells
   })

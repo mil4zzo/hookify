@@ -73,13 +73,6 @@ export function usePacksAds(packs: AdsPack[] | undefined | null) {
       refetchOnWindowFocus: false,
       refetchOnMount: false,
       refetchOnReconnect: false,
-      placeholderData: async () => {
-        const cached = await adsCache.getCachedPackAds(pack.id)
-        if (cached.success && cached.data && Array.isArray(cached.data)) {
-          return filterVideoAds(cached.data)
-        }
-        return undefined
-      },
     }))
   }, [validPacks])
 
@@ -89,6 +82,15 @@ export function usePacksAds(packs: AdsPack[] | undefined | null) {
     const handleCacheUpdated = (event: Event) => {
       const packId = (event as CustomEvent<{ packId?: string }>).detail?.packId
       if (!packId) return
+      // Evento de promoção de thumbnails (background task). NÃO é redundante com a
+      // invalidação imperativa do job principal — dispara depois, quando thumb_storage_path
+      // já existe. Necessário re-hidratar 3 frentes:
+      // - packAds: cache IndexedDB dos ads (usado por dialogs/mídia)
+      // - rankings: o grid lê row["thumbnail"] (hidratado de ads.thumb_storage_path), refetch
+      //   exibe a thumb nova.
+      // - rankings-series: a página do Manager limpa seu seriesCacheByTab local neste mesmo
+      //   evento; sem invalidar a query, o cache local não é re-populado e as sparklines ficam
+      //   presas no skeleton.
       queryClient.invalidateQueries({ queryKey: queryKeys.packAds(packId), refetchType: 'active' })
       queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })
       queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings-series'], refetchType: 'active' })

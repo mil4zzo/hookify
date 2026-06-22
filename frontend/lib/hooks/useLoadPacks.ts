@@ -125,17 +125,25 @@ export function useLoadPacks() {
             if (!existing) {
               addPack(pack)
             } else {
-              // Atualizar stats se mudou
+              const patch: Record<string, any> = {}
+              // Campos escalares — comparação direta
+              if (pack.date_start !== existing.date_start) patch.date_start = pack.date_start
+              if (pack.date_stop !== existing.date_stop) patch.date_stop = pack.date_stop
+              if (pack.name !== existing.name) patch.name = pack.name
+              if (pack.auto_refresh !== existing.auto_refresh) patch.auto_refresh = pack.auto_refresh
+              if (pack.last_refreshed_at !== (existing as any).last_refreshed_at) patch.last_refreshed_at = pack.last_refreshed_at
+              // Campos objeto — JSON.stringify
               if (pack.stats && (!existing.stats || JSON.stringify(existing.stats) !== JSON.stringify(pack.stats))) {
-                updatePack(pack.id, { stats: pack.stats })
+                patch.stats = pack.stats
               }
-              // Atualizar sheet_integration se mudou
               if (JSON.stringify(pack.sheet_integration) !== JSON.stringify(existing.sheet_integration)) {
-                updatePack(pack.id, { sheet_integration: pack.sheet_integration } as any)
+                patch.sheet_integration = pack.sheet_integration
               }
-              // Atualizar conversion_types se mudou (refresh adiciona tipos novos)
-              if (JSON.stringify(pack.conversion_types || []) !== JSON.stringify(existing.conversion_types || [])) {
-                updatePack(pack.id, { conversion_types: Array.isArray(pack.conversion_types) ? pack.conversion_types : [] } as any)
+              if (JSON.stringify(pack.conversion_types || []) !== JSON.stringify((existing as any).conversion_types || [])) {
+                patch.conversion_types = Array.isArray(pack.conversion_types) ? pack.conversion_types : []
+              }
+              if (Object.keys(patch).length > 0) {
+                updatePack(pack.id, patch as any)
               }
             }
           })

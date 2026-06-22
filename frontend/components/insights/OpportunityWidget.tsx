@@ -1,5 +1,6 @@
 import { OpportunityRow } from "@/lib/utils/opportunity";
 import { RankingsResponse } from "@/lib/api/schemas";
+import { getValueColor } from "@/lib/utils/metricColor";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { IconChevronLeft, IconChevronRight, IconBulbFilled, IconMoodEmptyFilled } from "@tabler/icons-react";
 import { AdStatusIcon } from "@/components/common/AdStatusIcon";
@@ -46,36 +47,6 @@ function formatPct2(v: number): string {
 const ROW_BASE_CLASS = "grid grid-cols-7 gap-2 py-2 px-3 rounded items-center border border-border";
 const ROW_MUTED_CLASS = `${ROW_BASE_CLASS} bg-border`;
 const ROW_GREEN_CLASS = `${ROW_BASE_CLASS} bg-success-20`;
-
-// Função para determinar a cor baseada na relação atual/média
-function getValueColor(current: number, average: number, lowerIsBetter: boolean = false): string {
-  if (average <= 0) return "text-foreground"; // Sem média válida
-
-  if (lowerIsBetter) {
-    // Para métricas onde menor é melhor (ex: CPR)
-    // Se atual <= média, está abaixo/igual à média (melhor) = verde
-    if (current <= average) return "text-success";
-
-    // Calcular ratio: atual/média (quanto maior que a média)
-    const ratio = current / average;
-
-    // Classificação baseada no ratio
-    if (ratio > 1 && ratio <= 1.25) return "text-attention"; // 100%~125% = amarelo
-    if (ratio > 1.25 && ratio <= 1.5) return "text-warning"; // 125%~150% = laranja
-    if (ratio > 1.5) return "text-destructive"; // 150%+ = vermelho
-    return "text-foreground"; // Fallback
-  } else {
-    // Para métricas onde maior é melhor (ex: Hook, CTR, etc)
-    const ratio = current / average;
-    // Se atual >= média, está acima/igual à média (melhor) = verde
-    if (current >= average) return "text-success";
-
-    // Classificação baseada no ratio
-    if (ratio >= 0.75 && ratio < 1) return "text-attention"; // 75%~100% = amarelo
-    if (ratio >= 0.5 && ratio < 0.75) return "text-warning"; // 50%~75% = laranja
-    return "text-destructive"; // 0%~50% = vermelho
-  }
-}
 
 // Função para determinar se a métrica está acima da média
 function isAboveAverage(current: number, average: number, lowerIsBetter: boolean = false): boolean {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { StateSkeleton } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
@@ -19,8 +19,16 @@ import { logger } from "@/lib/utils/logger";
 import { toast } from "sonner";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
+import { mapRankingRow, resolveGroupKey, type ManagerTab } from "@/lib/utils/mapRankingRow";
 
 type ManagerRow = RankingsItem & { series_loading?: boolean };
+
+const GROUP_BY_BY_TAB: Record<ManagerTab, "ad_name" | "ad_id" | "adset_id" | "campaign_id"> = {
+  "por-anuncio": "ad_name",
+  individual:    "ad_id",
+  "por-conjunto": "adset_id",
+  "por-campanha": "campaign_id",
+};
 
 function ManagerPageFallback() {
   return (
@@ -33,9 +41,7 @@ function ManagerPageFallback() {
 }
 
 function ManagerPageContent() {
-  type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const searchParams = useSearchParams();
-  const router = useRouter();
   const [activeManagerTab, setActiveManagerTab] = useState<ManagerTab>("por-anuncio");
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
 
@@ -65,7 +71,6 @@ function ManagerPageContent() {
   const packsReady = packsClient && packs.length > 0 && !packsLoading;
 
   // ── Page-specific state ────────────────────────────────────────────────────
-  const [serverAverages, setServerAverages] = useState<any | null>(null);
   const { criteria: validationCriteria } = useValidationCriteria();
   const [showTrends, setShowTrends] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
@@ -91,15 +96,30 @@ function ManagerPageContent() {
       };
       const expectedTab = validTabMap[filter];
       if (expectedTab && expectedTab === tab) {
-        if (activeManagerTab !== expectedTab) setActiveManagerTab(expectedTab);
         return [{ id: filter, value }];
       }
     }
     return undefined;
-  }, [searchParams, activeManagerTab]);
+  }, [searchParams]);
+
+  // Sync active tab from URL deep-link — kept in useEffect so setState doesn't run during render
+  useEffect(() => {
+    const filter = searchParams.get("filter");
+    const tab = searchParams.get("tab");
+    if (!filter || !tab) return;
+    const validTabMap: Record<string, ManagerTab> = {
+      ad_id: "individual",
+      ad_name: "por-anuncio",
+      adset_name: "por-conjunto",
+      campaign_name: "por-campanha",
+    };
+    const expectedTab = validTabMap[filter];
+    if (expectedTab && expectedTab === tab) setActiveManagerTab(expectedTab);
+  }, [searchParams]);
 
   // ── Derived from filters ───────────────────────────────────────────────────
   const endDate = useMemo(() => dateRange.end, [dateRange.end]);
+  const activeGroupBy = GROUP_BY_BY_TAB[activeManagerTab];
 
   const hasSheetIntegration = useMemo(
     () => selectedPackIds.size > 0 && packs.some((p) => selectedPackIds.has(p.id) && !!p.sheet_integration),
@@ -110,14 +130,14 @@ function ManagerPageContent() {
   const SERIES_WINDOW = 5;
   const MAX_SERIES_GROUP_KEYS = 100;
 
-  const [visibleSeriesKeys, setVisibleSeriesKeys] = useState<Record<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha", string[]>>({
+  const [visibleSeriesKeys, setVisibleSeriesKeys] = useState<Record<ManagerTab, string[]>>({
     individual: [],
     "por-anuncio": [],
     "por-conjunto": [],
     "por-campanha": [],
   });
-  const visibleKeysDebounceRef = useRef<Partial<Record<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha", ReturnType<typeof setTimeout>>>>({});
-  const [seriesCacheByTab, setSeriesCacheByTab] = useState<Record<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha", Record<string, any>>>({
+  const visibleKeysDebounceRef = useRef<Partial<Record<ManagerTab, ReturnType<typeof setTimeout>>>>({});
+  const [seriesCacheByTab, setSeriesCacheByTab] = useState<Record<ManagerTab, Record<string, any>>>({
     individual: {},
     "por-anuncio": {},
     "por-conjunto": {},
@@ -126,7 +146,7 @@ function ManagerPageContent() {
 
   const selectedPackIdsKey = useMemo(() => Array.from(selectedPackIds).sort().join("|"), [selectedPackIds]);
 
-  const mergeSeriesCache = useCallback((tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", incoming: any) => {
+  const mergeSeriesCache = useCallback((tab: ManagerTab, incoming: any) => {
     if (!incoming || typeof incoming !== "object") return;
     const entries = Object.entries(incoming);
     if (entries.length === 0) return;
@@ -152,7 +172,7 @@ function ManagerPageContent() {
   }, []);
 
   const handleVisibleGroupKeysChange = useCallback(
-    (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", keys: string[]) => {
+    (tab: ManagerTab, keys: string[]) => {
       const normalized = Array.from(new Set((keys || []).map(String).filter(Boolean))).slice(0, MAX_SERIES_GROUP_KEYS);
       const previousTimer = visibleKeysDebounceRef.current[tab];
       if (previousTimer) clearTimeout(previousTimer);
@@ -171,7 +191,7 @@ function ManagerPageContent() {
   useEffect(() => {
     return () => {
       const timers = visibleKeysDebounceRef.current;
-      (Object.keys(timers) as Array<"individual" | "por-anuncio" | "por-conjunto" | "por-campanha">).forEach((tab) => {
+      (Object.keys(timers) as Array<ManagerTab>).forEach((tab) => {
         const timer = timers[tab];
         if (timer) clearTimeout(timer);
       });
@@ -183,12 +203,22 @@ function ManagerPageContent() {
     setSeriesCacheByTab({ individual: {}, "por-anuncio": {}, "por-conjunto": {}, "por-campanha": {} });
   }, [dateRange.start, dateRange.end, actionType, selectedPackIdsKey]);
 
-  // ── API requests ───────────────────────────────────────────────────────────
+  // Clear series cache when pack data is refreshed (ads changed, old series are stale)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleCacheUpdated = () => {
+      setSeriesCacheByTab({ individual: {}, "por-anuncio": {}, "por-conjunto": {}, "por-campanha": {} });
+    };
+    window.addEventListener("hookify:pack-ads-cache-updated", handleCacheUpdated);
+    return () => window.removeEventListener("hookify:pack-ads-cache-updated", handleCacheUpdated);
+  }, []);
+
+  // ── API request ────────────────────────────────────────────────────────────
   const managerRequest: RankingsRequest = useMemo(
     () => ({
       date_start: dateRange.start || "",
       date_stop: dateRange.end || "",
-      group_by: "ad_name",
+      group_by: activeGroupBy,
       action_type: actionType || undefined,
       limit: 10000,
       offset: 0,
@@ -201,79 +231,17 @@ function ManagerPageContent() {
       // não do rankings — manter false pra não pagar o CTE extra que ~dobra o custo da query.
       include_available_conversion_types: false,
     }),
-    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
+    [dateRange.start, dateRange.end, activeGroupBy, selectedPackIds, actionType, hasSheetIntegration],
   );
 
-  const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(managerRequest, isAuthorized && packsReady && !!dateRange.start && !!dateRange.end);
-
-  const managerRequestIndividual: RankingsRequest = useMemo(
-    () => ({
-      date_start: dateRange.start || "",
-      date_stop: dateRange.end || "",
-      group_by: "ad_id",
-      action_type: actionType || undefined,
-      limit: 10000,
-      offset: 0,
-      filters: {},
-      pack_ids: Array.from(selectedPackIds),
-      include_series: false,
-      include_leadscore: hasSheetIntegration,
-      series_window: SERIES_WINDOW,
-      include_available_conversion_types: false,
-    }),
-    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
+  const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(
+    managerRequest,
+    isAuthorized && packsReady && !!dateRange.start && !!dateRange.end,
   );
-
-  const shouldFetchIndividual = isAuthorized && packsReady && !!dateRange.start && !!dateRange.end && activeManagerTab === "individual";
-  const { data: managerDataIndividual, isLoading: loadingIndividual } = useAdPerformance(managerRequestIndividual, shouldFetchIndividual);
-
-  const managerRequestAdset: RankingsRequest = useMemo(
-    () => ({
-      date_start: dateRange.start || "",
-      date_stop: dateRange.end || "",
-      group_by: "adset_id",
-      action_type: actionType || undefined,
-      limit: 10000,
-      offset: 0,
-      filters: {},
-      pack_ids: Array.from(selectedPackIds),
-      include_series: false,
-      include_leadscore: hasSheetIntegration,
-      series_window: SERIES_WINDOW,
-      include_available_conversion_types: false,
-    }),
-    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
-  );
-
-  const shouldFetchAdset = isAuthorized && packsReady && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-conjunto";
-  const { data: managerDataAdset, isLoading: loadingAdset } = useAdPerformance(managerRequestAdset, shouldFetchAdset);
-
-  const managerRequestCampaign: RankingsRequest = useMemo(
-    () => ({
-      date_start: dateRange.start || "",
-      date_stop: dateRange.end || "",
-      group_by: "campaign_id",
-      action_type: actionType || undefined,
-      limit: 10000,
-      offset: 0,
-      filters: {},
-      pack_ids: Array.from(selectedPackIds),
-      include_series: false,
-      include_leadscore: hasSheetIntegration,
-      series_window: SERIES_WINDOW,
-      include_available_conversion_types: false,
-    }),
-    [dateRange.start, dateRange.end, selectedPackIds, actionType, hasSheetIntegration],
-  );
-
-  const shouldFetchCampaign = isAuthorized && packsReady && !!dateRange.start && !!dateRange.end && activeManagerTab === "por-campanha";
-  const { data: managerDataCampaign, isLoading: loadingCampaign } = useAdPerformance(managerRequestCampaign, shouldFetchCampaign);
 
   // ── Derived from API data ──────────────────────────────────────────────────
   const serverData = managerData?.data || null;
-  const serverDataIndividual = managerDataIndividual?.data || null;
-  const serverDataAdset = managerDataAdset?.data || null;
-  const serverDataCampaign = managerDataCampaign?.data || null;
+
   // Dropdown de conversion types = união dos packs selecionados (metadado materializado
   // packs.conversion_types, que já chega no payload de /packs carregado pelo PacksLoader).
   // Zero request, zero RPC no read-path — a lista é mantida via union incremental no
@@ -293,94 +261,69 @@ function ManagerPageContent() {
 
   // Propagate available conversion types to global store
   useEffect(() => {
-    if (availableConversionTypes.length > 0) {
+    if (selectedPackIds.size > 0) {
       setActionTypeOptions(availableConversionTypes);
     }
-  }, [availableConversionTypes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [availableConversionTypes, selectedPackIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Series requests ────────────────────────────────────────────────────────
-  const seriesKeysAdName = useMemo(() => visibleSeriesKeys["por-anuncio"], [visibleSeriesKeys]);
-  const seriesKeysIndividual = useMemo(() => visibleSeriesKeys.individual, [visibleSeriesKeys]);
-  const seriesKeysAdset = useMemo(() => visibleSeriesKeys["por-conjunto"], [visibleSeriesKeys]);
-  const seriesKeysCampaign = useMemo(() => visibleSeriesKeys["por-campanha"], [visibleSeriesKeys]);
+  // ── Series request ─────────────────────────────────────────────────────────
+  const activeSeriesKeys = visibleSeriesKeys[activeManagerTab];
 
   const managerSeriesRequest = useMemo(
-    () => ({ date_start: dateRange.start || "", date_stop: dateRange.end || "", group_by: "ad_name" as const, action_type: actionType || undefined, pack_ids: Array.from(selectedPackIds), filters: {}, group_keys: seriesKeysAdName, window: SERIES_WINDOW }),
-    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysAdName],
-  );
-  const managerSeriesRequestIndividual = useMemo(
-    () => ({ date_start: dateRange.start || "", date_stop: dateRange.end || "", group_by: "ad_id" as const, action_type: actionType || undefined, pack_ids: Array.from(selectedPackIds), filters: {}, group_keys: seriesKeysIndividual, window: SERIES_WINDOW }),
-    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysIndividual],
-  );
-  const managerSeriesRequestAdset = useMemo(
-    () => ({ date_start: dateRange.start || "", date_stop: dateRange.end || "", group_by: "adset_id" as const, action_type: actionType || undefined, pack_ids: Array.from(selectedPackIds), filters: {}, group_keys: seriesKeysAdset, window: SERIES_WINDOW }),
-    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysAdset],
-  );
-  const managerSeriesRequestCampaign = useMemo(
-    () => ({ date_start: dateRange.start || "", date_stop: dateRange.end || "", group_by: "campaign_id" as const, action_type: actionType || undefined, pack_ids: Array.from(selectedPackIds), filters: {}, group_keys: seriesKeysCampaign, window: SERIES_WINDOW }),
-    [dateRange.start, dateRange.end, actionType, selectedPackIds, seriesKeysCampaign],
+    () => ({
+      date_start: dateRange.start || "",
+      date_stop: dateRange.end || "",
+      group_by: activeGroupBy,
+      action_type: actionType || undefined,
+      pack_ids: Array.from(selectedPackIds),
+      filters: {},
+      group_keys: activeSeriesKeys,
+      window: SERIES_WINDOW,
+    }),
+    [dateRange.start, dateRange.end, activeGroupBy, actionType, selectedPackIds, activeSeriesKeys],
   );
 
-  const shouldFetchSeriesAdName = showTrends && activeManagerTab === "por-anuncio" && seriesKeysAdName.length > 0;
-  const shouldFetchSeriesIndividual = showTrends && activeManagerTab === "individual" && seriesKeysIndividual.length > 0;
-  const shouldFetchSeriesAdset = showTrends && activeManagerTab === "por-conjunto" && seriesKeysAdset.length > 0;
-  const shouldFetchSeriesCampaign = showTrends && activeManagerTab === "por-campanha" && seriesKeysCampaign.length > 0;
+  const shouldFetchSeries = showTrends && activeSeriesKeys.length > 0;
+  const { data: managerSeriesData, isError: managerSeriesError } = useAdPerformanceSeries(managerSeriesRequest, shouldFetchSeries);
 
-  const { data: managerSeriesData, isError: managerSeriesErrorAdName } = useAdPerformanceSeries(managerSeriesRequest, shouldFetchSeriesAdName);
-  const { data: managerSeriesDataIndividual, isError: managerSeriesErrorIndividual } = useAdPerformanceSeries(managerSeriesRequestIndividual, shouldFetchSeriesIndividual);
-  const { data: managerSeriesDataAdset, isError: managerSeriesErrorAdset } = useAdPerformanceSeries(managerSeriesRequestAdset, shouldFetchSeriesAdset);
-  const { data: managerSeriesDataCampaign, isError: managerSeriesErrorCampaign } = useAdPerformanceSeries(managerSeriesRequestCampaign, shouldFetchSeriesCampaign);
+  useEffect(() => {
+    mergeSeriesCache(activeManagerTab, (managerSeriesData as any)?.series_by_group);
+  }, [managerSeriesData, mergeSeriesCache, activeManagerTab]);
 
-  useEffect(() => { mergeSeriesCache("por-anuncio", (managerSeriesData as any)?.series_by_group); }, [managerSeriesData, mergeSeriesCache]);
-  useEffect(() => { mergeSeriesCache("individual", (managerSeriesDataIndividual as any)?.series_by_group); }, [managerSeriesDataIndividual, mergeSeriesCache]);
-  useEffect(() => { mergeSeriesCache("por-conjunto", (managerSeriesDataAdset as any)?.series_by_group); }, [managerSeriesDataAdset, mergeSeriesCache]);
-  useEffect(() => { mergeSeriesCache("por-campanha", (managerSeriesDataCampaign as any)?.series_by_group); }, [managerSeriesDataCampaign, mergeSeriesCache]);
+  const activeSeriesCache = seriesCacheByTab[activeManagerTab];
 
-  const seriesByGroupAdName = seriesCacheByTab["por-anuncio"];
-  const seriesByGroupIndividual = seriesCacheByTab.individual;
-  const seriesByGroupAdset = seriesCacheByTab["por-conjunto"];
-  const seriesByGroupCampaign = seriesCacheByTab["por-campanha"];
+  const pendingSeriesKeys = useMemo(() => {
+    if (!showTrends || managerSeriesError) return new Set<string>();
+    return new Set(activeSeriesKeys.filter((k) => !!k && !activeSeriesCache[k]));
+  }, [activeSeriesKeys, activeSeriesCache, showTrends, managerSeriesError]);
 
-  const pendingSeriesKeysByTab = useMemo(() => {
-    const buildPendingSet = (keys: string[], cache: Record<string, any>, shouldLoad: boolean): Set<string> => {
-      if (!shouldLoad) return new Set<string>();
-      return new Set(keys.filter((k) => !!k && !cache[k]));
-    };
-    return {
-      "por-anuncio": buildPendingSet(seriesKeysAdName, seriesByGroupAdName, showTrends && activeManagerTab === "por-anuncio" && !managerSeriesErrorAdName),
-      individual: buildPendingSet(seriesKeysIndividual, seriesByGroupIndividual, showTrends && activeManagerTab === "individual" && !managerSeriesErrorIndividual),
-      "por-conjunto": buildPendingSet(seriesKeysAdset, seriesByGroupAdset, showTrends && activeManagerTab === "por-conjunto" && !managerSeriesErrorAdset),
-      "por-campanha": buildPendingSet(seriesKeysCampaign, seriesByGroupCampaign, showTrends && activeManagerTab === "por-campanha" && !managerSeriesErrorCampaign),
-    };
-  }, [seriesKeysAdName, seriesKeysIndividual, seriesKeysAdset, seriesKeysCampaign, seriesByGroupAdName, seriesByGroupIndividual, seriesByGroupAdset, seriesByGroupCampaign, showTrends, activeManagerTab, managerSeriesErrorAdName, managerSeriesErrorIndividual, managerSeriesErrorAdset, managerSeriesErrorCampaign]);
+  const seriesPriming = useMemo(
+    () => showTrends && !managerSeriesError && activeSeriesKeys.length === 0,
+    [showTrends, managerSeriesError, activeSeriesKeys],
+  );
 
-  const seriesPrimingByTab = useMemo(() => {
-    const isPriming = (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", tabKeys: string[], tabError: boolean) =>
-      showTrends && activeManagerTab === tab && !tabError && tabKeys.length === 0;
-    return {
-      "por-anuncio": isPriming("por-anuncio", seriesKeysAdName, managerSeriesErrorAdName),
-      individual: isPriming("individual", seriesKeysIndividual, managerSeriesErrorIndividual),
-      "por-conjunto": isPriming("por-conjunto", seriesKeysAdset, managerSeriesErrorAdset),
-      "por-campanha": isPriming("por-campanha", seriesKeysCampaign, managerSeriesErrorCampaign),
-    };
-  }, [showTrends, activeManagerTab, seriesKeysAdName, seriesKeysIndividual, seriesKeysAdset, seriesKeysCampaign, managerSeriesErrorAdName, managerSeriesErrorIndividual, managerSeriesErrorAdset, managerSeriesErrorCampaign]);
+  // ── Data mapping ───────────────────────────────────────────────────────────
+  const baseMapped = useMemo(() => {
+    if (!serverData || serverData.length === 0) return [] as any[];
+    return serverData.map((row: any): ManagerRow => mapRankingRow(row, actionType, activeManagerTab));
+  }, [serverData, actionType, activeManagerTab]);
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleShowTrendsChange = (checked: boolean) => {
-    setShowTrends(checked);
-    try {
-      localStorage.setItem("hookify-manager-show-trends", checked.toString());
-    } catch (e) {
-      logger.error("Erro ao salvar showTrends no localStorage:", e);
-    }
-  };
+  const adsForTable = useMemo(() => {
+    if (baseMapped.length === 0 || !showTrends) return baseMapped;
+    let changed = false;
+    const result = baseMapped.map((row) => {
+      const groupKey = resolveGroupKey(row, activeManagerTab);
+      const series = activeSeriesCache[groupKey] || null;
+      const seriesLoading = !managerSeriesError && !series && (seriesPriming || pendingSeriesKeys.has(groupKey));
+      if (row.series === series && row.series_loading === seriesLoading) return row;
+      changed = true;
+      return { ...row, series, series_loading: seriesLoading };
+    });
+    return changed ? result : baseMapped;
+  }, [baseMapped, showTrends, activeSeriesCache, pendingSeriesKeys, seriesPriming, managerSeriesError, activeManagerTab]);
 
   // ── Averages ───────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (managerData && (managerData as any).averages) {
-      setServerAverages((managerData as any).averages);
-    }
-  }, [managerData]);
+  const activeServerAverages = (managerData as any)?.averages ?? null;
 
   useEffect(() => {
     const TOAST_ID = "manager-data-error";
@@ -395,143 +338,8 @@ function ManagerPageContent() {
     }
   }, [managerError]);
 
-  // ── Data mapping: Step 1 — base metrics ───────────────────────────────────
-  const baseMappedAdName = useMemo(() => {
-    if (activeManagerTab !== "por-anuncio") return [] as any[];
-    if (!serverData || serverData.length === 0) return [] as any[];
-    return serverData.map((row: any): ManagerRow => {
-      const conversionsObj = row.conversions || {};
-      const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-      const lpv = Number(row.lpv || 0);
-      const spend = Number(row.spend || 0);
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      const cpr = results > 0 ? spend / results : 0;
-      const cpm = typeof row.cpm === "number" ? row.cpm : 0;
-      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
-      const connect_rate = Number(row.connect_rate || 0);
-      const overall_conversion = website_ctr * connect_rate * page_conv;
-      return { ...row, lpv, spend, cpr, cpm, page_conv, overall_conversion, website_ctr, connect_rate, video_total_plays: Number(row.plays || 0), conversions: conversionsObj, series: null, series_loading: false, creative: {} };
-    });
-  }, [serverData, actionType, activeManagerTab]);
-
-  const baseMappedIndividual = useMemo(() => {
-    if (activeManagerTab !== "individual") return [] as any[];
-    if (!serverDataIndividual || serverDataIndividual.length === 0) return [] as any[];
-    return serverDataIndividual.map((row: any): ManagerRow => {
-      const conversionsObj = row.conversions || {};
-      const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-      const lpv = Number(row.lpv || 0);
-      const spend = Number(row.spend || 0);
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      const cpr = results > 0 ? spend / results : 0;
-      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
-      const connect_rate = Number(row.connect_rate || 0);
-      const overall_conversion = website_ctr * connect_rate * page_conv;
-      return { ...row, lpv, spend, cpr, cpm: Number(row.cpm || 0), page_conv, overall_conversion, website_ctr, connect_rate, video_total_plays: Number(row.plays || 0), conversions: conversionsObj, series: null, series_loading: false, creative: {} };
-    });
-  }, [serverDataIndividual, actionType, activeManagerTab]);
-
-  // ── Step 2: Attach series ──────────────────────────────────────────────────
-  const adsForTable = useMemo(() => {
-    if (baseMappedAdName.length === 0 || !showTrends) return baseMappedAdName;
-    const pending = pendingSeriesKeysByTab["por-anuncio"];
-    const priming = seriesPrimingByTab["por-anuncio"];
-    let changed = false;
-    const result = baseMappedAdName.map((row) => {
-      const groupKey = String(row?.group_key || row?.ad_name || row?.ad_id || "");
-      const series = seriesByGroupAdName[groupKey] || null;
-      const seriesLoading = !managerSeriesErrorAdName && !series && (priming || pending.has(groupKey));
-      if (row.series === series && row.series_loading === seriesLoading) return row;
-      changed = true;
-      return { ...row, series, series_loading: seriesLoading };
-    });
-    return changed ? result : baseMappedAdName;
-  }, [baseMappedAdName, showTrends, seriesByGroupAdName, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdName]);
-
-  const adsForIndividualTable = useMemo(() => {
-    if (baseMappedIndividual.length === 0 || !showTrends) return baseMappedIndividual;
-    const pending = pendingSeriesKeysByTab.individual;
-    const priming = seriesPrimingByTab.individual;
-    let changed = false;
-    const result = baseMappedIndividual.map((row) => {
-      const groupKey = String(row?.group_key || row?.ad_id || "");
-      const series = seriesByGroupIndividual[groupKey] || null;
-      const seriesLoading = !managerSeriesErrorIndividual && !series && (priming || pending.has(groupKey));
-      if (row.series === series && row.series_loading === seriesLoading) return row;
-      changed = true;
-      return { ...row, series, series_loading: seriesLoading };
-    });
-    return changed ? result : baseMappedIndividual;
-  }, [baseMappedIndividual, showTrends, seriesByGroupIndividual, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorIndividual]);
-
-  const baseMappedAdset = useMemo(() => {
-    if (activeManagerTab !== "por-conjunto") return [] as any[];
-    if (!serverDataAdset || serverDataAdset.length === 0) return [] as any[];
-    return serverDataAdset.map((row: any): ManagerRow => {
-      const conversionsObj = row.conversions || {};
-      const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-      const lpv = Number(row.lpv || 0);
-      const spend = Number(row.spend || 0);
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      const cpr = results > 0 ? spend / results : 0;
-      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
-      const connect_rate = Number(row.connect_rate || 0);
-      const overall_conversion = website_ctr * connect_rate * page_conv;
-      return { ...row, ad_name: row.ad_name || row.adset_name || row.adset_id, lpv, spend, cpr, cpm: Number(row.cpm || 0), page_conv, overall_conversion, website_ctr, connect_rate, video_total_plays: Number(row.plays || 0), conversions: conversionsObj, series: null, series_loading: false, creative: {} };
-    });
-  }, [serverDataAdset, actionType, activeManagerTab]);
-
-  const baseMappedCampaign = useMemo(() => {
-    if (activeManagerTab !== "por-campanha") return [] as any[];
-    if (!serverDataCampaign || serverDataCampaign.length === 0) return [] as any[];
-    return serverDataCampaign.map((row: any): ManagerRow => {
-      const conversionsObj = row.conversions || {};
-      const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
-      const lpv = Number(row.lpv || 0);
-      const spend = Number(row.spend || 0);
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      const cpr = results > 0 ? spend / results : 0;
-      const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
-      const connect_rate = Number(row.connect_rate || 0);
-      const overall_conversion = website_ctr * connect_rate * page_conv;
-      return { ...row, ad_name: row.ad_name || row.campaign_name || row.campaign_id, lpv, spend, cpr, cpm: Number(row.cpm || 0), page_conv, overall_conversion, website_ctr, connect_rate, video_total_plays: Number(row.plays || 0), conversions: conversionsObj, series: null, series_loading: false, creative: {} };
-    });
-  }, [serverDataCampaign, actionType, activeManagerTab]);
-
-  const adsForAdsetTable = useMemo(() => {
-    if (baseMappedAdset.length === 0 || !showTrends) return baseMappedAdset;
-    const pending = pendingSeriesKeysByTab["por-conjunto"];
-    const priming = seriesPrimingByTab["por-conjunto"];
-    let changed = false;
-    const result = baseMappedAdset.map((row) => {
-      const groupKey = String(row?.group_key || row?.adset_id || "");
-      const series = seriesByGroupAdset[groupKey] || null;
-      const seriesLoading = !managerSeriesErrorAdset && !series && (priming || pending.has(groupKey));
-      if (row.series === series && row.series_loading === seriesLoading) return row;
-      changed = true;
-      return { ...row, series, series_loading: seriesLoading };
-    });
-    return changed ? result : baseMappedAdset;
-  }, [baseMappedAdset, showTrends, seriesByGroupAdset, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorAdset]);
-
-  const adsForCampaignTable = useMemo(() => {
-    if (baseMappedCampaign.length === 0 || !showTrends) return baseMappedCampaign;
-    const pending = pendingSeriesKeysByTab["por-campanha"];
-    const priming = seriesPrimingByTab["por-campanha"];
-    let changed = false;
-    const result = baseMappedCampaign.map((row) => {
-      const groupKey = String(row?.group_key || row?.campaign_id || "");
-      const series = seriesByGroupCampaign[groupKey] || null;
-      const seriesLoading = !managerSeriesErrorCampaign && !series && (priming || pending.has(groupKey));
-      if (row.series === series && row.series_loading === seriesLoading) return row;
-      changed = true;
-      return { ...row, series, series_loading: seriesLoading };
-    });
-    return changed ? result : baseMappedCampaign;
-  }, [baseMappedCampaign, showTrends, seriesByGroupCampaign, pendingSeriesKeysByTab, seriesPrimingByTab, managerSeriesErrorCampaign]);
-
   // ── Validated averages (for por-anuncio tab only) ──────────────────────────
-  const [validatedManagerForAverages, validatedAveragesForAverages] = useMemo(() => {
+  const [, validatedAveragesForAverages] = useMemo(() => {
     if (activeManagerTab !== "por-anuncio") return [[], undefined] as [any[], any];
     if (!serverData || serverData.length === 0) return [[], undefined] as [any[], any];
 
@@ -566,6 +374,16 @@ function ManagerPageContent() {
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
 
+  // ── Handlers ───────────────────────────────────────────────────────────────
+  const handleShowTrendsChange = (checked: boolean) => {
+    setShowTrends(checked);
+    try {
+      localStorage.setItem("hookify-manager-show-trends", checked.toString());
+    } catch (e) {
+      logger.error("Erro ao salvar showTrends no localStorage:", e);
+    }
+  };
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (!isClient) {
     return <ManagerPageFallback />;
@@ -598,12 +416,6 @@ function ManagerPageContent() {
           activeTab={activeManagerTab}
           onTabChange={handleTabChange}
           selectedPackIds={Array.from(selectedPackIds)}
-          adsIndividual={adsForIndividualTable}
-          isLoadingIndividual={loadingIndividual}
-          adsAdset={adsForAdsetTable}
-          isLoadingAdset={loadingAdset}
-          adsCampaign={adsForCampaignTable}
-          isLoadingCampaign={loadingCampaign}
           onVisibleGroupKeysChange={handleVisibleGroupKeysChange}
           actionType={actionType}
           endDate={endDate}
@@ -616,7 +428,7 @@ function ManagerPageContent() {
           isError={!!managerError && !loading && packsReady}
           initialFilters={initialFilters}
           averagesOverride={(() => {
-            const base = validatedAveragesForAverages || serverAverages || null;
+            const base = validatedAveragesForAverages || activeServerAverages || null;
             if (!base) return undefined;
             const per = (base as any).per_action_type || {};
             const perSel = actionType ? per[actionType] : undefined;

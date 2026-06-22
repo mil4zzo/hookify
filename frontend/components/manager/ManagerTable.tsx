@@ -321,6 +321,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     } else {
       toast.dismiss(SLOW_LOADING_TOAST_ID);
     }
+    return () => { toast.dismiss(SLOW_LOADING_TOAST_ID); };
   }, [showSlowLoadingHint]);
 
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
@@ -418,6 +419,14 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Versão deferida para alimentar filtragem/médias pesadas; o input usa o valor urgente
   // para não perder caracteres durante digitação rápida.
   const deferredGlobalFilter = useDeferredValue(globalFilter);
+
+  // Limpar seleção em lote quando o usuário filtra — evita "Pausar" atingir ads fora da vista.
+  // Complementa o reset de handleTabChange (que cobre troca de aba). Functional update com
+  // bailout: quando já está vazio (caso comum, ex: digitar na busca sem nada selecionado),
+  // retorna a mesma ref → React pula o re-render.
+  useEffect(() => {
+    setRowSelection((prev) => (Object.keys(prev).length === 0 ? prev : {}));
+  }, [columnFilters, globalFilter]);
 
   // Estado para gerenciar o tamanho das colunas
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
