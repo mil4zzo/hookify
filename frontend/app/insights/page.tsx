@@ -1,19 +1,14 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { StatePanel, StateSkeleton } from "@/components/common/States";
-import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { OpportunityWidget } from "@/components/insights/OpportunityWidget";
 import { calculateGlobalMetricRanks, createEmptyMetricRanks } from "@/lib/utils/metricRankings";
 import { GemsWidget } from "@/components/insights/GemsWidget";
 import { GemsColumnFilter, GemsColumnType } from "@/components/common/GemsColumnFilter";
 import { InsightsKanbanWidget } from "@/components/insights/InsightsKanbanWidget";
-import { api } from "@/lib/api/endpoints";
-import { AdPerformanceRequest, AdPerformanceResponse, RankingsItem } from "@/lib/api/schemas";
+import { RankingsItem } from "@/lib/api/schemas";
 import { computeOpportunityScores, OpportunityRow } from "@/lib/utils/opportunity";
-import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
-import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
-import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { IconSparkles, IconDiamond, IconSunFilled, IconStarFilled } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
@@ -26,7 +21,7 @@ import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { TabbedContentItem } from "@/components/common/TabbedContent";
 import { AnalyticsWorkspace, TabbedWorkspace } from "@/components/common/layout";
-import { useFilters } from "@/lib/hooks/useFilters";
+import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
 
 // Chaves específicas do Insights
 const STORAGE_KEY_GROUP_BY_PACKS = "hookify-insights-group-by-packs";
@@ -100,21 +95,24 @@ const loadGemsColumns = (): Set<GemsColumnType> => {
 export default function InsightsPage() {
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
 
-  // ── Global filter state ────────────────────────────────────────────────────
+  // ── Pipeline compartilhado (fetch + validação + médias) ───────────────────
+  // filterToSelectedPacks=false: Insights valida sobre todos os dados do servidor,
+  // não filtra por pack client-side (usa pack_ids no request para escopo do servidor).
   const {
-    selectedPackIds,
-    effectiveDateRange: dateRange,
+    serverData,
+    serverAverages: averages,
+    validatedAds,
+    validatedAverages,
     actionType,
     actionTypeOptions,
-    setActionTypeOptions,
+    selectedPackIds,
+    dateRange,
     packs,
     packsClient,
-  } = useFilters();
-
-  // ── Page-specific state ────────────────────────────────────────────────────
-  const [serverData, setServerData] = useState<any[] | null>(null);
-  const [averages, setAverages] = useState<any | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
+    validationCriteria,
+    getPackId: getAdPackId,
+    isLoading: loading,
+  } = useAdPerformancePipeline({ filterToSelectedPacks: false });
 
   const [groupByPacks, setGroupByPacks] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
@@ -149,42 +147,6 @@ export default function InsightsPage() {
     }
   });
 
-  // ── Data fetch ─────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!isAuthorized) return;
-
-    const start = dateRange.start;
-    const end = dateRange.end;
-    if (!start || !end) return;
-
-    const req: AdPerformanceRequest = {
-      date_start: start,
-      date_stop: end,
-      group_by: "ad_name",
-      limit: 1000,
-      filters: {},
-      pack_ids: Array.from(selectedPackIds),
-    };
-
-    setLoading(true);
-    api.analytics
-      .getAdPerformance(req)
-      .then((res: AdPerformanceResponse) => {
-        setServerData(res.data || []);
-        setActionTypeOptions(res.available_conversion_types || []);
-        setAverages(res.averages);
-      })
-      .catch((err) => {
-        console.error("Erro ao buscar insights:", err);
-        setServerData([]);
-      })
-      .finally(() => setLoading(false));
-  }, [isAuthorized, dateRange.start, dateRange.end, selectedPackIds]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Pack ads (for pack-to-ad mapping) ─────────────────────────────────────
-  const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
-  const { packsAdsMap } = usePacksAds(selectedPacks);
-
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleToggleGroupByPacks = (checked: boolean) => {
     setGroupByPacks(checked);
@@ -214,85 +176,6 @@ export default function InsightsPage() {
       console.error("Erro ao salvar activeTab no localStorage:", e);
     }
   };
-
-  // ── Pack-to-ad lookup ──────────────────────────────────────────────────────
-  const getAdPackId = useMemo(() => {
-    return (ad: any): string | null => {
-      if (selectedPackIds.size === 0) return null;
-      if (selectedPacks.length === 0) return null;
-
-      for (const pack of selectedPacks) {
-        const packAds = packsAdsMap.get(pack.id) || [];
-        if (packAds.length === 0) continue;
-
-        const matches = packAds.some((packAd: any) => {
-          const adId = ad.ad_id;
-          const adName = ad.ad_name;
-          const adAccountId = ad.account_id;
-          const packAdId = packAd.ad_id;
-          const packAdName = packAd.ad_name;
-          const packAdAccountId = packAd.account_id;
-
-          if (adAccountId && packAdAccountId) {
-            if (String(adAccountId).trim() !== String(packAdAccountId).trim()) return false;
-          }
-          if (adId && packAdId && String(adId).trim() === String(packAdId).trim()) return true;
-          if (adName && packAdName && String(adName).trim() === String(packAdName).trim()) return true;
-          return false;
-        });
-
-        if (matches) return pack.id;
-      }
-      return null;
-    };
-  }, [selectedPackIds, selectedPacks, packsAdsMap]);
-
-  // ── Validation ─────────────────────────────────────────────────────────────
-  const { criteria: validationCriteria, isLoading: isLoadingCriteria } = useValidationCriteria();
-
-  const [validatedAds, validatedAverages] = useMemo(() => {
-    if (!serverData || serverData.length === 0) return [[], undefined] as [any[], any];
-
-    if (!validationCriteria || validationCriteria.length === 0) {
-      const avg = computeValidatedAveragesFromAdPerformance(serverData as any, actionType, actionTypeOptions);
-      return [serverData, avg] as [any[], any];
-    }
-
-    const validated = serverData.filter((ad: any) => {
-      const impressions = Number(ad.impressions || 0);
-      const spend = Number(ad.spend || 0);
-      const cpm = typeof ad.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm) ? ad.cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
-      const website_ctr = Number(ad.website_ctr || 0);
-      const connect_rate = Number(ad.connect_rate || 0);
-      const lpv = Number(ad.lpv || 0);
-      const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      const overall_conversion = website_ctr * connect_rate * page_conv;
-
-      const metrics: AdMetricsData = {
-        ad_name: ad.ad_name,
-        ad_id: ad.ad_id,
-        account_id: ad.account_id,
-        impressions,
-        spend,
-        cpm,
-        website_ctr,
-        connect_rate,
-        inline_link_clicks: Number(ad.inline_link_clicks || 0),
-        clicks: Number(ad.clicks || 0),
-        plays: Number(ad.plays || 0),
-        hook: Number(ad.hook || 0),
-        ctr: Number(ad.ctr || 0),
-        page_conv,
-        overall_conversion,
-        conversions: ad.conversions || {},
-      };
-      return evaluateValidationCriteria(validationCriteria, metrics, "AND");
-    });
-
-    const avg = computeValidatedAveragesFromAdPerformance(validated as any, actionType, actionTypeOptions);
-    return [validated, avg] as [any[], any];
-  }, [serverData, validationCriteria, actionType, actionTypeOptions]);
 
   // ── Gems top items ─────────────────────────────────────────────────────────
   const topHookFromGems: GemsTopItem[] = useMemo(() => {
@@ -348,10 +231,10 @@ export default function InsightsPage() {
 
   const opportunityRows = useMemo(() => {
     if (!validatedAds || validatedAds.length === 0 || !validatedAverages) return [];
-    if (isLoadingCriteria) return [];
+    if (loading) return [];
     const spendTotal = validatedAds.reduce((s: number, a: any) => s + Number(a.spend || 0), 0);
     return computeOpportunityScores({ ads: validatedAds, averages: validatedAverages, actionType, spendTotal, mqlLeadscoreMin, limit: 10 });
-  }, [validatedAds, validatedAverages, actionType, isLoadingCriteria, mqlLeadscoreMin]);
+  }, [validatedAds, validatedAverages, actionType, loading, mqlLeadscoreMin]);
 
   const globalMetricRanks = useMemo(() => {
     if (!serverData || serverData.length === 0) return createEmptyMetricRanks();
@@ -359,9 +242,15 @@ export default function InsightsPage() {
     return calculateGlobalMetricRanks(serverData, { validationCriteria: criteriaToUse, actionType, filterValidOnly: true, mqlLeadscoreMin });
   }, [serverData, validationCriteria, actionType, mqlLeadscoreMin]);
 
+  // KNOWN ISSUE: "Por Pack" usa médias globais (validatedAverages) com actionType por-pack
+  // (packActionTypes[packId]). Isso produz comparações incorretas porque a média foi calculada
+  // com o actionType global. Correção requer N fetches separados (um por pack × actionType)
+  // ou remoção do recurso — decisão de produto pendente.
+  // Adicionalmente, a RPC fetch_manager_rankings_core_v2 é single-key (uma chave de conversão
+  // por request), portanto incompatível com eventos diferentes por pack numa única request.
   const opportunityRowsByPack = useMemo(() => {
     if (!groupByPacks || !validatedAds || validatedAds.length === 0 || !validatedAverages) return null;
-    if (isLoadingCriteria) return null;
+    if (loading) return null;
 
     const adsByPack = new Map<string, any[]>();
     validatedAds.forEach((ad: any) => {
@@ -383,7 +272,7 @@ export default function InsightsPage() {
     });
 
     return rowsByPack;
-  }, [groupByPacks, serverData, averages, actionType, validationCriteria, isLoadingCriteria, getAdPackId, packActionTypes]);
+  }, [groupByPacks, validatedAds, validatedAverages, actionType, loading, getAdPackId, packActionTypes]);
 
   const headerConfig = useMemo(() => {
     return TAB_HEADER_CONFIG[activeTab as keyof typeof TAB_HEADER_CONFIG] ?? TAB_HEADER_CONFIG.opportunities;
@@ -403,7 +292,6 @@ export default function InsightsPage() {
   }
 
   const hasData = serverData && serverData.length > 0;
-  const isInitialLoad = serverData === null && loading;
   const isLoadingData = loading;
 
   // ── Skeletons ──────────────────────────────────────────────────────────────
@@ -451,7 +339,7 @@ export default function InsightsPage() {
         >
         {/* Tab Oportunidades */}
         <TabbedContentItem value="opportunities" variant="with-icons">
-          {isLoadingData || isInitialLoad ? (
+          {isLoadingData ? (
             <OpportunitiesSkeleton />
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
@@ -516,11 +404,11 @@ export default function InsightsPage() {
 
         {/* Tab Insights */}
         <TabbedContentItem value="insights" variant="with-icons">
-          {isLoadingData || isInitialLoad ? (
+          {isLoadingData ? (
             <InsightsSkeleton />
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
-          ) : validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
+          ) : validationCriteria && validationCriteria.length > 0 && !loading && validatedAverages ? (
             <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
           ) : (
             <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
@@ -529,11 +417,11 @@ export default function InsightsPage() {
 
         {/* Tab Gems */}
         <TabbedContentItem value="gems" variant="with-icons">
-          {isLoadingData || isInitialLoad ? (
+          {isLoadingData ? (
             <GemsSkeleton />
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
-          ) : validationCriteria && validationCriteria.length > 0 && !isLoadingCriteria && validatedAverages ? (
+          ) : validationCriteria && validationCriteria.length > 0 && !loading && validatedAverages ? (
             <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
           ) : (
             <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />

@@ -144,8 +144,14 @@ export const useFiltersStore = create<FiltersStore>()(
       setUsePackDates: (value) => set({ usePackDates: value }),
 
       setActionTypeOptions: (options) => {
-        const { actionType } = get()
-        const updates: Partial<FiltersStore> = { actionTypeOptions: options }
+        const { actionType, actionTypeOptions } = get()
+        // Só reescreve a lista se ela realmente mudou — evita re-render redundante de todos
+        // os subscribers de actionTypeOptions quando um fetch devolve a mesma lista (chamado
+        // a cada resolução de query no useAdPerformancePipeline).
+        const sameOptions =
+          options.length === actionTypeOptions.length &&
+          options.every((t, i) => t === actionTypeOptions[i])
+        const updates: Partial<FiltersStore> = sameOptions ? {} : { actionTypeOptions: options }
         if (options.length > 0) {
           // Auto-select first option if current is empty or no longer available
           if (!actionType || !options.includes(actionType)) {
@@ -158,7 +164,7 @@ export const useFiltersStore = create<FiltersStore>()(
           // Insights/Gold/Manager só chamam após dados reais (não em loading transiente).
           updates.actionType = ''
         }
-        set(updates)
+        if (Object.keys(updates).length > 0) set(updates)
       },
 
       syncPacksOnLoad: (allPackIds) => {

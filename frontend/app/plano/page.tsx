@@ -1,12 +1,7 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
-import { usePacksAds } from "@/lib/hooks/usePacksAds";
-import { api } from "@/lib/api/endpoints";
-import type { AdPerformanceRequest, AdPerformanceResponse, RankingsItem } from "@/lib/api/schemas";
-import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
-import { evaluateValidationCriteria, type AdMetricsData } from "@/lib/utils/validateAdCriteria";
-import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
+import { useState, useMemo, useCallback } from "react";
+import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
 import { splitAdsIntoGoldBuckets } from "@/lib/utils/goldClassification";
 import { computeOpportunityScores } from "@/lib/utils/opportunity";
 import { buildActionPlan } from "@/lib/utils/actionPlan";
@@ -21,6 +16,7 @@ import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { IconPencil, IconCheck, IconX, IconInfoCircle } from "@tabler/icons-react";
 import { StandardCard } from "@/components/common/StandardCard";
+import type { RankingsItem } from "@/lib/api/schemas";
 
 function PlanPageSkeleton() {
   return (
@@ -34,24 +30,21 @@ function PlanPageSkeleton() {
 
 export default function PlanoPage() {
   const { isClient, isAuthorized } = useAppAuthReady();
-
-  const {
-    selectedPackIds,
-    effectiveDateRange: dateRange,
-    actionType,
-    actionTypeOptions,
-    setActionTypeOptions,
-    packs,
-    packsClient,
-  } = useFilters();
+  const { actionType, actionTypeOptions, selectedPackIds, packsClient } = useFilters();
 
   const { mqlLeadscoreMin } = useMqlLeadscore();
   const { targetCprByActionType, savePreferences, isSaving } = useUserPreferences();
   const formatCurrency = useFormatCurrency();
 
-  const [serverData, setServerData] = useState<any[] | null>(null);
-  const [averages, setAverages] = useState<any | undefined>(undefined);
-  const [loading, setLoading] = useState(false);
+  const {
+    filteredRankings,
+    validatedAds,
+    notValidatedAds,
+    validatedAverages,
+    validationCriteria,
+    dateRange,
+    isLoading,
+  } = useAdPerformancePipeline();
 
   // Target CPR editing
   const [editingTarget, setEditingTarget] = useState(false);
@@ -79,116 +72,6 @@ export default function PlanoPage() {
     await savePreferences({ targetCprByActionType: next });
   }, [actionType, targetCprByActionType, savePreferences]);
 
-  // Fetch data — same pattern as gold/page.tsx
-  useEffect(() => {
-    if (!isAuthorized) return;
-    const start = dateRange.start;
-    const end = dateRange.end;
-    if (!start || !end) return;
-    if (selectedPackIds.size === 0) return;
-
-    const req: AdPerformanceRequest = {
-      date_start: start,
-      date_stop: end,
-      group_by: "ad_name",
-      limit: 1000,
-      filters: {},
-      pack_ids: Array.from(selectedPackIds),
-    };
-
-    setLoading(true);
-    api.analytics
-      .getAdPerformance(req)
-      .then((res: AdPerformanceResponse) => {
-        setServerData(res.data || []);
-        setActionTypeOptions(res.available_conversion_types || []);
-        setAverages(res.averages);
-      })
-      .catch((err) => {
-        console.error("Erro ao buscar dados do Plano de Ação:", err);
-        setServerData([]);
-      })
-      .finally(() => setLoading(false));
-  }, [isAuthorized, dateRange.start, dateRange.end, selectedPackIds]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
-  const { packsAdsMap } = usePacksAds(selectedPacks);
-
-  const isRankingInSelectedPacks = useMemo(() => {
-    return (ranking: any): boolean => {
-      if (selectedPackIds.size === 0) return false;
-      if (selectedPacks.length === 0) return false;
-      for (const pack of selectedPacks) {
-        const packAds = packsAdsMap.get(pack.id) || [];
-        if (packAds.length === 0) continue;
-        const matches = packAds.some((ad: any) => {
-          const rankingAccountId = ranking.account_id;
-          const adAccountId = ad.account_id;
-          if (rankingAccountId && adAccountId && String(rankingAccountId).trim() !== String(adAccountId).trim()) return false;
-          if (ranking.ad_id && ad.ad_id && String(ranking.ad_id).trim() === String(ad.ad_id).trim()) return true;
-          if (ranking.ad_name && ad.ad_name && String(ranking.ad_name).trim() === String(ad.ad_name).trim()) return true;
-          return false;
-        });
-        if (matches) return true;
-      }
-      return false;
-    };
-  }, [selectedPackIds, selectedPacks, packsAdsMap]);
-
-  const filteredRankings = useMemo(() => {
-    if (!serverData) return [];
-    return serverData.filter((row: any) => isRankingInSelectedPacks(row));
-  }, [serverData, isRankingInSelectedPacks]);
-
-  const { criteria: validationCriteria, isLoading: isLoadingCriteria } = useValidationCriteria();
-
-  const [validatedAds, notValidatedAds, validatedAverages] = useMemo(() => {
-    if (!filteredRankings || filteredRankings.length === 0) {
-      return [[], [], undefined] as [any[], any[], any];
-    }
-
-    if (!validationCriteria || validationCriteria.length === 0) {
-      const avgs = computeValidatedAveragesFromAdPerformance(filteredRankings as any, actionType, actionTypeOptions);
-      return [filteredRankings, [], avgs] as [any[], any[], any];
-    }
-
-    const validated: any[] = [];
-    const notValidated: any[] = [];
-
-    for (const ad of filteredRankings) {
-      const impressions = Number(ad.impressions || 0);
-      const spend = Number(ad.spend || 0);
-      const cpm = typeof ad.cpm === "number" && !isNaN(ad.cpm) && isFinite(ad.cpm) ? ad.cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
-      const website_ctr = Number(ad.website_ctr || 0);
-      const connect_rate = Number(ad.connect_rate || 0);
-      const lpv = Number(ad.lpv || 0);
-      const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
-      const page_conv = lpv > 0 ? results / lpv : 0;
-
-      const metrics: AdMetricsData = {
-        ad_name: ad.ad_name, ad_id: ad.ad_id, account_id: ad.account_id,
-        impressions, spend, cpm, website_ctr, connect_rate,
-        inline_link_clicks: Number(ad.inline_link_clicks || 0),
-        clicks: Number(ad.clicks || 0),
-        plays: Number(ad.plays || 0),
-        hook: Number(ad.hook || 0),
-        ctr: Number(ad.ctr || 0),
-        page_conv,
-        overall_conversion: website_ctr * connect_rate * page_conv,
-        conversions: ad.conversions || {},
-      };
-
-      if (evaluateValidationCriteria(validationCriteria, metrics, "AND")) {
-        validated.push(ad);
-      } else {
-        notValidated.push(ad);
-      }
-    }
-
-    const avgs = computeValidatedAveragesFromAdPerformance(validated as any, actionType, actionTypeOptions);
-    return [validated, notValidated, avgs] as [any[], any[], any];
-  }, [filteredRankings, validationCriteria, actionType, actionTypeOptions]);
-
   const actionPlan = useMemo(() => {
     if (!validatedAds || validatedAds.length === 0 || !actionType || !validatedAverages) return null;
 
@@ -212,7 +95,7 @@ export default function PlanoPage() {
   }, [validatedAds, notValidatedAds, validatedAverages, actionType, mqlLeadscoreMin, targetCprByActionType]);
 
   if (!isClient || !isAuthorized) return <PlanPageSkeleton />;
-  if (loading || isLoadingCriteria) return <PlanPageSkeleton />;
+  if (isLoading) return <PlanPageSkeleton />;
 
   if (selectedPackIds.size === 0 || !packsClient) {
     return (
@@ -222,10 +105,23 @@ export default function PlanoPage() {
     );
   }
 
-  if (!serverData || filteredRankings.length === 0) {
+  if (!validatedAds || validatedAds.length === 0) {
+    // Distingue "período sem anúncio nenhum" de "anúncios existem mas nenhum passou na validação".
+    // Sem a checagem de filteredRankings, um período vazio mostraria "ajuste os critérios"
+    // (induzindo o usuário a mexer nos critérios sem motivo).
+    const hadAds = filteredRankings.length > 0;
     return (
       <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
-        <WorkspaceState kind="empty" message="Nenhum anúncio encontrado para os filtros selecionados." framed={false} fill />
+        <WorkspaceState
+          kind="empty"
+          message={
+            hadAds && validationCriteria && validationCriteria.length > 0
+              ? "Nenhum anúncio passou nos critérios de validação. Ajuste os critérios ou selecione outro período."
+              : "Nenhum anúncio encontrado para os filtros selecionados."
+          }
+          framed={false}
+          fill
+        />
       </PageContainer>
     );
   }
@@ -312,11 +208,7 @@ export default function PlanoPage() {
         ) : (
           <WorkspaceState
             kind="empty"
-            message={
-              validationCriteria && validationCriteria.length > 0
-                ? "Nenhum anúncio passou nos critérios de validação. Ajuste os critérios ou selecione outro período."
-                : "Nenhum dado disponível para gerar o plano."
-            }
+            message="Nenhum dado disponível para gerar o plano."
             framed={false}
             fill
           />

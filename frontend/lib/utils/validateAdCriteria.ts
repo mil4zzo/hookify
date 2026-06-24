@@ -172,6 +172,45 @@ export function evaluateValidationCriteria(
 }
 
 /**
+ * Constrói AdMetricsData a partir de uma linha de RankingsItem + actionType.
+ * Extrai os campos que avaliam os critérios de validação, derivando page_conv e overall_conversion.
+ */
+export function buildAdMetricsData(ad: any, actionType?: string): AdMetricsData {
+  const impressions = Number(ad.impressions || 0);
+  const spend = Number(ad.spend || 0);
+  const cpm =
+    typeof ad.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm)
+      ? ad.cpm
+      : impressions > 0
+      ? (spend * 1000) / impressions
+      : 0;
+  const website_ctr = Number(ad.website_ctr || 0);
+  const connect_rate = Number(ad.connect_rate || 0);
+  const lpv = Number(ad.lpv || 0);
+  const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
+  const page_conv = lpv > 0 ? results / lpv : 0;
+
+  return {
+    ad_name: ad.ad_name,
+    ad_id: ad.ad_id,
+    account_id: ad.account_id,
+    impressions,
+    spend,
+    cpm,
+    website_ctr,
+    connect_rate,
+    inline_link_clicks: Number(ad.inline_link_clicks || 0),
+    clicks: Number(ad.clicks || 0),
+    plays: Number(ad.plays || 0),
+    hook: Number(ad.hook || 0),
+    ctr: Number(ad.ctr || 0),
+    page_conv,
+    overall_conversion: website_ctr * connect_rate * page_conv,
+    conversions: ad.conversions || {},
+  };
+}
+
+/**
  * Agrega métricas de múltiplos anúncios para avaliação em grupo (ad_name)
  * Soma campos numéricos e mantém campos de texto do primeiro item
  */
