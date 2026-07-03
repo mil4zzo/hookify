@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
+import { usePackDiagnostic } from "@/lib/hooks/usePackDiagnostic";
 import { splitAdsIntoGoldBuckets } from "@/lib/utils/goldClassification";
 import { computeOpportunityScores } from "@/lib/utils/opportunity";
 import { buildActionPlan } from "@/lib/utils/actionPlan";
@@ -11,12 +12,14 @@ import { useFilters } from "@/lib/hooks/useFilters";
 import { StateSkeleton } from "@/components/common/States";
 import { AnalyticsWorkspace, WorkspaceState } from "@/components/common/layout";
 import { ActionPlanList } from "@/components/plano/ActionPlanList";
+import { PlanHero } from "@/components/plano/PlanHero";
+import { PackDiagnosticPanel } from "@/components/plano/PackDiagnosticPanel";
+import { DayComparisonBlock } from "@/components/plano/DayComparisonBlock";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
-import { useFormatCurrency } from "@/lib/utils/currency";
-import { IconPencil, IconCheck, IconX, IconInfoCircle } from "@tabler/icons-react";
-import { StandardCard } from "@/components/common/StandardCard";
 import type { RankingsItem } from "@/lib/api/schemas";
+import type { Verdict } from "@/lib/utils/actionPlan";
+import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
 
 function PlanPageSkeleton() {
   return (
@@ -33,8 +36,7 @@ export default function PlanoPage() {
   const { actionType, actionTypeOptions, selectedPackIds, packsClient } = useFilters();
 
   const { mqlLeadscoreMin } = useMqlLeadscore();
-  const { targetCprByActionType, savePreferences, isSaving } = useUserPreferences();
-  const formatCurrency = useFormatCurrency();
+  const { targetCprByActionType, diagnosticCostMetric, savePreferences, isSaving } = useUserPreferences();
 
   const {
     filteredRankings,
@@ -46,32 +48,45 @@ export default function PlanoPage() {
     isLoading,
   } = useAdPerformancePipeline();
 
-  // Target CPR editing
-  const [editingTarget, setEditingTarget] = useState(false);
-  const [targetInput, setTargetInput] = useState("");
+  // ─── Diagnostic hook (single series fetch for both hero + panel) ───────────
+  const diagnostic = usePackDiagnostic({
+    validatedAds: (validatedAds ?? []) as RankingsItem[],
+    actionType: actionType ?? "",
+    selectedPackIds,
+    dateRange: { start: dateRange.start ?? "", end: dateRange.end ?? "" },
+    targetOverride: diagnosticCostMetric,
+  });
 
-  const currentTarget = actionType ? targetCprByActionType?.[actionType] : undefined;
+  // ─── Panel visibility + chip expand state ─────────────────────────────────
+  const [showDiagnostic, setShowDiagnostic] = useState(false);
+  const [expandedVerdicts, setExpandedVerdicts] = useState<Verdict[]>([]);
 
-  const handleSaveTarget = useCallback(async () => {
-    const val = parseFloat(targetInput.replace(",", "."));
+  const handleChipClick = useCallback((verdict: Verdict) => {
+    setExpandedVerdicts((prev) =>
+      prev.includes(verdict) ? prev : [...prev, verdict]
+    );
+  }, []);
+
+  // ─── Target CPR handler ───────────────────────────────────────────────────
+  const handleSaveTarget = useCallback(async (val?: number) => {
     if (!actionType) return;
     const next = { ...targetCprByActionType };
-    if (!isNaN(val) && val > 0) {
+    if (val !== undefined && val > 0) {
       next[actionType] = val;
     } else {
       delete next[actionType];
     }
     await savePreferences({ targetCprByActionType: next });
-    setEditingTarget(false);
-  }, [actionType, targetCprByActionType, targetInput, savePreferences]);
-
-  const handleClearTarget = useCallback(async () => {
-    if (!actionType) return;
-    const next = { ...targetCprByActionType };
-    delete next[actionType];
-    await savePreferences({ targetCprByActionType: next });
   }, [actionType, targetCprByActionType, savePreferences]);
 
+  const currentTarget = actionType ? targetCprByActionType?.[actionType] : undefined;
+
+  // Persisted CPMQL/CPR choice for the day-comparison block (drives all 3 widgets).
+  const handleSelectMetric = useCallback((m: DiagnosticTarget) => {
+    void savePreferences({ diagnosticCostMetric: m });
+  }, [savePreferences]);
+
+  // ─── Action plan ──────────────────────────────────────────────────────────
   const actionPlan = useMemo(() => {
     if (!validatedAds || validatedAds.length === 0 || !actionType || !validatedAverages) return null;
 
@@ -94,6 +109,7 @@ export default function PlanoPage() {
     });
   }, [validatedAds, notValidatedAds, validatedAverages, actionType, mqlLeadscoreMin, targetCprByActionType]);
 
+  // ─── Guards ───────────────────────────────────────────────────────────────
   if (!isClient || !isAuthorized) return <PlanPageSkeleton />;
   if (isLoading) return <PlanPageSkeleton />;
 
@@ -106,9 +122,6 @@ export default function PlanoPage() {
   }
 
   if (!validatedAds || validatedAds.length === 0) {
-    // Distingue "período sem anúncio nenhum" de "anúncios existem mas nenhum passou na validação".
-    // Sem a checagem de filteredRankings, um período vazio mostraria "ajuste os critérios"
-    // (induzindo o usuário a mexer nos critérios sem motivo).
     const hadAds = filteredRankings.length > 0;
     return (
       <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
@@ -138,61 +151,52 @@ export default function PlanoPage() {
     <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
       <AnalyticsWorkspace className="gap-6 overflow-visible">
 
-        {/* Target CPR configuration */}
-        <StandardCard variant="default" padding="sm" className="flex items-center gap-4 flex-wrap">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <IconInfoCircle className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-            <span className="text-sm text-muted-foreground">
-              Custo-alvo para{" "}
-              <span className="font-medium text-foreground">{actionType}</span>
-            </span>
-            {currentTarget ? (
-              <span className="text-sm font-bold text-foreground ml-1">
-                {formatCurrency(currentTarget)}
-              </span>
-            ) : (
-              <span className="text-xs text-muted-foreground italic ml-1">(não definido — modo relativo)</span>
-            )}
-          </div>
+        {/* Day-comparison block (last day vs previous): headline metric + driver cards + top-impact ads */}
+        <DayComparisonBlock
+          diagnostic={diagnostic}
+          actionType={actionType}
+          onSelectMetric={handleSelectMetric}
+          validatedAverages={validatedAverages}
+          actionTypeOptions={actionTypeOptions}
+          selectedPackIds={selectedPackIds}
+          dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
+          targetCpr={currentTarget}
+        />
 
-          {editingTarget ? (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">R$</span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                autoFocus
-                value={targetInput}
-                onChange={(e) => setTargetInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") handleSaveTarget(); if (e.key === "Escape") setEditingTarget(false); }}
-                placeholder="ex: 15,00"
-                className="w-28 text-sm border border-border rounded-md px-2 py-1 bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-              />
-              <button onClick={handleSaveTarget} disabled={isSaving} className="p-1 rounded hover:bg-success-10 text-success">
-                <IconCheck className="h-4 w-4" />
-              </button>
-              <button onClick={() => setEditingTarget(false)} className="p-1 rounded hover:bg-muted-30 text-muted-foreground">
-                <IconX className="h-4 w-4" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => { setTargetInput(currentTarget ? String(currentTarget) : ""); setEditingTarget(true); }}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted-30"
-              >
-                <IconPencil className="h-3.5 w-3.5" />
-                {currentTarget ? "Editar alvo" : "Definir alvo"}
-              </button>
-              {currentTarget && (
-                <button onClick={handleClearTarget} disabled={isSaving} className="text-xs text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded hover:bg-muted-30">
-                  Remover
-                </button>
-              )}
-            </div>
-          )}
-        </StandardCard>
+        {/* Hero: value statement + chips + target CPR + momentum */}
+        {actionPlan && (
+          <PlanHero
+            actionPlan={actionPlan}
+            actionType={actionType}
+            currentTarget={currentTarget}
+            isSaving={isSaving}
+            onSaveTarget={handleSaveTarget}
+            summary={diagnostic.summary}
+            minVolumeOk={diagnostic.minVolumeOk}
+            showDiagnostic={showDiagnostic}
+            onToggleDiagnostic={() => setShowDiagnostic((v) => !v)}
+            onChipClick={handleChipClick}
+          />
+        )}
+
+        {/* Collapsible diagnostic panel (default closed) */}
+        {showDiagnostic && diagnostic.snaps.length > 0 && (
+          <PackDiagnosticPanel
+            snaps={diagnostic.snaps}
+            decomposition={diagnostic.decomposition}
+            trendLines={diagnostic.trendLines}
+            budgetShareData={diagnostic.budgetShareData}
+            target={diagnostic.target}
+            adKeyToName={diagnostic.adKeyToName}
+            adMap={diagnostic.adMap}
+            comparisonLabel={diagnostic.comparisonLabel}
+            validatedAverages={validatedAverages}
+            actionType={actionType}
+            actionTypeOptions={actionTypeOptions}
+            selectedPackIds={selectedPackIds}
+            dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
+          />
+        )}
 
         {/* Action plan list */}
         {actionPlan ? (
@@ -204,6 +208,7 @@ export default function PlanoPage() {
             dateStop={dateRange.end}
             packIds={Array.from(selectedPackIds)}
             availableConversionTypes={actionTypeOptions}
+            expandedVerdicts={expandedVerdicts}
           />
         ) : (
           <WorkspaceState

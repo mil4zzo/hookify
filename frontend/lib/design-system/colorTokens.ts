@@ -1,12 +1,19 @@
 /**
  * Definições de tokens de cor do design system.
  * Usado pela página /design-system para exibir a paleta.
- * Categorias alinhadas a frontend/docs/DESIGN_SYSTEM.md.
+ * Fonte de verdade: frontend/lib/design-system/themeDefinitions.ts
+ * (gerado em frontend/app/theme-generated.css) + mapeamento Tailwind em
+ * frontend/tailwind.config.ts. Categorias alinhadas a frontend/docs/DESIGN_SYSTEM.md.
  */
 export interface ColorTokenDef {
   name: string;
   value: string;
-  category: "Base" | "Feedback" | "Componentes" | "Superfícies" | "Brand" | "Gráficos";
+  category: "Base" | "Feedback" | "Componentes" | "Superfícies" | "Brand" | "Navegação" | "Gráficos";
+  /**
+   * Quando true, o token só existe como variável CSS (não há classe Tailwind `bg-*`).
+   * A página copia `var(--name)` em vez de `bg-name`.
+   */
+  cssOnly?: boolean;
 }
 
 export const colorTokenDefinitions: ColorTokenDef[] = [
@@ -40,9 +47,13 @@ export const colorTokenDefinitions: ColorTokenDef[] = [
   { name: "success-label", value: "var(--success-label)", category: "Feedback" },
   { name: "success-foreground", value: "var(--success-foreground)", category: "Feedback" },
   { name: "success-20", value: "color-mix(in oklab, var(--success) 20%, var(--background))", category: "Feedback" },
+  { name: "success-90", value: "color-mix(in oklab, var(--success) 90%, var(--background))", category: "Feedback" },
   { name: "warning", value: "var(--warning)", category: "Feedback" },
   { name: "warning-foreground", value: "var(--warning-foreground)", category: "Feedback" },
   { name: "warning-20", value: "color-mix(in oklab, var(--warning) 20%, var(--background))", category: "Feedback" },
+  { name: "info", value: "var(--info)", category: "Feedback" },
+  { name: "info-foreground", value: "var(--info-foreground)", category: "Feedback" },
+  { name: "info-20", value: "color-mix(in oklab, var(--info) 20%, var(--background))", category: "Feedback" },
   { name: "attention", value: "var(--attention)", category: "Feedback" },
   { name: "attention-foreground", value: "var(--attention-foreground)", category: "Feedback" },
   { name: "attention-10", value: "color-mix(in oklab, var(--attention) 10%, var(--background))", category: "Feedback" },
@@ -58,12 +69,13 @@ export const colorTokenDefinitions: ColorTokenDef[] = [
   { name: "input-foreground", value: "var(--input-foreground)", category: "Componentes" },
   { name: "overlay", value: "var(--overlay)", category: "Componentes" },
   { name: "ring", value: "var(--ring)", category: "Componentes" },
+  { name: "ring-foreground", value: "var(--ring-foreground)", category: "Componentes" },
 
   // === SUPERFÍCIES ===
   { name: "surface", value: "var(--surface)", category: "Superfícies" },
   { name: "surface-fill", value: "var(--surface-fill)", category: "Superfícies" },
   { name: "surface-2", value: "var(--surface-2)", category: "Superfícies" },
-  { name: "surface3", value: "var(--surface-3)", category: "Superfícies" },
+  { name: "surface-3", value: "var(--surface-3)", category: "Superfícies" },
   { name: "muted", value: "var(--muted)", category: "Superfícies" },
   { name: "muted-foreground", value: "var(--muted-foreground)", category: "Superfícies" },
   { name: "muted-20", value: "color-mix(in oklab, var(--muted) 20%, var(--background))", category: "Superfícies" },
@@ -85,12 +97,25 @@ export const colorTokenDefinitions: ColorTokenDef[] = [
   { name: "primary-20", value: "color-mix(in oklab, var(--primary) 20%, var(--background))", category: "Brand" },
   { name: "primary-90", value: "color-mix(in oklab, var(--primary) 90%, var(--background))", category: "Brand" },
 
+  // === NAVEGAÇÃO ===
+  { name: "sidebar", value: "var(--sidebar)", category: "Navegação" },
+  { name: "sidebar-foreground", value: "var(--sidebar-foreground)", category: "Navegação" },
+  { name: "sidebar-primary", value: "var(--sidebar-primary)", category: "Navegação" },
+  { name: "sidebar-primary-foreground", value: "var(--sidebar-primary-foreground)", category: "Navegação" },
+
   // === GRÁFICOS ===
   { name: "chart-1", value: "var(--chart-1)", category: "Gráficos" },
   { name: "chart-2", value: "var(--chart-2)", category: "Gráficos" },
   { name: "chart-3", value: "var(--chart-3)", category: "Gráficos" },
   { name: "chart-4", value: "var(--chart-4)", category: "Gráficos" },
   { name: "chart-5", value: "var(--chart-5)", category: "Gráficos" },
+  // Sparklines vivem só como variável CSS (sem classe Tailwind bg-*).
+  { name: "sparkline-red", value: "var(--sparkline-red)", category: "Gráficos", cssOnly: true },
+  { name: "sparkline-orange", value: "var(--sparkline-orange)", category: "Gráficos", cssOnly: true },
+  { name: "sparkline-yellow", value: "var(--sparkline-yellow)", category: "Gráficos", cssOnly: true },
+  { name: "sparkline-green", value: "var(--sparkline-green)", category: "Gráficos", cssOnly: true },
+  { name: "sparkline-blue", value: "var(--sparkline-blue)", category: "Gráficos", cssOnly: true },
+  { name: "sparkline-muted", value: "var(--sparkline-muted)", category: "Gráficos", cssOnly: true },
 ];
 
 export const colorCategoriesOrder: ColorTokenDef["category"][] = [
@@ -99,5 +124,6 @@ export const colorCategoriesOrder: ColorTokenDef["category"][] = [
   "Componentes",
   "Superfícies",
   "Brand",
+  "Navegação",
   "Gráficos",
 ];

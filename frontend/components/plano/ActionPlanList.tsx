@@ -32,6 +32,8 @@ type ActionPlanListProps = {
   dateStop?: string;
   packIds?: string[];
   availableConversionTypes?: string[];
+  // Verdicts to force-expand (e.g. from hero chip click)
+  expandedVerdicts?: Verdict[];
 };
 
 export function ActionPlanList({
@@ -42,10 +44,17 @@ export function ActionPlanList({
   dateStop,
   packIds,
   availableConversionTypes,
+  expandedVerdicts,
 }: ActionPlanListProps) {
   const [collapsed, setCollapsed] = useState<Partial<Record<Verdict, boolean>>>({ observar: true });
 
   const toggle = (verdict: Verdict) => setCollapsed((prev) => ({ ...prev, [verdict]: !prev[verdict] }));
+
+  // A section is open if not collapsed AND not force-expanded (forced-expanded always wins)
+  const isOpen = (verdict: Verdict) => {
+    if (expandedVerdicts?.includes(verdict)) return true;
+    return !(collapsed[verdict] ?? false);
+  };
 
   const totalActions = (["gem", "otimizar", "licao", "descartar"] as Verdict[]).reduce(
     (sum, v) => sum + plan[v].length,
@@ -67,14 +76,13 @@ export function ActionPlanList({
         if (items.length === 0) return null;
 
         const { label, description, icon: Icon, chipClass } = VERDICT_META[verdict];
-        const isCollapsed = collapsed[verdict] ?? false;
 
         return (
-          <div key={verdict}>
+          <div key={verdict} id={`plan-section-${verdict}`}>
             <button
               className="w-full flex items-center gap-3 py-3 px-1 text-left hover:opacity-80 transition-opacity group"
               onClick={() => toggle(verdict)}
-              aria-expanded={!isCollapsed}
+              aria-expanded={isOpen(verdict)}
             >
               <div className={`flex items-center gap-2 px-3 py-1 rounded-full border text-sm font-semibold ${chipClass}`}>
                 <Icon className="h-3.5 w-3.5" />
@@ -85,11 +93,11 @@ export function ActionPlanList({
               </span>
               <span className="text-xs text-muted-foreground hidden sm:inline">{description}</span>
               <span className="ml-auto text-muted-foreground">
-                {isCollapsed ? <IconChevronRight className="h-4 w-4" /> : <IconChevronDown className="h-4 w-4" />}
+                {isOpen(verdict) ? <IconChevronDown className="h-4 w-4" /> : <IconChevronRight className="h-4 w-4" />}
               </span>
             </button>
 
-            {!isCollapsed && (
+            {isOpen(verdict) && (
               <div className="flex flex-col gap-2 pb-4">
                 {items.map((item, idx) => (
                   <ActionPlanRow

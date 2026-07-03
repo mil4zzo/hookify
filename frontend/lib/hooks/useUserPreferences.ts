@@ -7,10 +7,12 @@ import { useSettingsStore } from "@/lib/store/settings";
 import { useMqlLeadscoreStore } from "@/lib/store/mqlLeadscore";
 import {
   DEFAULT_CURRENCY,
+  DEFAULT_DIAGNOSTIC_COST_METRIC,
   DEFAULT_LANGUAGE,
   DEFAULT_MQL_LEADSCORE_MIN,
   DEFAULT_NICHE,
   DEFAULT_TARGET_CPR_BY_ACTION_TYPE,
+  type DiagnosticCostMetric,
   UserPreferencesValues,
   useUserPreferencesStore,
 } from "@/lib/store/userPreferences";
@@ -18,7 +20,7 @@ import type { ValidationCondition } from "@/components/common/ValidationCriteria
 import { logger } from "@/lib/utils/logger";
 
 const VALIDATION_STORAGE_KEY = "hookify-validation-criteria";
-const USER_PREFERENCES_COLUMNS = "locale,currency,niche,validation_criteria,mql_leadscore_min,target_cpr";
+const USER_PREFERENCES_COLUMNS = "locale,currency,niche,validation_criteria,mql_leadscore_min,target_cpr,diagnostic_cost_metric";
 
 type DbUserPreferences = {
   locale?: string | null;
@@ -27,6 +29,7 @@ type DbUserPreferences = {
   validation_criteria?: ValidationCondition[] | null;
   mql_leadscore_min?: number | string | null;
   target_cpr?: Record<string, number> | null;
+  diagnostic_cost_metric?: string | null;
 };
 
 type InFlightLoad = {
@@ -66,6 +69,9 @@ function normalizePreferences(data: DbUserPreferences | null, fallbackSettings: 
       ? (rawTargetCpr as Record<string, number>)
       : DEFAULT_TARGET_CPR_BY_ACTION_TYPE;
 
+  const diagnosticCostMetric: DiagnosticCostMetric =
+    data?.diagnostic_cost_metric === "cpmql" ? "cpmql" : DEFAULT_DIAGNOSTIC_COST_METRIC;
+
   return {
     language: data?.locale || fallbackSettings.language || DEFAULT_LANGUAGE,
     currency: data?.currency || fallbackSettings.currency || DEFAULT_CURRENCY,
@@ -73,6 +79,7 @@ function normalizePreferences(data: DbUserPreferences | null, fallbackSettings: 
     validationCriteria: Array.isArray(data?.validation_criteria) ? data.validation_criteria : storageCriteria,
     mqlLeadscoreMin: mqlValue !== null && mqlValue !== undefined ? Number(mqlValue) : DEFAULT_MQL_LEADSCORE_MIN,
     targetCprByActionType,
+    diagnosticCostMetric,
   };
 }
 
@@ -85,6 +92,7 @@ function toDbPatch(values: Partial<UserPreferencesValues>) {
   if (values.validationCriteria !== undefined) patch.validation_criteria = values.validationCriteria;
   if (values.mqlLeadscoreMin !== undefined) patch.mql_leadscore_min = values.mqlLeadscoreMin;
   if (values.targetCprByActionType !== undefined) patch.target_cpr = values.targetCprByActionType;
+  if (values.diagnosticCostMetric !== undefined) patch.diagnostic_cost_metric = values.diagnosticCostMetric;
 
   return patch;
 }
