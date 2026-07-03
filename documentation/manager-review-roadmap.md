@@ -50,8 +50,10 @@ considerável no `page.tsx`. Cobertura de testes da camada de analytics era zero
 | B6 | P3 | Toast de slow-loading sem cleanup no unmount | `ManagerTable.tsx` | ✅ |
 | B7 | P3 | Reset de `actionType` para conjunto vazio de opções | `filters.ts` | ✅ |
 | B8 | P3 | `graceCutoff` morto | `tierConfig.ts` | ✅ |
-| B9 | P3 | Migração `any` → tipado na matemática de métricas / cache de séries | `page.tsx` | 🔲 |
-| T1 | — | Cobertura de testes da camada de analytics (backend + frontend) | — | 🔲 |
+| B9 | P3 | Migração `any` → tipado na matemática de métricas / cache de séries | `mapRankingRow.ts` / `page.tsx` | 🔲 |
+| B10 | P3 | Props vestigiais do ManagerTable (código morto pós-B1) | `ManagerTable.tsx` | 🔲 |
+| B11 | P3 | 4 `TabbedContentItem` quase idênticos (duplicação de UI) | `ManagerTable.tsx` | 🔲 |
+| T1 | — | Cobertura de testes da camada de analytics (backend + frontend) | — | 🟡 |
 
 ---
 
@@ -104,19 +106,19 @@ nomes podiam estourar o limite de URL do PostgREST (HTTP 400 silenciosamente eng
 transcrição sumindo de linhas aleatórias). O batch de thumbnails usa `ad_id` curto — mantido em 500.
 → **Fix aplicado:** `batch_size 500 → 200` em `_hydrate_transcription_flags_for_rankings_rows`.
 
-**#6 — RPC pesada de "Criativos" dispara mesmo em outras abas** 🟡 (Fase 1 feita)
-[page.tsx:217](../frontend/app/manager/page.tsx#L217)
+**#6 — RPC pesada de "Criativos" dispara mesmo em outras abas** ✅ (Fase 1 + 2)
+[page.tsx](../frontend/app/manager/page.tsx)
 A query `por-anuncio` (group_by=ad_name, limit 10000, leadscore) ficava `enabled`
 independentemente da aba ativa — entrar direto em "Por campanha" disparava duas RPCs pesadas em
 paralelo. Na revisão original foi marcado "não mexer" porque alimentava o `averagesOverride` dos
 headers de todas as abas; análise posterior provou que **as médias da RPC são invariantes ao
 `group_by`** (o CTE `totals` soma quantidades aditivas), então qualquer aba já traz as mesmas médias.
-→ **Fase 1 aplicada:** gate `activeManagerTab === "por-anuncio"`; médias derivadas da aba ativa
-(`activeServerAverages` useMemo, removido o `serverAverages` state + `useEffect`); loading/erro de
-topo cientes da aba ativa (`activeLoading`/`activeError`) — evita bleed entre abas.
-→ **Fase 2 pendente (= B1):** colapsar as 4 cópias de query/map/series numa única query
-parametrizada por `group_by`, com `placeholderData: keepPreviousData`. Invasivo (muda a interface
-do `ManagerTable`); sessão dedicada após a Fase 1 rodar como baseline em produção.
+→ **Fase 1 aplicada:** gate por aba ativa; médias derivadas da resposta da aba ativa;
+loading/erro de topo cientes da aba ativa — evita bleed entre abas.
+→ **Fase 2 aplicada (= B1):** uma única query parametrizada por `activeGroupBy` (ver B1).
+Nota: o `placeholderData: keepPreviousData` cogitado no plano original **não** foi adotado — com a
+query única keyed por `group_by`, ele exibiria linhas do agrupamento anterior durante o fetch da
+aba nova (dado errado na tela); skeleton é o comportamento correto.
 
 **#7 — `actionTypeOptions` nunca encolhe** ✅
 [page.tsx:305-309](../frontend/app/manager/page.tsx#L305-L309) / [filters.ts:146-162](../frontend/lib/store/filters.ts#L146-L162)
@@ -144,8 +146,12 @@ foram colapsados em 1 versão parametrizada por `activeGroupBy` (derivado de `GR
 (aba Criativos usava `typeof row.cpm === "number"`, que deixa NaN passar) unificado em
 `Number.isFinite(row.cpm) ? row.cpm : 0`. Escopo conservador — ManagerTable não tocado.
 
-**B2 — `setActiveManagerTab` dentro de `useMemo`** 🔲
-[page.tsx:94](../frontend/app/manager/page.tsx#L94) — setState em render phase; mover para `useEffect`.
+**B2 — `setActiveManagerTab` dentro de `useMemo`** ✅
+setState em render phase.
+→ **Fix aplicado:** `initialFilters` (useMemo) ficou puro; o sync de aba do deep-link vive num
+`useEffect` separado ([page.tsx:106-118](../frontend/app/manager/page.tsx#L106-L118)). Bônus de UX:
+o usuário volta a poder trocar de aba livremente após chegar via deep-link (o código antigo
+"re-travava" a aba porque `activeManagerTab` estava nas deps do useMemo).
 
 **B3 — CSV sem guard de formula injection** ✅
 [exportManagerCsv.ts:45](../frontend/lib/utils/exportManagerCsv.ts#L45)
@@ -154,41 +160,65 @@ foram colapsados em 1 versão parametrizada por `activeGroupBy` (derivado de `GR
 aplicado **só em texto livre** (nome, status, transcrição) — nunca em métricas numéricas (quebraria
 negativos). Memória: `csv_export_formula_injection`.
 
-**B4 — Seleção em lote sobrevive a mudanças de filtro** 🔲
-[ManagerTable.tsx:400](../frontend/components/manager/ManagerTable.tsx#L400) — `rowSelection` não é
-limpa ao filtrar; "Pausar" pode atingir ads que saíram da vista. Limpar seleção quando
-`columnFilters`/`globalFilter` mudam (afeta só a aba Individual).
+**B4 — Seleção em lote sobrevive a mudanças de filtro** ✅
+`rowSelection` não era limpa ao filtrar; "Pausar" podia atingir ads que saíram da vista.
+→ **Fix aplicado:** `useEffect` limpa a seleção quando `columnFilters`/`globalFilter` mudam
+([ManagerTable.tsx:427-429](../frontend/components/manager/ManagerTable.tsx#L427-L429)), com
+functional update + bailout (`prev` vazio → mesma ref) para não causar re-render a cada tecla.
 
 **B5 — `serverAverages` nunca resetado** ✅ (resolvido junto do #6 Fase 1)
 Resposta sem `averages` mantinha médias do período anterior nos headers (edge case). Com a Fase 1
 do #6, `serverAverages` (state) foi substituído por `activeServerAverages` (useMemo derivado da
 resposta da aba ativa) — sem state stale possível.
 
-**B6 — Toast de slow-loading sem cleanup no unmount** 🔲
-[ManagerTable.tsx:309-324](../frontend/components/manager/ManagerTable.tsx#L309-L324) — navegar para
-fora durante o loading deixa o toast vivo.
+**B6 — Toast de slow-loading sem cleanup no unmount** ✅
+Navegar para fora durante o loading deixava o toast vivo.
+→ **Fix aplicado:** cleanup `toast.dismiss(SLOW_LOADING_TOAST_ID)` no return do efeito
+([ManagerTable.tsx:324](../frontend/components/manager/ManagerTable.tsx#L324)).
 
 **B7 — Reset de `actionType` para conjunto vazio** ✅
 [filters.ts:154-160](../frontend/lib/store/filters.ts#L154-L160) — `setActionTypeOptions` agora
 limpa o `actionType` órfão para `''` quando `options` chega vazio (nenhum tipo nos packs/período).
 
-**B8 — `graceCutoff` morto** 🔲
-[tierConfig.ts:20](../frontend/lib/config/tierConfig.ts#L20) — variável calculada e nunca usada.
-Deletar 1 linha. Atenção: a *lógica* do `if` está correta — é só a variável que sobrou.
+**B8 — `graceCutoff` morto** ✅
+[tierConfig.ts](../frontend/lib/config/tierConfig.ts) — variável calculada e nunca usada.
+→ **Fix aplicado:** variável removida; o `if` mantém a expressão inline equivalente.
 
-**B9 — Migração `any` → tipado** 🔲
-O mapeamento de linhas e o cache de séries operam quase inteiramente em `any` — exatamente onde a
-matemática de métricas (`page_conv`, `cpr`, `overall_conversion`) vive. Dívida real, projeto à parte.
+**B9 — Migração `any` → tipado** 🔲 (ainda válido; alvo ficou menor e mais claro)
+O mapeamento de linhas e o cache de séries operam em `any` — exatamente onde a matemática de
+métricas (`page_conv`, `cpr`, `overall_conversion`) vive. Após o B1, a superfície encolheu e o alvo
+natural é [mapRankingRow.ts](../frontend/lib/utils/mapRankingRow.ts) (assinaturas `row: any`) +
+os `as any` restantes do `page.tsx` (~17 ocorrências) e o `seriesCacheByTab`
+(`Record<string, any>`). Tipar `mapRankingRow` primeiro rende mais: é função pura com testes.
+
+**B10 — Limpeza da interface do ManagerTable (props vestigiais)** 🔲 *(follow-up do B1)*
+Com o B1, o `page.tsx` deixou de passar `adsIndividual`/`isLoadingIndividual`/`adsAdset`/
+`isLoadingAdset`/`adsCampaign`/`isLoadingCampaign` — os 6 props e os ternários de fallback
+`adsEffectiveRaw`/`isLoadingBase` ([ManagerTable.tsx:268](../frontend/components/manager/ManagerTable.tsx#L268),
+[273](../frontend/components/manager/ManagerTable.tsx#L273)) viraram código morto (nenhum outro
+call-site usa ManagerTable). Remover fecha 100% da dívida do B1; risco baixo, mas exige re-testar
+as 4 abas.
+
+**B11 — 4 `TabbedContentItem` quase idênticos no ManagerTable** 🔲 *(follow-up do B1)*
+Os 4 painéis de aba ([ManagerTable.tsx:995-1090](../frontend/components/manager/ManagerTable.tsx#L995-L1090))
+são duplicação de UI — só o painel `individual` difere (toolbar de seleção em lote). Refactor de UI
+separado; combina bem com o B10 numa mesma sessão.
 
 ### Testes e documentação
 
-**T1 — Cobertura de testes da camada de analytics** 🔲
-A camada de analytics tinha **cobertura zero**: nenhum `test_analytics*` no backend e no frontend só
-`managerColumnPreferences`. Maior retorno por esforço:
-1. Testes pytest para `_normalize_rankings_rpc_response`, `_build_rankings_series` e os helpers de
-   hidratação (incluindo o caso de batch/URL do #5).
-2. Testes unitários para `mergeSeriesCache`/`pendingSeriesKeys` e para a matemática de mapeamento de
-   linhas — funções puras, fáceis de extrair e testar.
+**T1 — Cobertura de testes da camada de analytics** 🟡 (parcial)
+A camada de analytics tinha **cobertura zero**. Estado atual:
+1. 🔲 **Backend** — nenhum `test_analytics*.py` ainda. Testes pytest para
+   `_normalize_rankings_rpc_response` ([analytics.py:556](../backend/app/routes/analytics.py#L556)),
+   `_build_rankings_series` ([analytics.py:339](../backend/app/routes/analytics.py#L339)) e
+   `_hydrate_transcription_flags_for_rankings_rows` ([analytics.py:959](../backend/app/routes/analytics.py#L959))
+   — incluindo regressão do batch de 200 (#5) e paridade de stub vazio das séries
+   (memória `analytics_series_path_parity`). **É a próxima leva sugerida.**
+2. 🟡 **Frontend** — matemática de mapeamento coberta:
+   [mapRankingRow.test.ts](../frontend/lib/utils/__tests__/mapRankingRow.test.ts) (20 testes,
+   incl. regressão do NaN no cpm). Falta: `mergeSeriesCache`/`pendingSeriesKeys`, que ainda vivem
+   inline no `page.tsx` como `useCallback`/`useMemo` — testá-los exige extraí-los para util puro
+   (mesma técnica do mapRankingRow).
 
 ---
 
@@ -210,5 +240,11 @@ A camada de analytics tinha **cobertura zero**: nenhum `test_analytics*` no back
 
 1. ~~**B8** + **B2** + **B4** + **B6** — limpeza trivial, feito.~~ ✅
 2. ~~**#6 Fase 2 / B1** (colapsar as 4 cópias) — `mapRankingRow.ts` + page.tsx colapsado.~~ ✅
-3. **T1** (testes de analytics) — maior gap estrutural; começar pelas funções puras do frontend.
-4. **B9** (migração de tipos) — projeto à parte.
+3. **T1 backend** (pytest para as 3 funções puras de `analytics.py`) — puramente aditivo, zero
+   refactor, trava as correções #5 e a paridade de séries como regressão.
+4. **B10 + B11** (limpeza do ManagerTable: props mortos + painéis duplicados) — fecha 100% da
+   dívida do B1; boa leva única, exige re-testar as 4 abas.
+5. **T1 frontend** (extrair `mergeSeriesCache`/`pendingSeriesKeys` para util puro + testes) —
+   mesma técnica do mapRankingRow.
+6. **B9** (migração de tipos) — começar por `mapRankingRow.ts` (puro, testado); o resto do
+   `page.tsx` em seguida.

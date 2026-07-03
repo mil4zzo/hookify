@@ -6,6 +6,154 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Revisão completa do billing Stripe — 5 bugs corrigidos + reconciliação anti-webhook-perdido
+
+**Data:** 2026-07-01 · status: **implementado, 35 testes passando (16 novos), tsc clean**
+
+**Contexto:** auditoria completa do fluxo de pagamento (checkout → webhook → tier → UI) atrás de bugs latentes e lacunas de resiliência. O sistema estava funcional no caminho feliz; os problemas moravam nos caminhos de erro e em eventos fora de ordem (Stripe **não garante ordem de entrega** de webhooks).
+
+**Bugs corrigidos:**
+
+1. **`stripe.errors.SignatureVerificationError` não existe no SDK** (nem no 10.x nem no 15.x — o módulo é `stripe.error`/top-level). Ao receber assinatura inválida, o `except` avaliava `stripe.errors` → `AttributeError` → 500 (e o `except Exception → 400` seguinte **não** captura, porque a exceção nasce na avaliação da cláusula). Sintoma real: se o `STRIPE_WEBHOOK_SECRET` estivesse errado/rotacionado, veríamos 500s confusos no Sentry em vez de 400 "Invalid signature" com warning claro. Fix: `stripe.SignatureVerificationError` (export top-level, existe desde v7).
+
+2. **Dupla assinatura possível** — `POST /billing/checkout-session` não checava sub ativa existente. Duas abas / clique duplo / UI stale → duas subscriptions ativas na Stripe → **cobrança dupla**; a row guarda só o último `stripe_subscription_id`, então webhooks da sub antiga viram no-op silencioso. Fix: `_find_blocking_subscription` — se a row local sugere sub ativa, **confirma live** na Stripe antes de rejeitar (row pode estar stale por webhook perdido); live confirmada → 409 `already_subscribed` (frontend abre o portal); live cancelada → **self-heal da row** e checkout liberado.
+
+3. **`invoice.payment_failed` gravava `past_due` cegamente** — chegando fora de ordem (depois de `customer.subscription.deleted`), sobrescrevia `stripe_status='canceled'` → o `/planos` mostrava "Gerenciar assinatura" (portal) para sempre em vez do checkout → **usuário cancelado não conseguia reassinar pela UI**. Fix: grava o status **live** (`Subscription.retrieve`), nunca toca `expires_at` (ciclo falhado não estende acesso).
+
+4. **Grant manual do admin não era manual** — `PATCH /admin/users/{id}/tier` não gravava `source='manual'` nem limpava `expires_at`. Consequência dupla: (a) um `subscription.deleted` atrasado da sub antiga **clobberava o grant manual** (guard `_is_stripe_managed` via `source='stripe'` e deixava passar); (b) `expires_at` residual da sub morta **expirava o grant silenciosamente** após o grace period. Fix: override do admin grava `source='manual'` + `expires_at=NULL` (nunca expira, até revogar). Compra futura via checkout re-anexa ao Stripe normalmente (checkout ignora source por design — P0 fix de 2026-06-12).
+
+5. **Skew de SDK dev vs prod** — `requirements.txt` pinava `stripe>=10,<11` (API 2024) mas o venv local roda **15.2.0** (API basil 2025). Prod (Docker instala do requirements) e dev testavam contra majors diferentes de um SDK de pagamento — as respostas de `Subscription.retrieve` mudam de shape entre eles (`current_period_end` migrou pra items no basil). Os helpers basil-proof cobrem ambos, mas o pin foi alinhado a `>=15.2,<16` (a versão efetivamente testada).
+
+**Melhorias de resiliência:**
+
+- **`POST /billing/sync`** (novo) — reconcilia a row do caller contra o estado live da Stripe (`Subscription.list` por customer, prioridade active > trialing > past_due > ...). Aplica as **mesmas regras do webhook de checkout** via `_apply_subscription_state` (extraído/compartilhado): nunca rebaixa tier, nunca toca admin, grant só em status ativo. No retorno do checkout (`?checkout=success`), o frontend agora chama sync **imediatamente** em vez de só torcer pelo webhook por 16s de polling — ativação instantânea mesmo com webhook perdido/atrasado.
+- **Self-heal no `customer.subscription.updated`** — se o evento diz active/trialing mas a row está `standard` (ex.: `invoice.payment_succeeded` perdido), confirma **live** e re-concede insider. Confirmação live é obrigatória: evento pode ser snapshot stale fora de ordem.
+- **`plan_id` sincronizado no subscription.updated** — troca de plano mensal↔anual via portal não deixa mais `plan_id` stale.
+- **`_subscription_price_id` null-safe** — `items.data[0].price` presente-mas-None não explode mais o handler.
+- **`stripe_customer_id` também persistido no webhook de checkout** (defesa em profundidade).
+- **/planos:** `setInterval` do polling agora tem cleanup (antes vazava ao navegar durante a ativação); efeito de ativação separado do efeito de URL (o `router.replace` matava o ciclo com cleanup correto); toast de confirmação quando o tier flipa; 409 no checkout → invalida cache + abre portal.
+
+**Observações operacionais (sem código, conferir no Dashboard):**
+- Dunning: garantir "cancel subscription" como desfecho após esgotarem os retries (se ficar `unpaid`, o `expires_at` estendido pelo `subscription.updated` do ciclo dá acesso não pago até o enforcement do grace period).
+- `stripe_events` cresce sem TTL — inofensivo por ora (algumas linhas/dia), revisar quando houver volume.
+- Melhoria futura de checkout BR: `tax_id_collection` (CPF/CNPJ) + considerar `pix` (exige fluxo invoice-based para recorrência).
+
+**Arquivos:** `backend/app/routes/billing.py`, `backend/app/routes/admin.py`, `backend/requirements.txt`, `backend/tests/test_billing_webhooks.py`, `frontend/app/planos/page.tsx`, `frontend/lib/api/endpoints.ts`. Schema de referência (`supabase/schema.sql` + `schema_map.md`) regenerado — estava desatualizado (não mostrava `stripe_events` nem as colunas stripe de `subscriptions`, o que quase mascarou o estado real do billing nesta revisão).
+
+**Fase 2 (mesma data, 47 testes passando):** 4 extensões aprovadas pelo usuário:
+
+1. **Dunning guard no código** — `subscription.updated` só estende `expires_at` quando o status do evento é `active`/`trialing`. Motivo: a Stripe avança o período no início do ciclo **independente do pagamento**; gravar `expires_at` em `past_due`/`unpaid` daria o ciclo não pago de graça (indefinidamente, se o Dashboard estiver configurado como "mark unpaid" em vez de "cancel"). Recuperação de pagamento estende via `invoice.payment_succeeded`. Complemento operacional: Dashboard → Billing → *If all retries fail* = **Cancel the subscription**.
+
+2. **CPF/CNPJ no checkout** — `tax_id_collection: {enabled: true}` + `customer_update: {name: 'auto'}` (exigência da Stripe ao combinar tax_id_collection com `customer` existente — validado na doc oficial via Context7).
+
+3. **Pix no plano anual** — pagamento avulso de 12 meses (Pix não suporta recorrência): checkout `mode=payment` + `price_data` inline em BRL (`STRIPE_PIX_ANNUAL_AMOUNT_CENTS`, padrão R$790) + metadata `plan=annual_pix`. Grant via `_grant_prepaid_access`: **idempotente por construção** (expiry = `session.created` + 365d — retries/sync recomputam a mesma data absoluta, sem stacking), nunca encurta expiry futuro existente, nunca toca admin, e **limpa `stripe_subscription_id`/`stripe_status`** (sem sub por trás; evita webhook velho de sub antiga tocar o row e sinaliza o estado prepago à guarda de checkout, que devolve 409 `prepaid` enquanto o ano pago corre). Eventos: `checkout.session.completed` gate por `payment_status='paid'` + `checkout.session.async_payment_succeeded` (Pix pendente) — **habilitar o evento novo no webhook do Dashboard**. `/billing/sync` também recupera compras Pix com webhook perdido (lista checkout sessions pagas). Feature flag dupla: `STRIPE_PIX_ENABLED` (backend) + `NEXT_PUBLIC_BILLING_PIX_ENABLED` (frontend, threaded por Dockerfile.frontend + compose build args) — ligar as duas juntas, após habilitar Pix no Dashboard.
+
+4. **Billing fora do event loop** — checkout/portal/sync viraram rotas `def` (threadpool automático do FastAPI); webhook continua `async` (precisa de `await request.body()`) mas todo o trabalho blocking (record/handler/mark) roda via `run_in_threadpool`. O resto do app continua no padrão antigo — revisar quando houver tráfego.
+
+---
+
+## Painel Diagnóstico "O que mudou hoje?" — /plano (topo) com LMDI-I + shift-share
+
+**Data:** 2026-06-27 · status: **implementado, 21 testes passando, tsc clean**
+
+**Contexto:** O usuário abre o /plano e não sabe *por que* o CPR mudou. O painel insere um diagnóstico bate-pronto no topo da página, criando fluxo: *diagnóstico → plano de ação*.
+
+**Motor matemático:** `frontend/lib/metrics/diagnostics.ts` (puro, sem React)
+
+Identidade: `CPR = (CPM/1000) / (website_ctr × connect_rate × page_conv)`. CPMQL = CPR / mql_rate.
+
+**Nível 2 — LMDI-I (Logarithmic Mean Divisia Index):** Decomposição aditiva exata de ΔCPR em contribuições por driver. Peso compartilhado `L(cost1,cost0) = (cost1-cost0)/(ln cost1 - ln cost0)`. Contribuição: `L × sign_k × ln(rate_k1/rate_k0)`. Soma **exatamente** ao delta — sem resíduo de interação. Escolhido sobre diferenças finitas simples que produzem um termo de interação sem driver dono.
+
+**Nível 3 — shift-share simétrico (mix centrado na média do pack, desde 01/07/2026):** Por driver clicado, decompõe Δrate_pack por ad em `RATE_a = w̄·Δr` (a taxa do ad piorou) e `MIX_a = (r̄_a − r̄_pack)·Δw` (share migrou pra/de um ad pior/melhor **que a média**). ⚠️ A forma não-centrada (`r̄·Δw`) estava errada por-ad: todo ad ganhando share aparecia como "encareceu" incondicionalmente, mesmo um ad barato ganhando share (que dilui o CPM do pack). Centrar conserta sem mudar a soma (ΣΔw=0). Soma exatamente. Conversão pra R$ é proporcional (aproximação documentada). Cutoff cumulativo 85% — ads além do cutoff colapsados em "+N outros".
+
+**Arquivos:**
+- `lib/metrics/diagnostics.ts` — motor puro (logMean, selectTarget, decomposePack, attributeDriverToAds, buildBudgetShareSeries, buildDiagnosticSummary, buildAdTwoDaySnapshots)
+- `components/plano/PackDiagnosticPanel.tsx` — orquestrador; usa useAdPerformanceSeries com window=14
+- `components/charts/DiagnosticTrendChart.tsx` — linhas normalizadas índice=100 (visx) + barras de verba embutidas + legenda interativa
+- `components/charts/DriverWaterfall.tsx` — waterfall clicável dos drivers
+- `components/charts/DriverAdList.tsx` — lista de ads por driver (shift-share)
+- `lib/metrics/__tests__/diagnostics.test.ts` — 23 testes: logMean, LMDI exactness, shift-share, cutoff, sameSignTotal, funil-mudou, adapter
+
+**Redesign visual (27/06/2026, feedback do usuário):** `BudgetShareBars.tsx` removido — barras de verba viraram camada de fundo monocromática (não-colidente com as linhas) dentro do `DiagnosticTrendChart`, com **legenda interativa** que liga/desliga cada linha e as barras. Domínio Y adaptativo (não fixo) p/ revelar mudanças pequenas; sem `AreaClosed` (4 fills viravam borrão). Linha-alvo colorida por direção. Gráfico **nunca colapsa** mesmo com CPR estável — `buildDiagnosticSummary` passa a dizer "CPR estável, mas o funil mudou" quando um driver move ≥3% com outro compensando. Waterfall: base bars desenham do piso (não `from:0`, que saía da banda → caixas vazias). `DriverAdList` coverage divide por `sameSignTotal` (não pelo net → evitava "201% do impacto").
+
+**group_key + group_by (causa-raiz do "Volume baixo" zerado):** dois acoplamentos com o pipeline. (1) `group_keys` = `ad.group_key || ad.ad_id`, nunca `"${account_id}:${ad_id}"`. (2) **O `group_by` da chamada de série precisa espelhar o do pipeline.** O `/plano` roda `useAdPerformancePipeline()` sem args → `groupBy="ad_name"`, logo cada `validatedAds[].group_key` é o **ad_name** (um nome agrega vários ad_ids). Chamar a série com `group_by:"ad_id"` faz o RPC emitir `group_key = am.ad_id`, o JOIN da CTE `filtered` nunca casa com os ad_names → série toda zerada → "Volume baixo" mesmo com R$9k/dia de gasto. Fix: `group_by:"ad_name"`. Confirmado direto no RPC `fetch_manager_rankings_series_v2`: em ad_name mode devolve spend/conversions reais (ex.: ADOV02 → CPR R$8,77 em 03/05); em ad_id mode devolve vazio. Ver `resolveGroupKey` em mapRankingRow.ts como referência canônica.
+
+**mqls derivado:** série tem `cpmql` mas não `mqls`; derivado como `mqls = spend / cpmql` no adapter.
+
+---
+
+## Diagnóstico comparativo dia-a-dia — /plano — descritivo puro
+
+**Data:** 2026-06-30 · status: **implementado, 33 testes passando, tsc clean** (refinado via discussão de mentoria data-science + workflow multi-agente de 7 agentes que validou a matemática contra o código real)
+
+**Princípio-mãe (não-óbvio):** esta tela é **100% descritiva** — revela *o que mudou e por quê*, **nunca sugere ação**. "É um problema?", "vale reagir?", alvo e veredito são prescritivos → moram no plano de ação, não no diagnóstico. Essa separação **resolve** a dúvida original "esses anúncios podem estar no alvo, não são necessariamente um problema": a resposta é estrutural — não se responde isso aqui. Tentativas anteriores de embutir alvo/veredito no diagnóstico foram retratadas (geravam o ambíguo "subiu E acima do alvo").
+
+**Cascata Q1→Q2→Q3 = mapa 1:1 no motor existente:**
+- **Q1** (melhorou/piorou? quanto?) = ΔCPR/ΔCPMQL do headline. Acrescentar **Δ 7 dias ao lado do Δ hoje** (dois fatos, sem rótulo). Um selo "provável ruído/atípico" foi **rejeitado**: é prescritivo *e* suprimiria o *slow cook* (−3%/dia × 7 dias = −19% que "cada dia parecia ruído").
+- **Q2** (quais métricas?) = decomposição LMDI em R$ por driver (driver cards).
+- **Q3** (quais anúncios moveram ESSA métrica?) = `attributeDriverToAds(driverKey)` — **é por-driver, já existe**. O `attributeAllDriversToAds` (cross-driver) vira só o default "Resultado total". Filtrar por métrica = trocar a função, não escrever math nova.
+
+**Interação:** seletor de métrica em **pills (primário)**, default Resultado/CPR; clicar no driver card **sincroniza** o seletor (secundário — clicar card não é intuitivo como mecanismo principal).
+
+**Duas tabelas "melhoraram / pioraram o [métrica] do conjunto"** (não "impactos positivos/negativos" — número positivo = custo subiu = colisão número-vs-negócio). Sinal→rótulo **uniforme**: `sign=+1` CPM / `−1` taxas absorve a inversão taxa-vs-custo antes do número existir; `contrib>0`=encareceu=vermelho, `<0`=barateou=verde; idêntico p/ CPR e CPMQL. `contribTone()` já implementa.
+
+**Opção A (escolhida) — verba e métrica mudam quase sempre juntas:** a identidade shift-share simétrica `Δ(w·r) = r̄·Δw + w̄·Δr` é exata (interação dividida meio a meio pelas médias), então cada anúncio já carrega as duas parcelas. **Não colapsar no tag dominante** (o `tag` em `diagnostics.ts:360` esconde a 2ª parcela). Linha = **total + quebra "por verba" e "por desempenho", assinadas**. Membership pelo **líquido no conjunto** (reconcilia com o headline — inegociável); alavancas opostas (perdeu verba mas piorou o próprio CPM) ganham linha visível com nota. Rejeitada Opção B (organizar por mecanismo) por quebrar Σlinhas = Δheadline.
+
+**Volume baixo dispensa marcador** (usuário corrigiu; confirmado no código): o diagnóstico roda sobre `validatedAds` (piso de impressões do usuário já aplicado a montante) + ponderação por gasto (`w̄·Δr`≈0 p/ ad minúsculo) + cutoff cumulativo (cauda no remainder) + `minVolumeOk` (pack com gasto ínfimo). Um marcador "estimativa instável" resolveria um fantasma.
+
+**Alerta condicional de comparação injusta** (não readout de volume permanente — "12 conversões a menos" absoluto foi rejeitado): só aparece quando |Δspend| ou |Δresults| passa ~25-30% ou results < MIN_RESULTS. Rodapé de **cobertura/residual** por tabela (usa `sameSignTotal`/`remainder`).
+
+**Layout:** tabelas lado a lado no desktop (piorou à esquerda); no mobile também lado a lado via tabs ou scroll horizontal (não empilhar).
+
+**Ponte pro plano de ação:** só **navegação** (CTA), zero veredito embutido.
+
+**Tabela colunar (refinamento pós-implementação, feedback do usuário):** a quebra "por verba/por desempenho" da Opção A virou tabela de verdade — `# | Ad | Impacto (R$) | Share | Métrica` — em vez de texto empilhado, mais legível. Invariante crítico: **a cor de Share/Métrica vem sempre do sinal do par em R$ já computado** (`verbaCurrency`/`desempenhoCurrency`), nunca recalculada a partir do delta bruto exibido — prova: o multiplicador `driverContribCurrency/deltaRatePack` é uma constante de pack (igual pra todo ad daquele driver), então `sign(rateCurrency_a) = sign(constante)·sign(Δrate_bruto_a)` é uniforme entre ads, garantindo caret (sinal do número bruto) e cor (tone) nunca divergirem. No modo "Resultado" (cross-driver, soma até 5 drivers) não há um único Share/Métrica coerente — em vez de célula vazia, as colunas caem pros pares em R$ já existentes com o header nomeando a unidade ("Share (R$)" vs "Share (p.p.)"); selecionar uma métrica troca pro delta bruto daquele driver. `MetricDeltaBadge` foi generalizado (`deltaPct`→`value` + `format:"percent"|"currency"|"points"`) pra servir as 3 colunas coloridas com o mesmo componente.
+
+**Bug do mix não-centrado → mix centrado na média do pack (achado pelo usuário, 01/07/2026):** o usuário notou que o Share colorira verde quando o share de um anúncio de boa métrica caía. Causa: `MIX = r̄_ad·Δshare` (não-centrado) colore pelo sentido do share incondicionalmente. Fix (decomposição estrutural/Bennet): `MIX = (r̄_ad − r̄_pack)·Δshare` — ganhar share só encarece se o ad roda pior que a média. `ΣΔshare = 0` ⇒ soma inalterada ⇒ reconciliação com o headline continua exata; a alocação por-ad (e a membership melhorou/piorou de alguns ads) muda — é o fix, não efeito colateral. Aplicado nas duas funções (per-driver + cross-driver). Tag "ganhou verba" → "verba realocada" (mix-dominado positivo agora pode vir de perder share num ad barato). **Regra geral: atribuição de mix por-unidade compara-se sempre contra a média do grupo, nunca contra zero.**
+
+**UI da tabela (01/07/2026):** Impacto = badge sólido (coluna primária); Share/Métrica = texto colorido + caret sem fundo (`MetricDeltaBadge appearance="plain"`). Absolutos a um hover: tooltip "ontem X → hoje Y" nas células Share/Métrica (só com driver selecionado) + tooltip ℹ no header "Impacto (R$)" explicando que é contribuição ao custo do conjunto, não o custo do anúncio. Com o mix centrado, caret e cor divergem legitimamente (share ↑ num ad barato = caret ↑ + verde).
+
+**Tabela única + coluna de nível (01/07/2026, supersede as duas tabelas):** deltas (fluxos) não explicam o vermelho do share quando a métrica do ad melhorou — a explicação é o **nível** (o ad segue acima da média do pack), que não estava na tela. As duas tabelas não tinham largura pra coluna extra. Decisão: **uma tabela full-width "top movers"** ordenada por |impacto| (direção mora no badge assinado/colorido do Impacto) + coluna **"[métrica] hoje"** colorida vs a média do pack hoje (`getMetricQualityToneByAverage`, mesma escala do Manager; custos inverse, taxas não), tooltip "média do conjunto hoje: X". No modo Resultado vira "CPR/CPMQL hoje" (custo do ad vs custo do pack). Base do nível = hoje-vs-hoje; divergência rara com a cor do mix (ad cruzou a média entre os dois dias) é informativa. `cutImpactBucket` exportado em diagnostics.ts (cutoff 85% sobre sinais mistos; remainder é net assinado — rodapé diz "líquido"). Mobile via overflow-x-auto (tabs removidas junto com o layout de 2 tabelas).
+
+**Células valor+badge + Spend + ordenação (02/07/2026):** Share/Métrica/nível viraram **duas** colunas no padrão DriverMetricCard — **Spend** (% da verba do pack hoje + badge Δ p.p.; valor em foreground neutro pois alocação não tem nível bom/ruim; tom do badge = verbaCurrency) e **Métrica** (valor de hoje colorido vs média do pack — o nível fundiu aqui, coluna "hoje" separada removida — + badge Δ; tom do badge = desempenhoCurrency). "Share"→"Spend" (termo familiar): exibe share de **verba** nos dois modos, o que universaliza a coluna e elimina o fallback "Share (R$)"/"Métrica (R$)" do modo Resultado (que agora mostra o CPR do ad + Δ% relativo). ⚠ Display-only: o mix continua computado no share do **denominador** do driver internamente; divergência direcional spend-vs-denominador é rara e coberta pelo princípio caret≠cor. `spendSharePrev` adicionado a `AdAttribution`+`AdTotalImpact`. **Ordenação por qualquer coluna**: ciclo direção-padrão→invertida→ordem default (|impacto|); ordena pelo valor primário da coluna (não pelo delta); nulls sempre no fim; sort reseta ao trocar o filtro de métrica; re-rank 1..N na ordem exibida.
+
+**Composição virou tooltip do Impacto, não coluna própria (02/07/2026, refinamento same-day):** usuário aprovou a barra divergente mas pediu pra relocar — em vez de coluna "Composição" sempre visível, o bar+breakdown aparece no **hover do badge de Impacto** (1ª coluna). `CompositionBar` virou 2 peças: `CompositionBarVisual` (só a barra) + `CompositionBreakdown` (barra + lista assinada) montadas como conteúdo do tooltip. Coluna dedicada removida; escala compartilhada entre linhas (`maxCompSide`) mantida mesmo com um tooltip visível por vez. Tooltip do header "Impacto (R$)" ganhou frase avisando do hover — única affordance, pra não poluir o badge com ícone extra.
+
+**Composição + conexão card↔tabela + alvo no headline (02/07/2026):** (a) coluna **Composição**: barra divergente por linha (zero central; barateou→esquerda/success, encareceu→direita/destructive; segmentos diferenciados por opacidade decrescente, sem cores categóricas — mesma lição das barras de verba; escala única entre linhas visíveis; hover lista R$ por parte). Dados: `AdTotalImpact.driverParts` (Σ = total por ad, testado) + `parts` no hook (cross = por driver; driver = verba/desempenho). (b) células Spend/Métrica em formato **jornada** `ontem(muted) → badge(Δ) → hoje(bold)` — o badge é a seta; tooltip só guarda a média do conjunto. (c) **conexão de seleção** em 4 pontos no mesmo accent primary: card com ring+lift, irmãos esmaecidos (`opacity-60 saturate-50` — sinal de filtro ativo), métrica do título em `text-primary`, pill ativa; linhas com stagger `animate-in` (30ms/linha, container keyed pelo driver — sort não re-anima pois keys estáveis). (d) **alvo no headline**: valor grande colorido vs ALVO (nível) enquanto o badge segue vs ontem (fluxo); linha `alvo R$X [badge Δ%]`; **linha tracejada de alvo no gráfico 7d** (muted, label à esquerda; só desenha se alvo ≤ 2× o máximo da série, senão esmagaria a linha; domínio estica pra incluir alvo×1.15).
+
+**Bug de % relativo em base quase-zero → percentage-points (achado pelo usuário em produção):** Share e as 4 taxas de funil (website_ctr/connect_rate/page_conv/mql_rate) são proporções (0–1). `Δ% relativo = (last-prev)/prev` explode quando `prev` é quase zero — um ad escalado de ~0,1% pra ~7% de share do pack (evento normal) lia como "+7113%", tecnicamente correto mas ilegível. Fix: essas quantidades (Share sempre; Métrica quando o driver ≠ cpm) agora mostram **percentage-points** (diferença simples `last-prev`) em vez de % relativo. CPM continua em % relativo (currency-scale, não é uma proporção limitada, não sofre o efeito). Mesmo fix aplicado nos driver cards do topo, que tinham o mesmo bug latente (menos exposto por ser nível-pack, não por-ad). **Regra geral: nunca usar % relativo pra medir a variação de uma quantidade que já é uma proporção — usar diferença absoluta (p.p.); reservar % relativo pra quantidades unbounded (moeda, contagens).**
+
+---
+
+## Plano de Ação — Redesign v2 ("wow" + executor), design validado via review multi-agente
+
+**Data:** 2026-06-26 · status: **design aprovado (condicional), ainda não implementado**
+
+**Contexto:** Objetivo de tornar `/plano` bonita, intuitiva, com efeito "wow", evidenciando o valor do Hookify e a oportunidade de melhoria — **sem perder** a lista simples e prática para o "executor" (usuário que só quer tarefas). Brainstorming estruturado com 4 papéis (Skeptic, Constraint Guardian, User Advocate, Arbiter). Reusa o motor do v0 (abaixo).
+
+**Estrutura aprovada:**
+- **Hero — decisão do dono (2026-06-26): R$ protagonista** (economia potencial é o número grande), apesar do review apontar risco (número modelado/mean-reverting). Aceito com **4 guard-rails obrigatórios**: (1) âncora colada "de R$ {investido} investido em {N} anúncios" — nunca sozinho; (2) tooltip "como calculamos?" colado; (3) cálculo seguro (só otimizar !lowData + impactSavings finito, sobre validatedAds dedup por ad_name); (4) **os 3 estados não-felizes SUBSTITUEM o número grande** — saudável ("tudo saudável 🎉" + vencedores), dados-finos (baixa confiança, esconde R$), só-pausar ("R$ {gasto} sob risco" = loss real, não potencial). Chips de forma-da-conta clicáveis = âncora p/ grupo na lista. Card de custo-alvo **absorvido** na hero ("alvo: R$X ✎"). Componente `components/plano/PlanHero.tsx`, props puras, aditivo, **zero request novo** (tudo derivado de `actionPlan`+`validatedAds` já em `page.tsx`).
+- **Lista agrupada por veredito por padrão** (não flat impact-first — `priority` é índice por-grupo, não rank global), sequenciada como fluxo: Escalar→Otimizar→Reciclar→Pausar→Observar. Urgência do bleeder sobe como callout no hero.
+- **Reciclar = lane "Referência/Inspiração"**, não task interleaved (é a única classe que o app não cumpre in-app). Gems contextuais são o material de referência. Sem CTA falso "usar como modelo".
+- **Sem checkbox "mark done" persistido no v1** (só hide cosmético de sessão, longe do verbo "Pausar").
+- **Gems contextuais só onde há fonte** (não existe coluna de gems p/ connect_rate); leaderboards calculados 1× na lista. **Drawer "Referências/Gems" escopado às rotas de analytics** (Plano/Insights/GOLD), lendo cache — **não app-wide**.
+
+**Lições não-óbvias (coração do review):**
+1. **`impact_abs_savings`/`cpr_potential` é tautológico:** `opportunity.ts` eleva cada métrica abaixo-da-média *até a média do pack* (`Math.max(metric, avg)`) → sempre positivo, nunca pequeno, e o alvo sobe conforme se otimiza (média reverte). Não pode ser headline nem promessa.
+2. **Checkbox ao lado de "Pausar" custa dinheiro real:** usuário interpreta check = pausar o ad. Affordance enganosa + "done" sem semântica honesta entre refreshes. Cortado.
+3. **Drawer de Gems não pode ser app-wide:** montar `useAdPerformancePipeline` no app-shell dispara o RPC pesado de rankings (statement_timeout 57014) em toda navegação, e gems não existem fora de contexto analytics. Orb flutuante lê como bolha de chat + oclui polegar no mobile.
+
+**Condição resolvida (2026-06-26):** usuário aprovou o drawer "Referências/Gems" escopado às rotas de analytics (não orb app-wide). Design 100% aprovado, sem pendências — pronto para fase de implementação.
+
+**Compatibilização com o Painel Diagnóstico (2026-06-27):** o painel "O que mudou hoje?" (seção acima) é eixo **retrospectivo**; a hero é **prospectivo** (estado + oportunidade). Não conflita em código (hero é aditiva). Reconciliação de IA — decisão do usuário: **hero nº1 + diagnóstico colapsável**:
+- Frase-resumo do diagnóstico (`buildDiagnosticSummary` → `summary.headline`) vira a **linha de momentum** dentro da hero ("Hoje: CPR caiu 12%").
+- **Desambiguar R$**: hero = "até R$ X recuperável" (potencial) × diagnóstico = "R$ Y de variação" (retrospectivo). Nunca ambos como "economia".
+- **Confiança unificada**: `decomposition.minVolumeOk===false` OU lowData alto → hero esconde o R$ protagonista (estado "dados finos"). Uma fonte de verdade p/ os dois blocos.
+- Painel completo colapsável abaixo da hero (default fechado; toggle na hero/page).
+- **Costura de implementação**: extrair `usePackDiagnostic` (series query + `decomposePack` + `buildDiagnosticSummary`) chamado 1× em `page.tsx`; alimentar hero (summary+minVolumeOk) e `PackDiagnosticPanel` (objeto completo — vira apresentacional, sem fetch próprio) → evita request de série duplicado e divergência hero×painel. ⚠ Limiares de confiança hoje divergem: diagnóstico `MIN_IMPRESSIONS=500`/`MIN_RESULTS=3` por pack-dia × hero `lowData=impressions<3000` por ad.
+
+---
+
 ## Plano de Ação (to-do list v0) = reuso de G.O.L.D. + Oportunidades, não motor novo
 
 **Data:** 2026-06-14 · atualizado 2026-06-17
@@ -1299,3 +1447,51 @@ As páginas **Plano, GOLD e Insights** montavam o request de `/ad-performance` *
 **Armadilha encontrada no code-review (quase reintroduziu o CPR=0):** o `setActionTypeOptions` do filters store tem DUAS responsabilidades acopladas — (1) popular `actionTypeOptions`, (2) reconciliar `actionType`: auto-selecionar o 1º quando inválido/vazio **e limpar (→'') um `actionType` órfão quando a lista vem `[]`**. A primeira versão do hook gateava o sync em `availableConversionTypes.length > 0` — o que parecia razoável, mas **matava a limpeza do órfão**: trocar para um pack/período sem aquele evento deixava um `actionType` inexistente → `conversions[actionType]=0` → CPR/results=0 em tudo, silenciosamente (mesma classe do bug single-key acima). **Correção:** o hook gateia só em `queryData` (fetch resolvido, nunca loading transiente) e chama incondicionalmente — inclusive com `[]`. A deduplicação de re-render (não reescrever quando a lista não mudou) mora no **próprio store**, beneficiando todos os callers (Manager/Explorer/pipeline), não num gate do caller.
 
 **Outras correções do mesmo review:** Plano distingue "período sem anúncio" de "nenhum passou na validação" via `filteredRankings.length` (antes mostrava "ajuste os critérios" para período vazio); erro de fetch voltou a ser surfaçado (`console.error` + toast sonner via `showError` no hook — antes ficava indistinguível de "sem dados"); `packsAdsLoading` só bloqueia o render quando `filterToSelectedPacks=true` (Insights Global não espera mais um mapa anúncio→pack que não usa). **Fora de escopo (follow-ups):** índice O(1) para `getPackId` (hoje O(rows×packs×packAds), mas o churn é limitado pelo structural-sharing do TanStack); remover o filtro client-side de pack (redundante com `p_pack_ids` do servidor — `analytics.py` filtra e "se vazio/None não retorna dados"); migrar o bloco inline do Manager para `buildAdMetricsData`. Manager intocado de propósito (é a referência provada).
+
+## Bloco "Comparação do dia" no topo do /plano (2026-06-28)
+
+**O quê:** novo bloco visual acima do `PlanHero` (sem deletar nada) que mostra "o que mudou hoje" comparando o **último dia do date-range vs. o dia anterior**, em 3 widgets: (1) métrica de custo protagonista (CPMQL/CPR com caret) + linha de 7 dias com os 2 últimos dias destacados em cores diferentes; (2) 4 cards (CPM, Link CTR, Connect Rate, Page Conversion; 5º "Taxa MQL" quando CPMQL) com valor de hoje, ontem + delta %, e line sparkline, tudo colorido pelo impacto no custo; (3) top-10 anúncios por impacto total em R$ (piora de métrica + mudança de share de verba, ponderado por gasto), abrindo o `AdDetailsDialog`.
+
+**Decisão central — reuso, não reescrita:** todo o motor já existia (`decomposePack` = LMDI-I; `attributeDriverToAds` = shift-share) e o `usePackDiagnostic` já busca a série uma vez. O bloco é derivação pura (`usePackDayComparison`, sem novo fetch) + apresentação. **Única lógica matemática nova = `attributeAllDriversToAds`**: `attributeDriverToAds` é por-driver e colapsa a cauda no `remainder` (perde detalhe por ad), então não dá pra somar por ad. A nova função roda o mesmo shift-share simétrico para cada driver `ok` e acumula por ad sem cutoff, guardando as partes rate vs mix. Fecha exato (`Σ_a total = Σ_k C_k = Δtarget − residual`, testado). `buildPackDaySeries` acrescenta CPM por dia (o `trendLines` compartilhado não carrega CPM) sem tocar no chart existente.
+
+**Coloração — fonte única:** delta, sparkline, borda e fundo dos cards de driver vêm do **SINAL da `contributionCurrency`** (negativa = baixou o custo = verde/success; positiva = subiu = vermelho/destructive), não do delta cru da métrica. Isso garante que "CTR subiu" (bom) e "CPM subiu" (ruim) recebam a cor certa automaticamente, e que os 4 sinais visuais concordem. A métrica protagonista usa `getMetricTrendTone(deltaPct, inverse=true)` para ter gradação (warning em alta pequena).
+
+**Seletor CPMQL/CPR persiste a escolha** (pedido do usuário): nova preferência `diagnostic_cost_metric` em `user_preferences` (migration 086, coluna `text DEFAULT 'cpr'`, padrão do `mql_leadscore_min`, frontend grava direto no Supabase). `usePackDiagnostic` ganhou `targetOverride` + `canUseCpmql` e resolve o `target` a partir dela (fallback CPMQL→CPR quando não há MQL nos 2 dias) — o que mantém hero, painel colapsável e o bloco novo todos na mesma métrica. ⚠ **Ordering de deploy:** o campo entra na string do `.select()` de preferências → a query erra enquanto a coluna não existe → o loader cai no fallback e as prefs aparecem como default (dados do servidor preservados) até a migration rodar. Aplicar a migration **antes** de subir o código.
+
+**Reuso de UI:** `StandardCard` + `getMetricCardSurfaceClass(tone)`, `definitions.ts` (labels/format/polaridade), `AdPlayArea`/`AdStatusIcon`, `AppDialog`+`AdDetailsDialog`, e o padrão visx do `DiagnosticTrendChart` (novos `DayComparisonLineChart` + `MetricLineSparkline`). Linhas de ad são `div role=button` + `onPlayClick` (nunca `<button>`, por causa do `<button>` interno do `AdPlayArea` — hidratação).
+
+## Fix "sucesso fantasma" ao ativar conjunto/anúncio pausado por um pai (2026-07-02)
+
+**Bug reportado:** usuário ativa um conjunto pausado, o Hookify mostra "Ativado com sucesso", mas no Gerenciador do Meta continua pausado; ao atualizar o Hookify (que relê o oficial do Meta) o status volta para pausado.
+
+**Causa raiz:** o toggle/botão de status (`StatusCell`/`AdStatusControl` → `useAdStatusControl`) **exibe o `effective_status`** — o estado de ENTREGA, que herda pausas dos pais (`ADSET_PAUSED`, `CAMPAIGN_PAUSED`) — mas o write ia para o **`status` PRÓPRIO** da entidade (`POST /{id}` com `{status: ACTIVE}`). Quando o conjunto aparecia "pausado" por um motivo que não era a pausa dele mesmo, ativar não mudava a entrega. O Meta devolvia HTTP 200, e `_update_entity_status` tratava **qualquer 200 como sucesso**; o hook disparava toast de sucesso + `setStatusOverride` otimista sem verificar nada. No próximo refresh, a leitura real do Meta trazia o estado ainda pausado → "reverteu".
+
+**Dois casos que reproduzem** (o caso simples — conjunto pausado no próprio nível, campanha ativa — sempre funcionou, por isso passava em teste básico):
+- **Campanha pausada:** os ads do conjunto reportam `CAMPAIGN_PAUSED`; a linha agregada do conjunto (RPC: "ACTIVE se algum ad ACTIVE, senão `min(effective_status)`", `schema.sql` ~1515) vira pausado. Ativar POSTa no CONJUNTO, não na campanha → no-op de entrega. **Entidade errada.**
+- **Conjunto ativo, ads pausados individualmente:** ads = `PAUSED`; a linha agrega para pausado; ativar o conjunto (já ativo) = no-op no Meta.
+- Mesma classe também no toggle de AD individual quando o ad mostra `ADSET_PAUSED`/`CAMPAIGN_PAUSED`.
+
+**Decisões do fix (escolhidas pelo usuário):** (1) **bloquear + explicar** quando a pausa é herdada de um pai — não fingir sucesso; (2) **verificar contra o Meta** antes de reportar sucesso.
+
+**Implementação:**
+- `GraphAPI._activate_or_pause(entity_id, status, entity_type)` (`graph_api.py`) centraliza o fluxo; os wrappers `update_ad/adset/campaign_status` delegam a ele. Ao ATIVAR: lê `get_entity_status` (novo — `GET ?fields=status,effective_status`) **antes** de escrever; se o `effective_status` é uma pausa herdada (`_PARENT_PAUSE_BLOCKERS`: ad←{adset,campaign}, adset←{campaign}) → devolve `blocked` **sem escrever**; se já está `ACTIVE` → `noop_active`. Sempre **relê o effective_status depois** (verify) e o inclui no retorno.
+- Rota (`facebook.py`): helper `_finalize_status_update` mapeia `blocked` → **409 `PARENT_PAUSED`** ("ative a campanha/o conjunto primeiro"), `noop_active` → **409 `ALREADY_ACTIVE`**, e só atualiza o cache local (`_update_local_effective_status`) num sucesso real. Devolve o `effective_status` verificado no payload.
+- Frontend: `UpdateEntityStatusResponse` ganhou `effective_status`; `useAdStatusControl.onSuccess` usa **o effective_status real do Meta** (não o status pedido) no `setStatusOverride`/patch de cache — mata o sucesso fantasma; `onError` mostra `PARENT_PAUSED`/`ALREADY_ACTIVE` como `toast.warning` (orientação, não erro), e `pause/resume` engolem a rejeição do `mutateAsync` (bloqueio virou fluxo normal).
+
+**Regra geral:** quando a UI mostra `effective_status` (que agrega/herda), a escrita **e a confirmação de sucesso** têm que ser validadas contra o Meta — não assumidas de um HTTP 200.
+
+**Batch coberto (2026-07-03):** o bulk `batch_update_ad_status` ganhou o mesmo bloqueio, amortizado. Ao ATIVAR: 1 **Meta Batch GET** (`batch_get_effective_status`, `fields=effective_status`, chunk de 50) lê o effective_status **fresco** de todos os ads → particiona os herdados-pausados (`ADSET_PAUSED`/`CAMPAIGN_PAUSED`) para `blocked` (não escreve) → escreve só o resto via `_batch_write_status` (loop extraído do método antigo). Custo ~2 chamadas Meta por 50 ads (não GET por-item). Confirmação **no nível do AD** (não do pai): 1 read por ad cobre pausa herdada de qualquer nível e evita o gap "ad que parece OK localmente mas cujo pai pausou depois do último refresh"; ads que o Meta não conseguiu ler ficam ausentes → **fail-open** (escreve). A resposta ganhou o bucket `blocked` (ad_id→motivo) em `BatchStatusResult`/`BatchStatusResponseSchema`; o toast do `useBulkAdStatusControl` ficou honesto ("X ativados, Y bloqueados (pai pausado)"). Testes: `backend/tests/test_status_update_flow.py` (12 casos, individual + batch).
+
+## Filtro global de packs (Topbar): busca + atalhos bulk + 0 packs válido (2026-07-02)
+
+**O quê:** o seletor de packs do Topbar ficava difícil de operar com muitos packs (ativar/desativar individuais um a um). Adicionado em `PackFilter.tsx` (modo multi-select): **busca por nome** (aparece com >5 packs, reusa o padrão do `ActionTypeFilter` — Input + filtro client-side; Enter alterna o único resultado, Esc fecha) e um header com **"Selecionar todos" / "Limpar"** + contador `selecionados/total`. Os atalhos bulk são props opcionais (`onSelectAll`/`onDeselectAll`) que só o Topbar passa, então `AdGrid` e `FiltersDropdown` (outros callers do `PackFilter`) ficam intocados — mas também ganham a busca de graça quando passam de 5 packs.
+
+**Decisão que muda um invariante anterior — 0 packs é estado válido e persistente:** o usuário confirmou que selecionar 0 packs "só mostra o empty state, tá tudo bem". O app antes garantia ≥1 pack em 3 lugares; removidos 2:
+- `TopbarFilters.handlePackFilterClose` — não reverte mais para a última seleção quando o pending fica vazio; commita `packPreferences` com todos `false`.
+- `filters.ts syncPacksOnLoad` — removido o fallback "Guarantee at least one pack enabled" (`enabledCount === 0 → newPrefs[allPackIds[0]] = true`). **Esse era o bloqueador de verdade:** o efeito roda em quase todo mount de página (via `useFilters`), então sem removê-lo qualquer seleção 0 voltava para 1 pack na navegação seguinte. Remover só o guard do commit não bastava.
+
+**Por que é seguro (verificado antes de mexer):** todo hook de query de analytics já gateia em `selectedPackIds.size > 0` — `useAdPerformancePipeline` (`fetchEnabled`), `usePackDiagnostic`, `useExplorerData` (`hasSelectedPacks`), `useMultiplePackAds` (`packIds.length > 0`). Com 0 packs nenhuma query dispara → as páginas renderizam o empty state, sem request quebrado nem custo.
+
+**Ainda com guard ≥1 de propósito:** `store.togglePack` (`if (isEnabled && enabledCount <= 1) return`) — usado por `FiltersDropdown`/`AdGrid`, não pelo Topbar. Então o Topbar chega a 0 e esses dois não; sem deadlock (adicionar pack nunca é bloqueado). Consistência total exigiria relaxar esse guard também (follow-up).
+
+**Regra para código futuro:** não reintroduzir guards ≥1 pack; manter o gate de queries em `selectedPackIds.size > 0` — é o que torna 0-packs seguro.

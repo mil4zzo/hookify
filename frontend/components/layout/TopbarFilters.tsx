@@ -63,7 +63,6 @@ export function TopbarFilters() {
   const handleTogglePack = useCallback((packId: string) => {
     const next = new Set(pendingPackIdsRef.current)
     if (next.has(packId)) {
-      if (next.size <= 1) return // guard: keep at least one selected
       next.delete(packId)
     } else {
       next.add(packId)
@@ -71,6 +70,22 @@ export function TopbarFilters() {
     pendingPackIdsRef.current = next
     isDirtyRef.current = true
     setPendingPackIds(new Set(next))
+  }, [])
+
+  // Bulk: seleciona todos os packs disponíveis
+  const handleSelectAllPacks = useCallback(() => {
+    const next = new Set(packsRef.current.map((p) => p.id))
+    pendingPackIdsRef.current = next
+    isDirtyRef.current = true
+    setPendingPackIds(new Set(next))
+  }, [])
+
+  // Bulk: limpa a seleção (estado intermediário — o invariante ≥1 é garantido no commit)
+  const handleDeselectAllPacks = useCallback(() => {
+    const next = new Set<string>()
+    pendingPackIdsRef.current = next
+    isDirtyRef.current = true
+    setPendingPackIds(next)
   }, [])
 
   const handlePackFilterClose = useCallback(() => {
@@ -81,6 +96,9 @@ export function TopbarFilters() {
     packsRef.current.forEach((p) => {
       newPrefs[p.id] = pendingPackIdsRef.current.has(p.id)
     })
+    // Selecionar 0 packs é um estado válido: nenhuma query de analytics dispara
+    // (todos os hooks gateiam em selectedPackIds.size > 0) e as páginas apenas
+    // renderizam o empty state. Não forçamos ≥1 no commit.
     setPackPreferences(newPrefs)
   }, [setPackPreferences])
 
@@ -92,6 +110,8 @@ export function TopbarFilters() {
         packs={packs}
         selectedPackIds={pendingPackIds}
         onTogglePack={handleTogglePack}
+        onSelectAll={handleSelectAllPacks}
+        onDeselectAll={handleDeselectAllPacks}
         onClose={handlePackFilterClose}
         packsClient={packsClient}
         isLoading={!packsClient || (packsClient && packs.length === 0)}

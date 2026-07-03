@@ -188,12 +188,10 @@ export const useFiltersStore = create<FiltersStore>()(
           if (!allSet.has(packId)) changed = true
         })
 
-        // Guarantee at least one pack enabled
-        const enabledCount = Object.values(newPrefs).filter(Boolean).length
-        if (enabledCount === 0 && allPackIds.length > 0) {
-          newPrefs[allPackIds[0]] = true
-          changed = true
-        }
+        // Nota: NÃO forçamos ao menos 1 pack habilitado. Selecionar 0 packs é um estado
+        // válido e intencional (o usuário pode limpar tudo pelo Topbar). Os hooks de
+        // analytics gateiam em selectedPackIds.size > 0, então 0 packs só mostra o empty
+        // state — sem query disparada. Forçar ≥1 aqui reverteria a limpeza a cada navegação.
 
         if (changed || Object.keys(newPrefs).length !== Object.keys(packPreferences).length) {
           set({ packPreferences: newPrefs })

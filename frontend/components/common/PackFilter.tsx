@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { IconCheck, IconCards } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { FilterSelectButton } from "@/components/common/FilterSelectButton";
@@ -36,10 +37,25 @@ interface PackFilterProps {
   onGroupByPacksChange?: (checked: boolean) => void; // Handler para mudança do switch
   showGroupByPacksSwitch?: boolean; // Se true, mostra o switch "Agrupar por packs" dentro do popup
   singleSelect?: boolean; // Se true, usa estilo single-select (sem checkboxes, como ActionTypeFilter)
+  onSelectAll?: () => void; // Bulk: seleciona todos os packs (mostra atalho "Selecionar todos")
+  onDeselectAll?: () => void; // Bulk: limpa a seleção (mostra atalho "Limpar")
 }
 
-export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false }: PackFilterProps) {
+export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false, onSelectAll, onDeselectAll }: PackFilterProps) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  // Reseta a busca ao fechar o popover
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  // Filtra a lista de packs pelo nome (busca client-side, sem prefixo)
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredPacks = useMemo(() => {
+    if (!normalizedSearch) return packs;
+    return packs.filter((p) => p.name.toLowerCase().includes(normalizedSearch));
+  }, [packs, normalizedSearch]);
 
   // Determinar se está carregando (prop explícita ou quando packsClient é false ou quando não há packs ainda)
   const isActuallyLoading = isLoading || !packsClient || packs.length === 0;
@@ -69,6 +85,12 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
 
   const selectedCount = selectedPackIds.size;
   const totalCount = packs.length;
+
+  // Atalhos só fazem sentido no modo multi-select. A busca aparece quando a lista
+  // fica longa (>5 packs), como pediu o usuário; os botões bulk aparecem quando o
+  // parent fornece os handlers (só o Topbar hoje) e há mais de um pack.
+  const showSearch = !singleSelect && totalCount > 5;
+  const showBulkActions = !singleSelect && totalCount > 1 && (!!onSelectAll || !!onDeselectAll);
 
   // Texto para o botão
   const getButtonText = () => {
@@ -115,10 +137,66 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
           </Tooltip>
           <PopoverContent className={cn("w-[300px] p-0", singleSelect && "bg-secondary text-text")} align="start">
             {showGroupByPacksSwitch && onGroupByPacksChange && <ToggleSwitch id="group-by-packs-popover" checked={groupByPacks} onCheckedChange={onGroupByPacksChange} label="Agrupar por packs" variant="default" size="md" />}
+            {showSearch && (
+              <div className="border-b border-border p-2">
+                <Input
+                  placeholder="Buscar pack..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="h-9"
+                  onKeyDown={(e) => {
+                    // Enter com um único resultado alterna esse pack (não fecha — é multi-select)
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (filteredPacks.length === 1) {
+                        onTogglePack(filteredPacks[0].id);
+                        setSearch("");
+                      }
+                    }
+                    if (e.key === "Escape") setOpen(false);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              </div>
+            )}
+            {showBulkActions && (
+              <div className="flex items-center justify-between gap-2 border-b border-border px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  {onSelectAll && (
+                    <button
+                      type="button"
+                      onClick={onSelectAll}
+                      disabled={selectedCount === totalCount}
+                      className="text-xs font-medium text-primary hover:underline disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      Selecionar todos
+                    </button>
+                  )}
+                  {onSelectAll && onDeselectAll && <span className="text-xs text-muted-foreground">·</span>}
+                  {onDeselectAll && (
+                    <button
+                      type="button"
+                      onClick={onDeselectAll}
+                      disabled={selectedCount === 0}
+                      className="text-xs font-medium text-primary hover:underline disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {selectedCount}/{totalCount}
+                </span>
+              </div>
+            )}
             <div className="max-h-[300px] overflow-y-auto">
+              {filteredPacks.length === 0 ? (
+                <div className="py-6 text-center text-sm text-muted-foreground">Nenhum pack encontrado.</div>
+              ) : (
               <div className="p-1">
                 <div className="space-y-1">
-                  {packs.map((pack) => {
+                  {filteredPacks.map((pack) => {
                     const isSelected = selectedPackIds.has(pack.id);
                     // Usar stats.uniqueAds (preferencialmente do backend)
                     // Não usar pack.ads porque ads estão no cache IndexedDB
@@ -165,6 +243,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
                   })}
                 </div>
               </div>
+              )}
             </div>
           </PopoverContent>
         </Popover>
