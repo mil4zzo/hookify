@@ -10,8 +10,9 @@ import { StandardCard } from "@/components/common/StandardCard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useUserTier, useSubscription } from "@/lib/hooks/useUserTier";
+import { useUserTier, useSubscription, type SubscriptionData } from "@/lib/hooks/useUserTier";
 import { api } from "@/lib/api/endpoints";
+import { env } from "@/lib/config/env";
 import {
   IconSparkles,
   IconCheck,
@@ -68,33 +69,91 @@ function PlanosContent() {
   const expiresAt = sub?.expires_at;
 
   const [selectedPlan, setSelectedPlan] = useState<BillingPlan>("monthly");
-  const [loading, setLoading] = useState<"checkout" | "portal" | null>(null);
+  const [loading, setLoading] = useState<"checkout" | "pix" | "portal" | null>(null);
+  const [activating, setActivating] = useState(false);
 
-  // Handle return from Stripe Checkout
+  // Handle return from Stripe Checkout (URL param → toast + kick off activation)
   useEffect(() => {
     if (checkout === "success") {
       toast.success("Pagamento confirmado! Ativando sua conta Insider...");
-      // Invalidate and retry until tier flips (webhook may lag a few seconds)
-      let attempts = 0;
-      const interval = setInterval(async () => {
-        await queryClient.invalidateQueries({ queryKey: ["user-tier"] });
-        attempts++;
-        if (attempts >= 8) clearInterval(interval);
-      }, 2000);
+      setActivating(true);
       // Clean query param from URL without full reload
       router.replace("/planos", { scroll: false });
     } else if (checkout === "cancel") {
       toast.info("Assinatura cancelada. Você pode tentar novamente quando quiser.");
       router.replace("/planos", { scroll: false });
     }
-  }, [checkout, queryClient, router]);
+  }, [checkout, router]);
 
-  async function handleCheckout() {
-    setLoading("checkout");
+  // Activation: reconcile directly with Stripe (doesn't depend on the webhook
+  // having arrived), then briefly poll as fallback. Separate effect so the URL
+  // cleanup above doesn't cancel it; cleanup covers unmount mid-poll.
+  useEffect(() => {
+    if (!activating) return;
+    let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
+
+    const isActivated = () => {
+      const data = queryClient.getQueryData<SubscriptionData>(["user-tier"]);
+      return data?.effectiveTier === "insider" || data?.effectiveTier === "admin";
+    };
+
+    (async () => {
+      let confirmed = false;
+      try {
+        const res = await api.billing.syncSubscription();
+        confirmed = res.tier === "insider" || res.tier === "admin";
+      } catch {
+        // sync indisponível — o webhook continua sendo o caminho de ativação
+      }
+      if (cancelled) return;
+      await queryClient.invalidateQueries({ queryKey: ["user-tier"] });
+      if (cancelled) return;
+      if (confirmed || isActivated()) {
+        toast.success("Conta Insider ativada!");
+        setActivating(false);
+        return;
+      }
+      // Fallback: webhook pode estar a caminho — poll por ~15s
+      let attempts = 0;
+      interval = setInterval(async () => {
+        attempts++;
+        await queryClient.invalidateQueries({ queryKey: ["user-tier"] });
+        if (cancelled) return;
+        if (isActivated()) {
+          clearInterval(interval);
+          toast.success("Conta Insider ativada!");
+          setActivating(false);
+        } else if (attempts >= 6) {
+          clearInterval(interval);
+          setActivating(false);
+          toast.info(
+            "A ativação está demorando um pouco mais que o normal. Atualize a página em instantes."
+          );
+        }
+      }, 2500);
+    })();
+
+    return () => {
+      cancelled = true;
+      if (interval) clearInterval(interval);
+    };
+  }, [activating, queryClient]);
+
+  async function handleCheckout(paymentMethod: "card" | "pix" = "card") {
+    setLoading(paymentMethod === "pix" ? "pix" : "checkout");
     try {
-      const { url } = await api.billing.createCheckoutSession(selectedPlan);
+      const { url } = await api.billing.createCheckoutSession(selectedPlan, paymentMethod);
       window.location.href = url;
-    } catch {
+    } catch (err) {
+      // 409 = já existe assinatura ativa (aba antiga/estado desatualizado) —
+      // duplicar cobraria duas vezes; o portal é o lugar certo para gerenciar
+      if ((err as { status?: number })?.status === 409) {
+        toast.info("Você já tem uma assinatura ativa. Abrindo o portal...");
+        queryClient.invalidateQueries({ queryKey: ["user-tier"] });
+        await handlePortal();
+        return;
+      }
       toast.error("Não foi possível iniciar o checkout. Tente novamente.");
       setLoading(null);
     }
@@ -263,14 +322,34 @@ function PlanosContent() {
 
               <Button
                 className="w-full"
-                onClick={handleCheckout}
-                disabled={loading === "checkout"}
+                onClick={() => handleCheckout("card")}
+                disabled={loading === "checkout" || loading === "pix"}
               >
                 {loading === "checkout" && (
                   <IconLoader2 className="w-4 h-4 animate-spin mr-2" />
                 )}
                 Assinar Insider
               </Button>
+
+              {/* Pix: pagamento avulso de 12 meses (Pix não suporta recorrência) */}
+              {selectedPlan === "annual" && env.BILLING_PIX_ENABLED && (
+                <>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    onClick={() => handleCheckout("pix")}
+                    disabled={loading === "checkout" || loading === "pix"}
+                  >
+                    {loading === "pix" && (
+                      <IconLoader2 className="w-4 h-4 animate-spin mr-2" />
+                    )}
+                    Pagar anual com Pix
+                  </Button>
+                  <p className="text-[11px] text-muted-foreground text-center">
+                    Pix: 12 meses de acesso, sem renovação automática.
+                  </p>
+                </>
+              )}
             </div>
           )}
         </StandardCard>

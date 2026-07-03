@@ -26,7 +26,7 @@ Contas de anúncios do Meta vinculadas a um usuário.
 | created_at | timestamp | DEFAULT |
 | updated_at | timestamp | DEFAULT |
 | connection_id | uuid |  |
-| requires_ads_transparency | boolean | NOT NULL DEFAULT false |
+| requires_ads_transparency | boolean | NOT NULL, DEFAULT |
 
 ---
 
@@ -313,6 +313,19 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | refresh_progress_json | jsonb |  |
 | ad_ids | text[] | DEFAULT |
 | sheet_integration_id | uuid |  |
+| conversion_types | text[] | NOT NULL, DEFAULT |
+
+---
+
+### stripe_events
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| event_id | text | NOT NULL |
+| type | text | NOT NULL |
+| received_at | timestamp | NOT NULL, DEFAULT |
+| status | text | NOT NULL, DEFAULT |
+| processed_at | timestamp |  |
 
 ---
 
@@ -330,6 +343,10 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | expires_at | timestamp |  |
 | created_at | timestamp | NOT NULL, DEFAULT |
 | updated_at | timestamp | NOT NULL, DEFAULT |
+| stripe_customer_id | text |  |
+| stripe_subscription_id | text |  |
+| stripe_status | text |  |
+| cancel_at_period_end | boolean | NOT NULL, DEFAULT |
 
 ---
 
@@ -350,7 +367,9 @@ Preferências e configurações personalizadas por usuário.
 | mql_leadscore_min | numeric | DEFAULT |
 | has_completed_onboarding | boolean | DEFAULT |
 | niche | text |  |
+| target_cpr | jsonb | DEFAULT |
+| diagnostic_cost_metric | text | DEFAULT |
 
 ---
 
-*Gerado em: 2026-05-01 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-07-01 — via `supabase/generate_schema_map.py`*

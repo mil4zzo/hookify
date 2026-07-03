@@ -469,11 +469,21 @@ export const api = {
 
   // Billing (Stripe)
   billing: {
-    createCheckoutSession: (plan: 'monthly' | 'annual'): Promise<{ url: string }> =>
-      apiClient.post('/billing/checkout-session', { plan }),
+    createCheckoutSession: (
+      plan: 'monthly' | 'annual',
+      paymentMethod: 'card' | 'pix' = 'card'
+    ): Promise<{ url: string }> =>
+      apiClient.post('/billing/checkout-session', { plan, payment_method: paymentMethod }),
 
     createPortalSession: (): Promise<{ url: string }> =>
       apiClient.post('/billing/portal-session'),
+
+    // Reconcilia a assinatura direto com a Stripe (recuperação de webhook perdido/atrasado)
+    syncSubscription: (): Promise<{
+      synced: boolean
+      stripe_status?: string
+      tier: 'standard' | 'insider' | 'admin'
+    }> => apiClient.post('/billing/sync'),
   },
 
   // Admin

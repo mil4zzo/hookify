@@ -43,14 +43,27 @@ async def update_user_tier(
     body: UpdateTierRequest,
     current_user: Dict[str, Any] = Depends(_require_admin),
 ):
-    """Update the tier for a given user. Caller must be admin."""
+    """Update the tier for a given user. Caller must be admin.
+
+    An explicit admin override is a manual grant: source='manual' detaches the
+    row from Stripe webhook management (the _is_stripe_managed guard), and
+    expires_at=NULL makes it never-expire — otherwise a leftover expires_at
+    from an old Stripe subscription would silently revoke the grant after the
+    grace period, and a late subscription.deleted webhook would clobber it.
+    A future purchase via checkout still re-attaches (checkout ignores source).
+    """
     caller_id = current_user["user_id"]
     sb = get_supabase_service()
 
     try:
         result = (
             sb.table("subscriptions")
-            .update({"tier": body.tier, "granted_by": caller_id})
+            .update({
+                "tier": body.tier,
+                "granted_by": caller_id,
+                "source": "manual",
+                "expires_at": None,
+            })
             .eq("user_id", user_id)
             .execute()
         )

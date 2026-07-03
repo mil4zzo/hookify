@@ -6,20 +6,28 @@ and payment recovery. Uses pure unittest mocks — no server started.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
+import stripe
 from postgrest.exceptions import APIError
 
 from app.routes.billing import (
+    PREPAID_ANNUAL_DAYS,
+    _find_blocking_subscription,
+    _grant_prepaid_access,
     _handle_checkout_completed,
     _handle_invoice_action_required,
+    _handle_invoice_failed,
     _handle_invoice_succeeded,
     _handle_subscription_deleted,
+    _handle_subscription_updated,
     _invoice_subscription_id,
     _mark_event_processed,
     _record_event,
     _subscription_period_end,
+    _subscription_price_id,
 )
 
 
@@ -260,6 +268,289 @@ class TestInvoiceActionRequired:
 
 def _make_api_error(code: str) -> APIError:
     return APIError({"code": code, "message": "error", "details": None, "hint": None})
+
+
+# ── _subscription_price_id helper ────────────────────────────────────────────
+
+class TestSubscriptionPriceId:
+    def test_reads_first_item_price(self):
+        sub = {"items": {"data": [{"price": {"id": "price_1"}}]}}
+        assert _subscription_price_id(sub) == "price_1"
+
+    def test_none_price_is_safe(self):
+        sub = {"items": {"data": [{"price": None}]}}
+        assert _subscription_price_id(sub) == ""
+
+    def test_missing_items_is_safe(self):
+        assert _subscription_price_id({}) == ""
+
+
+# ── _handle_invoice_failed ────────────────────────────────────────────────────
+
+class TestInvoiceFailed:
+    INVOICE = {"subscription": "sub_fail"}
+
+    def test_writes_live_status_past_due(self):
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "insider"}])
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value={"status": "past_due"},
+        ):
+            _handle_invoice_failed(sb, self.INVOICE)
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert any(p.get("stripe_status") == "past_due" for p in update_calls)
+
+    def test_does_not_overwrite_canceled_with_past_due(self):
+        """Out-of-order: payment_failed landing after subscription.deleted must
+        keep 'canceled', otherwise the UI offers the portal instead of checkout."""
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "standard"}])
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value={"status": "canceled"},
+        ):
+            _handle_invoice_failed(sb, self.INVOICE)
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert update_calls, "status update expected"
+        assert all(p.get("stripe_status") == "canceled" for p in update_calls)
+
+    def test_never_touches_expires_at(self):
+        """A failed cycle must not extend paid-through access."""
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "insider"}])
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value={"status": "past_due", "current_period_end": 9_999_999_999},
+        ):
+            _handle_invoice_failed(sb, self.INVOICE)
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert all("expires_at" not in p for p in update_calls)
+
+
+# ── _handle_subscription_updated ─────────────────────────────────────────────
+
+class TestSubscriptionUpdated:
+    @staticmethod
+    def _event_sub(status="active", price="price_new"):
+        return {
+            "id": "sub_upd",
+            "status": status,
+            "cancel_at_period_end": False,
+            "current_period_end": 9_999_999_999,
+            "items": {"data": [{"price": {"id": price}}]},
+        }
+
+    def test_syncs_plan_id_on_plan_switch(self):
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "insider"}])
+        _handle_subscription_updated(sb, self._event_sub(price="price_annual"))
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert any(p.get("plan_id") == "price_annual" for p in update_calls)
+
+    def test_self_heals_tier_when_live_active(self):
+        """Row standard + event/live active → re-grant insider (covers a missed
+        invoice.payment_succeeded)."""
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "standard"}])
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value={"status": "active"},
+        ):
+            _handle_subscription_updated(sb, self._event_sub())
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert any(p.get("tier") == "insider" for p in update_calls)
+
+    def test_no_heal_when_live_says_canceled(self):
+        """Stale/out-of-order event: live status wins, no tier grant."""
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "standard"}])
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value={"status": "canceled"},
+        ):
+            _handle_subscription_updated(sb, self._event_sub())
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert not any(p.get("tier") == "insider" for p in update_calls)
+
+    def test_manual_source_row_untouched(self):
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "manual", "tier": "insider"}])
+        _handle_subscription_updated(sb, self._event_sub())
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert not update_calls, "manual grants must not be mutated by stripe webhooks"
+
+    def test_active_extends_expires_at(self):
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "insider"}])
+        _handle_subscription_updated(sb, self._event_sub(status="active"))
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert any("expires_at" in p for p in update_calls)
+
+    def test_past_due_does_not_extend_expires_at(self):
+        """Dunning guard: the period advances at cycle start regardless of
+        payment — extending expires_at for past_due/unpaid would hand out the
+        unpaid cycle for free."""
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "insider"}])
+        _handle_subscription_updated(sb, self._event_sub(status="past_due"))
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert update_calls, "status update expected"
+        assert all("expires_at" not in p for p in update_calls)
+
+    def test_unpaid_does_not_extend_expires_at(self):
+        sb = _make_sb(sub_rows=[{"user_id": "u1", "source": "stripe", "tier": "insider"}])
+        _handle_subscription_updated(sb, self._event_sub(status="unpaid"))
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert all("expires_at" not in p for p in update_calls)
+
+
+# ── _find_blocking_subscription (checkout duplicate guard) ───────────────────
+
+class TestFindBlockingSubscription:
+    def test_no_row_allows_checkout(self):
+        sb = _make_sb(sub_rows=[])
+        assert _find_blocking_subscription(sb, "u1") is None
+
+    def test_canceled_local_status_allows_checkout(self):
+        sb = _make_sb(sub_rows=[{"stripe_subscription_id": "sub_1", "stripe_status": "canceled"}])
+        assert _find_blocking_subscription(sb, "u1") is None
+
+    def test_live_active_blocks_checkout(self):
+        """Double click / stale tab must not create a second live subscription."""
+        sb = _make_sb(sub_rows=[{"stripe_subscription_id": "sub_1", "stripe_status": "active"}])
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value={"status": "active"},
+        ):
+            assert _find_blocking_subscription(sb, "u1") == "active"
+
+    def test_stale_local_status_heals_and_allows(self):
+        """Local says active but Stripe says canceled (lost webhook) → heal + allow."""
+        sb = _make_sb(sub_rows=[{"stripe_subscription_id": "sub_1", "stripe_status": "active"}])
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value={"status": "canceled"},
+        ):
+            assert _find_blocking_subscription(sb, "u1") is None
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert any(p.get("stripe_status") == "canceled" for p in update_calls)
+
+    def test_missing_subscription_on_stripe_heals_and_allows(self):
+        sb = _make_sb(sub_rows=[{"stripe_subscription_id": "sub_gone", "stripe_status": "active"}])
+        err = stripe.InvalidRequestError("No such subscription", None)
+        with patch("app.routes.billing.stripe.Subscription.retrieve", side_effect=err):
+            assert _find_blocking_subscription(sb, "u1") is None
+        update_calls = [p for op, p in sb._sub_q._updates if op == "update"]
+        assert any(p.get("stripe_status") == "canceled" for p in update_calls)
+
+
+# ── Pix prepaid grant ────────────────────────────────────────────────────────
+
+_PIX_CREATED = 1_750_000_000  # unix ts of the paid session
+
+
+def _pix_session(payment_status="paid", created=_PIX_CREATED):
+    return {
+        "mode": "payment",
+        "payment_status": payment_status,
+        "created": created,
+        "client_reference_id": "user-pix",
+        "metadata": {"user_id": "user-pix", "plan": "annual_pix"},
+    }
+
+
+def _expected_pix_expiry(created=_PIX_CREATED) -> str:
+    return (
+        datetime.fromtimestamp(created, tz=timezone.utc) + timedelta(days=PREPAID_ANNUAL_DAYS)
+    ).isoformat()
+
+
+class TestPrepaidGrant:
+    def test_paid_session_grants_one_year(self):
+        sb = _make_sb(sub_rows=[{"tier": "standard", "expires_at": None}])
+        payload = _grant_prepaid_access(sb, "user-pix", _pix_session())
+        assert payload is not None
+        assert payload.get("tier") == "insider"
+        assert payload.get("expires_at") == _expected_pix_expiry()
+        # no subscription behind this grant — stale sub pointers must be cleared
+        assert payload.get("stripe_subscription_id") is None
+        assert payload.get("stripe_status") is None
+
+    def test_unpaid_session_is_skipped(self):
+        """Pix pendente: grant only happens on async_payment_succeeded."""
+        sb = _make_sb(sub_rows=[{"tier": "standard", "expires_at": None}])
+        assert _grant_prepaid_access(sb, "user-pix", _pix_session(payment_status="unpaid")) is None
+        assert not sb._sub_q._updates
+
+    def test_idempotent_on_retry_and_keeps_later_expiry(self):
+        """Expiry derives from session.created — retries recompute the same
+        date, and an existing LATER expiry is never shortened."""
+        later = (
+            datetime.fromtimestamp(_PIX_CREATED, tz=timezone.utc)
+            + timedelta(days=PREPAID_ANNUAL_DAYS + 30)
+        ).isoformat()
+        sb = _make_sb(sub_rows=[{"tier": "insider", "expires_at": later}])
+        payload = _grant_prepaid_access(sb, "user-pix", _pix_session())
+        assert payload is not None
+        assert "expires_at" not in payload, "must not shorten a later existing expiry"
+
+    def test_admin_tier_untouched(self):
+        sb = _make_sb(sub_rows=[{"tier": "admin", "expires_at": None}])
+        payload = _grant_prepaid_access(sb, "user-pix", _pix_session())
+        assert payload is not None
+        assert "tier" not in payload
+
+    def test_checkout_completed_routes_payment_mode_to_grant(self):
+        """mode=payment com plan=annual_pix concede sem tocar em Subscription.retrieve
+        (não há subscription — retrieve explodiria se fosse chamado, pois não está mockado)."""
+        sb = _make_sb(sub_rows=[{"tier": "standard", "expires_at": None}])
+        _handle_checkout_completed(sb, _pix_session())
+        upsert_calls = [p for op, p in sb._sub_q._updates if op == "upsert"]
+        assert upsert_calls and upsert_calls[0].get("tier") == "insider"
+
+    def test_checkout_completed_ignores_unknown_payment_mode(self):
+        sb = _make_sb(sub_rows=[{"tier": "standard", "expires_at": None}])
+        session = {**_pix_session(), "metadata": {"user_id": "user-pix"}}  # sem plan=annual_pix
+        _handle_checkout_completed(sb, session)
+        assert not sb._sub_q._updates
+
+
+class TestFindBlockingPrepaid:
+    def test_active_prepaid_blocks_checkout(self):
+        future = (datetime.now(tz=timezone.utc) + timedelta(days=100)).isoformat()
+        sb = _make_sb(sub_rows=[{
+            "stripe_subscription_id": None, "stripe_status": None,
+            "source": "stripe", "tier": "insider", "expires_at": future,
+        }])
+        assert _find_blocking_subscription(sb, "u1") == "prepaid"
+
+    def test_expired_prepaid_allows_checkout(self):
+        past = (datetime.now(tz=timezone.utc) - timedelta(days=1)).isoformat()
+        sb = _make_sb(sub_rows=[{
+            "stripe_subscription_id": None, "stripe_status": None,
+            "source": "stripe", "tier": "insider", "expires_at": past,
+        }])
+        assert _find_blocking_subscription(sb, "u1") is None
+
+    def test_manual_grant_does_not_block_checkout(self):
+        future = (datetime.now(tz=timezone.utc) + timedelta(days=100)).isoformat()
+        sb = _make_sb(sub_rows=[{
+            "stripe_subscription_id": None, "stripe_status": None,
+            "source": "manual", "tier": "insider", "expires_at": future,
+        }])
+        assert _find_blocking_subscription(sb, "u1") is None
+
+
+# ── checkout persists stripe_customer_id ─────────────────────────────────────
+
+class TestCheckoutCustomerId:
+    def test_customer_id_persisted_from_session(self):
+        sb = _make_sb(sub_rows=[{"tier": "standard", "source": "manual"}])
+        session = {
+            "client_reference_id": "user-abc",
+            "subscription": "sub_xyz",
+            "customer": "cus_123",
+            "metadata": {},
+        }
+        with patch(
+            "app.routes.billing.stripe.Subscription.retrieve",
+            return_value=_make_live_sub("active"),
+        ):
+            _handle_checkout_completed(sb, session)
+        upsert_calls = [p for op, p in sb._sub_q._updates if op == "upsert"]
+        assert upsert_calls and upsert_calls[0].get("stripe_customer_id") == "cus_123"
 
 
 class TestRecordEvent:

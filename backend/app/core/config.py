@@ -101,5 +101,9 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_PRICE_INSIDER_MONTHLY = os.getenv("STRIPE_PRICE_INSIDER_MONTHLY")
 STRIPE_PRICE_INSIDER_ANNUAL = os.getenv("STRIPE_PRICE_INSIDER_ANNUAL")
+# Pix (pagamento anual avulso, sem renovação automática). Exige Pix habilitado
+# no Stripe Dashboard. "or" cobre var presente-mas-vazia (compose override).
+STRIPE_PIX_ENABLED = (os.getenv("STRIPE_PIX_ENABLED") or "").lower() == "true"
+STRIPE_PIX_ANNUAL_AMOUNT_CENTS = int(os.getenv("STRIPE_PIX_ANNUAL_AMOUNT_CENTS") or 79000)
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
  

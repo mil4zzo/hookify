@@ -13,5 +13,7 @@ export const env = {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
     '',
   SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN || '',
+  // Pix no plano anual — espelha STRIPE_PIX_ENABLED do backend; ligar os dois juntos
+  BILLING_PIX_ENABLED: process.env.NEXT_PUBLIC_BILLING_PIX_ENABLED === 'true',
 } as const
 

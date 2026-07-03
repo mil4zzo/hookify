@@ -34,6 +34,10 @@ STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_INSIDER_MONTHLY=price_...
 STRIPE_PRICE_INSIDER_ANNUAL=price_...
+# Pix no plano anual (pagamento avulso de 12 meses, sem renovação automática).
+# Exige Pix habilitado no Dashboard + NEXT_PUBLIC_BILLING_PIX_ENABLED=true no frontend.
+STRIPE_PIX_ENABLED=false
+STRIPE_PIX_ANNUAL_AMOUNT_CENTS=79000
 FRONTEND_BASE_URL=https://hookifyads.com
 ```
 
@@ -49,6 +53,8 @@ NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=sua_anon_key_aqui
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sua_publishable_key_aqui
 NEXT_PUBLIC_SENTRY_DSN=
+# Mostrar botão "Pagar anual com Pix" — ligar junto com STRIPE_PIX_ENABLED do backend
+NEXT_PUBLIC_BILLING_PIX_ENABLED=false
 SENTRY_AUTH_TOKEN=
 SENTRY_ORG=
 SENTRY_PROJECT=
@@ -66,6 +72,8 @@ NEXT_PUBLIC_USE_REMOTE_API=true
 NEXT_PUBLIC_SUPABASE_URL=https://seu-projeto.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sua_publishable_key_aqui
 NEXT_PUBLIC_SENTRY_DSN=
+# Mostrar botão "Pagar anual com Pix" — ligar junto com STRIPE_PIX_ENABLED do backend
+NEXT_PUBLIC_BILLING_PIX_ENABLED=false
 SENTRY_AUTH_TOKEN=
 SENTRY_ORG=
 SENTRY_PROJECT=
@@ -121,11 +129,19 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
    - Anual: R$790,00 / ano → copie o `price_...` como `STRIPE_PRICE_INSIDER_ANNUAL`
 3. Para parcelamento no plano anual: **Settings → Payment methods → Card installments** → habilitar
 4. **Developers → Webhooks** → Add endpoint: `https://api.hookifyads.com/billing/webhook`
-   - Eventos: `checkout.session.completed`, `customer.subscription.updated`,
-     `customer.subscription.deleted`, `invoice.payment_succeeded`, `invoice.payment_failed`
+   - Eventos: `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+     `customer.subscription.updated`, `customer.subscription.deleted`,
+     `invoice.payment_succeeded`, `invoice.payment_failed`, `invoice.payment_action_required`
    - Copie o Signing secret como `STRIPE_WEBHOOK_SECRET`
 5. **Developers → API keys** → copie a Secret key como `STRIPE_SECRET_KEY`
 6. **Settings → Customer portal** → habilitar e configurar opções de cancelamento/troca
+7. **Dunning (obrigatório conferir):** Settings → Billing → **Subscriptions and emails** →
+   "Manage failed payments" → em *If all retries fail*, selecionar **Cancel the subscription**
+   (o backend depende do evento `customer.subscription.deleted` para rebaixar o tier; o código
+   tem guarda extra que não estende `expires_at` em `past_due`/`unpaid`, mas cancelar é o correto)
+8. **Pix (opcional, plano anual avulso):** Settings → **Payment methods** → habilitar Pix →
+   depois setar `STRIPE_PIX_ENABLED=true` (backend) e `NEXT_PUBLIC_BILLING_PIX_ENABLED=true`
+   (frontend) — os dois juntos. Valor cobrado: `STRIPE_PIX_ANNUAL_AMOUNT_CENTS` (padrão R$790)
 7. Em desenvolvimento, use `stripe listen --forward-to localhost:8000/billing/webhook` e copie
    o webhook secret impresso no terminal como `STRIPE_WEBHOOK_SECRET`
 

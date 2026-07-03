@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict br37viGpd8VYVxXDBKA1vDwNR0GyuPE607segVaQh6X2RDlSN5kZtCO2UpKHmg3
+\restrict iQq38tdoS3aB2NAQz1jjzSx1hQ0uNc5WR5b7Dzm57nFXhmlKMbIPAwfxmKduxS2
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -835,94 +835,6 @@ $$;
 
 
 ALTER FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) OWNER TO postgres;
-
---
--- Name: fetch_available_conversion_types_v1(uuid, date, date, uuid[], text[], text, text, text); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text) RETURNS jsonb
-    LANGUAGE sql STABLE SECURITY DEFINER
-    SET search_path TO 'public'
-    AS $$
-  WITH base_candidates AS (
-    SELECT am.user_id, am.ad_id, am.date, am.updated_at, am.created_at, am.id,
-           am.conversions, am.actions
-    FROM public.ad_metrics am
-    WHERE am.user_id = p_user_id
-      AND am.date >= p_date_start
-      AND am.date <= p_date_stop
-      AND (
-        p_pack_ids IS NULL
-        OR EXISTS (
-          SELECT 1
-          FROM public.ad_metric_pack_map apm
-          WHERE apm.user_id = am.user_id
-            AND apm.ad_id = am.ad_id
-            AND apm.metric_date = am.date
-            AND apm.pack_id = ANY(p_pack_ids)
-        )
-      )
-      AND (p_account_ids IS NULL OR am.account_id = ANY(p_account_ids))
-      AND (
-        p_campaign_name_contains IS NULL
-        OR p_campaign_name_contains = ''
-        OR coalesce(am.campaign_name, '') ILIKE '%' || p_campaign_name_contains || '%'
-      )
-      AND (
-        p_adset_name_contains IS NULL
-        OR p_adset_name_contains = ''
-        OR coalesce(am.adset_name, '') ILIKE '%' || p_adset_name_contains || '%'
-      )
-      AND (
-        p_ad_name_contains IS NULL
-        OR p_ad_name_contains = ''
-        OR coalesce(am.ad_name, '') ILIKE '%' || p_ad_name_contains || '%'
-      )
-  ),
-  base AS (
-    SELECT DISTINCT ON (am.user_id, am.ad_id, am.date)
-      am.conversions, am.actions
-    FROM base_candidates am
-    ORDER BY
-      am.user_id,
-      am.ad_id,
-      am.date,
-      am.updated_at DESC NULLS LAST,
-      am.created_at DESC NULLS LAST,
-      am.id DESC
-  ),
-  conv_entries_all AS (
-    SELECT 'conversion:' || nullif(elem ->> 'action_type', '') AS conv_key
-    FROM base b
-    CROSS JOIN LATERAL jsonb_array_elements(
-      CASE WHEN jsonb_typeof(b.conversions) = 'array' THEN b.conversions ELSE '[]'::jsonb END
-    ) elem
-    WHERE nullif(elem ->> 'action_type', '') IS NOT NULL
-
-    UNION ALL
-
-    SELECT 'action:' || nullif(elem ->> 'action_type', '') AS conv_key
-    FROM base b
-    CROSS JOIN LATERAL jsonb_array_elements(
-      CASE WHEN jsonb_typeof(b.actions) = 'array' THEN b.actions ELSE '[]'::jsonb END
-    ) elem
-    WHERE nullif(elem ->> 'action_type', '') IS NOT NULL
-  )
-  SELECT coalesce(jsonb_agg(t.conv_key ORDER BY t.conv_key), '[]'::jsonb)
-  FROM (
-    SELECT DISTINCT conv_key FROM conv_entries_all
-  ) t;
-$$;
-
-
-ALTER FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) OWNER TO postgres;
-
---
--- Name: FUNCTION fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text); Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) IS 'Lightweight lookup for available_conversion_types. Replaces the limit=1 probe on fetch_manager_rankings_core_v2. Logic mirrors v060 conv_entries_all/available_types CTEs verbatim. See migration 079.';
-
 
 --
 -- Name: fetch_manager_analytics_aggregated(uuid, date, date, text, uuid[], text[], text, text, text, boolean, boolean, integer, integer, text); Type: FUNCTION; Schema: public; Owner: postgres
@@ -5297,7 +5209,8 @@ CREATE TABLE public.ad_accounts (
     instagram_accounts jsonb,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    connection_id uuid
+    connection_id uuid,
+    requires_ads_transparency boolean DEFAULT false NOT NULL
 );
 
 
@@ -5308,6 +5221,13 @@ ALTER TABLE public.ad_accounts OWNER TO postgres;
 --
 
 COMMENT ON COLUMN public.ad_accounts.connection_id IS 'ID da conexão Facebook que concedeu acesso a esta conta de anúncios. NULL mantém compatibilidade com registros antigos.';
+
+
+--
+-- Name: COLUMN ad_accounts.requires_ads_transparency; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_accounts.requires_ads_transparency IS 'True when Meta has rejected an adset creation on this account with subcode 3858495 (compliance_section). Set automatically by campaign_bulk_service when the error occurs. Used by the frontend to warn before submission.';
 
 
 --
@@ -5744,6 +5664,7 @@ CREATE TABLE public.packs (
     refresh_progress_json jsonb,
     ad_ids text[] DEFAULT '{}'::text[],
     sheet_integration_id uuid,
+    conversion_types text[] DEFAULT '{}'::text[] NOT NULL,
     CONSTRAINT packs_level_check CHECK ((level = ANY (ARRAY['campaign'::text, 'adset'::text, 'ad'::text]))),
     CONSTRAINT packs_refresh_status_check CHECK ((refresh_status = ANY (ARRAY['idle'::text, 'queued'::text, 'running'::text, 'cancel_requested'::text, 'canceled'::text, 'success'::text, 'failed'::text])))
 );
@@ -5757,6 +5678,29 @@ ALTER TABLE public.packs OWNER TO postgres;
 
 COMMENT ON COLUMN public.packs.sheet_integration_id IS 'Referência à integração de planilha Google Sheets associada a este pack. Permite buscar dados da integração diretamente via JOIN ao buscar packs.';
 
+
+--
+-- Name: COLUMN packs.conversion_types; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.packs.conversion_types IS 'Lista materializada (union incremental, monotonica) dos conversion types do pack. Chaves: conversion:<action_type> / action:<action_type>. Populada no refresh (union dos dados ingeridos) + backfill inicial. Fonte do dropdown de eventos no Manager.';
+
+
+--
+-- Name: stripe_events; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.stripe_events (
+    event_id text NOT NULL,
+    type text NOT NULL,
+    received_at timestamp with time zone DEFAULT now() NOT NULL,
+    status text DEFAULT 'processed'::text NOT NULL,
+    processed_at timestamp with time zone,
+    CONSTRAINT stripe_events_status_check CHECK ((status = ANY (ARRAY['processing'::text, 'processed'::text])))
+);
+
+
+ALTER TABLE public.stripe_events OWNER TO postgres;
 
 --
 -- Name: subscriptions; Type: TABLE; Schema: public; Owner: postgres
@@ -5773,6 +5717,10 @@ CREATE TABLE public.subscriptions (
     expires_at timestamp with time zone,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    stripe_customer_id text,
+    stripe_subscription_id text,
+    stripe_status text,
+    cancel_at_period_end boolean DEFAULT false NOT NULL,
     CONSTRAINT subscriptions_source_check CHECK ((source = ANY (ARRAY['manual'::text, 'stripe'::text, 'promo'::text]))),
     CONSTRAINT subscriptions_tier_check CHECK ((tier = ANY (ARRAY['standard'::text, 'insider'::text, 'admin'::text])))
 );
@@ -5796,7 +5744,9 @@ CREATE TABLE public.user_preferences (
     validation_criteria jsonb DEFAULT '[]'::jsonb,
     mql_leadscore_min numeric DEFAULT 0,
     has_completed_onboarding boolean DEFAULT false,
-    niche text
+    niche text,
+    target_cpr jsonb DEFAULT '{}'::jsonb,
+    diagnostic_cost_metric text DEFAULT 'cpr'::text
 );
 
 
@@ -5814,6 +5764,20 @@ COMMENT ON COLUMN public.user_preferences.mql_leadscore_min IS 'Leadscore mínim
 --
 
 COMMENT ON COLUMN public.user_preferences.niche IS 'Nicho de negócio do usuário (texto livre)';
+
+
+--
+-- Name: COLUMN user_preferences.target_cpr; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.user_preferences.target_cpr IS 'CPR alvo por action_type (ex: {"purchase": 15.00, "lead": 8.50}). Usado pelo Plano de Ação para vereditos absolutos. Quando ausente, o plano usa modo relativo (vs. média do pack).';
+
+
+--
+-- Name: COLUMN user_preferences.diagnostic_cost_metric; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.user_preferences.diagnostic_cost_metric IS 'Métrica de custo escolhida no bloco de comparação do /plano: ''cpr'' ou ''cpmql''. Default ''cpr''. CPMQL exige dado de MQL; senão o app cai para CPR.';
 
 
 --
@@ -5934,6 +5898,14 @@ ALTER TABLE ONLY public.meta_api_usage
 
 ALTER TABLE ONLY public.packs
     ADD CONSTRAINT packs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: stripe_events stripe_events_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.stripe_events
+    ADD CONSTRAINT stripe_events_pkey PRIMARY KEY (event_id);
 
 
 --
@@ -6325,6 +6297,20 @@ COMMENT ON INDEX public.packs_user_normalized_name_unique_idx IS 'Garante unicid
 
 
 --
+-- Name: subscriptions_stripe_customer_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX subscriptions_stripe_customer_id_idx ON public.subscriptions USING btree (stripe_customer_id) WHERE (stripe_customer_id IS NOT NULL);
+
+
+--
+-- Name: subscriptions_stripe_subscription_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX subscriptions_stripe_subscription_id_idx ON public.subscriptions USING btree (stripe_subscription_id) WHERE (stripe_subscription_id IS NOT NULL);
+
+
+--
 -- Name: facebook_connections trg_facebook_connections_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -6596,6 +6582,12 @@ CREATE POLICY packs_modify_own ON public.packs USING ((user_id = ( SELECT auth.u
 
 
 --
+-- Name: stripe_events; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.stripe_events ENABLE ROW LEVEL SECURITY;
+
+--
 -- Name: subscriptions; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -6677,14 +6669,6 @@ GRANT ALL ON FUNCTION public.diagnose_manager_rpc_timing(p_user_id uuid, p_date_
 
 GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO service_role;
-
-
---
--- Name: FUNCTION fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text); Type: ACL; Schema: public; Owner: postgres
---
-
-REVOKE ALL ON FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.fetch_available_conversion_types_v1(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text) TO service_role;
 
 
 --
@@ -6941,6 +6925,15 @@ GRANT ALL ON TABLE public.packs TO service_role;
 
 
 --
+-- Name: TABLE stripe_events; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.stripe_events TO anon;
+GRANT ALL ON TABLE public.stripe_events TO authenticated;
+GRANT ALL ON TABLE public.stripe_events TO service_role;
+
+
+--
 -- Name: TABLE subscriptions; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7022,5 +7015,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict br37viGpd8VYVxXDBKA1vDwNR0GyuPE607segVaQh6X2RDlSN5kZtCO2UpKHmg3
+\unrestrict iQq38tdoS3aB2NAQz1jjzSx1hQ0uNc5WR5b7Dzm57nFXhmlKMbIPAwfxmKduxS2
 
