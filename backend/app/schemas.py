@@ -58,6 +58,9 @@ class BatchStatusResult(BaseModel):
     updated_ids: List[str]
     failed_ids: List[str]
     total: int
+    # ad_id → motivo da pausa herdada ("adset" | "campaign"): ativados em lote que foram
+    # bloqueados porque um pai está pausado (ativar o próprio ad não retomaria a entrega).
+    blocked: Dict[str, str] = {}
 
 
 class BulkAdItem(BaseModel):

@@ -12,7 +12,7 @@ export type AdEntityStatus = "PAUSED" | "ACTIVE";
  * Avoids broad invalidation that triggers a flood of duplicate RPC calls (fetch_manager_rankings_core_v2)
  * — metrics don't change when status toggles, only the badge does.
  */
-function patchAdStatusInCaches(qc: QueryClient, adId: string, nextStatus: AdEntityStatus): void {
+function patchAdStatusInCaches(qc: QueryClient, adId: string, nextStatus: string): void {
   if (!adId) return;
   const patchRow = (row: any): any => {
     if (!row || typeof row !== "object") return row;
@@ -127,25 +127,44 @@ export function useBulkAdStatusControl(): UseBulkAdStatusControlReturn {
     onSuccess: (data, variables) => {
       const { status } = variables;
       const { updated_ids, failed_ids } = data;
+      const blockedIds = Object.keys(data.blocked ?? {});
+      const label = status === "PAUSED" ? "pausados" : "ativados";
 
       if (updated_ids.length > 0) {
+        // Só os aplicados de fato — bloqueados/falhos mantêm o effective_status atual no cache.
         patchBulkAdStatusInCaches(
           qc,
           updated_ids.map((id) => ({ adId: id, status: status as AdEntityStatus })),
         );
       }
 
-      if (failed_ids.length === 0) {
-        const label = status === "PAUSED" ? "pausados" : "ativados";
-        showSuccess(`${updated_ids.length} anúncio${updated_ids.length !== 1 ? "s" : ""} ${label}.`);
-      } else if (updated_ids.length > 0) {
-        toast.warning(
-          `${updated_ids.length} ${status === "PAUSED" ? "pausados" : "ativados"}, ${failed_ids.length} falharam.`,
-          { duration: 6000 },
-        );
-      } else {
-        showError(`Falha ao atualizar ${failed_ids.length} anúncio${failed_ids.length !== 1 ? "s" : ""}.`);
+      const plural = (n: number) => (n !== 1 ? "s" : "");
+
+      if (blockedIds.length === 0 && failed_ids.length === 0) {
+        showSuccess(`${updated_ids.length} anúncio${plural(updated_ids.length)} ${label}.`);
+        return;
       }
+
+      if (updated_ids.length > 0) {
+        // Parcial: aplicou alguns, mas houve bloqueio (pai pausado) e/ou falha.
+        const segments = [`${updated_ids.length} ${label}`];
+        if (blockedIds.length > 0) segments.push(`${blockedIds.length} bloqueado${plural(blockedIds.length)} (pai pausado)`);
+        if (failed_ids.length > 0) segments.push(`${failed_ids.length} com falha`);
+        toast.warning(`${segments.join(", ")}.`, { duration: 6000 });
+        return;
+      }
+
+      // Nada aplicado.
+      if (blockedIds.length > 0 && failed_ids.length === 0) {
+        // Todos bloqueados por pausa herdada: é orientação, não falha do Meta.
+        toast.warning(
+          `Nenhum ativado: ${blockedIds.length} bloqueado${plural(blockedIds.length)} porque um pai está pausado. Ative a campanha/conjunto primeiro.`,
+          { duration: 7000 },
+        );
+        return;
+      }
+
+      showError(`Falha ao atualizar ${failed_ids.length} anúncio${plural(failed_ids.length)}.`);
     },
     onError: (e: any) => {
       const msg = e?.message || "Falha ao atualizar status em lote.";
@@ -184,8 +203,11 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       return api.facebook.updateCampaignStatus(entityId, nextStatus);
     },
     onSuccess: async (data) => {
-      // Atualizar UI local imediatamente (antes do refetch) para melhor UX
-      setStatusOverride(data.status);
+      // Refletir o effective_status REAL relido do Meta (verify), não o status pedido.
+      // Evita o "sucesso fantasma" que revertia no próximo refresh: se o Meta devolver um
+      // estado ainda pausado, o badge mostra a verdade em vez de um ACTIVE otimista.
+      const realStatus = (data.effective_status && data.effective_status.trim()) || data.status;
+      setStatusOverride(realStatus);
       onSuccess?.(data.status);
 
       showSuccess(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.");
@@ -193,7 +215,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       if (entityType === "ad") {
         // Toggle de status não muda métricas — só effective_status. Patch in-place
         // evita o storm de refetches que causa timeouts no fetch_manager_rankings_core_v2.
-        patchAdStatusInCaches(qc, entityId, data.status);
+        patchAdStatusInCaches(qc, entityId, realStatus);
       } else {
         // adset/campaign: o cascade para effective_status dos filhos (ADSET_PAUSED/CAMPAIGN_PAUSED)
         // é complexo de inferir client-side. Toggles desses são raros — invalidação ampla aceitável.
@@ -204,16 +226,31 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
     },
     onError: (e: any) => {
       const msg = e?.message || "Falha ao atualizar status.";
+      // Pausa herdada de um pai ou entidade já ativa: é orientação ao usuário, não uma falha.
+      if (e?.code === "PARENT_PAUSED" || e?.code === "ALREADY_ACTIVE") {
+        toast.warning(msg, { duration: 6000 });
+        return;
+      }
       showError(msg);
     },
   });
 
   const pause = useCallback(async () => {
-    await mutation.mutateAsync("PAUSED");
+    // onError já trata a mensagem; swallow evita unhandled rejection nos call sites
+    // (bloqueio por pausa herdada / "já ativo" agora é fluxo normal, não erro raro).
+    try {
+      await mutation.mutateAsync("PAUSED");
+    } catch {
+      /* tratado em onError */
+    }
   }, [mutation]);
 
   const resume = useCallback(async () => {
-    await mutation.mutateAsync("ACTIVE");
+    try {
+      await mutation.mutateAsync("ACTIVE");
+    } catch {
+      /* tratado em onError */
+    }
   }, [mutation]);
 
   const toggleStatus = useCallback(async () => {

@@ -595,6 +595,105 @@ class GraphAPI:
             logger.exception("_update_entity_status error: %s", err)
             return {"status": "error", "message": str(err)}
 
+    def get_entity_status(self, entity_id: str) -> Dict[str, Any]:
+        """
+        Lê `status` (configurado) e `effective_status` (entrega — herda pausa dos pais)
+        de uma entidade (ad/adset/campaign) no Meta.
+
+        GET https://graph.facebook.com/v24.0/{entity_id}?fields=status,effective_status
+
+        Retorna:
+          {"status": "success", "own_status": ..., "effective_status": ...}
+          ou {"status": "auth_error"|"http_error"|"error", "message": ...}
+
+        Distinção crucial usada pelo fluxo de ativação:
+        - `effective_status == "CAMPAIGN_PAUSED"` num conjunto/anúncio => o PAI (campanha) está
+          pausado; ativar o filho é no-op de entrega.
+        - `effective_status == "ADSET_PAUSED"` num anúncio => o conjunto pai está pausado.
+        """
+        if not entity_id:
+            return {"status": "error", "message": "entity_id é obrigatório"}
+
+        url = f"{self.base_url}{entity_id}"
+        params = {"access_token": self.access_token, "fields": "status,effective_status"}
+
+        try:
+            resp = requests.get(url, params=params, timeout=30)
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.get_entity_status")
+            data = resp.json() if resp.content else {}
+            return {
+                "status": "success",
+                "own_status": (str(data.get("status") or "").upper() or None),
+                "effective_status": (str(data.get("effective_status") or "").upper() or None),
+            }
+        except requests.exceptions.HTTPError as http_err:
+            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+            error_code = error_obj.get("code")
+            error_message = error_obj.get("message") or str(http_err)
+            if error_code == 190:
+                return {"status": "auth_error", "message": error_message, "error": error_obj}
+            return {"status": "http_error", "message": error_message, "error": error_obj}
+        except Exception as err:
+            logger.exception("get_entity_status error: %s", err)
+            return {"status": "error", "message": str(err)}
+
+    # effective_status que indicam pausa herdada de um PAI, por tipo de entidade.
+    # Ativar a própria entidade não resolve entrega nesses casos — o pai é o bloqueador.
+    _PARENT_PAUSE_BLOCKERS = {
+        "ad": {"ADSET_PAUSED": "adset", "CAMPAIGN_PAUSED": "campaign"},
+        "adset": {"CAMPAIGN_PAUSED": "campaign"},
+        "campaign": {},
+    }
+
+    def _activate_or_pause(self, entity_id: str, status: str, entity_type: str) -> Dict[str, Any]:
+        """
+        Fluxo de mudança de status com verificação contra o Meta (fonte da verdade).
+
+        Ao ATIVAR (evita o "sucesso fantasma" que reverte no próximo refresh):
+        - Lê o effective_status real ANTES de escrever. Se a entidade está pausada por um PAI
+          (ex.: conjunto pausado porque a campanha está pausada), NÃO escreve e devolve
+          {"status": "blocked", "reason": "adset"|"campaign"}.
+        - Se já está ativa (ex.: conjunto ativo com anúncios pausados individualmente), devolve
+          {"status": "noop_active"} — ativar não muda nada e enganaria o usuário.
+
+        Sempre relê o effective_status DEPOIS de escrever (verify) e o inclui no retorno, para o
+        caller refletir o estado real do Meta em vez de um valor otimista.
+        """
+        if not entity_id:
+            return {"status": "error", "message": "entity_id é obrigatório"}
+        if status not in ("PAUSED", "ACTIVE"):
+            return {"status": "error", "message": "status deve ser PAUSED ou ACTIVE"}
+
+        blockers = self._PARENT_PAUSE_BLOCKERS.get(entity_type, {})
+
+        if status == "ACTIVE":
+            pre = self.get_entity_status(entity_id)
+            if pre.get("status") == "auth_error":
+                return pre
+            if pre.get("status") == "success":
+                eff = pre.get("effective_status") or ""
+                if eff in blockers:
+                    return {"status": "blocked", "reason": blockers[eff], "effective_status": eff}
+                if eff == "ACTIVE":
+                    return {"status": "noop_active", "effective_status": "ACTIVE"}
+            # pre falhou (http_error transitório): segue com o write e confia no verify abaixo.
+
+        result = self._update_entity_status(entity_id, status)
+        if result.get("status") != "success":
+            return result
+
+        verify = self.get_entity_status(entity_id)
+        if verify.get("status") == "success":
+            eff = verify.get("effective_status")
+            result["effective_status"] = eff
+            result["own_status"] = verify.get("own_status")
+            # Se o pre-check falhou e só agora detectamos a pausa herdada, bloqueia honestamente.
+            if status == "ACTIVE" and eff in blockers:
+                return {"status": "blocked", "reason": blockers[eff], "effective_status": eff}
+        return result
+
     def _handle_graph_request(
         self,
         *,
@@ -679,36 +778,131 @@ class GraphAPI:
                 return {"status": "error", "message": str(err)}
 
     def update_ad_status(self, ad_id: str, status: str) -> Dict[str, Any]:
-        """Atualiza status de um anúncio (PAUSED/ACTIVE) via Meta Graph API."""
-        return self._update_entity_status(ad_id, status)
+        """Atualiza status de um anúncio (PAUSED/ACTIVE) com bloqueio de pausa herdada + verify."""
+        return self._activate_or_pause(ad_id, status, "ad")
 
     def update_adset_status(self, adset_id: str, status: str) -> Dict[str, Any]:
-        """Atualiza status de um conjunto de anúncios (PAUSED/ACTIVE) via Meta Graph API."""
-        return self._update_entity_status(adset_id, status)
+        """Atualiza status de um conjunto (PAUSED/ACTIVE) com bloqueio de pausa herdada + verify."""
+        return self._activate_or_pause(adset_id, status, "adset")
 
     def update_campaign_status(self, campaign_id: str, status: str) -> Dict[str, Any]:
-        """Atualiza status de uma campanha (PAUSED/ACTIVE) via Meta Graph API."""
-        return self._update_entity_status(campaign_id, status)
+        """Atualiza status de uma campanha (PAUSED/ACTIVE) com verify."""
+        return self._activate_or_pause(campaign_id, status, "campaign")
+
+    def batch_get_effective_status(self, ad_ids: List[str]) -> Dict[str, Any]:
+        """
+        Lê o effective_status de vários anúncios de uma vez via Meta Batch API (GET).
+
+        1 chamada HTTP por chunk de 50 (mesma forma do write em lote). Usado para BLOQUEAR,
+        no ATIVAR em lote, os ads pausados por um PAI (ADSET_PAUSED/CAMPAIGN_PAUSED): sem isso o
+        Meta devolve 200 no write mas a entrega segue pausada ("sucesso fantasma").
+
+        Retorna: {"status": "success", "statuses": {ad_id: "ACTIVE"|"CAMPAIGN_PAUSED"|...|None}}
+        ou {"status": "auth_error", ...}. Ads que o Meta não conseguiu ler ficam AUSENTES do dict
+        (o caller trata ausência como "não bloquear" — fail-open para o write).
+        """
+        statuses: Dict[str, Any] = {}
+        if not ad_ids:
+            return {"status": "success", "statuses": statuses}
+
+        batch_url = self.base_url  # https://graph.facebook.com/v24.0/
+        for i in range(0, len(ad_ids), 50):
+            chunk = ad_ids[i : i + 50]
+            batch_items = [
+                {"method": "GET", "relative_url": f"{ad_id}?fields=effective_status"}
+                for ad_id in chunk
+            ]
+            try:
+                resp = requests.post(
+                    batch_url,
+                    params={"access_token": self.access_token, "include_headers": "false"},
+                    data={"batch": json.dumps(batch_items)},
+                    timeout=60,
+                )
+                resp.raise_for_status()
+                log_meta_usage(resp, "GraphAPI.batch_get_effective_status")
+                results = resp.json()
+                if not isinstance(results, list):
+                    logger.warning("batch_get_effective_status: resposta inesperada do Meta: %s", results)
+                    continue  # fail-open: chunk sem status → não bloqueia
+                for ad_id, item in zip(chunk, results):
+                    if item is None:
+                        continue
+                    body_raw = item.get("body", "{}")
+                    try:
+                        body_data = json.loads(body_raw) if isinstance(body_raw, str) else (body_raw or {})
+                    except Exception:
+                        body_data = {}
+                    err_obj = body_data.get("error", {}) if isinstance(body_data, dict) else {}
+                    if err_obj.get("code") == 190:
+                        return {"status": "auth_error", "message": err_obj.get("message", "Token expirado"), "error": err_obj}
+                    if item.get("code") == 200 and isinstance(body_data, dict):
+                        statuses[str(ad_id)] = str(body_data.get("effective_status") or "").upper() or None
+                    # code != 200 → deixa ausente (fail-open)
+            except requests.exceptions.HTTPError as http_err:
+                error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+                error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+                if error_obj.get("code") == 190:
+                    return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
+                logger.warning("batch_get_effective_status HTTP error no chunk %d: %s", i // 50, http_err)
+                # fail-open: chunk inteiro fica ausente → não bloqueia
+            except Exception as err:
+                logger.exception("batch_get_effective_status error no chunk %d: %s", i // 50, err)
+        return {"status": "success", "statuses": statuses}
 
     def batch_update_ad_status(self, ad_ids: List[str], status: str) -> Dict[str, Any]:
         """
-        Atualiza status de múltiplos anúncios em lote via Meta Graph API Batch Requests.
+        Atualiza status de múltiplos anúncios em lote via Meta Batch API.
 
-        Divide automaticamente em chunks de 50 (limite da API).
-        Endpoint: POST https://graph.facebook.com/v24.0/
-        Body: batch=[{"method":"POST","relative_url":"{ad_id}","body":"status=PAUSED"},...] (form data)
+        Ao ATIVAR: lê o effective_status fresco (batch GET) e BLOQUEIA os ads pausados por um pai
+        (ADSET_PAUSED/CAMPAIGN_PAUSED) — ativar o próprio ad não retomaria a entrega e reportaria
+        "sucesso fantasma". Bloqueados NÃO são escritos e voltam em `blocked` (ad_id → motivo).
 
-        Retorna: {"status": "success", "updated_ids": [...], "failed_ids": [...]}
+        Retorna: {"status": "success", "updated_ids": [...], "failed_ids": [...],
+                  "blocked": {ad_id: "adset"|"campaign"}}
         """
         if not ad_ids:
-            return {"status": "success", "updated_ids": [], "failed_ids": []}
+            return {"status": "success", "updated_ids": [], "failed_ids": [], "blocked": {}}
         if status not in ("PAUSED", "ACTIVE"):
             return {"status": "error", "message": "status deve ser PAUSED ou ACTIVE"}
 
+        # effective_status de ad que indica pausa herdada de um PAI (só relevante ao ativar).
+        inherited_pause = {"ADSET_PAUSED": "adset", "CAMPAIGN_PAUSED": "campaign"}
+        blocked: Dict[str, str] = {}
+        writable = list(ad_ids)
+
+        if status == "ACTIVE":
+            pre = self.batch_get_effective_status(ad_ids)
+            if pre.get("status") == "auth_error":
+                return pre
+            statuses = pre.get("statuses", {})
+            writable = []
+            for ad_id in ad_ids:
+                reason = inherited_pause.get(statuses.get(str(ad_id)) or "")
+                if reason:
+                    blocked[str(ad_id)] = reason
+                else:
+                    writable.append(ad_id)
+
+        result = self._batch_write_status(writable, status)
+        if result.get("status") == "auth_error":
+            return result
+        result["blocked"] = blocked
+        return result
+
+    def _batch_write_status(self, ad_ids: List[str], status: str) -> Dict[str, Any]:
+        """
+        Loop de escrita de status em lote (chunks de 50) via Meta Batch API POST.
+        Sem pre-check/bloqueio — a decisão de o que escrever é do orquestrador.
+
+        Retorna: {"status": "success", "updated_ids": [...], "failed_ids": [...]}
+        """
         updated_ids: List[str] = []
         failed_ids: List[str] = []
-        batch_url = self.base_url  # https://graph.facebook.com/v24.0/
+        if not ad_ids:
+            return {"status": "success", "updated_ids": updated_ids, "failed_ids": failed_ids}
 
+        batch_url = self.base_url  # https://graph.facebook.com/v24.0/
         for i in range(0, len(ad_ids), 50):
             chunk = ad_ids[i : i + 50]
             batch_items = [

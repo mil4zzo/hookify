@@ -182,6 +182,9 @@ export const UpdateEntityStatusResponseSchema = z.object({
   entity_id: z.string(),
   entity_type: z.enum(["ad", "adset", "campaign"]),
   status: z.enum(["PAUSED", "ACTIVE"]),
+  // effective_status real relido do Meta após a escrita (verify). Pode ser ACTIVE, PAUSED,
+  // ADSET_PAUSED, CAMPAIGN_PAUSED etc. A UI deve refletir isto, não o status pedido.
+  effective_status: z.string().nullish(),
 })
 
 export const BatchStatusResponseSchema = z.object({
@@ -189,6 +192,9 @@ export const BatchStatusResponseSchema = z.object({
   updated_ids: z.array(z.string()),
   failed_ids: z.array(z.string()),
   total: z.number(),
+  // ad_id → motivo ("adset" | "campaign"): ativações em lote bloqueadas por pausa herdada
+  // de um pai (ativar o próprio ad não retomaria a entrega).
+  blocked: z.record(z.string(), z.string()).default({}),
 })
 
 // Type exports

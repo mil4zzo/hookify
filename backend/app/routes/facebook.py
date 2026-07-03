@@ -759,6 +759,103 @@ def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: 
         logger.exception("[UPDATE_STATUS] Falha ao atualizar effective_status local (cache) no Supabase")
 
 
+_ENTITY_KIND_PT = {"ad": "anúncio", "adset": "conjunto", "campaign": "campanha"}
+
+
+def _finalize_status_update(
+    *,
+    result: Dict[str, Any],
+    user_jwt: str,
+    user_id: str,
+    entity_type: str,
+    entity_id: str,
+    new_status: str,
+) -> Dict[str, Any]:
+    """
+    Mapeia o resultado de `GraphAPI._activate_or_pause` para a resposta HTTP, atualizando o
+    cache local apenas quando a mudança realmente se aplicou no Meta.
+
+    Estados possíveis vindos do serviço:
+    - auth_error   → 401 (token expirado)
+    - blocked      → 409 PARENT_PAUSED (pausa herdada de um pai; ativar o filho seria no-op)
+    - noop_active  → 409 ALREADY_ACTIVE (já está ativo; o "pausado" visto vem dos filhos)
+    - success      → 200 com effective_status real do Meta
+    - (demais)     → 502 meta_api_error
+    """
+    kind_pt = _ENTITY_KIND_PT.get(entity_type, "item")
+    outcome = result.get("status")
+
+    if outcome == "auth_error":
+        mark_connection_as_expired(user_jwt, user_id)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+
+    if outcome == "blocked":
+        reason = result.get("reason")  # "adset" | "campaign"
+        parent_pt = "a campanha" if reason == "campaign" else "o conjunto"
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "parent_paused",
+                "code": "PARENT_PAUSED",
+                "reason": reason,
+                "message": (
+                    f"Não é possível ativar este {kind_pt}: {parent_pt} está pausado(a). "
+                    f"Ative {parent_pt} primeiro."
+                ),
+                "effective_status": result.get("effective_status"),
+            },
+        )
+
+    if outcome == "noop_active":
+        if entity_type == "adset":
+            msg = "Este conjunto já está ativo no Meta. Verifique se os anúncios dentro dele estão ativos."
+        elif entity_type == "campaign":
+            msg = "Esta campanha já está ativa no Meta. Verifique se os conjuntos/anúncios dentro dela estão ativos."
+        else:
+            msg = "Este anúncio já está ativo no Meta."
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "already_active",
+                "code": "ALREADY_ACTIVE",
+                "message": msg,
+                "effective_status": "ACTIVE",
+            },
+        )
+
+    if outcome != "success":
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "message": result.get("message") or "Falha ao atualizar status no Meta",
+                "details": result.get("error"),
+            },
+        )
+
+    _update_local_effective_status(
+        user_jwt=user_jwt,
+        user_id=user_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        new_status=new_status,
+    )
+    return {
+        "success": True,
+        "entity_id": entity_id,
+        "entity_type": entity_type,
+        "status": new_status,
+        "effective_status": result.get("effective_status") or new_status,
+    }
+
+
 def _filter_ads_belonging_to_user(*, user_jwt: str, user_id: str, ad_ids: List[str]) -> List[str]:
     """
     Retorna apenas os ad_ids da lista que pertencem ao usuário.
@@ -838,6 +935,7 @@ def update_ads_batch_status(
 
     updated_ids: List[str] = result.get("updated_ids", [])
     failed_ids: List[str] = result.get("failed_ids", [])
+    blocked: Dict[str, str] = result.get("blocked", {}) or {}
 
     if updated_ids:
         _update_bulk_local_effective_status(user_jwt=user_jwt, user_id=user_id, ad_ids=updated_ids, new_status=request.status)
@@ -847,6 +945,7 @@ def update_ads_batch_status(
         updated_ids=updated_ids,
         failed_ids=failed_ids,
         total=len(owned_ids),
+        blocked=blocked,
     )
 
 
@@ -870,28 +969,10 @@ def update_ad_status(
     _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="ad", entity_id=ad_id)
 
     result = api.update_ad_status(ad_id, request.status)
-    if result.get("status") == "auth_error":
-        mark_connection_as_expired(user_jwt, user_id)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": "facebook_token_expired",
-                "code": "TOKEN_EXPIRED",
-                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
-            },
-        )
-    if result.get("status") != "success":
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": "meta_api_error",
-                "message": result.get("message") or "Falha ao atualizar status no Meta",
-                "details": result.get("error"),
-            },
-        )
-
-    _update_local_effective_status(user_jwt=user_jwt, user_id=user_id, entity_type="ad", entity_id=ad_id, new_status=request.status)
-    return {"success": True, "entity_id": ad_id, "entity_type": "ad", "status": request.status}
+    return _finalize_status_update(
+        result=result, user_jwt=user_jwt, user_id=user_id,
+        entity_type="ad", entity_id=ad_id, new_status=request.status,
+    )
 
 
 @router.post("/adsets/{adset_id}/status")
@@ -908,28 +989,10 @@ def update_adset_status(
     _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
 
     result = api.update_adset_status(adset_id, request.status)
-    if result.get("status") == "auth_error":
-        mark_connection_as_expired(user_jwt, user_id)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": "facebook_token_expired",
-                "code": "TOKEN_EXPIRED",
-                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
-            },
-        )
-    if result.get("status") != "success":
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": "meta_api_error",
-                "message": result.get("message") or "Falha ao atualizar status no Meta",
-                "details": result.get("error"),
-            },
-        )
-
-    _update_local_effective_status(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id, new_status=request.status)
-    return {"success": True, "entity_id": adset_id, "entity_type": "adset", "status": request.status}
+    return _finalize_status_update(
+        result=result, user_jwt=user_jwt, user_id=user_id,
+        entity_type="adset", entity_id=adset_id, new_status=request.status,
+    )
 
 
 @router.post("/campaigns/{campaign_id}/status")
@@ -946,28 +1009,10 @@ def update_campaign_status(
     _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
 
     result = api.update_campaign_status(campaign_id, request.status)
-    if result.get("status") == "auth_error":
-        mark_connection_as_expired(user_jwt, user_id)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": "facebook_token_expired",
-                "code": "TOKEN_EXPIRED",
-                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
-            },
-        )
-    if result.get("status") != "success":
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": "meta_api_error",
-                "message": result.get("message") or "Falha ao atualizar status no Meta",
-                "details": result.get("error"),
-            },
-        )
-
-    _update_local_effective_status(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id, new_status=request.status)
-    return {"success": True, "entity_id": campaign_id, "entity_type": "campaign", "status": request.status}
+    return _finalize_status_update(
+        result=result, user_jwt=user_jwt, user_id=user_id,
+        entity_type="campaign", entity_id=campaign_id, new_status=request.status,
+    )
 
 
 @router.get("/ads/tree")
