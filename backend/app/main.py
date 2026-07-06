@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import logging
 from app.core.config import CORS_ORIGINS, LOG_AD_ID_TRUNCATED, LOG_LEVEL, LOG_SUPPRESS_HTTPX
 from app.core.logging_config import setup_httpx_logging_filter
@@ -36,7 +37,33 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Add CORS middleware
+@app.middleware("http")
+async def _set_request_context(request: Request, call_next):
+    """Sets backend route and optional frontend page slug as request-scoped contextvars.
+
+    Também converte exceções não-tratadas num JSON 500 AQUI (por dentro do
+    CORSMiddleware, que é registrado depois deste e portanto fica por fora).
+    Sem isso, o ServerErrorMiddleware do Starlette — sempre o mais externo —
+    emite o 500 por fora do CORS, sem o header Access-Control-Allow-Origin. O
+    browser então rejeita a resposta como um "Network Error" opaco em vez de
+    expor o status/corpo real (foi o que mascarou o 23514 no callback do Facebook).
+    HTTPExceptions não passam por aqui (o ExceptionMiddleware já as resolve como
+    resposta), então continuam com status/corpo corretos.
+    """
+    t_route = current_route.set(request.url.path)
+    t_page = current_page_route.set(request.headers.get("x-page-route") or None)
+    try:
+        return await call_next(request)
+    except Exception:
+        logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+        return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+    finally:
+        current_route.reset(t_route)
+        current_page_route.reset(t_page)
+
+
+# CORS deve envolver _set_request_context (registrado por último = mais externo)
+# para que as respostas de erro carreguem os headers CORS.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
@@ -44,18 +71,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.middleware("http")
-async def _set_request_context(request: Request, call_next):
-    """Sets backend route and optional frontend page slug as request-scoped contextvars."""
-    t_route = current_route.set(request.url.path)
-    t_page = current_page_route.set(request.headers.get("x-page-route") or None)
-    try:
-        return await call_next(request)
-    finally:
-        current_route.reset(t_route)
-        current_page_route.reset(t_page)
 
 
 # Include routers

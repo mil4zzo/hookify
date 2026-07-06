@@ -5526,7 +5526,7 @@ CREATE TABLE public.facebook_connections (
     picture_storage_path text,
     picture_cached_at timestamp with time zone,
     picture_source_url text,
-    CONSTRAINT facebook_connections_status_check CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'invalid'::text])))
+    CONSTRAINT facebook_connections_status_check CHECK ((status = ANY (ARRAY['active'::text, 'expired'::text, 'invalid'::text, 'degraded'::text])))
 );
 
 
