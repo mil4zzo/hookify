@@ -168,7 +168,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
                       type="button"
                       onClick={onSelectAll}
                       disabled={selectedCount === totalCount}
-                      className="text-xs font-medium text-primary hover:underline disabled:pointer-events-none disabled:opacity-40"
+                      className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40"
                     >
                       Selecionar todos
                     </button>
@@ -179,7 +179,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
                       type="button"
                       onClick={onDeselectAll}
                       disabled={selectedCount === 0}
-                      className="text-xs font-medium text-primary hover:underline disabled:pointer-events-none disabled:opacity-40"
+                      className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40"
                     >
                       Limpar
                     </button>

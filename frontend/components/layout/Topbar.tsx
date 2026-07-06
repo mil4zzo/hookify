@@ -136,8 +136,16 @@ export default function Topbar() {
     if (facebookAvatarUrl) {
       localStorage.setItem(AVATAR_CACHE_KEY, facebookAvatarUrl);
       setCachedAvatarUrl(facebookAvatarUrl);
+    } else if (connections.data !== undefined) {
+      // A query de conexões já resolveu e nenhuma conexão ativa fornece avatar
+      // (ex.: a conta que fornecia a foto foi excluída) — descarta o avatar
+      // cacheado para não exibir um "fantasma" da conta removida.
+      // O guard `data !== undefined` preserva o cache durante o load inicial
+      // (data ainda undefined), que é justamente para o que o cache existe.
+      localStorage.removeItem(AVATAR_CACHE_KEY);
+      setCachedAvatarUrl(null);
     }
-  }, [facebookAvatarUrl]);
+  }, [facebookAvatarUrl, connections.data]);
   useEffect(() => {
     // Only clear on confirmed logout — not on initial mount where user is null because Supabase auth is still resolving.
     // Without the isAuthLoading gate, this effect fires on every page load and wipes the cache before it can be used.

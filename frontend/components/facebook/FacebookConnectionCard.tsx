@@ -133,9 +133,16 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
               <IconLoader2 className="w-4 h-4 animate-spin text-muted-foreground" />
             </div>
           ) : isExpired ? (
-            <Button type="button" variant="default" size="sm" className="h-8 text-xs" onClick={handleReconnect} disabled={isDeleting}>
-              Reconectar
-            </Button>
+            <>
+              <Button type="button" variant="default" size="sm" className="h-8 text-xs" onClick={handleReconnect} disabled={isDeleting}>
+                Reconectar
+              </Button>
+              {onDelete && (
+                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting} title="Excluir conexão">
+                  {isDeleting ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconTrash className="w-4 h-4" />}
+                </Button>
+              )}
+            </>
           ) : (
             <>
               {onReconnect && (
