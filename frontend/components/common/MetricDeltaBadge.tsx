@@ -36,6 +36,7 @@ export function MetricDeltaBadge({
   size = "sm",
   format = "percent",
   appearance = "solid",
+  signStyle = "caret",
 }: {
   // Raw signed number: a fraction (0.084 = 8.4%) for format="percent"/"points", an
   // absolute currency amount for format="currency". "points" renders the SAME fraction
@@ -49,17 +50,26 @@ export function MetricDeltaBadge({
   size?: "sm" | "md";
   format?: "percent" | "currency" | "points";
   appearance?: "solid" | "plain";
+  // "caret" (default): direction shown as an up/down triangle before the magnitude.
+  // "sign": direction shown as a +/− prefix on the number itself, no icon — reads
+  // better for a ranked list of net R$ contributions (Impacto column) where the
+  // magnitude IS the sortable quantity and a caret adds no information the sign lacks.
+  signStyle?: "caret" | "sign";
 }) {
   const formatCurrency = useFormatCurrency();
   if (value == null) return null;
 
-  const Caret = Math.abs(value) > 1e-9 ? (value > 0 ? IconCaretUpFilled : IconCaretDownFilled) : null;
-  const text =
+  const isPositive = value > 1e-9;
+  const isNegative = value < -1e-9;
+  const Caret = signStyle === "caret" && (isPositive || isNegative) ? (isPositive ? IconCaretUpFilled : IconCaretDownFilled) : null;
+  const signPrefix = signStyle === "sign" ? (isPositive ? "+" : isNegative ? "−" : "") : "";
+  const magnitude =
     format === "currency"
       ? formatCurrency(Math.abs(value))
       : format === "points"
         ? `${Math.abs(value * 100).toFixed(1).replace(".", ",")} p.p.`
         : `${Math.abs(value * 100).toFixed(1).replace(".", ",")}%`;
+  const text = signPrefix + magnitude;
   const sizeCls =
     appearance === "plain"
       ? size === "md" ? "text-sm" : "text-xs"

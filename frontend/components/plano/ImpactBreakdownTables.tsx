@@ -25,14 +25,17 @@ import type {
 // Weight-based (flex grow over basis 0) so the table breathes with the viewport;
 // min-widths keep cells from crushing before the horizontal scroll kicks in.
 // No rank column: sorting reorders rows freely, so a fixed "#" would be misleading —
-// order itself (top → bottom) is the ranking signal.
-const COL_IMPACT = "flex-[2] min-w-[104px]";
-const COL_AD = "flex-[4] min-w-[170px]";
-const COL_SPEND = "flex-[3] min-w-[168px]";
-const COL_METRIC = "flex-[3] min-w-[190px]";
+// order itself (top → bottom) is the ranking signal. Every column is centered except
+// Ad (the only text-forward column, which reads better left-aligned).
+const COL_IMPACT = "w-[104px] flex-shrink-0";
+const COL_AD = "flex-[4] min-w-[180px]";
+const COL_SPEND = "flex-[2] min-w-[88px]";
+const COL_SPEND_PCT = "flex-[1.4] min-w-[84px]";
+const COL_METRIC = "flex-[2] min-w-[104px]";
+const COL_METRIC_PCT = "flex-[1.4] min-w-[84px]";
 const ROW_PAD = "px-4 py-2.5";
 
-type SortKey = "ad" | "impacto" | "spend" | "metrica";
+type SortKey = "ad" | "impacto" | "spend" | "spendPct" | "metrica" | "metricaPct";
 type SortDir = "asc" | "desc";
 
 // Tone for a currency-signed value: positive raised the cost (bad), negative lowered
@@ -44,6 +47,13 @@ function toneFor(v: number): MetricQualityTone {
 
 function signedCurrency(v: number, formatCurrency: (n: number) => string): string {
   return `${v > 0 ? "+" : ""}${formatCurrency(v)}`;
+}
+
+// Vertical rule between columns — full row height regardless of the row's own
+// align-items (self-stretch overrides it), so it reads as a cell boundary rather than
+// a short centered tick.
+function ColDivider() {
+  return <span aria-hidden="true" className="w-px flex-shrink-0 self-stretch bg-border-60" />;
 }
 
 function PillButton({ label, selected, onClick }: { label: string; selected: boolean; onClick: () => void }) {
@@ -67,7 +77,7 @@ function PillButton({ label, selected, onClick }: { label: string; selected: boo
 function SortHeader({
   label,
   width,
-  align = "right",
+  align = "center",
   sortKey,
   sort,
   onSort,
@@ -75,7 +85,7 @@ function SortHeader({
 }: {
   label: string;
   width: string;
-  align?: "left" | "right";
+  align?: "left" | "center";
   sortKey: SortKey;
   sort: { key: SortKey; dir: SortDir } | null;
   onSort: (key: SortKey) => void;
@@ -87,7 +97,7 @@ function SortHeader({
       type="button"
       onClick={() => onSort(sortKey)}
       className={`${width} flex items-center gap-1 transition-colors duration-150 hover:text-foreground ${
-        align === "right" ? "justify-end text-right" : "text-left"
+        align === "center" ? "justify-center text-center" : "text-left"
       } ${active ? "text-foreground" : ""}`}
     >
       {label}
@@ -97,39 +107,33 @@ function SortHeader({
   );
 }
 
-// Journey cell: [ontem, muted] [Δ badge] [hoje, bold] — reads left-to-right as the
-// day-over-day story, with the badge acting as the arrow (its caret gives direction).
-// Value tone and badge tone answer DIFFERENT questions (level vs flow) — see call sites.
-function ValueDeltaCell({
-  prevText,
+// Value cell for Spend / Métrica: current value on top (evident), previous below
+// (dimmed) — the day-over-day pair as a compact vertical stack. Value tone answers
+// "level vs the pack today" (Métrica) or is neutral allocation (Spend). The signed
+// change lives in its own adjacent column (DeltaCell).
+function ValueStackCell({
   valueText,
   valueTone,
-  delta,
-  deltaFormat,
-  deltaTone,
+  prevText,
   tooltip,
   width,
 }: {
-  prevText: string | null;
   valueText: string;
   valueTone: MetricQualityTone | "foreground";
-  delta: number | null;
-  deltaFormat: "percent" | "currency" | "points";
-  deltaTone: MetricQualityTone;
+  prevText: string | null;
   tooltip: string | null;
   width: string;
 }) {
   const valueCls = valueTone === "foreground" ? "text-foreground" : getMetricValueTextClass(valueTone);
   const inner = (
-    <span className="inline-flex cursor-default items-center gap-1.5">
-      {prevText != null && <span className="text-xs tabular-nums text-muted-foreground">{prevText}</span>}
-      {delta != null && <MetricDeltaBadge value={delta} tone={deltaTone} format={deltaFormat} size="sm" />}
+    <span className="inline-flex cursor-default flex-col items-center leading-tight">
       <span className={`text-sm font-semibold tabular-nums ${valueCls}`}>{valueText}</span>
+      {prevText != null && <span className="text-[11px] tabular-nums text-muted-foreground">{prevText}</span>}
     </span>
   );
 
   return (
-    <span className={`${width} flex justify-end`}>
+    <div className={`${width} flex justify-center`}>
       {tooltip ? (
         <Tooltip>
           <TooltipTrigger asChild>{inner}</TooltipTrigger>
@@ -140,7 +144,99 @@ function ValueDeltaCell({
       ) : (
         inner
       )}
-    </span>
+    </div>
+  );
+}
+
+function toneBgClass(tone: MetricQualityTone): string {
+  switch (tone) {
+    case "success":     return "bg-success";
+    case "destructive": return "bg-destructive";
+    default:            return "bg-muted-foreground";
+  }
+}
+
+// Paired comparison bars for Spend: two slim rounded tracks, hoje's share on top
+// (tone-colored, slightly thicker — the actual, leads the eye) and ontem's share below
+// (neutral gray, thinner — the reference), each filled independently to its own length.
+// Reading top-to-bottom mirrors the text above/below it (current value bold, previous
+// value dim): bold text → colored bar → gray bar → dim text, a small gradient of visual
+// weight from "now" to "then". Both bars share one scale (maxShare, the largest share
+// in the visible table) so lengths stay comparable down the column.
+function SpendShareBar({
+  prevShare,
+  lastShare,
+  maxShare,
+  tone,
+  width,
+  formatShare,
+}: {
+  prevShare: number | null;
+  lastShare: number | null;
+  maxShare: number;
+  tone: MetricQualityTone;
+  width: string;
+  formatShare: (v: number) => string;
+}) {
+  const pct = (v: number | null) =>
+    v == null || maxShare <= 0 ? 0 : Math.min(100, Math.max(v > 1e-9 ? 3 : 0, (v / maxShare) * 100));
+  const prevPct = pct(prevShare);
+  const lastPct = pct(lastShare);
+  const valueText = lastShare != null ? formatShare(lastShare) : "—";
+  const prevText = prevShare != null ? formatShare(prevShare) : null;
+  const fillCls = toneBgClass(tone);
+
+  return (
+    <div className={`${width} flex justify-center`}>
+      <div className="flex w-full flex-col items-center gap-1">
+        <span className="text-sm font-semibold tabular-nums text-foreground">{valueText}</span>
+        <div className="flex w-full max-w-[60px] flex-col items-stretch gap-[3px]">
+          <span className="relative h-[5px] overflow-hidden rounded-full bg-muted-10">
+            {lastShare != null && (
+              <span
+                className={`absolute inset-y-0 left-0 rounded-full transition-[width] duration-300 ${fillCls}`}
+                style={{ width: `${lastPct}%` }}
+              />
+            )}
+          </span>
+          <span className="relative h-[3px] overflow-hidden rounded-full bg-muted-10">
+            {prevShare != null && (
+              <span
+                className="absolute inset-y-0 left-0 rounded-full bg-muted-foreground/50 transition-[width] duration-300"
+                style={{ width: `${prevPct}%` }}
+              />
+            )}
+          </span>
+        </div>
+        {prevText != null && <span className="text-[11px] tabular-nums text-muted-foreground">{prevText}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Dedicated change column: the day-over-day variation as a colored delta badge (its
+// caret gives direction; tone = cost impact of that lever). Δ% for currency-scale
+// metrics, percentage-points for proportions (spend share, funnel rates) — never a raw
+// current/previous ratio, which explodes on a near-zero baseline (0.1%→7% = "+7000%").
+function DeltaCell({
+  delta,
+  deltaFormat,
+  deltaTone,
+  width,
+}: {
+  delta: number | null;
+  deltaFormat: "percent" | "currency" | "points";
+  deltaTone: MetricQualityTone;
+  width: string;
+}) {
+  return (
+    <div className={`${width} flex justify-center`}>
+      {delta != null ? (
+        <MetricDeltaBadge value={delta} tone={deltaTone} format={deltaFormat} size="sm" />
+      ) : (
+        <span className="text-xs text-muted-foreground">—</span>
+      )}
+    </div>
   );
 }
 
@@ -201,19 +297,25 @@ function CompositionBreakdown({
   formatCurrency: (v: number) => string;
 }) {
   const sorted = [...parts].sort((a, b) => Math.abs(b.currency) - Math.abs(a.currency));
+  const zeroText = formatCurrency(0);
 
   return (
     <div className="flex w-[196px] flex-col gap-2">
       <CompositionBarVisual parts={parts} maxSide={maxSide} />
       <div className="flex flex-col gap-0.5">
-        {sorted.map((p) => (
-          <div key={p.key} className="flex items-center justify-between gap-4 tabular-nums">
-            <span className="text-muted-foreground">{p.label}</span>
-            <span className={getMetricValueTextClass(toneFor(p.currency))}>
-              {signedCurrency(p.currency, formatCurrency)}
-            </span>
-          </div>
-        ))}
+        {sorted.map((p) => {
+          // A tiny part that rounds to R$0,00 at display precision would otherwise read
+          // as "+R$0,00"/"-R$0,00" (misleading sign on nothing) → show an em dash, muted.
+          const isZero = formatCurrency(Math.abs(p.currency)) === zeroText;
+          return (
+            <div key={p.key} className="flex items-center justify-between gap-4 tabular-nums">
+              <span className="text-muted-foreground">{p.label}</span>
+              <span className={isZero ? "text-muted-foreground" : getMetricValueTextClass(toneFor(p.currency))}>
+                {isZero ? "—" : signedCurrency(p.currency, formatCurrency)}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -227,6 +329,7 @@ function ImpactRow({
   packMetricToday,
   metricInverse,
   maxCompSide,
+  maxSpendShare,
   formatMetricAbs,
   formatCurrency,
 }: {
@@ -237,6 +340,7 @@ function ImpactRow({
   packMetricToday: number | null;
   metricInverse: boolean;
   maxCompSide: number;
+  maxSpendShare: number;
   // Formats an absolute value of the selected metric (currency for cpm/costs, percent
   // for the funnel rates).
   formatMetricAbs: (v: number | null) => string;
@@ -245,15 +349,9 @@ function ImpactRow({
   const ad = item.ad;
   const open = () => { if (ad) onOpenAd(ad); };
 
-  // SPEND: ontem → Δ p.p. → hoje. The values are allocation (no intrinsic good/bad) →
-  // foreground/muted; the badge tone = verbaCurrency (cost impact of the volume move,
-  // centered on the pack average).
-  const spendPrevText = item.spendSharePrev != null ? formatLocaleRatioPercent(item.spendSharePrev) : null;
-  const spendValueText = item.spendShareLast != null ? formatLocaleRatioPercent(item.spendShareLast) : "—";
-
-  // MÉTRICA: ontem → Δ → hoje; today's value colored vs the pack's value today (the
+  // MÉTRICA: current over previous; today's value colored vs the pack's value today (the
   // "stock" that explains the mix color — an ad can improve day-over-day and still run
-  // above average) + Δ badge whose tone = desempenhoCurrency.
+  // above average). Change badge tone = desempenhoCurrency.
   const metricValueTone: MetricQualityTone | "foreground" =
     item.metricLast != null && packMetricToday != null
       ? getMetricQualityToneByAverage(item.metricLast, packMetricToday, metricInverse)
@@ -273,14 +371,22 @@ function ImpactRow({
       onClick={open}
       onKeyDown={(e) => { if (ad && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
     >
-      {/* IMPACTO: the ranking quantity — solid signed badge, tone by sign. Leads the
-          row (the biggest consequence, first). Hover reveals its composition — the
-          same bar+breakdown that used to be its own always-on column. */}
-      <span className={`${COL_IMPACT} flex justify-start`}>
+      {/* IMPACTO: the ranking quantity — solid signed badge, +/- prefix (not a caret —
+          this is the sortable magnitude itself, direction is the sign, not a trend
+          arrow). Leads the row (the biggest consequence, first), compact. Hover reveals
+          its composition — the same bar+breakdown that used to be its own always-on
+          column. */}
+      <span className={`${COL_IMPACT} flex justify-center`}>
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex cursor-default">
-              <MetricDeltaBadge value={item.total} tone={toneFor(item.total)} format="currency" size="md" />
+              <MetricDeltaBadge
+                value={item.total}
+                tone={toneFor(item.total)}
+                format="currency"
+                size="md"
+                signStyle="sign"
+              />
             </span>
           </TooltipTrigger>
           <TooltipContent side="top" className="text-xs">
@@ -288,6 +394,8 @@ function ImpactRow({
           </TooltipContent>
         </Tooltip>
       </span>
+
+      <ColDivider />
 
       <div className={`${COL_AD} flex items-center gap-2.5`}>
         {ad ? (
@@ -307,26 +415,43 @@ function ImpactRow({
         </div>
       </div>
 
-      <ValueDeltaCell
-        prevText={spendPrevText}
-        valueText={spendValueText}
-        valueTone="foreground"
+      <ColDivider />
+
+      <SpendShareBar
+        prevShare={item.spendSharePrev}
+        lastShare={item.spendShareLast}
+        maxShare={maxSpendShare}
+        tone={toneFor(item.verbaCurrency)}
+        width={COL_SPEND}
+        formatShare={formatLocaleRatioPercent}
+      />
+
+      <ColDivider />
+
+      <DeltaCell
         delta={item.spendShareDeltaPp}
         deltaFormat="points"
         deltaTone={toneFor(item.verbaCurrency)}
-        tooltip={null}
-        width={COL_SPEND}
+        width={COL_SPEND_PCT}
       />
 
-      <ValueDeltaCell
-        prevText={metricPrevText}
+      <ColDivider />
+
+      <ValueStackCell
         valueText={formatMetricAbs(item.metricLast)}
         valueTone={metricValueTone}
+        prevText={metricPrevText}
+        tooltip={metricTooltip}
+        width={COL_METRIC}
+      />
+
+      <ColDivider />
+
+      <DeltaCell
         delta={item.metricDeltaPct}
         deltaFormat={metricFormat}
         deltaTone={toneFor(item.desempenhoCurrency)}
-        tooltip={metricTooltip}
-        width={COL_METRIC}
+        width={COL_METRIC_PCT}
       />
     </div>
   );
@@ -357,18 +482,19 @@ export function ImpactBreakdownTables({
   }, [view?.driver]);
 
   // Sorts the VISIBLE items only (the 85% cutoff already decided what's shown) — the
-  // sorted value is the column's primary number (current value for Spend/Métrica).
-  // Nulls go last regardless of direction.
+  // sorted value is the column's primary number. Nulls go last regardless of direction.
   const items = view?.movers.items;
   const sortedItems = useMemo(() => {
     const base = items ?? [];
     if (!sort) return base;
     const get = (it: DayComparisonImpactAd): number | string | null => {
       switch (sort.key) {
-        case "ad":      return it.adName.toLowerCase();
-        case "impacto": return it.total;
-        case "spend":   return it.spendShareLast;
-        case "metrica": return it.metricLast;
+        case "ad":         return it.adName.toLowerCase();
+        case "impacto":    return it.total;
+        case "spend":      return it.spendShareLast;
+        case "spendPct":   return it.spendShareDeltaPp;
+        case "metrica":    return it.metricLast;
+        case "metricaPct": return it.metricDeltaPct;
       }
     };
     return [...base].sort((a, b) => {
@@ -392,6 +518,17 @@ export function ImpactBreakdownTables({
       const negSum = it.parts.reduce((s, p) => s + (p.currency < 0 ? -p.currency : 0), 0);
       const posSum = it.parts.reduce((s, p) => s + (p.currency > 0 ? p.currency : 0), 0);
       max = Math.max(max, negSum, posSum);
+    }
+    return max;
+  }, [items]);
+
+  // Shared scale for the Spend bullet-bars: the largest single share (prev or last)
+  // across visible rows — same rationale as maxCompSide.
+  const maxSpendShare = useMemo(() => {
+    let max = 0;
+    for (const it of items ?? []) {
+      if (it.spendSharePrev != null) max = Math.max(max, it.spendSharePrev);
+      if (it.spendShareLast != null) max = Math.max(max, it.spendShareLast);
     }
     return max;
   }, [items]);
@@ -481,13 +618,13 @@ export function ImpactBreakdownTables({
         {headerBar}
 
         {/* Single "top movers" table: both directions mixed, ranked by |impacto| —
-            direction is carried by each row's signed/colored Impacto. Every column is
-            click-to-sort; Spend/Métrica cells read ontem → Δ → hoje; hovering Impacto
-            reveals its composition breakdown. Rows stagger in when the metric filter
-            changes (keyed container below). */}
+            direction is carried by each row's signed/colored Impacto. Spend/Métrica read
+            current-over-previous (stacked) with the signed change in its own column;
+            hovering Impacto reveals its composition breakdown. Rows stagger in when the
+            metric filter changes (keyed container below). Centered except Ad. */}
         <StandardCard padding="none" className="overflow-hidden">
           <div className="flex flex-col overflow-x-auto">
-            <div className="min-w-[720px]">
+            <div className="min-w-[760px]">
               {movers.items.length === 0 ? (
                 <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                   Nenhum anúncio mexeu de forma relevante no {metricLabel} hoje.
@@ -497,9 +634,8 @@ export function ImpactBreakdownTables({
                   {/* Tinted band separates the header from body rows at a glance. */}
                   <div className={`flex items-center gap-2.5 border-b border-border bg-muted-30 text-sm font-medium text-muted-foreground ${ROW_PAD}`}>
                     <SortHeader
-                      label="Impacto (R$)"
+                      label="Impacto"
                       width={COL_IMPACT}
-                      align="left"
                       sortKey="impacto"
                       sort={sort}
                       onSort={toggleSort}
@@ -518,9 +654,16 @@ export function ImpactBreakdownTables({
                         </Tooltip>
                       }
                     />
+                    <ColDivider />
                     <SortHeader label="Ad" width={COL_AD} align="left" sortKey="ad" sort={sort} onSort={toggleSort} />
+                    <ColDivider />
                     <SortHeader label="Spend" width={COL_SPEND} sortKey="spend" sort={sort} onSort={toggleSort} />
+                    <ColDivider />
+                    <SortHeader label="Var." width={COL_SPEND_PCT} sortKey="spendPct" sort={sort} onSort={toggleSort} />
+                    <ColDivider />
                     <SortHeader label={metricColLabel} width={COL_METRIC} sortKey="metrica" sort={sort} onSort={toggleSort} />
+                    <ColDivider />
+                    <SortHeader label="Var." width={COL_METRIC_PCT} sortKey="metricaPct" sort={sort} onSort={toggleSort} />
                   </div>
 
                   {/* Keyed by the active filter so rows remount and stagger in on change. */}
@@ -535,6 +678,7 @@ export function ImpactBreakdownTables({
                         packMetricToday={view.packMetricToday}
                         metricInverse={metricInverse}
                         maxCompSide={maxCompSide}
+                        maxSpendShare={maxSpendShare}
                         formatMetricAbs={formatMetricAbs}
                         formatCurrency={formatCurrency}
                       />
