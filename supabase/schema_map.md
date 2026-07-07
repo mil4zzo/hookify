@@ -84,6 +84,7 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | lpv | integer | NOT NULL, DEFAULT |
 | hook_rate | numeric |  |
 | scroll_stop_rate | numeric |  |
+| video_watched_p75 | integer |  |
 
 ---
 

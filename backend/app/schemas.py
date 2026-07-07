@@ -320,6 +320,8 @@ class FormattedAdModel(BaseModel):
     video_total_plays: int
     video_total_thruplays: int
     video_watched_p50: int
+    # Default 0: registros antigos (pré-p75) podem não trazer o campo
+    video_watched_p75: int = 0
 
     # Floats
     spend: float

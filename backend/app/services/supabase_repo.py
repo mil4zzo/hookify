@@ -1012,6 +1012,7 @@ def upsert_ad_metrics(
         plays = int(ad.get("video_total_plays") or 0)
         thruplays = int(ad.get("video_total_thruplays") or 0)
         watched_p50 = int(ad.get("video_watched_p50") or 0)
+        watched_p75 = int(ad.get("video_watched_p75") or 0)
         spend = float(ad.get("spend") or 0)
         cpm = float(ad.get("cpm") or 0)
         ctr = float(ad.get("ctr") or 0)
@@ -1075,6 +1076,7 @@ def upsert_ad_metrics(
             "video_total_plays": plays,
             "video_total_thruplays": thruplays,
             "video_watched_p50": watched_p50,
+            "video_watched_p75": watched_p75,
             "spend": spend,
             "cpm": cpm,
             "ctr": ctr,

@@ -84,6 +84,8 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
         total_thruplays = int(_first_value_from_array(video_thruplay_watched_actions_raw))
         p50 = int(_first_value_from_array(ad.get("video_p50_watched_actions", [])))
         video_watched_p50 = int(round((p50 / total_plays) * 100)) if total_plays else 0
+        p75 = int(_first_value_from_array(ad.get("video_p75_watched_actions", [])))
+        video_watched_p75 = int(round((p75 / total_plays) * 100)) if total_plays else 0
         curve = _normalize_curve(ad.get("video_play_curve_actions", []))
 
         # Actions / Conversions
@@ -128,6 +130,7 @@ def format_ads_for_api(json_data: List[Dict[str, Any]], account_id: str) -> List
             "video_total_plays": total_plays,
             "video_total_thruplays": total_thruplays,
             "video_watched_p50": video_watched_p50,
+            "video_watched_p75": video_watched_p75,
 
             # Métricas float
             "spend": spend,
