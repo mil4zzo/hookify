@@ -15,6 +15,7 @@ import { AnalyticsWorkspace } from "@/components/common/layout";
 import { logger } from "@/lib/utils/logger";
 import { toast } from "sonner";
 import { useFilters } from "@/lib/hooks/useFilters";
+import { useStatusFocusSync } from "@/lib/hooks/useStatusFocusSync";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { mapRankingRow, resolveGroupKey, type ManagerTab } from "@/lib/utils/mapRankingRow";
 
@@ -52,6 +53,9 @@ function ManagerPageContent() {
     packs,
     packsClient,
   } = useFilters();
+
+  // Status fresco ao montar/voltar o foco: cobre mudanças feitas fora do Hookify.
+  useStatusFocusSync();
 
   // Gate de readiness: só dispara as queries pesadas depois que os packs
   // estiverem carregados no store E o carregamento global ter terminado.

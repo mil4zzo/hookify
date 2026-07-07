@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
 import { showError, showSuccess } from "@/lib/utils/toast";
@@ -8,47 +8,91 @@ export type AdEntityType = "ad" | "adset" | "campaign";
 export type AdEntityStatus = "PAUSED" | "ACTIVE";
 
 /**
- * Patch effective_status in all cached rankings entries for a given ad_id, in-place.
- * Avoids broad invalidation that triggers a flood of duplicate RPC calls (fetch_manager_rankings_core_v2)
- * — metrics don't change when status toggles, only the badge does.
+ * Os caches de rankings vivem todos sob ["analytics","rankings"], mas nem toda entrada tem
+ * linhas de nível de ANÚNCIO. Linhas agregadas (adset/campanha/ad_name) carregam
+ * ad_id = anúncio representante do grupo — patchar por ad_id nelas contamina o status do
+ * GRUPO com o de um único ad (ex.: pausar 1 ad fazia a linha da campanha dele aparecer
+ * pausada na aba "por campanha"). Só o nível de ad pode ser patchado in-place com segurança.
  */
-function patchAdStatusInCaches(qc: QueryClient, adId: string, nextStatus: string): void {
-  if (!adId) return;
-  const patchRow = (row: any): any => {
+function isAdLevelRankingsKey(queryKey: readonly unknown[]): boolean {
+  const marker = queryKey[2];
+  if (typeof marker === "string") {
+    // Sub-rotas cujas linhas são ads individuais.
+    if (marker === "ad-details" || marker === "ad-history" || marker === "children" || marker === "adset-children") {
+      return true;
+    }
+    // Sub-rotas de grupo (ad_name / adsets de campanha) ou sem effective_status.
+    if (marker === "ad-name-details" || marker === "ad-name-history" || marker === "campaign-children" || marker === "ad-creative") {
+      return false;
+    }
+  }
+  // Chave principal do rankings/adPerformance: group_by fica na posição 4.
+  return queryKey[4] === "ad_id";
+}
+
+/**
+ * Aplica `patchRow` nas entradas ad-level dos caches de rankings e marca as entradas de
+ * grupo como stale SEM refetch imediato (refetchType "none") — elas recarregam ao serem
+ * montadas. Invalidação ampla com refetch ativo dispara storm de RPCs pesadas
+ * (fetch_manager_rankings_core_v2) e estoura statement_timeout.
+ */
+function patchRankingsCaches(qc: QueryClient, patchRow: (row: any) => any): void {
+  qc.setQueriesData<unknown>(
+    { queryKey: ["analytics", "rankings"], predicate: (q) => isAdLevelRankingsKey(q.queryKey) },
+    (cached: unknown) => {
+      if (cached == null) return cached;
+      if (Array.isArray(cached)) {
+        let mutated = false;
+        const next = cached.map((row) => {
+          const patched = patchRow(row);
+          if (patched !== row) mutated = true;
+          return patched;
+        });
+        return mutated ? next : cached;
+      }
+      if (typeof cached === "object") {
+        const obj = cached as Record<string, any>;
+        // Shape: { data: Item[] } (RankingsResponse, ad-history)
+        if (Array.isArray(obj.data)) {
+          let mutated = false;
+          const nextData = obj.data.map((row: any) => {
+            const patched = patchRow(row);
+            if (patched !== row) mutated = true;
+            return patched;
+          });
+          return mutated ? { ...obj, data: nextData } : cached;
+        }
+        // Shape: item único (ad-details)
+        const patched = patchRow(obj);
+        return patched !== obj ? patched : cached;
+      }
+      return cached;
+    },
+  );
+  void qc.invalidateQueries({
+    queryKey: ["analytics", "rankings"],
+    refetchType: "none",
+    predicate: (q) => !isAdLevelRankingsKey(q.queryKey),
+  });
+}
+
+function makeAdStatusPatcher(adId: string, nextStatus: string): (row: any) => any {
+  return (row: any): any => {
     if (!row || typeof row !== "object") return row;
     if (row.ad_id !== adId) return row;
     if (!Object.prototype.hasOwnProperty.call(row, "effective_status")) return row;
     return { ...row, effective_status: nextStatus, status_resolved: true };
   };
-  qc.setQueriesData<unknown>({ queryKey: ["analytics", "rankings"] }, (cached: unknown) => {
-    if (cached == null) return cached;
-    if (Array.isArray(cached)) {
-      let mutated = false;
-      const next = cached.map((row) => {
-        const patched = patchRow(row);
-        if (patched !== row) mutated = true;
-        return patched;
-      });
-      return mutated ? next : cached;
-    }
-    if (typeof cached === "object") {
-      const obj = cached as Record<string, any>;
-      // Shape: { data: Item[] } (RankingsResponse, ad-history, ad-name-history)
-      if (Array.isArray(obj.data)) {
-        let mutated = false;
-        const nextData = obj.data.map((row: any) => {
-          const patched = patchRow(row);
-          if (patched !== row) mutated = true;
-          return patched;
-        });
-        return mutated ? { ...obj, data: nextData } : cached;
-      }
-      // Shape: single item (ad-details, ad-name-details)
-      const patched = patchRow(obj);
-      return patched !== obj ? patched : cached;
-    }
-    return cached;
-  });
+}
+
+/**
+ * Patch effective_status nos caches ad-level de rankings para um ad_id, in-place.
+ * Evita invalidação ampla que dispara flood de RPCs — métricas não mudam no toggle,
+ * só o badge.
+ */
+function patchAdStatusInCaches(qc: QueryClient, adId: string, nextStatus: string): void {
+  if (!adId) return;
+  patchRankingsCaches(qc, makeAdStatusPatcher(adId, nextStatus));
 }
 
 export interface UseAdStatusControlOptions {
@@ -73,42 +117,15 @@ function isPausedStatus(status?: string | null): boolean {
   return s === "PAUSED" || s === "ADSET_PAUSED" || s === "CAMPAIGN_PAUSED";
 }
 
-function patchBulkAdStatusInCaches(qc: QueryClient, updates: { adId: string; status: AdEntityStatus }[]): void {
+function patchBulkAdStatusInCaches(qc: QueryClient, updates: { adId: string; status: string }[]): void {
   if (!updates.length) return;
   const updateMap = new Map(updates.map((u) => [u.adId, u.status]));
-  const patchRow = (row: any): any => {
+  patchRankingsCaches(qc, (row: any): any => {
     if (!row || typeof row !== "object") return row;
     const nextStatus = updateMap.get(row.ad_id);
     if (!nextStatus) return row;
     if (!Object.prototype.hasOwnProperty.call(row, "effective_status")) return row;
     return { ...row, effective_status: nextStatus, status_resolved: true };
-  };
-  qc.setQueriesData<unknown>({ queryKey: ["analytics", "rankings"] }, (cached: unknown) => {
-    if (cached == null) return cached;
-    if (Array.isArray(cached)) {
-      let mutated = false;
-      const next = cached.map((row) => {
-        const patched = patchRow(row);
-        if (patched !== row) mutated = true;
-        return patched;
-      });
-      return mutated ? next : cached;
-    }
-    if (typeof cached === "object") {
-      const obj = cached as Record<string, any>;
-      if (Array.isArray(obj.data)) {
-        let mutated = false;
-        const nextData = obj.data.map((row: any) => {
-          const patched = patchRow(row);
-          if (patched !== row) mutated = true;
-          return patched;
-        });
-        return mutated ? { ...obj, data: nextData } : cached;
-      }
-      const patched = patchRow(obj);
-      return patched !== obj ? patched : cached;
-    }
-    return cached;
   });
 }
 
@@ -128,14 +145,18 @@ export function useBulkAdStatusControl(): UseBulkAdStatusControlReturn {
       const { status } = variables;
       const { updated_ids, failed_ids } = data;
       const blockedIds = Object.keys(data.blocked ?? {});
+      // Verdade relida do Meta após a escrita (verify) — preferir ao status pedido.
+      const verified: Record<string, string> = data.statuses ?? {};
       const label = status === "PAUSED" ? "pausados" : "ativados";
 
-      if (updated_ids.length > 0) {
-        // Só os aplicados de fato — bloqueados/falhos mantêm o effective_status atual no cache.
-        patchBulkAdStatusInCaches(
-          qc,
-          updated_ids.map((id) => ({ adId: id, status: status as AdEntityStatus })),
-        );
+      // Aplicados: verdade do verify (ou o pedido). Bloqueados COM verify: self-heal do badge
+      // com o estado real recém-lido (ADSET_PAUSED/CAMPAIGN_PAUSED) — espelha o 409 individual.
+      const patches = [
+        ...updated_ids.map((id) => ({ adId: id, status: verified[id] || status })),
+        ...blockedIds.filter((id) => verified[id]).map((id) => ({ adId: id, status: verified[id] })),
+      ];
+      if (patches.length > 0) {
+        patchBulkAdStatusInCaches(qc, patches);
       }
 
       const plural = (n: number) => (n !== 1 ? "s" : "");
@@ -190,6 +211,12 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
   const qc = useQueryClient();
   const [statusOverride, setStatusOverride] = useState<string | null>(null);
 
+  // Dados mais frescos do servidor voltam a mandar: o override existe só para cobrir a
+  // janela entre a mutação e a próxima entrega de currentStatus (patch/refetch).
+  useEffect(() => {
+    setStatusOverride(null);
+  }, [currentStatus]);
+
   const effectiveStatus = statusOverride ?? (currentStatus ?? null);
   const isPaused = useMemo(() => isPausedStatus(effectiveStatus), [effectiveStatus]);
 
@@ -217,8 +244,8 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
         // evita o storm de refetches que causa timeouts no fetch_manager_rankings_core_v2.
         patchAdStatusInCaches(qc, entityId, realStatus);
       } else {
-        // adset/campaign: o cascade para effective_status dos filhos (ADSET_PAUSED/CAMPAIGN_PAUSED)
-        // é complexo de inferir client-side. Toggles desses são raros — invalidação ampla aceitável.
+        // adset/campaign: o backend releu do Meta e persistiu o estado real dos filhos.
+        // Toggles desses são raros — invalidação ampla aceitável.
         await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
       }
       // /me é cache pequeno e barato de revalidar
@@ -228,6 +255,18 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       const msg = e?.message || "Falha ao atualizar status.";
       // Pausa herdada de um pai ou entidade já ativa: é orientação ao usuário, não uma falha.
       if (e?.code === "PARENT_PAUSED" || e?.code === "ALREADY_ACTIVE") {
+        // Self-heal: o backend acabou de ler (e persistir) o estado REAL no Meta — refletir
+        // no badge/cache em vez de deixar o status defasado até o próximo refresh do pack.
+        const realStatus = String((e?.details as any)?.effective_status || "").trim();
+        if (realStatus) {
+          setStatusOverride(realStatus);
+          if (entityType === "ad") {
+            patchAdStatusInCaches(qc, entityId, realStatus);
+          }
+        }
+        if (entityType !== "ad") {
+          void qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+        }
         toast.warning(msg, { duration: 6000 });
         return;
       }
@@ -270,5 +309,3 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
     toggleStatus,
   };
 }
-
-

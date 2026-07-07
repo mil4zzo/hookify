@@ -44,6 +44,14 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
     currentStatus: effectiveStatus,
   });
 
+  // Hooks sempre ANTES dos early returns: status_resolved muda false→true na refetch e,
+  // com hook depois do return condicional, o React lança "Rendered more hooks than during
+  // the previous render" (crash intermitente da célula).
+  const label = useMemo(() => {
+    const kind = entityType === "ad" ? "anúncio" : entityType === "adset" ? "conjunto" : "campanha";
+    return isPaused ? `Ativar ${kind}` : `Pausar ${kind}`;
+  }, [entityType, isPaused]);
+
   if (statusResolved === false) {
     return (
       <div className="flex items-center justify-center w-full text-muted-foreground" onClick={(e) => e.stopPropagation()}>
@@ -52,7 +60,7 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
     );
   }
 
-  // Se nÃ£o houver entityId vÃ¡lido (ex: grupo por nome), nÃ£o mostrar o switch
+  // Se não houver entityId válido (ex: grupo por nome), não mostrar o switch
   if (!entityId || !entityId.trim()) {
     return (
       <div className="flex items-center justify-center w-full" onClick={(e) => e.stopPropagation()}>
@@ -60,11 +68,6 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
       </div>
     );
   }
-
-  const label = useMemo(() => {
-    const kind = entityType === "ad" ? "anÃºncio" : entityType === "adset" ? "conjunto" : "campanha";
-    return isPaused ? `Ativar ${kind}` : `Pausar ${kind}`;
-  }, [entityType, isPaused]);
 
   const handleCheckedChange = async () => {
     if (isLoading) return;

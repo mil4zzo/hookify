@@ -195,6 +195,16 @@ export const BatchStatusResponseSchema = z.object({
   // ad_id → motivo ("adset" | "campaign"): ativações em lote bloqueadas por pausa herdada
   // de um pai (ativar o próprio ad não retomaria a entrega).
   blocked: z.record(z.string(), z.string()).default({}),
+  // ad_id → effective_status REAL relido do Meta após a escrita (verify). Preferir isto ao
+  // status pedido na hora de patchar caches.
+  statuses: z.record(z.string(), z.string()).default({}),
+})
+
+export const StatusSyncResponseSchema = z.object({
+  synced: z.array(z.string()),
+  skipped: z.array(z.string()),
+  failed: z.array(z.string()),
+  ads_covered: z.number(),
 })
 
 // Type exports
@@ -218,6 +228,7 @@ export type AuthUrlResponse = z.infer<typeof AuthUrlResponseSchema>
 export type UpdateEntityStatusRequest = z.infer<typeof UpdateEntityStatusRequestSchema>
 export type UpdateEntityStatusResponse = z.infer<typeof UpdateEntityStatusResponseSchema>
 export type BatchStatusResponse = z.infer<typeof BatchStatusResponseSchema>
+export type StatusSyncResponse = z.infer<typeof StatusSyncResponseSchema>
 
 // ========== Google Sheets Integration Schemas ==========
 
