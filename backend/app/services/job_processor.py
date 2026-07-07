@@ -435,7 +435,10 @@ class JobProcessor:
             # ===== FASE 4: PERSISTÊNCIA =====
             # Não chamar mark_persisting aqui - os heartbeats específicos dentro de _persist_data
             # vão atualizar o status com mensagens detalhadas por etapa
-            pack_id = self._persist_data(job_id, payload, formatted_data, is_refresh, pack_id_from_payload)
+            pack_id = self._persist_data(
+                job_id, payload, formatted_data, is_refresh, pack_id_from_payload,
+                parent_statuses=enrich_result.get("parent_statuses") or {},
+            )
 
             # ===== CONCLUSÃO =====
             completion_details = {
@@ -498,7 +501,9 @@ class JobProcessor:
         payload: Dict[str, Any],
         formatted_data: list,
         is_refresh: bool,
-        pack_id_from_payload: Optional[str]
+        pack_id_from_payload: Optional[str],
+        *,
+        parent_statuses: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """Persiste dados no Supabase."""
         # Heartbeat limiter: evita spam de updates no jobs durante loops longos
@@ -611,6 +616,21 @@ class JobProcessor:
                     if pack_created_in_this_run and created_pack_id:
                         self._cleanup_new_pack(created_pack_id, job_id, "falha em ads_upsert")
                     raise PersistStageError("ads_upsert", f"Erro ao salvar anúncios: {e}") from e
+
+                # Status oficial dos PAIS por parent_id, conta inteira — cura divergência entre
+                # packs (linhas do mesmo adset em packs distintos). Best-effort: não falha o job
+                # (colunas podem nem existir antes da migration 089).
+                if parent_statuses:
+                    try:
+                        hb("Sincronizando status de campanhas/conjuntos...", force=True)
+                        supabase_repo.write_parent_statuses(
+                            self.user_jwt,
+                            self.user_id,
+                            parent_statuses,
+                            sb_client=self._sb,
+                        )
+                    except Exception as e:
+                        logger.warning(f"[JobProcessor] write_parent_statuses falhou (best-effort): {e}")
 
                 ensure_not_cancelled("before_metrics")
                 hb("Salvando métricas...", force=True)

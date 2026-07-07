@@ -61,6 +61,9 @@ class BatchStatusResult(BaseModel):
     # ad_id → motivo da pausa herdada ("adset" | "campaign"): ativados em lote que foram
     # bloqueados porque um pai está pausado (ativar o próprio ad não retomaria a entrega).
     blocked: Dict[str, str] = {}
+    # ad_id → effective_status REAL relido do Meta após a escrita (verify). O frontend usa
+    # isso para patchar o cache com a verdade em vez do status pedido (otimista).
+    statuses: Dict[str, str] = {}
 
 
 class BulkAdItem(BaseModel):

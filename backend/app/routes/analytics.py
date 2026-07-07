@@ -1274,6 +1274,13 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         user_id=str(user["user_id"]),
         rows=primary.get("data") or [],
     )
+    # status_resolved: permite à UI distinguir "status desconhecido" (mostra "—") de um status
+    # real. Sem isso, ad com effective_status NULL renderiza o toggle como se estivesse ativo.
+    for row in (primary.get("data") or []):
+        if isinstance(row, dict):
+            status = row.get("effective_status")
+            row["status_resolved"] = bool(str(status).strip()) if status is not None else False
+
     act_count = len(primary.get("available_conversion_types") or []) if isinstance(primary.get("available_conversion_types"), list) else 0
     logger.info(
         "[rankings] rpc_success elapsed_ms=%.2f group_by=%s range=%s..%s packs=%s rows=%s act_count=%s is_probe=%s hydrated=%s transcription_flagged=%s media_type_hydrated=%s",
@@ -1887,6 +1894,7 @@ def get_rankings_children(
             "ad_id": A.get("ad_id"),
             "ad_name": ad_name,
             "effective_status": effective_status_map.get(key),
+            "status_resolved": bool(str(effective_status_map.get(key)).strip()) if effective_status_map.get(key) is not None else False,
             "campaign_name": A.get("campaign_name"),
             "adset_name": A.get("adset_name"),
             "impressions": A["impressions"],
@@ -2420,6 +2428,7 @@ def get_adset_children(
                 "ad_id": A.get("ad_id"),
                 "ad_name": A.get("ad_name"),
                 "effective_status": effective_status_map.get(key),
+                "status_resolved": bool(str(effective_status_map.get(key)).strip()) if effective_status_map.get(key) is not None else False,
                 "impressions": A["impressions"],
                 "clicks": A["clicks"],
                 "inline_link_clicks": A["inline_link_clicks"],

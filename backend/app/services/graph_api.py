@@ -789,13 +789,15 @@ class GraphAPI:
         """Atualiza status de uma campanha (PAUSED/ACTIVE) com verify."""
         return self._activate_or_pause(campaign_id, status, "campaign")
 
-    def batch_get_effective_status(self, ad_ids: List[str]) -> Dict[str, Any]:
+    def batch_get_effective_status(self, ad_ids: List[str], *, deadline: Optional[float] = None) -> Dict[str, Any]:
         """
         Lê o effective_status de vários anúncios de uma vez via Meta Batch API (GET).
 
         1 chamada HTTP por chunk de 50 (mesma forma do write em lote). Usado para BLOQUEAR,
         no ATIVAR em lote, os ads pausados por um PAI (ADSET_PAUSED/CAMPAIGN_PAUSED): sem isso o
         Meta devolve 200 no write mas a entrega segue pausada ("sucesso fantasma").
+
+        `deadline` (time.monotonic) interrompe entre chunks: devolve parcial fail-open.
 
         Retorna: {"status": "success", "statuses": {ad_id: "ACTIVE"|"CAMPAIGN_PAUSED"|...|None}}
         ou {"status": "auth_error", ...}. Ads que o Meta não conseguiu ler ficam AUSENTES do dict
@@ -807,6 +809,9 @@ class GraphAPI:
 
         batch_url = self.base_url  # https://graph.facebook.com/v24.0/
         for i in range(0, len(ad_ids), 50):
+            if deadline is not None and time.monotonic() > deadline:
+                logger.warning("batch_get_effective_status: deadline estourado no chunk %d — parcial fail-open", i // 50)
+                break
             chunk = ad_ids[i : i + 50]
             batch_items = [
                 {"method": "GET", "relative_url": f"{ad_id}?fields=effective_status"}
@@ -850,6 +855,127 @@ class GraphAPI:
                 logger.exception("batch_get_effective_status error no chunk %d: %s", i // 50, err)
         return {"status": "success", "statuses": statuses}
 
+    def get_ad_statuses_by_parent(
+        self,
+        act_id: str,
+        parent_field: str,
+        parent_id: str,
+        *,
+        edge: str = "ads",
+        deadline: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Lê o effective_status de TODAS as entidades de um edge filtradas por um pai:
+        GET /act_{id}/{edge}?fields=id,effective_status&filtering=[{field: campaign.id|adset.id, IN, [id]}]
+        - edge="ads": filhos de campanha/conjunto (padrão)
+        - edge="adsets": conjuntos de uma campanha (parent_field=campaign.id)
+
+        Muito mais barato que o Batch API para "todos os filhos de um pai": 1 chamada devolve
+        até 1000 linhas (no batch, cada sub-request de 50 conta individualmente no rate limit).
+
+        `deadline` (time.monotonic) interrompe a paginação: devolve parcial fail-open.
+
+        Retorna: {"status": "success", "statuses": {id: effective_status}}
+        ou {"status": "auth_error"|"http_error"|"error", ...}
+        """
+        statuses: Dict[str, Any] = {}
+        if not act_id or not parent_id:
+            return {"status": "error", "message": "act_id e parent_id são obrigatórios"}
+        if parent_field not in ("campaign.id", "adset.id"):
+            return {"status": "error", "message": "parent_field deve ser campaign.id ou adset.id"}
+        if edge not in ("ads", "adsets"):
+            return {"status": "error", "message": "edge deve ser ads ou adsets"}
+
+        url = f"{self.base_url}{act_id}/{edge}"
+        params: Dict[str, Any] = {
+            "access_token": self.access_token,
+            "fields": "id,effective_status",
+            "limit": 1000,
+            "filtering": json.dumps([{"field": parent_field, "operator": "IN", "value": [str(parent_id)]}]),
+        }
+        max_pages = 10  # guarda de sanidade: 10k filhos por pai é muito além do realista
+        page = 0
+        try:
+            while True:
+                page += 1
+                if deadline is not None and time.monotonic() > deadline:
+                    logger.warning("get_ad_statuses_by_parent: deadline estourado na pág. %d (%s=%s)", page, parent_field, parent_id)
+                    break
+                resp = requests.get(url, params=params, timeout=60)
+                resp.raise_for_status()
+                log_meta_usage(resp, "GraphAPI.get_ad_statuses_by_parent")
+                body = resp.json()
+                for row in (body.get("data") or []):
+                    row_id = str(row.get("id") or "").strip()
+                    if row_id:
+                        statuses[row_id] = str(row.get("effective_status") or "").upper() or None
+                next_url = str((body.get("paging") or {}).get("next") or "").strip()
+                if not next_url or page >= max_pages:
+                    break
+                url = next_url
+                params = {}
+            return {"status": "success", "statuses": statuses}
+        except requests.exceptions.HTTPError as http_err:
+            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+            if error_obj.get("code") == 190:
+                return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
+            logger.warning("get_ad_statuses_by_parent HTTP error (%s=%s): %s", parent_field, parent_id, http_err)
+            return {"status": "http_error", "message": error_obj.get("message") or str(http_err), "error": error_obj}
+        except Exception as err:
+            logger.exception("get_ad_statuses_by_parent error (%s=%s): %s", parent_field, parent_id, err)
+            return {"status": "error", "message": str(err)}
+
+    def get_entity_statuses_for_account(self, act_id: str, edge: str) -> Dict[str, Any]:
+        """
+        Lê id+effective_status de todas as entidades de um edge da conta (`campaigns`,
+        `adsets` ou `ads`), paginado (limit=500). Usado para preencher as colunas
+        adset_status/campaign_status e para o sync on-focus de packs sem filtro.
+
+        Retorna: {"status": "success", "statuses": {id: effective_status}} ou erro.
+        """
+        statuses: Dict[str, Any] = {}
+        if not act_id:
+            return {"status": "error", "message": "act_id é obrigatório"}
+        if edge not in ("campaigns", "adsets", "ads"):
+            return {"status": "error", "message": "edge deve ser campaigns, adsets ou ads"}
+
+        url = f"{self.base_url}{act_id}/{edge}"
+        params: Dict[str, Any] = {
+            "access_token": self.access_token,
+            "fields": "id,effective_status",
+            "limit": 500,
+        }
+        max_pages = 40
+        page = 0
+        try:
+            while True:
+                page += 1
+                resp = requests.get(url, params=params, timeout=60)
+                resp.raise_for_status()
+                log_meta_usage(resp, f"GraphAPI.get_entity_statuses_for_account.{edge}")
+                body = resp.json()
+                for row in (body.get("data") or []):
+                    entity_id = str(row.get("id") or "").strip()
+                    if entity_id:
+                        statuses[entity_id] = str(row.get("effective_status") or "").upper() or None
+                next_url = str((body.get("paging") or {}).get("next") or "").strip()
+                if not next_url or page >= max_pages:
+                    break
+                url = next_url
+                params = {}
+            return {"status": "success", "statuses": statuses}
+        except requests.exceptions.HTTPError as http_err:
+            error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+            error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+            if error_obj.get("code") == 190:
+                return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
+            logger.warning("get_entity_statuses_for_account HTTP error (%s/%s): %s", act_id, edge, http_err)
+            return {"status": "http_error", "message": error_obj.get("message") or str(http_err), "error": error_obj}
+        except Exception as err:
+            logger.exception("get_entity_statuses_for_account error (%s/%s): %s", act_id, edge, err)
+            return {"status": "error", "message": str(err)}
+
     def batch_update_ad_status(self, ad_ids: List[str], status: str) -> Dict[str, Any]:
         """
         Atualiza status de múltiplos anúncios em lote via Meta Batch API.
@@ -858,11 +984,17 @@ class GraphAPI:
         (ADSET_PAUSED/CAMPAIGN_PAUSED) — ativar o próprio ad não retomaria a entrega e reportaria
         "sucesso fantasma". Bloqueados NÃO são escritos e voltam em `blocked` (ad_id → motivo).
 
+        Após escrever, relê o effective_status dos ads escritos (verify, mesmo padrão do fluxo
+        individual). Ao ATIVAR, ads que o verify mostrar ainda pausados por um pai (caso fail-open:
+        o pre-check não conseguiu lê-los) são movidos de `updated_ids` para `blocked` — sem isso o
+        fail-open reintroduz o "sucesso fantasma" no lote.
+
         Retorna: {"status": "success", "updated_ids": [...], "failed_ids": [...],
-                  "blocked": {ad_id: "adset"|"campaign"}}
+                  "blocked": {ad_id: "adset"|"campaign"},
+                  "verified_statuses": {ad_id: effective_status relido}}
         """
         if not ad_ids:
-            return {"status": "success", "updated_ids": [], "failed_ids": [], "blocked": {}}
+            return {"status": "success", "updated_ids": [], "failed_ids": [], "blocked": {}, "verified_statuses": {}}
         if status not in ("PAUSED", "ACTIVE"):
             return {"status": "error", "message": "status deve ser PAUSED ou ACTIVE"}
 
@@ -870,6 +1002,7 @@ class GraphAPI:
         inherited_pause = {"ADSET_PAUSED": "adset", "CAMPAIGN_PAUSED": "campaign"}
         blocked: Dict[str, str] = {}
         writable = list(ad_ids)
+        verified_statuses: Dict[str, Any] = {}
 
         if status == "ACTIVE":
             pre = self.batch_get_effective_status(ad_ids)
@@ -881,13 +1014,36 @@ class GraphAPI:
                 reason = inherited_pause.get(statuses.get(str(ad_id)) or "")
                 if reason:
                     blocked[str(ad_id)] = reason
+                    # Verdade recém-lida dos bloqueados: entra no mapa para o caller persistir
+                    # (self-heal do cache local — espelha o 409 do fluxo individual).
+                    verified_statuses[str(ad_id)] = statuses.get(str(ad_id))
                 else:
                     writable.append(ad_id)
 
         result = self._batch_write_status(writable, status)
         if result.get("status") == "auth_error":
             return result
+        updated_ids = list(result.get("updated_ids") or [])
+        if updated_ids:
+            verify = self.batch_get_effective_status(updated_ids)
+            if verify.get("status") == "success":
+                # merge (não substituir): preserva a verdade do pre-check dos bloqueados
+                verify_statuses = verify.get("statuses", {}) or {}
+                verified_statuses.update(verify_statuses)
+                if status == "ACTIVE":
+                    still_updated = []
+                    for ad_id in updated_ids:
+                        reason = inherited_pause.get(verify_statuses.get(str(ad_id)) or "")
+                        if reason:
+                            blocked[str(ad_id)] = reason
+                        else:
+                            still_updated.append(ad_id)
+                    updated_ids = still_updated
+            # verify com falha (não-auth) é fail-open: mantém a classificação otimista do write.
+
+        result["updated_ids"] = updated_ids
         result["blocked"] = blocked
+        result["verified_statuses"] = verified_statuses
         return result
 
     def _batch_write_status(self, ad_ids: List[str], status: str) -> Dict[str, Any]:

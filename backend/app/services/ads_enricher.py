@@ -472,6 +472,46 @@ class AdsEnricher:
             "status-filter",
         )
 
+    def _fetch_edge_statuses(self, act_id: str, edge: str) -> Dict[str, Optional[str]]:
+        """id → effective_status de um edge da conta (campaigns/adsets), paginado (limit=500)."""
+        result: Dict[str, Optional[str]] = {}
+        url = f"{self.base_url}{act_id}/{edge}"
+        payload: Dict[str, Any] = {
+            "access_token": self.access_token,
+            "fields": "id,effective_status",
+            "limit": 500,
+        }
+        page = 0
+        while True:
+            page += 1
+            response_data = self._fetch_batch_with_retry(
+                url, payload, f"status-{edge} pag.{page}", return_full=True
+            )
+            for row in response_data.get("data", []):
+                entity_id = str(row.get("id") or "").strip()
+                if entity_id:
+                    result[entity_id] = str(row.get("effective_status") or "").upper() or None
+            next_url = str(response_data.get("paging", {}).get("next") or "").strip()
+            if not next_url or page >= 40:
+                break
+            url = next_url
+            payload = {}
+        return result
+
+    def fetch_parent_statuses(self, act_id: str) -> Dict[str, Dict[str, Optional[str]]]:
+        """
+        effective_status oficial de TODAS as campanhas e adsets da conta (2+ chamadas
+        paginadas de 500). Alimenta as colunas denormalizadas ads.campaign_status/adset_status
+        — o status do PAI não é inferível dos filhos (a ausência de marcadores X_PAUSED nos
+        filhos NÃO implica pai ativo).
+
+        Retorna {"campaigns": {campaign_id: status}, "adsets": {adset_id: status}}.
+        """
+        return {
+            "campaigns": self._fetch_edge_statuses(act_id, "campaigns"),
+            "adsets": self._fetch_edge_statuses(act_id, "adsets"),
+        }
+
     def merge_details(
         self,
         raw_data: List[Dict[str, Any]],
@@ -737,11 +777,21 @@ class AdsEnricher:
                 if ad_id and ad_id in status_map:
                     ad["effective_status"] = status_map[ad_id]
 
+            # Status oficial dos PAIS (campanha/adset) — devolvido no resultado para o caller
+            # gravar POR parent_id (nunca por linha de ad; ver supabase_repo.write_parent_statuses).
+            # Best-effort: falha aqui não derruba o enrich (colunas mantêm o valor anterior).
+            parent_statuses: Dict[str, Dict[str, Optional[str]]] = {}
+            try:
+                parent_statuses = self.fetch_parent_statuses(act_id)
+            except Exception as exc:
+                logger.warning("[AdsEnricher] fetch_parent_statuses falhou (%s); colunas de pai mantêm valor anterior", exc)
+
             return {
                 "success": True,
                 "data": enriched,
                 "unique_count": len(unique_ads),
                 "enriched_count": len(media_details),
+                "parent_statuses": parent_statuses,
             }
         except MetaRateLimitError as e:
             logger.warning("[AdsEnricher] Rate limit da Meta detectado: %s", e)

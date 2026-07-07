@@ -164,6 +164,8 @@ Anúncios importados da Meta API com metadados do criativo.
 | video_owner_page_id | text |  |
 | primary_video_id | text |  |
 | media_type | text | NOT NULL, DEFAULT |
+| adset_status | text |  |
+| campaign_status | text |  |
 
 ---
 
@@ -372,4 +374,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-07-01 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-07-07 — via `supabase/generate_schema_map.py`*

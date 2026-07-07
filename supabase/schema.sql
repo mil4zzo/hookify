@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict iQq38tdoS3aB2NAQz1jjzSx1hQ0uNc5WR5b7Dzm57nFXhmlKMbIPAwfxmKduxS2
+\restrict 7yZikxkQ6vTdMl52J8dJGk4WRjcd2GakUdZ58n4b8cDvSwdAaysNZAHtmpHlgEh
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -3133,22 +3133,61 @@ begin
       rr.item || jsonb_build_object(
         'effective_status',
         case
-          when v_group_by = 'adset_id' and rr.adset_id is not null and exists (
-            select 1
-            from public.ads a
-            where a.user_id = p_user_id
-              and a.adset_id = rr.adset_id
-              and upper(coalesce(a.effective_status, '')) = 'ADSET_PAUSED'
-            limit 1
-          ) then 'ADSET_PAUSED'
-          when v_group_by = 'campaign_id' and rr.campaign_id is not null and exists (
-            select 1
-            from public.ads a
-            where a.user_id = p_user_id
-              and a.campaign_id = rr.campaign_id
-              and upper(coalesce(a.effective_status, '')) = 'CAMPAIGN_PAUSED'
-            limit 1
-          ) then 'CAMPAIGN_PAUSED'
+          when v_group_by = 'adset_id' and rr.adset_id is not null then
+            coalesce(
+              -- Status OFICIAL do adset (denormalizado). Escrito por parent_id em todas as
+              -- linhas do pai; o ORDER BY por recência é defesa em profundidade caso linhas
+              -- do mesmo pai divirjam (ex.: escrita parcial interrompida).
+              (
+                select nullif(a.adset_status, '')
+                from public.ads a
+                where a.user_id = p_user_id
+                  and a.adset_id = rr.adset_id
+                  and nullif(a.adset_status, '') is not null
+                order by a.updated_at desc nulls last
+                limit 1
+              ),
+              -- Fallback pré-backfill: inferência por marcadores nos filhos (migration 088)
+              case
+                when exists (
+                  select 1 from public.ads a
+                  where a.user_id = p_user_id
+                    and a.adset_id = rr.adset_id
+                    and upper(coalesce(a.effective_status, '')) = 'ADSET_PAUSED'
+                  limit 1
+                ) then 'ADSET_PAUSED'
+                when exists (
+                  select 1 from public.ads a
+                  where a.user_id = p_user_id
+                    and a.adset_id = rr.adset_id
+                    and upper(coalesce(a.effective_status, '')) = 'CAMPAIGN_PAUSED'
+                  limit 1
+                ) then 'CAMPAIGN_PAUSED'
+                else 'ACTIVE'
+              end
+            )
+          when v_group_by = 'campaign_id' and rr.campaign_id is not null then
+            coalesce(
+              (
+                select nullif(a.campaign_status, '')
+                from public.ads a
+                where a.user_id = p_user_id
+                  and a.campaign_id = rr.campaign_id
+                  and nullif(a.campaign_status, '') is not null
+                order by a.updated_at desc nulls last
+                limit 1
+              ),
+              case
+                when exists (
+                  select 1 from public.ads a
+                  where a.user_id = p_user_id
+                    and a.campaign_id = rr.campaign_id
+                    and upper(coalesce(a.effective_status, '')) = 'CAMPAIGN_PAUSED'
+                  limit 1
+                ) then 'CAMPAIGN_PAUSED'
+                else 'ACTIVE'
+              end
+            )
           when v_group_by in ('adset_id', 'campaign_id') then 'ACTIVE'
           else rr.item->>'effective_status'
         end
@@ -3170,7 +3209,7 @@ ALTER FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_star
 -- Name: FUNCTION fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) IS 'Manager core v2 wrapper: resolves campaign/adset effective_status from local hierarchical pause markers while preserving the existing payload contract.';
+COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) IS 'Manager core v2 wrapper: resolves campaign/adset effective_status preferring the official denormalized parent status (ads.adset_status/campaign_status), falling back to hierarchical pause markers for pre-backfill rows.';
 
 
 --
@@ -5423,6 +5462,8 @@ CREATE TABLE public.ads (
     video_owner_page_id text,
     primary_video_id text,
     media_type text DEFAULT 'unknown'::text NOT NULL,
+    adset_status text,
+    campaign_status text,
     CONSTRAINT ads_media_type_check CHECK ((media_type = ANY (ARRAY['video'::text, 'image'::text, 'unknown'::text])))
 );
 
@@ -5469,6 +5510,20 @@ COMMENT ON COLUMN public.ads.thumb_source_url IS 'URL original usada para baixar
 --
 
 COMMENT ON COLUMN public.ads.transcription_id IS 'Referência à transcrição do vídeo (por ad_name). Null se não houver transcrição.';
+
+
+--
+-- Name: COLUMN ads.adset_status; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ads.adset_status IS 'effective_status oficial do adset pai (denormalizado; fonte: Meta API — enrich/toggle/sync). NULL = ainda não sincronizado.';
+
+
+--
+-- Name: COLUMN ads.campaign_status; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ads.campaign_status IS 'effective_status oficial da campanha pai (denormalizado; fonte: Meta API — enrich/toggle/sync). NULL = ainda não sincronizado.';
 
 
 --
@@ -7015,5 +7070,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict iQq38tdoS3aB2NAQz1jjzSx1hQ0uNc5WR5b7Dzm57nFXhmlKMbIPAwfxmKduxS2
+\unrestrict 7yZikxkQ6vTdMl52J8dJGk4WRjcd2GakUdZ58n4b8cDvSwdAaysNZAHtmpHlgEh
 

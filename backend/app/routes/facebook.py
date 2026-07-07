@@ -7,6 +7,7 @@ import requests
 import json
 import asyncio
 import threading
+import time
 import uuid
 import tempfile
 import os
@@ -720,37 +721,174 @@ def _assert_entity_belongs_to_user(*, user_jwt: str, user_id: str, entity_type: 
         raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": f"{entity_type} não encontrado para este usuário"})
 
 
+# Teto de filhos para sincronizar via Meta batch GET após toggle de adset/campanha
+# (~12 requests de 50). Acima disso cai na heurística local não-destrutiva.
+_STATUS_SYNC_MAX_ADS = 600
+# Orçamento de tempo agregado do sync de filhos (toggle é síncrono; axios aborta em 120s —
+# ao estourar, devolve False e o caller cai na heurística não-destrutiva).
+_CHILD_SYNC_TIME_BUDGET_S = 25
+
+
+def _fetch_entity_ad_ids(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str, limit: int = 1000) -> List[str]:
+    """
+    Lista os ad_ids do usuário para um adset/campaign — no máximo `limit` linhas em UMA chamada.
+    O caller usa limit = teto+1 só para DETECTAR estouro do teto; paginar o inventário inteiro
+    para depois descartar seria custo puro.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    column = {"ad": "ad_id", "adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
+    if not column:
+        return []
+    sb = get_supabase_for_user(user_jwt)
+    res = (
+        sb.table("ads")
+        .select("ad_id")
+        .eq("user_id", user_id)
+        .eq(column, entity_id)
+        .range(0, max(0, limit - 1))
+        .execute()
+    )
+    return [str(r["ad_id"]) for r in (res.data or []) if r.get("ad_id")]
+
+
+def _write_local_statuses(*, user_jwt: str, user_id: str, statuses: Dict[str, Any]) -> None:
+    """
+    Grava effective_status por ad no cache local (Supabase `ads`), agrupando por valor
+    (1 UPDATE por status distinto, em chunks de 200 para não estourar a URL do PostgREST).
+    Ads com status None/vazio (leitura fail-open do Meta) não são tocados.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    by_status: Dict[str, List[str]] = {}
+    for ad_id, status in (statuses or {}).items():
+        if not status:
+            continue
+        by_status.setdefault(str(status).upper(), []).append(str(ad_id))
+    if not by_status:
+        return
+
+    sb = get_supabase_for_user(user_jwt)
+    for status_value, ids in by_status.items():
+        for i in range(0, len(ids), 200):
+            chunk = ids[i : i + 200]
+            sb.table("ads").update({"effective_status": status_value}).eq("user_id", user_id).in_("ad_id", chunk).execute()
+
+
+def _fetch_entity_account_id(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str) -> Optional[str]:
+    """act_id (com prefixo act_) da conta a que o adset/campaign pertence, via tabela ads."""
+    from app.core.supabase_client import get_supabase_for_user
+
+    column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
+    if not column:
+        return None
+    sb = get_supabase_for_user(user_jwt)
+    res = (
+        sb.table("ads")
+        .select("account_id")
+        .eq("user_id", user_id)
+        .eq(column, entity_id)
+        .not_.is_("account_id", "null")
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    account_id = str(rows[0].get("account_id") or "").strip() if rows else ""
+    if not account_id:
+        return None
+    return account_id if account_id.startswith("act_") else f"act_{account_id}"
+
+
+def _sync_children_statuses_from_meta(*, api: GraphAPI, user_jwt: str, user_id: str, entity_type: str, entity_id: str) -> bool:
+    """
+    Relê do Meta o effective_status REAL dos ads de um adset/campaign e grava no cache local.
+
+    Substitui a cascata adivinhada (marcar/desmarcar X_PAUSED em bloco), que corrompia estados
+    individuais: pausar a campanha sobrescrevia ads pausados individualmente e, ao reativar,
+    eles voltavam como ACTIVE no Hookify enquanto no Meta seguiam PAUSED. O status do pai NÃO
+    tem correlação direta com o dos filhos — só o Meta sabe o estado composto.
+
+    Caminho preferido: edge filtrado por pai (`get_ad_statuses_by_parent`, 1 chamada por até
+    1000 ads — no Batch API cada sub-request de 50 conta no rate limit). Fallback: batch GET
+    dos ids conhecidos, com teto. Orçamento de tempo agregado (_CHILD_SYNC_TIME_BUDGET_S):
+    ao estourar, devolve False sem travar a resposta do toggle.
+
+    Retorna True se a verdade foi gravada; False para o caller decidir o fallback heurístico.
+    """
+    try:
+        deadline = time.monotonic() + _CHILD_SYNC_TIME_BUDGET_S
+        parent_field = {"adset": "adset.id", "campaign": "campaign.id"}.get(entity_type)
+        if parent_field:
+            act_id = _fetch_entity_account_id(
+                user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id,
+            )
+            if act_id:
+                read = api.get_ad_statuses_by_parent(act_id, parent_field, entity_id, deadline=deadline)
+                statuses = read.get("statuses", {}) or {}
+                if read.get("status") == "success" and statuses:
+                    _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
+                    return True
+                # erro OU vazio no edge filtrado → tenta o fallback por batch abaixo
+
+        if time.monotonic() > deadline:
+            return False
+        ad_ids = _fetch_entity_ad_ids(
+            user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id,
+            limit=_STATUS_SYNC_MAX_ADS + 1,
+        )
+        if not ad_ids:
+            return True
+        if len(ad_ids) > _STATUS_SYNC_MAX_ADS:
+            logger.info(
+                "[UPDATE_STATUS] children sync via Meta pulado (>%d ads) para %s %s",
+                _STATUS_SYNC_MAX_ADS, entity_type, entity_id,
+            )
+            return False
+        read = api.batch_get_effective_status(ad_ids, deadline=deadline)
+        if read.get("status") != "success":
+            return False
+        statuses = read.get("statuses", {}) or {}
+        if not statuses:
+            # Fail-open TOTAL (todos os chunks falharam ou deadline): nada foi lido do Meta.
+            # ad_ids é não-vazio aqui — devolver False para o caller aplicar a heurística.
+            return False
+        _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
+        return True
+    except Exception:
+        logger.exception("[UPDATE_STATUS] Falha no sync de effective_status dos filhos via Meta")
+        return False
+
+
 def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str, new_status: str) -> None:
     """
-    Atualiza o cache local (Supabase `ads.effective_status`) para refletir o status recém aplicado no Meta.
+    Fallback HEURÍSTICO do cache local (`ads.effective_status`) — usado apenas quando o sync
+    com o Meta (`_sync_children_statuses_from_meta`) não pôde rodar.
 
-    Observações:
-    - Para PAUSED em campaign/adset, marcamos os anúncios relacionados como CAMPAIGN_PAUSED/ADSET_PAUSED.
-    - Para ACTIVE em campaign/adset, só revertimos linhas que estavam CAMPAIGN_PAUSED/ADSET_PAUSED (evita sobrescrever pausas individuais).
+    Regras (não-destrutivas — nunca sobrescrever pausas individuais/estados especiais):
+    - PAUSED em campaign/adset: marca X_PAUSED apenas nos ads ACTIVE ou sem status. Ads PAUSED,
+      WITH_ISSUES etc. preservam o próprio estado (é o que o Meta reporta para eles).
+    - ACTIVE em campaign/adset: só reverte linhas que estavam X_PAUSED.
     """
     from app.core.supabase_client import get_supabase_for_user
 
     sb = get_supabase_for_user(user_jwt)
+    _only_active_or_null = "effective_status.eq.ACTIVE,effective_status.is.null"
 
     try:
         if entity_type == "ad":
-            if new_status == "PAUSED":
-                sb.table("ads").update({"effective_status": "PAUSED"}).eq("user_id", user_id).eq("ad_id", entity_id).execute()
-            else:
-                # Só voltar pra ACTIVE se estava PAUSED (evita sobrescrever outros estados)
-                sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("ad_id", entity_id).eq("effective_status", "PAUSED").execute()
+            _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses={entity_id: new_status})
             return
 
         if entity_type == "adset":
             if new_status == "PAUSED":
-                sb.table("ads").update({"effective_status": "ADSET_PAUSED"}).eq("user_id", user_id).eq("adset_id", entity_id).execute()
+                sb.table("ads").update({"effective_status": "ADSET_PAUSED"}).eq("user_id", user_id).eq("adset_id", entity_id).or_(_only_active_or_null).execute()
             else:
                 sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("adset_id", entity_id).eq("effective_status", "ADSET_PAUSED").execute()
             return
 
         if entity_type == "campaign":
             if new_status == "PAUSED":
-                sb.table("ads").update({"effective_status": "CAMPAIGN_PAUSED"}).eq("user_id", user_id).eq("campaign_id", entity_id).execute()
+                sb.table("ads").update({"effective_status": "CAMPAIGN_PAUSED"}).eq("user_id", user_id).eq("campaign_id", entity_id).or_(_only_active_or_null).execute()
             else:
                 sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("campaign_id", entity_id).eq("effective_status", "CAMPAIGN_PAUSED").execute()
             return
@@ -759,12 +897,93 @@ def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: 
         logger.exception("[UPDATE_STATUS] Falha ao atualizar effective_status local (cache) no Supabase")
 
 
+def _write_parent_status_column(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str, status: Optional[str]) -> None:
+    """
+    Grava o status oficial do PAI (adset/campaign) na coluna denormalizada correspondente
+    (`ads.adset_status`/`ads.campaign_status`) em todas as linhas de ad daquele pai.
+    1 UPDATE, com updated_at fresco (o wrapper RPC desempata divergências por recência).
+    Best-effort: nunca falha a operação.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    column = {"adset": "adset_status", "campaign": "campaign_status"}.get(entity_type)
+    id_column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
+    if not column or not id_column or not status:
+        return
+    try:
+        sb = get_supabase_for_user(user_jwt)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        sb.table("ads").update({column: str(status).upper(), "updated_at": now_iso}).eq("user_id", user_id).eq(id_column, entity_id).execute()
+    except Exception:
+        logger.exception("[UPDATE_STATUS] Falha ao gravar %s local para %s %s", column, entity_type, entity_id)
+
+
+def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: str, user_id: str, campaign_id: str, children_synced: bool) -> None:
+    """
+    Toggle/self-heal de CAMPANHA também precisa refletir nos CONJUNTOS dela: sem isso a coluna
+    adset_status fica stale (ex.: 'ACTIVE' logo após pausar a campanha) e o wrapper RPC — que
+    PREFERE a coluna sobre os marcadores — faz a aba "por conjunto" contradizer a "por campanha".
+
+    Lê o effective_status real dos adsets via edge filtrado (1 chamada); se a leitura falhar e
+    os filhos tiverem sido sincronizados (marcadores frescos), ANULA a coluna para reativar o
+    fallback por marcadores. Best-effort: nunca falha a resposta.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    try:
+        act_id = _fetch_entity_account_id(
+            user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id,
+        )
+        if act_id:
+            read = api.get_ad_statuses_by_parent(act_id, "campaign.id", campaign_id, edge="adsets")
+            statuses = read.get("statuses", {}) or {}
+            if read.get("status") == "success" and statuses:
+                supabase_repo.write_parent_statuses(
+                    user_jwt, user_id, {"adsets": statuses}, skip_present_check=True,
+                )
+                return
+        if children_synced:
+            # Marcadores dos filhos acabaram de ser gravados: NULL na coluna reativa o
+            # fallback por marcadores (migration 088), que está correto neste instante.
+            sb = get_supabase_for_user(user_jwt)
+            sb.table("ads").update({"adset_status": None}).eq("user_id", user_id).eq("campaign_id", campaign_id).execute()
+    except Exception:
+        logger.exception("[UPDATE_STATUS] Falha ao sincronizar adset_status dos conjuntos da campanha %s", campaign_id)
+
+
+def _self_heal_local_status(*, api: GraphAPI, user_jwt: str, user_id: str, entity_type: str, entity_id: str, effective_status: Optional[str]) -> None:
+    """
+    Auto-correção do cache local quando o pre-check descobre que ele está DEFASADO (409
+    parent_paused/already_active): persiste o estado real recém-lido do Meta. Sem isso o
+    badge fica "pausado" para sempre (até o próximo refresh do pack) mesmo com o toast
+    dizendo "já está ativo". Best-effort: nunca falha a resposta.
+    """
+    try:
+        if entity_type == "ad":
+            if effective_status:
+                _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses={entity_id: effective_status})
+            return
+        _write_parent_status_column(
+            user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id, status=effective_status,
+        )
+        synced = _sync_children_statuses_from_meta(
+            api=api, user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id,
+        )
+        if entity_type == "campaign":
+            _sync_campaign_adset_statuses(
+                api=api, user_jwt=user_jwt, user_id=user_id, campaign_id=entity_id, children_synced=synced,
+            )
+    except Exception:
+        logger.exception("[UPDATE_STATUS] Falha no self-heal de effective_status local")
+
+
 _ENTITY_KIND_PT = {"ad": "anúncio", "adset": "conjunto", "campaign": "campanha"}
 
 
 def _finalize_status_update(
     *,
     result: Dict[str, Any],
+    api: GraphAPI,
     user_jwt: str,
     user_id: str,
     entity_type: str,
@@ -772,14 +991,15 @@ def _finalize_status_update(
     new_status: str,
 ) -> Dict[str, Any]:
     """
-    Mapeia o resultado de `GraphAPI._activate_or_pause` para a resposta HTTP, atualizando o
-    cache local apenas quando a mudança realmente se aplicou no Meta.
+    Mapeia o resultado de `GraphAPI._activate_or_pause` para a resposta HTTP e sincroniza o
+    cache local com a VERDADE lida do Meta (verify/pre-check), nunca com o valor otimista.
 
     Estados possíveis vindos do serviço:
     - auth_error   → 401 (token expirado)
-    - blocked      → 409 PARENT_PAUSED (pausa herdada de um pai; ativar o filho seria no-op)
-    - noop_active  → 409 ALREADY_ACTIVE (já está ativo; o "pausado" visto vem dos filhos)
-    - success      → 200 com effective_status real do Meta
+    - blocked      → 409 PARENT_PAUSED (pausa herdada de um pai) + self-heal do cache local
+    - noop_active  → 409 ALREADY_ACTIVE (já está ativo) + self-heal do cache local
+    - success      → 200 com effective_status real do Meta; cache local recebe o status
+                     VERIFICADO (ad) ou o estado real dos filhos relido do Meta (adset/campaign)
     - (demais)     → 502 meta_api_error
     """
     kind_pt = _ENTITY_KIND_PT.get(entity_type, "item")
@@ -799,6 +1019,11 @@ def _finalize_status_update(
     if outcome == "blocked":
         reason = result.get("reason")  # "adset" | "campaign"
         parent_pt = "a campanha" if reason == "campaign" else "o conjunto"
+        _self_heal_local_status(
+            api=api, user_jwt=user_jwt, user_id=user_id,
+            entity_type=entity_type, entity_id=entity_id,
+            effective_status=result.get("effective_status"),
+        )
         raise HTTPException(
             status_code=409,
             detail={
@@ -820,6 +1045,11 @@ def _finalize_status_update(
             msg = "Esta campanha já está ativa no Meta. Verifique se os conjuntos/anúncios dentro dela estão ativos."
         else:
             msg = "Este anúncio já está ativo no Meta."
+        _self_heal_local_status(
+            api=api, user_jwt=user_jwt, user_id=user_id,
+            entity_type=entity_type, entity_id=entity_id,
+            effective_status="ACTIVE",
+        )
         raise HTTPException(
             status_code=409,
             detail={
@@ -840,19 +1070,40 @@ def _finalize_status_update(
             },
         )
 
-    _update_local_effective_status(
-        user_jwt=user_jwt,
-        user_id=user_id,
-        entity_type=entity_type,
-        entity_id=entity_id,
-        new_status=new_status,
-    )
+    verified_status = result.get("effective_status") or new_status
+    if entity_type == "ad":
+        try:
+            _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses={entity_id: verified_status})
+        except Exception:
+            logger.exception("[UPDATE_STATUS] Falha ao gravar effective_status verificado no cache local")
+    else:
+        # Status oficial do pai (verify) → coluna denormalizada (fonte da linha de grupo no Manager)
+        _write_parent_status_column(
+            user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id, status=verified_status,
+        )
+        # O status do pai mudou; o effective_status dos FILHOS só o Meta sabe (estado composto:
+        # pausas individuais, pausas do outro nível, WITH_ISSUES...). Reler e gravar a verdade;
+        # heurística não-destrutiva apenas como fallback.
+        synced = _sync_children_statuses_from_meta(
+            api=api, user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id,
+        )
+        if entity_type == "campaign":
+            # Pausar/ativar a campanha muda o effective_status dos CONJUNTOS dela também —
+            # a coluna adset_status stale sobreporia os marcadores no wrapper RPC.
+            _sync_campaign_adset_statuses(
+                api=api, user_jwt=user_jwt, user_id=user_id, campaign_id=entity_id, children_synced=synced,
+            )
+        if not synced:
+            _update_local_effective_status(
+                user_jwt=user_jwt, user_id=user_id,
+                entity_type=entity_type, entity_id=entity_id, new_status=new_status,
+            )
     return {
         "success": True,
         "entity_id": entity_id,
         "entity_type": entity_type,
         "status": new_status,
-        "effective_status": result.get("effective_status") or new_status,
+        "effective_status": verified_status,
     }
 
 
@@ -936,9 +1187,21 @@ def update_ads_batch_status(
     updated_ids: List[str] = result.get("updated_ids", [])
     failed_ids: List[str] = result.get("failed_ids", [])
     blocked: Dict[str, str] = result.get("blocked", {}) or {}
+    # Verdade relida do Meta após o write (inclui ads reclassificados como blocked no verify).
+    verified_statuses: Dict[str, Any] = {
+        k: v for k, v in (result.get("verified_statuses", {}) or {}).items() if v
+    }
 
-    if updated_ids:
-        _update_bulk_local_effective_status(user_jwt=user_jwt, user_id=user_id, ad_ids=updated_ids, new_status=request.status)
+    try:
+        if verified_statuses:
+            _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=verified_statuses)
+    except Exception:
+        logger.exception("[BATCH_UPDATE_STATUS] Falha ao gravar effective_status verificado no Supabase")
+
+    # Ads escritos mas sem leitura de verify (fail-open): heurística conservadora antiga.
+    unverified_updated = [aid for aid in updated_ids if not verified_statuses.get(aid)]
+    if unverified_updated:
+        _update_bulk_local_effective_status(user_jwt=user_jwt, user_id=user_id, ad_ids=unverified_updated, new_status=request.status)
 
     return BatchStatusResult(
         success=len(updated_ids) > 0,
@@ -946,7 +1209,132 @@ def update_ads_batch_status(
         failed_ids=failed_ids,
         total=len(owned_ids),
         blocked=blocked,
+        statuses={k: str(v) for k, v in verified_statuses.items()},
     )
+
+
+def _clean_pack_filters(filters: Any) -> List[Dict[str, Any]]:
+    """Normaliza os filtros salvos no pack para o formato de `filtering` da Meta API."""
+    cleaned: List[Dict[str, Any]] = []
+    if isinstance(filters, list):
+        for rule in filters:
+            if isinstance(rule, dict):
+                field = rule.get("field", "")
+                operator = rule.get("operator", "")
+                value = rule.get("value", "")
+                if field and operator and value:
+                    cleaned.append({"field": field, "operator": operator, "value": value})
+    return cleaned
+
+
+# TTL server-side do sync on-focus por (user_id, pack_id) — troca de aba/foco não vira flood
+# de chamadas Meta. Em memória: reinício do processo só permite 1 sync extra por pack.
+_STATUS_SYNC_TTL_SECONDS = 300
+_status_sync_last_run: Dict[Tuple[str, str], float] = {}
+_status_sync_lock = threading.Lock()
+
+
+class StatusSyncRequest(BaseModel):
+    pack_ids: List[str]
+
+
+@router.post("/packs/status-sync")
+def sync_packs_status(
+    request: StatusSyncRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """
+    Sync leve de status on-focus: relê do Meta o effective_status dos ads (1 chamada por até
+    1000, via /ads filtrado do pack) e dos PAIS (edges campaigns/adsets, 1x por conta) e grava
+    no cache local. Cobre mudanças feitas FORA do Hookify entre refreshes de pack. Best-effort,
+    gateado por TTL de 5 min por pack.
+    """
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    pack_ids = [str(p).strip() for p in (request.pack_ids or []) if str(p).strip()]
+    if not pack_ids:
+        raise HTTPException(status_code=400, detail={"error": "invalid_request", "message": "pack_ids é obrigatório"})
+
+    sb = get_supabase_for_user(user_jwt)
+    res = sb.table("packs").select("id,adaccount_id,filters").eq("user_id", user_id).in_("id", pack_ids[:200]).execute()
+    packs = res.data or []
+
+    from app.services.ads_enricher import get_ads_enricher
+
+    synced: List[str] = []
+    skipped: List[str] = []
+    failed: List[str] = []
+    ads_covered = 0
+    # Caches por CONTA dentro do request: packs da mesma conta compartilham leitura de pais,
+    # escrita de pais e (para packs sem filtro) o scan de ads da conta inteira.
+    parent_synced_accounts: set = set()
+    account_ads_statuses: Dict[str, Dict[str, Any]] = {}
+    # Teto de trabalho REAL por request (packs que efetivamente sincronizam). Excedentes voltam
+    # como skipped SEM reservar TTL → o próximo focus os pega (rotação, sem starvation).
+    max_syncs_per_request = 20
+    syncs_done = 0
+    now = time.time()
+
+    for pack in packs:
+        pack_id = str(pack.get("id"))
+        if syncs_done >= max_syncs_per_request:
+            skipped.append(pack_id)
+            continue
+        with _status_sync_lock:
+            last_run = _status_sync_last_run.get((user_id, pack_id), 0.0)
+            if now - last_run < _STATUS_SYNC_TTL_SECONDS:
+                skipped.append(pack_id)
+                continue
+            # Reserva o slot antes de rodar — evita corrida entre requests simultâneos.
+            _status_sync_last_run[(user_id, pack_id)] = now
+
+        act_id = str(pack.get("adaccount_id") or "").strip()
+        if not act_id:
+            failed.append(pack_id)
+            continue
+        if not act_id.startswith("act_"):
+            act_id = f"act_{act_id}"
+
+        try:
+            enricher = get_ads_enricher(api.access_token)
+            filters_list = _clean_pack_filters(pack.get("filters"))
+            if filters_list:
+                status_rows = enricher.fetch_status_by_filter(act_id, filters_list)
+                statuses: Dict[str, Any] = {
+                    str(row.get("id")): (str(row.get("effective_status") or "").upper() or None)
+                    for row in status_rows
+                    if row.get("id")
+                }
+                _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
+                ads_covered += len(statuses)
+            elif act_id not in account_ads_statuses:
+                read = api.get_entity_statuses_for_account(act_id, "ads")
+                if read.get("status") != "success":
+                    raise RuntimeError(read.get("message") or "falha ao ler statuses da conta")
+                statuses = read.get("statuses", {}) or {}
+                account_ads_statuses[act_id] = statuses
+                _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
+                ads_covered += len(statuses)
+            # else: outro pack sem filtro da MESMA conta já cobriu o scan+write neste request
+
+            # Pais 1x por conta (leitura E escrita — o write repetido era um storm de UPDATEs)
+            if act_id not in parent_synced_accounts:
+                parents = enricher.fetch_parent_statuses(act_id)
+                supabase_repo.write_parent_statuses(user_jwt, user_id, parents)
+                parent_synced_accounts.add(act_id)
+
+            synced.append(pack_id)
+            syncs_done += 1
+        except Exception as exc:
+            logger.warning("[STATUS_SYNC] pack %s falhou: %s", pack_id, exc)
+            with _status_sync_lock:
+                # Libera o slot para permitir retry no próximo focus
+                _status_sync_last_run.pop((user_id, pack_id), None)
+            failed.append(pack_id)
+
+    return {"synced": synced, "skipped": skipped, "failed": failed, "ads_covered": ads_covered}
 
 
 @router.post("/ads/{ad_id}/status")
@@ -970,7 +1358,7 @@ def update_ad_status(
 
     result = api.update_ad_status(ad_id, request.status)
     return _finalize_status_update(
-        result=result, user_jwt=user_jwt, user_id=user_id,
+        result=result, api=api, user_jwt=user_jwt, user_id=user_id,
         entity_type="ad", entity_id=ad_id, new_status=request.status,
     )
 
@@ -990,7 +1378,7 @@ def update_adset_status(
 
     result = api.update_adset_status(adset_id, request.status)
     return _finalize_status_update(
-        result=result, user_jwt=user_jwt, user_id=user_id,
+        result=result, api=api, user_jwt=user_jwt, user_id=user_id,
         entity_type="adset", entity_id=adset_id, new_status=request.status,
     )
 
@@ -1010,7 +1398,7 @@ def update_campaign_status(
 
     result = api.update_campaign_status(campaign_id, request.status)
     return _finalize_status_update(
-        result=result, user_jwt=user_jwt, user_id=user_id,
+        result=result, api=api, user_jwt=user_jwt, user_id=user_id,
         entity_type="campaign", entity_id=campaign_id, new_status=request.status,
     )
 
@@ -2670,18 +3058,7 @@ def refresh_pack(
         )
 
         # Converter filtros para formato do GraphAPI (ignorar filtros com campos vazios)
-        filters_list = []
-        for filter_rule in filters:
-            if isinstance(filter_rule, dict):
-                field = filter_rule.get("field", "")
-                operator = filter_rule.get("operator", "")
-                value = filter_rule.get("value", "")
-                if field and operator and value:
-                    filters_list.append({
-                        "field": field,
-                        "operator": operator,
-                        "value": value
-                    })
+        filters_list = _clean_pack_filters(filters)
 
         # Preparar time_range
         time_range_dict = {

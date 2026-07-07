@@ -615,6 +615,75 @@ def upsert_ads(
         logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
 
 
+def write_parent_statuses(
+    user_jwt: Optional[str],
+    user_id: str,
+    parents: Dict[str, Dict[str, Any]],
+    *,
+    sb_client: Optional["Client"] = None,
+    skip_present_check: bool = False,
+) -> None:
+    """
+    Grava o status OFICIAL dos pais (campanhas/adsets, lido do Meta) nas colunas denormalizadas
+    ads.campaign_status/ads.adset_status, sempre POR parent_id em TODAS as linhas do usuário.
+
+    Invariante: status de pai nunca é gravado por linha de ad (o upsert por pack deixava
+    linhas do MESMO pai divergentes entre packs, e o wrapper RPC resolvia com LIMIT 1 uma
+    linha arbitrária). Só status truthy é gravado — pai ausente do edge (deletado/arquivado)
+    preserva o valor anterior.
+
+    `parents` = {"campaigns": {campaign_id: status}, "adsets": {adset_id: status}}.
+    """
+    if not user_id or not parents:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+
+    # Restringir aos pais que TÊM linhas na tabela: contas grandes têm milhares de
+    # campanhas/adsets sem ads importados, e cada chunk de 200 viraria um UPDATE 0-row.
+    # `skip_present_check=True` para mapas pequenos e já escopados (ex.: adsets de UMA
+    # campanha após toggle), onde o scan do inventário custaria mais que os UPDATEs.
+    present_campaigns: Optional[set] = None
+    present_adsets: Optional[set] = None
+    if not skip_present_check:
+        present_campaigns = set()
+        present_adsets = set()
+        page_size = 1000
+        offset = 0
+        while True:
+            res = (
+                sb.table("ads")
+                .select("campaign_id,adset_id")
+                .eq("user_id", user_id)
+                .range(offset, offset + page_size - 1)
+                .execute()
+            )
+            rows = res.data or []
+            for r in rows:
+                if r.get("campaign_id"):
+                    present_campaigns.add(str(r["campaign_id"]))
+                if r.get("adset_id"):
+                    present_adsets.add(str(r["adset_id"]))
+            if len(rows) < page_size:
+                break
+            offset += page_size
+
+    now_iso = _now_iso()
+    for column, id_column, mapping, present in (
+        ("campaign_status", "campaign_id", parents.get("campaigns", {}) or {}, present_campaigns),
+        ("adset_status", "adset_id", parents.get("adsets", {}) or {}, present_adsets),
+    ):
+        by_status: Dict[str, List[str]] = {}
+        for parent_id, status in mapping.items():
+            pid = str(parent_id)
+            if status and (present is None or pid in present):
+                by_status.setdefault(str(status).upper(), []).append(pid)
+        for status_value, ids in by_status.items():
+            for i in range(0, len(ids), 200):
+                chunk = ids[i : i + 200]
+                # updated_at fresco: o wrapper RPC desempata linhas divergentes por recência
+                sb.table("ads").update({column: status_value, "updated_at": now_iso}).eq("user_id", user_id).in_(id_column, chunk).execute()
+
+
 def get_cached_thumbs_by_ad_names(
     user_id: str,
     ad_names: List[str],
