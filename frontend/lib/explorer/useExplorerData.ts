@@ -6,7 +6,7 @@ import type { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
-import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
+import { computeWeightedAveragesFromAdPerformance } from "@/lib/utils/weightedAverages";
 import { buildExplorerDetailViewModel, buildExplorerListItemViewModel, compareExplorerAdsByMetric, getExplorerGroupKey, getExplorerMetricAverage } from "./viewModels";
 import type { ExplorerMetricAverages, ExplorerSortState } from "./types";
 
@@ -120,7 +120,7 @@ export function useExplorerData(sortState: ExplorerSortState) {
   const metricAverages = useMemo<ExplorerMetricAverages | undefined>(() => {
     const responseAverages =
       performanceQuery.data?.averages ??
-      computeValidatedAveragesFromAdPerformance(
+      computeWeightedAveragesFromAdPerformance(
         sortedAds,
         actionType,
         performanceQuery.data?.available_conversion_types,

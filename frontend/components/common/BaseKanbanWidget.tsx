@@ -53,6 +53,7 @@ export interface BaseKanbanWidgetProps<T extends string> {
     dateStop?: string;
     actionType: string;
     availableConversionTypes?: string[];
+    /** A média global ponderada (serverAverages, todos os ads = Meta) — única média do app. */
     averages?: RankingsResponse["averages"];
     /** Packs selecionados — restringe queries do dialog ao escopo do pack */
     packIds?: string[];
@@ -143,19 +144,21 @@ export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOr
     }
   };
 
-  // Preparar averages para o AdDetailsDialog
-  const dialogAverages = modalProps?.averages
+  // Benchmark "média do conjunto" do dialog = a média global ponderada (todos os ads,
+  // bate com o Meta) — a mesma que alimenta classificação e colunas.
+  const dialogBenchmark = modalProps?.averages;
+  const dialogAverages = dialogBenchmark
     ? {
-        hook: modalProps.averages.hook ?? null,
-        hold_rate: modalProps.averages.hold_rate ?? null,
-        video_watched_p50: modalProps.averages.video_watched_p50 ?? null,
-        scroll_stop: modalProps.averages.scroll_stop ?? null,
-        ctr: modalProps.averages.ctr ?? null,
-        website_ctr: modalProps.averages.website_ctr ?? null,
-        connect_rate: modalProps.averages.connect_rate ?? null,
-        cpm: modalProps.averages.cpm ?? null,
-        cpr: modalProps.actionType && modalProps.averages.per_action_type?.[modalProps.actionType] && typeof modalProps.averages.per_action_type[modalProps.actionType].cpr === "number" ? modalProps.averages.per_action_type[modalProps.actionType].cpr : null,
-        page_conv: modalProps.actionType && modalProps.averages.per_action_type?.[modalProps.actionType] && typeof modalProps.averages.per_action_type[modalProps.actionType].page_conv === "number" ? modalProps.averages.per_action_type[modalProps.actionType].page_conv : null,
+        hook: dialogBenchmark.hook ?? null,
+        hold_rate: dialogBenchmark.hold_rate ?? null,
+        video_watched_p50: dialogBenchmark.video_watched_p50 ?? null,
+        scroll_stop: dialogBenchmark.scroll_stop ?? null,
+        ctr: dialogBenchmark.ctr ?? null,
+        website_ctr: dialogBenchmark.website_ctr ?? null,
+        connect_rate: dialogBenchmark.connect_rate ?? null,
+        cpm: dialogBenchmark.cpm ?? null,
+        cpr: modalProps?.actionType && dialogBenchmark.per_action_type?.[modalProps.actionType] && typeof dialogBenchmark.per_action_type[modalProps.actionType].cpr === "number" ? dialogBenchmark.per_action_type[modalProps.actionType].cpr : null,
+        page_conv: modalProps?.actionType && dialogBenchmark.per_action_type?.[modalProps.actionType] && typeof dialogBenchmark.per_action_type[modalProps.actionType].page_conv === "number" ? dialogBenchmark.per_action_type[modalProps.actionType].page_conv : null,
       }
     : undefined;
 

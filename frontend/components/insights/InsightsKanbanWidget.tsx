@@ -23,6 +23,8 @@ const DEBUG_PAGE_CONV = true;
 
 interface InsightsKanbanWidgetProps {
   ads: RankingsItem[];
+  /** A média global ponderada (serverAverages, todos os ads = Meta) — única média do app.
+   *  Threshold dos diagnósticos ("CTR > média"), display e benchmark do dialog. */
   averages?: RankingsResponse["averages"];
   actionType: string;
   validationCriteria: ValidationCondition[];

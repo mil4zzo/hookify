@@ -1,15 +1,18 @@
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 
 /**
- * Computa médias globais (hook, ctr, website_ctr, connect_rate, cpm, page_conv, cpr)
- * a partir de um conjunto de RankingsItem / AdPerformanceItem, replicando a lógica
- * do backend em backend/app/routes/analytics.py (averages_base + per_action_type[actionType]).
+ * Réplica client-side do cálculo de médias do backend (analytics.py:
+ * averages_base + per_action_type[actionType]) — média PONDERADA por volume
+ * (regra da casa: somar contagens brutas, recomputar taxas), a média real que
+ * bate com o Gerenciador do Meta.
  *
- * No fluxo do Manager, este resultado representa a camada "validada/alinhada ao backend"
- * usada para headers quando `averagesOverride` está disponível. Já as médias filtradas e
- * agregações locais da tabela continuam vindo de `frontend/lib/metrics/manager.ts`.
+ * A fonte canônica da média é o backend (`serverAverages` na resposta de
+ * ad-performance). Use esta função APENAS como fallback quando a resposta não
+ * trouxer `averages` (caso do Explorer) — nunca para criar uma segunda média
+ * a partir de um subconjunto (ex.: "média dos validados"): só existe UMA média
+ * no app, a global.
  */
-export function computeValidatedAveragesFromAdPerformance(
+export function computeWeightedAveragesFromAdPerformance(
   ads: RankingsItem[],
   actionType?: string,
   availableConversionTypes?: string[]
@@ -104,8 +107,8 @@ export function computeValidatedAveragesFromAdPerformance(
 
   // Calcular médias para TODOS os action_types (mesmo os com 0 resultados)
   // Isso garante consistência com o backend que sempre cria entradas para todos os tipos disponíveis
-  const typesToProcess = availableConversionTypes && Array.isArray(availableConversionTypes) 
-    ? availableConversionTypes 
+  const typesToProcess = availableConversionTypes && Array.isArray(availableConversionTypes)
+    ? availableConversionTypes
     : Object.keys(perActionTotals);
 
   typesToProcess.forEach((key) => {
@@ -124,7 +127,3 @@ export function computeValidatedAveragesFromAdPerformance(
     per_action_type: perActionType,
   };
 }
-
-// Nome legado mantido como alias para compatibilidade com código existente.
-// Prefira `computeValidatedAveragesFromAdPerformance` em código novo.
-export const computeValidatedAveragesFromRankings = computeValidatedAveragesFromAdPerformance;

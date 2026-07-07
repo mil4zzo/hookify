@@ -17,7 +17,7 @@ interface DayComparisonBlockProps {
   diagnostic: UsePackDiagnosticResult;
   actionType: string;
   onSelectMetric: (m: DiagnosticTarget) => void;
-  validatedAverages: RankingsResponse["averages"];
+  benchmarkAverages: RankingsResponse["averages"];
   actionTypeOptions: string[];
   selectedPackIds: Set<string>;
   dateRange: { start: string; end: string };
@@ -29,7 +29,7 @@ export function DayComparisonBlock({
   diagnostic,
   actionType,
   onSelectMetric,
-  validatedAverages,
+  benchmarkAverages,
   actionTypeOptions,
   selectedPackIds,
   dateRange,
@@ -43,20 +43,20 @@ export function DayComparisonBlock({
 
   // Averages shaped for AdDetailsDialog (mirrors PackDiagnosticPanel).
   const dialogAverages = useMemo(() => {
-    if (!validatedAverages) return undefined;
+    if (!benchmarkAverages) return undefined;
     return {
-      hook: validatedAverages.hook ?? null,
-      hold_rate: validatedAverages.hold_rate ?? null,
-      video_watched_p50: validatedAverages.video_watched_p50 ?? null,
-      scroll_stop: validatedAverages.scroll_stop ?? null,
-      ctr: validatedAverages.ctr ?? null,
-      website_ctr: validatedAverages.website_ctr ?? null,
-      connect_rate: validatedAverages.connect_rate ?? null,
-      cpm: validatedAverages.cpm ?? null,
-      cpr: actionType ? (validatedAverages.per_action_type?.[actionType]?.cpr ?? null) : null,
-      page_conv: actionType ? (validatedAverages.per_action_type?.[actionType]?.page_conv ?? null) : null,
+      hook: benchmarkAverages.hook ?? null,
+      hold_rate: benchmarkAverages.hold_rate ?? null,
+      video_watched_p50: benchmarkAverages.video_watched_p50 ?? null,
+      scroll_stop: benchmarkAverages.scroll_stop ?? null,
+      ctr: benchmarkAverages.ctr ?? null,
+      website_ctr: benchmarkAverages.website_ctr ?? null,
+      connect_rate: benchmarkAverages.connect_rate ?? null,
+      cpm: benchmarkAverages.cpm ?? null,
+      cpr: actionType ? (benchmarkAverages.per_action_type?.[actionType]?.cpr ?? null) : null,
+      page_conv: actionType ? (benchmarkAverages.per_action_type?.[actionType]?.page_conv ?? null) : null,
     };
-  }, [validatedAverages, actionType]);
+  }, [benchmarkAverages, actionType]);
 
   // Only attempt to render once a series fetch is meaningful for this pack.
   if (!diagnostic.seriesEnabled) return null;

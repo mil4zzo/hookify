@@ -14,6 +14,8 @@ import { useFormatCurrency } from "@/lib/utils/currency";
 
 interface GoldKanbanWidgetProps {
   ads: RankingsItem[];
+  /** A média global ponderada (serverAverages, todos os ads = Meta) — única média do app.
+   *  Usada como threshold de classificação, display de coluna/card e benchmark do dialog. */
   averages?: RankingsResponse["averages"];
   actionType: string;
   validationCriteria: ValidationCondition[];

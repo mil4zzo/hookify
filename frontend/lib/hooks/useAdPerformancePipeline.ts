@@ -7,9 +7,8 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { buildAdMetricsData, evaluateValidationCriteria } from "@/lib/utils/validateAdCriteria";
-import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { showError } from "@/lib/utils/toast";
-import type { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
+import type { RankingsRequest } from "@/lib/api/schemas";
 
 interface UseAdPerformancePipelineOptions {
   enabled?: boolean;
@@ -132,18 +131,17 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
   // ── Validation ───────────────────────────────────────────────────────────────
   const { criteria: validationCriteria, isLoading: criteriaLoading } = useValidationCriteria();
 
-  const [validatedAds, notValidatedAds, validatedAverages] = useMemo(() => {
+  // Split validado/não-validado: os critérios de validação servem APENAS para filtrar
+  // QUAIS ads são elegíveis a julgamento (G.O.L.D., plano de ação, oportunidades).
+  // Não existe "média dos validados" — a única média do app é a global ponderada
+  // (serverAverages, todos os ads), que é o número real que bate com o Meta.
+  const [validatedAds, notValidatedAds] = useMemo(() => {
     if (!filteredRankings || filteredRankings.length === 0) {
-      return [[], [], undefined] as [any[], any[], any];
+      return [[], []] as [any[], any[]];
     }
 
     if (!validationCriteria || validationCriteria.length === 0) {
-      const avgs = computeValidatedAveragesFromAdPerformance(
-        filteredRankings as RankingsItem[],
-        actionType,
-        actionTypeOptions
-      );
-      return [filteredRankings, [], avgs] as [any[], any[], any];
+      return [filteredRankings, []] as [any[], any[]];
     }
 
     const validated: any[] = [];
@@ -158,13 +156,8 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
       }
     }
 
-    const avgs = computeValidatedAveragesFromAdPerformance(
-      validated as RankingsItem[],
-      actionType,
-      actionTypeOptions
-    );
-    return [validated, notValidated, avgs] as [any[], any[], any];
-  }, [filteredRankings, validationCriteria, actionType, actionTypeOptions]);
+    return [validated, notValidated] as [any[], any[]];
+  }, [filteredRankings, validationCriteria, actionType]);
 
   // packsAdsLoading só bloqueia o render quando o pack-filter client-side é usado
   // (Plano/Gold com filterToSelectedPacks=true → getPackId filtra serverData). No Insights
@@ -179,7 +172,6 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     filteredRankings,
     validatedAds,
     notValidatedAds,
-    validatedAverages,
     serverAverages,
     // Estado de filtros (passados para components filhos)
     actionType,

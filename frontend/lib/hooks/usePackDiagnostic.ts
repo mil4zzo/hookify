@@ -55,13 +55,20 @@ export interface UsePackDiagnosticResult {
 }
 
 export function usePackDiagnostic({
-  validatedAds,
+  ads,
   actionType,
   selectedPackIds,
   dateRange,
   targetOverride,
 }: {
-  validatedAds: RankingsItem[];
+  // ALL ads of the pack (validated + not). The diagnostic is DESCRIPTIVE, so its
+  // metrics (spend / CPR / CPM / funnel rates / LMDI decomposition) must sum over
+  // every ad to stay coherent with the Meta Ads Manager. Validation (the impression
+  // floor) is applied only where we JUDGE an ad (action plan / G.O.L.D. verdicts),
+  // never for metric calculation — see the "métricas globais" principle. Low-volume
+  // noise in the attribution is still suppressed by the spend-weighting + cumulative
+  // cutoff already inside the engine, not by narrowing this input.
+  ads: RankingsItem[];
   actionType: string;
   selectedPackIds: Set<string>;
   dateRange: { start: string; end: string };
@@ -75,7 +82,7 @@ export function usePackDiagnostic({
     const gk: string[] = [];
     const nameMap = new Map<string, string>();
     const itemMap = new Map<string, RankingsItem>();
-    for (const ad of validatedAds) {
+    for (const ad of ads) {
       const key = ad.group_key || ad.ad_id || "";
       if (!key) continue;
       gk.push(key);
@@ -83,7 +90,7 @@ export function usePackDiagnostic({
       itemMap.set(key, ad);
     }
     return { groupKeys: gk, adKeyToName: nameMap, adMap: itemMap };
-  }, [validatedAds]);
+  }, [ads]);
 
   const seriesEnabled =
     selectedPackIds.size > 0 &&

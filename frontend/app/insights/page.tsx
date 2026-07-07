@@ -22,6 +22,7 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { TabbedContentItem } from "@/components/common/TabbedContent";
 import { AnalyticsWorkspace, TabbedWorkspace } from "@/components/common/layout";
 import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
+import { usePacksLoading } from "@/components/layout/PacksLoader";
 
 // Chaves específicas do Insights
 const STORAGE_KEY_GROUP_BY_PACKS = "hookify-insights-group-by-packs";
@@ -94,6 +95,7 @@ const loadGemsColumns = (): Set<GemsColumnType> => {
 
 export default function InsightsPage() {
   const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
+  const { isLoading: packsLoading } = usePacksLoading();
 
   // ── Pipeline compartilhado (fetch + validação + médias) ───────────────────
   // filterToSelectedPacks=false: Insights valida sobre todos os dados do servidor,
@@ -102,7 +104,6 @@ export default function InsightsPage() {
     serverData,
     serverAverages: averages,
     validatedAds,
-    validatedAverages,
     actionType,
     actionTypeOptions,
     selectedPackIds,
@@ -229,12 +230,14 @@ export default function InsightsPage() {
 
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
+  // Julgamento (oportunidades) roda SOBRE os validados, mas compara contra a média
+  // GLOBAL ponderada (averages = serverAverages, todos os ads = Meta) — única média do app.
   const opportunityRows = useMemo(() => {
-    if (!validatedAds || validatedAds.length === 0 || !validatedAverages) return [];
+    if (!validatedAds || validatedAds.length === 0 || !averages) return [];
     if (loading) return [];
     const spendTotal = validatedAds.reduce((s: number, a: any) => s + Number(a.spend || 0), 0);
-    return computeOpportunityScores({ ads: validatedAds, averages: validatedAverages, actionType, spendTotal, mqlLeadscoreMin, limit: 10 });
-  }, [validatedAds, validatedAverages, actionType, loading, mqlLeadscoreMin]);
+    return computeOpportunityScores({ ads: validatedAds, averages, actionType, spendTotal, mqlLeadscoreMin, limit: 10 });
+  }, [validatedAds, averages, actionType, loading, mqlLeadscoreMin]);
 
   const globalMetricRanks = useMemo(() => {
     if (!serverData || serverData.length === 0) return createEmptyMetricRanks();
@@ -242,14 +245,14 @@ export default function InsightsPage() {
     return calculateGlobalMetricRanks(serverData, { validationCriteria: criteriaToUse, actionType, filterValidOnly: true, mqlLeadscoreMin });
   }, [serverData, validationCriteria, actionType, mqlLeadscoreMin]);
 
-  // KNOWN ISSUE: "Por Pack" usa médias globais (validatedAverages) com actionType por-pack
+  // KNOWN ISSUE: "Por Pack" usa a média global (averages) com actionType por-pack
   // (packActionTypes[packId]). Isso produz comparações incorretas porque a média foi calculada
   // com o actionType global. Correção requer N fetches separados (um por pack × actionType)
   // ou remoção do recurso — decisão de produto pendente.
   // Adicionalmente, a RPC fetch_manager_rankings_core_v2 é single-key (uma chave de conversão
   // por request), portanto incompatível com eventos diferentes por pack numa única request.
   const opportunityRowsByPack = useMemo(() => {
-    if (!groupByPacks || !validatedAds || validatedAds.length === 0 || !validatedAverages) return null;
+    if (!groupByPacks || !validatedAds || validatedAds.length === 0 || !averages) return null;
     if (loading) return null;
 
     const adsByPack = new Map<string, any[]>();
@@ -267,12 +270,12 @@ export default function InsightsPage() {
       if (packAds.length === 0) return;
       const spendTotal = packAds.reduce((s: number, a: any) => s + Number(a.spend || 0), 0);
       const packActionType = packActionTypes[packId] || actionType;
-      const rows = computeOpportunityScores({ ads: packAds, averages: validatedAverages, actionType: packActionType, spendTotal, limit: 10 });
+      const rows = computeOpportunityScores({ ads: packAds, averages, actionType: packActionType, spendTotal, limit: 10 });
       if (rows.length > 0) rowsByPack.set(packId, rows);
     });
 
     return rowsByPack;
-  }, [groupByPacks, validatedAds, validatedAverages, actionType, loading, getAdPackId, packActionTypes]);
+  }, [groupByPacks, validatedAds, averages, actionType, loading, getAdPackId, packActionTypes]);
 
   const headerConfig = useMemo(() => {
     return TAB_HEADER_CONFIG[activeTab as keyof typeof TAB_HEADER_CONFIG] ?? TAB_HEADER_CONFIG.opportunities;
@@ -292,7 +295,10 @@ export default function InsightsPage() {
   }
 
   const hasData = serverData && serverData.length > 0;
-  const isLoadingData = loading;
+  // Inclui a hidratação/carregamento dos packs no loading: sem isso, na janela em que
+  // os packs ainda não chegaram, `loading` é false e `!hasData` renderia um empty state
+  // prematuro (pisca "Sem dados" → skeleton → dados).
+  const isLoadingData = loading || !packsClient || packsLoading;
 
   // ── Skeletons ──────────────────────────────────────────────────────────────
   const OpportunitiesSkeleton = () => <StateSkeleton variant="widget" rows={3} />;
@@ -386,18 +392,18 @@ export default function InsightsPage() {
                             </div>
                           </div>
                         </div>
-                        <OpportunityWidget rows={rows} averages={validatedAverages} actionType={packActionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
+                        <OpportunityWidget rows={rows} averages={averages} actionType={packActionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
                       </div>
                     );
                   })
               ) : (
                 <div>
-                  <OpportunityWidget rows={[]} averages={validatedAverages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
+                  <OpportunityWidget rows={[]} averages={averages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
                 </div>
               )
             ) : (
               <div>
-                <OpportunityWidget rows={opportunityRows} averages={validatedAverages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
+                <OpportunityWidget rows={opportunityRows} averages={averages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
               </div>
             )}
         </TabbedContentItem>
@@ -408,8 +414,8 @@ export default function InsightsPage() {
             <InsightsSkeleton />
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
-          ) : validationCriteria && validationCriteria.length > 0 && !loading && validatedAverages ? (
-            <InsightsKanbanWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
+          ) : validationCriteria && validationCriteria.length > 0 && !loading && averages ? (
+            <InsightsKanbanWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
           ) : (
             <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
           )}
@@ -421,8 +427,8 @@ export default function InsightsPage() {
             <GemsSkeleton />
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
-          ) : validationCriteria && validationCriteria.length > 0 && !loading && validatedAverages ? (
-            <GemsWidget ads={validatedAds} averages={validatedAverages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
+          ) : validationCriteria && validationCriteria.length > 0 && !loading && averages ? (
+            <GemsWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
           ) : (
             <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />
           )}

@@ -7,10 +7,7 @@ import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
-import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
-import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
-import { computeValidatedAveragesFromAdPerformance } from "@/lib/utils/validatedAverages";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
@@ -71,7 +68,6 @@ function ManagerPageContent() {
   const packsReady = packsClient && packs.length > 0 && !packsLoading;
 
   // ── Page-specific state ────────────────────────────────────────────────────
-  const { criteria: validationCriteria } = useValidationCriteria();
   const [showTrends, setShowTrends] = useState<boolean>(() => {
     if (typeof window === "undefined") return true;
     try {
@@ -338,38 +334,6 @@ function ManagerPageContent() {
     }
   }, [managerError]);
 
-  // ── Validated averages (for por-anuncio tab only) ──────────────────────────
-  const [, validatedAveragesForAverages] = useMemo(() => {
-    if (activeManagerTab !== "por-anuncio") return [[], undefined] as [any[], any];
-    if (!serverData || serverData.length === 0) return [[], undefined] as [any[], any];
-
-    if (!validationCriteria || validationCriteria.length === 0) {
-      const avg = computeValidatedAveragesFromAdPerformance(serverData as any, actionType, actionTypeOptions);
-      return [serverData, avg] as [any[], any];
-    }
-
-    const validated = serverData.filter((ad: any) => {
-      const impressions = Number(ad.impressions || 0);
-      const spend = Number(ad.spend || 0);
-      const cpm = typeof ad.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm) ? ad.cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
-      const website_ctr = Number(ad.website_ctr || 0);
-      const connect_rate = Number(ad.connect_rate || 0);
-      const lpv = Number(ad.lpv || 0);
-      const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
-      const page_conv = lpv > 0 ? results / lpv : 0;
-      const overall_conversion = website_ctr * connect_rate * page_conv;
-      const metrics: AdMetricsData = {
-        ad_name: ad.ad_name, ad_id: ad.ad_id, account_id: ad.account_id, impressions, spend, cpm, website_ctr, connect_rate,
-        inline_link_clicks: Number(ad.inline_link_clicks || 0), clicks: Number(ad.clicks || 0), plays: Number(ad.plays || 0),
-        hook: Number(ad.hook || 0), ctr: Number(ad.ctr || 0), page_conv, overall_conversion, conversions: ad.conversions || {},
-      };
-      return evaluateValidationCriteria(validationCriteria, metrics, "AND");
-    });
-
-    const avg = computeValidatedAveragesFromAdPerformance(validated as any, actionType, actionTypeOptions);
-    return [validated, avg] as [any[], any];
-  }, [serverData, validationCriteria, actionType, actionTypeOptions, activeManagerTab]);
-
   // ── Pack ads for ManagerTable ──────────────────────────────────────────────
   const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
   const { packsAdsMap } = usePacksAds(selectedPacks);
@@ -428,7 +392,10 @@ function ManagerPageContent() {
           isError={!!managerError && !loading && packsReady}
           initialFilters={initialFilters}
           averagesOverride={(() => {
-            const base = validatedAveragesForAverages || activeServerAverages || null;
+            // "Média do conjunto" (headers + dialog de detalhe) = média PONDERADA de TODOS
+            // os ads do pack (backend `averages`) — a média real que bate com o Meta. Não usar
+            // média dos validados: métrica é sempre sobre todos (princípio das métricas globais).
+            const base = activeServerAverages || null;
             if (!base) return undefined;
             const per = (base as any).per_action_type || {};
             const perSel = actionType ? per[actionType] : undefined;

@@ -52,6 +52,77 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Princípio: só existe UMA média — a global ponderada; validação só filtra quem é julgado
+
+**Data:** 2026-07-06 · status: **implementado em todo o app (3 rodadas na mesma data) · tsc limpo**
+
+**Doutrina final (travada pelo usuário na 3ª rodada):** *"Só existe uma média: a global."* Média **ponderada por volume** (Σ contagens brutas → recomputa a taxa, exatamente como o Meta agrega) sobre **todos os ads** do escopo, servida pelo backend (`serverAverages`). Os critérios de validação (`validatedAds`) servem **apenas** para filtrar **quais anúncios são elegíveis a classificação/julgamento** (framework G.O.L.D., to-dos do /plano, listas do /insights) — não têm nada a ver com média. Julga-se **sobre** os validados, **contra** a média global. As três subseções abaixo documentam a evolução na mesma data (cada rodada ampliou a anterior até esta forma final).
+
+**Contexto:** o spend de "ontem" na widget de comparação do dia do `/plano` mostrava R$167,50 enquanto o mesmo pack/date-range no `/manager` ("Soma total do pack") mostrava R$183,51. Causa-raiz: as duas telas somavam spend sobre **populações diferentes** de ads — `/manager` sobre todos, `/plano` só sobre `validatedAds`. E o `/plano` herdou `validatedAds` **por acidente**: a widget "Comparação do dia" foi ~100% reuso do pipeline de diagnóstico (`usePackDiagnostic(validatedAds)`); ninguém decidiu que "spend deve excluir ad não-validado".
+
+**Regra travada:**
+
+- **Cálculo de MÉTRICA (spend, results, CPR, CPM, taxas de funil) → sempre sobre TODOS os ads.** Motivos: (a) coerência interna — a razão `CPR = spend/results` não pode ter numerador e denominador de populações diferentes (isso infla/distorce o número); (b) coerência com o Gerenciador do Meta — o número precisa bater com o que o cliente vê lá.
+- **`validatedAds` (piso de impressões/resultados) → só quando há JUÍZO sobre o anúncio** (avaliar bom/ruim, pausar ou não, escalar/otimizar, veredito G.O.L.D.). Aí sim é preciso volume mínimo para julgar.
+
+É a extensão numérica do princípio-mãe já travado no diagnóstico comparativo (descritivo usa tudo, prescritivo usa validados).
+
+**Por que é seguro migrar o diagnóstico para todos-os-ads:** `validatedAds` era só **1 de 4** freios de ruído do motor. Os outros 3 seguem ativos e bastam: ponderação por gasto (`w̄·Δr ≈ 0` para ad minúsculo), cutoff cumulativo 85% (cauda vai para o `remainder`), `minVolumeOk` (pack de gasto ínfimo). O piso de validação era redundante para o diagnóstico e só tinha o efeito colateral de não bater com o Meta. A reconciliação `Σcontribuições = Δheadline` **continua exata** — ela depende de consistência *interna* do bloco, não de qual população. O que quebra é **misturar** (spend de todos + results de validados numa mesma razão), nunca trocar o bloco inteiro.
+
+**Implementação:** `usePackDiagnostic` teve o parâmetro `validatedAds` renomeado para `ads`, e `app/plano/page.tsx` passa `filteredRankings` (todos os ads do pack, antes do split validado/não-validado) em vez de `validatedAds`. Mudou apenas o **escopo de entrada** — `groupKeys` passa a cobrir todos os ads → a série de dias vem por todos → o headline CPR, o spend, os driver cards, o waterfall e as tabelas de impacto do bloco de comparação/painel batem com o `/manager` e o Meta. A matemática (`diagnostics.ts`) ficou intocada; `tsc --noEmit` limpo. O to-do list continua **listando** só validados (não dá para julgar sem volume), mas os **números** de contexto que exibe (CPR/spend do pack) vêm do diagnóstico (todos).
+
+**Escopo cirúrgico (o que NÃO mudou):** `/gold` e `/insights` são superfícies de **juízo** (kanban de classificação, ranking de métricas, opportunity scores, gems) — a **classificação** segue usando `validatedAds`/`validatedAverages` corretamente. `metricRankings.ts` idem (ranking = juízo). O `PlanHero` já mistura certo: números **prescritivos** ("recuperar até R$X", potencial modelado) sobre validados + `diagnostic.summary` **descritivo** (agora todos).
+
+### Benchmark "média do conjunto" do AdDetailsDialog padronizado (mesma data)
+
+O dialog de detalhe do anúncio (clique num ad) exibe, por métrica, uma referência **"[métrica] médio"**. Essa média **divergia por página**: /insights (aba Oportunidades) usava `serverAverages` (todos os ads), mas /plano, /gold, os kanbans e o Gems usavam `validatedAverages`; o /manager era híbrido (volume de todos, taxas de funil dos validados via `averagesOverride` na aba "Por anúncio"). Resultado: o **mesmo anúncio** mostrava uma "média" diferente dependendo de onde era aberto.
+
+**Decisão:** a "média do conjunto" é uma **métrica exibida** (a média do pack), não um veredito → deve ser sempre a média **ponderada de todos os ads** (`serverAverages` / backend `averages`), que é o número real que bate com o Meta. Uma média simples por ad NÃO bateria; a ponderada (Σcontagens → recomputa taxa) é como o Meta agrega. Como é ponderada, validado ≈ todos (o ad de baixo volume se auto-suprime); a diferença só aparece quando um ad de volume real falha a validação por critério não-volumétrico — e aí **incluí-lo é o correto** (é spend/impressões reais).
+
+**Implementação:** benchmark do dialog = `serverAverages` em todos os hosts — /plano (`DayComparisonBlock`, `PackDiagnosticPanel`: prop `validatedAverages`→`benchmarkAverages`; `ActionPlanRow` via `ActionPlanList.averages`=`serverAverages`), /manager (base do `averagesOverride`=`activeServerAverages`; mecanismo de média validada por-anúncio removido — memo + imports órfãos), e gold/insights kanban+gems via novo prop dedicado **`benchmarkAverages`** em `BaseKanbanWidget.modalProps` (fallback para `averages`), threading `serverAverages` de `gold/page.tsx` e `insights/page.tsx`. `tsc --noEmit` limpo.
+
+**Superado na rodada seguinte:** o prop `benchmarkAverages` dos kanbans e a distinção "classificação em validados vs benchmark em todos" desta rodada foram **eliminados** pela rodada 3 (abaixo) — mantidos aqui só como registro da evolução.
+
+### Rodada 3 (mesma data): thresholds de julgamento também na média global — `validatedAverages` eliminado
+
+O usuário fechou a doutrina: mudar também o **threshold de classificação** para a média global ("na verdade, só existe uma média, que é a global"). O risco de vereditos mudarem é mínimo (média ponderada → validado ≈ todos) e, quando muda, muda para o número correto.
+
+**Implementação:**
+- **Thresholds de julgamento → média global**: `splitAdsIntoGoldBuckets` / `computeOpportunityScores` / `buildActionPlan` (/plano), `GoldKanbanWidget` + `GoldTable` (/gold), `InsightsKanbanWidget` + `GemsWidget` + `OpportunityWidget` e os dois memos de opportunity (/insights) — todos agora recebem `serverAverages`.
+- **`validatedAverages` deixou de existir**: `useAdPerformancePipeline` não o computa nem retorna (o memo faz só o split validado/não-validado); o prop `benchmarkAverages` dos kanbans (criado na rodada 2 para separar dialog de classificação) foi **removido** — com uma média só, o `averages` único dos widgets basta (agora global). Nos componentes do /plano (`DayComparisonBlock`, `PackDiagnosticPanel`) o prop segue chamado `benchmarkAverages` (recebe `serverAverages`) — nome correto para o papel (benchmark do dialog).
+- **Centralização (3 implementações → papéis claros):** (1) **backend `analytics.py`** = fonte canônica → `serverAverages`; (2) `lib/utils/validatedAverages.ts` **renomeado** para **`lib/utils/weightedAverages.ts`** (`computeWeightedAveragesFromAdPerformance`, alias legado deletado) — único consumidor restante é o **fallback do Explorer** quando a resposta não traz `averages` (o Explorer já preferia o server e portanto já era compliant); (3) `computeManagerAverages` (`lib/metrics/manager.ts`) permanece separado por ter job diferente: agregação local das linhas correntes da tabela do Manager (por aba/filtro, com sums para headers, cpc/cplc/cpmql/mqls) — precisa ser client-side e reativa a filtros locais. Não vale unificar (2) e (3): shapes e responsabilidades diferentes; a regra é que **nenhuma delas deve ser usada para criar uma "segunda média" de subconjunto**.
+
+**Zero validados não bloqueia mais o /plano:** o guard de página inteira (`validatedAds.length === 0` → empty state total) virou `filteredRankings.length === 0` — sem **nenhum** ad no período não há o que diagnosticar; mas com ads e zero validados, o **diagnóstico renderiza normalmente** (é descritivo, roda sobre todos) e só a área do plano de ação mostra empty state explicando ("o diagnóstico acima considera todos os anúncios; ajuste os critérios..."). Limitação aceita por ora: o toggle do painel colapsável (`PackDiagnosticPanel`) mora no `PlanHero`, que só renderiza com `actionPlan` — nesse estado o painel fica inacessível (o `DayComparisonBlock`, diagnóstico principal, aparece). Resolver na separação diagnóstico/plano pendente.
+
+`AdsetDetailsDialog` computa a própria média internamente (não recebe prop) — revisar em oportunidade futura.
+
+> Discussão em aberto na mesma data: separar o `/plano` em duas superfícies — diagnóstico (descritivo, candidato a virar uma página "Packs" repaginada como browser de saúde de packs) e plano de ação (prescritivo, o to-do list). Não decidido; não implementar ainda.
+
+---
+
+## Flicker de carregamento (empty→skeleton→dados) — guards de loading antes de empty states
+
+**Data:** 2026-07-06 · status: **implementado (/plano, /gold, /insights) · tsc limpo**
+
+**Sintoma:** as páginas de analytics piscavam um empty state ("Selecione um pack" / "Sem dados") **antes** do skeleton, e só depois mostravam os dados.
+
+**Causa:** o `isLoading` do `useAdPerformancePipeline` cobre só o fetch de ad-performance (`queryLoading || criteriaLoading || packsAdsLoading`). Na janela em que os **packs ainda estão hidratando/carregando** (store zustand persist + `useLoadPacks` global via `PacksLoader`), `fetchEnabled` é `false` → a query está desabilitada → `isLoading` é **false**. Como o guard de empty state (`selectedPackIds.size === 0 || !packsClient`, ou `!hasData`) rodava **antes** de um gate que cobrisse essa janela, ele renderizava um empty prematuro. Aí os packs chegam, `fetchEnabled` vira true, `isLoading` sobe → skeleton → dados.
+
+**Princípio:** `isLoading` do pipeline ≠ "a página está pronta". O sinal de "packs ainda carregando" é **ortogonal** ao fetch e vem de outra fonte: `usePacksLoading()` (contexto do `PacksLoader`, default `true`) + `packsClient` (hidratação client do store).
+
+**Fix (padrão para toda página de analytics):** `const { isLoading: packsLoading } = usePacksLoading();` e ordenar os guards com **todo estado de loading ANTES de qualquer empty state**:
+```
+if (!isClient || !isAuthorized) return <Skeleton/>;
+if (!packsClient || packsLoading)  return <Skeleton/>;   // hidratação dos packs
+if (isLoading)                     return <Skeleton/>;   // fetch de ad-performance
+// settled → empties genuínos
+if (selectedPackIds.size === 0) return <EmptyState/>;
+...
+```
+Em página sem guards separados (Insights renderiza inline por tab), dobrar o loading: `isLoadingData = loading || !packsClient || packsLoading`. O `/manager` já fazia certo (`packsReady = packsClient && packs.length > 0 && !packsLoading`) — foi a referência. `packsLoading` default é `true`, então só funciona sob `<PacksLoader>` (está no `AppLayout`, cobre todas as páginas autenticadas).
+
+---
+
 ## Painel Diagnóstico "O que mudou hoje?" — /plano (topo) com LMDI-I + shift-share
 
 **Data:** 2026-06-27 · status: **implementado, 21 testes passando, tsc clean**

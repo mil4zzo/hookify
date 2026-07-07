@@ -9,6 +9,7 @@ import { buildActionPlan } from "@/lib/utils/actionPlan";
 import { PageContainer } from "@/components/common/PageContainer";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { useFilters } from "@/lib/hooks/useFilters";
+import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { StateSkeleton } from "@/components/common/States";
 import { AnalyticsWorkspace, WorkspaceState } from "@/components/common/layout";
 import { ActionPlanList } from "@/components/plano/ActionPlanList";
@@ -34,6 +35,7 @@ function PlanPageSkeleton() {
 export default function PlanoPage() {
   const { isClient, isAuthorized } = useAppAuthReady();
   const { actionType, actionTypeOptions, selectedPackIds, packsClient } = useFilters();
+  const { isLoading: packsLoading } = usePacksLoading();
 
   const { mqlLeadscoreMin } = useMqlLeadscore();
   const { targetCprByActionType, diagnosticCostMetric, savePreferences, isSaving } = useUserPreferences();
@@ -42,15 +44,18 @@ export default function PlanoPage() {
     filteredRankings,
     validatedAds,
     notValidatedAds,
-    validatedAverages,
+    serverAverages,
     validationCriteria,
     dateRange,
     isLoading,
   } = useAdPerformancePipeline();
 
   // ─── Diagnostic hook (single series fetch for both hero + panel) ───────────
+  // Descriptive surface → feed it ALL ads (filteredRankings), not just validatedAds:
+  // spend/CPR/CPM must match the Meta Ads Manager. Validation stays on the action
+  // plan below (judgment). See the "métricas globais" principle.
   const diagnostic = usePackDiagnostic({
-    validatedAds: (validatedAds ?? []) as RankingsItem[],
+    ads: (filteredRankings ?? []) as RankingsItem[],
     actionType: actionType ?? "",
     selectedPackIds,
     dateRange: { start: dateRange.start ?? "", end: dateRange.end ?? "" },
@@ -87,14 +92,17 @@ export default function PlanoPage() {
   }, [savePreferences]);
 
   // ─── Action plan ──────────────────────────────────────────────────────────
+  // Só existe UMA média: a global ponderada (serverAverages, todos os ads = Meta).
+  // `validatedAds` filtra QUEM pode ser julgado; o julgamento em si compara contra
+  // a média global — nunca contra uma "média dos validados".
   const actionPlan = useMemo(() => {
-    if (!validatedAds || validatedAds.length === 0 || !actionType || !validatedAverages) return null;
+    if (!validatedAds || validatedAds.length === 0 || !actionType || !serverAverages) return null;
 
-    const buckets = splitAdsIntoGoldBuckets(validatedAds as RankingsItem[], validatedAverages, actionType);
+    const buckets = splitAdsIntoGoldBuckets(validatedAds as RankingsItem[], serverAverages, actionType);
 
     const opportunityRows = computeOpportunityScores({
       ads: validatedAds as RankingsItem[],
-      averages: validatedAverages,
+      averages: serverAverages,
       actionType,
       mqlLeadscoreMin: mqlLeadscoreMin || 0,
     });
@@ -105,15 +113,22 @@ export default function PlanoPage() {
       notValidated: notValidatedAds as RankingsItem[],
       targetCprByActionType,
       actionType,
-      averages: validatedAverages,
+      averages: serverAverages,
     });
-  }, [validatedAds, notValidatedAds, validatedAverages, actionType, mqlLeadscoreMin, targetCprByActionType]);
+  }, [validatedAds, notValidatedAds, serverAverages, actionType, mqlLeadscoreMin, targetCprByActionType]);
 
   // ─── Guards ───────────────────────────────────────────────────────────────
+  // Ordem importa: TODO estado de "ainda carregando" vem ANTES de qualquer empty state,
+  // senão a página pisca um empty prematuro durante o load (packs hidratando → "Selecione
+  // um pack" → skeleton → dados). `!packsClient || packsLoading` cobre a janela de
+  // hidratação/carregamento dos packs (aí fetchEnabled é false → o isLoading do pipeline
+  // ainda não subiu); `isLoading` cobre o fetch de ad-performance em si.
   if (!isClient || !isAuthorized) return <PlanPageSkeleton />;
+  if (!packsClient || packsLoading) return <PlanPageSkeleton />;
   if (isLoading) return <PlanPageSkeleton />;
 
-  if (selectedPackIds.size === 0 || !packsClient) {
+  // A partir daqui os packs estão carregados e o pipeline estabilizou — empties genuínos.
+  if (selectedPackIds.size === 0) {
     return (
       <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
         <WorkspaceState kind="empty" message="Selecione ao menos um pack para gerar o plano." framed={false} fill />
@@ -121,20 +136,13 @@ export default function PlanoPage() {
     );
   }
 
-  if (!validatedAds || validatedAds.length === 0) {
-    const hadAds = filteredRankings.length > 0;
+  // Sem NENHUM ad no período não há o que diagnosticar nem julgar. Zero VALIDADOS não
+  // bloqueia a página: o diagnóstico é descritivo (roda sobre todos os ads) e renderiza
+  // mesmo assim — só o plano de ação (juízo) exige validados (empty state no lugar da lista).
+  if (filteredRankings.length === 0) {
     return (
       <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
-        <WorkspaceState
-          kind="empty"
-          message={
-            hadAds && validationCriteria && validationCriteria.length > 0
-              ? "Nenhum anúncio passou nos critérios de validação. Ajuste os critérios ou selecione outro período."
-              : "Nenhum anúncio encontrado para os filtros selecionados."
-          }
-          framed={false}
-          fill
-        />
+        <WorkspaceState kind="empty" message="Nenhum anúncio encontrado para os filtros selecionados." framed={false} fill />
       </PageContainer>
     );
   }
@@ -156,7 +164,7 @@ export default function PlanoPage() {
           diagnostic={diagnostic}
           actionType={actionType}
           onSelectMetric={handleSelectMetric}
-          validatedAverages={validatedAverages}
+          benchmarkAverages={serverAverages}
           actionTypeOptions={actionTypeOptions}
           selectedPackIds={selectedPackIds}
           dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
@@ -190,7 +198,7 @@ export default function PlanoPage() {
             adKeyToName={diagnostic.adKeyToName}
             adMap={diagnostic.adMap}
             comparisonLabel={diagnostic.comparisonLabel}
-            validatedAverages={validatedAverages}
+            benchmarkAverages={serverAverages}
             actionType={actionType}
             actionTypeOptions={actionTypeOptions}
             selectedPackIds={selectedPackIds}
@@ -202,7 +210,7 @@ export default function PlanoPage() {
         {actionPlan ? (
           <ActionPlanList
             plan={actionPlan}
-            averages={validatedAverages}
+            averages={serverAverages}
             actionType={actionType}
             dateStart={dateRange.start}
             dateStop={dateRange.end}
@@ -213,7 +221,11 @@ export default function PlanoPage() {
         ) : (
           <WorkspaceState
             kind="empty"
-            message="Nenhum dado disponível para gerar o plano."
+            message={
+              validationCriteria && validationCriteria.length > 0 && (!validatedAds || validatedAds.length === 0)
+                ? "Nenhum anúncio passou nos critérios de validação para entrar no plano de ação — o diagnóstico acima considera todos os anúncios. Ajuste os critérios ou selecione outro período."
+                : "Nenhum dado disponível para gerar o plano."
+            }
             framed={false}
             fill
           />

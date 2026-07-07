@@ -16,6 +16,7 @@ import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 
 interface GemsWidgetProps {
   ads: RankingsItem[];
+  /** A média global ponderada (serverAverages, todos os ads = Meta) — única média do app. */
   averages?: RankingsResponse["averages"];
   actionType: string;
   validationCriteria: ValidationCondition[];
