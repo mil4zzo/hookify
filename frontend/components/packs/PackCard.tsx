@@ -5,7 +5,9 @@ import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone } from "@tabler/icons-react";
+import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconDotsVertical } from "@tabler/icons-react";
+import { PackHealthBadge } from "@/components/packs/PackHealthBadge";
+import type { PackHealth } from "@/lib/hooks/usePacksHealth";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -41,6 +43,13 @@ export interface PackCardProps {
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
   /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
   onTranscribeAds?: (packId: string, packName: string) => void;
+  // Esquadrão (Hangar): seleção = filtro global de packs. Click no card = toggle.
+  selected?: boolean;
+  onToggleSelect?: (packId: string) => void;
+  // Saúde do pack (janela de 7d) — ver usePacksHealth
+  health?: PackHealth;
+  healthWindowDays?: number;
+  healthActionType?: string | null;
   // Estados de loading
   isUpdating: boolean;
   isTogglingAutoRefresh: string | null;
@@ -57,7 +66,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, selected = false, onToggleSelect, health, healthWindowDays = 7, healthActionType, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
@@ -226,8 +235,22 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
       <div className="absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border border-border-50 opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85" />
 
       <DropdownMenu open={isEditingName ? false : undefined}>
-        <DropdownMenuTrigger asChild>
-          <StandardCard variant="default" padding="none" interactive className="relative flex flex-col cursor-pointer z-10 w-full overflow-hidden hover:bg-card hover:border-border hover:shadow-elevation-overlay">
+          {/* Click no card = toggle no esquadrão (filtro global). CRUD mora no botão ⋯. */}
+          <StandardCard
+            variant="default"
+            padding="none"
+            interactive
+            onClick={() => onToggleSelect?.(pack.id)}
+            className={`relative flex flex-col cursor-pointer z-10 w-full overflow-hidden transition-[transform,box-shadow,border-color] duration-300 hover:bg-card hover:shadow-elevation-overlay ${selected ? "border-primary ring-2 ring-primary -translate-y-1" : "hover:border-border"}`}
+          >
+            {/* Botão ⋯ de ações (CRUD) — não propaga pro toggle de seleção */}
+            <div className="absolute top-2 right-2 z-30" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+              <DropdownMenuTrigger asChild>
+                <button type="button" aria-label="Ações do pack" className="flex items-center justify-center w-7 h-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <IconDotsVertical className="w-4 h-4" />
+                </button>
+              </DropdownMenuTrigger>
+            </div>
             {/* Feedback visual de atualização */}
             {isUpdating && (
               <>
@@ -404,6 +427,12 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                     </div>
                   );
                 })()}
+                {/* Saúde do pack (Hangar): ring + estado + CPR da janela de 7d */}
+                {health && (
+                  <div className="mt-1">
+                    <PackHealthBadge health={health} formatCurrency={formatCurrency} windowDays={healthWindowDays} actionType={healthActionType} />
+                  </div>
+                )}
               </div>
 
               {/* Métricas: Lista vertical com separadores */}
@@ -495,7 +524,6 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
               </div>
             </div>
           </StandardCard>
-        </DropdownMenuTrigger>
         <DropdownMenuContent align="start" side="right">
           <DropdownMenuItem onClick={() => onRefresh(pack.id)} disabled={isUpdating}>
             <IconRotateClockwise className="w-4 h-4 mr-2" />

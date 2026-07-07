@@ -34,6 +34,8 @@ import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { subDays } from "date-fns";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
+import { useFilters } from "@/lib/hooks/useFilters";
+import { usePacksHealth } from "@/lib/hooks/usePacksHealth";
 import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh";
 import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -235,6 +237,11 @@ export default function PacksPage() {
   const { authStatus, onboardingStatus } = useOnboardingGate("app");
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
   const { isLoading: isLoadingPacks } = usePacksLoading();
+
+  // Esquadrão (Hangar): a seleção da estante É o filtro global de packs —
+  // um modelo de seleção só, duas superfícies (Topbar compacta + Packs rica).
+  const { selectedPackIds, togglePack } = useFilters();
+  const { healthByPackId, windowDays: healthWindowDays, actionType: healthActionType } = usePacksHealth(packs);
 
   // API hooks
   // Habilitado sempre (não só com o modal aberto): os cards de pack usam o nome da conta de origem.
@@ -648,10 +655,34 @@ export default function PacksPage() {
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-8">
-              {packs.map((pack) => (
-                <PackCard key={pack.id} pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
-              ))}
+            <div className="flex flex-col gap-4">
+              {/* Esquadrão ativo: chips dos packs selecionados (mesmo estado do filtro global) */}
+              <div className="flex items-center gap-2 flex-wrap min-h-[32px]">
+                <span className="text-sm font-medium text-muted-foreground">Esquadrão ativo:</span>
+                {packs.filter((p) => selectedPackIds.has(p.id)).map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => togglePack(p.id)}
+                    title="Remover do esquadrão"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-primary-30 bg-primary-10 text-primary text-sm font-medium hover:bg-primary-20 transition-colors"
+                  >
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                    {p.name}
+                    <span className="opacity-60">×</span>
+                  </button>
+                ))}
+                {selectedPackIds.size === 0 && <span className="text-sm text-muted-foreground italic">nenhum pack selecionado — clique num card para adicionar</span>}
+              </div>
+
+              {/* Estante horizontal: click no card = toggle no esquadrão */}
+              <div className="flex gap-6 overflow-x-auto pb-4 pt-2 px-1 snap-x">
+                {packs.map((pack) => (
+                  <div key={pack.id} className="w-[320px] flex-shrink-0 snap-start">
+                    <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} selected={selectedPackIds.has(pack.id)} onToggleSelect={togglePack} health={healthByPackId.get(pack.id)} healthWindowDays={healthWindowDays} healthActionType={healthActionType} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </PageBodyStack>
