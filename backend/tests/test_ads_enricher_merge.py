@@ -97,3 +97,94 @@ def test_row_without_name_and_id_is_left_untouched():
     details = [{"id": "111", "name": "X", "creative": {"id": "cr1"}}]
     merged = _enricher().merge_details(raw, details)
     assert merged[0]["adcreatives_videos_ids"] == ["preexistente"]
+
+
+def test_own_creative_takes_precedence_over_source_ad():
+    """Bug do "shift" de mídia (2026-07-06): cópia que trocou a mídia depois da
+    duplicação NÃO pode herdar o creative/adcreatives do source_ad — a identidade
+    da mídia vem sempre do próprio ad."""
+    details = [
+        {
+            "id": "216",
+            "name": "ADNV216",
+            "source_ad_id": "215",
+            "creative": {"id": "cr216", "effective_instagram_media_id": "igm216"},
+            "adcreatives": {
+                "data": [
+                    {
+                        "asset_feed_spec": {"videos": [{"video_id": "v216", "thumbnail_url": "t216"}]},
+                        "object_story_spec": {"page_id": "p216"},
+                    }
+                ]
+            },
+            "source_ad": {
+                "id": "215",
+                "creative": {"id": "cr215", "effective_instagram_media_id": "igm215"},
+                "adcreatives": {
+                    "data": [
+                        {
+                            "asset_feed_spec": {"videos": [{"video_id": "v215", "thumbnail_url": "t215"}]},
+                            "object_story_spec": {"page_id": "p215"},
+                        }
+                    ]
+                },
+            },
+        },
+    ]
+    raw = [{"ad_id": "216", "ad_name": "ADNV216"}]
+    merged = _enricher().merge_details(raw, details)
+    assert merged[0]["creative"]["id"] == "cr216"
+    assert merged[0]["creative"]["effective_instagram_media_id"] == "igm216"
+    assert merged[0]["primary_video_id"] == "v216"
+    assert merged[0]["adcreatives_videos_ids"] == ["v216"]
+    assert merged[0]["adcreatives_videos_thumbs"] == ["t216"]
+    assert merged[0]["video_owner_page_id"] == "p216"
+
+
+def test_source_ad_is_fallback_when_detail_has_no_own_data():
+    """Sem creative E sem adcreatives próprios, o source_ad ainda cobre (legado)."""
+    details = [
+        {
+            "id": "333",
+            "name": "SO-SOURCE",
+            "source_ad": {
+                "id": "999",
+                "creative": {"id": "cr-src", "video_id": "v-src"},
+                "adcreatives": {
+                    "data": [{"asset_feed_spec": {"videos": [{"video_id": "v-src", "thumbnail_url": "t-src"}]}}]
+                },
+            },
+        },
+    ]
+    raw = [{"ad_id": "333", "ad_name": "SO-SOURCE"}]
+    merged = _enricher().merge_details(raw, details)
+    assert merged[0]["creative"]["id"] == "cr-src"
+    assert merged[0]["primary_video_id"] == "v-src"
+
+
+def test_video_without_video_id_does_not_contribute_thumb():
+    """Entrada de asset_feed sem video_id não pode empurrar thumb — senão thumbs[0]
+    deixa de corresponder ao primeiro vídeo real do ad."""
+    details = [
+        {
+            "id": "111",
+            "name": "X",
+            "creative": {"id": "cr1"},
+            "adcreatives": {
+                "data": [
+                    {
+                        "asset_feed_spec": {
+                            "videos": [
+                                {"thumbnail_url": "t-fantasma"},  # sem video_id
+                                {"video_id": "v1", "thumbnail_url": "t1"},
+                            ]
+                        }
+                    }
+                ]
+            },
+        },
+    ]
+    raw = [{"ad_id": "111", "ad_name": "X"}]
+    merged = _enricher().merge_details(raw, details)
+    assert merged[0]["adcreatives_videos_ids"] == ["v1"]
+    assert merged[0]["adcreatives_videos_thumbs"] == ["t1"]

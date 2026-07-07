@@ -354,10 +354,13 @@ class AdsEnricher:
         )
         return all_results
 
-    # Busca criativo/adcreatives via source_ad quando disponivel: o video_id do source_ad
-    # e o asset original (com owner page resolvivel via GET /{video_id}?fields=from),
-    # enquanto o video_id do creative direto costuma ser uma copia sem permissao de acesso.
-    # Fallback para creative/adcreatives diretos cobre anuncios originais (sem duplicacao).
+    # source_ad e buscado apenas como fallback de AUSENCIA TOTAL (detail sem creative
+    # e sem adcreatives proprios). A identidade da midia vem SEMPRE do creative/adcreatives
+    # do PROPRIO ad: source_ad e rastreio de duplicacao, nao garantia de mesma midia —
+    # quando o usuario duplica um ad e TROCA a midia, o creative do source e OUTRA midia
+    # (bug do "shift" de thumb/video entre ads vizinhos, ver decisoes-tecnicas 2026-07-06).
+    # O erro #10 ao acessar o video_id de uma copia e resolvido no playback/transcricao
+    # pelo fallback via effective_instagram_media_id (get_video_source_url), nao aqui.
     # object_story_spec.page_id permite popular video_owner_page_id no enrichment,
     # eliminando o GET /{video_id}?fields=from que ocorria lazily no primeiro acesso ao modal.
     _DETAILS_FIELDS = (
@@ -477,8 +480,10 @@ class AdsEnricher:
         if not details:
             return raw_data
 
-        # Prioriza source_ad.creative / source_ad.adcreatives (video_id do asset original,
-        # com owner resolvivel). Cai para creative/adcreatives diretos se nao houver source_ad.
+        # Prioriza creative/adcreatives do PROPRIO ad; source_ad e usado somente quando o
+        # detail nao traz NENHUM dado proprio (ver comentario em _DETAILS_FIELDS — herdar
+        # do source com dado proprio presente atribuia a midia do ad de origem a copias
+        # que trocaram de midia).
         # Indexacao dupla: por ad_id (detail["id"]) E por nome — o representante fica exato por id,
         # homônimos herdam por nome (comportamento mantido por decisao de custo/beneficio).
         creative_by_id: Dict[str, Optional[Dict[str, Any]]] = {}
@@ -491,23 +496,33 @@ class AdsEnricher:
         primary_video_id_by_name: Dict[str, str] = {}
         page_id_by_id: Dict[str, str] = {}
         page_id_by_name: Dict[str, str] = {}
-        source_ad_hits = 0
+        source_ad_fallbacks = 0
 
         for detail in details:
             name = detail.get("name")
             ad_id = str(detail.get("id") or "").strip()
             source_ad = detail.get("source_ad") or {}
 
-            creative = source_ad.get("creative") or detail.get("creative")
+            own_creative = detail.get("creative")
+            own_adcreatives = detail.get("adcreatives") or {}
+            own_data = own_adcreatives.get("data") if isinstance(own_adcreatives, dict) else None
+
+            if own_creative or own_data:
+                creative = own_creative
+                data = own_data
+            else:
+                # Detail sem NENHUM dado proprio: unico caso em que herdar do source_ad
+                # e melhor que nada (comportamento legado).
+                source_ad_fallbacks += 1
+                creative = source_ad.get("creative")
+                src_adcreatives = source_ad.get("adcreatives") or {}
+                data = src_adcreatives.get("data") if isinstance(src_adcreatives, dict) else None
+
             if ad_id:
                 creative_by_id[ad_id] = creative
             if name:
                 creative_by_name[name] = creative
 
-            adcreatives = source_ad.get("adcreatives") or detail.get("adcreatives") or {}
-            if source_ad.get("adcreatives"):
-                source_ad_hits += 1
-            data = adcreatives.get("data") if isinstance(adcreatives, dict) else None
             if data:
                 first = data[0] or {}
                 asset_feed_spec = first.get("asset_feed_spec") or {}
@@ -518,8 +533,11 @@ class AdsEnricher:
                         videos_by_id[ad_id] = videos
                     if name:
                         videos_by_name[name] = videos
-                    first_video = videos[0] or {}
-                    if isinstance(first_video, dict) and first_video.get("video_id"):
+                    first_video = next(
+                        (v for v in videos if isinstance(v, dict) and v.get("video_id")),
+                        None,
+                    )
+                    if first_video:
                         pvid = str(first_video.get("video_id"))
                         if ad_id:
                             primary_video_id_by_id[ad_id] = pvid
@@ -541,8 +559,8 @@ class AdsEnricher:
                         page_id_by_name[name] = page_id
 
         logger.info(
-            "[AdsEnricher] merge_details: %d/%d detalhes com source_ad.adcreatives",
-            source_ad_hits,
+            "[AdsEnricher] merge_details: %d/%d detalhes sem dado proprio (fallback source_ad)",
+            source_ad_fallbacks,
             len(details),
         )
 
@@ -566,8 +584,11 @@ class AdsEnricher:
             video_ids = []
             video_thumbs = []
             for video in videos:
-                if video.get("video_id"):
-                    video_ids.append(video.get("video_id"))
+                if not isinstance(video, dict) or not video.get("video_id"):
+                    # Entrada sem video_id nao contribui thumb — evita desalinhar
+                    # thumbs[0] com um asset que nao e o primeiro video do ad
+                    continue
+                video_ids.append(video.get("video_id"))
                 if video.get("thumbnail_url"):
                     video_thumbs.append(video.get("thumbnail_url"))
             ad["adcreatives_videos_ids"] = video_ids
