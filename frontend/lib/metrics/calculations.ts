@@ -24,6 +24,7 @@ export type MetricValueSource = {
   hold_rate?: number | null;
   scroll_stop?: number | null;
   video_watched_p50?: number | null;
+  video_watched_p75?: number | null;
   cpm?: number | null;
   cpr?: number | null;
   cpc?: number | null;
@@ -34,6 +35,8 @@ export type MetricValueSource = {
   mql_count?: number | null;
   plays?: number | null;
   video_total_plays?: number | null;
+  thruplays?: number | null;
+  video_total_thruplays?: number | null;
   conversions?: Record<string, number> | null;
   leadscore_values?: unknown;
 };
@@ -90,6 +93,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     case "hold_rate":
     case "scroll_stop":
     case "video_watched_p50":
+    case "video_watched_p75":
     case "impressions":
     case "clicks":
     case "lpv":
@@ -98,6 +102,9 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     }
     case "plays": {
       return toFiniteNumber(source.plays ?? source.video_total_plays);
+    }
+    case "thruplays": {
+      return toFiniteNumber(source.thruplays ?? source.video_total_thruplays);
     }
     case "results": {
       const fromActionType = getResultsForActionType(source, context.actionType);

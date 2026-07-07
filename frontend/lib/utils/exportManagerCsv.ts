@@ -6,8 +6,8 @@ import { api } from "@/lib/api/endpoints"
 
 type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha"
 
-const RATIO_COLUMNS = new Set<ManagerColumnType>(["hook", "ctr", "website_ctr", "connect_rate", "page_conv"])
-const INTEGER_COLUMNS = new Set<ManagerColumnType>(["impressions", "results", "mqls"])
+const RATIO_COLUMNS = new Set<ManagerColumnType>(["hook", "scroll_stop", "hold_rate", "ctr", "website_ctr", "connect_rate", "page_conv"])
+const INTEGER_COLUMNS = new Set<ManagerColumnType>(["impressions", "clicks", "reach", "lpv", "plays", "thruplays", "results", "mqls", "video_watched_p50", "video_watched_p75"])
 
 function formatValue(colId: ManagerColumnType, value: unknown): string {
   if (value === null || value === undefined) return ""

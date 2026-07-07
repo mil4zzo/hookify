@@ -18,6 +18,9 @@ export type ManagerColumnOption = {
 export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   { id: "spend", name: getManagerMetricLabel("spend"), defaultVisible: true },
   { id: "impressions", name: getManagerMetricLabel("impressions") },
+  { id: "clicks", name: getManagerMetricLabel("clicks") },
+  { id: "reach", name: getManagerMetricLabel("reach") },
+  { id: "frequency", name: getManagerMetricLabel("frequency") },
   { id: "results", name: getManagerMetricLabel("results"), defaultVisible: true },
   { id: "mqls", name: getManagerMetricLabel("mqls"), defaultVisible: true },
   { id: "cpr", name: getManagerMetricLabel("cpr"), defaultVisible: true },
@@ -25,10 +28,17 @@ export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   { id: "cplc", name: getManagerMetricLabel("cplc"), defaultVisible: true },
   { id: "cpmql", name: getManagerMetricLabel("cpmql"), defaultVisible: true },
   { id: "cpm", name: getManagerMetricLabel("cpm"), defaultVisible: true },
+  { id: "scroll_stop", name: getManagerMetricLabel("scroll_stop") },
   { id: "hook", name: getManagerMetricLabel("hook"), defaultVisible: true },
+  { id: "hold_rate", name: getManagerMetricLabel("hold_rate") },
+  { id: "video_watched_p50", name: getManagerMetricLabel("video_watched_p50") },
+  { id: "video_watched_p75", name: getManagerMetricLabel("video_watched_p75") },
+  { id: "plays", name: getManagerMetricLabel("plays") },
+  { id: "thruplays", name: getManagerMetricLabel("thruplays") },
   { id: "ctr", name: getManagerMetricLabel("ctr") },
   { id: "website_ctr", name: getManagerMetricLabel("website_ctr"), defaultVisible: true },
   { id: "connect_rate", name: getManagerMetricLabel("connect_rate"), defaultVisible: true },
+  { id: "lpv", name: getManagerMetricLabel("lpv") },
   { id: "page_conv", name: getManagerMetricLabel("page_conv"), defaultVisible: true },
 ] as const;
 

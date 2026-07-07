@@ -1,6 +1,6 @@
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { DEFAULT_MANAGER_COLUMNS, MANAGER_COLUMN_OPTIONS, MANAGER_COLUMN_RENDER_ORDER, type ManagerColumnOption } from "@/components/manager/managerColumns";
-import { isManagerPercentageMetric } from "@/lib/metrics";
+import { isManagerRatioPercentMetric } from "@/lib/metrics";
 
 const STORAGE_KEY_MANAGER_COLUMNS = "hookify-manager-columns";
 
@@ -90,7 +90,9 @@ export function getManagerFilterableColumns({
     columns.push({
       id: column.id,
       label: column.name,
-      isPercentage: isManagerPercentageMetric(column.id),
+      // Apenas percentuais 0-1 (ratioPercent): o FilterBar divide o input por 100.
+      // rawPercent (50%/75% View) já vive em 0-100 e compara direto.
+      isPercentage: isManagerRatioPercentMetric(column.id),
     });
   }
 

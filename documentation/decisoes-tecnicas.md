@@ -1649,3 +1649,22 @@ As páginas **Plano, GOLD e Insights** montavam o request de `/ad-performance` *
 **Regra para código futuro:** (1) status de pai NUNCA se escreve por linha de ad — sempre `write_parent_statuses`/`_write_parent_status_column` (por parent_id, só valores truthy, com updated_at); (2) "todos os filhos de um pai/conta" lê-se por edge filtrado, não por Batch API; listas arbitrárias de ids → batch; (3) toggle de campanha tem que reconciliar TRÊS coisas: coluna da campanha, effective_status dos ads E coluna dos adsets.
 
 **Pendências de deploy:** aplicar migrations 088 e 089 (psql) ANTES do deploy; regenerar `schema.sql` + `schema_map.md` após aplicar. Testes: 160 passando (`test_status_update_flow.py` cobre partição blocked/writable, verify pós-write, reclassificação fail-open e o edge filtrado com paginação).
+
+## Métrica 75% View + todas as métricas como colunas do /manager (2026-07-07)
+
+**Pedido:** (1) refresh de packs passa a trazer `video_p75_watched_actions`; (2) 50% e 75% View viram colunas ativáveis no /manager; (3) auditoria de métricas já buscadas mas indisponíveis na tabela — expor todas.
+
+**Auditoria:** já buscávamos e guardávamos por linha, mas o /manager NÃO expunha como coluna: clicks, reach, frequency, lpv, plays, thruplays, hold_rate, scroll_stop e video_watched_p50. `scroll_stop` nem saía por linha na RPC (só nas averages). Única exceção deliberada: `profile_ctr` (derivada frágil `ctr - website_ctr`, não exposta em lugar nenhum — deixada de fora).
+
+**Implementado:**
+1. **Fetch p75** (`graph_api.py` + `meta_job_client.py` — as DUAS listas de fields — + `dataformatter.py` + `FormattedAdModel` + `upsert_ad_metrics`). Semântica idêntica ao p50: inteiro 0-100 = % de plays que atingiram 75%.
+2. **Migration `090_video_watched_p75_and_manager_row_metrics.sql`** (criada, APLICAR com psql + regenerar schema.sql/schema_map.md):
+   - coluna `ad_metrics.video_watched_p75` (NULL em linhas históricas até o próximo refresh cobrir a data);
+   - `fetch_manager_rankings_core_v2_base_v090`: cadeia v067→v066→v060 ACHATADA numa única base (fold do thumb_storage_path no CTE rep_ads e do filtro p_campaign_id pós-agregação com semântica idêntica), + `video_watched_p75` e `scroll_stop` por linha e nas averages; entry recriada apontando p/ v090 (mantém resolução de status de pais da 089). v059/v060/v066/v067 ficam órfãs (cleanup futuro);
+   - `fetch_manager_rankings_series_v2`: séries novas `video_watched_p75`, `plays`, `thruplays`, `reach` (frequency deriva no cliente de impressions/reach).
+3. **Children (Python agg)** `/rankings/ad-name/{x}/children` e `/rankings/adset-id/{x}/children`: + p75, scroll_stop, reach, frequency por filho; details endpoints ganharam p75; `_build_rankings_series` e `_empty_series_for_axis` com as chaves novas (paridade de shape). Campaign-children usa a RPC (herda automático).
+4. **Frontend:** 10 novas colunas opcionais (todas default OFF — ninguém tem a tabela alterada sem opt-in): Clicks, Reach, Frequency, Scroll Stop, Hold Rate, 50% View, 75% View, Plays, ThruPlays, LPV. Registry (`definitions.ts`/`calculations.ts`) ganhou `video_watched_p75` e `thruplays`; `MANAGER_COLUMNS` é a fonte única de ordem; blocos padrão via helper `pushStandardMetricColumn`; headers de contagem (clicks/reach/lpv/plays/thruplays) mostram SOMA do pack (como impressions), os demais média ponderada; CSV e zod atualizados.
+
+**Gotcha descoberto (registrado em memória `manager_metric_column_pipeline`):** o FilterBar divide o input do usuário por 100 para colunas `isPercentage` — correto para métricas 0-1 (`ratioPercent`: ctr, hook...), errado para `rawPercent` (p50/p75 vivem em 0-100). Novo helper `isManagerRatioPercentMetric` restringe o flag; rawPercent filtra numérico direto.
+
+**Verificação:** tsc --noEmit limpo, `next build` OK, 31+29+13 testes frontend e 113 backend passando. Pendência de deploy: aplicar migration 090 ANTES de subir o backend/frontend (a coluna nova entra nos SELECTs dos children — sem ela o PostgREST devolve erro de coluna inexistente).

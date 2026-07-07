@@ -408,6 +408,7 @@ function ManagerPageContent() {
               hook: typeof base.hook === "number" ? base.hook : null,
               hold_rate: typeof base.hold_rate === "number" ? base.hold_rate : null,
               video_watched_p50: typeof base.video_watched_p50 === "number" ? base.video_watched_p50 : null,
+              video_watched_p75: typeof base.video_watched_p75 === "number" ? base.video_watched_p75 : null,
               scroll_stop: typeof base.scroll_stop === "number" ? base.scroll_stop : null,
               ctr: typeof base.ctr === "number" ? base.ctr : null,
               website_ctr: typeof base.website_ctr === "number" ? base.website_ctr : null,

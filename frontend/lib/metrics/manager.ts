@@ -2,7 +2,33 @@ import { METRIC_DEFINITIONS, type MetricKey } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import { getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
 
-export type ManagerMetricKey = Extract<MetricKey, "spend" | "impressions" | "results" | "mqls" | "cpr" | "cpc" | "cplc" | "cpmql" | "cpm" | "hook" | "ctr" | "website_ctr" | "connect_rate" | "page_conv">;
+export type ManagerMetricKey = Extract<
+  MetricKey,
+  | "spend"
+  | "impressions"
+  | "clicks"
+  | "reach"
+  | "frequency"
+  | "results"
+  | "mqls"
+  | "cpr"
+  | "cpc"
+  | "cplc"
+  | "cpmql"
+  | "cpm"
+  | "scroll_stop"
+  | "hook"
+  | "hold_rate"
+  | "video_watched_p50"
+  | "video_watched_p75"
+  | "plays"
+  | "thruplays"
+  | "ctr"
+  | "website_ctr"
+  | "connect_rate"
+  | "lpv"
+  | "page_conv"
+>;
 
 export interface ManagerAverages {
   count: number;
@@ -12,11 +38,15 @@ export interface ManagerAverages {
   inline_link_clicks: number;
   lpv: number;
   plays: number;
+  thruplays: number;
+  reach: number;
   results: number;
   hook: number | null;
   hold_rate: number | null;
   video_watched_p50: number | null;
+  video_watched_p75: number | null;
   scroll_stop: number | null;
+  frequency: number | null;
   ctr: number | null;
   website_ctr: number | null;
   connect_rate: number | null;
@@ -29,6 +59,11 @@ export interface ManagerAverages {
   mqls: number;
   sumSpend: number;
   sumImpressions: number;
+  sumClicks: number;
+  sumReach: number;
+  sumLpv: number;
+  sumPlays: number;
+  sumThruplays: number;
   sumResults: number;
   sumMqls: number;
 }
@@ -41,11 +76,15 @@ const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
   inline_link_clicks: 0,
   lpv: 0,
   plays: 0,
+  thruplays: 0,
+  reach: 0,
   results: 0,
   hook: null,
   hold_rate: null,
   video_watched_p50: null,
+  video_watched_p75: null,
   scroll_stop: null,
+  frequency: null,
   ctr: null,
   website_ctr: null,
   connect_rate: null,
@@ -58,13 +97,56 @@ const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
   mqls: 0,
   sumSpend: 0,
   sumImpressions: 0,
+  sumClicks: 0,
+  sumReach: 0,
+  sumLpv: 0,
+  sumPlays: 0,
+  sumThruplays: 0,
   sumResults: 0,
   sumMqls: 0,
 };
 
-export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = ["spend", "impressions", "results", "mqls", "cpr", "cpc", "cplc", "cpmql", "cpm", "hook", "ctr", "website_ctr", "connect_rate", "page_conv"] as const;
+export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = [
+  "spend",
+  "impressions",
+  "clicks",
+  "reach",
+  "frequency",
+  "results",
+  "mqls",
+  "cpr",
+  "cpc",
+  "cplc",
+  "cpmql",
+  "cpm",
+  "scroll_stop",
+  "hook",
+  "hold_rate",
+  "video_watched_p50",
+  "video_watched_p75",
+  "plays",
+  "thruplays",
+  "ctr",
+  "website_ctr",
+  "connect_rate",
+  "lpv",
+  "page_conv",
+] as const;
 
-const MANAGER_SUMMARY_METRICS = new Set<ManagerMetricKey>(["spend", "impressions", "results", "mqls"]);
+// Métricas cujo header mostra a SOMA do pack (contagens), não a média por linha
+const MANAGER_SUMMARY_METRICS = new Set<ManagerMetricKey>(["spend", "impressions", "clicks", "reach", "lpv", "plays", "thruplays", "results", "mqls"]);
+
+const MANAGER_SUM_FIELD_BY_METRIC: Partial<Record<ManagerMetricKey, keyof ManagerAverages>> = {
+  spend: "sumSpend",
+  impressions: "sumImpressions",
+  clicks: "sumClicks",
+  reach: "sumReach",
+  lpv: "sumLpv",
+  plays: "sumPlays",
+  thruplays: "sumThruplays",
+  results: "sumResults",
+  mqls: "sumMqls",
+};
 
 function getMetricDefinitionLocal(metricKey: string) {
   if (metricKey in METRIC_DEFINITIONS) {
@@ -92,6 +174,15 @@ export function isManagerPercentageMetric(metricKey: string): boolean {
   return formatKind === "ratioPercent" || formatKind === "rawPercent";
 }
 
+/**
+ * Percentuais em escala 0-1 (ctr, hook, ...). O FilterBar divide o input do usuário
+ * por 100 apenas para estes; métricas rawPercent (video_watched_p50/p75) já vivem
+ * em escala 0-100 e comparam direto com o valor digitado.
+ */
+export function isManagerRatioPercentMetric(metricKey: string): boolean {
+  return getMetricDefinitionLocal(metricKey)?.formatKind === "ratioPercent";
+}
+
 export function getManagerMetricLabel(metricKey: string): string {
   return getMetricDisplayLabelLocal(metricKey, { preferShortLabel: true });
 }
@@ -114,26 +205,15 @@ export function formatManagerAverageValue(metricKey: ManagerMetricKey, averages:
     return "";
   }
 
-  if (metricKey === "spend") {
-    return formatManagerMetricValue(metricKey, averages.sumSpend, options);
-  }
-
-  if (metricKey === "impressions") {
-    return formatManagerMetricValue(metricKey, averages.sumImpressions, options);
-  }
-
-  if (metricKey === "results") {
-    return formatManagerMetricValue(metricKey, averages.sumResults, options);
-  }
-
-  if (metricKey === "mqls") {
-    return formatManagerMetricValue(metricKey, averages.sumMqls, options);
+  const sumField = MANAGER_SUM_FIELD_BY_METRIC[metricKey];
+  if (sumField) {
+    return formatManagerMetricValue(metricKey, averages[sumField] as number, options);
   }
 
   return formatManagerMetricValue(metricKey, averages[metricKey], options);
 }
 
-function getWeightedMetricValue(source: MetricValueSource, metricKey: Extract<MetricKey, "hook" | "hold_rate" | "video_watched_p50" | "scroll_stop">): number | null {
+function getWeightedMetricValue(source: MetricValueSource, metricKey: Extract<MetricKey, "hook" | "hold_rate" | "video_watched_p50" | "video_watched_p75" | "scroll_stop">): number | null {
   if (metricKey === "scroll_stop") {
     const explicitScrollStop = source.scroll_stop ?? source.scroll_stop_value ?? source.scroll_stop_rate;
     const explicitValue = explicitScrollStop == null ? null : Number(explicitScrollStop);
@@ -172,6 +252,8 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
   let sumInlineLinkClicks = 0;
   let sumLpv = 0;
   let sumPlays = 0;
+  let sumThruplays = 0;
+  let sumReach = 0;
   let sumResults = 0;
   let sumMqls = 0;
 
@@ -181,6 +263,8 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
   let holdRateWeight = 0;
   let watched50Weighted = 0;
   let watched50Weight = 0;
+  let watched75Weighted = 0;
+  let watched75Weight = 0;
   let scrollStopWeighted = 0;
   let scrollStopWeight = 0;
 
@@ -191,6 +275,8 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     const inlineLinkClicks = Number(row.inline_link_clicks ?? 0);
     const lpv = getMetricNumericValueOrNull(row, "lpv") ?? 0;
     const plays = getMetricNumericValueOrNull(row, "plays") ?? 0;
+    const thruplays = getMetricNumericValueOrNull(row, "thruplays") ?? 0;
+    const reach = getMetricNumericValueOrNull(row, "reach") ?? 0;
     const results = getResultsForActionType(row, actionType) ?? 0;
     const weight = plays > 0 ? plays : 1;
 
@@ -200,6 +286,8 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     sumInlineLinkClicks += Number.isFinite(inlineLinkClicks) ? inlineLinkClicks : 0;
     sumLpv += lpv;
     sumPlays += plays;
+    sumThruplays += thruplays;
+    sumReach += reach;
     sumResults += results;
 
     const hook = getWeightedMetricValue(row, "hook");
@@ -218,6 +306,12 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     if (watched50 != null) {
       watched50Weighted += watched50 * weight;
       watched50Weight += weight;
+    }
+
+    const watched75 = getWeightedMetricValue(row, "video_watched_p75");
+    if (watched75 != null) {
+      watched75Weighted += watched75 * weight;
+      watched75Weight += weight;
     }
 
     if (includeScrollStop) {
@@ -242,11 +336,15 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     inline_link_clicks: sumInlineLinkClicks / rows.length,
     lpv: sumLpv / rows.length,
     plays: sumPlays / rows.length,
+    thruplays: sumThruplays / rows.length,
+    reach: sumReach / rows.length,
     results: sumResults / rows.length,
     hook: hookWeight > 0 ? hookWeighted / hookWeight : null,
     hold_rate: holdRateWeight > 0 ? holdRateWeighted / holdRateWeight : null,
     video_watched_p50: watched50Weight > 0 ? watched50Weighted / watched50Weight : null,
+    video_watched_p75: watched75Weight > 0 ? watched75Weighted / watched75Weight : null,
     scroll_stop: includeScrollStop && scrollStopWeight > 0 ? scrollStopWeighted / scrollStopWeight : null,
+    frequency: sumReach > 0 ? sumImpressions / sumReach : null,
     ctr: sumImpressions > 0 ? sumClicks / sumImpressions : null,
     website_ctr: sumImpressions > 0 ? sumInlineLinkClicks / sumImpressions : null,
     connect_rate: sumInlineLinkClicks > 0 ? sumLpv / sumInlineLinkClicks : null,
@@ -259,6 +357,11 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     mqls: hasSheetIntegration ? sumMqls / rows.length : 0,
     sumSpend,
     sumImpressions,
+    sumClicks,
+    sumReach,
+    sumLpv,
+    sumPlays,
+    sumThruplays,
     sumResults,
     sumMqls,
   };
@@ -279,10 +382,14 @@ export function buildManagerComputedRow<T extends MetricValueSource>(row: T, con
   impressions: number;
   clicks: number;
   inline_link_clicks: number;
+  thruplays: number;
+  frequency: number;
 } {
   const spend = getMetricNumericValueOrNull(row, "spend", context) ?? 0;
   const impressions = getMetricNumericValueOrNull(row, "impressions", context) ?? 0;
   const clicks = getMetricNumericValueOrNull(row, "clicks", context) ?? 0;
+  const thruplays = getMetricNumericValueOrNull(row, "thruplays", context) ?? 0;
+  const frequency = getMetricNumericValueOrNull(row, "frequency", context) ?? 0;
   const inlineLinkClicks = Number(row.inline_link_clicks ?? 0) || 0;
   const lpv = getMetricNumericValueOrNull(row, "lpv", context) ?? 0;
   const results = getMetricNumericValueOrNull(row, "results", context) ?? 0;
@@ -311,5 +418,7 @@ export function buildManagerComputedRow<T extends MetricValueSource>(row: T, con
     impressions,
     clicks,
     inline_link_clicks: inlineLinkClicks,
+    thruplays,
+    frequency,
   };
 }

@@ -11,6 +11,7 @@ export type MetricKey =
   | "hook"
   | "hold_rate"
   | "video_watched_p50"
+  | "video_watched_p75"
   | "ctr"
   | "website_ctr"
   | "connect_rate"
@@ -25,6 +26,7 @@ export type MetricKey =
   | "clicks"
   | "lpv"
   | "plays"
+  | "thruplays"
   | "reach";
 
 export interface MetricDefinition {
@@ -102,6 +104,14 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     label: "50% View",
     didacticDescription: "Mostra quantas pessoas chegaram até a metade do vídeo.",
     technicalDescription: "Percentual de visualizações que atingiram 50% da duração.",
+    polarity: "higher",
+    formatKind: "rawPercent",
+  },
+  video_watched_p75: {
+    key: "video_watched_p75",
+    label: "75% View",
+    didacticDescription: "Mostra quantas pessoas chegaram a 75% do vídeo.",
+    technicalDescription: "Percentual de visualizações que atingiram 75% da duração.",
     polarity: "higher",
     formatKind: "rawPercent",
   },
@@ -223,6 +233,15 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     label: "Plays",
     didacticDescription: "Mostra quantas reproduções de vídeo foram registradas.",
     technicalDescription: "Total de execuções iniciadas do criativo em vídeo.",
+    polarity: "higher",
+    formatKind: "integer",
+  },
+  thruplays: {
+    key: "thruplays",
+    aliases: ["video_total_thruplays"],
+    label: "ThruPlays",
+    didacticDescription: "Mostra quantas pessoas assistiram ao vídeo até o fim (ou 15s).",
+    technicalDescription: "Total de reproduções completas ou de pelo menos 15 segundos (video_thruplay_watched_actions).",
     polarity: "higher",
     formatKind: "integer",
   },

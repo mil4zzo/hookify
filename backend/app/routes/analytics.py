@@ -345,6 +345,10 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
     scroll_stop_series: List[Optional[float]] = []
     hold_rate_series: List[Optional[float]] = []
     video_watched_p50_series: List[Optional[float]] = []
+    video_watched_p75_series: List[Optional[float]] = []
+    plays_series: List[Optional[int]] = []
+    thruplays_series: List[Optional[int]] = []
+    reach_series: List[Optional[int]] = []
     spend_series: List[Optional[float]] = []
     clicks_series: List[Optional[int]] = []
     inline_link_clicks_series: List[Optional[int]] = []
@@ -374,6 +378,12 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         video_watched_p50_wsum = (S.get("video_watched_p50_wsum") or {}).get(d, 0.0) or 0.0
         video_watched_p50_day = _safe_div(video_watched_p50_wsum, plays) if plays else None
 
+        video_watched_p75_wsum = (S.get("video_watched_p75_wsum") or {}).get(d, 0.0) or 0.0
+        video_watched_p75_day = _safe_div(video_watched_p75_wsum, plays) if plays else None
+
+        thruplays_day = (S.get("thruplays") or {}).get(d, 0) or 0
+        reach_day = (S.get("reach") or {}).get(d, 0) or 0
+
         spend_day = (S.get("spend") or {}).get(d, 0.0) or 0.0
         clicks_day = (S.get("clicks") or {}).get(d, 0) or 0
         impr_day = (S.get("impressions") or {}).get(d, 0) or 0
@@ -393,6 +403,10 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         scroll_stop_series.append(scroll_stop_day)
         hold_rate_series.append(hold_rate_day)
         video_watched_p50_series.append(video_watched_p50_day)
+        video_watched_p75_series.append(video_watched_p75_day)
+        plays_series.append(plays if plays else None)
+        thruplays_series.append(thruplays_day if thruplays_day else None)
+        reach_series.append(reach_day if reach_day else None)
         spend_series.append(spend_day if spend_day else None)
         clicks_series.append(clicks_day if clicks_day else None)
         inline_link_clicks_series.append(inline_day if inline_day else None)
@@ -418,6 +432,10 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         "scroll_stop": scroll_stop_series,
         "hold_rate": hold_rate_series,
         "video_watched_p50": video_watched_p50_series,
+        "video_watched_p75": video_watched_p75_series,
+        "plays": plays_series,
+        "thruplays": thruplays_series,
+        "reach": reach_series,
         "spend": spend_series,
         "clicks": clicks_series,
         "inline_link_clicks": inline_link_clicks_series,
@@ -536,6 +554,13 @@ def _empty_series_for_axis(axis: List[str]) -> Dict[str, Any]:
     return {
         "axis": axis,
         "hook": [None] * n,
+        "scroll_stop": [None] * n,
+        "hold_rate": [None] * n,
+        "video_watched_p50": [None] * n,
+        "video_watched_p75": [None] * n,
+        "plays": [None] * n,
+        "thruplays": [None] * n,
+        "reach": [None] * n,
         "spend": [None] * n,
         "clicks": [None] * n,
         "inline_link_clicks": [None] * n,
@@ -1431,12 +1456,12 @@ def get_ad_name_details(
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values,lpv"
+        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values"
+        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values"
     )
 
     pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
@@ -1496,6 +1521,7 @@ def get_ad_name_details(
         "hook_wsum": 0.0,
         "hold_rate_wsum": 0.0,
         "video_watched_p50_wsum": 0.0,
+        "video_watched_p75_wsum": 0.0,
         "reach": 0,
         "curve_weighted": {},
         "conversions": {},
@@ -1514,6 +1540,7 @@ def get_ad_name_details(
         "scroll_stop_wsum": {d: 0.0 for d in axis},
         "hold_rate_wsum": {d: 0.0 for d in axis},
         "video_watched_p50_wsum": {d: 0.0 for d in axis},
+        "video_watched_p75_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
     }
@@ -1542,6 +1569,7 @@ def get_ad_name_details(
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         reach = int(r.get("reach") or 0)
         lpv = _extract_lpv(r)
 
@@ -1555,6 +1583,7 @@ def get_ad_name_details(
         agg["hook_wsum"] += hook * plays
         agg["hold_rate_wsum"] += hold_rate * plays
         agg["video_watched_p50_wsum"] += video_watched_p50 * plays
+        agg["video_watched_p75_wsum"] += video_watched_p75 * plays
         agg["reach"] += reach
 
         if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
@@ -1587,6 +1616,7 @@ def get_ad_name_details(
             series_acc["scroll_stop_wsum"][date] += scroll_stop * plays
             series_acc["hold_rate_wsum"][date] += hold_rate * plays
             series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
+            series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
@@ -1617,6 +1647,7 @@ def get_ad_name_details(
     hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
     hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
     video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
+    video_watched_p75 = _safe_div(agg["video_watched_p75_wsum"], agg["plays"]) if agg["plays"] else 0
     connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
     cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
     website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
@@ -1653,6 +1684,7 @@ def get_ad_name_details(
         "hook": hook,
         "hold_rate": hold_rate,
         "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
+        "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
         "ctr": ctr,
         "connect_rate": connect_rate,
         "cpm": cpm,
@@ -1693,12 +1725,12 @@ def get_rankings_children(
     select_with_lpv = (
         "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,leadscore_values,lpv"
+        "hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,leadscore_values"
+        "hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values"
     )
 
     pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
@@ -1758,6 +1790,7 @@ def get_rankings_children(
         "scroll_stop_wsum": {d: 0.0 for d in axis},
         "hold_rate_wsum": {d: 0.0 for d in axis},
         "video_watched_p50_wsum": {d: 0.0 for d in axis},
+        "video_watched_p75_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
     })
@@ -1775,11 +1808,13 @@ def get_rankings_children(
         plays = int(r.get("video_total_plays") or 0)
         thruplays = int(r.get("video_total_thruplays") or 0)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         hold_rate = float(r.get("hold_rate") or 0)
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
+        reach = int(r.get("reach") or 0)
 
         # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
@@ -1801,6 +1836,9 @@ def get_rankings_children(
                 "hook_wsum": 0.0,
                 "hold_rate_wsum": 0.0,  # Soma ponderada de hold_rate
                 "video_watched_p50_wsum": 0.0,  # Soma ponderada de video_watched_p50
+                "video_watched_p75_wsum": 0.0,
+                "scroll_stop_wsum": 0.0,
+                "reach": 0,
                 "conversions": {},
                 "leadscore_values": [],
             }
@@ -1815,6 +1853,9 @@ def get_rankings_children(
         A["hook_wsum"] += hook * plays
         A["hold_rate_wsum"] += hold_rate * plays  # Agregar hold_rate ponderado por plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
+        A["video_watched_p75_wsum"] += video_watched_p75 * plays
+        A["scroll_stop_wsum"] += scroll_stop * plays
+        A["reach"] += reach
 
         if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
             try:
@@ -1838,6 +1879,7 @@ def get_rankings_children(
             S["scroll_stop_wsum"][date] += scroll_stop * plays
             S["hold_rate_wsum"][date] += hold_rate * plays
             S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
+            S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
@@ -1883,6 +1925,9 @@ def get_rankings_children(
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
         hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
         video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
+        video_watched_p75 = _safe_div(A["video_watched_p75_wsum"], A["plays"]) if A["plays"] else 0
+        scroll_stop = _safe_div(A["scroll_stop_wsum"], A["plays"]) if A["plays"] else 0
+        frequency = round(A["impressions"] / A["reach"], 2) if A["reach"] > 0 else None
         cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
 
@@ -1907,10 +1952,14 @@ def get_rankings_children(
             "hook": hook,
             "hold_rate": hold_rate,
             "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
+            "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
+            "scroll_stop": scroll_stop,
             "ctr": ctr,
             "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
             "cpm": cpm,
             "website_ctr": website_ctr,
+            "reach": A["reach"],
+            "frequency": frequency,
             "conversions": A.get("conversions", {}),
             "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
             "thumbnail": thumbnails_map.get(key),
@@ -1983,12 +2032,12 @@ def get_campaign_children(
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values,lpv"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values"
     )
     try:
         data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -2015,6 +2064,7 @@ def get_campaign_children(
             "scroll_stop_wsum": {d: 0.0 for d in axis},
             "hold_rate_wsum": {d: 0.0 for d in axis},
             "video_watched_p50_wsum": {d: 0.0 for d in axis},
+            "video_watched_p75_wsum": {d: 0.0 for d in axis},
             "conversions": {d: {} for d in axis},
             "mql_count": {d: 0 for d in axis},
         }
@@ -2038,11 +2088,13 @@ def get_campaign_children(
         plays = int(r.get("video_total_plays") or 0)
         thruplays = int(r.get("video_total_thruplays") or 0)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         hold_rate = float(r.get("hold_rate") or 0)
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
+        reach = int(r.get("reach") or 0)
 
         # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
@@ -2085,6 +2137,9 @@ def get_campaign_children(
         A["hook_wsum"] += hook * plays
         A["hold_rate_wsum"] += hold_rate * plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays
+        A["video_watched_p75_wsum"] += video_watched_p75 * plays
+        A["scroll_stop_wsum"] += scroll_stop * plays
+        A["reach"] += reach
 
         if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
             try:
@@ -2123,6 +2178,7 @@ def get_campaign_children(
             S["scroll_stop_wsum"][date] += scroll_stop * plays
             S["hold_rate_wsum"][date] += hold_rate * plays
             S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
+            S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
@@ -2216,12 +2272,12 @@ def get_adset_children(
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values,lpv"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
         "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,leadscore_values"
+        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values"
     )
 
     pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
@@ -2279,6 +2335,7 @@ def get_adset_children(
             "scroll_stop_wsum": {d: 0.0 for d in axis},
             "hold_rate_wsum": {d: 0.0 for d in axis},
             "video_watched_p50_wsum": {d: 0.0 for d in axis},
+            "video_watched_p75_wsum": {d: 0.0 for d in axis},
             "conversions": {d: {} for d in axis},
             "mql_count": {d: 0 for d in axis},
         }
@@ -2299,11 +2356,13 @@ def get_adset_children(
         plays = int(r.get("video_total_plays") or 0)
         thruplays = int(r.get("video_total_thruplays") or 0)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         hold_rate = float(r.get("hold_rate") or 0)
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
+        reach = int(r.get("reach") or 0)
 
         # landing_page_views (preferir coluna lpv quando disponÃ­vel)
         lpv = _extract_lpv(r)
@@ -2327,6 +2386,9 @@ def get_adset_children(
                 "hook_wsum": 0.0,
                 "hold_rate_wsum": 0.0,
                 "video_watched_p50_wsum": 0.0,
+                "video_watched_p75_wsum": 0.0,
+                "scroll_stop_wsum": 0.0,
+                "reach": 0,
                 "conversions": {},
                 "leadscore_values": [],
             }
@@ -2342,6 +2404,9 @@ def get_adset_children(
         A["hook_wsum"] += hook * plays
         A["hold_rate_wsum"] += hold_rate * plays
         A["video_watched_p50_wsum"] += video_watched_p50 * plays
+        A["video_watched_p75_wsum"] += video_watched_p75 * plays
+        A["scroll_stop_wsum"] += scroll_stop * plays
+        A["reach"] += reach
 
         if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
             try:
@@ -2365,6 +2430,7 @@ def get_adset_children(
             S["scroll_stop_wsum"][date] += scroll_stop * plays
             S["hold_rate_wsum"][date] += hold_rate * plays
             S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
+            S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             _merge_row_conversions_actions(r, S["conversions"][date])
 
             # MQLs por dia
@@ -2411,6 +2477,9 @@ def get_adset_children(
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
         hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
         video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
+        video_watched_p75 = _safe_div(A["video_watched_p75_wsum"], A["plays"]) if A["plays"] else 0
+        scroll_stop = _safe_div(A["scroll_stop_wsum"], A["plays"]) if A["plays"] else 0
+        frequency = round(A["impressions"] / A["reach"], 2) if A["reach"] > 0 else None
         connect_rate = _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0
         cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
@@ -2439,10 +2508,14 @@ def get_adset_children(
                 "hook": hook,
                 "hold_rate": hold_rate,
                 "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
+                "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
+                "scroll_stop": scroll_stop,
                 "ctr": ctr,
                 "connect_rate": connect_rate,
                 "cpm": cpm,
                 "website_ctr": website_ctr,
+                "reach": A["reach"],
+                "frequency": frequency,
                 "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
                 "conversions": A.get("conversions", {}),
                 "ad_count": 1,
@@ -2544,6 +2617,7 @@ def get_adset_details(
         "thruplays": 0,
         "hook_wsum": 0.0,
         "video_watched_p50_wsum": 0.0,
+        "video_watched_p75_wsum": 0.0,
         "conversions": {},
         "leadscore_values": [],
         "ad_ids": set(),
@@ -2585,6 +2659,7 @@ def get_adset_details(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         leadscore_values = r.get("leadscore_values") or []
 
         # landing_page_views (preferir coluna lpv quando disponÃ­vel)
@@ -2599,6 +2674,7 @@ def get_adset_details(
         agg["thruplays"] += thruplays
         agg["hook_wsum"] += hook * plays
         agg["video_watched_p50_wsum"] += video_watched_p50 * plays
+        agg["video_watched_p75_wsum"] += video_watched_p75 * plays
 
         if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
             try:
@@ -2649,6 +2725,7 @@ def get_adset_details(
     ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
     hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
     video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
+    video_watched_p75 = _safe_div(agg["video_watched_p75_wsum"], agg["plays"]) if agg["plays"] else 0
     connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
     cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
     website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
@@ -2706,12 +2783,12 @@ def get_ad_details(
     select_with_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values,lpv"
+        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values,lpv"
     )
     select_without_lpv = (
         "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
         "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,frequency,leadscore_values"
+        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values"
     )
 
     pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
@@ -2776,6 +2853,7 @@ def get_ad_details(
         "hook_wsum": 0.0,
         "hold_rate_wsum": 0.0,
         "video_watched_p50_wsum": 0.0,
+        "video_watched_p75_wsum": 0.0,
         "reach": 0,
         # Curva de retenÃ§Ã£o agregada (ponderada por plays, mesma lÃ³gica do hook)
         "curve_weighted": {},  # {segundo_index: {"weighted_sum": float, "plays_sum": int}}
@@ -2795,6 +2873,7 @@ def get_ad_details(
         "scroll_stop_wsum": {d: 0.0 for d in axis},
         "hold_rate_wsum": {d: 0.0 for d in axis},
         "video_watched_p50_wsum": {d: 0.0 for d in axis},
+        "video_watched_p75_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
     }
@@ -2821,6 +2900,7 @@ def get_ad_details(
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         reach = int(r.get("reach") or 0)
 
         # landing_page_views (preferir coluna lpv quando disponÃ­vel)
@@ -2837,6 +2917,7 @@ def get_ad_details(
         agg["hook_wsum"] += hook * plays
         agg["hold_rate_wsum"] += hold_rate * plays
         agg["video_watched_p50_wsum"] += video_watched_p50 * plays
+        agg["video_watched_p75_wsum"] += video_watched_p75 * plays
         agg["reach"] += reach
 
         if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
@@ -2872,6 +2953,7 @@ def get_ad_details(
             series_acc["scroll_stop_wsum"][date] += scroll_stop * plays
             series_acc["hold_rate_wsum"][date] += hold_rate * plays
             series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
+            series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
             except Exception:
@@ -2892,6 +2974,7 @@ def get_ad_details(
     hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
     hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
     video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
+    video_watched_p75 = _safe_div(agg["video_watched_p75_wsum"], agg["plays"]) if agg["plays"] else 0
     connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
     cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
     website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
@@ -2929,6 +3012,7 @@ def get_ad_details(
         "hook": hook,
         "hold_rate": hold_rate,
         "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
+        "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
         "ctr": ctr,
         "connect_rate": connect_rate,
         "cpm": cpm,
@@ -3113,6 +3197,7 @@ def get_ad_history(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         hold_rate_val = float(r.get("hold_rate") or 0)
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop_val = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
@@ -3312,6 +3397,7 @@ def get_ad_name_history(
         curve = r.get("video_play_curve_actions") or []
         hook = _hook_at_3_from_curve(curve)
         video_watched_p50 = int(r.get("video_watched_p50") or 0)
+        video_watched_p75 = int(r.get("video_watched_p75") or 0)
         hold_rate_val = float(r.get("hold_rate") or 0)
         _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
         scroll_stop_val = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw

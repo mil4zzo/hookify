@@ -4,7 +4,7 @@ import { formatMetricValueByKind as formatMetricValueByKindCore, type FormatMetr
 export type { MetricDefinition, MetricFormatKind, MetricKey, MetricPolarity } from "./definitions";
 export { METRIC_DEFINITION_LIST, METRIC_DEFINITIONS } from "./definitions";
 export { buildMetricSeriesFromSourceSeries, getMetricNumericValue, getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
-export { buildManagerComputedRow, computeManagerAverages, formatManagerAverageValue, formatManagerMetricValue, getManagerMetricLabel, isManagerPercentageMetric, isManagerSummaryMetric, MANAGER_METRIC_KEYS, type ManagerAverages, type ManagerMetricKey } from "./manager";
+export { buildManagerComputedRow, computeManagerAverages, formatManagerAverageValue, formatManagerMetricValue, getManagerMetricLabel, isManagerPercentageMetric, isManagerRatioPercentMetric, isManagerSummaryMetric, MANAGER_METRIC_KEYS, type ManagerAverages, type ManagerMetricKey } from "./manager";
 export {
   compareManagerChildRows,
   formatManagerChildMetricValue,

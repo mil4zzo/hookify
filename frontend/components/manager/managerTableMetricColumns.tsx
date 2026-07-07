@@ -9,7 +9,7 @@ import { MetricCell } from "@/components/manager/MetricCell";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { CreateManagerTableColumnsParams } from "@/components/manager/managerTableColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import { formatMetricValue, getManagerMetricLabel, getMetricNumericValue, getMetricNumericValueOrNull } from "@/lib/metrics";
+import { formatMetricValue, getManagerMetricLabel, getMetricNumericValue, getMetricNumericValueOrNull, type ManagerMetricKey } from "@/lib/metrics";
 import { isManagerMetricColumnVisible } from "@/components/manager/managerColumnPreferences";
 
 export const SortIcon = ({
@@ -41,7 +41,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
 
   const isMinimal = viewMode === "minimal";
 
-  const sumMetrics = new Set(["spend", "impressions", "results", "mqls"]);
+  const sumMetrics = new Set(["spend", "impressions", "clicks", "reach", "lpv", "plays", "thruplays", "results", "mqls"]);
 
   const renderMetricHeader = (metricId: string, label: string, column: Column<RankingsItem, unknown>, filterValue: FilterValue | FilterValue[] | undefined) => {
     const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
@@ -123,6 +123,35 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
 
   const cols: ColumnDef<RankingsItem, unknown>[] = [];
 
+  // Bloco padrão para métricas sem tratamento especial de header/cell.
+  // percentageFilter: valores em escala 0-1 (filtro digitado como "80" vira 0.8);
+  // nullable: preserva null (célula mostra "—") em vez de coagir para 0.
+  const pushStandardMetricColumn = (metricId: ManagerMetricKey, opts: { percentageFilter?: boolean; nullable?: boolean } = {}) => {
+    if (!shouldShow(metricId)) return;
+    const getValue = (row: RankingsItem) => (opts.nullable ? getMetricValueOrNull(row, metricId) : getMetricValue(row, metricId));
+    cols.push(
+      columnHelper.accessor(
+        (row) => getValue(row as RankingsItem),
+        {
+          id: metricId,
+          header: ({ column }) => {
+            const filterValue = column.getFilterValue() as FilterValue | undefined;
+            return renderMetricHeader(metricId, getManagerMetricLabel(metricId), column, filterValue);
+          },
+          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
+            const rowValue = getValue(row.original as RankingsItem);
+            return opts.percentageFilter ? applyPercentageFilterMaybeArray(rowValue, filterValue) : applyNumericFilterMaybeArray(rowValue, filterValue, applyNumericFilter);
+          },
+          sortingFn: "auto",
+          cell: (info) => {
+            const value = info.getValue() as number | null;
+            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatMetricCellValue(metricId, value)}</span>} metric={metricId} getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} lightweight />;
+          },
+        },
+      ) as any,
+    );
+  };
+
   // Spend
   if (shouldShow("spend")) {
     cols.push(
@@ -165,6 +194,11 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
       ) as any,
     );
   }
+
+  // Clicks / Reach / Frequency
+  pushStandardMetricColumn("clicks");
+  pushStandardMetricColumn("reach");
+  pushStandardMetricColumn("frequency", { nullable: true });
 
   // Results
   if (shouldShow("results")) {
@@ -424,6 +458,9 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     );
   }
 
+  // Scroll Stop
+  pushStandardMetricColumn("scroll_stop", { percentageFilter: true, nullable: true });
+
   // Hook
   if (shouldShow("hook")) {
     cols.push(
@@ -447,6 +484,13 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
       }) as any,
     );
   }
+
+  // Hold Rate / 50% View / 75% View / Plays / ThruPlays
+  pushStandardMetricColumn("hold_rate", { percentageFilter: true, nullable: true });
+  pushStandardMetricColumn("video_watched_p50", { nullable: true });
+  pushStandardMetricColumn("video_watched_p75", { nullable: true });
+  pushStandardMetricColumn("plays");
+  pushStandardMetricColumn("thruplays");
 
   // Link CTR
   if (shouldShow("website_ctr")) {
@@ -491,6 +535,9 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
       }) as any,
     );
   }
+
+  // LPV
+  pushStandardMetricColumn("lpv");
 
   // Page Conversion
   if (shouldShow("page_conv")) {

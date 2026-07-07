@@ -40,7 +40,30 @@ export type TimeSeriesGroupBy = "ad_id" | "ad_name";
 
 export type MetricSparklineKey = Extract<
   MetricKey,
-  "hook" | "cpr" | "cpc" | "cplc" | "spend" | "impressions" | "ctr" | "website_ctr" | "connect_rate" | "page_conv" | "cpm" | "cpmql" | "results" | "mqls"
+  | "hook"
+  | "cpr"
+  | "cpc"
+  | "cplc"
+  | "spend"
+  | "impressions"
+  | "clicks"
+  | "reach"
+  | "frequency"
+  | "ctr"
+  | "website_ctr"
+  | "connect_rate"
+  | "page_conv"
+  | "cpm"
+  | "cpmql"
+  | "results"
+  | "mqls"
+  | "lpv"
+  | "plays"
+  | "thruplays"
+  | "scroll_stop"
+  | "hold_rate"
+  | "video_watched_p50"
+  | "video_watched_p75"
 >;
 
 export interface BuildGroupedMetricBaseSeriesOptions extends MetricValueContext {
@@ -362,6 +385,18 @@ export function getMetricSeriesAvailability(
       const impressions = seriesData.impressions || [];
       return {
         dataAvailability: impressions.map((value) => value != null && value > 0),
+      };
+    }
+    case "plays":
+    case "thruplays":
+    case "scroll_stop":
+    case "hold_rate":
+    case "video_watched_p50":
+    case "video_watched_p75": {
+      const plays = seriesData.plays || [];
+      return {
+        dataAvailability: plays.map((value) => value != null && value > 0),
+        zeroValueLabel: "Sem plays",
       };
     }
     default: {

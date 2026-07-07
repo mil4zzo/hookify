@@ -7,7 +7,31 @@ import { IconChevronDown, IconCheck } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 
-export type ManagerColumnType = "hook" | "cpr" | "cpc" | "cplc" | "cpmql" | "spend" | "impressions" | "ctr" | "website_ctr" | "cpm" | "connect_rate" | "page_conv" | "results" | "mqls";
+export type ManagerColumnType =
+  | "hook"
+  | "cpr"
+  | "cpc"
+  | "cplc"
+  | "cpmql"
+  | "spend"
+  | "impressions"
+  | "clicks"
+  | "reach"
+  | "frequency"
+  | "ctr"
+  | "website_ctr"
+  | "cpm"
+  | "connect_rate"
+  | "page_conv"
+  | "results"
+  | "mqls"
+  | "lpv"
+  | "plays"
+  | "thruplays"
+  | "scroll_stop"
+  | "hold_rate"
+  | "video_watched_p50"
+  | "video_watched_p75";
 
 interface ManagerColumnFilterProps {
   activeColumns: Set<ManagerColumnType>;

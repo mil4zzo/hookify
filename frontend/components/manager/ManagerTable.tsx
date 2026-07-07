@@ -79,6 +79,7 @@ interface ManagerTableProps {
     hook: number | null;
     hold_rate?: number | null;
     video_watched_p50?: number | null;
+    video_watched_p75?: number | null;
     scroll_stop: number | null;
     ctr: number | null;
     website_ctr: number | null;
@@ -609,11 +610,15 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         inline_link_clicks: computedAverages.inline_link_clicks,
         lpv: computedAverages.lpv,
         plays: computedAverages.plays,
+        thruplays: computedAverages.thruplays,
+        reach: computedAverages.reach,
         results: computedAverages.results,
         hook: averagesOverride.hook,
         hold_rate: averagesOverride.hold_rate ?? null,
         video_watched_p50: averagesOverride.video_watched_p50 ?? null,
+        video_watched_p75: averagesOverride.video_watched_p75 ?? null,
         scroll_stop: averagesOverride.scroll_stop,
+        frequency: computedAverages.frequency,
         ctr: averagesOverride.ctr,
         website_ctr: averagesOverride.website_ctr ?? computedAverages.website_ctr,
         connect_rate: averagesOverride.connect_rate,
@@ -629,6 +634,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         mqls: computedAverages.mqls,
         sumSpend: computedAverages.sumSpend,
         sumImpressions: computedAverages.sumImpressions,
+        sumClicks: computedAverages.sumClicks,
+        sumReach: computedAverages.sumReach,
+        sumLpv: computedAverages.sumLpv,
+        sumPlays: computedAverages.sumPlays,
+        sumThruplays: computedAverages.sumThruplays,
         sumResults: computedAverages.sumResults,
         sumMqls: computedAverages.sumMqls,
       } as ManagerAverages;
