@@ -36,6 +36,18 @@ import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { usePacksHealth } from "@/lib/hooks/usePacksHealth";
+import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
+import { usePackDiagnostic } from "@/lib/hooks/usePackDiagnostic";
+import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
+import { DayComparisonBlock } from "@/components/plano/DayComparisonBlock";
+import { PackDiagnosticPanel } from "@/components/plano/PackDiagnosticPanel";
+import type { RankingsItem } from "@/lib/api/schemas";
+import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
+
+// Hangar fase 2 — diagnóstico consolidado do esquadrão na própria página Packs.
+// Rollback instantâneo: flip para false (a Packs volta a ser só estante+CRUD,
+// equivalente ao commit 840f0f7). O /plano segue com o bloco próprio (não removido).
+const HANGAR_DIAGNOSTIC_ENABLED = true;
 import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh";
 import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -242,6 +254,29 @@ export default function PacksPage() {
   // um modelo de seleção só, duas superfícies (Topbar compacta + Packs rica).
   const { selectedPackIds, togglePack } = useFilters();
   const { healthByPackId, windowDays: healthWindowDays, actionType: healthActionType } = usePacksHealth(packs);
+
+  // ── Diagnóstico consolidado do esquadrão (fase 2) ───────────────────────────
+  // Mesmo motor do /plano: pipeline (todos os ads = média global) + usePackDiagnostic.
+  const {
+    filteredRankings,
+    serverAverages,
+    actionType,
+    actionTypeOptions,
+    dateRange,
+  } = useAdPerformancePipeline({ enabled: HANGAR_DIAGNOSTIC_ENABLED });
+  const { targetCprByActionType, diagnosticCostMetric, savePreferences } = useUserPreferences();
+  const diagnostic = usePackDiagnostic({
+    ads: (HANGAR_DIAGNOSTIC_ENABLED ? (filteredRankings ?? []) : []) as RankingsItem[],
+    actionType: actionType ?? "",
+    selectedPackIds,
+    dateRange: { start: dateRange.start ?? "", end: dateRange.end ?? "" },
+    targetOverride: diagnosticCostMetric,
+  });
+  const [showFullDiagnostic, setShowFullDiagnostic] = useState(false);
+  const currentTargetCpr = actionType ? targetCprByActionType?.[actionType] : undefined;
+  const handleSelectDiagnosticMetric = (m: DiagnosticTarget) => {
+    void savePreferences({ diagnosticCostMetric: m });
+  };
 
   // API hooks
   // Habilitado sempre (não só com o modal aberto): os cards de pack usam o nome da conta de origem.
@@ -674,6 +709,52 @@ export default function PacksPage() {
                 ))}
                 {selectedPackIds.size === 0 && <span className="text-sm text-muted-foreground italic">nenhum pack selecionado — clique num card para adicionar</span>}
               </div>
+
+              {/* Diagnóstico consolidado do esquadrão (fase 2) — mesmo motor do /plano */}
+              {HANGAR_DIAGNOSTIC_ENABLED && selectedPackIds.size > 0 && actionType && (
+                <div className="flex flex-col gap-4">
+                  <DayComparisonBlock
+                    diagnostic={diagnostic}
+                    actionType={actionType}
+                    onSelectMetric={handleSelectDiagnosticMetric}
+                    benchmarkAverages={serverAverages}
+                    actionTypeOptions={actionTypeOptions}
+                    selectedPackIds={selectedPackIds}
+                    dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
+                    targetCpr={currentTargetCpr}
+                  />
+                  {/* Painel de aprofundamento (colapsável) — toggle próprio, resolve o
+                      caso em que no /plano ele ficava inacessível sem actionPlan */}
+                  {diagnostic.snaps.length > 0 && (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowFullDiagnostic((v) => !v)}
+                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showFullDiagnostic ? "fechar diagnóstico completo ↑" : "ver diagnóstico completo ↓"}
+                      </button>
+                    </div>
+                  )}
+                  {showFullDiagnostic && diagnostic.snaps.length > 0 && (
+                    <PackDiagnosticPanel
+                      snaps={diagnostic.snaps}
+                      decomposition={diagnostic.decomposition}
+                      trendLines={diagnostic.trendLines}
+                      budgetShareData={diagnostic.budgetShareData}
+                      target={diagnostic.target}
+                      adKeyToName={diagnostic.adKeyToName}
+                      adMap={diagnostic.adMap}
+                      comparisonLabel={diagnostic.comparisonLabel}
+                      benchmarkAverages={serverAverages}
+                      actionType={actionType}
+                      actionTypeOptions={actionTypeOptions}
+                      selectedPackIds={selectedPackIds}
+                      dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
+                    />
+                  )}
+                </div>
+              )}
 
               {/* Estante horizontal: click no card = toggle no esquadrão */}
               <div className="flex gap-6 overflow-x-auto pb-4 pt-2 px-1 snap-x">
