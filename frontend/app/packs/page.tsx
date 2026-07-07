@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
@@ -237,10 +237,19 @@ export default function PacksPage() {
   const { isLoading: isLoadingPacks } = usePacksLoading();
 
   // API hooks
+  // Habilitado sempre (não só com o modal aberto): os cards de pack usam o nome da conta de origem.
   const { data: adAccountsData = [], isLoading: adAccountsLoading } = useAdAccountsDb({
-    enabled: isDialogOpen,
     populateStore: false,
   });
+
+  // Mapa adaccount_id → nome, para exibir a conta de origem em cada card de pack.
+  const adAccountNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const account of adAccountsData) {
+      if (account?.id) map.set(account.id, account.name);
+    }
+    return map;
+  }, [adAccountsData]);
 
   // Para o modal de refresh: habilita botão Confirmar apenas se ao menos um processo estiver selecionado
   const refreshModalPack = packToRefresh ? packs.find((p) => p.id === packToRefresh.id) : null;
@@ -641,7 +650,7 @@ export default function PacksPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-8">
               {packs.map((pack) => (
-                <PackCard key={pack.id} pack={pack} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                <PackCard key={pack.id} pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
               ))}
             </div>
           )}

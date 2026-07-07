@@ -28,6 +28,8 @@ const getFilterFieldLabel = (fieldValue: string) => {
 
 export interface PackCardProps {
   pack: AdsPack;
+  /** Nome da conta de anúncio de origem do pack, resolvido de `adaccount_id` na página. */
+  adAccountName?: string;
   formatCurrency: (value: number) => string;
   formatDate: (dateString: string) => string;
   // Handlers
@@ -55,8 +57,10 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
+  // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
+  const adAccountLabel = adAccountName || pack.adaccount_id;
   const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(pack.name);
@@ -304,6 +308,22 @@ export function PackCard({ pack, formatCurrency, formatDate, onRefresh, onRemove
                     )}
                   </div>
                 </div>
+                {/* Conta de anúncio de origem */}
+                {adAccountLabel && (
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div className="inline-flex items-center gap-1.5 text-xs text-muted-foreground max-w-full cursor-default">
+                          <MetaIcon className="w-3 h-3 flex-shrink-0" />
+                          <span className="truncate">{adAccountLabel}</span>
+                        </div>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom">
+                        <p>Conta de anúncio: {adAccountLabel}</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
                 {/* Filtros */}
                 {pack.filters && pack.filters.length > 0 && (
                   <div className="flex justify-center flex-wrap gap-2">
