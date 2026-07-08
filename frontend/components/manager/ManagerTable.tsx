@@ -10,7 +10,7 @@ import { AdInfoCard } from "@/components/ads/AdInfoCard";
 const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState, RowSelectionState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText, IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText, IconPlayerPause, IconPlayerPlay, IconX, IconMaximize, IconMinimize } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
@@ -33,7 +33,7 @@ import { MetricCell } from "@/components/manager/MetricCell";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import { DEFAULT_MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
+import { DEFAULT_MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
 import { MinimalTableContent } from "@/components/manager/MinimalTableContent";
 import { ManagerDrillModal } from "@/components/manager/ManagerDrillModal";
@@ -45,6 +45,7 @@ import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAv
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { exportManagerToCsv } from "@/lib/utils/exportManagerCsv";
 import { useBulkAdStatusControl } from "@/lib/hooks/useAdStatusControl";
+import { cn } from "@/lib/utils/cn";
 
 type Ad = RankingsItem;
 
@@ -252,6 +253,20 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     },
     [saveManagerColumns],
   );
+
+  // Bulk: seleciona todas as colunas habilitadas (ex: cpmql/mqls ficam de fora sem planilha)
+  const handleSelectAllColumns = useCallback(() => {
+    const next = new Set<ManagerColumnType>(MANAGER_COLUMN_OPTIONS.filter((column) => isColumnEnabled(column.id)).map((column) => column.id));
+    saveManagerColumns(next);
+    setActiveColumns(next);
+  }, [isColumnEnabled, saveManagerColumns]);
+
+  // Bulk: limpa a seleção (mesmo padrão do PackFilter — 0 é um estado válido)
+  const handleDeselectAllColumns = useCallback(() => {
+    const next = new Set<ManagerColumnType>();
+    saveManagerColumns(next);
+    setActiveColumns(next);
+  }, [saveManagerColumns]);
   const handleTabChange = (value: string) => {
     const next = value as ManagerTab;
     if (activeTab === undefined) {
@@ -328,6 +343,21 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const [selectedAd, setSelectedAd] = useState<Ad | null>(null);
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
   const hydratingTabRef = useRef<ManagerTab | null>(null);
+
+  // Fullscreen: sobrepõe topbar/sidebar (z-40) com um overlay fixed z-50, dando toda a viewport à tabela.
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // Dialogs/menus Radix abertos consomem o Escape primeiro — não sair do fullscreen junto.
+      if (document.querySelector('[data-state="open"][role="dialog"], [data-state="open"][role="menu"], [data-state="open"][role="listbox"]')) return;
+      setIsFullscreen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isFullscreen]);
 
   // Drill state (URL-backed). Substitui a expansão inline por um modal único com breadcrumb.
   const drill = useDrillState();
@@ -936,7 +966,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
             </div>
           </TooltipProvider>
           <div className="w-full sm:w-[190px]">
-            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} />
+            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -955,10 +985,22 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" onClick={() => setIsFullscreen((prev) => !prev)} className="py-2 px-3 border border-input bg-background rounded-lg" aria-label={isFullscreen ? "Sair da tela cheia" : "Tela cheia"} aria-pressed={isFullscreen}>
+                  {isFullscreen ? <IconMinimize className="h-4 w-4" /> : <IconMaximize className="h-4 w-4" />}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">{isFullscreen ? "Sair da tela cheia (Esc)" : "Tela cheia"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, hasSheetIntegration, isExporting],
+    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isExporting, isFullscreen],
   );
 
   const tableContentProps = useMemo(
@@ -993,6 +1035,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   );
   return (
     <>
+      {/* Em fullscreen, o wrapper vira overlay fixed acima do topbar/sidebar (z-40) e a tabela ganha a viewport inteira. */}
+      <div className={cn(isFullscreen ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background p-widget-default" : "flex min-h-0 min-w-0 flex-1 flex-col")}>
       <TabbedWorkspace
         value={currentTab}
         onValueChange={handleTabChange}
@@ -1102,6 +1146,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           </TableWorkspace>
         </TabbedContentItem>
       </TabbedWorkspace>
+      </div>
 
       {/* Drill Modal — substitui a expansão inline (campanha → conjuntos → anúncios) */}
       <ManagerDrillModal
