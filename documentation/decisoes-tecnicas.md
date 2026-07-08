@@ -6,6 +6,18 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Diagnóstico do dia = 1ª aba do /insights; redesign "Hangar" da Packs rejeitado
+
+**Data:** 2026-07-08 · status: **implementado (commits 060d4cd revert + dd2e3be)**
+
+**Decisão:** a análise "o que mudou hoje" (`DayComparisonBlock` + `PackDiagnosticPanel`) fica como a **primeira aba do /insights** ("Diagnóstico", ativa por padrão), reusando a seleção de packs / evento de conversão / date-range que o **Topbar já oferece**. Mesmo motor do /plano (`serverData` = todos os ads = média global + `usePackDiagnostic`). O /plano mantém a cópia própria por ora.
+
+**Contexto / lição (o usuário mudou de ideia):** antes disso, tentou-se dar um "toque gamer" à página Packs — o **"Hangar" / Packs 2.0**: estante horizontal + carrossel, cards de saúde estilo carta FUT (health-ring + score 0–100 vs custo-alvo), seleção-por-clique que virava o filtro global do app, e o diagnóstico consolidado migrado pra Packs. Passou por brainstorming multi-agente (3 revisores + árbitro → APPROVED com ajustes) e mockup HTML aprovado. O usuário então **rejeitou tudo**: *"é frescura e só vai deixar o app mais confuso e menos intuitivo. Vamos voltar para o arroz com feijão que funciona."* Revertido (Packs voltou a grid + CRUD; deletados `usePacksHealth.ts`, `PackHealthBadge.tsx` e o design doc).
+
+**Regra derivada:** não re-propor redesign gamificado / character-card / carrossel da página Packs — a prioridade declarada é **simplicidade/intuitividade acima de "wow"**. Feature analítica nova → preferir **aba numa página cujo nome já faz sentido**, reusando os filtros globais, em vez de inventar superfície nova com modelo de seleção próprio. O princípio "gamificar a leitura, não a ação" continua válido, mas subordinado à simplicidade.
+
+---
+
 ## Revisão completa do billing Stripe — 5 bugs corrigidos + reconciliação anti-webhook-perdido
 
 **Data:** 2026-07-01 · status: **implementado, 35 testes passando (16 novos), tsc clean**
