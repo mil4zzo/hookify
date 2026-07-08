@@ -228,6 +228,15 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const hasAnyLeadscoreSyncInfo = !!(lastSuccessfulSyncAt || lastSyncAttemptAt);
   const leadscoreDateForDisplay = leadscoreSyncFailed ? lastSuccessfulSyncAt || "" : lastSuccessfulSyncAt || lastSyncAttemptAt || "";
 
+  // Juice (fase 3): aura sutil pelo estado de saúde — só nos estados com direção
+  // (escalando/sangrando); estados neutros e card selecionado (ring primary) ficam limpos.
+  const healthGlowClass =
+    !selected && health?.state === "escalando"
+      ? "border-success-30 shadow-[0_0_26px_-10px_var(--success)]"
+      : !selected && health?.state === "sangrando"
+        ? "border-destructive-30 shadow-[0_0_26px_-10px_var(--destructive)]"
+        : "";
+
   return (
     <div className="relative inline-block w-full group">
       {/* Cards decorativos: leque sutil, pivotando do bottom — inspirado em pasta de papéis */}
@@ -241,7 +250,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
             padding="none"
             interactive
             onClick={() => onToggleSelect?.(pack.id)}
-            className={`relative flex flex-col cursor-pointer z-10 w-full overflow-hidden transition-[transform,box-shadow,border-color] duration-300 hover:bg-card hover:shadow-elevation-overlay ${selected ? "border-primary ring-2 ring-primary -translate-y-1" : "hover:border-border"}`}
+            className={`relative flex flex-col cursor-pointer z-10 w-full overflow-hidden transition-[transform,box-shadow,border-color] duration-300 hover:bg-card hover:shadow-elevation-overlay ${selected ? "border-primary ring-2 ring-primary -translate-y-1" : `hover:border-border ${healthGlowClass}`}`}
           >
             {/* Botão ⋯ de ações (CRUD) — não propaga pro toggle de seleção */}
             <div className="absolute top-2 right-2 z-30" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { PackHealth, PackHealthState } from "@/lib/hooks/usePacksHealth";
 
@@ -29,9 +30,30 @@ export function PackHealthBadge({ health, formatCurrency, windowDays, actionType
   const meta = STATE_META[health.state];
   const pct = health.healthPct;
 
+  // Juice: número conta de 0 até o score (easeOutCubic ~700ms); o anel acompanha
+  // porque o dasharray deriva do valor animado. Gamificar a leitura, sem atrasá-la.
+  const [animatedPct, setAnimatedPct] = useState<number | null>(pct != null ? 0 : null);
+  useEffect(() => {
+    if (pct == null) {
+      setAnimatedPct(null);
+      return;
+    }
+    let raf = 0;
+    const start = performance.now();
+    const DURATION = 700;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / DURATION);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setAnimatedPct(Math.round(pct * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [pct]);
+
   const R = 20;
   const C = 2 * Math.PI * R;
-  const filled = pct != null ? (pct / 100) * C : 0;
+  const filled = animatedPct != null ? (animatedPct / 100) * C : 0;
 
   const tooltip = (() => {
     const lines: string[] = [`Últimos ${windowDays} dias${actionType ? ` · ${actionType}` : ""}`];
@@ -53,16 +75,16 @@ export function PackHealthBadge({ health, formatCurrency, windowDays, actionType
             <div className="relative w-12 h-12 flex-shrink-0">
               <svg viewBox="0 0 48 48" className="w-12 h-12 -rotate-90">
                 <circle cx="24" cy="24" r={R} fill="none" strokeWidth="4" className="stroke-border" />
-                {pct != null && (
+                {animatedPct != null && (
                   <circle
                     cx="24" cy="24" r={R} fill="none" strokeWidth="4" strokeLinecap="round"
                     strokeDasharray={`${filled} ${C - filled}`}
-                    className={`${meta.ringClass} transition-[stroke-dasharray] duration-700 ease-out`}
+                    className={meta.ringClass}
                   />
                 )}
               </svg>
               <div className="absolute inset-0 flex items-center justify-center">
-                <span className={`text-[11px] font-bold ${meta.textClass}`}>{pct != null ? pct : meta.emoji}</span>
+                <span className={`text-[11px] font-bold ${meta.textClass}`}>{animatedPct != null ? animatedPct : meta.emoji}</span>
               </div>
             </div>
             {/* Estado nomeado + número SEMPRE junto */}

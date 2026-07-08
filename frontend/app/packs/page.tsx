@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
@@ -19,7 +19,8 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
+import { getMetricValueTextClass } from "@/lib/utils/metricQuality";
 
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -273,6 +274,11 @@ export default function PacksPage() {
     targetOverride: diagnosticCostMetric,
   });
   const [showFullDiagnostic, setShowFullDiagnostic] = useState(false);
+  // Estante: navegação por setas (scroll suave de ~1 card por click)
+  const shelfRef = useRef<HTMLDivElement>(null);
+  const scrollShelf = (dir: 1 | -1) => {
+    shelfRef.current?.scrollBy({ left: dir * 346, behavior: "smooth" });
+  };
   const currentTargetCpr = actionType ? targetCprByActionType?.[actionType] : undefined;
   const handleSelectDiagnosticMetric = (m: DiagnosticTarget) => {
     void savePreferences({ diagnosticCostMetric: m });
@@ -713,6 +719,13 @@ export default function PacksPage() {
               {/* Diagnóstico consolidado do esquadrão (fase 2) — mesmo motor do /plano */}
               {HANGAR_DIAGNOSTIC_ENABLED && selectedPackIds.size > 0 && actionType && (
                 <div className="flex flex-col gap-4">
+                  {/* Match report: a frase do dia (buildDiagnosticSummary, já computada
+                      pelo motor) — narrativa de pós-jogo, custo zero */}
+                  {diagnostic.summary && (
+                    <p className={`text-sm font-medium ${diagnostic.summary.muted ? "text-muted-foreground" : getMetricValueTextClass(diagnostic.summary.tone)}`}>
+                      ⚡ {diagnostic.summary.headline}
+                    </p>
+                  )}
                   <DayComparisonBlock
                     diagnostic={diagnostic}
                     actionType={actionType}
@@ -757,12 +770,38 @@ export default function PacksPage() {
               )}
 
               {/* Estante horizontal: click no card = toggle no esquadrão */}
-              <div className="flex gap-6 overflow-x-auto pb-4 pt-2 px-1 snap-x">
-                {packs.map((pack) => (
-                  <div key={pack.id} className="w-[320px] flex-shrink-0 snap-start">
+              <div className="relative">
+                {packs.length > 4 && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Rolar packs para a esquerda"
+                      onClick={() => scrollShelf(-1)}
+                      className="hidden md:flex absolute -left-4 top-1/2 -translate-y-1/2 z-20 items-center justify-center w-9 h-9 rounded-full border border-border bg-card shadow-elevation-overlay text-muted-foreground hover:text-foreground hover:border-primary-50 transition-colors"
+                    >
+                      <IconChevronLeft className="w-5 h-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Rolar packs para a direita"
+                      onClick={() => scrollShelf(1)}
+                      className="hidden md:flex absolute -right-4 top-1/2 -translate-y-1/2 z-20 items-center justify-center w-9 h-9 rounded-full border border-border bg-card shadow-elevation-overlay text-muted-foreground hover:text-foreground hover:border-primary-50 transition-colors"
+                    >
+                      <IconChevronRight className="w-5 h-5" />
+                    </button>
+                  </>
+                )}
+              <div ref={shelfRef} className="flex gap-6 overflow-x-auto pb-4 pt-2 px-1 snap-x">
+                {packs.map((pack, i) => (
+                  <div
+                    key={pack.id}
+                    className="w-[320px] flex-shrink-0 snap-start animate-in fade-in slide-in-from-bottom-2 duration-500"
+                    style={{ animationDelay: `${Math.min(i, 10) * 45}ms`, animationFillMode: "both" }}
+                  >
                     <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} selected={selectedPackIds.has(pack.id)} onToggleSelect={togglePack} health={healthByPackId.get(pack.id)} healthWindowDays={healthWindowDays} healthActionType={healthActionType} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
                   </div>
                 ))}
+              </div>
               </div>
             </div>
           )}
