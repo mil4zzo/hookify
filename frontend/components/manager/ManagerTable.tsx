@@ -10,8 +10,8 @@ import { AdInfoCard } from "@/components/ads/AdInfoCard";
 const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState, RowSelectionState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText, IconPlayerPause, IconPlayerPlay, IconX, IconMaximize, IconMinimize } from "@tabler/icons-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText, IconPlayerPause, IconPlayerPlay, IconX, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown, IconPalette } from "@tabler/icons-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { api } from "@/lib/api/endpoints";
@@ -107,6 +107,7 @@ const columnHelper = createColumnHelper<Ad>();
 
 const STORAGE_KEY_MANAGER_COLUMNS = "hookify-manager-columns";
 const STORAGE_KEY_VIEW_MODE = "hookify-manager-view-mode";
+const STORAGE_KEY_COLOR_METRICS = "hookify-manager-color-metrics";
 
 // Map vazio estável para byKey quando server series existem (evita re-criação de columns)
 const EMPTY_SERIES_MAP = new Map<string, any>();
@@ -188,6 +189,26 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     },
     [debouncedStorage],
   );
+
+  // Colorir o número das métricas pela distância da média (escala de 5 tons, igual aos sparklines).
+  // Persistido em localStorage — preferência de exibição que deve valer entre sessões.
+  const [colorMetricValue, setColorMetricValue] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(STORAGE_KEY_COLOR_METRICS) === "true";
+    } catch (e) {
+      return false;
+    }
+  });
+
+  const handleColorMetricValueChange = useCallback((checked: boolean) => {
+    setColorMetricValue(checked);
+    try {
+      localStorage.setItem(STORAGE_KEY_COLOR_METRICS, String(checked));
+    } catch (e) {
+      logger.error("Erro ao salvar preferência de colorir métricas:", e);
+    }
+  }, []);
 
   // Remover automaticamente cpmql e mqls quando hasSheetIntegration for false
   useEffect(() => {
@@ -777,6 +798,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       formatCurrencyRef,
       formatPct,
       viewMode,
+      colorMetricValue,
       hasSheetIntegration,
       mqlLeadscoreMin,
       actionTypeRef,
@@ -785,7 +807,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -940,41 +962,43 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     () => (
       <>
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
-          {/* Toggle de visualização: dois botões alternantes */}
-          <TooltipProvider>
-            <div className="flex rounded-lg border border-input bg-background items-stretch" role="group" aria-label="Modo de visualização">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant={viewMode === "detailed" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("detailed")} className="h-full py-2 px-3 rounded-md" aria-label="Visualização detalhada" aria-pressed={viewMode === "detailed"}>
-                    <IconListDetails className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Visualização detalhada</p>
-                </TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant={viewMode === "minimal" ? "secondary" : "ghost"} size="sm" onClick={() => handleViewModeChange("minimal")} className="h-full py-2 px-3 rounded-md" aria-label="Visualização minimal" aria-pressed={viewMode === "minimal"}>
-                    <IconList className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="text-xs">Visualização minimal</p>
-                </TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
+          {/* Colunas: controle mais usado, permanece dedicado e fora do menu */}
           <div className="w-full sm:w-[190px]">
             <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
           </div>
+
+          {/* Exibição: agrupa visualização, colorir métricas e exportar (ações esporádicas) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" disabled={isExporting} className="py-2 px-3 border border-input bg-background rounded-lg" aria-label="Exportar CSV">
-                {isExporting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconDownload className="h-4 w-4" />}
+              <Button variant="ghost" className="py-2 px-3 border border-input bg-background rounded-lg gap-2" aria-label="Opções de exibição">
+                {isExporting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconAdjustmentsHorizontal className="h-4 w-4" />}
+                <span className="hidden text-sm sm:inline">Exibição</span>
+                <IconChevronDown className="h-4 w-4 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" className="w-60">
+              <DropdownMenuLabel>Visualização</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={viewMode} onValueChange={(v) => handleViewModeChange(v as ViewMode)}>
+                <DropdownMenuRadioItem value="detailed" onSelect={(e) => e.preventDefault()}>
+                  <IconListDetails className="mr-2 h-4 w-4" />
+                  Detalhada
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="minimal" onSelect={(e) => e.preventDefault()}>
+                  <IconList className="mr-2 h-4 w-4" />
+                  Minimal
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuCheckboxItem checked={colorMetricValue} onCheckedChange={handleColorMetricValueChange} onSelect={(e) => e.preventDefault()}>
+                <span className="flex items-center gap-2">
+                  <IconPalette className="h-4 w-4" />
+                  Colorir métricas pela média
+                </span>
+              </DropdownMenuCheckboxItem>
+
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel>Exportar</DropdownMenuLabel>
               <DropdownMenuItem onClick={() => handleExportRef.current(false)}>
                 <IconDownload className="h-4 w-4 mr-2" />
                 Exportar métricas
@@ -985,6 +1009,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Fullscreen: ação espacial com feedback imediato, permanece fora do menu */}
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1000,7 +1026,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, activeColumns, handleToggleColumn, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isExporting, isFullscreen],
+    [viewMode, handleViewModeChange, colorMetricValue, handleColorMetricValueChange, activeColumns, handleToggleColumn, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isExporting, isFullscreen],
   );
 
   const tableContentProps = useMemo(

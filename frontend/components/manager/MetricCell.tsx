@@ -3,7 +3,10 @@
 import React from "react";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
+import { Badge } from "@/components/ui/badge";
 import { RankingsItem } from "@/lib/api/schemas";
+import { cn } from "@/lib/utils/cn";
+import { getMetricQualityToneByAverage, getMetricValueTextClass } from "@/lib/utils/metricQuality";
 import {
   buildMetricSeriesFromSourceSeries,
   formatMetricValue,
@@ -14,7 +17,6 @@ import {
   type ManagerAverages,
   type ManagerMetricKey,
 } from "@/lib/metrics";
-import { getMetricValueTextClass } from "@/lib/utils/metricQuality";
 
 interface MetricCellProps {
   row: RankingsItem | { original?: RankingsItem };
@@ -31,6 +33,7 @@ interface MetricCellProps {
   mqlLeadscoreMin?: number;
   minimal?: boolean; // Prop para modo minimal
   lightweight?: boolean; // Quando true, SparklineBars usa title nativo em vez de Radix Tooltip
+  colorMetricValue?: boolean; // Quando true, colore o número da métrica pela distância da média (escala de 5 tons, igual aos sparklines)
 }
 
 // Custom comparison function for React.memo
@@ -55,6 +58,7 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
   if (prev.mqlLeadscoreMin !== next.mqlLeadscoreMin) return false;
   if (prev.minimal !== next.minimal) return false;
   if (prev.lightweight !== next.lightweight) return false;
+  if (prev.colorMetricValue !== next.colorMetricValue) return false;
 
   // Function references (should be stable if parent uses useCallback)
   if (prev.getRowKey !== next.getRowKey) return false;
@@ -70,9 +74,22 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
   return true;
 }
 
-export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, showTrends, averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false, lightweight = false }: MetricCellProps) {
+export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, showTrends, averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false, lightweight = false, colorMetricValue = false }: MetricCellProps) {
   // row já é o objeto agregado (info.row.original), então precisamos ajustar
   const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
+
+  // Cor do número da métrica pela distância da média (mesma escala de 5 tons dos sparklines).
+  // Usa os mesmos insumos do sparkline: valor atual da linha × média do pack × polaridade.
+  // packAverage é null para "spend" (soma, não média) → sem cor, comportamento correto.
+  const valueColorClass = React.useMemo(() => {
+    if (!colorMetricValue) return "";
+    const currentValue = getManagerMetricCurrentValue(original as any, metric, { actionType, mqlLeadscoreMin, hasSheetIntegration });
+    if (currentValue == null || !Number.isFinite(currentValue)) return "";
+    const { packAverage, inverseColors } = getManagerMetricTrendPresentation(metric, averages);
+    if (packAverage == null) return "";
+    const tone = getMetricQualityToneByAverage(currentValue, packAverage, inverseColors);
+    return getMetricValueTextClass(tone);
+  }, [colorMetricValue, original, metric, actionType, mqlLeadscoreMin, hasSheetIntegration, averages]);
   const seriesLoading = Boolean((original as any).series_loading);
   const BAR_COUNT = 5;
   const FADE_DURATION_MS = 500;
@@ -130,7 +147,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     return (
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
         <SparklineSkeleton minimal={minimal} barCount={loadedBarsCount} staggeredFadeOut={false} />
-        <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
+        <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
       </div>
     );
   }
@@ -196,7 +213,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
               {sparklineBars}
             </div>
           </div>
-          <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
+          <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
         </div>
       );
     }
@@ -205,7 +222,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     return (
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
         {sparklineBars}
-        <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
+        <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
       </div>
     );
   }
@@ -225,19 +242,21 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     // Se não conseguimos extrair o valor, mostrar apenas o valor original
     return (
       <div className="flex flex-col items-center gap-3">
-        <span className="text-base font-medium leading-none">{value}</span>
+        <span className={cn("text-base font-medium leading-none", valueColorClass)}>{value}</span>
       </div>
     );
   }
 
-  const colorClass = getMetricValueTextClass(deltaPresentation.tone ?? "muted-foreground");
+  // Modo "média": badge só verde (melhora) / vermelho (piora) / neutro (empate) —
+  // sem a escala de 5 tons usada em sparklines/cards (ver getManagerMetricDeltaPresentation).
+  const deltaBadgeVariant = deltaPresentation.tone === "success" ? "success" : deltaPresentation.tone === "destructive" ? "destructive" : "outline";
 
   return (
     <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
-      <span className={`text-xs font-medium ${colorClass}`}>
+      <Badge variant={deltaBadgeVariant} className={minimal ? "px-1.5 py-0 text-[10px] leading-4" : "text-xs"}>
         {deltaPresentation.text}
-      </span>
-      <span className={`${minimal ? "text-xs" : "text-base"} font-medium leading-none`}>{value}</span>
+      </Badge>
+      <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
     </div>
   );
 }, arePropsEqual);

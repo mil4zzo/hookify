@@ -37,6 +37,8 @@ export type CreateManagerTableColumnsParams = {
   formatPct: (v: number) => string;
 
   viewMode: ViewMode;
+  /** Quando true, colore o número de cada métrica pela distância da média (escala de 5 tons). */
+  colorMetricValue: boolean;
   hasSheetIntegration: boolean;
   mqlLeadscoreMin: number;
   actionTypeRef: React.MutableRefObject<string>;

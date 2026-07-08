@@ -382,6 +382,7 @@ export default function DesignSystemPage() {
                 <Badge variant="default">Default</Badge>
                 <Badge variant="secondary">Secondary</Badge>
                 <Badge variant="destructive">Destructive</Badge>
+                <Badge variant="success">Success</Badge>
                 <Badge variant="outline">Outline</Badge>
               </div>
             </WidgetPanel>

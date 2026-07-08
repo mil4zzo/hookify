@@ -298,7 +298,7 @@ test("derives manager presentation metadata from metric semantics", () => {
     {
       kind: "text",
       text: "-20.0%",
-      tone: "warning",
+      tone: "destructive",
     },
   );
 
@@ -307,7 +307,7 @@ test("derives manager presentation metadata from metric semantics", () => {
     {
       kind: "text",
       text: "-50.0%",
-      tone: "primary",
+      tone: "success",
     },
   );
 });

@@ -101,7 +101,9 @@ export default {
           hover: "color-mix(in oklab, var(--destructive) 90%, oklch(1 0 0) 10%)",
         }),
         "destructive-foreground": alphaScale("--destructive-foreground"),
-        success: semanticScale("success"),
+        success: semanticScale("success", {
+          hover: "color-mix(in oklab, var(--success) 90%, oklch(1 0 0) 10%)",
+        }),
         "success-foreground": alphaScale("--success-foreground"),
         warning: alphaScale("--warning"),
         "warning-foreground": alphaScale("--warning-foreground"),

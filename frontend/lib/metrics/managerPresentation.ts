@@ -1,4 +1,4 @@
-import { getMetricQualityToneByAverage, type MetricQualityTone } from "@/lib/utils/metricQuality";
+import type { MetricQualityTone } from "@/lib/utils/metricQuality";
 import { getMetricNumericValueOrNull, type MetricValueContext, type MetricValueSource } from "./calculations";
 import { METRIC_DEFINITIONS } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
@@ -109,7 +109,10 @@ export function getManagerMetricDeltaPresentation(
   }
 
   const sign = inverse ? (diffPercent > 0 ? "-" : "+") : diffPercent > 0 ? "+" : "-";
-  const tone = getMetricQualityToneByAverage(currentValue, avgValue, inverse);
+  // Modo "média": só verde (melhora) / vermelho (piora) / cinza (empate) — sem a escala
+  // de 5 tons (destructive/warning/attention/success/primary) usada em sparklines e cards.
+  // diffPercent já embute a inversão de polaridade (CPR menor = diffPercent positivo).
+  const tone: MetricQualityTone = diffPercent > 0 ? "success" : diffPercent < 0 ? "destructive" : "muted-foreground";
 
   return {
     kind: "text",
