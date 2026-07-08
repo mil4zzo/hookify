@@ -97,7 +97,12 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     () => packs.filter((p) => selectedPackIds.has(p.id)),
     [packs, selectedPackIds]
   );
-  const { packsAdsMap, isLoading: packsAdsLoading } = usePacksAds(selectedPacks);
+  // getPackId só é usado quando filterToSelectedPacks=true (Plano/GOLD). Passar [] evita
+  // o fetch de pack-ads inteiro quando ninguém vai consumi-lo (ex: Insights, que valida
+  // sobre o serverData já escopado pelo pack_ids do servidor).
+  const { packsAdsMap, isLoading: packsAdsLoading } = usePacksAds(
+    filterToSelectedPacks ? selectedPacks : []
+  );
 
   // Retorna packId do primeiro pack que contém o ad, ou null
   const getPackId = useMemo(() => {

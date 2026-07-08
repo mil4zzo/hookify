@@ -1680,3 +1680,27 @@ As páginas **Plano, GOLD e Insights** montavam o request de `/ad-performance` *
 **Gotcha descoberto (registrado em memória `manager_metric_column_pipeline`):** o FilterBar divide o input do usuário por 100 para colunas `isPercentage` — correto para métricas 0-1 (`ratioPercent`: ctr, hook...), errado para `rawPercent` (p50/p75 vivem em 0-100). Novo helper `isManagerRatioPercentMetric` restringe o flag; rawPercent filtra numérico direto.
 
 **Verificação:** tsc --noEmit limpo, `next build` OK, 31+29+13 testes frontend e 113 backend passando. Pendência de deploy: aplicar migration 090 ANTES de subir o backend/frontend (a coluna nova entra nos SELECTs dos children — sem ela o PostgREST devolve erro de coluna inexistente).
+
+## Pesquisa: gerenciamento de orçamento via Graph API (2026-07-08)
+
+**Contexto:** pesquisa preparatória (feature ainda não implementada) para editar budget de campanhas/adsets pelo Hookify. Regras verificadas na documentação oficial v24.0:
+
+- **Unidade:** `daily_budget`/`lifetime_budget` são int64 em **subunidade da moeda da conta** (offset 100 p/ BRL/USD; moedas sem centavos como JPY usam offset 1). ⚠️ `ad_accounts` não guarda `currency` hoje — pré-requisito buscar via `GET /act_{id}?fields=currency` e persistir.
+- **Exclusividade:** daily XOR lifetime; `lifetime_budget` exige `end_time`.
+- **CBO vs ABO:** budget na campanha só quando CBO; no adset só quando ABO. Trocar CBO↔ABO via update exige `adset_budgets` com budget de TODOS os adsets filhos — não é PATCH simples. CBO com >70 adsets: não dá pra desligar.
+- **Ad Set Budget Sharing (2025+):** `is_adset_budget_sharing_enabled` — ABO com até 20% de budget móvel entre adsets.
+- **Budget scheduling:** `budget_schedule_specs` / edge `/budget_schedules` — até 50 períodos de alta demanda, ≥3h, só daily budget, teto 8× o daily, ABSOLUTE|MULTIPLIER.
+- **Mínimos:** dependem de bid_strategy + billing_event e país (~2× em US/UK/CA). Não hard-codar: hint via `GET /act_{id}/minimum_budgets` + erro da Meta como verdade final.
+- **Infra pronta:** `GraphAPI.update_campaign`/`update_adset` já aceitam payload arbitrário; `ads_management` já está no OAuth. Molde de write = pipeline de status (pre-check → write → verify → persistir a verdade lida).
+
+Memória correspondente: `meta_budget_api_rules.md`.
+
+## Removida a opção "Por Pack" do Insights/Oportunidades (2026-06-24)
+
+**Decisão:** removido o toggle "Global ↔ Por Pack" da aba Oportunidades do `/insights` (e junto: `packActionTypes`, `opportunityRowsByPack`, o seletor de evento de conversão por-pack, os dois localStorage keys `hookify-insights-group-by-packs`/`hookify-insights-pack-action-types`). A tela só mostra o agregado Global agora.
+
+**Por quê (não era só bug — era estrutural):** o `// KNOWN ISSUE` registrado na consolidação do pipeline (ver acima) apontava dois problemas do modo "Por Pack": (1) comparava cada pack contra a **média global** mesmo quando o pack tinha um `actionType` diferente selecionado — comparação inválida (maçã com laranja); (2) a RPC `fetch_manager_rankings_core_v2` é **single-key por request** — um único `action_type` por chamada — então dar suporte de verdade a "evento diferente por pack" exigiria N requests (um por pack × actionType), não é um fix local. Decisão: **remover** em vez de investir no N-fetch, porque (a) feature nichada — só afeta quem usa eventos diferentes por pack, (b) mantém o pipeline compartilhado (`useAdPerformancePipeline`) simples e single-fetch, sem abrir uma exceção estrutural pra um caso de uso raro.
+
+**Efeito colateral positivo:** como o Insights não precisa mais de `getPackId`/`packsAdsMap` (só usados pela quebra por-pack), `useAdPerformancePipeline` agora pula o fetch de `usePacksAds` inteiramente quando `filterToSelectedPacks=false` — `usePacksAds(filterToSelectedPacks ? selectedPacks : [])`. Zero requests de pack-ads a mais no Insights (antes já não bloqueava o render, ver fix anterior; agora nem dispara).
+
+**Se o pedido voltar:** não reimplementar comparando contra média global — ou fazer N fetches (um por pack, cada um com seu `action_type`) e médias calculadas por pack, ou manter Global-only. Relacionado: [[rankings_rpc_single_key_prefixed_conversions]].

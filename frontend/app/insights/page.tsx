@@ -9,14 +9,12 @@ import { GemsColumnFilter, GemsColumnType } from "@/components/common/GemsColumn
 import { InsightsKanbanWidget } from "@/components/insights/InsightsKanbanWidget";
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeOpportunityScores, OpportunityRow } from "@/lib/utils/opportunity";
-import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { IconSparkles, IconDiamond, IconSunFilled, IconStarFilled, IconActivity } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { PageContainer } from "@/components/common/PageContainer";
 import { PageActions } from "@/components/common/PageActions";
-import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { computeTopMetric, GemsTopItem } from "@/lib/utils/gemsTopMetrics";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { TabbedContentItem } from "@/components/common/TabbedContent";
@@ -30,8 +28,6 @@ import { PackDiagnosticPanel } from "@/components/plano/PackDiagnosticPanel";
 import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
 
 // Chaves específicas do Insights
-const STORAGE_KEY_GROUP_BY_PACKS = "hookify-insights-group-by-packs";
-const STORAGE_KEY_PACK_ACTION_TYPES = "hookify-insights-pack-action-types";
 const STORAGE_KEY_GEMS_COLUMNS = "hookify-insights-gems-columns";
 // v2: aba "Diagnóstico" virou a primeira/ativa por padrão — bump reseta a preferência
 // antiga uma vez para todos caírem no novo default (depois a escolha persiste normal).
@@ -121,10 +117,8 @@ export default function InsightsPage() {
     actionTypeOptions,
     selectedPackIds,
     dateRange,
-    packs,
     packsClient,
     validationCriteria,
-    getPackId: getAdPackId,
     isLoading: loading,
   } = useAdPerformancePipeline({ filterToSelectedPacks: false });
 
@@ -144,26 +138,7 @@ export default function InsightsPage() {
     void savePreferences({ diagnosticCostMetric: m });
   };
 
-  const [groupByPacks, setGroupByPacks] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    try {
-      return localStorage.getItem(STORAGE_KEY_GROUP_BY_PACKS) === "true";
-    } catch (e) {
-      return false;
-    }
-  });
-
   const [activeGemsColumns, setActiveGemsColumns] = useState<Set<GemsColumnType>>(() => loadGemsColumns());
-
-  const [packActionTypes, setPackActionTypes] = useState<Record<string, string>>(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_PACK_ACTION_TYPES);
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
-  });
 
   const [selectedAd, setSelectedAd] = useState<RankingsItem | null>(null);
   const [openInVideoTab, setOpenInVideoTab] = useState(false);
@@ -178,15 +153,6 @@ export default function InsightsPage() {
   });
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleToggleGroupByPacks = (checked: boolean) => {
-    setGroupByPacks(checked);
-    try {
-      localStorage.setItem(STORAGE_KEY_GROUP_BY_PACKS, checked.toString());
-    } catch (e) {
-      console.error("Erro ao salvar groupByPacks no localStorage:", e);
-    }
-  };
-
   const handleToggleGemsColumn = (columnId: GemsColumnType) => {
     const newColumns = new Set(activeGemsColumns);
     if (newColumns.has(columnId)) {
@@ -274,38 +240,6 @@ export default function InsightsPage() {
     return calculateGlobalMetricRanks(serverData, { validationCriteria: criteriaToUse, actionType, filterValidOnly: true, mqlLeadscoreMin });
   }, [serverData, validationCriteria, actionType, mqlLeadscoreMin]);
 
-  // KNOWN ISSUE: "Por Pack" usa a média global (averages) com actionType por-pack
-  // (packActionTypes[packId]). Isso produz comparações incorretas porque a média foi calculada
-  // com o actionType global. Correção requer N fetches separados (um por pack × actionType)
-  // ou remoção do recurso — decisão de produto pendente.
-  // Adicionalmente, a RPC fetch_manager_rankings_core_v2 é single-key (uma chave de conversão
-  // por request), portanto incompatível com eventos diferentes por pack numa única request.
-  const opportunityRowsByPack = useMemo(() => {
-    if (!groupByPacks || !validatedAds || validatedAds.length === 0 || !averages) return null;
-    if (loading) return null;
-
-    const adsByPack = new Map<string, any[]>();
-    validatedAds.forEach((ad: any) => {
-      const packId = getAdPackId(ad);
-      if (packId) {
-        const packAds = adsByPack.get(packId) || [];
-        packAds.push(ad);
-        adsByPack.set(packId, packAds);
-      }
-    });
-
-    const rowsByPack = new Map<string, any[]>();
-    adsByPack.forEach((packAds, packId) => {
-      if (packAds.length === 0) return;
-      const spendTotal = packAds.reduce((s: number, a: any) => s + Number(a.spend || 0), 0);
-      const packActionType = packActionTypes[packId] || actionType;
-      const rows = computeOpportunityScores({ ads: packAds, averages, actionType: packActionType, spendTotal, limit: 10 });
-      if (rows.length > 0) rowsByPack.set(packId, rows);
-    });
-
-    return rowsByPack;
-  }, [groupByPacks, validatedAds, averages, actionType, loading, getAdPackId, packActionTypes]);
-
   const headerConfig = useMemo(() => {
     return TAB_HEADER_CONFIG[activeTab as keyof typeof TAB_HEADER_CONFIG] ?? TAB_HEADER_CONFIG.opportunities;
   }, [activeTab]);
@@ -342,18 +276,7 @@ export default function InsightsPage() {
       title={headerConfig.title}
       description={headerConfig.description}
       actions={
-        activeTab === "opportunities" ? (
-          <PageActions>
-            <ToggleSwitch
-              id="group-by-packs"
-              checked={groupByPacks}
-              onCheckedChange={handleToggleGroupByPacks}
-              labelLeft="Global"
-              labelRight="Por Pack"
-              variant="minimal"
-            />
-          </PageActions>
-        ) : activeTab === "gems" ? (
+        activeTab === "gems" ? (
           <PageActions>
             <GemsColumnFilter activeColumns={activeGemsColumns} onToggleColumn={handleToggleGemsColumn} />
           </PageActions>
@@ -431,63 +354,11 @@ export default function InsightsPage() {
             <OpportunitiesSkeleton />
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
-          ) : groupByPacks && opportunityRowsByPack ? (
-              Array.from(opportunityRowsByPack.entries()).length > 0 ? (
-                Array.from(opportunityRowsByPack.entries())
-                  .filter(([packId]) => packs.find((p) => p.id === packId))
-                  .map(([packId, rows]) => {
-                    const pack = packs.find((p) => p.id === packId);
-                    if (!pack) return null;
-                    const packActionType = packActionTypes[packId] || actionType;
-
-                    const handlePackActionTypeChange = (value: string) => {
-                      const newPackActionTypes = { ...packActionTypes, [packId]: value };
-                      setPackActionTypes(newPackActionTypes);
-                      try {
-                        localStorage.setItem(STORAGE_KEY_PACK_ACTION_TYPES, JSON.stringify(newPackActionTypes));
-                      } catch (e) {
-                        console.error("Erro ao salvar packActionTypes no localStorage:", e);
-                      }
-                    };
-
-                    const formatDate = (dateStr: string): string => {
-                      if (!dateStr) return "";
-                      const [year, month, day] = dateStr.split("-");
-                      return `${day}/${month}/${year}`;
-                    };
-
-                    return (
-                      <div key={packId} className="space-y-2">
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex-1 flex flex-row gap-4">
-                            <h2 className="text-xl font-semibold">{pack.name}</h2>
-                            {pack.date_start && pack.date_stop && (
-                              <p className="text-sm text-muted-foreground mt-1">
-                                {formatDate(pack.date_start)} - {formatDate(pack.date_stop)}
-                              </p>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <label className="text-sm font-medium text-foreground whitespace-nowrap">Evento de Conversão:</label>
-                            <div style={{ width: "200px" }}>
-                              <ActionTypeFilter label="" value={packActionType} onChange={handlePackActionTypeChange} options={actionTypeOptions} className="w-full" />
-                            </div>
-                          </div>
-                        </div>
-                        <OpportunityWidget rows={rows} averages={averages} actionType={packActionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
-                      </div>
-                    );
-                  })
-              ) : (
-                <div>
-                  <OpportunityWidget rows={[]} averages={averages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
-                </div>
-              )
-            ) : (
-              <div>
-                <OpportunityWidget rows={opportunityRows} averages={averages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
-              </div>
-            )}
+          ) : (
+            <div>
+              <OpportunityWidget rows={opportunityRows} averages={averages} actionType={actionType} onAdClick={handleOpportunityCardClick} globalMetricRanks={globalMetricRanks} gemsTopHook={topHookFromGems} gemsTopWebsiteCtr={topWebsiteCtrFromGems} gemsTopCtr={topCtrFromGems} gemsTopPageConv={topPageConvFromGems} gemsTopHoldRate={topHoldRateFromGems} />
+            </div>
+          )}
         </TabbedContentItem>
 
         {/* Tab Insights */}
