@@ -10,7 +10,7 @@ import { InsightsKanbanWidget } from "@/components/insights/InsightsKanbanWidget
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeOpportunityScores, OpportunityRow } from "@/lib/utils/opportunity";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
-import { IconSparkles, IconDiamond, IconSunFilled, IconStarFilled } from "@tabler/icons-react";
+import { IconSparkles, IconDiamond, IconSunFilled, IconStarFilled, IconActivity } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
 import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
@@ -23,15 +23,23 @@ import { TabbedContentItem } from "@/components/common/TabbedContent";
 import { AnalyticsWorkspace, TabbedWorkspace } from "@/components/common/layout";
 import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
+import { usePackDiagnostic } from "@/lib/hooks/usePackDiagnostic";
+import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
+import { DayComparisonBlock } from "@/components/plano/DayComparisonBlock";
+import { PackDiagnosticPanel } from "@/components/plano/PackDiagnosticPanel";
+import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
 
 // Chaves específicas do Insights
 const STORAGE_KEY_GROUP_BY_PACKS = "hookify-insights-group-by-packs";
 const STORAGE_KEY_PACK_ACTION_TYPES = "hookify-insights-pack-action-types";
 const STORAGE_KEY_GEMS_COLUMNS = "hookify-insights-gems-columns";
-const STORAGE_KEY_ACTIVE_TAB = "hookify-insights-active-tab";
+// v2: aba "Diagnóstico" virou a primeira/ativa por padrão — bump reseta a preferência
+// antiga uma vez para todos caírem no novo default (depois a escolha persiste normal).
+const STORAGE_KEY_ACTIVE_TAB = "hookify-insights-active-tab-v2";
 
 // Títulos das tabs para tooltips
 const TAB_TITLES = {
+  diagnostico: "O que mudou hoje no seu conjunto de anúncios",
   opportunities: "Melhorias para maximizar seus lucros",
   insights: "Melhorias pontuais por métrica",
   gems: "Os melhores de cada métrica",
@@ -49,6 +57,11 @@ function InsightsPageSkeleton() {
 
 // Configuração do header para cada tab
 const TAB_HEADER_CONFIG = {
+  diagnostico: {
+    icon: IconActivity,
+    title: "Diagnóstico",
+    description: "O que mudou hoje — o CPR do conjunto e o que puxou o resultado.",
+  },
   opportunities: {
     icon: IconStarFilled,
     title: "Oportunidades",
@@ -115,6 +128,22 @@ export default function InsightsPage() {
     isLoading: loading,
   } = useAdPerformancePipeline({ filterToSelectedPacks: false });
 
+  // ── Diagnóstico do dia (aba "Diagnóstico") ──────────────────────────────────
+  // Mesmo motor do /plano: serverData (todos os ads = média global) + usePackDiagnostic.
+  const { targetCprByActionType, diagnosticCostMetric, savePreferences } = useUserPreferences();
+  const diagnostic = usePackDiagnostic({
+    ads: (serverData ?? []) as RankingsItem[],
+    actionType: actionType ?? "",
+    selectedPackIds,
+    dateRange: { start: dateRange.start ?? "", end: dateRange.end ?? "" },
+    targetOverride: diagnosticCostMetric,
+  });
+  const [showFullDiagnostic, setShowFullDiagnostic] = useState(false);
+  const currentTargetCpr = actionType ? targetCprByActionType?.[actionType] : undefined;
+  const handleSelectDiagnosticMetric = (m: DiagnosticTarget) => {
+    void savePreferences({ diagnosticCostMetric: m });
+  };
+
   const [groupByPacks, setGroupByPacks] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     try {
@@ -140,11 +169,11 @@ export default function InsightsPage() {
   const [openInVideoTab, setOpenInVideoTab] = useState(false);
 
   const [activeTab, setActiveTab] = useState<string>(() => {
-    if (typeof window === "undefined") return "opportunities";
+    if (typeof window === "undefined") return "diagnostico";
     try {
-      return localStorage.getItem(STORAGE_KEY_ACTIVE_TAB) || "opportunities";
+      return localStorage.getItem(STORAGE_KEY_ACTIVE_TAB) || "diagnostico";
     } catch (e) {
-      return "opportunities";
+      return "diagnostico";
     }
   });
 
@@ -338,11 +367,64 @@ export default function InsightsPage() {
           variant="with-icons"
           showTooltips={true}
           tabs={[
+            { value: "diagnostico", label: "Diagnóstico", icon: IconActivity, tooltip: TAB_TITLES.diagnostico },
             { value: "opportunities", label: "Oportunidades", icon: IconStarFilled, tooltip: TAB_TITLES.opportunities },
             { value: "insights", label: "Insights", icon: IconSparkles, tooltip: TAB_TITLES.insights },
             { value: "gems", label: "Gems", icon: IconDiamond, tooltip: TAB_TITLES.gems },
           ]}
         >
+        {/* Tab Diagnóstico — o que mudou hoje no conjunto (mesmo motor do /plano) */}
+        <TabbedContentItem value="diagnostico" variant="with-icons">
+          {isLoadingData ? (
+            <StateSkeleton variant="page" rows={4} />
+          ) : !hasData ? (
+            <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
+          ) : !actionType ? (
+            <StatePanel kind="empty" message="Selecione um evento de conversão no topo para ver o diagnóstico do dia." framed={false} fill />
+          ) : (
+            <div className="flex flex-col gap-4 overflow-visible">
+              <DayComparisonBlock
+                diagnostic={diagnostic}
+                actionType={actionType}
+                onSelectMetric={handleSelectDiagnosticMetric}
+                benchmarkAverages={averages}
+                actionTypeOptions={actionTypeOptions}
+                selectedPackIds={selectedPackIds}
+                dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
+                targetCpr={currentTargetCpr}
+              />
+              {diagnostic.snaps.length > 0 && (
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setShowFullDiagnostic((v) => !v)}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {showFullDiagnostic ? "fechar diagnóstico completo ↑" : "ver diagnóstico completo ↓"}
+                  </button>
+                </div>
+              )}
+              {showFullDiagnostic && diagnostic.snaps.length > 0 && (
+                <PackDiagnosticPanel
+                  snaps={diagnostic.snaps}
+                  decomposition={diagnostic.decomposition}
+                  trendLines={diagnostic.trendLines}
+                  budgetShareData={diagnostic.budgetShareData}
+                  target={diagnostic.target}
+                  adKeyToName={diagnostic.adKeyToName}
+                  adMap={diagnostic.adMap}
+                  comparisonLabel={diagnostic.comparisonLabel}
+                  benchmarkAverages={averages}
+                  actionType={actionType}
+                  actionTypeOptions={actionTypeOptions}
+                  selectedPackIds={selectedPackIds}
+                  dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
+                />
+              )}
+            </div>
+          )}
+        </TabbedContentItem>
+
         {/* Tab Oportunidades */}
         <TabbedContentItem value="opportunities" variant="with-icons">
           {isLoadingData ? (
