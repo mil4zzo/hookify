@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
@@ -19,8 +19,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone, IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
-import { getMetricValueTextClass } from "@/lib/utils/metricQuality";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone } from "@tabler/icons-react";
 
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -35,20 +34,6 @@ import { getTodayLocal, formatDateLocal } from "@/lib/utils/dateFilters";
 import { subDays } from "date-fns";
 import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
-import { useFilters } from "@/lib/hooks/useFilters";
-import { usePacksHealth } from "@/lib/hooks/usePacksHealth";
-import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
-import { usePackDiagnostic } from "@/lib/hooks/usePackDiagnostic";
-import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
-import { DayComparisonBlock } from "@/components/plano/DayComparisonBlock";
-import { PackDiagnosticPanel } from "@/components/plano/PackDiagnosticPanel";
-import type { RankingsItem } from "@/lib/api/schemas";
-import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
-
-// Hangar fase 2 — diagnóstico consolidado do esquadrão na própria página Packs.
-// Rollback instantâneo: flip para false (a Packs volta a ser só estante+CRUD,
-// equivalente ao commit 840f0f7). O /plano segue com o bloco próprio (não removido).
-const HANGAR_DIAGNOSTIC_ENABLED = true;
 import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh";
 import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
@@ -250,39 +235,6 @@ export default function PacksPage() {
   const { authStatus, onboardingStatus } = useOnboardingGate("app");
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
   const { isLoading: isLoadingPacks } = usePacksLoading();
-
-  // Esquadrão (Hangar): a seleção da estante É o filtro global de packs —
-  // um modelo de seleção só, duas superfícies (Topbar compacta + Packs rica).
-  const { selectedPackIds, togglePack } = useFilters();
-  const { healthByPackId, windowDays: healthWindowDays, actionType: healthActionType } = usePacksHealth(packs);
-
-  // ── Diagnóstico consolidado do esquadrão (fase 2) ───────────────────────────
-  // Mesmo motor do /plano: pipeline (todos os ads = média global) + usePackDiagnostic.
-  const {
-    filteredRankings,
-    serverAverages,
-    actionType,
-    actionTypeOptions,
-    dateRange,
-  } = useAdPerformancePipeline({ enabled: HANGAR_DIAGNOSTIC_ENABLED });
-  const { targetCprByActionType, diagnosticCostMetric, savePreferences } = useUserPreferences();
-  const diagnostic = usePackDiagnostic({
-    ads: (HANGAR_DIAGNOSTIC_ENABLED ? (filteredRankings ?? []) : []) as RankingsItem[],
-    actionType: actionType ?? "",
-    selectedPackIds,
-    dateRange: { start: dateRange.start ?? "", end: dateRange.end ?? "" },
-    targetOverride: diagnosticCostMetric,
-  });
-  const [showFullDiagnostic, setShowFullDiagnostic] = useState(false);
-  // Estante: navegação por setas (scroll suave de ~1 card por click)
-  const shelfRef = useRef<HTMLDivElement>(null);
-  const scrollShelf = (dir: 1 | -1) => {
-    shelfRef.current?.scrollBy({ left: dir * 346, behavior: "smooth" });
-  };
-  const currentTargetCpr = actionType ? targetCprByActionType?.[actionType] : undefined;
-  const handleSelectDiagnosticMetric = (m: DiagnosticTarget) => {
-    void savePreferences({ diagnosticCostMetric: m });
-  };
 
   // API hooks
   // Habilitado sempre (não só com o modal aberto): os cards de pack usam o nome da conta de origem.
@@ -696,113 +648,10 @@ export default function PacksPage() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col gap-4">
-              {/* Esquadrão ativo: chips dos packs selecionados (mesmo estado do filtro global) */}
-              <div className="flex items-center gap-2 flex-wrap min-h-[32px]">
-                <span className="text-sm font-medium text-muted-foreground">Esquadrão ativo:</span>
-                {packs.filter((p) => selectedPackIds.has(p.id)).map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => togglePack(p.id)}
-                    title="Remover do esquadrão"
-                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-primary-30 bg-primary-10 text-primary text-sm font-medium hover:bg-primary-20 transition-colors"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-primary" />
-                    {p.name}
-                    <span className="opacity-60">×</span>
-                  </button>
-                ))}
-                {selectedPackIds.size === 0 && <span className="text-sm text-muted-foreground italic">nenhum pack selecionado — clique num card para adicionar</span>}
-              </div>
-
-              {/* Diagnóstico consolidado do esquadrão (fase 2) — mesmo motor do /plano */}
-              {HANGAR_DIAGNOSTIC_ENABLED && selectedPackIds.size > 0 && actionType && (
-                <div className="flex flex-col gap-4">
-                  {/* Match report: a frase do dia (buildDiagnosticSummary, já computada
-                      pelo motor) — narrativa de pós-jogo, custo zero */}
-                  {diagnostic.summary && (
-                    <p className={`text-sm font-medium ${diagnostic.summary.muted ? "text-muted-foreground" : getMetricValueTextClass(diagnostic.summary.tone)}`}>
-                      ⚡ {diagnostic.summary.headline}
-                    </p>
-                  )}
-                  <DayComparisonBlock
-                    diagnostic={diagnostic}
-                    actionType={actionType}
-                    onSelectMetric={handleSelectDiagnosticMetric}
-                    benchmarkAverages={serverAverages}
-                    actionTypeOptions={actionTypeOptions}
-                    selectedPackIds={selectedPackIds}
-                    dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
-                    targetCpr={currentTargetCpr}
-                  />
-                  {/* Painel de aprofundamento (colapsável) — toggle próprio, resolve o
-                      caso em que no /plano ele ficava inacessível sem actionPlan */}
-                  {diagnostic.snaps.length > 0 && (
-                    <div className="flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => setShowFullDiagnostic((v) => !v)}
-                        className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {showFullDiagnostic ? "fechar diagnóstico completo ↑" : "ver diagnóstico completo ↓"}
-                      </button>
-                    </div>
-                  )}
-                  {showFullDiagnostic && diagnostic.snaps.length > 0 && (
-                    <PackDiagnosticPanel
-                      snaps={diagnostic.snaps}
-                      decomposition={diagnostic.decomposition}
-                      trendLines={diagnostic.trendLines}
-                      budgetShareData={diagnostic.budgetShareData}
-                      target={diagnostic.target}
-                      adKeyToName={diagnostic.adKeyToName}
-                      adMap={diagnostic.adMap}
-                      comparisonLabel={diagnostic.comparisonLabel}
-                      benchmarkAverages={serverAverages}
-                      actionType={actionType}
-                      actionTypeOptions={actionTypeOptions}
-                      selectedPackIds={selectedPackIds}
-                      dateRange={{ start: dateRange.start ?? "", end: dateRange.end ?? "" }}
-                    />
-                  )}
-                </div>
-              )}
-
-              {/* Estante horizontal: click no card = toggle no esquadrão */}
-              <div className="relative">
-                {packs.length > 4 && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Rolar packs para a esquerda"
-                      onClick={() => scrollShelf(-1)}
-                      className="hidden md:flex absolute -left-4 top-1/2 -translate-y-1/2 z-20 items-center justify-center w-9 h-9 rounded-full border border-border bg-card shadow-elevation-overlay text-muted-foreground hover:text-foreground hover:border-primary-50 transition-colors"
-                    >
-                      <IconChevronLeft className="w-5 h-5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Rolar packs para a direita"
-                      onClick={() => scrollShelf(1)}
-                      className="hidden md:flex absolute -right-4 top-1/2 -translate-y-1/2 z-20 items-center justify-center w-9 h-9 rounded-full border border-border bg-card shadow-elevation-overlay text-muted-foreground hover:text-foreground hover:border-primary-50 transition-colors"
-                    >
-                      <IconChevronRight className="w-5 h-5" />
-                    </button>
-                  </>
-                )}
-              <div ref={shelfRef} className="flex gap-6 overflow-x-auto pb-4 pt-2 px-1 snap-x">
-                {packs.map((pack, i) => (
-                  <div
-                    key={pack.id}
-                    className="w-[320px] flex-shrink-0 snap-start animate-in fade-in slide-in-from-bottom-2 duration-500"
-                    style={{ animationDelay: `${Math.min(i, 10) * 45}ms`, animationFillMode: "both" }}
-                  >
-                    <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} selected={selectedPackIds.has(pack.id)} onToggleSelect={togglePack} health={healthByPackId.get(pack.id)} healthWindowDays={healthWindowDays} healthActionType={healthActionType} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
-                  </div>
-                ))}
-              </div>
-              </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-8">
+              {packs.map((pack) => (
+                <PackCard key={pack.id} pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+              ))}
             </div>
           )}
         </PageBodyStack>
