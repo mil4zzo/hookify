@@ -293,14 +293,20 @@ class AdsEnricher:
         )
         return all_results
 
+    # Teto defensivo de paginação do /ads edge (40 páginas × 1000 = 40k ads);
+    # inventários maiores são cortados com warning em vez de loop sem fim.
+    _FILTER_PAGE_CAP = 40
+
     def _fetch_by_filter_paginated(
         self,
         act_id: str,
         fields: str,
         meta_filters: List[Dict[str, Any]],
         label: str,
+        *,
+        allow_empty_filters: bool = False,
     ) -> List[Dict[str, Any]]:
-        if not meta_filters:
+        if not meta_filters and not allow_empty_filters:
             return []
 
         all_results: List[Dict[str, Any]] = []
@@ -310,13 +316,20 @@ class AdsEnricher:
             "access_token": self.access_token,
             "fields": fields,
             "limit": 1000,
-            "filtering": json.dumps(meta_filters),
         }
+        if meta_filters:
+            payload["filtering"] = json.dumps(meta_filters)
 
         logger.info("[AdsEnricher] %s: iniciando busca paginada por filtros", label)
 
         while True:
             page += 1
+            if page > self._FILTER_PAGE_CAP:
+                logger.warning(
+                    "[AdsEnricher] %s: teto de %d páginas atingido; resultado truncado em %d ads",
+                    label, self._FILTER_PAGE_CAP, len(all_results),
+                )
+                break
             if not self._ensure_not_cancelled(f"{label} na pagina {page}"):
                 return all_results
 
@@ -470,6 +483,33 @@ class AdsEnricher:
             "id,effective_status",
             meta_filters,
             "status-filter",
+        )
+
+    # Campos de identidade do inventário (validados no SDK oficial — Ad.Field):
+    # adset{name}/campaign{name} via field expansion (o nó Ad não tem adset_name direto);
+    # created_time permite clampar a síntese de linhas-zero à vida real do ad.
+    _INVENTORY_FIELDS = (
+        "id,name,effective_status,created_time,"
+        "adset_id,campaign_id,adset{name},campaign{name}"
+    )
+
+    def fetch_inventory(
+        self, act_id: str, meta_filters: Optional[List[Dict[str, Any]]]
+    ) -> List[Dict[str, Any]]:
+        """Inventário canônico do pack: TODOS os ads que casam com os filtros,
+        independente de terem entregado no range (o /insights omite os zerados).
+
+        Sem filtros, pagina a conta inteira (bounded pelo _FILTER_PAGE_CAP).
+        O resultado também serve de status_details para enrich() — substitui o
+        antigo passe separado de status, que baixava os mesmos dados e descartava
+        os ads sem métricas.
+        """
+        return self._fetch_by_filter_paginated(
+            act_id,
+            self._INVENTORY_FIELDS,
+            meta_filters or [],
+            "inventario",
+            allow_empty_filters=True,
         )
 
     def _fetch_edge_statuses(self, act_id: str, edge: str) -> Dict[str, Optional[str]]:
@@ -684,6 +724,7 @@ class AdsEnricher:
         is_refresh: bool = False,
         existing_ads_map: Optional[Dict[str, Dict[str, Any]]] = None,
         meta_filters: Optional[List[Dict[str, Any]]] = None,
+        status_details: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         try:
             if not raw_data:
@@ -730,10 +771,13 @@ class AdsEnricher:
                 )
 
             media_details = self.fetch_details(act_id, rep_ids)
-            if meta_filters:
-                status_details = self.fetch_status_by_filter(act_id, meta_filters)
-            else:
-                status_details = self.fetch_status_only(act_id, unique_ad_ids)
+            # status_details pré-buscado = inventário do caller (job_processor);
+            # evita repetir a mesma chamada /ads que o inventário já fez.
+            if status_details is None:
+                if meta_filters:
+                    status_details = self.fetch_status_by_filter(act_id, meta_filters)
+                else:
+                    status_details = self.fetch_status_only(act_id, unique_ad_ids)
 
             enriched = self.merge_details(raw_data, media_details)
 

@@ -26,6 +26,7 @@ from app.services.job_tracker import (
     STAGE_PERSISTENCE,
 )
 from app.services.insights_collector import get_insights_collector
+from app.services.ad_inventory import select_zero_delivery_ads, synthesize_zero_raw_rows
 from app.services.ads_enricher import get_ads_enricher
 from app.services.dataformatter import format_ads_for_api
 from app.core.supabase_client import get_supabase_service
@@ -320,6 +321,59 @@ class JobProcessor:
             if self._check_if_cancelled(job_id):
                 raise JobCancelledError("Job cancelado pelo usuário")
 
+            # ===== FASE 1.5: INVENTÁRIO =====
+            # /insights omite ads sem entrega no range; o /ads edge define o universo
+            # real do pack. Ads entregáveis ausentes do insights entram como linhas-zero
+            # diárias (dado factual: "entregou 0 neste dia"). Fail-open: falha aqui não
+            # derruba o job — o pipeline segue com o comportamento antigo.
+            inventory_rows = None
+            try:
+                self._heartbeat_or_raise(
+                    job_id,
+                    status=STATUS_PROCESSING,
+                    progress=100,
+                    message="Verificando inventário de anúncios...",
+                    details={
+                        "stage": STAGE_PAGINATION,
+                        "page_count": page_count,
+                        "total_collected": total_collected,
+                    },
+                )
+                inventory_enricher = get_ads_enricher(
+                    self.access_token,
+                    job_tracker=self.tracker,
+                    job_id=job_id,
+                )
+                inventory_rows = inventory_enricher.fetch_inventory(act_id, meta_filters)
+            except (JobCancelledError, JobLeaseLostError):
+                raise
+            except Exception as inv_exc:
+                logger.warning(
+                    "[JobProcessor] Inventário falhou (%s); seguindo apenas com dados do insights",
+                    inv_exc,
+                )
+                inventory_rows = None
+
+            if inventory_rows:
+                known_ad_ids = {
+                    str(ad.get("ad_id") or "").strip()
+                    for ad in raw_data
+                    if str(ad.get("ad_id") or "").strip()
+                }
+                zero_ads = select_zero_delivery_ads(inventory_rows, known_ad_ids)
+                synth_rows = synthesize_zero_raw_rows(
+                    zero_ads,
+                    str(payload.get("date_start") or ""),
+                    str(payload.get("date_stop") or ""),
+                )
+                if synth_rows:
+                    raw_data.extend(synth_rows)
+                    logger.info(
+                        "[JobProcessor] Universo expandido: +%d ads zerados (%d linhas-zero)",
+                        len(zero_ads),
+                        len(synth_rows),
+                    )
+
             if not raw_data:
                 # Job completou mas sem dados
                 self.tracker.mark_completed(job_id, pack_id="", result_count=0, details={
@@ -393,6 +447,10 @@ class JobProcessor:
                 is_refresh=is_refresh,
                 existing_ads_map=existing_ads_map,
                 meta_filters=meta_filters,
+                # Inventário reusado como fonte de status — elimina o passe
+                # separado (que era a MESMA chamada /ads com menos campos).
+                # Vazio/falha → None, para o enrich cair no caminho antigo.
+                status_details=inventory_rows if inventory_rows else None,
             )
             if not enrich_result.get("success"):
                 error_message = enrich_result.get("error", "Erro ao enriquecer dados")
