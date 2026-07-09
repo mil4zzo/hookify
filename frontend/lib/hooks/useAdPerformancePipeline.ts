@@ -7,6 +7,7 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { buildAdMetricsData, evaluateValidationCriteria } from "@/lib/utils/validateAdCriteria";
+import { buildPackMembershipIndex, isAdInSelectedPacks } from "@/lib/utils/packMembership";
 import { showError } from "@/lib/utils/toast";
 import type { RankingsRequest } from "@/lib/api/schemas";
 
@@ -97,41 +98,27 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     () => packs.filter((p) => selectedPackIds.has(p.id)),
     [packs, selectedPackIds]
   );
-  // getPackId só é usado quando filterToSelectedPacks=true (Plano/GOLD). Passar [] evita
+  // packsAdsMap só é usado quando filterToSelectedPacks=true (Plano/GOLD). Passar [] evita
   // o fetch de pack-ads inteiro quando ninguém vai consumi-lo (ex: Insights, que valida
   // sobre o serverData já escopado pelo pack_ids do servidor).
   const { packsAdsMap, isLoading: packsAdsLoading } = usePacksAds(
     filterToSelectedPacks ? selectedPacks : []
   );
 
-  // Retorna packId do primeiro pack que contém o ad, ou null
-  const getPackId = useMemo(() => {
-    return (ad: any): string | null => {
-      if (selectedPackIds.size === 0) return null;
-      if (selectedPacks.length === 0) return null;
-      for (const pack of selectedPacks) {
-        const packAds = packsAdsMap.get(pack.id) || [];
-        if (packAds.length === 0) continue;
-        const matches = packAds.some((packAd: any) => {
-          if (ad.account_id && packAd.account_id) {
-            if (String(ad.account_id).trim() !== String(packAd.account_id).trim()) return false;
-          }
-          if (ad.ad_id && packAd.ad_id && String(ad.ad_id).trim() === String(packAd.ad_id).trim()) return true;
-          if (ad.ad_name && packAd.ad_name && String(ad.ad_name).trim() === String(packAd.ad_name).trim()) return true;
-          return false;
-        });
-        if (matches) return pack.id;
-      }
-      return null;
-    };
-  }, [selectedPackIds, selectedPacks, packsAdsMap]);
+  // Índice O(1) de pertencimento à união dos packAds selecionados (substitui a antiga
+  // varredura O(rows × packs × packAds)). Só o booleano de pertencimento é preservado —
+  // ver contrato de equivalência em packMembership.ts.
+  const membershipIndex = useMemo(
+    () => buildPackMembershipIndex(selectedPacks, packsAdsMap),
+    [selectedPacks, packsAdsMap]
+  );
 
   // ── Filter by packs (opcional) ───────────────────────────────────────────────
   const filteredRankings = useMemo(() => {
     if (!serverData) return [];
     if (!filterToSelectedPacks) return serverData;
-    return serverData.filter((row: any) => getPackId(row) !== null);
-  }, [serverData, filterToSelectedPacks, getPackId]);
+    return serverData.filter((row: any) => isAdInSelectedPacks(membershipIndex, row));
+  }, [serverData, filterToSelectedPacks, membershipIndex]);
 
   // ── Validation ───────────────────────────────────────────────────────────────
   const { criteria: validationCriteria, isLoading: criteriaLoading } = useValidationCriteria();
@@ -165,9 +152,9 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
   }, [filteredRankings, validationCriteria, actionType]);
 
   // packsAdsLoading só bloqueia o render quando o pack-filter client-side é usado
-  // (Plano/Gold com filterToSelectedPacks=true → getPackId filtra serverData). No Insights
-  // (filterToSelectedPacks=false) o serverData já vem escopado pelo pack_ids do servidor;
-  // o packsAdsMap só alimenta a quebra opcional "Por Pack", então não deve travar o Global.
+  // (Plano/Gold com filterToSelectedPacks=true → membershipIndex filtra serverData). No
+  // Insights (filterToSelectedPacks=false) o serverData já vem escopado pelo pack_ids do
+  // servidor e ninguém consome packsAdsMap, então não deve travar o render.
   const isLoading =
     queryLoading || criteriaLoading || (filterToSelectedPacks && fetchEnabled && packsAdsLoading);
 
@@ -185,8 +172,6 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     // Estado de carregamento/erro
     isLoading,
     error,
-    // Helper para mapear ad → packId (usado por Insights)
-    getPackId,
     // Extras de contexto
     packs,
     packsClient,
