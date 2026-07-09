@@ -1740,3 +1740,20 @@ Memória correspondente: `meta_budget_api_rules.md`.
 **Fix aplicado:** extraído `frontend/lib/utils/conversionMetrics.ts::computeConversionMetrics(website_ctr, connect_rate, results, lpv)` — usado por `buildAdMetricsData` E `mapRankingRow`. O fallback calculado de CPM foi **removido** de `buildAdMetricsData` (agora `Number.isFinite(ad.cpm) ? ad.cpm : 0`, igual ao Manager) — não recalcula mais nada, só um zero defensivo documentado (comentário explica a garantia da RPC). Teste `validateAdCriteria.test.ts` atualizado para refletir o novo contrato (cpm ausente/NaN/Infinity → 0, não mais "calcula fallback"). Novo `conversionMetrics.test.ts` cobre o helper isoladamente. 75/75 testes passam.
 
 **Lição:** antes de "resolver" um achado de review/memória antigo, reconferir se a premissa ainda é verdadeira no código atual — o código muda entre sessões (aqui, por trabalho do próprio usuário) e um "fix" para um problema que já não existe pode introduzir regressão real (mudar o CPM exibido no Manager) em troca de um ganho que não existia.
+
+## Sparkline interativo: hover destaca o dia e sincroniza o valor em todas as colunas da linha (2026-07-08)
+
+**Ideia (do usuário):** no modo Tendências do /manager, ao passar o mouse numa barra do sparkline (qualquer métrica), aplicar opacidade baixa nas outras barras daquela célula e **trocar o número exibido** pelo valor daquele dia (no lugar do tooltip). E ir além: ao fazer isso no CPMQL do dia 2, por exemplo, **todas as outras colunas da mesma linha** também trocam para o dia 2.
+
+**O que torna a parte #2 (sincronização entre colunas) barata:** cada `MetricCell` já tem `original.series` — a série diária de TODAS as métricas daquela linha — e o eixo de datas. Ou seja, cada célula calcula sozinha o valor do dia `i` para a sua própria métrica. A única coisa a compartilhar entre colunas é **um número: o índice do dia em hover**. Premissa que sustenta o alinhamento: todos os sparklines da linha usam a mesma janela de 5 dias e o mesmo eixo → índice `i` = mesmo dia do calendário em todas as colunas.
+
+**Decisão de arquitetura — store de subscription por rowKey, não Context/prop:** criado `frontend/lib/hooks/useRowBarHover.ts` (`setHoveredBar`/`clearHoveredBar` publicam `{rowKey, index}`; `useRowHoveredDay(rowKey)` via `useSyncExternalStore`). Cada célula assina APENAS a própria rowKey → só as ~10-14 células daquela linha re-renderizam no hover. Alternativas rejeitadas:
+- **Context por linha:** não existe wrapper React por linha — `flexRender` joga as células direto no `<tr>`, não há onde pendurar um provider.
+- **Context global:** re-renderizaria toda célula visível a cada movimento do mouse.
+- **Prop + comparator (padrão da memória `manager_table_memo_signal_prop_for_cell_rerender`):** aquele padrão vale para toggles **globais de baixa frequência** (colorMetricValue, showTrends). Para estado **por-linha de alta frequência** (hover), o store dribla o `React.memo` agressivo das células — o re-render é disparado internamente pelo hook, não por uma prop atravessando o comparador.
+
+**Detalhes de UX:** a legenda de data aparece só na coluna sob o cursor (estado local `isHoverSource`), enquanto o valor troca em todas — evita repetir a mesma data em cada coluna. O número do dia é colorido igual à barra em hover (dia × média do pack), respeitando o toggle "Comparar com a média". O `title` nativo do sparkline é removido quando o modo interativo está ativo (substitui o tooltip). Fora do modo Tendências não há barras → feature inerte.
+
+**Refatoração de apoio:** formatação de valor/data extraída em helpers exportados do `SparklineBars` (`getSparklineBarValueDisplay`, `formatSparklineDate`) — fonte única para o texto da barra e para o número trocado no `MetricCell`, evitando drift.
+
+**Verificação:** `tsc --noEmit` limpo. Verificação visual ao vivo (hover na tabela autenticada com série temporal real) fica pendente — depende de sessão logada + dados.

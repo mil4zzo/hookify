@@ -70,15 +70,38 @@ type SparklineBarsProps = {
   fadeInDurationMs?: number; // duraÃ§Ã£o do fade in por barra
   fadeInStaggerMs?: number; // atraso entre barras
   fadeInStartDelayMs?: number; // atraso inicial antes da primeira barra
+  // Hover interativo (usado na ManagerTable no lugar do tooltip nativo):
+  hoveredIndex?: number | null; // índice da barra destacada; as demais recebem opacidade baixa
+  onBarHover?: (index: number) => void; // dispara ao entrar numa barra (habilita modo interativo, remove o title nativo)
+  onBarLeave?: () => void; // dispara ao sair do sparkline
 };
 
-function formatDateForTooltip(dateStr: string): string {
+/** Formata YYYY-MM-DD como DD/MM/YYYY. Exportado para reuso (ex: legenda de data no MetricCell). */
+export function formatSparklineDate(dateStr: string): string {
   try {
     const [year, month, day] = dateStr.split("-");
     return `${day}/${month}/${year}`;
   } catch {
     return dateStr;
   }
+}
+
+/**
+ * Formata o valor exibido de uma barra do sparkline, respeitando "Sem dados" e o
+ * label de zero. Exportado para que o MetricCell mostre o mesmo texto abaixo do
+ * sparkline quando um dia está em hover (fonte única de formatação).
+ */
+export function getSparklineBarValueDisplay(params: {
+  value: number | null | undefined;
+  hasData: boolean;
+  valueFormatter?: (v: number) => string;
+  zeroValueLabel?: string;
+}): string {
+  const { value, hasData, valueFormatter, zeroValueLabel } = params;
+  if (!hasData) return "Sem dados";
+  const isNull = value == null || Number.isNaN(value as number);
+  if (isNull || value === 0) return zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
+  return valueFormatter ? valueFormatter(Number(value)) : `${Number(value).toFixed(2)}`;
 }
 
 export const SparklineBars = React.memo(function SparklineBars({
@@ -105,6 +128,9 @@ export const SparklineBars = React.memo(function SparklineBars({
   fadeInDurationMs = 500,
   fadeInStaggerMs = 250,
   fadeInStartDelayMs = 0,
+  hoveredIndex = null,
+  onBarHover,
+  onBarLeave,
 }: SparklineBarsProps) {
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;
@@ -158,15 +184,8 @@ export const SparklineBars = React.memo(function SparklineBars({
     const gradientClass = getGradientClass(barColor);
     const borderClass = getBorderClass(barColor);
 
-    const dateDisplay = dates && dates[i] ? formatDateForTooltip(dates[i]) : null;
-    let valueDisplay: string;
-    if (!hasData) {
-      valueDisplay = "Sem dados";
-    } else if (isNull || (v === 0 && hasData)) {
-      valueDisplay = zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
-    } else {
-      valueDisplay = valueFormatter ? valueFormatter(Number(v)) : `${Number(v).toFixed(2)}`;
-    }
+    const dateDisplay = dates && dates[i] ? formatSparklineDate(dates[i]) : null;
+    const valueDisplay = getSparklineBarValueDisplay({ value: v, hasData, valueFormatter, zeroValueLabel });
 
     const titleText = dateDisplay ? `${dateDisplay}: ${valueDisplay}` : valueDisplay;
 
@@ -175,18 +194,29 @@ export const SparklineBars = React.memo(function SparklineBars({
 
   // Lightweight mode: native title attributes (no Radix Tooltip overhead)
   if (lightweight) {
+    // Modo interativo: hover troca o title nativo por destaque (fade nas demais barras)
+    // e notifica o pai (que sincroniza o dia entre as colunas da linha).
+    const interactive = Boolean(onBarHover);
     return (
-      <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }}>
-        {bars.map((bar, i) => (
-          <div
-            key={i}
-            className={`rounded-xs flex-1 relative ${staggeredFadeIn ? "sparkline-fade-in-bar" : ""}`}
-            style={{ height: `${bar.heightPct}%`, ...getRevealStyle(i) }}
-            title={bar.titleText}
-          >
-            <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
-          </div>
-        ))}
+      <div
+        className={`flex items-end justify-between ${finalClassName}`}
+        style={{ gap: `${gap}px` }}
+        onMouseLeave={onBarLeave}
+      >
+        {bars.map((bar, i) => {
+          const dimmed = hoveredIndex != null && i !== hoveredIndex;
+          return (
+            <div
+              key={i}
+              className={`rounded-xs flex-1 relative ${staggeredFadeIn ? "sparkline-fade-in-bar" : "transition-opacity duration-150"}`}
+              style={{ height: `${bar.heightPct}%`, ...(staggeredFadeIn ? {} : { opacity: dimmed ? 0.25 : 1 }), ...getRevealStyle(i) }}
+              title={interactive ? undefined : bar.titleText}
+              onMouseEnter={onBarHover ? () => onBarHover(i) : undefined}
+            >
+              <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
+            </div>
+          );
+        })}
       </div>
     );
   }
@@ -206,8 +236,8 @@ export const SparklineBars = React.memo(function SparklineBars({
             <Tooltip key={i}>
               <TooltipTrigger asChild>
                 <div
-                  className={`rounded-xs flex-1 relative cursor-pointer ${staggeredFadeIn ? "sparkline-fade-in-bar" : ""}`}
-                  style={{ height: `${bar.heightPct}%`, ...getRevealStyle(i) }}
+                  className={`rounded-xs flex-1 relative cursor-pointer ${staggeredFadeIn ? "sparkline-fade-in-bar" : "transition-opacity duration-150"}`}
+                  style={{ height: `${bar.heightPct}%`, ...(staggeredFadeIn ? {} : { opacity: hoveredIndex != null && i !== hoveredIndex ? 0.25 : 1 }), ...getRevealStyle(i) }}
                 >
                   <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
                 </div>

@@ -1,8 +1,9 @@
 "use client";
 
 import React from "react";
-import { SparklineBars } from "@/components/common/SparklineBars";
+import { SparklineBars, formatSparklineDate, getSparklineBarValueDisplay } from "@/components/common/SparklineBars";
 import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
+import { useRowHoveredDay, setHoveredBar, clearHoveredBar } from "@/lib/hooks/useRowBarHover";
 import { Badge } from "@/components/ui/badge";
 import { RankingsItem } from "@/lib/api/schemas";
 import { cn } from "@/lib/utils/cn";
@@ -77,6 +78,7 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
 export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, showTrends, averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false, lightweight = false, colorMetricValue = false }: MetricCellProps) {
   // row já é o objeto agregado (info.row.original), então precisamos ajustar
   const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
+  const rowKey = getRowKey(row);
 
   // Cor do número da métrica pela distância da média (mesma escala de 5 tons dos sparklines).
   // Usa os mesmos insumos do sparkline: valor atual da linha × média do pack × polaridade.
@@ -90,6 +92,27 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     const tone = getMetricQualityToneByAverage(currentValue, packAverage, inverseColors);
     return getMetricValueTextClass(tone);
   }, [colorMetricValue, original, metric, actionType, mqlLeadscoreMin, hasSheetIntegration, averages]);
+
+  // Dia em hover para esta linha (sincronizado entre todas as colunas via store por rowKey).
+  const hoveredDayIndex = useRowHoveredDay(rowKey);
+  // Origem do hover: só a coluna sob o cursor mostra a legenda de data (o valor troca em todas).
+  const [isHoverSource, setIsHoverSource] = React.useState(false);
+  const valueFormatter = React.useCallback(
+    (n: number) => formatMetricValue(metric, n, { currencyFormatter: formatCurrency }),
+    [metric, formatCurrency],
+  );
+  const handleBarHover = React.useCallback(
+    (index: number) => {
+      setIsHoverSource(true);
+      setHoveredBar(rowKey, index);
+    },
+    [rowKey],
+  );
+  const handleBarLeave = React.useCallback(() => {
+    setIsHoverSource(false);
+    clearHoveredBar(rowKey);
+  }, [rowKey]);
+
   const seriesLoading = Boolean((original as any).series_loading);
   const BAR_COUNT = 5;
   const FADE_DURATION_MS = 500;
@@ -152,7 +175,6 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     );
   }
 
-  const rowKey = getRowKey(row);
   const dates = original.series?.axis || (endDate ? byKey.get(rowKey)?.axis : null);
 
   const seriesData = original.series ? (original.series as any) : endDate ? byKey.get(rowKey)?.series : undefined;
@@ -173,6 +195,39 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       mqlLeadscoreMin,
     });
 
+    // Dia em hover (sincronizado entre colunas da linha): troca o número exibido pelo
+    // valor daquele dia e mostra a data como legenda discreta. Cada célula calcula o
+    // próprio valor a partir do índice compartilhado — usa os mesmos insumos do sparkline.
+    const idx = hoveredDayIndex;
+    const isDayHovered = idx != null && idx >= 0;
+    let hoveredDisplay: string | null = null;
+    let hoveredDate: string | null = null;
+    let hoveredColorClass = "";
+    if (isDayHovered) {
+      const hv = normalizedSeries[idx] as number | null | undefined;
+      const hasExplicit = Array.isArray(dataAvailability) && idx < dataAvailability.length;
+      const hoveredHasData = hasExplicit ? dataAvailability[idx] === true : hv != null && !Number.isNaN(hv as number);
+      hoveredDisplay = getSparklineBarValueDisplay({ value: hv, hasData: hoveredHasData, valueFormatter, zeroValueLabel });
+      hoveredDate = dates && dates[idx] ? formatSparklineDate(dates[idx]) : null;
+      // Colore o número do dia igual à barra em hover (dia × média do pack), respeitando o toggle.
+      if (colorMetricValue && hv != null && Number.isFinite(hv) && trendPresentation.packAverage != null) {
+        hoveredColorClass = getMetricValueTextClass(getMetricQualityToneByAverage(Number(hv), trendPresentation.packAverage, trendPresentation.inverseColors));
+      }
+    }
+
+    const valueNode = isDayHovered ? (
+      <div className="relative flex flex-col items-center">
+        {isHoverSource && hoveredDate && (
+          <span className="absolute bottom-full mb-0.5 text-[10px] leading-none text-muted-foreground whitespace-nowrap pointer-events-none">
+            {hoveredDate}
+          </span>
+        )}
+        <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", hoveredColorClass)}>{hoveredDisplay}</span>
+      </div>
+    ) : (
+      <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
+    );
+
     // "transition": skeleton saindo + sparkline entrando sobrepostos.
     // "done": apenas sparkline, sem troca de nó (evita o piscar).
     // Em ambos os casos, o SparklineBars fica no DOM — só o skeleton é desmontado.
@@ -186,13 +241,16 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
         fadeInDurationMs={FADE_DURATION_MS}
         fadeInStaggerMs={STAGGER_MS}
         fadeInStartDelayMs={sparklinePhase === "transition" ? SPARKLINE_START_DELAY_MS : 0}
-        valueFormatter={(n: number) => formatMetricValue(metric, n, { currencyFormatter: formatCurrency })}
+        valueFormatter={valueFormatter}
         inverseColors={trendPresentation.inverseColors}
         packAverage={trendPresentation.packAverage}
         colorMode={trendPresentation.useTrendMode ? "series" : undefined}
         dataAvailability={dataAvailability}
         zeroValueLabel={zeroValueLabel}
         dates={dates}
+        hoveredIndex={hoveredDayIndex}
+        onBarHover={handleBarHover}
+        onBarLeave={handleBarLeave}
       />
     );
 
@@ -222,7 +280,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     return (
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
         {sparklineBars}
-        <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
+        {valueNode}
       </div>
     );
   }
