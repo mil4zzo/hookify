@@ -296,7 +296,8 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
 
   return (
     <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
-      <Badge variant={deltaBadgeVariant} className={minimal ? "px-1.5 py-0 text-[10px] leading-4" : "text-xs"}>
+      {/* success/destructive já vêm compactas do componente; outline (empate) precisa do mesmo tamanho aqui pontualmente, sem mudar o variant global (usado como chip maior em outras telas) */}
+      <Badge variant={deltaBadgeVariant} className={deltaBadgeVariant === "outline" ? "rounded-sm px-1 py-0 text-[10px]" : undefined}>
         {deltaPresentation.text}
       </Badge>
       <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
