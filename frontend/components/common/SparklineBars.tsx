@@ -88,8 +88,8 @@ export function formatSparklineDate(dateStr: string): string {
 
 /**
  * Formata o valor exibido de uma barra do sparkline, respeitando "Sem dados" e o
- * label de zero. Exportado para que o MetricCell mostre o mesmo texto abaixo do
- * sparkline quando um dia está em hover (fonte única de formatação).
+ * label de zero. Usado pelo title nativo (lightweight não-interativo) e pela
+ * tooltip Radix (modo full) — comportamento pré-existente, não alterar aqui.
  */
 export function getSparklineBarValueDisplay(params: {
   value: number | null | undefined;
@@ -101,6 +101,21 @@ export function getSparklineBarValueDisplay(params: {
   if (!hasData) return "Sem dados";
   const isNull = value == null || Number.isNaN(value as number);
   if (isNull || value === 0) return zeroValueLabel || (valueFormatter ? valueFormatter(0) : "0");
+  return valueFormatter ? valueFormatter(Number(value)) : `${Number(value).toFixed(2)}`;
+}
+
+/**
+ * Formatação numérica pura (sem labels verbais tipo "Sem leads"): "—" quando não há
+ * dado do dia OU quando a métrica é indefinida naquele dia (ex: CPR sem resultados),
+ * valor formatado quando finito (inclusive zero legítimo, ex: 0% de conversão).
+ * Usado só pelo hover interativo do MetricCell/ManagerTable — mesma convenção de
+ * "—" que a célula agregada já usa fora do hover, para não trocar de vocabulário
+ * no meio da mesma interação. Não reusar no modo tooltip geral (AdDetailsDialog
+ * etc.) — lá o label verbal ("Sem MQLs") é intencional e pré-existente.
+ */
+export function getSparklineBarNumericDisplay(params: { value: number | null | undefined; hasData: boolean; valueFormatter?: (v: number) => string }): string {
+  const { value, hasData, valueFormatter } = params;
+  if (!hasData || value == null || Number.isNaN(value as number)) return "—";
   return valueFormatter ? valueFormatter(Number(value)) : `${Number(value).toFixed(2)}`;
 }
 
@@ -135,6 +150,22 @@ export const SparklineBars = React.memo(function SparklineBars({
   const values = series.filter((v): v is number => typeof v === "number" && !Number.isNaN(v));
   const max = values.length ? Math.max(...values) : 0;
   const seriesColor = dynamicColor && colorMode === "series" ? colorByTrend(getMetricSeriesTrendPct(series), inverseColors) : colorClass;
+
+  // Barra REALMENTE sob o cursor NESTA instância (distinto de `hoveredIndex`, que é
+  // sincronizado entre colunas via prop) — usada só para posicionar a tooltip flutuante.
+  const [activeBar, setActiveBar] = React.useState<{ index: number; left: number; top: number } | null>(null);
+  const handleBarMouseEnter = React.useCallback(
+    (index: number, e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setActiveBar({ index, left: rect.left + rect.width / 2, top: rect.top });
+      onBarHover?.(index);
+    },
+    [onBarHover],
+  );
+  const handleContainerMouseLeave = React.useCallback(() => {
+    setActiveBar(null);
+    onBarLeave?.();
+  }, [onBarLeave]);
 
   // Usar className customizado se fornecido, senÃ£o usar preset baseado no size
   const finalClassName = className || sizePresets[size];
@@ -186,23 +217,23 @@ export const SparklineBars = React.memo(function SparklineBars({
 
     const dateDisplay = dates && dates[i] ? formatSparklineDate(dates[i]) : null;
     const valueDisplay = getSparklineBarValueDisplay({ value: v, hasData, valueFormatter, zeroValueLabel });
+    const numericValueDisplay = getSparklineBarNumericDisplay({ value: v, hasData, valueFormatter });
 
     const titleText = dateDisplay ? `${dateDisplay}: ${valueDisplay}` : valueDisplay;
 
-    return { heightPct, gradientClass, borderClass, barColor, isNull, hasData, isZeroWithData, dateDisplay, valueDisplay, titleText };
+    return { heightPct, gradientClass, borderClass, barColor, isNull, hasData, isZeroWithData, dateDisplay, valueDisplay, numericValueDisplay, titleText };
   });
 
   // Lightweight mode: native title attributes (no Radix Tooltip overhead)
   if (lightweight) {
     // Modo interativo: hover troca o title nativo por destaque (fade nas demais barras)
-    // e notifica o pai (que sincroniza o dia entre as colunas da linha).
+    // e notifica o pai (que sincroniza o dia entre as colunas da linha), mostrando uma
+    // tooltip flutuante (position: fixed, fora do fluxo — não é clipada pelo overflow-auto
+    // da tabela) só acima da barra REALMENTE sob o cursor nesta instância.
     const interactive = Boolean(onBarHover);
+    const activeBarData = activeBar ? bars[activeBar.index] : null;
     return (
-      <div
-        className={`flex items-end justify-between ${finalClassName}`}
-        style={{ gap: `${gap}px` }}
-        onMouseLeave={onBarLeave}
-      >
+      <div className={`flex items-end justify-between ${finalClassName}`} style={{ gap: `${gap}px` }} onMouseLeave={handleContainerMouseLeave}>
         {bars.map((bar, i) => {
           const dimmed = hoveredIndex != null && i !== hoveredIndex;
           return (
@@ -211,12 +242,21 @@ export const SparklineBars = React.memo(function SparklineBars({
               className={`rounded-xs flex-1 relative ${staggeredFadeIn ? "sparkline-fade-in-bar" : "transition-opacity duration-150"}`}
               style={{ height: `${bar.heightPct}%`, ...(staggeredFadeIn ? {} : { opacity: dimmed ? 0.25 : 1 }), ...getRevealStyle(i) }}
               title={interactive ? undefined : bar.titleText}
-              onMouseEnter={onBarHover ? () => onBarHover(i) : undefined}
+              onMouseEnter={interactive ? (e) => handleBarMouseEnter(i, e) : undefined}
             >
               <div className={`w-full h-full rounded-xs ${bar.gradientClass} ${bar.borderClass} border-t-2`} />
             </div>
           );
         })}
+        {interactive && activeBar && activeBarData && (
+          <div
+            className="fixed z-[10020] flex flex-col items-center whitespace-nowrap rounded-md border border-border bg-popover px-2.5 py-1 text-xs text-popover-foreground shadow-md pointer-events-none animate-in fade-in-0 zoom-in-95 duration-150"
+            style={{ left: activeBar.left, top: activeBar.top, transform: "translate(-50%, calc(-100% - 8px))" }}
+          >
+            {activeBarData.dateDisplay && <span className="text-[10px] leading-none text-muted-foreground mb-0.5">{activeBarData.dateDisplay}</span>}
+            <span className="leading-none">{activeBarData.numericValueDisplay}</span>
+          </div>
+        )}
       </div>
     );
   }

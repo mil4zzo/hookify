@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { SparklineBars, formatSparklineDate, getSparklineBarValueDisplay } from "@/components/common/SparklineBars";
+import { SparklineBars, getSparklineBarNumericDisplay } from "@/components/common/SparklineBars";
 import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
 import { useRowHoveredDay, setHoveredBar, clearHoveredBar } from "@/lib/hooks/useRowBarHover";
 import { Badge } from "@/components/ui/badge";
@@ -94,24 +94,15 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
   }, [colorMetricValue, original, metric, actionType, mqlLeadscoreMin, hasSheetIntegration, averages]);
 
   // Dia em hover para esta linha (sincronizado entre todas as colunas via store por rowKey).
+  // A data (quando relevante) é mostrada pela tooltip flutuante do próprio SparklineBars,
+  // ancorada na barra sob o cursor — aqui só trocamos o número exibido.
   const hoveredDayIndex = useRowHoveredDay(rowKey);
-  // Origem do hover: só a coluna sob o cursor mostra a legenda de data (o valor troca em todas).
-  const [isHoverSource, setIsHoverSource] = React.useState(false);
   const valueFormatter = React.useCallback(
     (n: number) => formatMetricValue(metric, n, { currencyFormatter: formatCurrency }),
     [metric, formatCurrency],
   );
-  const handleBarHover = React.useCallback(
-    (index: number) => {
-      setIsHoverSource(true);
-      setHoveredBar(rowKey, index);
-    },
-    [rowKey],
-  );
-  const handleBarLeave = React.useCallback(() => {
-    setIsHoverSource(false);
-    clearHoveredBar(rowKey);
-  }, [rowKey]);
+  const handleBarHover = React.useCallback((index: number) => setHoveredBar(rowKey, index), [rowKey]);
+  const handleBarLeave = React.useCallback(() => clearHoveredBar(rowKey), [rowKey]);
 
   const seriesLoading = Boolean((original as any).series_loading);
   const BAR_COUNT = 5;
@@ -196,19 +187,20 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     });
 
     // Dia em hover (sincronizado entre colunas da linha): troca o número exibido pelo
-    // valor daquele dia e mostra a data como legenda discreta. Cada célula calcula o
-    // próprio valor a partir do índice compartilhado — usa os mesmos insumos do sparkline.
+    // valor daquele dia. Cada célula calcula o próprio valor a partir do índice
+    // compartilhado — usa os mesmos insumos do sparkline. Convenção numérica pura
+    // ("—" para indefinido, valor formatado inclusive zero real) para coincidir com
+    // o vocabulário da célula agregada (fora do hover) — a data/label verbal fica na
+    // tooltip flutuante do próprio sparkline, não aqui.
     const idx = hoveredDayIndex;
     const isDayHovered = idx != null && idx >= 0;
     let hoveredDisplay: string | null = null;
-    let hoveredDate: string | null = null;
     let hoveredColorClass = "";
     if (isDayHovered) {
       const hv = normalizedSeries[idx] as number | null | undefined;
       const hasExplicit = Array.isArray(dataAvailability) && idx < dataAvailability.length;
       const hoveredHasData = hasExplicit ? dataAvailability[idx] === true : hv != null && !Number.isNaN(hv as number);
-      hoveredDisplay = getSparklineBarValueDisplay({ value: hv, hasData: hoveredHasData, valueFormatter, zeroValueLabel });
-      hoveredDate = dates && dates[idx] ? formatSparklineDate(dates[idx]) : null;
+      hoveredDisplay = getSparklineBarNumericDisplay({ value: hv, hasData: hoveredHasData, valueFormatter });
       // Colore o número do dia igual à barra em hover (dia × média do pack), respeitando o toggle.
       if (colorMetricValue && hv != null && Number.isFinite(hv) && trendPresentation.packAverage != null) {
         hoveredColorClass = getMetricValueTextClass(getMetricQualityToneByAverage(Number(hv), trendPresentation.packAverage, trendPresentation.inverseColors));
@@ -216,14 +208,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     }
 
     const valueNode = isDayHovered ? (
-      <div className="relative flex flex-col items-center">
-        {isHoverSource && hoveredDate && (
-          <span className="absolute bottom-full mb-0.5 text-[10px] leading-none text-muted-foreground whitespace-nowrap pointer-events-none">
-            {hoveredDate}
-          </span>
-        )}
-        <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", hoveredColorClass)}>{hoveredDisplay}</span>
-      </div>
+      <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", hoveredColorClass)}>{hoveredDisplay}</span>
     ) : (
       <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
     );
