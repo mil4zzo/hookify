@@ -43,9 +43,14 @@ test("buildAdMetricsData: extrai campos e deriva page_conv/overall_conversion", 
   assert.deepEqual(m.conversions, { "action:purchase": 10 });
 });
 
-test("buildAdMetricsData: cpm calcula fallback quando ausente (spend*1000/impressions)", () => {
+test("buildAdMetricsData: cpm ausente/não-finito → 0 (RPC sempre garante cpm finito; não recalculamos)", () => {
   const m = buildAdMetricsData({ impressions: 1000, spend: 50 }, undefined);
-  assert.equal(m.cpm, 50); // 50 * 1000 / 1000
+  assert.equal(m.cpm, 0);
+});
+
+test("buildAdMetricsData: cpm NaN/Infinity → 0", () => {
+  assert.equal(buildAdMetricsData({ cpm: NaN }, undefined).cpm, 0);
+  assert.equal(buildAdMetricsData({ cpm: Infinity }, undefined).cpm, 0);
 });
 
 test("buildAdMetricsData: cpm usa valor do backend quando presente", () => {

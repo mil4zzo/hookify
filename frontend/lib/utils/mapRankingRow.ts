@@ -1,3 +1,5 @@
+import { computeConversionMetrics } from "./conversionMetrics";
+
 export type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
 
 /** Deriva o nome de exibição conforme o agrupamento. */
@@ -24,12 +26,11 @@ export function mapRankingRow(row: any, actionType: string, tab: ManagerTab) {
   const results = actionType ? Number(conversionsObj[actionType] || 0) : 0;
   const lpv = Number(row.lpv || 0);
   const spend = Number(row.spend || 0);
-  const page_conv = lpv > 0 ? results / lpv : 0;
   const cpr = results > 0 ? spend / results : 0;
   const cpm = Number.isFinite(row.cpm) ? row.cpm : 0;
   const website_ctr = typeof row.website_ctr === "number" ? row.website_ctr : 0;
   const connect_rate = Number(row.connect_rate || 0);
-  const overall_conversion = website_ctr * connect_rate * page_conv;
+  const { page_conv, overall_conversion } = computeConversionMetrics(website_ctr, connect_rate, results, lpv);
   return {
     ...row,
     ad_name: resolveAdName(row, tab),

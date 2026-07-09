@@ -8,6 +8,7 @@
 
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { getFieldInfo, getOperatorsForFieldType } from "@/lib/config/adMetricsFields";
+import { computeConversionMetrics } from "./conversionMetrics";
 
 /**
  * Tipo para representar as métricas de um anúncio
@@ -178,17 +179,15 @@ export function evaluateValidationCriteria(
 export function buildAdMetricsData(ad: any, actionType?: string): AdMetricsData {
   const impressions = Number(ad.impressions || 0);
   const spend = Number(ad.spend || 0);
-  const cpm =
-    typeof ad.cpm === "number" && !Number.isNaN(ad.cpm) && isFinite(ad.cpm)
-      ? ad.cpm
-      : impressions > 0
-      ? (spend * 1000) / impressions
-      : 0;
+  // A RPC (fetch_manager_rankings_core_v2 e cadeia) sempre devolve cpm finito — 0 quando
+  // impressions=0, senão spend*1000/impressions (schema.sql). Nunca chega NaN/Infinity/ausente
+  // daqui; não recalculamos, só damos um zero defensivo caso o contrato mude.
+  const cpm = Number.isFinite(ad.cpm) ? ad.cpm : 0;
   const website_ctr = Number(ad.website_ctr || 0);
   const connect_rate = Number(ad.connect_rate || 0);
   const lpv = Number(ad.lpv || 0);
   const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
-  const page_conv = lpv > 0 ? results / lpv : 0;
+  const { page_conv, overall_conversion } = computeConversionMetrics(website_ctr, connect_rate, results, lpv);
 
   return {
     ad_name: ad.ad_name,
@@ -205,7 +204,7 @@ export function buildAdMetricsData(ad: any, actionType?: string): AdMetricsData 
     hook: Number(ad.hook || 0),
     ctr: Number(ad.ctr || 0),
     page_conv,
-    overall_conversion: website_ctr * connect_rate * page_conv,
+    overall_conversion,
     conversions: ad.conversions || {},
   };
 }
