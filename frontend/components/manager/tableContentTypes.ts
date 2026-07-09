@@ -36,6 +36,8 @@ export interface SharedTableContentProps {
   dataRef: readonly any[] | any[];
   /** Toggle Médias vs Tendências: quando muda, a tabela deve re-renderizar para mostrar sparklines ou médias */
   showTrends?: boolean;
+  /** Toggle Comparar com a média: quando muda, a tabela deve re-renderizar para (des)colorir os números. Não é usado diretamente aqui — serve de sinal para o React.memo re-renderizar com os novos closures de célula. */
+  colorMetricValue?: boolean;
   /** Chaves de grupo visiveis no viewport virtualizado (ordem atual da tabela). */
   onVisibleRowKeysChange?: (keys: string[]) => void;
   /** Indica que a requisição falhou (ex: timeout do RPC). Exibe estado de erro no lugar de "Nenhum resultado". */

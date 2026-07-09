@@ -13,7 +13,7 @@ export type TableContentProps = SharedTableContentProps;
 // Função de comparação customizada otimizada para React.memo
 function areTableContentPropsEqual(prev: TableContentProps, next: TableContentProps): boolean {
   // 1. Comparações primitivas (rápidas)
-  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.isError !== next.isError || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends) {
+  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.isError !== next.isError || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends || prev.colorMetricValue !== next.colorMetricValue) {
     return false;
   }
 

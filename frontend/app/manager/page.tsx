@@ -9,8 +9,6 @@ import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { PageContainer } from "@/components/common/PageContainer";
-import { PageActions } from "@/components/common/PageActions";
-import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { AnalyticsWorkspace } from "@/components/common/layout";
 import { logger } from "@/lib/utils/logger";
 import { toast } from "sonner";
@@ -371,11 +369,6 @@ function ManagerPageContent() {
       description="Dados de performance dos seus anúncios"
       variant="analytics"
       className="min-h-0"
-      actions={
-        <PageActions className="xl:flex-nowrap xl:items-center">
-          <ToggleSwitch id="show-trends" checked={showTrends} onCheckedChange={handleShowTrendsChange} labelLeft="Médias" labelRight="Tendências" variant="minimal" />
-        </PageActions>
-      }
     >
       <AnalyticsWorkspace>
         <ManagerTable
@@ -391,6 +384,7 @@ function ManagerPageContent() {
           dateStop={dateRange.end}
           availableConversionTypes={actionTypeOptions}
           showTrends={showTrends}
+          onShowTrendsChange={handleShowTrendsChange}
           hasSheetIntegration={hasSheetIntegration}
           isLoading={loading || packsLoading}
           isError={!!managerError && !loading && packsReady}
