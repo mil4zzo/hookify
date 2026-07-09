@@ -82,6 +82,14 @@ function textFilterFn(row: any, _columnId: string, filterValue: TextFilterValue 
   return textFilterFnSingle(row, filterValue, fieldName);
 }
 
+function numericFilterFnMaybeArray(rowValue: number | null | undefined, filterValue: FilterValue | FilterValue[] | undefined, applyNumericFilter: (rowValue: number | null | undefined, filterValue: FilterValue | undefined) => boolean): boolean {
+  if (!filterValue) return true;
+  if (Array.isArray(filterValue)) {
+    return filterValue.every((fv) => applyNumericFilter(rowValue, fv));
+  }
+  return applyNumericFilter(rowValue, filterValue);
+}
+
 /** Considera ativo apenas ACTIVE; demais (PAUSED, ADSET_PAUSED, etc.) são inativos. */
 function isActiveStatus(status?: string | null): boolean {
   if (!status) return false;
@@ -221,6 +229,26 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       minSize: 0,
       maxSize: 0,
       filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "campaign_name"),
+      cell: () => null,
+    }),
+  );
+
+  // Coluna oculta: quantidade de anúncios ativos no grupo (por-anúncio/por-conjunto/por-campanha).
+  // Fallback ad_count espelha o mesmo critério do AdNameCell (active_count ausente = assume todos ativos).
+  cols.push(
+    columnHelper.accessor("active_count", {
+      id: "active_count_filter",
+      header: () => null,
+      enableSorting: false,
+      enableResizing: false,
+      size: 0,
+      minSize: 0,
+      maxSize: 0,
+      filterFn: (row, _columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
+        const original = row.original as RankingsItem;
+        const activeCount = original.active_count ?? original.ad_count ?? 0;
+        return numericFilterFnMaybeArray(activeCount, filterValue, params.applyNumericFilter);
+      },
       cell: () => null,
     }),
   );

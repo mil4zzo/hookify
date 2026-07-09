@@ -10,8 +10,10 @@ import { AdInfoCard } from "@/components/ads/AdInfoCard";
 const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState, RowSelectionState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconListDetails, IconList, IconLoader2, IconDownload, IconFileText, IconPlayerPause, IconPlayerPlay, IconX, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown, IconPalette } from "@tabler/icons-react";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuCheckboxItem, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconPlayerPause, IconPlayerPlay, IconX, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown } from "@tabler/icons-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import { ToggleSwitch } from "@/components/common/ToggleSwitch";
+import { ManagerExportDialog } from "@/components/manager/ManagerExportDialog";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { api } from "@/lib/api/endpoints";
@@ -43,7 +45,6 @@ import { logger } from "@/lib/utils/logger";
 import { getColumnId } from "@/lib/utils/columnFilters";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
-import { exportManagerToCsv } from "@/lib/utils/exportManagerCsv";
 import { useBulkAdStatusControl } from "@/lib/hooks/useAdStatusControl";
 import { cn } from "@/lib/utils/cn";
 
@@ -76,6 +77,8 @@ interface ManagerTableProps {
   dateStop?: string;
   availableConversionTypes?: string[];
   showTrends?: boolean;
+  /** Setter do toggle Médias/Tendências — permite hospedar o controle dentro do menu "Exibição". */
+  onShowTrendsChange?: (checked: boolean) => void;
   averagesOverride?: {
     hook: number | null;
     hold_rate?: number | null;
@@ -126,7 +129,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, onShowTrendsChange, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -904,14 +907,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   formatCurrencyRef.current = formatCurrency;
   actionTypeRef.current = actionType;
 
-  // Ref estável para o handler de exportação — evita adicionar `table` como dep do controls useMemo
-  const [isExporting, setIsExporting] = useState(false);
-  const handleExportRef = useRef<(withTranscriptions: boolean) => void>(() => {});
-  handleExportRef.current = (withTranscriptions: boolean) => {
-    setIsExporting(true);
-    exportManagerToCsv({ table, activeColumns, hasSheetIntegration, currentTab, dateStart, dateStop, withTranscriptions })
-      .finally(() => setIsExporting(false));
-  };
+  // Modal de exportação (seleção de colunas + transcrições). A execução do CSV vive no dialog.
+  const [isExportOpen, setIsExportOpen] = useState(false);
 
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
@@ -923,12 +920,18 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           ? { id: "ad_name", label: "Campanha", isText: true }
           : { id: "ad_name", label: "Anúncio", isText: true };
 
+    // "Ads ativos" só faz sentido em grupos com múltiplos anúncios (por-anúncio/por-conjunto/
+    // por-campanha) — em "individual" cada linha já é um único ad, redundante com o filtro de Status.
+    const activeCountColumn = { id: "active_count_filter", label: "Ads ativos" };
+
     const textColumns =
-      currentTab === "individual" || currentTab === "por-anuncio"
+      currentTab === "individual"
         ? [nameColumn, { id: "adset_name_filter", label: "Conjunto", isText: true }, { id: "campaign_name_filter", label: "Campanha", isText: true }]
-        : currentTab === "por-conjunto"
-          ? [nameColumn, { id: "campaign_name_filter", label: "Campanha", isText: true }]
-          : [nameColumn];
+        : currentTab === "por-anuncio"
+          ? [nameColumn, { id: "adset_name_filter", label: "Conjunto", isText: true }, { id: "campaign_name_filter", label: "Campanha", isText: true }, activeCountColumn]
+          : currentTab === "por-conjunto"
+            ? [nameColumn, { id: "campaign_name_filter", label: "Campanha", isText: true }, activeCountColumn]
+            : [nameColumn, activeCountColumn];
 
     return getManagerFilterableColumns({
       visibleColumns,
@@ -967,45 +970,55 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
             <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
           </div>
 
-          {/* Exibição: agrupa visualização, colorir métricas e exportar (ações esporádicas) */}
+          {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="py-2 px-3 border border-input bg-background rounded-lg gap-2" aria-label="Opções de exibição">
-                {isExporting ? <IconLoader2 className="h-4 w-4 animate-spin" /> : <IconAdjustmentsHorizontal className="h-4 w-4" />}
+                <IconAdjustmentsHorizontal className="h-4 w-4" />
                 <span className="hidden text-sm sm:inline">Exibição</span>
                 <IconChevronDown className="h-4 w-4 opacity-60" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-60">
-              <DropdownMenuLabel>Visualização</DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={viewMode} onValueChange={(v) => handleViewModeChange(v as ViewMode)}>
-                <DropdownMenuRadioItem value="detailed" onSelect={(e) => e.preventDefault()}>
-                  <IconListDetails className="mr-2 h-4 w-4" />
-                  Detalhada
-                </DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="minimal" onSelect={(e) => e.preventDefault()}>
-                  <IconList className="mr-2 h-4 w-4" />
-                  Minimal
-                </DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
+            <DropdownMenuContent align="end" className="w-64">
+              {/* Toggles de exibição: switch à esquerda, label à direita */}
+              <div className="px-2 py-1.5" onKeyDown={(e) => e.stopPropagation()}>
+                <ToggleSwitch
+                  id="menu-compact"
+                  checked={viewMode === "minimal"}
+                  onCheckedChange={(v) => handleViewModeChange(v ? "minimal" : "detailed")}
+                  label="Compacta"
+                  variant="minimal"
+                  size="sm"
+                  className="w-full justify-start"
+                />
+              </div>
+              <div className="px-2 py-1.5" onKeyDown={(e) => e.stopPropagation()}>
+                <ToggleSwitch
+                  id="menu-show-trends"
+                  checked={showTrends}
+                  onCheckedChange={(v) => onShowTrendsChange?.(v)}
+                  label="Tendências"
+                  variant="minimal"
+                  size="sm"
+                  className="w-full justify-start"
+                />
+              </div>
+              <div className="px-2 py-1.5" onKeyDown={(e) => e.stopPropagation()}>
+                <ToggleSwitch
+                  id="menu-color-metrics"
+                  checked={colorMetricValue}
+                  onCheckedChange={handleColorMetricValueChange}
+                  label="Comparar com a média"
+                  variant="minimal"
+                  size="sm"
+                  className="w-full justify-start"
+                />
+              </div>
 
               <DropdownMenuSeparator />
-              <DropdownMenuCheckboxItem checked={colorMetricValue} onCheckedChange={handleColorMetricValueChange} onSelect={(e) => e.preventDefault()}>
-                <span className="flex items-center gap-2">
-                  <IconPalette className="h-4 w-4" />
-                  Colorir métricas pela média
-                </span>
-              </DropdownMenuCheckboxItem>
-
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel>Exportar</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => handleExportRef.current(false)}>
+              <DropdownMenuItem onClick={() => setIsExportOpen(true)}>
                 <IconDownload className="h-4 w-4 mr-2" />
-                Exportar métricas
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExportRef.current(true)}>
-                <IconFileText className="h-4 w-4 mr-2" />
-                Exportar com transcrições
+                Exportar…
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1026,7 +1039,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, colorMetricValue, handleColorMetricValueChange, activeColumns, handleToggleColumn, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isExporting, isFullscreen],
+    [viewMode, handleViewModeChange, showTrends, onShowTrendsChange, colorMetricValue, handleColorMetricValueChange, activeColumns, handleToggleColumn, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
   );
 
   const tableContentProps = useMemo(
@@ -1053,11 +1066,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       dataLength: data.length,
       dataRef: data,
       showTrends,
+      colorMetricValue,
       onVisibleRowKeysChange: handleVisibleRowKeysChange,
       isError: isError && currentTab === "por-anuncio",
       onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, adsEffectiveRaw, showTrends, handleVisibleRowKeysChange, handleOpenDrill],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
   return (
     <>
@@ -1197,6 +1211,18 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       <AppDialog isOpen={!!selectedAdset} onClose={() => setSelectedAdset(null)} title="Detalhes do conjunto" size="4xl" padding="md">
         {selectedAdset && <AdsetDetailsDialog adsetId={selectedAdset.adsetId} adsetName={selectedAdset.adsetName} dateStart={dateStart} dateStop={dateStop} actionType={actionType} packIds={selectedPackIds} />}
       </AppDialog>
+
+      {/* Export Dialog — seleção de colunas + transcrições */}
+      <ManagerExportDialog
+        isOpen={isExportOpen}
+        onClose={() => setIsExportOpen(false)}
+        table={table}
+        activeColumns={activeColumns}
+        hasSheetIntegration={hasSheetIntegration}
+        currentTab={currentTab}
+        dateStart={dateStart}
+        dateStop={dateStop}
+      />
     </>
   );
 }

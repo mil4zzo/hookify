@@ -41,6 +41,7 @@ const filterOperators: { value: FilterOperator; label: string }[] = [
   { value: "<", label: "Menor que" },
   { value: ">=", label: "Maior ou igual" },
   { value: "<=", label: "Menor ou igual" },
+  { value: "=", label: "Igual a" },
 ];
 
 const textFilterOperators: { value: TextFilterOperator; label: string }[] = [
