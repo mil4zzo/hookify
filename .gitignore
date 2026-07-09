@@ -114,6 +114,8 @@ backend/celerybeat.pid
 backend/*.sage.py
 
 # Environments
+/.env
+/.env.*
 backend/.env
 backend/.env.local
 backend/.env.development.local
