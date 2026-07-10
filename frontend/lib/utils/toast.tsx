@@ -7,10 +7,15 @@ import { PausedToastCard, ProgressToastCard } from "@/components/common/Progress
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
-export function showError(error: AppError | Error | unknown) {
+export function showError(error: AppError | Error | string | unknown) {
   // Garantir que sempre temos um AppError com message string
   let appError: AppError;
-  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+  if (typeof error === "string") {
+    // String crua (ex.: showError("Falha ao pausar")): tratar como a própria mensagem.
+    // Sem isto, parseError(string) cai no ramo genérico e vira "Erro desconhecido",
+    // engolindo a mensagem real que o callsite quis mostrar.
+    appError = { message: error };
+  } else if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
     // Já é um AppError válido
     appError = error as AppError;
   } else {

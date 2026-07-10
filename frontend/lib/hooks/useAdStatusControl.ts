@@ -117,6 +117,17 @@ function isPausedStatus(status?: string | null): boolean {
   return s === "PAUSED" || s === "ADSET_PAUSED" || s === "CAMPAIGN_PAUSED";
 }
 
+/**
+ * Detecta pela mensagem (não pelo código aninhado, que é frágil) se o erro do Meta é de
+ * limite de requisições. Cobre os códigos comuns de rate limit da Graph/Marketing API
+ * design-system-exception: raw-color - códigos de erro da Meta abaixo, não são cores
+ * (#4, #17, #32, #613, #80000–80009) e as frases em inglês que o Meta retorna.
+ */
+function isMetaRateLimitMessage(message?: string | null): boolean {
+  if (!message) return false;
+  return /request limit|rate limit|reduce the (amount|number)|too many calls|\(#(4|17|32|613|80\d{3})\)/i.test(String(message));
+}
+
 function patchBulkAdStatusInCaches(qc: QueryClient, updates: { adId: string; status: string }[]): void {
   if (!updates.length) return;
   const updateMap = new Map(updates.map((u) => [u.adId, u.status]));
@@ -189,6 +200,10 @@ export function useBulkAdStatusControl(): UseBulkAdStatusControlReturn {
     },
     onError: (e: any) => {
       const msg = e?.message || "Falha ao atualizar status em lote.";
+      if (isMetaRateLimitMessage(msg)) {
+        toast.warning("Limite de requisições do Meta atingido. Aguarde alguns segundos e tente novamente.", { duration: 7000 });
+        return;
+      }
       showError(msg);
     },
   });
@@ -268,6 +283,17 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
           void qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
         }
         toast.warning(msg, { duration: 6000 });
+        return;
+      }
+      // Rate limit do Meta: pausar/ativar anúncios um a um em sequência dispara 2 chamadas Meta
+      // por anúncio (write + verify) e estoura o limite de requisições — enquanto "selecionar
+      // vários + pausar em massa" usa a Batch API (1 requisição por 50). Orienta à ação em vez
+      // de mostrar o "(#17) User request limit reached" cru.
+      if (isMetaRateLimitMessage(msg)) {
+        toast.warning(
+          "Muitas ações de status em sequência. Aguarde alguns segundos e tente de novo — ou selecione vários anúncios e use “Pausar/Ativar em massa”.",
+          { duration: 7000 },
+        );
         return;
       }
       showError(msg);
