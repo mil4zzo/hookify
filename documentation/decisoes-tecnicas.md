@@ -1769,3 +1769,252 @@ Memória correspondente: `meta_budget_api_rules.md`.
 **Por que não unificar tudo num único vocabulário globalmente:** mudar `getSparklineBarValueDisplay` alteraria o comportamento de telas que já funcionavam de um jeito conhecido (AdDetailsDialog, Series tab) sem que o usuário tivesse pedido isso — blast radius maior que o necessário para resolver a incoerência apontada (que era específica ao número trocado do hover, comparado à MESMA célula fora do hover).
 
 **Verificação:** `tsc --noEmit` limpo após cada mudança.
+
+## Checkbox de seleção em lote "atrasava" ao marcar — `rowSelection` fora do comparator do `React.memo` (2026-07-09)
+
+**Sintoma reportado:** na aba individual do `/manager`, clicar no checkbox de uma linha subia na hora a contagem "N selecionados", mas o próprio checkbox só marcava depois de um delay — como um lag. Hipótese inicial do usuário: re-render da tabela inteira ao selecionar.
+
+**Diagnóstico — era o inverso.** Não era a tabela re-renderizando; era a tabela **deixando de** re-renderizar. A contagem mora no toolbar (fora do corpo da tabela) e é derivada de `rowSelection` (`selectedAdIds = Object.keys(rowSelection)`), então atualiza no primeiro render do `ManagerTable`. Mas o checkbox lê `row.getIsSelected()` dentro de `TableContent`, que é `React.memo` com comparator manual (`areTableContentPropsEqual`) que **não comparava `rowSelection`**. Como a instância `table` do TanStack é estável (`prev.table === next.table` sempre) e nenhuma outra prop comparada mudava, o comparator devolvia `true` → `TableContent` pulava o render → a célula do checkbox não era reavaliada. O checkbox só "acordava" quando um render **não relacionado** (refetch em background trocando `dataRef`, hover do sparkline, sync de status on-focus com TTL) finalmente passava por uma prop comparada — daí o delay.
+
+**Fix:** threadar `rowSelection` como prop explícita de `TableContent`/`MinimalTableContent` (não dá para ler `table.getState().rowSelection` no comparator, justamente porque `table` é mutável e estável) e comparar por referência (`prev.rowSelection !== next.rowSelection`) nos DOIS comparators — `setRowSelection` gera objeto novo a cada toggle, então referência basta. Os 3 pontos: (1) `rowSelection: RowSelectionState` em `SharedTableContentProps`; (2) incluir no objeto `tableContentProps` + deps do useMemo; (3) a checagem nos comparators de `TableContent.tsx` e `MinimalTableContent.tsx`. Custo baixo: `MetricCell` já é `React.memo`, então na re-renderização os cells de métrica dão bail-out e efetivamente só o checkbox re-renderiza.
+
+**Lição:** este é o mesmo padrão da memória `manager_table_memo_signal_prop_for_cell_rerender` (toggles `colorMetricValue`/`showTrends`), mas num sabor mais amplo — não é toggle de closure de coluna, é **estado da tabela que uma célula LÊ**. Regra generalizada: qualquer estado do TanStack que uma célula consome (`getIsSelected`, `getIsExpanded`, etc.) precisa ser threadado como prop e entrar no comparator, senão o memo engole o update.
+
+**Verificação:** `tsc --noEmit` limpo.
+
+## Seleção em intervalo por shift+click nos checkboxes do /manager (2026-07-09)
+
+**Pedido:** clicar um checkbox de linha, segurar shift e clicar outro bem abaixo → marcar/desmarcar todas as linhas do intervalo. Padrão Gmail/Finder.
+
+**Implementação** (`managerTableColumns.tsx`, coluna `id: "select"` da aba individual, + `selectionAnchorRef` criado em `ManagerTable` e threadado pelo factory): clique normal ancora em `row.id`; shift+click computa o intervalo entre a âncora e a linha clicada e aplica a todas o mesmo estado (`value = !row.getIsSelected()`) via `table.setRowSelection`.
+
+**Gotchas não-óbvios:**
+- **Radix `Checkbox` — suprimir o toggle nativo:** o `CheckboxPrimitive.Root` compõe o `onClick` do usuário com o handler interno via `composeEventHandlers`, que só roda o interno se `event.defaultPrevented === false`. Então `e.preventDefault()` no nosso `onClick` **cancela o toggle nativo + `onCheckedChange`** — necessário no shift+click para a própria linha clicada não ser re-alternada por cima da lógica de intervalo. (Vale para qualquer interação custom sobre o shadcn Checkbox.)
+- **Ordem visível, não índice de dados:** o intervalo usa `table.getRowModel().rows` (conjunto COMPLETO pós-filtro/sort) para achar as posições — não `row.index` (que é índice no data original) nem os DOM rows virtualizados. Assim o range funciona mesmo com a âncora rolada para fora da viewport.
+- **`rowSelection` guarda só `true`:** desmarcar = `delete next[id]`, não `= false`.
+- **Âncora fixa** após shift+click (não se move) — permite reajustar o endpoint a partir da mesma origem, como no Explorer/Finder. `onMouseDown` com `preventDefault` quando shift evita o highlight de texto da página.
+
+**Dependência:** só reflete na hora por causa do fix anterior (`rowSelection` no comparator do memo) — sem ele, o range atualizaria o estado mas os checkboxes só apareceriam num render posterior. Os dois se encaixam.
+
+**Verificação:** `tsc --noEmit` limpo.
+
+## Padronização da toolbar do /manager + pegadinha do twMerge com tokens custom (2026-07-09)
+
+**Pedidos:** (1) a caixa de ações em lote ("N selecionados · Pausar · Ativar") tinha altura diferente do botão "Add filter" ao lado — padronizar; (2) `hover:bg-destructive` no Pausar e `hover:bg-success` no Ativar; (3) faltava respiro entre a barra de filtros e a tabela (scrollbar colado no "Add filter").
+
+**(2) Hovers:** adicionados `hover:bg-destructive hover:text-destructive-foreground` (Pausar) e `hover:bg-success hover:text-success-foreground` (Ativar). O `hover:text-*-foreground` acompanha o `bg` senão o texto fica ilegível sobre o fundo saturado. `className` entra depois do `variant="ghost"` no `cn()`, então vence o `hover:bg-accent` do ghost.
+
+**(3) Respiro:** a raiz era `TableWorkspace compact={viewMode==="detailed"}`, que aplica `gap-0` no modo detailed. Fix: `contentClassName={viewMode==="detailed" ? "pt-stack-compact" : undefined}` (0.75rem) — só no detailed; o minimal já tem `gap-stack`.
+
+**(1) Altura + pegadinha do twMerge:** primeira tentativa foi fixar a caixa em `h-8` (32px) para casar com o `className="h-8"` do "Add filter". Ficou MENOR que o botão. **Causa:** o `cn()` é `twMerge` puro (sem `extendTailwindMerge`), então não reconhece o token custom `h-control-default` (base do `SelectTrigger` shadcn) como conflitante com `h-8` → os dois sobrevivem, e `h-control-default` (2.5rem=40px, gerado depois na cascata pois extends são anexados após a escala core) **vence**. Ou seja, o `h-8` do "Add filter" é MORTO — o botão renderiza 40px, não 32. Solução: usar o mesmo token na caixa (`h-control-default`). **Lição geral:** para sobrescrever altura/spacing de um componente cujo base usa token custom (`h-control-default`, `p-widget-*`, `gap-stack-*`), sobrescreva com o mesmo tipo de token OU com valor arbitrário (`h-[32px]`) — um utilitário core NÃO neutraliza um token custom via twMerge. Registrado em `twmerge_ignores_custom_theme_tokens`.
+
+**Verificação:** `tsc --noEmit` limpo.
+
+## Refatoração do design system: contrato de controles + cn() consciente de tokens (2026-07-09)
+
+**Contexto:** inconsistência recorrente de padronização (barras, botões, selects com regras próprias). Diagnóstico: o design system existia em 3 camadas que não se falavam — tokens (`tailwind.config.ts`), wrappers shadcn (`components/ui/`) e doc de padrão visual — e nenhuma cobria o nível "controle/toolbar". Agravante: o `cn()` era `twMerge` puro, então override core (`h-8`) sobre token custom (`h-control-default`) era silenciosamente morto — 58 usos de `h-8` cru no codebase, muitos mortos há meses.
+
+**Decisão de arquitetura:** sizing de controle é *component token* — vive DENTRO do wrapper (variant CVA), nunca no call site. A regra passa a ser binária e lintável: "altura via prop `size`, nunca `h-*` em className". Mover a decisão de 58 call sites para meia dúzia de variants.
+
+**O que mudou:**
+1. **`lib/utils/cn.ts`**: `extendTailwindMerge` registrando os 16 tokens de spacing (`control-*`, `row-*`, `widget-*`, `stack-*`, `grid-*`, `workspace`) + classGroups de `shadow-elevation-*` e `z-{dropdown,sticky,overlay,modal,toast}`. Consequência: overrides core AGORA FUNCIONAM (antes eram mortos). Todo token novo em `theme.extend.spacing` deve ser registrado também em `SPACING_TOKENS`.
+2. **Size variants**: `Input` e `SelectTrigger` ganharam CVA `size` (`default`=h-control-default 40px | `sm`=h-control-compact 32px, py-1), como o `Button` já tinha. `FilterSelectButton` deixou de fixar `h-control-default` (herda da variant do Button). `SearchInputWithClear` repassa `size` (e faz `Omit<"size">` do attr HTML — igual ao `Input`).
+3. **Sweep de ~25 arquivos**: overrides mortos deletados. Critério: **preservar o visual renderizado hoje** (deletar classe morta = zero mudança), EXCETO contextos densos aprovados pelo usuário para compacto 32px: inputs da review table do /upload, selects do ValidationCriteriaBuilder, tier select do /admin, input do SlotUploadZone, buscas das children tables do /manager.
+4. **Mudanças visuais automáticas do fix** (h-auto que estava morto e passou a valer — todas intenção original): chips de filtro do FilterBar colapsam para altura de texto; botões da bulk bar do /manager ficam compactos; links do /login com altura natural; células do calendário viram aspect-square (min-h preservado).
+5. **Contrato escrito**: seção "Contrato de controles (sizing)" no `authenticated-app-visual-standard.md` (vocabulário, regra binária, cláusula de documento vivo).
+6. **Enforcement**: regra `control-height-override` no `check-design-system.ts` — flagra `h-N`/`h-[..]` em className de Button/Input/SelectTrigger/FilterSelectButton/SearchInputWithClear (inline e multi-linha); permite `h-auto`, `h-full` e prefixos de variant (`sm:h-11`); allowlist para `(auth)/` e waitlist. Testada com arquivo-canário.
+7. **CLAUDE.md**: bloco "Design system (OBRIGATÓRIO ao criar/editar UI)" apontando o contrato — fecha o gap do "ponto de partida sem instrução".
+
+**Verificação:** `tsc --noEmit` limpo; `check:design-system` verde; /login medido no navegador (input 40px, `h-[42px]` efetivo, link h-auto 20px). Telas autenticadas pendentes de conferência visual do usuário.
+
+**Lição:** regra de design que exige julgamento ("use o token certo") não escala; regra binária ("nunca altura no call site") + variant + lint escala. E lint novo só conta depois de provar que dispara (canário).
+
+---
+
+## Security review pró-produção (go-live) + avaliar CVE por fixed-version-de-linha (2026-07-09)
+
+**Contexto:** security review completa pré-lançamento (frontend Next.js + backend FastAPI + Supabase). Deu origem ao doc de controle vivo `documentation/security-review-go-live-2026-07-09.md` (10 achados + pontos fortes, rastreados por status). Correção item a item começou pelo #1.
+
+**#1 — Erro de diagnóstico corrigido (a lição principal):** classifiquei Next 15.5.9 como 🔴 Crítico exposto ao React2Shell (CVE-2025-55182 / CVE-2025-66478) com base num resumo que dizia "afeta Next.js 15.0.0 → 16.0.6". **Errado.** O advisory oficial (nextjs.org/blog/CVE-2025-66478) lista o fix **por linha de release**: 15.5.x → **15.5.7** (03/12/2025). 15.5.9 é de 11/12/2025 (confirmado por `npm view next time --json`) → **já protegido**. A "faixa afetada" descreve o código vulnerável antes dos backports, não as versões sem patch; patches de segurança são cumulativos (qualquer patch ≥ fixed-version da linha está seguro).
+
+**Risco real que restou:** 15.5.9 estava 11 releases atrás. O **May 2026 Security Release** patchou **13 CVEs** em 15.5.18 — middleware bypass (relevante: `middleware.ts` faz gate de auth/tier), XSS, SSRF, cache poisoning, DoS; + CVE-2026-45109 (fix incompleto em 15.5.16 quando o bundler é Turbopack, completo em 15.5.18). Estar à frente do patch antigo ≠ estar atualizado.
+
+**Ação:** `npm install next@15.5.20` (última da linha 15.5.x; mantém React 18, sem breaking change). Build de produção passou limpo. `npm audit` expôs `ws`(high)/`uuid` no toolchain de build → registrados no backlog de deps (#7 do doc de review), não misturados no #1.
+
+**Lição (memória `cve_exposure_check_per_line_fixed_version`):** ao julgar exposição a CVE de dependência, ler a **fixed-version por linha** no advisory oficial do vendor + ordenar releases por timestamp do registry (`npm view <pkg> time --json`); nunca decidir pela faixa afetada genérica de um resumo. E sempre checar se a linha teve **releases de segurança posteriores** ao CVE em questão.
+
+## Consolidação do design system: tokens únicos + enforcement automático (2026-07-09)
+
+**Contexto:** continuação da refatoração do contrato de controles. Auditoria geral em 4 frentes (enforcement, tokens, camada ui/, duplicação) revelou que a base de cor era exemplar, mas coexistiam sistemas paralelos de tipografia, sombra e z-index — e o checker era decorativo (só manual) e furado (cego a `cn()`).
+
+**Enforcement (a causa-raiz):**
+- O regex de `control-height-override` exigia aspas logo após `className=` — `className={cn("h-8")}` (o padrão do projeto) escapava. Consertado; provado com canário.
+- Famílias de cor faltantes na regra (`green`, `sky`, `teal`, `indigo`...) adicionadas; range de emoji estendido a dingbats (`✅`/`⚠️`).
+- **Pre-commit hook (husky)**: `check:design-system` + `tsc --noEmit` rodam em todo commit (`frontend/.husky/pre-commit`; `prepare` em frontend/package.json aponta o hooksPath). Linter sem gate era o gap mais grave.
+- Allowlists de arquivo inteiro para exceções de 1 linha (skeletons) convertidas em `// design-system-exception` inline — allowlist agora é só para diretórios/superfícies.
+
+**Tokens únicos (fim dos sistemas paralelos):**
+- **Tipografia:** criado `text-2xs` (10px/14px) — único degrau abaixo de `text-xs`. Migrados 110 usos de `text-[10px]`/`text-[11px]`→`2xs` e `text-[12px]`/`[13px]`→`xs` (36 arquivos). Decisão do usuário: NÃO criar token para 11px — enxuto > fiel ao pixel.
+- **Z-index:** o sistema paralelo `z-[9999]`/`z-[10000]`/`z-[10020]` (tooltip/popover/combobox) foi colapsado nos tokens; criado `z-tooltip` (90). Regra nova: camada de app via token; stacking local (dentro de card/tabela) pode usar `z-10/20` core. Exceção documentada: modal-sobre-modal do date-range-picker (`z-[70]/[80]`).
+- **Sombras:** overrides crus `shadow-xs/sm/md/lg` REMOVIDOS do tailwind.config; 46 usos migrados (`xs/sm`→`elevation-raised`, `md/lg`→`elevation-overlay`). Button perdeu o eixo CVA `shadow` (8 valores, 1 uso real) — variants outline/secondary/destructiveOutline embutem `elevation-raised`.
+- **Tokens mortos:** `workspace` e `row-default` removidos. `row-compact`/`row-detailed` adotados como fonte de verdade documentada de `MANAGER_ROW_HEIGHT` (tableContentTypes.ts) — a altura real das linhas é emergente (measureElement), então a adoção é por ancoragem de constante, não classe.
+- 3 regras novas no checker travam tudo: `arbitrary-font-size` (só px), `arbitrary-z-index` (≥60), `raw-shadow`.
+
+**Camada ui/ e órfãos:**
+- Deletados: `ui/toggle.tsx` (só no catálogo), `common/Modal.tsx` (substituído por AppDialog; ui-demo migrado), `ui/app-checkbox.tsx` (TranscriptionStatusDialog migrado p/ `label`+`Checkbox`). Button: variants `neutral` (0 usos) e `primary` (1 uso, redundante c/ default) removidas.
+- `TabsTrigger` tokenizado (`h-control-compact`); 3 filtros (`ActionTypeFilter`/`PackFilter`/`ManagerColumnFilter`) trocaram `className="h-9"` por `size="sm"`; `Combobox` ganhou prop `size` e parou de re-declarar altura; `date-range-picker` perdeu `sm:h-11` ad-hoc.
+- Catálogo `/design-system` agora demonstra Combobox, DropdownMenu e DateRangePicker (justamente os compostos que estavam invisíveis).
+
+**Cores cruas saneadas:** `text-green-500`→`text-success` (/planos), aviso amber→tokens `warning` (MetricHistoryChart), `text-white`→`text-foreground` em ExplorerAdSidebarCard/GenericCard (quebrava no tema claro).
+
+**Backlog (fase 4, não executada):** dedup TableContent≈MinimalTableContent (~700 linhas), MultiSelectFilter genérico (6 reimplementações), checkbox inline 6×, SearchInputWithClear 4×, MetaUsageFilterBar com controls nativos, StatCard/MetricCard/GenericCard, FilterChip 3× no FilterBar, CampaignChildrenRow≈ExpandedChildrenRow.
+
+**Verificação:** tsc limpo, checker verde, build de produção ok. Telas autenticadas não verificadas visualmente (deltas esperados: sombras de popover maiores, sombra de hover de cards, botões do date-picker 40px no desktop).
+
+## Toast "erro desconhecido" ao pausar anúncios um a um: `showError(string)` mascarava a causa (2026-07-09)
+
+**Sintoma:** usuário pausava vários anúncios no /manager clicando um por um (em vez de selecionar + "pausar em massa") e recebia toast genérico "erro desconhecido".
+
+**Causa raiz (2 camadas):**
+1. **Mascaramento da mensagem.** `showError()` (frontend/lib/utils/toast.tsx) aceitava `AppError | Error | unknown`. Quando recebia uma **string crua**, o guard `typeof error === "object"` falhava e caía em `parseError(error)` — que só entende erros do Axios (checa `.response`/`.request`). String ia para o ramo genérico → `{ message: "Erro desconhecido" }`, **jogando fora a mensagem real**. O `onError` de `useAdStatusControl` fazia `showError(msg)` com `msg` string, então QUALQUER falha (rate limit, 502, rede) virava "erro desconhecido". Afetava também `app/docs`, `app/admin`, `onboarding/ValidationStep`.
+2. **Por que só no um-a-um.** O endpoint individual `POST /facebook/ads/{id}/status` faz **write + verify = 2 chamadas Meta por anúncio** (sem retry, sem tratamento de rate limit — só código 190 vira auth_error; o resto vira 502). Disparar muitos em sequência estoura o limite de requisições do Meta (#17/#613/#80xxx). Já "selecionar vários + pausar em massa" usa `POST /facebook/ads/batch-status` → Meta Batch API (**1 requisição por 50 ads**), que não estoura. A mensagem real do Meta vinha em `e.message`, mas era mascarada pela camada 1.
+
+**Correção:**
+- `showError` agora trata `typeof error === "string"` como a própria mensagem antes de tentar `parseError`. Conserta todos os callsites de string de uma vez.
+- `useAdStatusControl` (individual + lote) detecta rate limit **pelo texto** da mensagem (`isMetaRateLimitMessage`, cobre #4/#17/#32/#613/#80xxx e frases em inglês) — não pelo código aninhado frágil — e mostra orientação de ação ("aguarde alguns segundos, ou selecione vários e use pausar/ativar em massa") em vez do "(#17) User request limit reached" cru.
+
+**Lição:** `parseError` é específico de Axios; passar string solta para `showError` mascara silenciosamente. Preferir passar objeto/`Error` a `showError`; toast genérico esconde a causa e cega o diagnóstico. Ver também a decisão de CORS-em-500 (erro opaco) e categoria de erro dirigindo a UI.
+
+## Orçamento de campanhas/conjuntos — Fases 0 e 1 (read-only) (2026-07-09)
+
+**Escopo:** exibir o orçamento (daily/lifetime + modo CBO/ABO + moeda da conta) nas abas por-conjunto e por-campanha do /manager. Edição (Fase 2) virá depois de testado. Base de pesquisa na entrada anterior (regras da Graph API) e memória `meta_budget_api_rules.md`.
+
+**Decisão central: tabela dedicada `parent_budgets` (user_id, entity_id PK), NÃO colunas denormalizadas em `ads`.** O padrão do status (088/089) agrupa o UPDATE por valor — funciona porque status tem ~3 valores distintos. Budget é alta-cardinalidade (cada campanha/adset tem o seu), então o mesmo padrão viraria 1 UPDATE por entidade a cada sync (inclusive o on-focus de 5 min). Tabela keyed = 1 upsert por sync, e elimina por construção a classe de bugs de divergência entre linhas do mesmo pai que o status teve.
+
+**Semântica de NULL (diferente do status!):** entidade PRESENTE no edge sem budget grava `daily/lifetime = NULL` explicitamente — é verdade lida (campanha ABO e adset de campanha CBO não têm budget próprio), não ausência de sync. Entidade AUSENTE do edge (deletada/arquivada) não é tocada. `budget_mode` NULL é o que distingue "ainda não sincronizado".
+
+**Implementado:**
+1. **Migration `091_budget_read_path.sql`** (criada e validada com BEGIN/ROLLBACK no banco remoto — APLICAR com psql antes do deploy + regenerar schema.sql/schema_map.md): `ad_accounts.currency`; tabela `parent_budgets` (level campaign|adset, daily/lifetime bigint em subunidade, budget_mode cbo|abo|abo_shared, RLS por user_id); entry `fetch_manager_rankings_core_v2` recriada (base v090 intocada) anexando `budget_daily`/`budget_lifetime` (entidade da linha), `budget_mode` (sempre da campanha) e `budget_currency` via laterais — join ad_accounts normalizando o prefixo `act_` (ads.account_id vem SEM, ad_accounts.id COM).
+2. **Fase 0 — moeda:** `get_adaccounts` pede `currency`; `upsert_ad_accounts` persiste (fallback remove colunas ainda inexistentes para não perder o sync inteiro).
+3. **Sync de pais unificado:** `_fetch_edge_statuses` generalizado em `_fetch_edge_entities`/`fetch_parent_entities` (um único passe paginado nos edges traz status + budget: campanhas pedem `daily_budget,lifetime_budget,is_adset_budget_sharing_enabled`, adsets + `campaign_id`); projeções `project_parent_statuses`/`project_parent_budgets` alimentam os dois writes. `budget_mode` derivado: tem budget → cbo; senão sharing flag → abo_shared; senão abo. Escrita em `supabase_repo.upsert_parent_budgets` (present-check compartilhado via `_fetch_present_parent_ids`, upsert em chunks de 500 com `with_postgrest_retry`). Chamado no refresh de pack (job_processor) e no sync on-focus (`/facebook/packs/status-sync`) — mudança de budget feita no Ads Manager aparece em até 5 min. Sempre best-effort (tabela pode não existir pré-091).
+4. **Frontend:** `RankingsItem` + `budget_daily/lifetime/mode/currency`; `BudgetCell.tsx` (read-only, offset da Meta: 12 moedas sem subunidade em `META_OFFSET_ONE`; linha sem budget próprio mostra "na campanha"/"nos conjuntos" pelo modo; title nativo, sem Radix); coluna "Orçamento" em `managerTableColumns.tsx` após o nome, só nas abas por-conjunto/por-campanha, sort por daily??lifetime com nulls por último.
+
+**Verificação:** 171 testes backend passando; `tsc --noEmit` limpo; `next build` OK; `check:design-system` passa (1 falso-positivo pré-existente em comentário de códigos de erro do useAdStatusControl recebeu exception inline).
+
+**Fase 2 (write) deve:** espelhar o pipeline do status (pre-check de modo CBO/ABO → POST → verify read-back → persistir a verdade lida em `parent_budgets`), nunca o valor otimista.
+
+## Adendo: parent_entities + roadmap aprovado (2026-07-09)
+
+**Decisões do usuário sobre a entrada anterior:**
+1. **Tabela renomeada `parent_budgets` → `parent_entities`** (antes de aplicar a 091, custo zero) — ela é o lar futuro de TODO estado de pai, não só budget. Ganhou coluna `effective_status` como **double-write passivo**: escrita apenas pelos syncs de conta inteira (enrich do refresh + on-focus), NUNCA pelos writes pontuais do toggle/self-heal. O read-path do status CONTINUA em `ads.adset_status/campaign_status` (088/089) até a migração deliberada — a coluna só acumula backfill e confiança. Não ler status de parent_entities antes disso.
+2. **Moeda da conta como verdade única de exibição** (aprovado, implementação no passo (e)): hoje o app formata valores — que vêm da Meta NA MOEDA DA CONTA — com o símbolo da preferência do usuário, sem nenhuma conversão (bug latente quando divergem). Norma futura: exibir na `ad_accounts.currency` do contexto; preferência vira fallback e depois some da UI; **nunca converter** — agregado multi-moeda sinaliza "moedas mistas".
+
+**Sequência aprovada (não pular etapas):** (a) ✔ read-path budget + double-write passivo → (b) usuário testa Fases 0-1 → (c) Fase 2: edição de budget (pre-check modo → write → verify → persistir verdade em parent_entities) → (d) migrar read-path do status para parent_entities (refactor isolado: toggle/self-heal/reconciliação passam a escrever na tabela, wrapper lê dela com fallback 088, atualizar test_status_update_flow.py; só então deprecar as colunas de ads) → (e) sweep da moeda da conta.
+
+**Estado:** migration 091 **APLICADA no banco remoto** (validada antes com BEGIN/ROLLBACK); `schema.sql` + `schema_map.md` regenerados (parent_entities 10 colunas, ad_accounts com currency); smoke test da RPC com usuário real OK (linha por-campanha traz budget_daily/lifetime/mode/currency NULL até o primeiro sync do backend novo, effective_status segue resolvendo); 171 testes backend passando. Backend/frontend prontos para deploy — código antigo em produção convive com o schema novo (não escreve na tabela; RPC devolve chaves extras que o frontend antigo ignora).
+
+## Design system fase 4: deduplicação de componentes (2026-07-09)
+
+**Executado item a item, com tsc + checker + build por item.** Saldo em `components/`: **−1.212 linhas líquidas** (+802/−2014, inclui fases 1–3).
+
+1. **TableContent unificado** — `MinimalTableContent.tsx` deletado; `TableContent` ganhou prop `variant: "detailed" | "minimal"` com mapa `VARIANT_STYLES` (única diferença real era estilo + estimateSize/overscan). Call sites usam `<TableContent key={viewMode} variant={viewMode}>` — o `key` preserva o comportamento antigo de remount na troca (reset de scroll/virtualizador). Bônus: o modo minimal agora exibe estado de erro (antes só o detailed tratava `isError`).
+2. **`FilterListPopover`** (common/) — popover genérico de seleção em lista: multi/single, busca, bulk bar (Selecionar todos · Limpar N/M), grupos com header, item disabled-mas-desmarcável, slots `trigger`/`triggerWrap` (tooltip)/`header` (switch). GemsColumnFilter, ManagerColumnFilter, PackFilter e ActionTypeFilter viraram wrappers de configuração com APIs públicas intactas. Nota: ColumnFilter (numérico operador+valor) e FiltersDropdown (agregador) NÃO entraram — não são multi-selects, a auditoria os agrupou errado.
+3. **`CheckSquare`** (common/) — quadradinho de seleção presentacional (não-interativo; o clique é do container — evita interativo aninhado, por isso não usa ui/checkbox). Consumido por FilterListPopover, FilterBar (status), AutoRefreshConfirmModal (normalizado de 20px/border-2/bg-brand — brand é alias de --primary) e AdsetSelector.
+4. **SearchInputWithClear** adotado em AdsetSelector, AdTree e SortableColumn (AdGrid já usava; os dois últimos ganharam botão de limpar de graça).
+5. **MetaUsageFilterBar** migrada de `<select>`/`<input>` nativos para Select/Input/Button do DS, `size="sm"`. Radix Select não aceita `value=""` → sentinela `__all__` mapeada internamente.
+6. **ManagerChildrenTable ganhou `entity: "ads" | "variations" | "adsets"`** (ENTITY_CONFIG: labels, busca, coluna de nome, StatusCell tab, textColumns, rowKey). A duplicação real era `CampaignChildrenRow` reimplementando a tabela inteira (~200 linhas) — a auditoria dizia que era gêmeo do ExpandedChildrenRow, impreciso. CampaignChildrenRow agora é wrapper fino (query + entity="adsets"). Corrige de graça: "Nenhuma anúncio encontrada" (concordância), StatePanel nos estados, thead sticky.
+7. **`FilterChip` (manager/)** — peças presentacionais do chip de filtro (shell Badge+IconFilter, select de operador borderless, input inline, ação aplicar/remover) extraídas das 3 cópias do FilterBar. A lógica de valor (validação BR de decimais etc.) ficou no FilterBar, onde difere de verdade.
+8. **StatCard e MetricCard deletados** — a auditoria propunha consolidá-los com GenericCard, mas eram **órfãos** (zero consumidores). GenericCard (card de ranking com thumbnail) permanece, é outra coisa.
+
+**Lições:**
+- Achado de auditoria ≠ plano de execução: 3 dos 8 itens estavam imprecisos (ColumnFilter não era multi-select; o gêmeo real do children row era outro; StatCard/MetricCard eram órfãos). Verificar consumidores reais (`grep` de imports) antes de projetar a consolidação.
+- Ao unificar componentes que eram montados/desmontados por ternária, `key={variant}` preserva a semântica de remount (reset de estado interno/scroll) — sem isso a troca de modo vira update in-place com estado herdado.
+
+## Robustez de refresh concorrente: blip HTTP/2 não pode mais matar job (2026-07-09)
+
+**Sintoma (reportado por usuário):** ao atualizar 3 packs simultâneos, alguns falhavam com `Erro: <ConnectionTerminated error_code:1, last_stream_id:111>` ou `Erro: Lease de processamento perdido durante atualização de progresso`. Reatualizar funcionava. Camadas 1+2 implementadas; Camada 3 em aberto.
+
+**Diagnóstico — os dois erros têm a MESMA raiz:** os jobs rodam como FastAPI `BackgroundTasks` concorrentes e todos usam `use_service_role=True` → `get_supabase_service()` é singleton (`_service_client`) → **um único pool httpx (HTTP/2) compartilhado**. Sob multiplexação alta (`last_stream_id:111` = 111 streams numa conexão), o gateway do Supabase manda GOAWAY para reciclar a conexão; streams em voo morrem com `ConnectionTerminated` → `httpx.RemoteProtocolError`. **Não é a Meta** (Graph API usa `requests`/HTTP1.1). O mesmo blip surgia de dois jeitos:
+- `<ConnectionTerminated>` cru = drop numa chamada de persistência sem retry (só ~9 de ~68 `.execute()` de `supabase_repo.py` eram wrapped).
+- "Lease perdido" = drop num heartbeat. `JobTracker.heartbeat` e `renew_processing_claim` tinham `except Exception: return False`, e `JobProcessor._heartbeat_or_raise` lia esse `False` como "outro worker roubou o lease" → `JobLeaseLostError` matava o job. **Falso positivo**: `job_tracker.py` não tinha nenhum retry. "Tentar de novo funcionava" = menos concorrência/conexão nova.
+
+**Implementado:**
+1. **Camada 1 (`job_tracker.py`):** `with_postgrest_retry` em todas as chamadas de DB (get_job/get_payload/create_job/merge_payload/UPDATE do heartbeat/RPCs claim·renew·release). `renew_processing_claim` virou **tri-state** `Optional[bool]`: `True`=renovado, `False`=negado de verdade (outro owner / status saiu de processing→cancel/fail/complete), `None`=transitório (indeterminado). `heartbeat` reescrito como **best-effort**: falha transitória NUNCA retorna `False`/mata o job — só retorna `False` por motivo real (job cancelado por fora, ou `renew`=`False` genuíno). Só o `False` genuíno vira `JobLeaseLostError`.
+2. **Camada 2 (`supabase_repo.py`):** `.execute()` da rota crítica de persistência/leitura do job envolvidos em `with_postgrest_retry` — `_fetch_all_paginated`, `_fetch_present_parent_ids`, `upsert_ads`, `write_parent_statuses`, `update_pack_stats`, `update_pack_ad_ids`, `get_existing_ads_map`, `calculate_pack_stats_essential`, `upsert_pack` (UPDATE/SELECT), `check_pack_name_exists`, `get_pack`, `update_pack_refresh_status`.
+
+**Regra que ficou:** heartbeat/progresso é best-effort — só pare o job por motivo real (cancelado / lease genuinamente negado), nunca por falha de rede. "Não consegui escrever" ≠ "perdi o lease". **INSERT puro NÃO é retryable** (ex.: `upsert_pack` sem pack_id): GOAWAY após commit + retry cria linha duplicada → deixado bare de propósito (o índice único `(user_id, lower(name))` vira PackNameConflictError espúrio, mas não corrompe dado); UPDATE/upsert-by-id/SELECT são idempotentes e seguros. O caso reportado é refresh de pack existente, que nem chama `upsert_pack`.
+
+**Verificação:** `tests/test_job_tracker_heartbeat.py` novo (8 testes travam o contrato: transitório→True, lease-loss/cancel→False, renew tri-state; patch de `supabase_retry.time.sleep` p/ rodar instantâneo). Suite backend: 132 passando (excluída `test_billing_webhooks.py` por falta do módulo `stripe` no ambiente local — não relacionado).
+
+**Camada 3 (pendente — a conversar):** tratar a CAUSA da tempestade de GOAWAY, não só o sintoma. Opções: semáforo de concorrência de jobs pesados por instância (enfileira o N+1); `http2=False` no cliente de serviço (elimina a classe inteira de ConnectionTerminated, custo de throughput); ou limites de pool (`max_connections`/`keepalive_expiry`). **Decisão depende de quantas réplicas do backend rodam atrás do Traefik** — semáforo in-process só limita por instância; com múltiplas réplicas talvez precise de lease de concorrência no banco.
+
+## Moeda da conta como verdade única — passo (e) adiantado (2026-07-10)
+
+**Gatilho:** ao testar as Fases 0-1 de orçamento (passo b da sequência), o usuário notou que o seletor de moeda em Configurações > Preferências ainda permitia escolha manual, e perguntou se era intencional — não era: era o bug latente já identificado na entrada de pesquisa original (o app formata valores vindos NA MOEDA DA CONTA com o símbolo da preferência do usuário, sem nenhuma conversão).
+
+**Fix — choke point único em vez de varredura de ~40 arquivos:** `formatCurrency`/`useFormatCurrency` (`lib/utils/currency.ts`) já aceitavam `currency?: string` como override opcional, caindo em `settings.currency` (Zustand) quando omitido — a maioria dos call-sites do app chama sem esse override. Em vez de auditar cada um, bastou fazer `settings.currency` (via `user_preferences.currency`) **auto-sincronizar silenciosamente** com a moeda real assim que detectada; todos os call-sites sem override corrigem sozinhos.
+
+**Implementado:**
+1. `FacebookAdAccountSchema.currency` (schemas.ts) + `getAdAccounts` tipado corretamente (era `any[]`).
+2. `useDetectedAccountCurrency()` (novo hook): deriva de `useAdAccountsDb()` (`/facebook/adaccounts` → `ad_accounts.currency`, já populada pela pipeline de budget). Único valor se todas as contas conectadas compartilham a moeda; `isMixed=true` se divergem (nunca converter — só sinalizar); `null` se ainda não sincronizado.
+3. Topbar.tsx: `useEffect` silencioso (sem toast) chama `saveCurrency(detected)` quando detectado, não-misto e diferente do valor persistido.
+4. UI: o `<Select>` de Moeda virou `<Input disabled readOnly>` informativo (mostra moeda detectada, "Múltiplas moedas" ou "Detectando...").
+
+**Verificação:** `tsc --noEmit` limpo, `check:design-system` passa, `next build` OK.
+
+**Pendências** (registradas em memória `account_currency_as_source_of_truth.md`, não bloqueiam o teste do (b)): auditar os poucos call-sites que já passam `currency` explícito por linha (ex. `BudgetCell.tsx` — correto, usa a moeda da PRÓPRIA linha, não mexer); decidir se `user_preferences.currency`/coluna some de vez ou fica como fallback interno permanente. Isso fecha boa parte do passo (e) do roadmap, mas o passo continua marcado como "parcial" até essa auditoria.
+
+## Atualizar vários packs ao mesmo tempo estourava banco (57014) + sockets (WinError 10035): fila serial (2026-07-09)
+
+**Sintoma:** atualizar 4 packs simultaneamente resultava em toasts de falha:
+- `Erro ao salvar métricas: {'code': '57014', ...'canceling statement due to statement timeout'}`
+- `Erro ao salvar anúncios: [WinError 10035] Uma operação de soquete sem bloqueio não pôde ser concluída imediatamente`
+
+**Causa raiz (uma só, dois sintomas): concorrência.** Cada refresh dispara fetch pesado do Meta + upserts grandes de JSONB em `ad_metrics`/`ads`. Rodando 4 de uma vez:
+1. **57014 (salvar métricas):** upserts concorrentes estouram o `statement_timeout` do Postgres. Agravado porque o job roda como **service_role** (statement_timeout menor — ver decisão de assimetria de timeout).
+2. **WinError 10035 (salvar anúncios):** WSAEWOULDBLOCK — saturação de sockets em dev **Windows** (cada refresh abre muitos sockets pro Meta + Supabase). Específico de Windows/local; produção (Linux/Docker) não vê esse código, mas veria outro transitório sob a mesma carga.
+
+**Gaps do retry no backend (secundários, não corrigidos):** `with_postgrest_retry` (`core/supabase_retry.py`) só re-tenta transitórios de rede httpx + deadlock 40P01 — **não** cobre 57014 nem `httpx.WriteError`/`NetworkError` (a lista `_transient_httpx_exceptions` tem ReadError/ConnectError mas não WriteError). Por isso ambos escaparam. A fila remove o gatilho; se reaparecer sob carga, ampliar a cobertura do retry.
+
+**Correção (decisão do usuário: "simplesmente enfileirar"):** fila serial de módulo em `usePackRefresh.ts` — `enqueueRefresh`/`pumpRefreshQueue`/`refreshWillQueue`, `REFRESH_MAX_CONCURRENCY = 1`. Singleton de módulo (como `activeRefreshes`), então vale entre TODOS os callers (Topbar, cards, página de packs). A marcação `addUpdatingPack` + dedup por pack continua **síncrona** (antes de enfileirar) → o card mostra estado na hora; só o trabalho pesado (Meta + persistência) é serializado. Toast "Na fila" (mesmo toastId) é sobrescrito pelo toast real do Meta quando o pack começa.
+
+**Por que serializar no frontend resolve o backend:** o backend só faz fetch+persist quando o job daquele pack é poll-ado. Com 1 refresh ativo por vez, nunca há 4 persists concorrentes — a contenção de DB e de socket some na raiz. Seguro porque os upserts são idempotentes (valores absolutos). Para subir o paralelismo, fechar antes os gaps do `with_postgrest_retry` (57014 + WriteError).
+
+**Verificação:** `tsc --noEmit` limpo; semântica da fila testada isolada (serializa estrito, task que falha não trava a fila, drena por completo).
+
+## Logout espúrio durante refresh de packs: um único 401 transitório deslogava global (2026-07-10)
+
+**Sintoma (reportado por usuário + reproduzido no próprio uso):** usuários sendo deslogados sem motivo no meio de uma atualização de packs.
+
+**Diagnóstico — confirmado por log real:** o frontend tratava **qualquer 401** cujo `detail` casasse com `isAppAuthUnauthorized` (`token expired`, `missing bearer token`, `invalid or expired token`, `token validation`) como sessão morta → `AUTH_SESSION_EXPIRED_EVENT` → `AuthSessionExpiredHandler` desloga e redireciona pra `/login?expired=true`. **Um único 401 = logout global**, sem tentativa de recuperação. O log mostrou um `GET /facebook/ads-progress/... 401 Unauthorized` **isolado**, cercado de 200 OK (a request seguinte, outra conexão, voltou 200) — prova de que a sessão estava viva e o 401 era **transitório** (corrida no boundary do token). O refresh de packs faz polling de até 15 min (`maxAttempts: 450`), multiplicando a exposição: basta 1 dos muitos polls pegar o token na janela ruim.
+
+**Três defeitos combinados (`frontend/lib/api/client.ts`):**
+1. **Zero refresh proativo/reativo** — o interceptor só lia `getSession()`, nunca `refreshSession()`. Os `retry` do TanStack não salvam (re-disparam pelo mesmo interceptor; o evento de logout já disparou no 1º 401, com once-guard).
+2. **Request interceptor se auto-sabotava** — quando achava a sessão expirada, **removia o header `Authorization`** e mandava sem token → backend responde `Missing Bearer token` (que TAMBÉM casa `isAppAuthUnauthorized`) → logout. A lógica "defensiva" causava o logout que tentava evitar.
+3. **Cache de sessão de 30s** podia servir o token nos últimos segundos de vida e suprimir a janela de refresh.
+- Backend (`app/core/auth.py`): `jwt.decode` com `verify_exp` e **zero leeway** — poucos segundos de clock skew cliente/servidor viravam `Token expired`.
+
+**Fix aplicado:**
+1. **Response interceptor** (agora `async`): no 1º 401 com auth-error, tenta **UM** `refreshAccessToken()` e **re-dispara a request original** (`this.client.request(originalConfig)`); só chama `notifyAuthSessionExpired` se o refresh falhar. `_authRetry` no config impede loop infinito; `refreshAccessToken` deduplica refreshes concorrentes via `refreshPromise` compartilhado (N polls batendo 401 juntos → 1 refresh, todos re-tentam).
+2. **Request interceptor:** usa `getValidAccessToken()` — refresca proativamente quando falta < 60s (`EXPIRY_MARGIN_MS`) pra expirar e **nunca estripa** um token utilizável; só devolve null se não há sessão E o refresh falhou.
+3. **Backend:** `options["leeway"] = 30` no `jwt.decode` (python-jose lê `options.get("leeway", 0)` → `_validate_exp`).
+
+**Regra que ficou:** 401 de auth em SPA de operação longa NUNCA desloga direto — sempre `refreshSession()` + retry primeiro; logout só se o refresh token também morrer. Interceptor não estripa token perto de expirar, refresca. Refresh concorrente tem que ser deduplicado. Backend com `verify_exp` precisa de `leeway`. **Esses logouts são invisíveis no Sentry** (interceptor só manda ≥500); a impressão digital é `/login?expired=true` (vs `?logout=true` do logout manual).
+
+**Verificação:** `tsc --noEmit` limpo; suporte a `leeway` confirmado no source do python-jose (`leeway = options.get("leeway", 0)`). Cenário de expiração mid-poll não é driveável localmente — validado por leitura de código + o log real que reproduziu o 401 transitório. Memória: `auth_single_401_refresh_retry.md`.
+
+## Widget de diagnóstico com números diferentes entre /plano e /insights (2026-07-10)
+
+**Sintoma (reportado por usuário, com print):** o MESMO widget de diagnóstico (hero CPR + cards CPM / Link CTR / Connect Rate / Conv. Página) exibia valores diferentes em `/plano` e `/insights` com filtros idênticos — mesmos packs (3 de 4), mesmo evento (`purchase`), mesmo período. Ex.: CPR R$30,38 vs R$21,33; "ontem" R$11,07 vs R$10,90; **Connect Rate 33,33% vs 0,00%**.
+
+**Causa raiz:** as duas páginas renderizam o mesmo `PackDiagnosticPanel` alimentado por `usePackDiagnostic`, e fazem o mesmo fetch `useAdPerformance` (mesma request → mesmo cache → `serverData` idêntico). A divergência estava no array `ads` passado ao hook:
+- `/insights`: `ads: serverData` (`useAdPerformancePipeline({ filterToSelectedPacks: false })`) — todos os ads que o servidor escopou pelos `pack_ids`.
+- `/plano`: `ads: filteredRankings` (default `filterToSelectedPacks: true`) = `serverData` re-filtrado no cliente por `isAdInSelectedPacks(membershipIndex, …)` (índice do `packsAdsMap` de `usePacksAds`, via `ad_metric_pack_map`).
+
+`usePackDiagnostic` deriva os `group_keys` do array `ads` e os manda ao endpoint `/ad-performance/series`. Conjuntos de `group_keys` diferentes → séries agregadas diferentes → o `packByDay` soma populações diferentes → CPR/Connect Rate/ontem divergem. Connect Rate 0% no /plano = `lpv=0` no dia → o filtro client-side derrubou justamente os ads com visualização de página de hoje (/plano SUB-contava).
+
+**Por que os dois escopos divergem:** o servidor já escopa por `pack_ids` no RPC (tanto `/ad-performance` quanto `/ad-performance/series`, via `p_pack_ids`). O `filteredRankings` aplica um SEGUNDO filtro de membership client-side por cima disso. Com `group_by="ad_name"`, as linhas agregadas do servidor carregam um ad_id representativo que pode não casar o `membershipIndex` → derruba linhas que o servidor legitimamente atribuiu ao pack.
+
+**Fix (decisão do usuário: alinhar ao /insights, que é o autoritativo — bate com o Meta Ads Manager):** `/plano` passou a alimentar `usePackDiagnostic({ ads: serverData })` (era `filteredRankings`); `serverData` foi exposto no destructuring do pipeline. As superfícies de JULGAMENTO do /plano (plano de ação, G.O.L.D.) continuam usando `validatedAds`/`notValidatedAds`/`filteredRankings` — só o diagnóstico descritivo mudou. `tsc --noEmit` limpo.
+
+**Regra que ficou:** o diagnóstico é DESCRITIVO e deve bater com o Meta Ads Manager → alimente-o com o conjunto server-scoped (`serverData`), nunca com `filteredRankings` (filtro de membership client-side que pode divergir do escopo por `pack_ids` do servidor). Widget descritivo idêntico em 2 páginas TEM que receber o mesmo input; se o componente deriva `group_keys` do input, inputs diferentes = números diferentes. Refina o ponto #1 da doutrina "só existe uma média" (que dizia `ads: filteredRankings`). Memória: `diagnostic_widget_serverdata_not_filteredrankings.md`.
