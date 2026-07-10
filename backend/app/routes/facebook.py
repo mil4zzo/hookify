@@ -30,7 +30,7 @@ from app.core.auth import get_current_user
 from app.core.tier import require_insider
 from pydantic import BaseModel
 from pydantic import ValidationError
-from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, BatchStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
+from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, BatchStatusRequest, BatchEntityStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
 from app.core.config import (
     FACEBOOK_CLIENT_ID,
     FACEBOOK_CLIENT_SECRET,
@@ -1123,6 +1123,104 @@ def _filter_ads_belonging_to_user(*, user_jwt: str, user_id: str, ad_ids: List[s
     return [aid for aid in ad_ids if aid in valid]
 
 
+def _filter_entities_belonging_to_user(*, user_jwt: str, user_id: str, entity_type: str, ids: List[str]) -> List[str]:
+    """
+    Retorna apenas os ids (adset_id/campaign_id) da lista que pertencem ao usuário — via tabela ads.
+    Preserva a ordem de entrada e deduplica. Chunks de 200 (limite de URL do PostgREST).
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
+    if not column:
+        return []
+    sb = get_supabase_for_user(user_jwt)
+    valid: set = set()
+    unique_ids = [i for i in dict.fromkeys(ids)]
+    for i in range(0, len(unique_ids), 200):
+        chunk = unique_ids[i : i + 200]
+        res = sb.table("ads").select(column).eq("user_id", user_id).in_(column, chunk).execute()
+        for row in (res.data or []):
+            if row.get(column):
+                valid.add(str(row[column]))
+    return [eid for eid in unique_ids if eid in valid]
+
+
+def _batch_reconcile_parent_status_local(
+    *,
+    user_jwt: str,
+    user_id: str,
+    entity_type: str,
+    verified_statuses: Dict[str, Any],
+    updated_ids: List[str],
+    target_status: str,
+) -> None:
+    """
+    Reconciliação LOCAL heurística (sem re-leitura de filhos na Meta por entidade) após um toggle
+    em lote de conjuntos/campanhas. A verdade composta exata dos filhos (pausas individuais,
+    WITH_ISSUES, etc.) reconcilia no próximo refresh do pack / sync on-focus — mesma filosofia do
+    batch de anúncios. Faz, em poucos UPDATEs agnósticos à quantidade:
+
+    1. Coluna denormalizada do pai (`ads.adset_status`/`campaign_status`) = status VERIFICADO relido
+       do Meta, agrupada por valor (fonte da linha de grupo no wrapper RPC do Manager).
+    2. Cascata não-destrutiva no `effective_status` dos ADS filhos (marca/desmarca X_PAUSED só em
+       linhas ACTIVE/null ou X_PAUSED — nunca sobrescreve pausas individuais).
+    3. Campanha: anula `adset_status` dos filhos → reativa o fallback por marcadores na aba
+       "por conjunto" (espelha a branch children_synced de _sync_campaign_adset_statuses).
+
+    Best-effort: nunca falha a resposta.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    id_column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
+    status_column = {"adset": "adset_status", "campaign": "campaign_status"}.get(entity_type)
+    child_paused_marker = {"adset": "ADSET_PAUSED", "campaign": "CAMPAIGN_PAUSED"}.get(entity_type)
+    if not id_column or not status_column or not child_paused_marker:
+        return
+
+    # Só reconcilia entidades efetivamente escritas (exclui blocked/failed). Fallback para o
+    # target quando o verify não devolveu o status daquele id (fail-open).
+    resolved: Dict[str, str] = {}
+    for eid in updated_ids:
+        resolved[str(eid)] = str(verified_statuses.get(str(eid)) or target_status).upper()
+    if not resolved:
+        return
+
+    sb = get_supabase_for_user(user_jwt)
+    now_iso = datetime.now(timezone.utc).isoformat()
+    _only_active_or_null = "effective_status.eq.ACTIVE,effective_status.is.null"
+
+    # Agrupa ids por status verificado para 1 UPDATE por valor distinto (em chunks de 200).
+    by_status: Dict[str, List[str]] = {}
+    for eid, st in resolved.items():
+        by_status.setdefault(st, []).append(eid)
+
+    try:
+        for status_value, ids in by_status.items():
+            paused = status_value != "ACTIVE"  # ACTIVE = ativo; qualquer outro = alguma forma de pausa
+            for i in range(0, len(ids), 200):
+                chunk = ids[i : i + 200]
+                # 1. Coluna do pai
+                sb.table("ads").update({status_column: status_value, "updated_at": now_iso}).eq(
+                    "user_id", user_id
+                ).in_(id_column, chunk).execute()
+                # 2. Cascata nos filhos (heurística não-destrutiva)
+                if paused:
+                    sb.table("ads").update({"effective_status": child_paused_marker}).eq(
+                        "user_id", user_id
+                    ).in_(id_column, chunk).or_(_only_active_or_null).execute()
+                else:
+                    sb.table("ads").update({"effective_status": "ACTIVE"}).eq(
+                        "user_id", user_id
+                    ).in_(id_column, chunk).eq("effective_status", child_paused_marker).execute()
+                # 3. Campanha: NULL no adset_status dos filhos reativa o fallback por marcadores
+                if entity_type == "campaign":
+                    sb.table("ads").update({"adset_status": None}).eq(
+                        "user_id", user_id
+                    ).in_("campaign_id", chunk).execute()
+    except Exception:
+        logger.exception("[BATCH_ENTITY_STATUS] Falha na reconciliação local de status (%s)", entity_type)
+
+
 def _update_bulk_local_effective_status(*, user_jwt: str, user_id: str, ad_ids: List[str], new_status: str) -> None:
     """
     Atualiza effective_status local (Supabase) para múltiplos ads em lote.
@@ -1211,6 +1309,96 @@ def update_ads_batch_status(
         blocked=blocked,
         statuses={k: str(v) for k, v in verified_statuses.items()},
     )
+
+
+def _update_entities_batch_status(
+    *,
+    entity_type: str,
+    request: BatchEntityStatusRequest,
+    api: GraphAPI,
+    user: Dict[str, Any],
+) -> BatchStatusResult:
+    """
+    Atualiza status (PAUSED/ACTIVE) de múltiplos conjuntos/campanhas em lote via Meta Batch API
+    (mesmo motor do batch de anúncios, `entity_type` só muda o mapa de pausa herdada). Escreve na
+    Meta em 1 req/50 (write) + 1 req/50 (verify) e reconcilia o cache local heuristicamente.
+    """
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    owned_ids = _filter_entities_belonging_to_user(
+        user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, ids=request.ids,
+    )
+    if not owned_ids:
+        kind_pt = _ENTITY_KIND_PT.get(entity_type, "item")
+        raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": f"Nenhum {kind_pt} encontrado para este usuário"})
+
+    result = api.batch_update_ad_status(owned_ids, request.status, entity_type=entity_type)
+
+    if result.get("status") == "auth_error":
+        mark_connection_as_expired(user_jwt, user_id)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+
+    if result.get("status") not in ("success",):
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "message": result.get("message") or "Falha ao atualizar status em lote no Meta",
+                "details": result.get("error"),
+            },
+        )
+
+    updated_ids: List[str] = result.get("updated_ids", [])
+    failed_ids: List[str] = result.get("failed_ids", [])
+    blocked: Dict[str, str] = result.get("blocked", {}) or {}
+    verified_statuses: Dict[str, Any] = {
+        k: v for k, v in (result.get("verified_statuses", {}) or {}).items() if v
+    }
+
+    try:
+        _batch_reconcile_parent_status_local(
+            user_jwt=user_jwt, user_id=user_id, entity_type=entity_type,
+            verified_statuses=verified_statuses, updated_ids=updated_ids, target_status=request.status,
+        )
+    except Exception:
+        logger.exception("[BATCH_ENTITY_STATUS] Falha ao reconciliar status local em lote (%s)", entity_type)
+
+    return BatchStatusResult(
+        success=len(updated_ids) > 0,
+        updated_ids=updated_ids,
+        failed_ids=failed_ids,
+        total=len(owned_ids),
+        blocked=blocked,
+        statuses={k: str(v) for k, v in verified_statuses.items()},
+    )
+
+
+@router.post("/adsets/batch-status", response_model=BatchStatusResult)
+def update_adsets_batch_status(
+    request: BatchEntityStatusRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Atualiza status (PAUSED/ACTIVE) de múltiplos conjuntos em lote via Meta Batch API."""
+    return _update_entities_batch_status(entity_type="adset", request=request, api=api, user=user)
+
+
+@router.post("/campaigns/batch-status", response_model=BatchStatusResult)
+def update_campaigns_batch_status(
+    request: BatchEntityStatusRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Atualiza status (PAUSED/ACTIVE) de múltiplas campanhas em lote via Meta Batch API."""
+    return _update_entities_batch_status(entity_type="campaign", request=request, api=api, user=user)
 
 
 def _clean_pack_filters(filters: Any) -> List[Dict[str, Any]]:

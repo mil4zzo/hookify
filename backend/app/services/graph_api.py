@@ -978,30 +978,40 @@ class GraphAPI:
             logger.exception("get_entity_statuses_for_account error (%s/%s): %s", act_id, edge, err)
             return {"status": "error", "message": str(err)}
 
-    def batch_update_ad_status(self, ad_ids: List[str], status: str) -> Dict[str, Any]:
+    def batch_update_ad_status(self, ad_ids: List[str], status: str, entity_type: str = "ad") -> Dict[str, Any]:
         """
-        Atualiza status de múltiplos anúncios em lote via Meta Batch API.
+        Atualiza status de múltiplos nós (ad/adset/campaign) em lote via Meta Batch API.
 
-        Ao ATIVAR: lê o effective_status fresco (batch GET) e BLOQUEIA os ads pausados por um pai
-        (ADSET_PAUSED/CAMPAIGN_PAUSED) — ativar o próprio ad não retomaria a entrega e reportaria
-        "sucesso fantasma". Bloqueados NÃO são escritos e voltam em `blocked` (ad_id → motivo).
+        A Meta Batch API é agnóstica ao tipo de nó (escrita = `POST /{object_id}` com `status`;
+        leitura = `GET /{object_id}?fields=effective_status`), então o mesmo loop de write/verify
+        serve para ad, adset e campaign. Só o mapa de pausa herdada muda por tipo (`entity_type`).
 
-        Após escrever, relê o effective_status dos ads escritos (verify, mesmo padrão do fluxo
-        individual). Ao ATIVAR, ads que o verify mostrar ainda pausados por um pai (caso fail-open:
+        Ao ATIVAR: lê o effective_status fresco (batch GET) e BLOQUEIA os nós pausados por um pai
+        (ad: ADSET_PAUSED/CAMPAIGN_PAUSED; adset: CAMPAIGN_PAUSED; campaign: nenhum) — ativar o
+        próprio nó não retomaria a entrega e reportaria "sucesso fantasma". Bloqueados NÃO são
+        escritos e voltam em `blocked` (id → motivo).
+
+        Após escrever, relê o effective_status dos nós escritos (verify, mesmo padrão do fluxo
+        individual). Ao ATIVAR, nós que o verify mostrar ainda pausados por um pai (caso fail-open:
         o pre-check não conseguiu lê-los) são movidos de `updated_ids` para `blocked` — sem isso o
         fail-open reintroduz o "sucesso fantasma" no lote.
 
         Retorna: {"status": "success", "updated_ids": [...], "failed_ids": [...],
-                  "blocked": {ad_id: "adset"|"campaign"},
-                  "verified_statuses": {ad_id: effective_status relido}}
+                  "blocked": {id: "adset"|"campaign"},
+                  "verified_statuses": {id: effective_status relido}}
         """
         if not ad_ids:
             return {"status": "success", "updated_ids": [], "failed_ids": [], "blocked": {}, "verified_statuses": {}}
         if status not in ("PAUSED", "ACTIVE"):
             return {"status": "error", "message": "status deve ser PAUSED ou ACTIVE"}
 
-        # effective_status de ad que indica pausa herdada de um PAI (só relevante ao ativar).
-        inherited_pause = {"ADSET_PAUSED": "adset", "CAMPAIGN_PAUSED": "campaign"}
+        # effective_status que indica pausa herdada de um PAI (só relevante ao ativar). Depende do
+        # nível: campanha não tem pai (nunca bloqueia), conjunto herda só da campanha.
+        inherited_pause = {
+            "ad": {"ADSET_PAUSED": "adset", "CAMPAIGN_PAUSED": "campaign"},
+            "adset": {"CAMPAIGN_PAUSED": "campaign"},
+            "campaign": {},
+        }.get(entity_type, {"ADSET_PAUSED": "adset", "CAMPAIGN_PAUSED": "campaign"})
         blocked: Dict[str, str] = {}
         writable = list(ad_ids)
         verified_statuses: Dict[str, Any] = {}

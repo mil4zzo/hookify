@@ -44,7 +44,7 @@ import { logger } from "@/lib/utils/logger";
 import { getColumnId } from "@/lib/utils/columnFilters";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
-import { useBulkAdStatusControl } from "@/lib/hooks/useAdStatusControl";
+import { useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { cn } from "@/lib/utils/cn";
 
 type Ad = RankingsItem;
@@ -771,10 +771,14 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   );
 
   const { openSettings } = useSettingsModalStore();
-  const { bulkPause, bulkActivate, isLoading: isBulkLoading } = useBulkAdStatusControl();
+  // A seleção existe nas abas individual (ad), por-conjunto (adset) e por-campanha (campaign).
+  // A entidade alvo do bulk é derivada da aba; as chaves de rowSelection são o id dessa entidade.
+  const bulkEntityType: AdEntityType =
+    currentTab === "por-conjunto" ? "adset" : currentTab === "por-campanha" ? "campaign" : "ad";
+  const { bulkPause, bulkActivate, isLoading: isBulkLoading } = useBulkEntityStatusControl(bulkEntityType);
 
-  const selectedAdIds = useMemo(() => Object.keys(rowSelection), [rowSelection]);
-  const selectedCount = selectedAdIds.length;
+  const selectedIds = useMemo(() => Object.keys(rowSelection), [rowSelection]);
+  const selectedCount = selectedIds.length;
 
   // Refs para valores que mudam frequentemente mas NÃO devem invalidar columns (evita recriação de colunas pelo TanStack Table)
   const averagesRef = useRef(averages);
@@ -851,9 +855,24 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     getFilteredRowModel: getFilteredRowModel(),
     enableSorting: true,
     enableColumnFilters: true,
-    enableRowSelection: currentTab === "individual",
+    // Seleção nas abas individual (ad), por-conjunto (adset) e por-campanha (campaign) — só em
+    // linhas que têm o id da entidade (Criativos/por-anuncio, agrupada por nome, fica sem seleção).
+    enableRowSelection: (row) => {
+      const r = row.original as any;
+      if (currentTab === "por-conjunto") return !!r.adset_id;
+      if (currentTab === "por-campanha") return !!r.campaign_id;
+      if (currentTab === "individual") return !!r.ad_id;
+      return false;
+    },
     columnResizeMode: "onEnd", // Atualiza apenas ao soltar o mouse (melhor performance)
-    getRowId: (row) => row.ad_id ?? "",
+    // Chave de seleção = id da entidade da aba (adset_id/campaign_id/ad_id). A seleção é resetada
+    // na troca de aba (handleTabChange), então não há colisão de chaves entre abas.
+    getRowId: (row) =>
+      (currentTab === "por-conjunto"
+        ? row.adset_id
+        : currentTab === "por-campanha"
+          ? row.campaign_id
+          : row.ad_id) ?? "",
     state: {
       columnFilters: tableColumnFilters,
       sorting,
@@ -1076,6 +1095,46 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     }),
     [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
+
+  // Barra de ação em massa (pausar/ativar) — compartilhada pelas abas com seleção (individual,
+  // por-conjunto, por-campanha). A seleção é resetada na troca de aba, então só a aba ativa a exibe.
+  const bulkActionBar = selectedCount > 0 ? (
+    <div className="flex h-control-default items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm shrink-0">
+      <span className="text-muted-foreground font-medium">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
+      <div className="h-4 w-px bg-border" />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-destructive hover:text-destructive-foreground"
+        disabled={isBulkLoading}
+        onClick={() => { bulkPause(selectedIds); setRowSelection({}); }}
+      >
+        {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
+        Pausar
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-success hover:text-success-foreground"
+        disabled={isBulkLoading}
+        onClick={() => { bulkActivate(selectedIds); setRowSelection({}); }}
+      >
+        {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
+        Ativar
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto py-0.5 px-1 text-muted-foreground"
+        disabled={isBulkLoading}
+        onClick={() => setRowSelection({})}
+        aria-label="Limpar seleção"
+      >
+        <IconX className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  ) : null;
+
   return (
     <>
       {/* Em fullscreen, o wrapper vira overlay fixed acima do topbar/sidebar (z-sticky) e a tabela ganha a viewport inteira. */}
@@ -1099,42 +1158,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
-              {selectedCount > 0 && (
-                <div className="flex h-control-default items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm shrink-0">
-                  <span className="text-muted-foreground font-medium">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
-                  <div className="h-4 w-px bg-border" />
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-destructive hover:text-destructive-foreground"
-                    disabled={isBulkLoading}
-                    onClick={() => { bulkPause(selectedAdIds); setRowSelection({}); }}
-                  >
-                    {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
-                    Pausar
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-success hover:text-success-foreground"
-                    disabled={isBulkLoading}
-                    onClick={() => { bulkActivate(selectedAdIds); setRowSelection({}); }}
-                  >
-                    {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
-                    Ativar
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-auto py-0.5 px-1 text-muted-foreground"
-                    disabled={isBulkLoading}
-                    onClick={() => setRowSelection({})}
-                    aria-label="Limpar seleção"
-                  >
-                    <IconX className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
-              )}
+              {bulkActionBar}
               </>
             }
           >
@@ -1171,6 +1195,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
+              {bulkActionBar}
               </>
             }
           >
@@ -1189,6 +1214,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               <div className="flex-1 min-w-0">
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
+              {bulkActionBar}
               </>
             }
           >

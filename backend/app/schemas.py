@@ -52,6 +52,21 @@ class BatchStatusRequest(BaseModel):
         return [str(v).strip() for v in value if str(v).strip()]
 
 
+class BatchEntityStatusRequest(BaseModel):
+    """Request para atualizar status de múltiplos conjuntos/campanhas em lote via Meta Batch API."""
+    ids: List[str]
+    status: Literal["PAUSED", "ACTIVE"]
+
+    @field_validator("ids")
+    @classmethod
+    def validate_ids(cls, value: List[str]) -> List[str]:
+        if not value:
+            raise ValueError("ids não pode ser vazio")
+        if len(value) > 1000:
+            raise ValueError("ids deve conter no máximo 1000 ids por requisição")
+        return [str(v).strip() for v in value if str(v).strip()]
+
+
 class BatchStatusResult(BaseModel):
     """Resultado da atualização de status em lote."""
     success: bool

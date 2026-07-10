@@ -1,15 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { IconArrowsSort } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { IconArrowsSort, IconLoader2, IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { StatePanel } from "@/components/common/States";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { StatusCell } from "@/components/manager/StatusCell";
+import { useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { applyRowFilters } from "@/lib/utils/applyRowFilters";
@@ -23,6 +26,10 @@ type EntityConfig = {
   nameHeader: string;
   nameSortKey: string;
   statusTab: "individual" | "por-conjunto";
+  /** Entidade-alvo do pausar/ativar em massa (ads/variations=ad, adsets=adset). */
+  bulkEntityType: AdEntityType;
+  /** Id usado como chave de seleção E id enviado ao batch (ad_id ou adset_id). "" = não-selecionável. */
+  selectionId: (child: any) => string;
   /** Campos usados pela busca textual */
   searchFields: (child: any) => string[];
   /** Mostra thumbnail + subtítulo de campanha na coluna de nome */
@@ -44,6 +51,8 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
     nameHeader: "Anúncios",
     nameSortKey: "ad_id",
     statusTab: "individual",
+    bulkEntityType: "ad",
+    selectionId: (child) => String(child.ad_id || ""),
     searchFields: (child) => [String(child.ad_name || ""), String(child.ad_id || "")],
     richNameCell: true,
     addAdCount: true,
@@ -63,6 +72,8 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
     nameHeader: "Variações",
     nameSortKey: "ad_id",
     statusTab: "individual",
+    bulkEntityType: "ad",
+    selectionId: (child) => String(child.ad_id || ""),
     searchFields: (child) => [String(child.ad_name || ""), String(child.ad_id || "")],
     richNameCell: true,
     addAdCount: true,
@@ -82,6 +93,8 @@ const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
     nameHeader: "Conjuntos",
     nameSortKey: "adset_name",
     statusTab: "por-conjunto",
+    bulkEntityType: "adset",
+    selectionId: (child) => String(child.adset_id || ""),
     searchFields: (child) => [String(child.adset_name || ""), String(child.adset_id || "")],
     richNameCell: false,
     addAdCount: false,
@@ -139,6 +152,16 @@ export function ManagerChildrenTable({
     direction: "desc",
   });
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Seleção em massa (checkbox + shift), local a esta tabela (não usa TanStack). Chave = selectionId.
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const selectionAnchorRef = useRef<string | null>(null);
+  const bulk = useBulkEntityStatusControl(config.bulkEntityType);
+  // Resetar seleção ao trocar de nível no drill (nova lista de filhos) ou de tipo de entidade.
+  useEffect(() => {
+    setSelectedKeys(new Set());
+    selectionAnchorRef.current = null;
+  }, [childrenData, resolvedEntity]);
 
   const visibleColumns = useMemo(() => getVisibleManagerColumns({ activeColumns, hasSheetIntegration }), [activeColumns, hasSheetIntegration]);
   const childrenLabel = config.plural;
@@ -202,6 +225,94 @@ export function ManagerChildrenTable({
     });
   }, [actionType, childrenData, columnFilters, hasSheetIntegration, mqlLeadscoreMin, searchTerm, sortConfig]);
 
+  // Chaves selecionáveis na ordem visível atual (pós-filtro/sort) — base do select-all e do shift.
+  const orderedSelectableKeys = useMemo(
+    () => sortedData.map((c) => config.selectionId(c)).filter(Boolean),
+    [sortedData, config],
+  );
+  const selectedCount = selectedKeys.size;
+  const allSelected = orderedSelectableKeys.length > 0 && orderedSelectableKeys.every((k) => selectedKeys.has(k));
+  const someSelected = selectedCount > 0 && !allSelected;
+
+  const toggleOne = useCallback((key: string, checked: boolean) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, []);
+
+  const toggleAll = useCallback((checked: boolean) => {
+    setSelectedKeys(checked ? new Set(orderedSelectableKeys) : new Set());
+    selectionAnchorRef.current = null;
+  }, [orderedSelectableKeys]);
+
+  const handleRowCheckboxClick = useCallback(
+    (e: React.MouseEvent, key: string) => {
+      e.stopPropagation();
+      const anchor = selectionAnchorRef.current;
+      if (e.shiftKey && anchor && anchor !== key) {
+        const anchorPos = orderedSelectableKeys.indexOf(anchor);
+        const clickedPos = orderedSelectableKeys.indexOf(key);
+        if (anchorPos !== -1 && clickedPos !== -1) {
+          // Suprime o toggle nativo do Radix (checa defaultPrevented) — senão a linha clicada re-alterna.
+          e.preventDefault();
+          const [start, end] = anchorPos < clickedPos ? [anchorPos, clickedPos] : [clickedPos, anchorPos];
+          const value = !selectedKeys.has(key);
+          setSelectedKeys((prev) => {
+            const next = new Set(prev);
+            for (let i = start; i <= end; i++) {
+              if (value) next.add(orderedSelectableKeys[i]);
+              else next.delete(orderedSelectableKeys[i]);
+            }
+            return next;
+          });
+          return;
+        }
+      }
+      selectionAnchorRef.current = key;
+    },
+    [orderedSelectableKeys, selectedKeys],
+  );
+
+  const bulkBar = selectedCount > 0 ? (
+    <div className="flex h-control-default flex-shrink-0 items-center gap-2 rounded-lg border border-input bg-background px-3">
+      <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
+      <div className="h-4 w-px bg-border" />
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-destructive hover:text-destructive-foreground"
+        disabled={bulk.isLoading}
+        onClick={() => { bulk.bulkPause(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
+      >
+        {bulk.isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
+        Pausar
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-success hover:text-success-foreground"
+        disabled={bulk.isLoading}
+        onClick={() => { bulk.bulkActivate(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
+      >
+        {bulk.isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
+        Ativar
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-auto px-1 py-0.5 text-muted-foreground"
+        disabled={bulk.isLoading}
+        onClick={() => setSelectedKeys(new Set())}
+        aria-label="Limpar seleção"
+      >
+        <IconX className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  ) : null;
+
   const filterableColumns = useMemo(() => {
     return getManagerFilterableColumns({
       visibleColumns,
@@ -210,7 +321,8 @@ export function ManagerChildrenTable({
     });
   }, [config, visibleColumns]);
 
-  const colspan = visibleColumns.length + config.colspanExtra;
+  // +1 pela coluna de checkbox de seleção (à esquerda do Status).
+  const colspan = visibleColumns.length + config.colspanExtra + 1;
 
   const handleSort = (column: string) => {
     setSortConfig((previous) => {
@@ -298,6 +410,7 @@ export function ManagerChildrenTable({
               <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} />
             </div>
           )}
+          {bulkBar}
         </div>
       </div>
 
@@ -334,6 +447,16 @@ export function ManagerChildrenTable({
           <table className="w-full border-collapse text-xs">
             <thead className={asContent ? "sticky top-0 z-sticky" : undefined}>
               <tr className="bg-card">
+                <th className="w-10 px-2 py-4 text-center">
+                  <div className="flex items-center justify-center">
+                    <Checkbox
+                      checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                      onCheckedChange={(v) => toggleAll(!!v)}
+                      aria-label="Selecionar todos"
+                      disabled={orderedSelectableKeys.length === 0}
+                    />
+                  </div>
+                </th>
                 <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
@@ -363,6 +486,19 @@ export function ManagerChildrenTable({
                   className={`bg-background border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
                 >
+                  <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                    {config.selectionId(child) ? (
+                      <div className="flex items-center justify-center">
+                        <Checkbox
+                          checked={selectedKeys.has(config.selectionId(child))}
+                          onCheckedChange={(v) => toggleOne(config.selectionId(child), !!v)}
+                          onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
+                          onClick={(e) => handleRowCheckboxClick(e, config.selectionId(child))}
+                          aria-label="Selecionar linha"
+                        />
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab={config.statusTab} />
                   </td>

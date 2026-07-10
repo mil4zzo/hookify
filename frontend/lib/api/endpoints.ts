@@ -153,6 +153,12 @@ export const api = {
     batchUpdateAdStatus: (adIds: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
       apiClient.post("/facebook/ads/batch-status", { ad_ids: adIds, status }),
 
+    batchUpdateAdsetStatus: (ids: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
+      apiClient.post("/facebook/adsets/batch-status", { ids, status }),
+
+    batchUpdateCampaignStatus: (ids: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
+      apiClient.post("/facebook/campaigns/batch-status", { ids, status }),
+
     /** Sync leve on-focus: relê do Meta o effective_status dos ads e pais dos packs (TTL 5 min server-side). */
     syncPacksStatus: (packIds: string[]): Promise<StatusSyncResponse> =>
       apiClient.post("/facebook/packs/status-sync", { pack_ids: packIds }),

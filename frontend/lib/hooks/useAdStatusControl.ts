@@ -140,46 +140,71 @@ function patchBulkAdStatusInCaches(qc: QueryClient, updates: { adId: string; sta
   });
 }
 
-export interface UseBulkAdStatusControlReturn {
-  bulkPause: (adIds: string[]) => void;
-  bulkActivate: (adIds: string[]) => void;
+export interface UseBulkEntityStatusControlReturn {
+  bulkPause: (ids: string[]) => void;
+  bulkActivate: (ids: string[]) => void;
   isLoading: boolean;
 }
 
-export function useBulkAdStatusControl(): UseBulkAdStatusControlReturn {
+// Retrocompat: o call-site antigo importa este nome.
+export type UseBulkAdStatusControlReturn = UseBulkEntityStatusControlReturn;
+
+const BULK_ENTITY_NOUN: Record<AdEntityType, { singular: string; plural: string; parentHint: string }> = {
+  ad: { singular: "anúncio", plural: "anúncios", parentHint: "a campanha/conjunto" },
+  adset: { singular: "conjunto", plural: "conjuntos", parentHint: "a campanha" },
+  campaign: { singular: "campanha", plural: "campanhas", parentHint: "" },
+};
+
+/**
+ * Pausar/ativar em massa via Meta Batch API (1 req/50), para ad, adset ou campaign.
+ * - ad: patch in-place do cache ad-level (métricas não mudam → evita storm de RPC).
+ * - adset/campaign: 1 invalidação ampla de rankings (o backend releu/reconciliou o cache local;
+ *   1 mutação = 1 invalidação, sem amplificação — mesma via do toggle individual).
+ */
+export function useBulkEntityStatusControl(entityType: AdEntityType = "ad"): UseBulkEntityStatusControlReturn {
   const qc = useQueryClient();
+  const noun = BULK_ENTITY_NOUN[entityType];
 
   const mutation = useMutation({
-    mutationFn: ({ adIds, status }: { adIds: string[]; status: "PAUSED" | "ACTIVE" }) =>
-      api.facebook.batchUpdateAdStatus(adIds, status),
-    onSuccess: (data, variables) => {
+    mutationFn: ({ ids, status }: { ids: string[]; status: "PAUSED" | "ACTIVE" }) => {
+      if (entityType === "adset") return api.facebook.batchUpdateAdsetStatus(ids, status);
+      if (entityType === "campaign") return api.facebook.batchUpdateCampaignStatus(ids, status);
+      return api.facebook.batchUpdateAdStatus(ids, status);
+    },
+    onSuccess: async (data, variables) => {
       const { status } = variables;
       const { updated_ids, failed_ids } = data;
       const blockedIds = Object.keys(data.blocked ?? {});
       // Verdade relida do Meta após a escrita (verify) — preferir ao status pedido.
       const verified: Record<string, string> = data.statuses ?? {};
-      const label = status === "PAUSED" ? "pausados" : "ativados";
 
-      // Aplicados: verdade do verify (ou o pedido). Bloqueados COM verify: self-heal do badge
-      // com o estado real recém-lido (ADSET_PAUSED/CAMPAIGN_PAUSED) — espelha o 409 individual.
-      const patches = [
-        ...updated_ids.map((id) => ({ adId: id, status: verified[id] || status })),
-        ...blockedIds.filter((id) => verified[id]).map((id) => ({ adId: id, status: verified[id] })),
-      ];
-      if (patches.length > 0) {
-        patchBulkAdStatusInCaches(qc, patches);
+      if (entityType === "ad") {
+        // Aplicados: verdade do verify (ou o pedido). Bloqueados COM verify: self-heal do badge
+        // com o estado real recém-lido (ADSET_PAUSED/CAMPAIGN_PAUSED) — espelha o 409 individual.
+        const patches = [
+          ...updated_ids.map((id) => ({ adId: id, status: verified[id] || status })),
+          ...blockedIds.filter((id) => verified[id]).map((id) => ({ adId: id, status: verified[id] })),
+        ];
+        if (patches.length > 0) patchBulkAdStatusInCaches(qc, patches);
+      } else {
+        // adset/campaign: o backend releu do Meta e reconciliou o cache local. Toggles em massa
+        // desses são raros e é 1 mutação só — invalidação ampla aceitável (sem amplificação).
+        await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+        await qc.invalidateQueries({ queryKey: ["facebook", "me"] });
       }
 
       const plural = (n: number) => (n !== 1 ? "s" : "");
+      const verb = (n: number) => `${status === "PAUSED" ? "pausad" : "ativad"}o${plural(n)}`;
+      const nounFor = (n: number) => (n === 1 ? noun.singular : noun.plural);
 
       if (blockedIds.length === 0 && failed_ids.length === 0) {
-        showSuccess(`${updated_ids.length} anúncio${plural(updated_ids.length)} ${label}.`);
+        showSuccess(`${updated_ids.length} ${nounFor(updated_ids.length)} ${verb(updated_ids.length)}.`);
         return;
       }
 
       if (updated_ids.length > 0) {
         // Parcial: aplicou alguns, mas houve bloqueio (pai pausado) e/ou falha.
-        const segments = [`${updated_ids.length} ${label}`];
+        const segments = [`${updated_ids.length} ${verb(updated_ids.length)}`];
         if (blockedIds.length > 0) segments.push(`${blockedIds.length} bloqueado${plural(blockedIds.length)} (pai pausado)`);
         if (failed_ids.length > 0) segments.push(`${failed_ids.length} com falha`);
         toast.warning(`${segments.join(", ")}.`, { duration: 6000 });
@@ -190,13 +215,13 @@ export function useBulkAdStatusControl(): UseBulkAdStatusControlReturn {
       if (blockedIds.length > 0 && failed_ids.length === 0) {
         // Todos bloqueados por pausa herdada: é orientação, não falha do Meta.
         toast.warning(
-          `Nenhum ativado: ${blockedIds.length} bloqueado${plural(blockedIds.length)} porque um pai está pausado. Ative a campanha/conjunto primeiro.`,
+          `Nenhum ativado: ${blockedIds.length} bloqueado${plural(blockedIds.length)} porque ${noun.parentHint || "um pai"} está pausado(a). Ative ${noun.parentHint || "a campanha/conjunto"} primeiro.`,
           { duration: 7000 },
         );
         return;
       }
 
-      showError(`Falha ao atualizar ${failed_ids.length} anúncio${plural(failed_ids.length)}.`);
+      showError(`Falha ao atualizar ${failed_ids.length} ${nounFor(failed_ids.length)}.`);
     },
     onError: (e: any) => {
       const msg = e?.message || "Falha ao atualizar status em lote.";
@@ -209,16 +234,21 @@ export function useBulkAdStatusControl(): UseBulkAdStatusControlReturn {
   });
 
   const bulkPause = useCallback(
-    (adIds: string[]) => mutation.mutate({ adIds, status: "PAUSED" }),
+    (ids: string[]) => mutation.mutate({ ids, status: "PAUSED" }),
     [mutation],
   );
 
   const bulkActivate = useCallback(
-    (adIds: string[]) => mutation.mutate({ adIds, status: "ACTIVE" }),
+    (ids: string[]) => mutation.mutate({ ids, status: "ACTIVE" }),
     [mutation],
   );
 
   return { bulkPause, bulkActivate, isLoading: mutation.isPending };
+}
+
+/** Retrocompat: bulk de anúncios. Prefira `useBulkEntityStatusControl(entityType)`. */
+export function useBulkAdStatusControl(): UseBulkEntityStatusControlReturn {
+  return useBulkEntityStatusControl("ad");
 }
 
 export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdStatusControlReturn {

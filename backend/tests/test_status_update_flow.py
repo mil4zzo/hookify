@@ -193,6 +193,33 @@ class TestBatchPause(unittest.TestCase):
         self.assertEqual(res["verified_statuses"], {"a": "PAUSED", "b": "PAUSED"})
 
 
+class TestBatchEntityTypeInheritedPause(unittest.TestCase):
+    """Generalização de batch_update_ad_status por `entity_type`: só o mapa de pausa herdada muda."""
+
+    def test_adset_activate_blocks_only_on_campaign_paused(self):
+        # Conjunto herda pausa só da CAMPANHA. ADSET_PAUSED não é pausa herdada para um adset
+        # (é o próprio estado dele) → deve ser escrito; CAMPAIGN_PAUSED bloqueia.
+        api = _StubBatchGraphAPI({"own": "ADSET_PAUSED", "under_paused_camp": "CAMPAIGN_PAUSED"})
+        res = api.batch_update_ad_status(["own", "under_paused_camp"], "ACTIVE", entity_type="adset")
+        self.assertEqual(res["blocked"], {"under_paused_camp": "campaign"})
+        self.assertEqual(api.written, ["own"])
+        self.assertEqual(set(res["updated_ids"]), {"own"})
+
+    def test_campaign_activate_never_blocked(self):
+        # Campanha não tem pai → nenhum status é pausa herdada; escreve tudo.
+        api = _StubBatchGraphAPI({"a": "CAMPAIGN_PAUSED", "b": "PAUSED"}, verify_map={"a": "ACTIVE", "b": "ACTIVE"})
+        res = api.batch_update_ad_status(["a", "b"], "ACTIVE", entity_type="campaign")
+        self.assertEqual(res["blocked"], {})
+        self.assertEqual(api.written, ["a", "b"])
+        self.assertEqual(set(res["updated_ids"]), {"a", "b"})
+
+    def test_pause_writes_all_regardless_of_entity_type(self):
+        api = _StubBatchGraphAPI({"a": "ACTIVE"}, verify_map={"a": "PAUSED"})
+        res = api.batch_update_ad_status(["a"], "PAUSED", entity_type="campaign")
+        self.assertEqual(api.written, ["a"])
+        self.assertEqual(res["blocked"], {})
+
+
 def _fake_response(payload):
     resp = MagicMock()
     resp.json.return_value = payload

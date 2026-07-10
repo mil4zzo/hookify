@@ -121,8 +121,10 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
 
-  // Coluna de seleção em lote (somente na aba "individual" onde ad_id está disponível por linha)
-  if (currentTab === "individual") {
+  // Coluna de seleção em lote — abas com id de entidade por linha: individual (ad_id),
+  // por-conjunto (adset_id) e por-campanha (campaign_id). A mecânica de shift/âncora abaixo é
+  // agnóstica à aba: usa row.id (definido por getRowId conforme a aba) e a ordem visível atual.
+  if (currentTab === "individual" || currentTab === "por-conjunto" || currentTab === "por-campanha") {
     cols.push({
       id: "select",
       header: ({ table }) => {
