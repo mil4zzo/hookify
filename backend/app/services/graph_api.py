@@ -641,6 +641,128 @@ class GraphAPI:
             logger.exception("get_entity_status error: %s", err)
             return {"status": "error", "message": str(err)}
 
+    # Campos de config de orçamento por tipo de entidade (budget vive na campanha OU nos
+    # adsets — nunca nos dois; a presença aqui é o que valida o modo antes de escrever).
+    _BUDGET_CONFIG_FIELDS = {
+        "campaign": "daily_budget,lifetime_budget,is_adset_budget_sharing_enabled",
+        "adset": "daily_budget,lifetime_budget,campaign_id",
+    }
+
+    def get_entity_budget_config(self, entity_id: str, entity_type: str) -> Dict[str, Any]:
+        """
+        Lê a config de orçamento de uma campanha/adset no Meta (int64 em SUBUNIDADE da
+        moeda da conta; a Graph devolve como string).
+
+        Retorna:
+          {"status": "success", "daily_budget": int|None, "lifetime_budget": int|None}
+          ou {"status": "auth_error"|"http_error"|"error", "message": ..., "error": {...}}
+        """
+        if not entity_id:
+            return {"status": "error", "message": "entity_id é obrigatório"}
+        fields = self._BUDGET_CONFIG_FIELDS.get(entity_type)
+        if not fields:
+            return {"status": "error", "message": f"entity_type inválido para budget: {entity_type}"}
+
+        result = self._handle_graph_request(
+            method="GET",
+            path=entity_id,
+            operation_name="GraphAPI.get_entity_budget_config",
+            params={"fields": fields},
+            timeout=30,
+        )
+        if result.get("status") != "success":
+            return result
+
+        def _to_minor(value: Any) -> Optional[int]:
+            try:
+                minor = int(str(value))
+            except (TypeError, ValueError):
+                return None
+            return minor if minor > 0 else None
+
+        data = result.get("data") or {}
+        return {
+            "status": "success",
+            "daily_budget": _to_minor(data.get("daily_budget")),
+            "lifetime_budget": _to_minor(data.get("lifetime_budget")),
+        }
+
+    def update_entity_budget(
+        self,
+        entity_id: str,
+        entity_type: str,
+        *,
+        daily_budget: Optional[int] = None,
+        lifetime_budget: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fluxo de mudança de ORÇAMENTO com verificação contra o Meta, espelhando
+        `_activate_or_pause`: pre-check → write → verify (a resposta carrega a verdade
+        RELIDA, nunca o valor pedido).
+
+        Pre-check (evita repassar o erro #100 críptico da Meta):
+        - Entidade sem NENHUM budget próprio => {"status": "no_own_budget"} — campanha ABO
+          (budget nos adsets) ou adset sob CBO (budget na campanha).
+        - Tipo pedido ≠ tipo vigente (daily↔lifetime) => {"status": "budget_type_mismatch",
+          "current": "daily"|"lifetime"} — trocar tipo exige end_time/adset_budgets e fica
+          fora do v1.
+        - Valor pedido == vigente => {"status": "noop", ...} sem escrever (economiza rate limit).
+
+        Sucesso: {"status": "success", "daily_budget": ..., "lifetime_budget": ...,
+        "verified": bool} — verified=False quando o read-back falhou (caller NÃO deve
+        persistir localmente nesse caso).
+        """
+        field = "daily_budget" if daily_budget is not None else "lifetime_budget"
+        value = daily_budget if daily_budget is not None else lifetime_budget
+        if value is None or value <= 0:
+            return {"status": "error", "message": "budget deve ser um inteiro positivo em subunidade da moeda"}
+
+        pre = self.get_entity_budget_config(entity_id, entity_type)
+        if pre.get("status") != "success":
+            return pre
+
+        current_daily = pre.get("daily_budget")
+        current_lifetime = pre.get("lifetime_budget")
+        if current_daily is None and current_lifetime is None:
+            return {"status": "no_own_budget"}
+        current_type = "daily" if current_daily is not None else "lifetime"
+        requested_type = "daily" if field == "daily_budget" else "lifetime"
+        if requested_type != current_type:
+            return {"status": "budget_type_mismatch", "current": current_type}
+        if value == (current_daily if current_type == "daily" else current_lifetime):
+            return {
+                "status": "noop",
+                "daily_budget": current_daily,
+                "lifetime_budget": current_lifetime,
+            }
+
+        write = self._handle_graph_request(
+            method="POST",
+            path=entity_id,
+            operation_name=f"GraphAPI.update_{entity_type}_budget",
+            json_payload={field: value},
+            timeout=30,
+        )
+        if write.get("status") != "success":
+            return write
+
+        # Verify: relê a config real. Falha aqui não desfaz o write (que já aconteceu) —
+        # devolve success não-verificado e o caller deixa o cache local para o próximo sync.
+        verify = self.get_entity_budget_config(entity_id, entity_type)
+        if verify.get("status") != "success":
+            logger.warning(
+                "update_entity_budget: write ok mas verify falhou para %s %s (%s)",
+                entity_type, entity_id, verify.get("message"),
+            )
+            return {"status": "success", "verified": False, "daily_budget": None, "lifetime_budget": None}
+
+        return {
+            "status": "success",
+            "verified": True,
+            "daily_budget": verify.get("daily_budget"),
+            "lifetime_budget": verify.get("lifetime_budget"),
+        }
+
     # effective_status que indicam pausa herdada de um PAI, por tipo de entidade.
     # Ativar a própria entidade não resolve entrega nesses casos — o pai é o bloqueador.
     _PARENT_PAUSE_BLOCKERS = {

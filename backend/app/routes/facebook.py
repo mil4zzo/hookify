@@ -30,7 +30,7 @@ from app.core.auth import get_current_user
 from app.core.tier import require_insider
 from pydantic import BaseModel
 from pydantic import ValidationError
-from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, BatchStatusRequest, BatchEntityStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
+from app.schemas import AdsRequestFrontend, VideoSourceRequest, ErrorResponse, FacebookTokenRequest, RefreshPackRequest, UpdateStatusRequest, UpdateBudgetRequest, BatchStatusRequest, BatchEntityStatusRequest, BatchStatusResult, BulkAdConfig, BulkAdRetryRequest, BulkAdItem, CampaignBulkConfig, CampaignBulkItem, CampaignTemplateResponse, CampaignAdsetConfig
 from app.core.config import (
     FACEBOOK_CLIENT_ID,
     FACEBOOK_CLIENT_SECRET,
@@ -1598,6 +1598,178 @@ def update_campaign_status(
     return _finalize_status_update(
         result=result, api=api, user_jwt=user_jwt, user_id=user_id,
         entity_type="campaign", entity_id=campaign_id, new_status=request.status,
+    )
+
+
+def _finalize_budget_update(
+    *,
+    result: Dict[str, Any],
+    user_jwt: str,
+    user_id: str,
+    entity_type: str,
+    entity_id: str,
+) -> Dict[str, Any]:
+    """
+    Mapeia o resultado de `GraphAPI.update_entity_budget` para HTTP e persiste em
+    parent_entities a verdade VERIFICADA (read-back), nunca o valor pedido — espelho do
+    `_finalize_status_update`.
+
+    Estados vindos do serviço:
+    - auth_error            → 401 (token expirado)
+    - no_own_budget         → 409 BUDGET_ON_ADSETS (campanha ABO) | BUDGET_ON_CAMPAIGN (adset sob CBO)
+    - budget_type_mismatch  → 409 BUDGET_TYPE_MISMATCH (daily↔lifetime fora do v1)
+    - noop                  → 200 sem escrita (valor pedido == vigente)
+    - success               → 200 com budgets verificados; persiste local se verified
+    - (demais)              → 502 meta_api_error com a mensagem da Meta (error_user_msg
+                              quando existir — ex.: "orçamento abaixo do mínimo")
+    """
+    kind_pt = _ENTITY_KIND_PT.get(entity_type, "item")
+    outcome = result.get("status")
+
+    if outcome == "auth_error":
+        mark_connection_as_expired(user_jwt, user_id)
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+            },
+        )
+
+    if outcome == "no_own_budget":
+        if entity_type == "campaign":
+            code, msg = "BUDGET_ON_ADSETS", (
+                "Esta campanha não tem orçamento próprio (ABO): o orçamento é definido em cada conjunto. "
+                "Edite pelo(s) conjunto(s) na aba \"Por conjunto\"."
+            )
+        else:
+            code, msg = "BUDGET_ON_CAMPAIGN", (
+                "Este conjunto não tem orçamento próprio: a campanha usa Advantage Campaign Budget (CBO). "
+                "Edite pela campanha na aba \"Por campanha\"."
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={"error": "budget_on_other_level", "code": code, "message": msg},
+        )
+
+    if outcome == "budget_type_mismatch":
+        current = result.get("current")  # "daily" | "lifetime"
+        current_pt = "diário" if current == "daily" else "total (lifetime)"
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "budget_type_mismatch",
+                "code": "BUDGET_TYPE_MISMATCH",
+                "current": current,
+                "message": (
+                    f"Este {kind_pt} usa orçamento {current_pt}; a troca entre diário e total "
+                    "ainda não é suportada pelo Hookify — edite o tipo vigente."
+                ),
+            },
+        )
+
+    if outcome == "noop":
+        return {
+            "success": True,
+            "noop": True,
+            "verified": True,
+            "entity_type": entity_type,
+            "entity_id": entity_id,
+            "daily_budget": result.get("daily_budget"),
+            "lifetime_budget": result.get("lifetime_budget"),
+        }
+
+    if outcome != "success":
+        # Preferir a mensagem amigável da Meta (error_user_title/msg cobre mínimos de
+        # orçamento, limites da conta etc.) à mensagem técnica.
+        error_obj = result.get("error") or {}
+        user_msg = str(error_obj.get("error_user_msg") or "").strip()
+        user_title = str(error_obj.get("error_user_title") or "").strip()
+        meta_msg = " — ".join(p for p in (user_title, user_msg) if p) or result.get("message") or "Erro na Meta API"
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "error": "meta_api_error",
+                "code": "META_API_ERROR",
+                "message": f"Falha ao atualizar o orçamento: {meta_msg}",
+            },
+        )
+
+    verified = bool(result.get("verified"))
+    daily = result.get("daily_budget")
+    lifetime = result.get("lifetime_budget")
+    if verified:
+        # Best-effort: falha local nunca desfaz/esconde o write que já aconteceu no Meta.
+        try:
+            supabase_repo.update_parent_entity_budget(
+                user_jwt,
+                user_id,
+                entity_id=entity_id,
+                level=entity_type,
+                daily_budget=daily,
+                lifetime_budget=lifetime,
+                account_id=_fetch_entity_account_id(
+                    user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id,
+                ),
+            )
+        except Exception:
+            logger.exception("[UPDATE_BUDGET] Falha ao persistir budget local para %s %s", entity_type, entity_id)
+
+    return {
+        "success": True,
+        "noop": False,
+        "verified": verified,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "daily_budget": daily,
+        "lifetime_budget": lifetime,
+    }
+
+
+@router.post("/adsets/{adset_id}/budget")
+def update_adset_budget(
+    adset_id: str,
+    request: UpdateBudgetRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Atualiza o orçamento de um conjunto (ABO). Valor em subunidade da moeda da conta."""
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
+
+    result = api.update_entity_budget(
+        adset_id, "adset",
+        daily_budget=request.daily_budget, lifetime_budget=request.lifetime_budget,
+    )
+    return _finalize_budget_update(
+        result=result, user_jwt=user_jwt, user_id=user_id,
+        entity_type="adset", entity_id=adset_id,
+    )
+
+
+@router.post("/campaigns/{campaign_id}/budget")
+def update_campaign_budget(
+    campaign_id: str,
+    request: UpdateBudgetRequest = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Atualiza o orçamento de uma campanha (CBO). Valor em subunidade da moeda da conta."""
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
+
+    result = api.update_entity_budget(
+        campaign_id, "campaign",
+        daily_budget=request.daily_budget, lifetime_budget=request.lifetime_budget,
+    )
+    return _finalize_budget_update(
+        result=result, user_jwt=user_jwt, user_id=user_id,
+        entity_type="campaign", entity_id=campaign_id,
     )
 
 

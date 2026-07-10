@@ -29,6 +29,7 @@ import {
   SaveSheetIntegrationResponse,
   SheetSyncJobProgress,
   UpdateEntityStatusResponse,
+  UpdateEntityBudgetResponse,
   BatchStatusResponse,
   StatusSyncResponse,
   AdsTreeResponse,
@@ -149,6 +150,14 @@ export const api = {
 
     updateCampaignStatus: (campaignId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
       apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/status`, { status }),
+
+    /** Edita o orçamento de um conjunto (ABO). Valores em SUBUNIDADE da moeda da conta; exatamente um dos campos. */
+    updateAdsetBudget: (adsetId: string, budget: { daily_budget?: number; lifetime_budget?: number }): Promise<UpdateEntityBudgetResponse> =>
+      apiClient.post(`/facebook/adsets/${encodeURIComponent(adsetId)}/budget`, budget),
+
+    /** Edita o orçamento de uma campanha (CBO). Valores em SUBUNIDADE da moeda da conta; exatamente um dos campos. */
+    updateCampaignBudget: (campaignId: string, budget: { daily_budget?: number; lifetime_budget?: number }): Promise<UpdateEntityBudgetResponse> =>
+      apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/budget`, budget),
 
     batchUpdateAdStatus: (adIds: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
       apiClient.post("/facebook/ads/batch-status", { ad_ids: adIds, status }),

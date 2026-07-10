@@ -37,6 +37,27 @@ class UpdateStatusRequest(BaseModel):
     status: Literal["PAUSED", "ACTIVE"]
 
 
+class UpdateBudgetRequest(BaseModel):
+    """
+    Request para atualizar o orçamento de uma campanha (CBO) ou adset (ABO).
+
+    Valores são int em SUBUNIDADE da moeda da conta (R$ 150,00 → 15000). Exatamente UM
+    dos campos deve vir preenchido — daily e lifetime são mutuamente exclusivos na Meta,
+    e o v1 não troca o tipo vigente (isso exigiria end_time/adset_budgets).
+    """
+    daily_budget: Optional[int] = None
+    lifetime_budget: Optional[int] = None
+
+    @model_validator(mode="after")
+    def _exactly_one_positive(self):
+        provided = [v for v in (self.daily_budget, self.lifetime_budget) if v is not None]
+        if len(provided) != 1:
+            raise ValueError("informe exatamente um de daily_budget ou lifetime_budget")
+        if provided[0] <= 0:
+            raise ValueError("budget deve ser um inteiro positivo em subunidade da moeda")
+        return self
+
+
 class BatchStatusRequest(BaseModel):
     """Request para atualizar status de múltiplos anúncios em lote via Meta Batch API."""
     ad_ids: List[str]

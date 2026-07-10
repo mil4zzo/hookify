@@ -250,7 +250,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
     }),
   );
 
-  // Orçamento (read-only) — só nas abas cuja linha é uma entidade que pode ter budget próprio
+  // Orçamento — só nas abas cuja linha é uma entidade que pode ter budget próprio
   if (currentTab === "por-conjunto" || currentTab === "por-campanha") {
     const budgetTab = currentTab;
     cols.push(
@@ -264,7 +264,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         ),
         size: 130,
         minSize: 110,
-        enableResizing: false,
+        enableResizing: true,
         enableSorting: true,
         enableColumnFilter: false,
         sortingFn: budgetSortingFn,

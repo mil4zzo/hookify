@@ -779,6 +779,45 @@ def upsert_parent_entities(
     logger.info("upsert_parent_entities: %d entidades gravadas para user %s", len(rows), user_id)
 
 
+def update_parent_entity_budget(
+    user_jwt: Optional[str],
+    user_id: str,
+    *,
+    entity_id: str,
+    level: str,
+    daily_budget: Optional[int],
+    lifetime_budget: Optional[int],
+    account_id: Optional[str] = None,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """
+    Persiste em parent_entities o orçamento VERIFICADO (read-back pós-write) de UMA
+    entidade após edição pelo Hookify — mesmo princípio do status: só verdade lida do
+    Meta, nunca o valor pedido. Upsert merge-duplicates: colunas ausentes do payload
+    (effective_status, campaign_id, budget_mode de adset) não são tocadas.
+    """
+    if not user_id or not entity_id or level not in ("campaign", "adset"):
+        return
+    sb = _get_sb(user_jwt, sb_client)
+    row: Dict[str, Any] = {
+        "user_id": user_id,
+        "entity_id": str(entity_id),
+        "level": level,
+        "daily_budget": daily_budget,
+        "lifetime_budget": lifetime_budget,
+        "updated_at": _now_iso(),
+    }
+    # Campanha com budget próprio verificado é, por definição, CBO.
+    if level == "campaign" and (daily_budget or lifetime_budget):
+        row["budget_mode"] = "cbo"
+    if account_id:
+        row["account_id"] = str(account_id)
+    with_postgrest_retry(
+        f"update_parent_entity_budget[{level}:{entity_id}]",
+        lambda: sb.table("parent_entities").upsert([row], on_conflict="user_id,entity_id").execute(),
+    )
+
+
 def get_cached_thumbs_by_ad_names(
     user_id: str,
     ad_names: List[str],

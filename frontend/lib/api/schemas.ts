@@ -210,6 +210,20 @@ export const StatusSyncResponseSchema = z.object({
   ads_covered: z.number(),
 })
 
+export const UpdateEntityBudgetResponseSchema = z.object({
+  success: z.boolean(),
+  // true = valor pedido já era o vigente; nada foi escrito no Meta.
+  noop: z.boolean(),
+  // false = write ok mas o read-back falhou: budgets abaixo vêm null e o cache local
+  // NÃO foi atualizado (próximo sync corrige) — a UI deve manter o valor otimista com cautela.
+  verified: z.boolean(),
+  entity_type: z.enum(["adset", "campaign"]),
+  entity_id: z.string(),
+  // Budgets RELIDOS do Meta após a escrita (verify), em SUBUNIDADE da moeda da conta.
+  daily_budget: z.number().nullable(),
+  lifetime_budget: z.number().nullable(),
+})
+
 // Type exports
 export type FacebookUser = z.infer<typeof FacebookUserSchema>
 export type FacebookAdAccount = z.infer<typeof FacebookAdAccountSchema>
@@ -232,6 +246,7 @@ export type UpdateEntityStatusRequest = z.infer<typeof UpdateEntityStatusRequest
 export type UpdateEntityStatusResponse = z.infer<typeof UpdateEntityStatusResponseSchema>
 export type BatchStatusResponse = z.infer<typeof BatchStatusResponseSchema>
 export type StatusSyncResponse = z.infer<typeof StatusSyncResponseSchema>
+export type UpdateEntityBudgetResponse = z.infer<typeof UpdateEntityBudgetResponseSchema>
 
 // ========== Google Sheets Integration Schemas ==========
 
