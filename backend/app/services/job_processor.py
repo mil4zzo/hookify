@@ -496,6 +496,7 @@ class JobProcessor:
             pack_id = self._persist_data(
                 job_id, payload, formatted_data, is_refresh, pack_id_from_payload,
                 parent_statuses=enrich_result.get("parent_statuses") or {},
+                parent_entities=enrich_result.get("parent_entities") or {},
             )
 
             # ===== CONCLUSÃO =====
@@ -562,6 +563,7 @@ class JobProcessor:
         pack_id_from_payload: Optional[str],
         *,
         parent_statuses: Optional[Dict[str, Any]] = None,
+        parent_entities: Optional[Dict[str, Any]] = None,
     ) -> Optional[str]:
         """Persiste dados no Supabase."""
         # Heartbeat limiter: evita spam de updates no jobs durante loops longos
@@ -689,6 +691,20 @@ class JobProcessor:
                         )
                     except Exception as e:
                         logger.warning(f"[JobProcessor] write_parent_statuses falhou (best-effort): {e}")
+
+                # Orçamento + status dos pais (mesmo snapshot dos edges) na parent_entities.
+                # Best-effort: não falha o job (tabela pode nem existir antes da migration 091).
+                if parent_entities:
+                    try:
+                        hb("Sincronizando orçamentos de campanhas/conjuntos...", force=True)
+                        supabase_repo.upsert_parent_entities(
+                            self.user_jwt,
+                            self.user_id,
+                            parent_entities,
+                            sb_client=self._sb,
+                        )
+                    except Exception as e:
+                        logger.warning(f"[JobProcessor] upsert_parent_entities falhou (best-effort): {e}")
 
                 ensure_not_cancelled("before_metrics")
                 hb("Salvando métricas...", force=True)

@@ -512,13 +512,22 @@ class AdsEnricher:
             allow_empty_filters=True,
         )
 
-    def _fetch_edge_statuses(self, act_id: str, edge: str) -> Dict[str, Optional[str]]:
-        """id → effective_status de um edge da conta (campaigns/adsets), paginado (limit=500)."""
-        result: Dict[str, Optional[str]] = {}
+    # Campos dos edges de pais (status + orçamento, um único passe paginado).
+    # Budget: int64 em SUBUNIDADE da moeda da conta (a Graph devolve como string).
+    # Presente na campanha = CBO (Advantage Campaign Budget); ausente = ABO (budget nos
+    # adsets). is_adset_budget_sharing_enabled: ABO com até 20% de budget móvel entre adsets.
+    _PARENT_EDGE_FIELDS = {
+        "campaigns": "id,effective_status,daily_budget,lifetime_budget,is_adset_budget_sharing_enabled",
+        "adsets": "id,effective_status,daily_budget,lifetime_budget,campaign_id",
+    }
+
+    def _fetch_edge_entities(self, act_id: str, edge: str) -> Dict[str, Dict[str, Any]]:
+        """id → row (status+budget) de um edge da conta (campaigns/adsets), paginado (limit=500)."""
+        result: Dict[str, Dict[str, Any]] = {}
         url = f"{self.base_url}{act_id}/{edge}"
         payload: Dict[str, Any] = {
             "access_token": self.access_token,
-            "fields": "id,effective_status",
+            "fields": self._PARENT_EDGE_FIELDS[edge],
             "limit": 500,
         }
         page = 0
@@ -530,7 +539,7 @@ class AdsEnricher:
             for row in response_data.get("data", []):
                 entity_id = str(row.get("id") or "").strip()
                 if entity_id:
-                    result[entity_id] = str(row.get("effective_status") or "").upper() or None
+                    result[entity_id] = row
             next_url = str(response_data.get("paging", {}).get("next") or "").strip()
             if not next_url or page >= 40:
                 break
@@ -538,19 +547,95 @@ class AdsEnricher:
             payload = {}
         return result
 
+    def fetch_parent_entities(self, act_id: str) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """
+        Snapshot oficial (status + orçamento) de TODAS as campanhas e adsets da conta
+        (2+ chamadas paginadas de 500). Alimenta ads.campaign_status/adset_status e a
+        tabela parent_entities — nem status nem budget do PAI são inferíveis dos filhos.
+
+        Retorna {"campaigns": {campaign_id: row}, "adsets": {adset_id: row}}.
+        """
+        return {
+            "campaigns": self._fetch_edge_entities(act_id, "campaigns"),
+            "adsets": self._fetch_edge_entities(act_id, "adsets"),
+        }
+
+    @staticmethod
+    def project_parent_statuses(
+        entities: Dict[str, Dict[str, Dict[str, Any]]],
+    ) -> Dict[str, Dict[str, Optional[str]]]:
+        """Projeção do snapshot no shape de supabase_repo.write_parent_statuses."""
+        return {
+            level: {
+                entity_id: (str(row.get("effective_status") or "").upper() or None)
+                for entity_id, row in (entities.get(level) or {}).items()
+            }
+            for level in ("campaigns", "adsets")
+        }
+
+    @staticmethod
+    def project_parent_entities(
+        act_id: str,
+        entities: Dict[str, Dict[str, Dict[str, Any]]],
+    ) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """
+        Projeção do snapshot no shape de supabase_repo.upsert_parent_entities.
+        Budget None = entidade SEM budget nesse nível (verdade lida do edge, não ausência
+        de sync) — o repo grava NULL explicitamente.
+        effective_status entra como DOUBLE-WRITE PASSIVO: o read-path do status continua
+        nas colunas ads.adset_status/campaign_status até a migração deliberada.
+        """
+
+        def _to_minor(value: Any) -> Optional[int]:
+            # Graph devolve int64 como string; 0/negativo não é budget válido.
+            try:
+                minor = int(str(value))
+            except (TypeError, ValueError):
+                return None
+            return minor if minor > 0 else None
+
+        def _status(row: Dict[str, Any]) -> Optional[str]:
+            return str(row.get("effective_status") or "").upper() or None
+
+        campaigns: Dict[str, Dict[str, Any]] = {}
+        for campaign_id, row in (entities.get("campaigns") or {}).items():
+            daily = _to_minor(row.get("daily_budget"))
+            lifetime = _to_minor(row.get("lifetime_budget"))
+            if daily or lifetime:
+                mode = "cbo"
+            elif bool(row.get("is_adset_budget_sharing_enabled")):
+                mode = "abo_shared"
+            else:
+                mode = "abo"
+            campaigns[campaign_id] = {
+                "daily_budget": daily,
+                "lifetime_budget": lifetime,
+                "budget_mode": mode,
+                "effective_status": _status(row),
+                "account_id": act_id,
+            }
+
+        adsets: Dict[str, Dict[str, Any]] = {}
+        for adset_id, row in (entities.get("adsets") or {}).items():
+            adsets[adset_id] = {
+                "daily_budget": _to_minor(row.get("daily_budget")),
+                "lifetime_budget": _to_minor(row.get("lifetime_budget")),
+                "campaign_id": str(row.get("campaign_id") or "").strip() or None,
+                "effective_status": _status(row),
+                "account_id": act_id,
+            }
+
+        return {"campaigns": campaigns, "adsets": adsets}
+
     def fetch_parent_statuses(self, act_id: str) -> Dict[str, Dict[str, Optional[str]]]:
         """
-        effective_status oficial de TODAS as campanhas e adsets da conta (2+ chamadas
-        paginadas de 500). Alimenta as colunas denormalizadas ads.campaign_status/adset_status
-        — o status do PAI não é inferível dos filhos (a ausência de marcadores X_PAUSED nos
-        filhos NÃO implica pai ativo).
+        effective_status oficial de TODAS as campanhas e adsets da conta. Mantido como
+        conveniência para callers que só precisam de status; quem também grava budget deve
+        usar fetch_parent_entities + as projeções (um único passe nos edges).
 
         Retorna {"campaigns": {campaign_id: status}, "adsets": {adset_id: status}}.
         """
-        return {
-            "campaigns": self._fetch_edge_statuses(act_id, "campaigns"),
-            "adsets": self._fetch_edge_statuses(act_id, "adsets"),
-        }
+        return self.project_parent_statuses(self.fetch_parent_entities(act_id))
 
     def merge_details(
         self,
@@ -821,14 +906,18 @@ class AdsEnricher:
                 if ad_id and ad_id in status_map:
                     ad["effective_status"] = status_map[ad_id]
 
-            # Status oficial dos PAIS (campanha/adset) — devolvido no resultado para o caller
-            # gravar POR parent_id (nunca por linha de ad; ver supabase_repo.write_parent_statuses).
-            # Best-effort: falha aqui não derruba o enrich (colunas mantêm o valor anterior).
+            # Snapshot oficial dos PAIS (campanha/adset): status — devolvido para o caller
+            # gravar POR parent_id (nunca por linha de ad; ver supabase_repo.write_parent_statuses)
+            # — e orçamento+status (tabela parent_entities), lidos num único passe nos edges.
+            # Best-effort: falha aqui não derruba o enrich (valores anteriores são mantidos).
             parent_statuses: Dict[str, Dict[str, Optional[str]]] = {}
+            parent_entity_rows: Dict[str, Dict[str, Dict[str, Any]]] = {}
             try:
-                parent_statuses = self.fetch_parent_statuses(act_id)
+                parent_entities = self.fetch_parent_entities(act_id)
+                parent_statuses = self.project_parent_statuses(parent_entities)
+                parent_entity_rows = self.project_parent_entities(act_id, parent_entities)
             except Exception as exc:
-                logger.warning("[AdsEnricher] fetch_parent_statuses falhou (%s); colunas de pai mantêm valor anterior", exc)
+                logger.warning("[AdsEnricher] fetch_parent_entities falhou (%s); status/budget de pai mantêm valor anterior", exc)
 
             return {
                 "success": True,
@@ -836,6 +925,7 @@ class AdsEnricher:
                 "unique_count": len(unique_ads),
                 "enriched_count": len(media_details),
                 "parent_statuses": parent_statuses,
+                "parent_entities": parent_entity_rows,
             }
         except MetaRateLimitError as e:
             logger.warning("[AdsEnricher] Rate limit da Meta detectado: %s", e)

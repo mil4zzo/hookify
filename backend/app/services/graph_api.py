@@ -137,7 +137,9 @@ class GraphAPI:
     def get_adaccounts(self) -> Dict[str, Any]:
         url = self.base_url + 'me/adaccounts' + self.user_token
         payload = {
-            'fields': 'name,id,account_status,user_tasks,instagram_accounts{username,id}',
+            # currency: budgets/spend da Meta são int em SUBUNIDADE desta moeda — persistida
+            # em ad_accounts.currency e usada para formatar orçamentos no frontend.
+            'fields': 'name,id,account_status,currency,user_tasks,instagram_accounts{username,id}',
             'limit': 200,
         }
         try:

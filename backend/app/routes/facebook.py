@@ -1319,10 +1319,20 @@ def sync_packs_status(
                 ads_covered += len(statuses)
             # else: outro pack sem filtro da MESMA conta já cobriu o scan+write neste request
 
-            # Pais 1x por conta (leitura E escrita — o write repetido era um storm de UPDATEs)
+            # Pais 1x por conta (leitura E escrita — o write repetido era um storm de UPDATEs).
+            # Um único passe nos edges alimenta status E orçamento; budget é best-effort
+            # (mudança feita no Ads Manager aparece aqui em até 5 min).
             if act_id not in parent_synced_accounts:
-                parents = enricher.fetch_parent_statuses(act_id)
-                supabase_repo.write_parent_statuses(user_jwt, user_id, parents)
+                parent_entities = enricher.fetch_parent_entities(act_id)
+                supabase_repo.write_parent_statuses(
+                    user_jwt, user_id, enricher.project_parent_statuses(parent_entities)
+                )
+                try:
+                    supabase_repo.upsert_parent_entities(
+                        user_jwt, user_id, enricher.project_parent_entities(act_id, parent_entities)
+                    )
+                except Exception as exc:
+                    logger.warning("[STATUS_SYNC] upsert_parent_entities falhou (best-effort): %s", exc)
                 parent_synced_accounts.add(act_id)
 
             synced.append(pack_id)

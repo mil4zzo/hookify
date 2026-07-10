@@ -24,6 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { pageTitles } from "@/lib/config/pageConfig";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuItem, DropdownMenuLabel } from "@/components/ui/dropdown-menu";
+// design-system-exception: direct-skeleton-import - round avatar and connect-button skeletons are bespoke shapes
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAutoRefreshPacks } from "@/lib/hooks/useAutoRefreshPacks";
 import { AutoRefreshConfirmModal } from "@/components/common/AutoRefreshConfirmModal";
@@ -33,6 +34,7 @@ import { ValidationCriteriaBuilder, ValidationCondition } from "@/components/com
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useDetectedAccountCurrency } from "@/lib/hooks/useDetectedAccountCurrency";
 import { useLanguage } from "@/lib/hooks/useLanguage";
 import { useNiche } from "@/lib/hooks/useNiche";
 import { api } from "@/lib/api/endpoints";
@@ -56,7 +58,8 @@ export default function Topbar() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
   const { mqlLeadscoreMin, isLoading: isLoadingMql, isSaving: isSavingMql, updateMqlLeadscoreMin, saveMqlLeadscoreMin } = useMqlLeadscore();
-  const { currency: userCurrency, isLoading: isLoadingCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
+  const { currency: userCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
+  const { currency: detectedCurrency, isMixed: isMixedCurrency, isLoading: isDetectingCurrency } = useDetectedAccountCurrency();
   const { language: userLanguage, isLoading: isLoadingLanguage, isSaving: isSavingLanguage, saveLanguage } = useLanguage();
   const { niche: userNiche, isLoading: isLoadingNiche, isSaving: isSavingNiche, updateNiche, saveNiche } = useNiche();
   const { packs } = useClientPacks();
@@ -95,6 +98,19 @@ export default function Topbar() {
       verifyConnections(connectionIds);
     }
   }, [isSettingsOpen, activeSettingsTab, connections.data, verifyConnections]);
+
+  // Moeda não é mais escolha do usuário: sincroniza silenciosamente user_preferences.currency
+  // com a moeda REAL da(s) conta(s) Meta conectada(s) assim que ela é detectada (sem toast —
+  // não é uma ação do usuário). Contas mistas ou ainda não sincronizadas não disparam nada;
+  // o campo na aba Preferências mostra o estado atual apenas informativamente.
+  useEffect(() => {
+    if (isDetectingCurrency || isMixedCurrency || !detectedCurrency) return;
+    if (detectedCurrency === userCurrency || isSavingCurrency) return;
+    saveCurrency(detectedCurrency).catch((error) => {
+      console.error("Erro ao sincronizar moeda detectada da conta Meta:", error);
+    });
+  }, [isDetectingCurrency, isMixedCurrency, detectedCurrency, userCurrency, isSavingCurrency, saveCurrency]);
+
   const { showModal, packCount, autoRefreshPacks, handleConfirm, handleCancel } = useAutoRefreshPacks();
 
   // Initialize theme
@@ -441,7 +457,7 @@ export default function Topbar() {
     // Se está atualizando, mostra botão desabilitado
     if (refreshingPackIds.length > 0) {
       return (
-        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" disabled aria-label="Atualizando dados">
+        <Button variant="outline" size="icon" className="shrink-0" disabled aria-label="Atualizando dados">
           <IconLoader2 className="h-4 w-4 animate-spin" />
         </Button>
       );
@@ -450,7 +466,7 @@ export default function Topbar() {
     // Se há apenas um pack, vai direto para confirmação ao clicar
     if (packs.length === 1) {
       return (
-        <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => handleSelectPack(packs[0].id)} aria-label="Atualizar dados">
+        <Button variant="outline" size="icon" className="shrink-0" onClick={() => handleSelectPack(packs[0].id)} aria-label="Atualizar dados">
           <IconRefresh className="h-4 w-4" />
         </Button>
       );
@@ -460,7 +476,7 @@ export default function Topbar() {
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" aria-label="Atualizar dados">
+          <Button variant="outline" size="icon" className="shrink-0" aria-label="Atualizar dados">
             <IconRefresh className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -525,37 +541,23 @@ export default function Topbar() {
           <p className="text-xs text-muted-foreground">{isSavingLanguage ? "Salvando..." : "O idioma será aplicado em todas as páginas do app"}</p>
         </div>
 
-        {/* Moeda */}
+        {/* Moeda: informativa, não editável — vem da conta Meta conectada (nunca convertemos valores) */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-text">Moeda</label>
-          <Select
-            value={userCurrency}
-            onValueChange={async (value) => {
-              try {
-                await saveCurrency(value);
-                showSuccess("Moeda atualizada com sucesso");
-              } catch (error) {
-                console.error("Erro ao salvar moeda:", error);
-              }
-            }}
-            disabled={isLoadingCurrency || isSavingCurrency}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Selecione uma moeda" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="USD">USD - Dólar Americano ($)</SelectItem>
-              <SelectItem value="EUR">EUR - Euro (€)</SelectItem>
-              <SelectItem value="GBP">GBP - Libra Esterlina (£)</SelectItem>
-              <SelectItem value="BRL">BRL - Real Brasileiro (R$)</SelectItem>
-              <SelectItem value="MXN">MXN - Peso Mexicano ($)</SelectItem>
-              <SelectItem value="CAD">CAD - Dólar Canadense ($)</SelectItem>
-              <SelectItem value="AUD">AUD - Dólar Australiano ($)</SelectItem>
-              <SelectItem value="JPY">JPY - Iene Japonês (¥)</SelectItem>
-              <SelectItem value="CNY">CNY - Yuan Chinês (¥)</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">{isSavingCurrency ? "Salvando..." : "A moeda será aplicada em todas as páginas do app"}</p>
+          <Input
+            type="text"
+            readOnly
+            disabled
+            value={isMixedCurrency ? "Múltiplas moedas" : detectedCurrency || userCurrency}
+            className="bg-border-50"
+          />
+          <p className="text-xs text-muted-foreground">
+            {isMixedCurrency
+              ? "Suas contas Meta conectadas usam moedas diferentes — os valores são exibidos na moeda de cada conta, sem conversão."
+              : detectedCurrency
+                ? "Detectada automaticamente na sua conta Meta conectada. Os valores já vêm nessa moeda, então não é possível trocar manualmente."
+                : "Detectando a moeda da sua conta Meta conectada..."}
+          </p>
         </div>
 
         {/* Nicho */}
@@ -787,7 +789,7 @@ export default function Topbar() {
   return (
     <>
       <ServerStatusBanner />
-      <header className="z-40 w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
+      <header className="z-sticky w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
         <div className={cn("container mx-auto grid grid-cols-[1fr_auto_1fr] h-16 items-center", APP_PAGE_SHELL_X)}>
           {/* Left: Título (desktop) ou Logo (mobile) */}

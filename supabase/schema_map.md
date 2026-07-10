@@ -27,6 +27,7 @@ Contas de anúncios do Meta vinculadas a um usuário.
 | updated_at | timestamp | DEFAULT |
 | connection_id | uuid |  |
 | requires_ads_transparency | boolean | NOT NULL, DEFAULT |
+| currency | text |  |
 
 ---
 
@@ -320,6 +321,23 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 
 ---
 
+### parent_entities
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| user_id | uuid | NOT NULL |
+| entity_id | text | NOT NULL |
+| level | text | NOT NULL |
+| account_id | text |  |
+| campaign_id | text |  |
+| daily_budget | bigint |  |
+| lifetime_budget | bigint |  |
+| budget_mode | text |  |
+| effective_status | text |  |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### stripe_events
 
 | Coluna | Tipo | Flags |
@@ -375,4 +393,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-07-07 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-07-09 — via `supabase/generate_schema_map.py`*

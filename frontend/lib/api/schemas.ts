@@ -18,6 +18,9 @@ export const FacebookAdAccountSchema = z.object({
   name: z.string(),
   connection_id: z.string().uuid().nullable().optional(),
   account_status: z.number(), // 1=ativo, 2=pausado, 101=ativo com restrições
+  // Moeda da conta (ex.: BRL, USD, JPY) — fonte de verdade para exibição de valores;
+  // NULL até o próximo /adaccounts/sync (contas conectadas antes da migration 091).
+  currency: z.string().nullable().optional(),
   user_tasks: z.array(z.string()).optional(), // ["DRAFT", "ANALYZE", "ADVERTISE", "MANAGE"]
   instagram_accounts: z.array(z.object({
     username: z.string(),
@@ -441,6 +444,13 @@ export const RankingsItemSchema = z.object({
   status_resolved: z.boolean().optional(),
   effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
   active_count: z.number().nullable().optional(), // Quantidade de anúncios ativos no grupo (por anúncio / por conjunto)
+  // Orçamento (abas por-conjunto/por-campanha, read-only): budget da PRÓPRIA entidade da
+  // linha em SUBUNIDADE da moeda da conta (ex.: R$ 150,00 → 15000). NULL com budget_mode
+  // preenchido = budget vive no outro nível (CBO/ABO); tudo NULL = ainda não sincronizado.
+  budget_daily: z.number().nullable().optional(),
+  budget_lifetime: z.number().nullable().optional(),
+  budget_mode: z.string().nullable().optional(), // 'cbo' | 'abo' | 'abo_shared' (sempre da campanha)
+  budget_currency: z.string().nullable().optional(), // moeda da conta (ad_accounts.currency)
   impressions: z.number(),
   clicks: z.number(),
   inline_link_clicks: z.number(),

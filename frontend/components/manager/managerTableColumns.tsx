@@ -11,6 +11,7 @@ import type { ColumnFiltersState } from "@tanstack/react-table";
 import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
 import { AdNameCell } from "@/components/manager/AdNameCell";
 import { StatusCell } from "@/components/manager/StatusCell";
+import { BudgetCell, getRowBudgetMinor } from "@/components/manager/BudgetCell";
 import { Checkbox } from "@/components/ui/checkbox";
 
 export type ViewMode = "detailed" | "minimal";
@@ -42,6 +43,8 @@ export type CreateManagerTableColumnsParams = {
   hasSheetIntegration: boolean;
   mqlLeadscoreMin: number;
   actionTypeRef: React.MutableRefObject<string>;
+  /** Âncora do último checkbox clicado sem shift — habilita seleção em intervalo (shift+click). */
+  selectionAnchorRef: React.MutableRefObject<string | null>;
 
   applyNumericFilter: (rowValue: number | null | undefined, filterValue: FilterValue | undefined) => boolean;
   openSettings: (tab?: SettingsTab) => void;
@@ -96,6 +99,13 @@ function isActiveStatus(status?: string | null): boolean {
   return String(status).toUpperCase() === "ACTIVE";
 }
 
+/** Ordenação por orçamento: budget próprio (daily ?? lifetime); linhas sem budget (CBO/ABO no outro nível ou não sincronizado) por último no desc. */
+function budgetSortingFn(rowA: { original: RankingsItem }, rowB: { original: RankingsItem }): number {
+  const a = getRowBudgetMinor(rowA.original) ?? -1;
+  const b = getRowBudgetMinor(rowB.original) ?? -1;
+  return a === b ? 0 : a < b ? -1 : 1;
+}
+
 /** Ordenação por status: ativos primeiro (asc) ou inativos primeiro (desc). */
 function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: RankingsItem }, rowB: { getValue: (id: string) => unknown; original: RankingsItem }): number {
   const activeA = isActiveStatus(rowA.original?.effective_status);
@@ -106,7 +116,7 @@ function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: Ra
 }
 
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
-  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode } = params;
+  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef } = params;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
@@ -127,11 +137,45 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           />
         );
       },
-      cell: ({ row }) => (
+      cell: ({ row, table }) => (
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(v) => row.toggleSelected(!!v)}
-          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => {
+            // Evita que shift+click destaque texto da página (seleção de texto do navegador).
+            if (e.shiftKey) e.preventDefault();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            // Shift+click: aplica a TODAS as linhas do intervalo (na ordem visível atual, pós-filtro/sort)
+            // o mesmo estado que este checkbox passaria a ter. Assim marca ou desmarca o intervalo inteiro.
+            const anchorId = selectionAnchorRef.current;
+            if (e.shiftKey && anchorId && anchorId !== row.id) {
+              const visibleRows = table.getRowModel().rows;
+              const anchorPos = visibleRows.findIndex((r) => r.id === anchorId);
+              const clickedPos = visibleRows.findIndex((r) => r.id === row.id);
+              if (anchorPos !== -1 && clickedPos !== -1) {
+                // Suprime o toggle nativo do Radix (Root usa composeEventHandlers → checa defaultPrevented),
+                // senão onCheckedChange re-alternaria a própria linha clicada.
+                e.preventDefault();
+                const [start, end] = anchorPos < clickedPos ? [anchorPos, clickedPos] : [clickedPos, anchorPos];
+                const value = !row.getIsSelected();
+                table.setRowSelection((prev) => {
+                  const next = { ...prev };
+                  for (let i = start; i <= end; i++) {
+                    const r = visibleRows[i];
+                    if (!r.getCanSelect()) continue;
+                    if (value) next[r.id] = true;
+                    else delete next[r.id];
+                  }
+                  return next;
+                });
+                return;
+              }
+            }
+            // Clique normal (ou shift sem âncora válida): ancora nesta linha; o toggle ocorre via onCheckedChange.
+            selectionAnchorRef.current = row.id;
+          }}
           aria-label="Selecionar linha"
           disabled={!row.getCanSelect()}
         />
@@ -203,6 +247,29 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       },
     }),
   );
+
+  // Orçamento (read-only) — só nas abas cuja linha é uma entidade que pode ter budget próprio
+  if (currentTab === "por-conjunto" || currentTab === "por-campanha") {
+    const budgetTab = currentTab;
+    cols.push(
+      columnHelper.accessor("budget_daily", {
+        id: "budget",
+        header: ({ column }) => (
+          <div className="flex items-center justify-center gap-1 w-full">
+            <SortIcon column={column} />
+            <span>Orçamento</span>
+          </div>
+        ),
+        size: 130,
+        minSize: 110,
+        enableResizing: false,
+        enableSorting: true,
+        enableColumnFilter: false,
+        sortingFn: budgetSortingFn,
+        cell: (info) => <BudgetCell original={info.row.original as RankingsItem} currentTab={budgetTab} />,
+      }),
+    );
+  }
 
   // Colunas ocultas para filtros de nome cruzados (adset_name e campaign_name)
   cols.push(

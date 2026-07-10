@@ -112,11 +112,13 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
     offset = 0
     
     while True:
-        q = sb.table(table_name).select(select_fields)
-        q = filters_func(q)
-        q = q.range(offset, offset + page_size - 1)
-        
-        result = q.execute()
+        def _run(_offset=offset):
+            q = sb.table(table_name).select(select_fields)
+            q = filters_func(q)
+            q = q.range(_offset, _offset + page_size - 1)
+            return q.execute()
+
+        result = with_postgrest_retry(f"fetch_all_paginated[{table_name}]", _run)
         page_data = result.data or []
         
         if not page_data:
@@ -510,7 +512,10 @@ def upsert_ads(
         batch_num = (batch_idx // batch_size) + 1
         
         try:
-            sb.table("ads").upsert(batch, on_conflict="ad_id,user_id").execute()
+            with_postgrest_retry(
+                f"upsert_ads[{len(batch)}]",
+                lambda b=batch: sb.table("ads").upsert(b, on_conflict="ad_id,user_id").execute(),
+            )
             logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} processado com sucesso ({len(batch)} registros)")
             # Chamar callback ANTES do delay para feedback imediato
             if on_batch_progress:
@@ -545,7 +550,10 @@ def upsert_ads(
                     rr.pop("primary_video_id", None)
                     rr.pop("media_type", None)
                     cleaned.append(rr)
-                sb.table("ads").upsert(cleaned, on_conflict="ad_id,user_id").execute()
+                with_postgrest_retry(
+                    f"upsert_ads_cleaned[{len(cleaned)}]",
+                    lambda c=cleaned: sb.table("ads").upsert(c, on_conflict="ad_id,user_id").execute(),
+                )
                 logger.info(f"[UPSERT_ADS] Lote {batch_num}/{total_batches} reprocessado sem thumb_* ({len(cleaned)} registros)")
                 if on_batch_progress:
                     try:
@@ -615,6 +623,35 @@ def upsert_ads(
         logger.warning(f"[UPSERT_ADS] Erro ao sync transcription links (best-effort): {e}")
 
 
+def _fetch_present_parent_ids(sb: "Client", user_id: str) -> Tuple[set, set]:
+    """(campaign_ids, adset_ids) com linhas em `ads` para o usuário — escopo real do inventário."""
+    present_campaigns: set = set()
+    present_adsets: set = set()
+    page_size = 1000
+    offset = 0
+    while True:
+        res = with_postgrest_retry(
+            "fetch_present_parent_ids",
+            lambda _offset=offset: (
+                sb.table("ads")
+                .select("campaign_id,adset_id")
+                .eq("user_id", user_id)
+                .range(_offset, _offset + page_size - 1)
+                .execute()
+            ),
+        )
+        rows = res.data or []
+        for r in rows:
+            if r.get("campaign_id"):
+                present_campaigns.add(str(r["campaign_id"]))
+            if r.get("adset_id"):
+                present_adsets.add(str(r["adset_id"]))
+        if len(rows) < page_size:
+            break
+        offset += page_size
+    return present_campaigns, present_adsets
+
+
 def write_parent_statuses(
     user_jwt: Optional[str],
     user_id: str,
@@ -645,27 +682,7 @@ def write_parent_statuses(
     present_campaigns: Optional[set] = None
     present_adsets: Optional[set] = None
     if not skip_present_check:
-        present_campaigns = set()
-        present_adsets = set()
-        page_size = 1000
-        offset = 0
-        while True:
-            res = (
-                sb.table("ads")
-                .select("campaign_id,adset_id")
-                .eq("user_id", user_id)
-                .range(offset, offset + page_size - 1)
-                .execute()
-            )
-            rows = res.data or []
-            for r in rows:
-                if r.get("campaign_id"):
-                    present_campaigns.add(str(r["campaign_id"]))
-                if r.get("adset_id"):
-                    present_adsets.add(str(r["adset_id"]))
-            if len(rows) < page_size:
-                break
-            offset += page_size
+        present_campaigns, present_adsets = _fetch_present_parent_ids(sb, user_id)
 
     now_iso = _now_iso()
     for column, id_column, mapping, present in (
@@ -681,7 +698,85 @@ def write_parent_statuses(
             for i in range(0, len(ids), 200):
                 chunk = ids[i : i + 200]
                 # updated_at fresco: o wrapper RPC desempata linhas divergentes por recência
-                sb.table("ads").update({column: status_value, "updated_at": now_iso}).eq("user_id", user_id).in_(id_column, chunk).execute()
+                with_postgrest_retry(
+                    f"write_parent_statuses[{column}:{len(chunk)}]",
+                    lambda col=column, sv=status_value, idc=id_column, c=chunk: sb.table("ads")
+                    .update({col: sv, "updated_at": now_iso})
+                    .eq("user_id", user_id)
+                    .in_(idc, c)
+                    .execute(),
+                )
+
+
+def upsert_parent_entities(
+    user_jwt: Optional[str],
+    user_id: str,
+    entities: Dict[str, Dict[str, Dict[str, Any]]],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """
+    Snapshot dos pais (campanhas/adsets, lido dos edges do Meta) na tabela parent_entities,
+    keyed por (user_id, entity_id): orçamento + effective_status. Diferente do status
+    (poucos valores distintos → UPDATE agrupado nas colunas de ads), budget é
+    alta-cardinalidade — cada entidade tem valor próprio — então tabela dedicada com
+    upsert único, sem fan-out de UPDATEs por valor.
+
+    effective_status aqui é DOUBLE-WRITE PASSIVO: o read-path do status continua nas
+    colunas ads.adset_status/campaign_status (088/089) até a migração deliberada; esta
+    tabela só recebe status dos syncs de conta inteira (não dos writes pontuais do toggle),
+    acumulando backfill e confiança para a troca futura.
+
+    Semântica de NULL em daily/lifetime: entidade PRESENTE no edge sem budget grava NULL
+    explicitamente (verdade lida — ex.: campanha ABO não tem budget próprio; adset de
+    campanha CBO idem); entidade AUSENTE do edge (deletada/arquivada) não é tocada.
+
+    `entities` = shape de AdsEnricher.project_parent_entities:
+    {"campaigns": {id: {daily_budget, lifetime_budget, budget_mode, effective_status, account_id}},
+     "adsets":    {id: {daily_budget, lifetime_budget, campaign_id, effective_status, account_id}}}.
+    """
+    if not user_id or not entities:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+
+    # Mesmo racional do write_parent_statuses: só pais com ads importados — contas grandes
+    # têm milhares de campanhas/adsets fora do escopo do Hookify.
+    present_campaigns, present_adsets = _fetch_present_parent_ids(sb, user_id)
+
+    now_iso = _now_iso()
+    rows: List[Dict[str, Any]] = []
+    for level, key, present in (
+        ("campaign", "campaigns", present_campaigns),
+        ("adset", "adsets", present_adsets),
+    ):
+        for entity_id, entity in (entities.get(key) or {}).items():
+            eid = str(entity_id)
+            if eid not in present:
+                continue
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "entity_id": eid,
+                    "level": level,
+                    "account_id": str(entity.get("account_id") or "").strip() or None,
+                    "campaign_id": str(entity.get("campaign_id") or "").strip() or None,
+                    "daily_budget": entity.get("daily_budget"),
+                    "lifetime_budget": entity.get("lifetime_budget"),
+                    "budget_mode": entity.get("budget_mode"),
+                    "effective_status": entity.get("effective_status"),
+                    "updated_at": now_iso,
+                }
+            )
+
+    if not rows:
+        return
+    for i in range(0, len(rows), 500):
+        chunk = rows[i : i + 500]
+        with_postgrest_retry(
+            f"upsert_parent_entities[{len(chunk)}]",
+            lambda c=chunk: sb.table("parent_entities").upsert(c, on_conflict="user_id,entity_id").execute(),
+        )
+    logger.info("upsert_parent_entities: %d entidades gravadas para user %s", len(rows), user_id)
 
 
 def get_cached_thumbs_by_ad_names(
@@ -1232,7 +1327,10 @@ def update_pack_stats(
     if not user_id:
         return
     sb = _get_sb(user_jwt, sb_client)
-    sb.table("packs").update({"stats": stats, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute()
+    with_postgrest_retry(
+        f"update_pack_stats[{pack_id}]",
+        lambda: sb.table("packs").update({"stats": stats, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute(),
+    )
 
 
 def update_pack_ad_ids(
@@ -1257,14 +1355,20 @@ def update_pack_ad_ids(
 
     existing_ids: set = set()
     try:
-        pres = sb.table("packs").select("ad_ids").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
+        pres = with_postgrest_retry(
+            f"update_pack_ad_ids_read[{pack_id}]",
+            lambda: sb.table("packs").select("ad_ids").eq("id", pack_id).eq("user_id", user_id).limit(1).execute(),
+        )
         if pres.data:
             existing_ids = {str(a) for a in (pres.data[0].get("ad_ids") or []) if str(a or "").strip()}
     except Exception as e:
         logger.warning(f"[UPDATE_PACK_AD_IDS] Falha ao ler ad_ids existentes do pack {pack_id}, prosseguindo só com novos: {e}")
 
     merged = sorted(existing_ids | new_ids)
-    sb.table("packs").update({"ad_ids": merged, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute()
+    with_postgrest_retry(
+        f"update_pack_ad_ids_write[{pack_id}]",
+        lambda: sb.table("packs").update({"ad_ids": merged, "updated_at": _now_iso()}).eq("id", pack_id).eq("user_id", user_id).execute(),
+    )
 
 
 def get_existing_ads_map(
@@ -1299,12 +1403,15 @@ def get_existing_ads_map(
 
     for i in range(0, len(unique_ad_ids), batch_size):
         batch_ids = unique_ad_ids[i : i + batch_size]
-        response = (
-            sb.table("ads")
-            .select(select_fields)
-            .eq("user_id", user_id)
-            .in_("ad_id", batch_ids)
-            .execute()
+        response = with_postgrest_retry(
+            f"get_existing_ads_map[{len(batch_ids)}]",
+            lambda b=batch_ids: (
+                sb.table("ads")
+                .select(select_fields)
+                .eq("user_id", user_id)
+                .in_("ad_id", b)
+                .execute()
+            ),
         )
         for row in response.data or []:
             ad_id = str(row.get("ad_id") or "").strip()
@@ -1337,7 +1444,10 @@ def calculate_pack_stats_essential(
     sb = _get_sb(user_jwt, sb_client)
     
     try:
-        pack_res = sb.table("packs").select("id").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
+        pack_res = with_postgrest_retry(
+            f"calc_pack_stats_exists[{pack_id}]",
+            lambda: sb.table("packs").select("id").eq("id", pack_id).eq("user_id", user_id).limit(1).execute(),
+        )
         if not pack_res.data or len(pack_res.data) == 0:
             logger.warning(f"[CALCULATE_PACK_STATS_ESSENTIAL] Pack {pack_id} não encontrado")
             return {}
@@ -1520,7 +1630,10 @@ def upsert_pack(
             # Atualizar pack existente
             logger.info(f"[UPSERT_PACK] Atualizando pack existente: {pack_id}")
             pack_data["id"] = pack_id
-            res = sb.table("packs").upsert(pack_data, on_conflict="id").execute()
+            res = with_postgrest_retry(
+                f"upsert_pack_update[{pack_id}]",
+                lambda: sb.table("packs").upsert(pack_data, on_conflict="id").execute(),
+            )
             logger.info(f"[UPSERT_PACK] Resposta do upsert (update): data={res.data is not None}, len={len(res.data) if res.data else 0}")
         else:
             # Criar novo pack (o ID será gerado pelo Supabase)
@@ -1532,6 +1645,11 @@ def upsert_pack(
                 raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'")
             
             logger.info(f"[UPSERT_PACK] Executando insert na tabela packs...")
+            # INSERT puro NÃO é envolvido em with_postgrest_retry de propósito: se um
+            # GOAWAY matar a resposta APÓS o commit no servidor, o retry criaria um
+            # segundo pack. O índice único (user_id, lower(name)) transformaria isso em
+            # PackNameConflictError espúrio. Mantemos uma tentativa; falha transitória
+            # aqui vira erro do job (criação, não refresh — fora do caso reportado).
             res = sb.table("packs").insert(pack_data).execute()
             logger.info(f"[UPSERT_PACK] Insert executado. Resposta: data={res.data is not None}, len={len(res.data) if res.data else 0}")
             if res.data:
@@ -1540,7 +1658,10 @@ def upsert_pack(
                 logger.warning(f"[UPSERT_PACK] Nenhum dado retornado do insert. Verificar RLS ou constraints.")
                 # Tentar buscar o pack criado para confirmar se foi salvo
                 try:
-                    check_res = sb.table("packs").select("id, name").eq("user_id", user_id).ilike("name", normalized_name).order("created_at", desc=True).limit(1).execute()
+                    check_res = with_postgrest_retry(
+                        f"upsert_pack_confirm[{normalized_name}]",
+                        lambda: sb.table("packs").select("id, name").eq("user_id", user_id).ilike("name", normalized_name).order("created_at", desc=True).limit(1).execute(),
+                    )
                     if check_res.data:
                         logger.info(f"[UPSERT_PACK] Pack encontrado após insert: {check_res.data[0].get('id')}")
                         return check_res.data[0].get("id")
@@ -2198,6 +2319,7 @@ def upsert_ad_accounts(
             ),
             "name": acc.get("name"),
             "account_status": acc.get("account_status"),
+            "currency": str(acc.get("currency") or "").strip().upper() or None,
             "user_tasks": user_tasks,
             "instagram_accounts": instagram_accounts,
             "updated_at": _now_iso(),
@@ -2213,15 +2335,21 @@ def upsert_ad_accounts(
         try:
             sb.table("ad_accounts").upsert(rows, on_conflict="id,user_id").execute()
         except Exception as exc:
-            if "connection_id" not in str(exc or ""):
+            # Colunas adicionadas em migrations recentes (connection_id, currency) podem ainda
+            # não existir no banco — reprocessar sem elas em vez de perder o sync inteiro.
+            msg = str(exc or "")
+            missing_cols = [c for c in ("connection_id", "currency") if c in msg]
+            if not missing_cols:
                 raise
             logger.warning(
-                "upsert_ad_accounts: coluna connection_id ainda nao existe; reprocessando sem vinculo de conexao"
+                "upsert_ad_accounts: coluna(s) %s ainda nao existe(m); reprocessando sem elas",
+                missing_cols,
             )
             fallback_rows = []
             for row in rows:
                 fallback_row = dict(row)
-                fallback_row.pop("connection_id", None)
+                for col in missing_cols:
+                    fallback_row.pop(col, None)
                 fallback_rows.append(fallback_row)
             sb.table("ad_accounts").upsert(fallback_rows, on_conflict="id,user_id").execute()
         logger.info(f"Successfully saved {len(rows)} ad accounts to Supabase for user {user_id}")
@@ -2296,20 +2424,26 @@ def get_pack(
     if not user_id or not pack_id:
         return None
     sb = _get_sb(user_jwt, sb_client)
-    res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user_id).limit(1).execute()
+    res = with_postgrest_retry(
+        f"get_pack[{pack_id}]",
+        lambda: sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user_id).limit(1).execute(),
+    )
     if res.data and len(res.data) > 0:
         pack = res.data[0]
-        
+
         # Buscar integração se pack tiver sheet_integration_id
         sheet_integration_id = pack.get("sheet_integration_id")
         if sheet_integration_id:
             try:
-                int_res = (
-                    sb.table("ad_sheet_integrations")
-                    .select("id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at")
-                    .eq("id", sheet_integration_id)
-                    .limit(1)
-                    .execute()
+                int_res = with_postgrest_retry(
+                    f"get_pack_sheet_integration[{sheet_integration_id}]",
+                    lambda: (
+                        sb.table("ad_sheet_integrations")
+                        .select("id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at")
+                        .eq("id", sheet_integration_id)
+                        .limit(1)
+                        .execute()
+                    ),
                 )
                 if int_res.data and len(int_res.data) > 0:
                     integration = int_res.data[0]
@@ -2365,7 +2499,10 @@ def update_pack_refresh_status(
         update_data["date_stop"] = date_stop
     
     try:
-        sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute()
+        with_postgrest_retry(
+            f"update_pack_refresh_status[{pack_id}]",
+            lambda: sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute(),
+        )
         log_msg = f"[UPDATE_REFRESH_STATUS] ✓ Pack {pack_id} atualizado - status={refresh_status}"
         if last_refreshed_at is not None:
             log_msg += f", last_refreshed_at={last_refreshed_at}"
@@ -2440,8 +2577,11 @@ def check_pack_name_exists(
         # Excluir o pack atual se for uma atualização
         if exclude_pack_id:
             query = query.neq("id", exclude_pack_id)
-        
-        res = query.limit(1).execute()
+
+        res = with_postgrest_retry(
+            f"check_pack_name_exists[{normalized_name}]",
+            lambda: query.limit(1).execute(),
+        )
         exists = res.data and len(res.data) > 0
         logger.info(f"[CHECK_PACK_NAME] Nome '{normalized_name}' {'já existe' if exists else 'disponível'} para user_id={user_id}")
         return exists

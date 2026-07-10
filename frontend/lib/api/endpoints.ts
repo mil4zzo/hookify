@@ -10,6 +10,7 @@ import {
   AuthTokenRequest,
   AuthTokenResponse,
   AuthUrlResponse,
+  FacebookAdAccount,
   RankingsRequest,
   RankingsFilters,
   RankingsResponse,
@@ -98,7 +99,7 @@ export const api = {
     getMe: (): Promise<GetMeResponse> =>
       apiClient.get('/facebook/me'),
     
-    getAdAccounts: (): Promise<any[]> =>
+    getAdAccounts: (): Promise<FacebookAdAccount[]> =>
       apiClient.get('/facebook/adaccounts'),
     
     syncAdAccounts: (): Promise<{ ok: boolean; count: number }> =>

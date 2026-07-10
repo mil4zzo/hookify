@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict A99Mq9AOUat2rdDIPI4NM8ZKMAguoKtrn61DQGj0goFhUprhUq5yKBGVuGjKPNL
+\restrict GyM8amCi76NUhPqVvguZ3aO7ZT5vK7e5a4UHRa53ry2PPALn1O3m2o5nuJoYlaQ
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -3190,9 +3190,41 @@ begin
             )
           when v_group_by in ('adset_id', 'campaign_id') then 'ACTIVE'
           else rr.item->>'effective_status'
-        end
+        end,
+        -- Orçamento (read-only): budget da PRÓPRIA entidade da linha, em subunidade da
+        -- moeda da conta. NULL = sem budget nesse nível (CBO↔ABO) OU ainda não sincronizado
+        -- — budget_mode NULL distingue o segundo caso.
+        'budget_daily', pb_self.daily_budget,
+        'budget_lifetime', pb_self.lifetime_budget,
+        'budget_mode', pb_mode.budget_mode,
+        'budget_currency', acct.currency
       ) as item
     from raw_rows rr
+    left join lateral (
+      select pb.daily_budget, pb.lifetime_budget, pb.account_id
+      from public.parent_entities pb
+      where pb.user_id = p_user_id
+        and pb.entity_id = case when v_group_by = 'adset_id' then rr.adset_id else rr.campaign_id end
+      limit 1
+    ) pb_self on true
+    left join lateral (
+      -- Modo é atributo da CAMPANHA (mesmo na aba por-conjunto: diz se o budget do adset
+      -- existe ou vive na campanha).
+      select pb.budget_mode
+      from public.parent_entities pb
+      where pb.user_id = p_user_id
+        and pb.entity_id = rr.campaign_id
+      limit 1
+    ) pb_mode on true
+    left join lateral (
+      -- ads.account_id vem sem prefixo act_; ad_accounts.id vem com — normalizar os dois lados.
+      select aa.currency
+      from public.ad_accounts aa
+      where aa.user_id = p_user_id
+        and replace(aa.id, 'act_', '') = replace(pb_self.account_id, 'act_', '')
+        and nullif(aa.currency, '') is not null
+      limit 1
+    ) acct on true
   )
   select coalesce(jsonb_agg(item order by ord), '[]'::jsonb)
   into v_data
@@ -3209,7 +3241,7 @@ ALTER FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_star
 -- Name: FUNCTION fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) IS 'Manager core v2 wrapper: resolves campaign/adset effective_status preferring the official denormalized parent status (ads.adset_status/campaign_status), falling back to hierarchical pause markers for pre-backfill rows. Base: v090 (video_watched_p75 + scroll_stop por linha).';
+COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) IS 'Manager core v2 wrapper: resolves campaign/adset effective_status preferring the official denormalized parent status (ads.adset_status/campaign_status), falling back to hierarchical pause markers for pre-backfill rows; enriches adset/campaign rows with budget (parent_entities + ad_accounts.currency). Base: v090.';
 
 
 --
@@ -5906,7 +5938,8 @@ CREATE TABLE public.ad_accounts (
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     connection_id uuid,
-    requires_ads_transparency boolean DEFAULT false NOT NULL
+    requires_ads_transparency boolean DEFAULT false NOT NULL,
+    currency text
 );
 
 
@@ -5924,6 +5957,13 @@ COMMENT ON COLUMN public.ad_accounts.connection_id IS 'ID da conexão Facebook q
 --
 
 COMMENT ON COLUMN public.ad_accounts.requires_ads_transparency IS 'True when Meta has rejected an adset creation on this account with subcode 3858495 (compliance_section). Set automatically by campaign_bulk_service when the error occurs. Used by the frontend to warn before submission.';
+
+
+--
+-- Name: COLUMN ad_accounts.currency; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_accounts.currency IS 'Moeda da conta de anúncio (ex.: BRL, USD, JPY). Fonte: Meta API /me/adaccounts?fields=currency. Budgets/spend da Meta são expressos em subunidade desta moeda. NULL = ainda não sincronizado.';
 
 
 --
@@ -6407,6 +6447,63 @@ COMMENT ON COLUMN public.packs.conversion_types IS 'Lista materializada (union i
 
 
 --
+-- Name: parent_entities; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.parent_entities (
+    user_id uuid NOT NULL,
+    entity_id text NOT NULL,
+    level text NOT NULL,
+    account_id text,
+    campaign_id text,
+    daily_budget bigint,
+    lifetime_budget bigint,
+    budget_mode text,
+    effective_status text,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT parent_entities_budget_mode_check CHECK ((budget_mode = ANY (ARRAY['cbo'::text, 'abo'::text, 'abo_shared'::text]))),
+    CONSTRAINT parent_entities_level_check CHECK ((level = ANY (ARRAY['campaign'::text, 'adset'::text])))
+);
+
+
+ALTER TABLE public.parent_entities OWNER TO postgres;
+
+--
+-- Name: TABLE parent_entities; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.parent_entities IS 'Snapshot de orçamento de campanhas/adsets lido dos edges da Meta (enrich do refresh + sync on-focus). Valores em SUBUNIDADE da moeda da conta (ver ad_accounts.currency). daily/lifetime NULL = entidade sem budget nesse nível (ex.: campanha ABO).';
+
+
+--
+-- Name: COLUMN parent_entities.level; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.parent_entities.level IS 'campaign | adset (nível da entidade entity_id)';
+
+
+--
+-- Name: COLUMN parent_entities.campaign_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.parent_entities.campaign_id IS 'Para level=adset: campanha pai (o budget_mode dela diz se o budget vive no adset). NULL para campanhas.';
+
+
+--
+-- Name: COLUMN parent_entities.budget_mode; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.parent_entities.budget_mode IS 'Só level=campaign: cbo (Advantage Campaign Budget — budget na campanha) | abo (budget nos adsets) | abo_shared (ABO com is_adset_budget_sharing_enabled — Meta move até 20% entre adsets).';
+
+
+--
+-- Name: COLUMN parent_entities.effective_status; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.parent_entities.effective_status IS 'DOUBLE-WRITE PASSIVO: effective_status oficial do pai. Read-path do status segue em ads.adset_status/campaign_status até a migração deliberada; escrito apenas pelos syncs de conta inteira (enrich/on-focus), não pelos writes pontuais do toggle.';
+
+
+--
 -- Name: stripe_events; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -6618,6 +6715,14 @@ ALTER TABLE ONLY public.meta_api_usage
 
 ALTER TABLE ONLY public.packs
     ADD CONSTRAINT packs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: parent_entities parent_entities_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.parent_entities
+    ADD CONSTRAINT parent_entities_pkey PRIMARY KEY (user_id, entity_id);
 
 
 --
@@ -7302,6 +7407,19 @@ CREATE POLICY packs_modify_own ON public.packs USING ((user_id = ( SELECT auth.u
 
 
 --
+-- Name: parent_entities; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.parent_entities ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: parent_entities parent_entities_modify_own; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY parent_entities_modify_own ON public.parent_entities USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+
+
+--
 -- Name: stripe_events; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -7654,6 +7772,15 @@ GRANT ALL ON TABLE public.packs TO service_role;
 
 
 --
+-- Name: TABLE parent_entities; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.parent_entities TO anon;
+GRANT ALL ON TABLE public.parent_entities TO authenticated;
+GRANT ALL ON TABLE public.parent_entities TO service_role;
+
+
+--
 -- Name: TABLE stripe_events; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -7744,5 +7871,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict A99Mq9AOUat2rdDIPI4NM8ZKMAguoKtrn61DQGj0goFhUprhUq5yKBGVuGjKPNL
+\unrestrict GyM8amCi76NUhPqVvguZ3aO7ZT5vK7e5a4UHRa53ry2PPALn1O3m2o5nuJoYlaQ
 
