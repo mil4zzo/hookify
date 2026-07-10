@@ -5,6 +5,9 @@ import { env } from '@/lib/config/env'
 import { getSupabaseClient } from '@/lib/supabase/client'
 
 const SESSION_CACHE_TTL_MS = 30_000
+// Refresca o token proativamente quando falta menos que isso para expirar, em vez
+// de mandar um token vencido (ou nenhum) e tomar 401 → logout global.
+const EXPIRY_MARGIN_MS = 60_000
 
 type SessionCacheEntry = {
   session: { access_token?: string; expires_at?: number } | null
@@ -14,6 +17,10 @@ type SessionCacheEntry = {
 let sessionCache: SessionCacheEntry | null = null
 let loggingOut = false
 let authSessionExpiredNotified = false
+// Refresh em voo compartilhado: vários requests batendo 401/near-expiry ao mesmo
+// tempo (ex.: os polls de um refresh de packs) disparam UM único refreshSession e
+// recebem o mesmo token novo — evita tempestade de refreshes concorrentes.
+let refreshPromise: Promise<string | null> | null = null
 
 export const AUTH_SESSION_EXPIRED_EVENT = 'hookify:auth-session-expired'
 
@@ -52,6 +59,84 @@ function isAppAuthUnauthorized(error: any) {
   )
 }
 
+/**
+ * Refresca a sessão do Supabase de forma deduplicada: chamadas concorrentes
+ * compartilham UM único refresh e recebem o mesmo token novo. Atualiza o
+ * sessionCache com a sessão nova. Retorna null se o refresh falhar (refresh token
+ * realmente expirado/revogado) — nesse caso o caller decide o logout.
+ */
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise
+
+  refreshPromise = (async () => {
+    try {
+      const supabase = getSupabaseClient()
+      const { data, error } = await supabase.auth.refreshSession()
+      if (error || !data.session) {
+        return null
+      }
+      sessionCache = {
+        session: data.session,
+        expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
+      }
+      return data.session.access_token ?? null
+    } catch {
+      return null
+    } finally {
+      refreshPromise = null
+    }
+  })()
+
+  return refreshPromise
+}
+
+/**
+ * Retorna um access token válido para anexar à requisição, refrescando
+ * proativamente se a sessão sumiu do cache ou está perto de expirar. Só retorna
+ * null se não há sessão E o refresh também falhou — nunca "estripa" um token que
+ * ainda dá pra usar (era o que gerava o 401 "Missing Bearer token" → logout).
+ */
+async function getValidAccessToken(): Promise<string | null> {
+  let session: { access_token?: string; expires_at?: number } | null = null
+
+  if (sessionCache && Date.now() < sessionCache.expiresAt) {
+    session = sessionCache.session
+  } else {
+    const supabase = getSupabaseClient()
+    const { data, error } = await supabase.auth.getSession()
+    if (error) {
+      if (env.NODE_ENV !== 'production') {
+        console.warn('[API Client] Erro ao buscar sessão:', error.message)
+      }
+      // Sessão ilegível — tenta refrescar antes de desistir do token.
+      return refreshAccessToken()
+    }
+    session = data.session ?? null
+    sessionCache = {
+      session,
+      expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
+    }
+  }
+
+  const accessToken = session?.access_token
+  const expiresAtMs = session?.expires_at ? session.expires_at * 1000 : null
+  const nearExpiry = expiresAtMs !== null && expiresAtMs - Date.now() < EXPIRY_MARGIN_MS
+
+  // Token presente e longe de expirar → usa direto.
+  if (accessToken && !nearExpiry) {
+    return accessToken
+  }
+
+  // Ausente ou perto/depois de expirar → refresca proativamente.
+  const refreshed = await refreshAccessToken()
+  if (refreshed) return refreshed
+
+  // Refresh falhou mas ainda temos um token (mesmo perto de expirar): manda ele —
+  // o backend tem leeway de clock skew e, se vier 401, o response interceptor ainda
+  // faz refresh+retry antes de qualquer logout. Melhor que estripar e forçar o 401.
+  return accessToken ?? null
+}
+
 class ApiClient {
   private client: AxiosInstance
 
@@ -76,52 +161,22 @@ class ApiClient {
         }
         if (typeof window !== 'undefined') {
           try {
-            let session: { access_token?: string; expires_at?: number } | null = null
+            // Nunca estripar o token quando a sessão está perto de expirar — isso
+            // gerava um 401 "Missing Bearer token" que disparava logout global.
+            // getValidAccessToken refresca proativamente e só devolve null se o
+            // refresh realmente falhar.
+            const accessToken = await getValidAccessToken()
 
-            if (sessionCache && Date.now() < sessionCache.expiresAt) {
-              session = sessionCache.session
-            } else {
-              const supabase = getSupabaseClient()
-              const { data, error } = await supabase.auth.getSession()
-              if (error) {
-                if (env.NODE_ENV !== 'production') {
-                  console.warn('[API Client] Erro ao buscar sessão:', error.message)
-                }
-                if (config.headers && 'Authorization' in config.headers) {
-                  delete (config.headers as any).Authorization
-                }
-                return config
-              }
-              session = data.session ?? null
-              sessionCache = {
-                session,
-                expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
-              }
-            }
-
-            const accessToken = session?.access_token
-            const isSessionValid =
-              accessToken &&
-              session &&
-              (!session.expires_at || session.expires_at * 1000 > Date.now())
-
-            if (isSessionValid && accessToken) {
+            if (accessToken) {
               config.headers.Authorization = `Bearer ${accessToken}`
+            } else if (config.headers && 'Authorization' in config.headers) {
+              delete (config.headers as any).Authorization
             }
 
             config.headers['X-Page-Route'] = window.location.pathname
 
-            if (!isSessionValid || !accessToken) {
-              if (config.headers && 'Authorization' in config.headers) {
-                delete (config.headers as any).Authorization
-              }
-              if (env.NODE_ENV !== 'production' && config.url) {
-                if (!accessToken) {
-                  console.warn(`[API Client] Requisição sem token para: ${config.url}`)
-                } else if (!isSessionValid) {
-                  console.warn(`[API Client] Sessão expirada, removendo token para: ${config.url}`)
-                }
-              }
+            if (!accessToken && env.NODE_ENV !== 'production' && config.url) {
+              console.warn(`[API Client] Requisição sem token (sessão ausente e refresh falhou) para: ${config.url}`)
             }
           } catch (err) {
             if (config.headers && 'Authorization' in config.headers) {
@@ -145,7 +200,7 @@ class ApiClient {
         // Logs detalhados de respostas do Meta removidos para evitar poluição de console.
         return response
       },
-      (error) => {
+      async (error) => {
         // Requisição cancelada durante logout — ignorar silenciosamente
         if (error?.cancelled === true) {
           return Promise.reject(error)
@@ -164,6 +219,26 @@ class ApiClient {
             return Promise.reject(error)
           }
           if (isAppAuthUnauthorized(error)) {
+            // Um único 401 transitório (corrida no boundary do token durante um poll
+            // longo de refresh de packs) NÃO deve deslogar globalmente. Tenta UM
+            // refresh + re-dispara a request original; só desloga se o refresh também
+            // falhar (refresh token de fato expirado/revogado). O _authRetry impede
+            // loop infinito, e refreshAccessToken deduplica refreshes concorrentes.
+            const originalConfig = error.config as
+              | (AxiosRequestConfig & { _authRetry?: boolean })
+              | undefined
+            if (originalConfig && !originalConfig._authRetry) {
+              originalConfig._authRetry = true
+              const newToken = await refreshAccessToken()
+              if (newToken) {
+                originalConfig.headers = {
+                  ...(originalConfig.headers as any),
+                  Authorization: `Bearer ${newToken}`,
+                }
+                return this.client.request(originalConfig)
+              }
+            }
+            // Refresh falhou (ou já re-tentamos uma vez) → sessão de fato encerrada.
             notifyAuthSessionExpired({ source: error?.config?.url })
           }
         }

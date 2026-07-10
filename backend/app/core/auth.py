@@ -288,6 +288,10 @@ async def verify_supabase_jwt(token: str) -> Dict[str, Any]:
             "verify_signature": True,
             "verify_exp": True,
             "verify_aud": False,  # Supabase tokens podem ter aud diferente
+            # Tolerância de clock skew: aceita token expirado há até 30s. Sem isso,
+            # alguns segundos de diferença de relógio cliente/servidor viram
+            # "Token expired" (401) → logout espúrio no meio de operações longas.
+            "leeway": 30,
         }
         
         # Fixed allowlist — never derive algorithms from the unverified token header
