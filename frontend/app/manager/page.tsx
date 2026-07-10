@@ -2,9 +2,9 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { StateSkeleton } from "@/components/common/States";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
+import { ManagerTableSkeleton } from "@/components/manager/ManagerTableSkeleton";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
@@ -27,10 +27,17 @@ const GROUP_BY_BY_TAB: Record<ManagerTab, "ad_name" | "ad_id" | "adset_id" | "ca
 };
 
 function ManagerPageFallback() {
+  // Mesmos title/description/variant do render real para o cabeçalho não "piscar" ao
+  // sair do fallback; ManagerTableSkeleton reproduz a cromo do ManagerTable em loading.
   return (
-    <PageContainer variant="analytics" title="Manager">
+    <PageContainer
+      title="Otimize"
+      description="Dados de performance dos seus anúncios"
+      variant="analytics"
+      className="min-h-0"
+    >
       <AnalyticsWorkspace>
-        <StateSkeleton variant="table" rows={10} className="rounded-md border border-border bg-card p-widget-default" />
+        <ManagerTableSkeleton />
       </AnalyticsWorkspace>
     </PageContainer>
   );

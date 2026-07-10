@@ -357,16 +357,26 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                     const cellAlign = isFirstColumn ? "text-left" : "text-center";
                     const isFirst = colIndex === 0;
                     const isLast = colIndex === table.getVisibleLeafColumns().length - 1;
+                    // Colunas auxiliares de filtro (adset_name/campaign_name/active_count) têm
+                    // largura 0 e não renderizam conteúdo real. Sem este guard, o pill (w-16) delas
+                    // transbordava o td de 0px (via mx-auto) e "vazava" para a coluna vizinha — o
+                    // skeleton dobrado que aparecia logo antes da coluna Spend.
+                    let content: React.ReactNode = null;
+                    if (isFirstColumn) {
+                      content = (
+                        <div className={`flex items-center ${styles.skeletonNameGap}`}>
+                          {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className={`${styles.skeletonThumb} rounded flex-shrink-0`} />}
+                          {styles.skeletonName}
+                        </div>
+                      );
+                    } else if (column.id === "select") {
+                      content = <Skeleton className="mx-auto h-4 w-4 rounded" />;
+                    } else if (column.getSize() > 0) {
+                      content = <Skeleton className={styles.skeletonValue} />;
+                    }
                     return (
                       <td key={column.id} className={styles.cell(cellAlign, isFirst, isLast)}>
-                        {isFirstColumn ? (
-                          <div className={`flex items-center ${styles.skeletonNameGap}`}>
-                            {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className={`${styles.skeletonThumb} rounded flex-shrink-0`} />}
-                            {styles.skeletonName}
-                          </div>
-                        ) : (
-                          <Skeleton className={styles.skeletonValue} />
-                        )}
+                        {content}
                       </td>
                     );
                   })}
