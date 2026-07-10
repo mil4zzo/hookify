@@ -29,7 +29,7 @@ const REGEX_RULES: RegexRule[] = [
   {
     id: "hardcoded-tailwind-color",
     description: "Use semantic design tokens instead of raw Tailwind color families.",
-    pattern: /\b(?:bg|text|border|from|via|to|ring|shadow)-(?:red|yellow|gray|zinc|slate|stone|neutral|white|black|emerald|blue|purple|pink|amber|orange)-[A-Za-z0-9/.[\]-]+/,
+    pattern: /\b(?:bg|text|border|from|via|to|ring|shadow)-(?:red|yellow|gray|zinc|slate|stone|neutral|white|black|emerald|blue|purple|pink|amber|orange|green|teal|cyan|sky|indigo|violet|fuchsia|rose|lime)-[A-Za-z0-9/.[\]-]+/,
   },
   {
     id: "large-radius",
@@ -44,11 +44,28 @@ const REGEX_RULES: RegexRule[] = [
   {
     id: "emoji-icon",
     description: "Use an icon component or tokenized visual mark instead of emoji glyphs.",
-    pattern: /[\u{1F300}-\u{1FAFF}]|Ã°Å¸/u,
+    pattern: /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]|Ã°Å¸/u,
+  },
+  {
+    id: "arbitrary-font-size",
+    description: "Use the type scale (text-2xs for 10px captions, text-xs and up) instead of arbitrary text-[Npx] sizes.",
+    // Só px: tamanhos display em rem (títulos) e relativos em em (superscript) são deliberados.
+    pattern: /\btext-\[\d+(?:\.\d+)?px\]/,
+  },
+  {
+    id: "arbitrary-z-index",
+    description: "App-layer stacking must use z-sticky/z-overlay/z-modal/z-dropdown/z-toast/z-tooltip. Arbitrary z-[N] >= 60 creates a parallel stacking system.",
+    pattern: /\bz-\[(?:[6-9]\d|\d{3,})\]/,
+  },
+  {
+    id: "raw-shadow",
+    description: "Use shadow-elevation-flat/raised/overlay instead of raw Tailwind shadows.",
+    pattern: /\bshadow-(?:xs|sm|md|lg|xl|2xl)\b/,
   },
 ];
 
 const COLOR_RULES = ["hardcoded-tailwind-color", "large-radius", "raw-color", "emoji-icon"];
+const CONTROL_HEIGHT_RULE = "control-height-override";
 const DIRECT_PRIMITIVE_RULE = "direct-primitive-import";
 const DIRECT_SKELETON_RULE = "direct-skeleton-import";
 const INLINE_NOTICE_RULE = "inline-notice-pattern";
@@ -56,28 +73,27 @@ const WORKSPACE_LOADING_RULE = "workspace-state-loading";
 
 const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^components\/icons\//, rules: COLOR_RULES, reason: "brand icons keep official colors" },
-  { pattern: /^components\/upload\/CreativePreview\.tsx$/, rules: [...COLOR_RULES, DIRECT_SKELETON_RULE], reason: "platform previews simulate ad surfaces" },
+  { pattern: /^components\/upload\/CreativePreview\.tsx$/, rules: [...COLOR_RULES, DIRECT_SKELETON_RULE, "raw-shadow", "arbitrary-font-size"], reason: "platform previews simulate ad surfaces" },
   { pattern: /^lib\/utils\/topBadgeStyles\.ts$/, rules: COLOR_RULES, reason: "centralized gold/silver/bronze badge recipes" },
   { pattern: /^components\/common\/TopBadge\.tsx$/, rules: COLOR_RULES, reason: "centralized gold/silver/bronze badge rendering" },
-  { pattern: /^components\/common\/(?:Modal|AppDialog)\.tsx$/, rules: COLOR_RULES, reason: "runtime overlay opacity escape hatch" },
+  { pattern: /^components\/common\/AppDialog\.tsx$/, rules: COLOR_RULES, reason: "runtime overlay opacity escape hatch" },
   { pattern: /^components\/charts\//, rules: [...COLOR_RULES, DIRECT_SKELETON_RULE], reason: "chart components compare computed runtime colors and render chart-shaped loading" },
   { pattern: /^app\/(?:pv|waitlist)\/opengraph-image\.tsx$/, rules: COLOR_RULES, reason: "generated image fallback styling" },
   { pattern: /^app\/global-error\.tsx$/, rules: COLOR_RULES, reason: "framework-level fallback page before theme hydration" },
   { pattern: /^app\/design-system\/page\.tsx$/, reason: "design-system catalog demonstrates raw primitives and swatches" },
 
   { pattern: /^components\/ui\//, rules: [DIRECT_PRIMITIVE_RULE, DIRECT_SKELETON_RULE], reason: "low-level shadcn/Radix primitives" },
-  { pattern: /^components\/common\/(?:Modal|AppDialog|StandardCard|ToggleSwitch|ConfirmDialog|AutoRefreshConfirmModal|BaseKanbanWidget|StatCard)\.tsx$/, rules: [DIRECT_PRIMITIVE_RULE], reason: "shared component definitions and legacy wrappers" },
+  { pattern: /^app\/\(auth\)\//, rules: [CONTROL_HEIGHT_RULE], reason: "auth pages keep bespoke control heights outside the app shell" },
+  { pattern: /^components\/waitlist\//, rules: [CONTROL_HEIGHT_RULE], reason: "public waitlist keeps marketing-scale controls" },
+  { pattern: /^components\/common\/(?:AppDialog|StandardCard|ToggleSwitch|ConfirmDialog|AutoRefreshConfirmModal|BaseKanbanWidget)\.tsx$/, rules: [DIRECT_PRIMITIVE_RULE], reason: "shared component definitions and legacy wrappers" },
   { pattern: /^components\/charts\//, rules: [DIRECT_PRIMITIVE_RULE], reason: "compact chart controls may use raw primitives" },
   { pattern: /^app\/\(auth\)\//, rules: [DIRECT_PRIMITIVE_RULE], reason: "auth pages are outside authenticated app shell recipes" },
-  { pattern: /^app\/(?:api-test|ui-demo|design-system|pv|waitlist|waitlist-v2)\//, rules: [DIRECT_PRIMITIVE_RULE, DIRECT_SKELETON_RULE, INLINE_NOTICE_RULE], reason: "dev/demo/public surfaces" },
+  { pattern: /^app\/(?:api-test|ui-demo|design-system|pv|waitlist|waitlist-v2)\//, rules: [DIRECT_PRIMITIVE_RULE, DIRECT_SKELETON_RULE, INLINE_NOTICE_RULE, "emoji-icon"], reason: "dev/demo/public surfaces" },
+  { pattern: /^lib\/store\/activeJobs\.ts$/, rules: ["emoji-icon"], reason: "emoji markers in console diagnostics, not UI" },
   { pattern: /^components\/waitlist\/(?:WaitlistV2|CanvasRevealEffect)\.tsx$/, rules: [...COLOR_RULES, DIRECT_PRIMITIVE_RULE], reason: "cinematic public waitlist v2 keeps a raw black/white/accent palette" },
 
-  { pattern: /^components\/common\/(?:States|RetentionVideoPlayer|ThumbnailImage|SparklineSkeleton|ActionTypeFilter|PackFilter)\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "canonical state/media/filter skeleton definitions" },
-  { pattern: /^components\/manager\/(?:TableContent|MinimalTableContent)\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "dense table rows keep row-shaped skeletons" },
-  { pattern: /^components\/layout\/Topbar\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "topbar round avatar and connect-button skeletons are bespoke shapes" },
-  { pattern: /^components\/ads\/AdDetailsDialog\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "ad detail modal keeps media and chart-shaped skeletons" },
-  { pattern: /^components\/ui\/date-range-picker\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "low-level date picker loading primitive" },
-  { pattern: /^app\/upload\/page\.tsx$/, rules: [DIRECT_SKELETON_RULE], reason: "upload previews keep media-shaped skeletons" },
+  // Exceções pontuais de skeleton agora vivem inline nos arquivos ("design-system-exception: direct-skeleton-import - ..."),
+  // para não isentar o arquivo inteiro da regra. Só diretórios/superfícies inteiras permanecem aqui.
 ];
 
 function toPosix(path: string): string {
@@ -164,7 +180,6 @@ function findDirectPrimitiveFindings(file: string, content: string, lines: strin
     const source = match[2];
     const directImports = imports.filter((name) => {
       if (source === "@/components/ui/card") return name === "Card";
-      if (source === "@/components/common/Modal") return name === "Modal";
       if (source === "@/components/ui/dialog") return name === "Dialog";
       if (source === "@/components/ui/switch") return name === "Switch";
       return false;
@@ -274,6 +289,60 @@ function findWorkspaceLoadingFindings(file: string, lines: string[]): Finding[] 
   return findings;
 }
 
+// Controles com altura tokenizada via variant `size` (contrato de controles do visual-standard).
+const CONTROL_COMPONENTS = ["Button", "Input", "SelectTrigger", "FilterSelectButton", "SearchInputWithClear"];
+const CONTROL_TAG_PATTERN = new RegExp(`<(${CONTROL_COMPONENTS.join("|")})\\b`);
+// Altura core (h-8, h-9, h-[42px]...) sem prefixo de variant (sm:h-11) nem min-h/max-h; h-auto e h-full são permitidos.
+const CORE_HEIGHT_PATTERN = /(?<![\w:-])!?h-(?:\d+(?:\.\d+)?|\[)/;
+const CONTROL_HEIGHT_DESCRIPTION = 'Control height must come from the size variant (size="sm" | "default"), not h-* classes. See "Contrato de controles" in authenticated-app-visual-standard.md.';
+
+function findControlHeightOverrideFindings(file: string, lines: string[]): Finding[] {
+  if (isRuleAllowed(file, CONTROL_HEIGHT_RULE)) return [];
+
+  const findings: Finding[] = [];
+  const flagged = new Set<number>();
+
+  const flag = (index: number) => {
+    if (flagged.has(index)) return;
+    flagged.add(index);
+    findings.push({
+      file,
+      line: index + 1,
+      ruleId: CONTROL_HEIGHT_RULE,
+      description: CONTROL_HEIGHT_DESCRIPTION,
+      text: lineAt(lines, index + 1),
+    });
+  };
+
+  lines.forEach((lineText, index) => {
+    // Caso 1: tag e className na mesma linha — altura core dentro da primeira string do className.
+    // Aceita className="...", className={"..."} e className={cn("...")} — cn() é o padrão do projeto.
+    const inlinePattern = new RegExp(`<(?:${CONTROL_COMPONENTS.join("|")})\\b[^<>]*?(?:className|inputClassName)\\s*=\\s*\\{?\\s*(?:cn\\(\\s*)?["'\`]([^"'\`]*)`);
+    const inlineMatch = lineText.match(inlinePattern);
+    if (inlineMatch && CORE_HEIGHT_PATTERN.test(inlineMatch[1])) {
+      flag(index);
+      return;
+    }
+
+    // Caso 2: className em linha própria dentro de uma tag multi-linha de controle.
+    if (!/^\s*(?:className|inputClassName)\s*=/.test(lineText)) return;
+    const attrValue = lineText.match(/["'`]([^"'`]*)/);
+    if (!attrValue || !CORE_HEIGHT_PATTERN.test(attrValue[1])) return;
+
+    for (let back = index - 1; back >= Math.max(0, index - 8); back--) {
+      const prev = lines[back];
+      if (CONTROL_TAG_PATTERN.test(prev) && !prev.includes(">")) {
+        flag(index);
+        return;
+      }
+      // Qualquer outra abertura/fechamento de tag encerra a busca (não é o className do controle).
+      if (prev.includes("<") || prev.includes(">")) return;
+    }
+  });
+
+  return findings;
+}
+
 function findInvalidExceptionFindings(file: string, lines: string[]): Finding[] {
   const findings: Finding[] = [];
   lines.forEach((lineText, index) => {
@@ -319,6 +388,7 @@ function scanFile(filePath: string): Finding[] {
   findings.push(...findInlineNoticeFindings(file, lines));
   findings.push(...findIconOnlyButtonFindings(file, content, lines));
   findings.push(...findWorkspaceLoadingFindings(file, lines));
+  findings.push(...findControlHeightOverrideFindings(file, lines));
   findings.push(...findInvalidExceptionFindings(file, lines));
 
   return findings.filter((finding) => !isRuleAllowed(finding.file, finding.ruleId) && !hasLineException(lines, finding.line, finding.ruleId));

@@ -381,7 +381,7 @@ export default function DocsPage() {
               <div className="flex items-center gap-3">
                 <page.icon className="w-5 h-5 text-attention" />
                 <span className="font-medium">{page.title}</span>
-                <Badge variant="outline" className="text-[11px] px-2 py-0">
+                <Badge variant="outline" className="text-2xs px-2 py-0">
                   {page.path}
                 </Badge>
               </div>
@@ -482,7 +482,7 @@ export default function DocsPage() {
               <div className="space-y-2">
                 {META_ENDPOINTS.map((e, i) => (
                   <div key={i} className="flex items-start gap-2 text-sm">
-                    <Badge variant={e.method === "POST" ? "default" : "outline"} className="text-[10px] px-1.5 py-0 shrink-0 font-mono">
+                    <Badge variant={e.method === "POST" ? "default" : "outline"} className="text-2xs px-1.5 py-0 shrink-0 font-mono">
                       {e.method}
                     </Badge>
                     <code className="text-xs font-mono text-foreground shrink-0">{e.path}</code>
@@ -657,7 +657,7 @@ export default function DocsPage() {
                             <code className="text-xs font-mono text-foreground">{col.name}</code>
                           </td>
                           <td className="py-1.5 pr-3">
-                            <code className="text-[11px] font-mono text-muted-foreground">{col.type}</code>
+                            <code className="text-2xs font-mono text-muted-foreground">{col.type}</code>
                           </td>
                           <td className="py-1.5 text-xs text-muted-foreground">{col.description}</td>
                         </tr>

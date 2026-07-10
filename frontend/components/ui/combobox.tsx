@@ -15,9 +15,11 @@ interface ComboboxProps {
   searchPlaceholder?: string;
   emptyMessage?: string;
   className?: string;
+  /** Altura do trigger — contrato de controles: "default" 40px | "sm" 32px. */
+  size?: "default" | "sm";
 }
 
-export function Combobox({ value, onValueChange, options, placeholder = "Selecione...", searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", className }: ComboboxProps) {
+export function Combobox({ value, onValueChange, options, placeholder = "Selecione...", searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", className, size = "default" }: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
 
@@ -39,19 +41,19 @@ export function Combobox({ value, onValueChange, options, placeholder = "Selecio
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" aria-expanded={open} className={cn("h-control-default w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
+        {/* Altura vem da variant `size` do Button — não fixar h-* aqui. */}
+        <Button variant="outline" role="combobox" aria-expanded={open} size={size} className={cn("w-full items-center justify-between rounded-md border border-border bg-input-30 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1", className)}>
           <span className="truncate text-left">{selectedOption ? selectedOption.label : placeholder}</span>
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 z-[10000] rounded-md border border-border bg-secondary text-text shadow-md" align="start" sideOffset={4}>
+      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 z-dropdown rounded-md border border-border bg-secondary text-text shadow-elevation-overlay" align="start" sideOffset={4}>
         <div className="flex flex-col">
           <div className="border-b border-border p-2">
             <Input
               placeholder={searchPlaceholder}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9"
               onKeyDown={(e) => {
                 // Prevenir que Enter feche o popover
                 if (e.key === "Enter") {

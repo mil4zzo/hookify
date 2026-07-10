@@ -68,7 +68,7 @@ function AdAttributionRow({
         <div className="text-xs font-medium text-foreground truncate">{adName}</div>
         <div className="flex items-center gap-2 mt-0.5">
           {/* Tag: rate vs mix */}
-          <span className={`flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded font-medium ${
+          <span className={`flex items-center gap-0.5 text-2xs px-1.5 py-0.5 rounded font-medium ${
             attr.tag === "rate"
               ? "bg-destructive-10 text-destructive border border-destructive-20"
               : "bg-warning-10 text-warning border border-warning-20"
@@ -83,13 +83,13 @@ function AdAttributionRow({
 
       {/* Spend share badge */}
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-        <span className="text-[10px] text-muted-foreground">verba</span>
+        <span className="text-2xs text-muted-foreground">verba</span>
         <span className="text-xs font-semibold text-foreground">{spendPct}</span>
       </div>
 
       {/* R$ contribution */}
       <div className="flex flex-col items-end gap-0.5 flex-shrink-0 min-w-[52px]">
-        <span className="text-[10px] text-muted-foreground">impacto</span>
+        <span className="text-2xs text-muted-foreground">impacto</span>
         <span className={`text-xs font-bold ${getMetricValueTextClass(tone)}`}>
           {attr.contributionCurrency > 0 ? "+" : ""}{formatCurrency(attr.contributionCurrency)}
         </span>
@@ -121,7 +121,7 @@ export function DriverAdList({ attribution, driver, driverDirection, adMap, onOp
           {driverLabel} — quais ads causaram?
         </span>
         {coveredPct != null && (
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-2xs text-muted-foreground">
             {rankedAds.length} de {totalAds} ads • {(coveredPct * 100).toFixed(0)}% do efeito
           </span>
         )}
@@ -144,7 +144,7 @@ export function DriverAdList({ attribution, driver, driverDirection, adMap, onOp
 
       {/* Collapsed remainder */}
       {remainder && remainder.count > 0 && (
-        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md border border-dashed border-border text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md border border-dashed border-border text-2xs text-muted-foreground">
           <span>+{remainder.count} outros ads</span>
           <span className="font-medium">
             {formatLocaleRatioPercent(remainder.spendShare)} da verba
@@ -155,7 +155,7 @@ export function DriverAdList({ attribution, driver, driverDirection, adMap, onOp
       )}
 
       {/* Attribution note */}
-      <div className="text-[10px] text-muted-foreground mt-1 leading-relaxed">
+      <div className="text-2xs text-muted-foreground mt-1 leading-relaxed">
         Impacto estimado por anúncio. Comparação: último dia vs. anterior —
         conversões têm janela de atribuição (dias recentes podem subnotificar).
       </div>

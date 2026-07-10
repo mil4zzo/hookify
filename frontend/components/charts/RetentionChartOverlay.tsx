@@ -381,7 +381,7 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
           title={`Tempo: ${hoverTime.toFixed(1)}s`}
           value={`Retenção: ${hoverRetention.toFixed(1)}%`}
           className="bg-background-80 border border-primary"
-          titleClassName="text-[10px] text-muted-foreground font-normal"
+          titleClassName="text-2xs text-muted-foreground font-normal"
           valueClassName="text-sm text-white font-semibold"
           style={{
             left: `${axisYWidth + margin.left + hoverTimeX}px`,
@@ -398,7 +398,7 @@ export function RetentionChartOverlay({ videoPlayCurve, currentTime = 0, duratio
           title={`${currentTime.toFixed(1)}s`}
           value={`${currentRetention.toFixed(1)}%`}
           className="bg-background-80 border border-primary"
-          titleClassName="text-[10px] text-muted-foreground font-normal"
+          titleClassName="text-2xs text-muted-foreground font-normal"
           valueClassName="text-sm text-white font-semibold"
           style={{
             left: `${axisYWidth + margin.left + currentTimeX}px`,

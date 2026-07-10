@@ -48,7 +48,7 @@ function LabeledFilter({
 }) {
   return (
     <div className="flex-1 min-w-0">
-      <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+      <label className="mb-1 block text-2xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </label>
       {children}

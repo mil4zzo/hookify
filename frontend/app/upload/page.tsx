@@ -30,6 +30,7 @@ import type { AdMediaSet } from "@/components/upload/SlotUploadZone"
 import { isMediaSetComplete, makeEmptyMediaSet } from "@/components/upload/SlotUploadZone"
 import { interpolate, interpolateAdset, type CampaignReviewItem } from "@/components/upload/CampaignReviewTable"
 import { Button } from "@/components/ui/button"
+// design-system-exception: direct-skeleton-import - upload previews keep media-shaped skeletons
 import { Skeleton } from "@/components/ui/skeleton"
 import { PageContainer } from "@/components/common/PageContainer"
 import { TabbedContentItem, type TabItem } from "@/components/common/TabbedContent"
@@ -197,7 +198,7 @@ function StepIndicator({
               </div>
               <div className="hidden sm:block">
                 <div className="text-sm font-semibold leading-none">{step.label}</div>
-                <div className="mt-0.5 text-[10px] leading-none opacity-70">{step.description}</div>
+                <div className="mt-0.5 text-2xs leading-none opacity-70">{step.description}</div>
               </div>
             </button>
             {index < steps.length - 1 && (
@@ -292,7 +293,7 @@ function CampaignProgressView({
   return (
     <div className="space-y-4">
       {/* Header card */}
-      <div className="rounded-md border border-border bg-background shadow-sm overflow-hidden">
+      <div className="rounded-md border border-border bg-background shadow-elevation-raised overflow-hidden">
         {/* Top: status + message */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
           <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : "bg-primary-10"}`}>
@@ -337,7 +338,7 @@ function CampaignProgressView({
           ].map(({ label, value, color }) => (
             <div key={label} className="py-3">
               <div className={`text-xl font-bold tabular-nums ${color}`}>{value}</div>
-              <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</div>
+              <div className="text-2xs text-muted-foreground uppercase tracking-wide">{label}</div>
             </div>
           ))}
         </div>
@@ -1103,7 +1104,7 @@ export default function UploadPage() {
                         )
                       })}
                     </div>
-                    <div className="text-[10px] text-muted-foreground border-t border-border pt-2">
+                    <div className="text-2xs text-muted-foreground border-t border-border pt-2">
                       {campaignTemplate.adsets.length} conjunto(s) · {campaignTemplate.campaign_objective ?? "objetivo desconhecido"}
                     </div>
                   </div>
@@ -1185,7 +1186,7 @@ export default function UploadPage() {
             ) : isCreating && !progress && uploadMode === "ads" ? (
               /* Ads mode: initializing skeleton — shows real item list as pending */
               <div className="space-y-3">
-                <div className="rounded-md border border-border bg-background overflow-hidden shadow-sm">
+                <div className="rounded-md border border-border bg-background overflow-hidden shadow-elevation-raised">
                         <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
                           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
                             <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
@@ -1227,7 +1228,7 @@ export default function UploadPage() {
                     processEndedAtMs={campaignProcessEndedAtMs}
                   />
                 : <div className="space-y-3">
-                    <div className="rounded-md border border-border bg-background overflow-hidden shadow-sm">
+                    <div className="rounded-md border border-border bg-background overflow-hidden shadow-elevation-raised">
                       <div className="flex items-center gap-3 px-5 py-4 border-b border-border">
                         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-10">
                           <IconLoader2 className="h-5 w-5 animate-spin text-primary" />
@@ -1255,17 +1256,17 @@ export default function UploadPage() {
                       <div className="grid grid-cols-3 divide-x divide-border text-center">
                         <div className="py-3">
                           <div className="text-xl font-bold tabular-nums">{campaignReviewItems.length}</div>
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Campanhas</div>
+                          <div className="text-2xs text-muted-foreground uppercase tracking-wide">Campanhas</div>
                         </div>
                         <div className="py-3">
                           <div className="text-xl font-bold tabular-nums">{campaignSelectedAdsetIds.length}</div>
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Conjuntos/campanha</div>
+                          <div className="text-2xs text-muted-foreground uppercase tracking-wide">Conjuntos/campanha</div>
                         </div>
                         <div className="py-3">
                           <div className="text-xl font-bold tabular-nums">
                             {campaignReviewItems.length * campaignSelectedAdsetIds.length}
                           </div>
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Total</div>
+                          <div className="text-2xs text-muted-foreground uppercase tracking-wide">Total</div>
                         </div>
                       </div>
                     </div>

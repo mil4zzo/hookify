@@ -18,7 +18,7 @@ interface ChartTooltipProps {
 export function ChartTooltip({ title, value, className = "", titleClassName = "", valueClassName = "", style }: ChartTooltipProps) {
   return (
     <div
-      className={`absolute px-2 py-1 bg-popover text-popover-foreground text-xs rounded shadow-lg whitespace-nowrap z-20 pointer-events-none ${className}`}
+      className={`absolute px-2 py-1 bg-popover text-popover-foreground text-xs rounded shadow-elevation-overlay whitespace-nowrap z-20 pointer-events-none ${className}`}
       style={style}
     >
       {title && <div className={`font-medium mb-0.5 ${titleClassName}`}>{title}</div>}

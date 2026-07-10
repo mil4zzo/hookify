@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Modal } from "@/components/common/Modal";
+import { AppDialog } from "@/components/common/AppDialog";
 import { useState } from "react";
 import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
 import { showSuccess, showError, showInfo } from "@/lib/utils/toast";
@@ -149,9 +149,9 @@ export default function UIDemo() {
 
         {/* Dialog */}
         <section className="space-y-6">
-          <h2 className="text-2xl font-semibold">Modal</h2>
+          <h2 className="text-2xl font-semibold">AppDialog</h2>
           <Button onClick={() => setIsModalOpen(true)}>Abrir Modal</Button>
-          <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} size="lg" padding="md">
+          <AppDialog isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} size="lg" padding="md" title="Exemplo de Modal">
             <div className="space-y-1.5 mb-6">
               <h2 className="text-lg font-semibold leading-none tracking-tight">Exemplo de Modal</h2>
               <p className="text-sm text-muted-foreground">Este é um exemplo de modal usando o componente global.</p>
@@ -160,7 +160,7 @@ export default function UIDemo() {
               <p>Conteúdo do modal aqui.</p>
               <Button className="w-full">Ação</Button>
             </div>
-          </Modal>
+          </AppDialog>
         </section>
 
         {/* Toasts */}

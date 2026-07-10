@@ -134,11 +134,11 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
             </div>
           ) : isExpired ? (
             <>
-              <Button type="button" variant="default" size="sm" className="h-8 text-xs" onClick={handleReconnect} disabled={isDeleting}>
+              <Button type="button" variant="default" size="sm" className="text-xs" onClick={handleReconnect} disabled={isDeleting}>
                 Reconectar
               </Button>
               {onDelete && (
-                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting} title="Excluir conexão">
+                <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting} title="Excluir conexão">
                   {isDeleting ? <IconLoader2 className="w-4 h-4 animate-spin" /> : <IconTrash className="w-4 h-4" />}
                 </Button>
               )}
@@ -150,7 +150,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="h-8 px-2 text-xs"
+                  className="px-2 text-xs"
                   onClick={handleReconnect}
                   disabled={isDeleting}
                   title="Reconectar para renovar token ou solicitar novas permissões"
@@ -158,12 +158,12 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                   Reconectar
                 </Button>
               )}
-              <Button type="button" variant="ghost" size="sm" className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleRetest} disabled={isDeleting} title="Verificar novamente">
+              <Button type="button" variant="ghost" size="sm" className="px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleRetest} disabled={isDeleting} title="Verificar novamente">
                 <IconRefresh className="w-3.5 h-3.5 mr-1" />
                 Verificar
               </Button>
               {onDelete && (
-                <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting}>
+                <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={handleDelete} disabled={isDeleting}>
                   <IconTrash className="w-4 h-4" />
                 </Button>
               )}
@@ -182,7 +182,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
               if (!info) {
                 return (
                   <li key={scope} className="text-muted-foreground">
-                    <span className="font-mono text-[11px]">{scope}</span>
+                    <span className="font-mono text-2xs">{scope}</span>
                   </li>
                 );
               }
@@ -200,7 +200,7 @@ export function FacebookConnectionCard({ connection, isSelected = false, onSelec
                   type="button"
                   variant="default"
                   size="sm"
-                  className="h-8 text-xs"
+                  className="text-xs"
                   onClick={handleReconnect}
                   disabled={isDeleting}
                 >

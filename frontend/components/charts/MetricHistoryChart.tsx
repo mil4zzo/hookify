@@ -297,7 +297,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
                   const sectionMetrics = availableMetrics.filter((m) => m.section === section.key);
                   return (
                     <div key={section.key}>
-                      <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide px-1.5 mb-1">{section.label}</div>
+                      <div className="text-2xs font-semibold text-muted-foreground uppercase tracking-wide px-1.5 mb-1">{section.label}</div>
                       <div className="flex flex-col gap-0.5">
                         {sectionMetrics.map((metric) => {
                           const isSelected = selectedMetrics.includes(metric.key);
@@ -364,7 +364,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className={`flex items-center justify-between gap-2 py-1 px-1.5 rounded-md cursor-pointer transition-all text-xs bg-background border border-border hover:bg-muted ${!isNormalized ? "opacity-50" : ""}`} onClick={() => setIsNormalized(!isNormalized)}>
-                  <span className="text-foreground text-[11px]">Normalizar</span>
+                  <span className="text-foreground text-2xs">Normalizar</span>
                   <Switch checked={isNormalized} className="pointer-events-none" />
                 </div>
               </TooltipTrigger>
@@ -373,7 +373,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
-          {(selectedMetrics.includes("cpr") || selectedMetrics.includes("page_conv") || selectedMetrics.includes("results")) && !actionType && <div className="text-xs text-amber-600 bg-amber-50 dark:bg-amber-900/20 p-1.5 rounded text-[10px]">⚠️ CPR, Page Conv e Results requerem tipo de conversão selecionado.</div>}
+          {(selectedMetrics.includes("cpr") || selectedMetrics.includes("page_conv") || selectedMetrics.includes("results")) && !actionType && <div className="text-2xs text-warning bg-warning-10 p-1.5 rounded">CPR, Page Conv e Results requerem tipo de conversão selecionado.</div>}
         </div>
       </div>
 
@@ -652,7 +652,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
                 {tooltipData && tooltipPoints.length > 0 && (
                   <div
                     ref={tooltipRefCallback}
-                    className="absolute bg-background border border-border rounded-md shadow-lg p-2 z-10 pointer-events-none"
+                    className="absolute bg-background border border-border rounded-md shadow-elevation-overlay p-2 z-10 pointer-events-none"
                     style={{
                       left: (() => {
                         const containerWidth = Math.max(innerWidth, 100);
@@ -685,7 +685,7 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
                           <div className="w-0.5 h-3.5 shrink-0 rounded-full self-center" style={{ backgroundColor: config.color }} aria-hidden />
                           <span className="text-foreground font-medium">{config.label}:</span>
                           <span className="text-foreground">{format(displayValue)}</span>
-                          {isNormalized && point.originalY !== undefined && <span className="text-muted-foreground text-[10px]">({point.y.toFixed(1)}%)</span>}
+                          {isNormalized && point.originalY !== undefined && <span className="text-muted-foreground text-2xs">({point.y.toFixed(1)}%)</span>}
                         </div>
                       );
                     })}

@@ -160,6 +160,100 @@ Regras rapidas:
 - Dialog: `AppDialog` com `title` acessivel.
 - Switch com texto: `ToggleSwitch`.
 - Switch cru: apenas em controles compactos de tabela/grafico.
+- Filtro de lista em popover (multi ou single select, com busca/bulk/grupos):
+  `FilterListPopover` — nunca reimplementar popover+lista+checkbox.
+- Indicador de selecao em linha clicavel: `CheckSquare` (presentacional;
+  para checkbox standalone com foco/teclado, `ui/checkbox`).
+- Busca com lupa e botao de limpar: `SearchInputWithClear`.
+- Chip de filtro com operador/valor embutidos: pecas de `manager/FilterChip`.
+
+## Contrato de controles (sizing)
+
+Controles interativos (Button, Input, SelectTrigger, Combobox,
+FilterSelectButton) tem a altura definida DENTRO do componente, via variant
+`size`. Call sites nunca definem altura.
+
+### Regra binaria
+
+- Altura de controle: SEMPRE via prop `size`, NUNCA via `className` com
+  `h-*`/`w-*` de escala core (`h-8`, `h-9`, `h-10`...).
+- Se o tamanho necessario nao existe, adicione uma variant em
+  `components/ui/` — nao improvise classe no call site.
+- `h-auto` e permitido quando o controle deve colapsar para a altura do
+  conteudo (chips, links inline, botoes dentro de barras compactas).
+
+### Vocabulario de tamanhos
+
+| Variant | Token | Altura | Quando usar |
+|---|---|---|---|
+| `size="default"` | `h-control-default` | 40px | Toolbars, filtros, formularios — o padrao |
+| `size="sm"` | `h-control-compact` | 32px | Contextos densos: linhas de tabela, builders, admin |
+| `size="lg"` (Button) | `h-control-large` | 48px | CTAs de marketing/waitlist |
+| `size="icon"` (Button) | `control-default` quadrado | 40x40 | Botao so-icone |
+
+Barras de ferramentas (busca + filtros + acoes em lote) alinham tudo em
+`h-control-default`; itens internos compactos usam `size="sm"` ou `h-auto`.
+
+### Por que existe (twMerge)
+
+O `cn()` usa `extendTailwindMerge` com os tokens custom registrados
+(`lib/utils/cn.ts`). Isso significa que um `h-8` passado em `className`
+HOJE SOBRESCREVE o token do componente — antes era silenciosamente morto.
+Por isso a regra e nao passar altura em call site: o override funciona,
+mas quebra a padronizacao. O checker aponta violacoes.
+
+Ao adicionar token novo em `tailwind.config.ts` (`theme.extend.spacing`),
+registre-o tambem em `SPACING_TOKENS` de `lib/utils/cn.ts`.
+
+### Documento vivo
+
+Ao tomar uma decisao de design que diverge deste contrato (nova variant,
+nova excecao, novo padrao de barra), atualize esta secao no mesmo commit.
+
+## Contrato de tokens (tipografia, elevacao, z-index)
+
+### Tipografia
+
+- Escala: `text-2xs` (10px, caption/overline) e a escala core (`text-xs` 12px
+  para cima). `text-2xs` e o UNICO degrau abaixo de `text-xs` — nao criar
+  `text-[10px]`/`text-[11px]`/`text-3xs`.
+- `text-[Npx]` arbitrario e violacao (regra `arbitrary-font-size`). Tamanhos
+  display em `rem` (titulos hero) e relativos em `em` (superscript) sao
+  permitidos.
+
+### Elevacao
+
+- Unica escala: `shadow-elevation-flat` (none), `shadow-elevation-raised`
+  (chrome sutil: cards, controles outline) e `shadow-elevation-overlay`
+  (flutuantes: popover, dropdown, tooltip, dialog, enfase de hover/selecao).
+- `shadow-sm/md/lg` crus sao violacao (regra `raw-shadow`); os overrides
+  antigos foram removidos do tailwind.config.
+
+### Z-index
+
+- Camadas de app SEMPRE por token: `z-sticky` (40, topbar/sidebar/nav fixo),
+  `z-overlay` (50, overlays de captura e fullscreen), `z-modal` (60),
+  `z-dropdown` (70, popover/combobox/select), `z-toast` (80), `z-tooltip` (90).
+- Stacking LOCAL (dentro de um card, tabela ou container proprio) pode usar
+  `z-10`/`z-20` core — nao e camada de app.
+- `z-[N]` arbitrario >= 60 e violacao (regra `arbitrary-z-index`). Excecao
+  documentada: modal-sobre-modal (`z-[70]`/`z-[80]` no date-range-picker).
+
+### Registro de tokens novos
+
+Todo token novo em `tailwind.config.ts` precisa tambem do registro no
+`extendTailwindMerge` de `lib/utils/cn.ts` (spacing em `SPACING_TOKENS`;
+boxShadow/zIndex/fontSize em `classGroups`), senao overrides via `cn()`
+quebram silenciosamente para ele.
+
+### Enforcement
+
+- `npm run check:design-system` roda automaticamente no pre-commit (husky,
+  `frontend/.husky/pre-commit`) junto com `tsc --noEmit`.
+- Excecao intencional: comentario `// design-system-exception: rule-id - razao`
+  na linha imediatamente acima da violacao. Allowlist de arquivo inteiro em
+  `scripts/check-design-system.ts` e reservada para diretorios/superficies
+  (icons, charts, waitlist), nao para excecoes pontuais.
 
 ## Checklist para novas paginas autenticadas
 
@@ -171,5 +265,8 @@ Regras rapidas:
       `DashboardGrid`, `FormStepWorkspace` ou `WorkspaceState`.
 - [ ] Usa um unico scroll principal em workspaces de analise.
 - [ ] Usa tokens semanticos de cor e radius aprovado.
+- [ ] Altura de controles via prop `size`, nunca `h-*` em className.
+- [ ] Micro-texto usa `text-2xs`, nunca `text-[10px]`/`text-[11px]`.
+- [ ] Sombras via `shadow-elevation-*`; camadas de app via `z-<token>`.
 - [ ] Icon-only buttons tem `aria-label` ou `title`.
 - [ ] Roda `npm run check:design-system` antes de fechar.

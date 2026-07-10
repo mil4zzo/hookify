@@ -5,13 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Toggle } from "@/components/ui/toggle";
 import { Switch } from "@/components/ui/switch";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
+import { Combobox } from "@/components/ui/combobox";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import type { DateRange } from "react-day-picker";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { StandardCard } from "@/components/common/StandardCard";
 import { WidgetPanel, WorkspaceState } from "@/components/common/layout";
@@ -24,6 +27,12 @@ import { env } from "@/lib/config/env";
 import { colorTokenDefinitions, colorCategoriesOrder, type ColorTokenDef } from "@/lib/design-system/colorTokens";
 import { IconPalette, IconCopy, IconInfoCircle, IconAlertTriangle } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
+
+const COMBOBOX_DEMO_OPTIONS = [
+  { label: "Opção A", value: "a" },
+  { label: "Opção B", value: "b" },
+  { label: "Opção C", value: "c" },
+];
 
 interface ColorWithComputed extends ColorTokenDef {
   computedValue: string;
@@ -86,6 +95,8 @@ export default function DesignSystemPage() {
   const [baseSwitch, setBaseSwitch] = useState(true);
   const [checkbox, setCheckbox] = useState(true);
   const [progress, setProgress] = useState(45);
+  const [comboboxValue, setComboboxValue] = useState("");
+  const [dateRangeDemo, setDateRangeDemo] = useState<DateRange | undefined>(undefined);
 
   const computeColors = useCallback(() => {
     setColors(
@@ -178,7 +189,7 @@ export default function DesignSystemPage() {
                               <div className="absolute inset-0 z-10" style={bgStyle} />
                             </div>
                             <div className="flex items-center justify-between gap-1 p-1.5">
-                              <span className="truncate text-[10px] font-medium text-foreground">{color.name}</span>
+                              <span className="truncate text-2xs font-medium text-foreground">{color.name}</span>
                               <button type="button" onClick={() => copyToken(color)} className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-foreground" title={`Copiar ${snippet}`} aria-label={`Copiar ${snippet}`}>
                                 <IconCopy className="h-3 w-3" />
                               </button>
@@ -244,7 +255,7 @@ export default function DesignSystemPage() {
 
             <WidgetPanel title="Altura de linha" description="h-row-*" density="compact">
               <div className="space-y-2">
-                {([["compact", "h-row-compact", "2.5rem"], ["default", "h-row-default", "3.5rem"], ["detailed", "h-row-detailed", "7.5rem"]] as const).map(([label, cls, val]) => (
+                {([["compact", "h-row-compact", "2.5rem"], ["detailed", "h-row-detailed", "7.5rem"]] as const).map(([label, cls, val]) => (
                   <div key={label} className="flex items-center gap-2">
                     <div className={cn("w-28 rounded-md border border-border bg-muted", cls)} />
                     <span className="text-xs text-muted-foreground">{label} · {val}</span>
@@ -389,21 +400,58 @@ export default function DesignSystemPage() {
 
             <WidgetPanel title="Input" density="compact">
               <div className="space-y-2">
-                <Input placeholder="Placeholder" className="h-9" />
-                <Input disabled placeholder="Desabilitado" className="h-9" />
+                <Input placeholder="Default (h-control-default)" />
+                <Input size="sm" placeholder='size="sm" (h-control-compact)' />
+                <Input disabled placeholder="Desabilitado" />
               </div>
             </WidgetPanel>
 
             <WidgetPanel title="Select" density="compact">
-              <Select>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="Selecione" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="a">Opção A</SelectItem>
-                  <SelectItem value="b">Opção B</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="space-y-2">
+                <Select>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Default (h-control-default)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="a">Opção A</SelectItem>
+                    <SelectItem value="b">Opção B</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select>
+                  <SelectTrigger size="sm">
+                    <SelectValue placeholder='size="sm" (h-control-compact)' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="a">Opção A</SelectItem>
+                    <SelectItem value="b">Opção B</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </WidgetPanel>
+
+            <WidgetPanel title="Combobox" description="select com busca" density="compact">
+              <div className="space-y-2">
+                <Combobox value={comboboxValue} onValueChange={setComboboxValue} options={COMBOBOX_DEMO_OPTIONS} placeholder="Default (h-control-default)" />
+                <Combobox size="sm" value={comboboxValue} onValueChange={setComboboxValue} options={COMBOBOX_DEMO_OPTIONS} placeholder='size="sm" (h-control-compact)' />
+              </div>
+            </WidgetPanel>
+
+            <WidgetPanel title="DropdownMenu" description="menu de ações" density="compact">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline">Abrir menu</Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuItem>Editar</DropdownMenuItem>
+                  <DropdownMenuItem>Duplicar</DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem className="text-destructive">Excluir</DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </WidgetPanel>
+
+            <WidgetPanel title="DateRangePicker" description="período com presets" density="compact">
+              <DateRangePicker date={dateRangeDemo} onDateChange={setDateRangeDemo} />
             </WidgetPanel>
 
             <WidgetPanel title="Switch & Checkbox" density="compact">
@@ -414,10 +462,6 @@ export default function DesignSystemPage() {
                   Checkbox
                 </label>
               </div>
-            </WidgetPanel>
-
-            <WidgetPanel title="Toggle" density="compact">
-              <Toggle size="sm">Toggle</Toggle>
             </WidgetPanel>
 
             <WidgetPanel title="Progress" density="compact">

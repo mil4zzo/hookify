@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { AppDialog } from "@/components/common/AppDialog";
-import { AppCheckbox } from "@/components/ui/app-checkbox";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api/endpoints";
 import { PackTranscriptionStatus, TranscriptionAdInfo } from "@/lib/api/schemas";
@@ -184,14 +184,11 @@ function AdRow({ ad, checked, disabled, onToggle }: AdRowProps) {
   }
 
   return (
-    <AppCheckbox
-      checked={checked}
-      onCheckedChange={() => onToggle()}
-      className="flex w-full rounded-md p-3 hover:bg-accent transition-colors gap-3"
-    >
+    <label className="flex w-full cursor-pointer select-none items-center rounded-md p-3 hover:bg-accent transition-colors gap-3">
+      <Checkbox checked={checked} onCheckedChange={() => onToggle()} />
       <Thumbnail url={ad.thumbnail_url} />
       <span className="min-w-0 truncate text-sm text-text flex-1">{ad.ad_name}</span>
-    </AppCheckbox>
+    </label>
   );
 }
 

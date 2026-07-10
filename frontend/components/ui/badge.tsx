@@ -7,8 +7,8 @@ const badgeVariants = cva("inline-flex items-center rounded-full border px-2.5 p
     variant: {
       default: "border-transparent bg-primary text-primary-foreground hover:bg-primary-hover",
       secondary: "border-transparent bg-secondary text-secondary-foreground hover:bg-secondary-hover",
-      destructive: "border-0 rounded-sm bg-destructive text-background hover:bg-destructive-hover px-1 py-0 text-[10px]",
-      success: "border-0 rounded-sm bg-success text-background hover:bg-success-hover px-1 py-0 text-[10px]",
+      destructive: "border-0 rounded-sm bg-destructive text-background hover:bg-destructive-hover px-1 py-0 text-2xs",
+      success: "border-0 rounded-sm bg-success text-background hover:bg-success-hover px-1 py-0 text-2xs",
       outline: "border-border text-foreground",
     },
   },

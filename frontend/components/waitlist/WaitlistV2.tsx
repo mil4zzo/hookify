@@ -138,7 +138,7 @@ export function WaitlistV2({ source = "waitlist-v2" }: { source?: string }) {
                   transition={{ duration: 0.4, ease: "easeOut" }}
                   className="space-y-6 text-center"
                 >
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-white/70">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-1.5 font-mono text-2xs uppercase tracking-[0.18em] text-white/70">
                     <span className="wl2-blink h-1.5 w-1.5 rounded-full bg-cyan-300" aria-hidden="true" />
                     Acesso antecipado · vagas limitadas
                   </div>

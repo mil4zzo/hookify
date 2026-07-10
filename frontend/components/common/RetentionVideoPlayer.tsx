@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Play } from "lucide-react";
 import { RetentionChartOverlay } from "@/components/charts/RetentionChartOverlay";
+// design-system-exception: direct-skeleton-import - media-shaped loading skeleton
 import { Skeleton } from "@/components/ui/skeleton";
 import { VideoPlayer } from "@/components/common/VideoPlayer";
 
@@ -153,8 +154,8 @@ export function RetentionVideoPlayer({
         <VideoPlayer ref={videoRef} src={src} autoPlay={autoplay} className="absolute inset-0" />
         {showRetentionLoadingOverlay && (
           <div className="absolute inset-0 z-10 flex flex-col justify-between rounded-lg bg-black/24 p-4 pointer-events-none">
-            <div className="self-start rounded-md bg-background-90 px-3 py-1.5 shadow-sm backdrop-blur-sm">
-              <div className="text-[11px] font-medium text-foreground">Carregando retenção...</div>
+            <div className="self-start rounded-md bg-background-90 px-3 py-1.5 shadow-elevation-raised backdrop-blur-sm">
+              <div className="text-2xs font-medium text-foreground">Carregando retenção...</div>
             </div>
             <div className="space-y-2">
               <Skeleton className="h-24 w-full rounded-md bg-background-40" />
@@ -197,7 +198,7 @@ export function RetentionVideoPlayerSkeleton({ className = "" }: { className?: s
         {axisTicks.map(({ label, value }) => (
           <span
             key={label}
-            className="absolute right-0 block text-right text-[10px] font-normal leading-none"
+            className="absolute right-0 block text-right text-2xs font-normal leading-none"
             style={{
               top: `${100 - value}%`,
               transform: "translateY(0.33em) translateX(0.1rem)",

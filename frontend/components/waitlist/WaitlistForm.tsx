@@ -92,7 +92,7 @@ export function WaitlistForm({ source = "waitlist" }: { source?: string }) {
           type="submit"
           size="lg"
           disabled={status === "submitting"}
-          className="h-12 shrink-0 px-6"
+          className="shrink-0 px-6"
         >
           {status === "submitting" ? (
             <span className="inline-flex items-center gap-2">

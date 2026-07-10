@@ -3,9 +3,9 @@
 import { ReactNode } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { IconGripVertical, IconSearch } from "@tabler/icons-react";
+import { IconGripVertical } from "@tabler/icons-react";
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { GenericColumn, GenericColumnColorScheme } from "./GenericColumn";
-import { Input } from "@/components/ui/input";
 
 /**
  * Props para uma coluna sortable genérica
@@ -58,10 +58,7 @@ export function SortableColumn({ id, title, items, colorScheme, emptyMessage = "
   ) : null;
 
   const headerContent = showSearch ? (
-    <div className="relative">
-      <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-      <Input value={searchValue} onChange={(event) => onSearchChange?.(event.target.value)} placeholder={searchPlaceholder} className="pl-9" />
-    </div>
+    <SearchInputWithClear value={searchValue ?? ""} onChange={(v) => onSearchChange?.(v)} placeholder={searchPlaceholder} />
   ) : null;
 
   return (

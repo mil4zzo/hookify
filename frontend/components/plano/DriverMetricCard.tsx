@@ -74,7 +74,7 @@ export function DriverMetricCard({
           : undefined
       }
       className={`flex flex-col gap-2.5 bg-transparent transition-all duration-300 ${driverCardSurface(card.tone)} ${
-        selected ? "-translate-y-0.5 ring-2 ring-primary shadow-lg" : ""
+        selected ? "-translate-y-0.5 ring-2 ring-primary shadow-elevation-overlay" : ""
       } ${dimmed ? "opacity-60 saturate-50" : ""}`}
     >
       {/* Top: status icon */}
@@ -94,7 +94,7 @@ export function DriverMetricCard({
       </div>
 
       {/* Comparison baseline */}
-      <span className="text-[11px] text-muted-foreground">
+      <span className="text-2xs text-muted-foreground">
         vs ontem: {card.prev != null ? fmt(card.prev) : "—"}
       </span>
 

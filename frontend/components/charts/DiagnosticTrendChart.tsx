@@ -315,7 +315,7 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
               const isRight = tooltip.x > (width || 300) * 0.6;
               return (
                 <div
-                  className="absolute z-20 pointer-events-none rounded-md border border-border bg-background shadow-lg p-2 text-xs"
+                  className="absolute z-20 pointer-events-none rounded-md border border-border bg-background shadow-elevation-overlay p-2 text-xs"
                   style={{ top: tooltip.y - 60, [isRight ? "right" : "left"]: isRight ? (width || 300) - tooltip.x + 10 : tooltip.x + 12 }}
                 >
                   <div className="font-semibold text-muted-foreground mb-1">{dateLabel}</div>
@@ -331,7 +331,7 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
                   ))}
                   {budgetSegs.length > 0 && (
                     <div className="mt-1.5 pt-1.5 border-t border-border">
-                      <div className="text-[10px] text-muted-foreground mb-0.5">Verba do dia</div>
+                      <div className="text-2xs text-muted-foreground mb-0.5">Verba do dia</div>
                       {budgetSegs.map((seg) => (
                         <div key={seg.key} className="flex items-center gap-2">
                           <span className="inline-block w-2 h-2 rounded-sm flex-shrink-0" style={{ backgroundColor: seg.color }} />
@@ -355,7 +355,7 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
                     type="button"
                     onClick={() => toggleLine(line.key)}
                     aria-pressed={!hidden}
-                    className={`flex items-center gap-1.5 text-[11px] transition-opacity ${hidden ? "opacity-40 line-through" : "opacity-100"} text-muted-foreground hover:text-foreground`}
+                    className={`flex items-center gap-1.5 text-2xs transition-opacity ${hidden ? "opacity-40 line-through" : "opacity-100"} text-muted-foreground hover:text-foreground`}
                   >
                     <span className="inline-block w-3 h-0.5 rounded" style={{ backgroundColor: line.color }} />
                     {line.label}
@@ -367,7 +367,7 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
                   type="button"
                   onClick={() => setBudgetVisible((v) => !v)}
                   aria-pressed={budgetVisible}
-                  className={`flex items-center gap-1.5 text-[11px] transition-opacity ${budgetVisible ? "opacity-100" : "opacity-40 line-through"} text-muted-foreground hover:text-foreground`}
+                  className={`flex items-center gap-1.5 text-2xs transition-opacity ${budgetVisible ? "opacity-100" : "opacity-40 line-through"} text-muted-foreground hover:text-foreground`}
                   data-key={BUDGET_KEY}
                 >
                   <span className="inline-flex h-2.5 w-3 flex-shrink-0 overflow-hidden rounded-sm">
@@ -378,7 +378,7 @@ function DiagnosticTrendChartInner({ lines, budgetData, adKeyToName }: Diagnosti
                   Verba (share)
                 </button>
               )}
-              <span className="text-[10px] text-muted-foreground ml-auto">Índice (base=100)</span>
+              <span className="text-2xs text-muted-foreground ml-auto">Índice (base=100)</span>
             </div>
           </div>
         );

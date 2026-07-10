@@ -95,7 +95,7 @@ export function ActionPlanRow({
               {adRaw.ad_name || adRaw.ad_id || "—"}
             </span>
             {lowData && (
-              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-muted-30 text-muted-foreground border border-border flex-shrink-0">
+              <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs bg-muted-30 text-muted-foreground border border-border flex-shrink-0">
                 <IconAlertTriangle className="h-3 w-3" />
                 Dados parciais
               </span>
@@ -110,7 +110,7 @@ export function ActionPlanRow({
 
         <div className="flex items-center gap-2 flex-shrink-0">
           <div className="flex flex-col items-end gap-0.5">
-            <span className="text-[10px] text-muted-foreground font-medium uppercase">CPR</span>
+            <span className="text-2xs text-muted-foreground font-medium uppercase">CPR</span>
             <span className={`text-sm font-bold ${costActual > 0 ? getValueColor(costActual, avgCpr, true) : "text-muted-foreground"}`}>
               {costActual > 0 ? formatCurrency(costActual) : "—"}
             </span>
@@ -119,7 +119,7 @@ export function ActionPlanRow({
             <>
               <span className="text-muted-foreground text-sm">→</span>
               <div className="flex flex-col items-end gap-0.5">
-                <span className="text-[10px] text-muted-foreground font-medium uppercase">{costRefLabel}</span>
+                <span className="text-2xs text-muted-foreground font-medium uppercase">{costRefLabel}</span>
                 <span className="text-sm font-bold text-muted-foreground">{formatCurrency(costRef)}</span>
               </div>
             </>

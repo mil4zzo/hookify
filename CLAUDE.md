@@ -93,6 +93,12 @@ In-memory `JobTracker` service manages job state during the lifecycle of the req
 
 **UI components**: shadcn/ui (Radix primitives) in `components/ui/`. Project-specific components are in `components/ads/`, `components/manager/`, etc. Do not add raw Radix usage — go through shadcn wrappers.
 
+**Design system (OBRIGATÓRIO ao criar/editar UI)**: antes de criar qualquer componente visual, leia `documentation/authenticated-app-visual-standard.md` — em especial as seções "Contrato de controles (sizing)" e "Contrato de tokens". Regras inegociáveis:
+- Altura de controle (Button, Input, SelectTrigger, Combobox, FilterSelectButton) SEMPRE via prop `size` (`"default"` 40px | `"sm"` 32px), NUNCA via `h-8`/`h-9`/`h-10` em className. Se o tamanho não existe, adicione variant em `components/ui/`.
+- Micro-texto: `text-2xs` (10px), nunca `text-[Npx]`. Sombras: só `shadow-elevation-flat/raised/overlay`. Camadas de app: só `z-sticky/overlay/modal/dropdown/toast/tooltip` (stacking local dentro de container pode usar `z-10`/`z-20` core).
+- O `cn()` usa `extendTailwindMerge` com os tokens custom registrados (`lib/utils/cn.ts`). Novo token no tailwind.config → registrar também lá (spacing em `SPACING_TOKENS`; shadow/z/fontSize em `classGroups`).
+- `npm run check:design-system` + `tsc --noEmit` rodam no pre-commit (husky). Exceção pontual: `// design-system-exception: rule-id - razão` na linha acima da violação.
+
 **Notifications**: Use `sonner` (`toast` from `"sonner"`) for all user-facing toasts. Do not use other toast libraries.
 
 ---

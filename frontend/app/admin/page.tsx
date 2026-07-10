@@ -48,7 +48,7 @@ function TierSelect({ user, onUpdate }: { user: AdminUser; onUpdate: (userId: st
       value={user.tier}
       onValueChange={(value) => onUpdate(user.user_id, value)}
     >
-      <SelectTrigger className="w-32 h-7 text-xs flex items-center gap-1">
+      <SelectTrigger size="sm" className="w-32 text-xs flex items-center gap-1">
         <TierBadge tier={user.tier} />
       </SelectTrigger>
       <SelectContent>
@@ -188,7 +188,7 @@ export default function AdminPage() {
                       {user.created_at ? fmt(user.created_at) : "—"}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">
-                      {user.expires_at ? fmt(user.expires_at) : <Badge variant="outline" className="text-[10px]">Never</Badge>}
+                      {user.expires_at ? fmt(user.expires_at) : <Badge variant="outline" className="text-2xs">Never</Badge>}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-muted-foreground text-xs">
                       {user.updated_at ? fmt(user.updated_at) : "—"}

@@ -150,7 +150,7 @@ export function ExplorerAdsKanbanList({ ads, selectedGroupKey, onSelectAd, avera
           onChange={setSearchValue}
           placeholder="Buscar por nome do anuncio..."
           wrapperClassName="w-full"
-          inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border h-10 w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
+          inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
         />
       </div>
 

@@ -3,6 +3,7 @@
 import type { ComponentType, ReactNode } from "react";
 import { IconAlertTriangle, IconCircleCheck, IconFolderOpen, IconInfoCircle, IconLoader2 } from "@tabler/icons-react";
 import { StandardCard } from "@/components/common/StandardCard";
+// design-system-exception: direct-skeleton-import - canonical state skeleton definitions
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils/cn";
 

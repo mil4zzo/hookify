@@ -1,6 +1,9 @@
 "use client";
 
 import { MetaUsageDistinctResponse } from "@/lib/api/schemas";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 
 export interface MetaUsageFilters {
   route: string;
@@ -26,9 +29,29 @@ interface Props {
   distinct: MetaUsageDistinctResponse | undefined;
 }
 
-const selectClass =
-  "bg-transparent border border-border rounded px-2 py-1 text-sm focus:outline-none focus:border-brand";
-const inputClass = selectClass;
+// Radix Select não aceita value="" em SelectItem — sentinela interna para "todos".
+const ALL = "__all__";
+
+function FilterSelect({ label, value, options, allLabel, onValueChange }: { label: string; value: string; options: string[] | undefined; allLabel: string; onValueChange: (value: string) => void }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Select value={value || ALL} onValueChange={(v) => onValueChange(v === ALL ? "" : v)}>
+        <SelectTrigger size="sm" className="min-w-[140px]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={ALL}>{allLabel}</SelectItem>
+          {options?.map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
+  );
+}
 
 export function MetaUsageFilterBar({ filters, onChange, distinct }: Props) {
   const update = (patch: Partial<MetaUsageFilters>) => onChange({ ...filters, ...patch });
@@ -36,95 +59,30 @@ export function MetaUsageFilterBar({ filters, onChange, distinct }: Props) {
   const hasFilters = Object.values(filters).some((v) => v !== "");
 
   return (
-    <div className="rounded border border-border p-3 flex flex-wrap items-end gap-3">
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">Rota</span>
-        <select
-          className={selectClass}
-          value={filters.route}
-          onChange={(e) => update({ route: e.target.value })}
-        >
-          <option value="">Todas</option>
-          {distinct?.routes.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">Serviço</span>
-        <select
-          className={selectClass}
-          value={filters.service_name}
-          onChange={(e) => update({ service_name: e.target.value })}
-        >
-          <option value="">Todos</option>
-          {distinct?.services.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">Ad account</span>
-        <select
-          className={selectClass}
-          value={filters.ad_account_id}
-          onChange={(e) => update({ ad_account_id: e.target.value })}
-        >
-          <option value="">Todas</option>
-          {distinct?.ad_accounts.map((a) => (
-            <option key={a} value={a}>
-              {a}
-            </option>
-          ))}
-        </select>
-      </label>
+    <div className="rounded-md border border-border p-3 flex flex-wrap items-end gap-3">
+      <FilterSelect label="Rota" value={filters.route} options={distinct?.routes} allLabel="Todas" onValueChange={(route) => update({ route })} />
+      <FilterSelect label="Serviço" value={filters.service_name} options={distinct?.services} allLabel="Todos" onValueChange={(service_name) => update({ service_name })} />
+      <FilterSelect label="Ad account" value={filters.ad_account_id} options={distinct?.ad_accounts} allLabel="Todas" onValueChange={(ad_account_id) => update({ ad_account_id })} />
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">De</span>
-        <input
-          type="datetime-local"
-          className={inputClass}
-          value={filters.from}
-          onChange={(e) => update({ from: e.target.value })}
-        />
+        <Input type="datetime-local" size="sm" value={filters.from} onChange={(e) => update({ from: e.target.value })} />
       </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">Até</span>
-        <input
-          type="datetime-local"
-          className={inputClass}
-          value={filters.to}
-          onChange={(e) => update({ to: e.target.value })}
-        />
+        <Input type="datetime-local" size="sm" value={filters.to} onChange={(e) => update({ to: e.target.value })} />
       </label>
 
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">CPU mín. %</span>
-        <input
-          type="number"
-          min={0}
-          step={0.1}
-          className={inputClass + " w-24"}
-          value={filters.min_cputime}
-          onChange={(e) => update({ min_cputime: e.target.value })}
-        />
+        <Input type="number" min={0} step={0.1} size="sm" className="w-24" value={filters.min_cputime} onChange={(e) => update({ min_cputime: e.target.value })} />
       </label>
 
       {hasFilters && (
-        <button
-          type="button"
-          className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-2"
-          onClick={() => onChange(EMPTY_FILTERS)}
-        >
+        <Button type="button" variant="ghost" size="sm" onClick={() => onChange(EMPTY_FILTERS)}>
           Limpar filtros
-        </button>
+        </Button>
       )}
     </div>
   );

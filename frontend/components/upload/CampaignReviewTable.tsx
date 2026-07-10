@@ -107,13 +107,13 @@ export default function CampaignReviewTable({
 
             {/* Shared variable legend */}
             <div className="rounded-lg border border-border bg-muted-20 px-3 py-2.5 space-y-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Variáveis disponíveis</p>
+              <p className="text-2xs font-semibold uppercase tracking-wide text-muted-foreground">Variáveis disponíveis</p>
               <ul className="space-y-1">
-                <li className="text-[11px] text-muted-foreground">
+                <li className="text-2xs text-muted-foreground">
                   <code className="rounded bg-muted px-1 py-0.5 font-mono">{AD_NAME_VAR}</code>
                   {" — "}nome do criativo
                 </li>
-                <li className="text-[11px] text-muted-foreground">
+                <li className="text-2xs text-muted-foreground">
                   <code className="rounded bg-muted px-1 py-0.5 font-mono">{INDEX_VAR}</code>
                   {" — "}numeração sequencial (ex: 1, 2, 3…)
                 </li>
@@ -152,7 +152,6 @@ export default function CampaignReviewTable({
                   type="button"
                   size="sm"
                   variant={globalStatus === "ACTIVE" ? "default" : "outline"}
-                  className="h-9"
                   onClick={() => applyGlobalStatus("ACTIVE")}
                 >
                   Ativo
@@ -161,7 +160,6 @@ export default function CampaignReviewTable({
                   type="button"
                   size="sm"
                   variant={globalStatus === "PAUSED" ? "destructive" : "outline"}
-                  className="h-9"
                   onClick={() => applyGlobalStatus("PAUSED")}
                 >
                   Pausado
@@ -188,7 +186,7 @@ export default function CampaignReviewTable({
 
         <div className="overflow-x-auto">
         {/* Column headers */}
-        <div className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] gap-3 border-b border-border bg-muted-10 px-4 py-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground min-w-[800px]">
+        <div className="grid grid-cols-[1fr_1.5fr_1.5fr_1.4fr_auto_32px] gap-3 border-b border-border bg-muted-10 px-4 py-2 text-2xs font-semibold uppercase tracking-wide text-muted-foreground min-w-[800px]">
           <div>Arquivos</div>
           <div>Nome da campanha</div>
           <div>Nome do conjunto</div>
@@ -233,7 +231,8 @@ export default function CampaignReviewTable({
                     <Input
                       value={item.campaignName}
                       placeholder="Nome da campanha"
-                      className="h-8 text-xs"
+                      size="sm"
+                      className="text-xs"
                       onChange={(e) => onItemChange(item.id, { campaignName: e.target.value })}
                     />
                   )}
@@ -244,11 +243,12 @@ export default function CampaignReviewTable({
                   <Input
                     value={item.adsetNameTemplate}
                     placeholder="Nome do conjunto"
-                    className="h-8 text-xs"
+                    size="sm"
+                    className="text-xs"
                     onChange={(e) => onItemChange(item.id, { adsetNameTemplate: e.target.value })}
                   />
                   {item.adsetNameTemplate.includes(INDEX_VAR) && (
-                    <p className="truncate text-[10px] text-muted-foreground px-0.5">
+                    <p className="truncate text-2xs text-muted-foreground px-0.5">
                       ex: {item.adsetNameTemplate.replace(AD_NAME_VAR, item.adName || "…").replace(INDEX_VAR, String(idx + 1))}
                     </p>
                   )}
@@ -258,7 +258,8 @@ export default function CampaignReviewTable({
                 <Input
                   value={item.adName}
                   placeholder="Nome do anúncio"
-                  className="h-8 text-xs"
+                  size="sm"
+                  className="text-xs"
                   onChange={(e) => onItemChange(item.id, { adName: e.target.value })}
                 />
 
@@ -268,7 +269,7 @@ export default function CampaignReviewTable({
                     type="button"
                     size="sm"
                     variant={item.status === "ACTIVE" ? "default" : "outline"}
-                    className="h-8 px-2 text-xs"
+                    className="px-2 text-xs"
                     onClick={() => onItemChange(item.id, { status: "ACTIVE" })}
                   >
                     Ativo
@@ -277,7 +278,7 @@ export default function CampaignReviewTable({
                     type="button"
                     size="sm"
                     variant={item.status === "PAUSED" ? "destructive" : "outline"}
-                    className="h-8 px-2 text-xs"
+                    className="px-2 text-xs"
                     onClick={() => onItemChange(item.id, { status: "PAUSED" })}
                   >
                     Pausado

@@ -15,11 +15,93 @@ import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { applyRowFilters } from "@/lib/utils/applyRowFilters";
 import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn } from "@/lib/metrics";
 
+/** Tipo de filho renderizado: anúncios de um adset, variações de um ad name, ou adsets de uma campanha. */
+export type ChildrenEntity = "ads" | "variations" | "adsets";
+
+type EntityConfig = {
+  plural: string;
+  nameHeader: string;
+  nameSortKey: string;
+  statusTab: "individual" | "por-conjunto";
+  /** Campos usados pela busca textual */
+  searchFields: (child: any) => string[];
+  /** Mostra thumbnail + subtítulo de campanha na coluna de nome */
+  richNameCell: boolean;
+  /** Injeta ad_count: 1 nas linhas (não para adsets, que têm ad_count real) */
+  addAdCount: boolean;
+  textColumns: { id: string; label: string; isText: true }[];
+  rowKey: (child: any) => string;
+  nameTitle: (child: any) => string;
+  colspanExtra: number;
+  emptyForSearch: (term: string) => string;
+  emptyForSearchAndFilters: (term: string) => string;
+  emptyForFilters: string;
+};
+
+const ENTITY_CONFIG: Record<ChildrenEntity, EntityConfig> = {
+  ads: {
+    plural: "anúncios",
+    nameHeader: "Anúncios",
+    nameSortKey: "ad_id",
+    statusTab: "individual",
+    searchFields: (child) => [String(child.ad_name || ""), String(child.ad_id || "")],
+    richNameCell: true,
+    addAdCount: true,
+    textColumns: [
+      { id: "ad_name", label: "Anúncio", isText: true },
+      { id: "campaign_name_filter", label: "Campanha", isText: true },
+    ],
+    rowKey: (child) => String(child.ad_id),
+    nameTitle: (child) => child.ad_name || "Sem nome",
+    colspanExtra: 2,
+    emptyForSearch: (term) => `Nenhum anúncio encontrado para "${term}".`,
+    emptyForSearchAndFilters: (term) => `Nenhum anúncio encontrado para "${term}" com os filtros aplicados.`,
+    emptyForFilters: "Nenhum anúncio corresponde aos filtros aplicados.",
+  },
+  variations: {
+    plural: "variações",
+    nameHeader: "Variações",
+    nameSortKey: "ad_id",
+    statusTab: "individual",
+    searchFields: (child) => [String(child.ad_name || ""), String(child.ad_id || "")],
+    richNameCell: true,
+    addAdCount: true,
+    textColumns: [
+      { id: "adset_name_filter", label: "Conjunto", isText: true },
+      { id: "campaign_name_filter", label: "Campanha", isText: true },
+    ],
+    rowKey: (child) => String(child.ad_id),
+    nameTitle: (child) => child.adset_name || "Sem nome",
+    colspanExtra: 1,
+    emptyForSearch: (term) => `Nenhuma variação encontrada para "${term}".`,
+    emptyForSearchAndFilters: (term) => `Nenhuma variação encontrada para "${term}" com os filtros aplicados.`,
+    emptyForFilters: "Nenhuma variação corresponde aos filtros aplicados.",
+  },
+  adsets: {
+    plural: "conjuntos",
+    nameHeader: "Conjuntos",
+    nameSortKey: "adset_name",
+    statusTab: "por-conjunto",
+    searchFields: (child) => [String(child.adset_name || ""), String(child.adset_id || "")],
+    richNameCell: false,
+    addAdCount: false,
+    textColumns: [{ id: "adset_name_filter", label: "Conjunto", isText: true }],
+    rowKey: (child) => String(child.adset_id || "") || String(child.adset_name || "") || String(child.ad_name || ""),
+    nameTitle: (child) => child.adset_name || child.ad_name || "Sem nome",
+    colspanExtra: 2,
+    emptyForSearch: (term) => `Nenhum conjunto encontrado para "${term}".`,
+    emptyForSearchAndFilters: (term) => `Nenhum conjunto encontrado para "${term}" com os filtros aplicados.`,
+    emptyForFilters: "Nenhum conjunto corresponde aos filtros aplicados.",
+  },
+};
+
 interface ManagerChildrenTableProps {
   childrenData?: RankingsChildrenItem[];
   isLoading?: boolean;
   isError?: boolean;
   adsetId?: string;
+  /** Default: "ads" quando adsetId presente, senão "variations". "adsets" = filhos de campanha. */
+  entity?: ChildrenEntity;
   actionType?: string;
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;
@@ -38,6 +120,7 @@ export function ManagerChildrenTable({
   isLoading = false,
   isError = false,
   adsetId,
+  entity,
   actionType,
   formatCurrency,
   formatPct,
@@ -49,6 +132,8 @@ export function ManagerChildrenTable({
   asContent = false,
   onRowClick,
 }: ManagerChildrenTableProps) {
+  const resolvedEntity: ChildrenEntity = entity ?? (adsetId ? "ads" : "variations");
+  const config = ENTITY_CONFIG[resolvedEntity];
   const [sortConfig, setSortConfig] = useState<{ column: string | null; direction: "asc" | "desc" }>({
     column: "spend",
     direction: "desc",
@@ -56,8 +141,7 @@ export function ManagerChildrenTable({
   const [searchTerm, setSearchTerm] = useState("");
 
   const visibleColumns = useMemo(() => getVisibleManagerColumns({ activeColumns, hasSheetIntegration }), [activeColumns, hasSheetIntegration]);
-  const childrenLabel = adsetId ? "anúncios" : "variações";
-  const singularLabel = adsetId ? "anúncio" : "variação";
+  const childrenLabel = config.plural;
 
   const sortedData = useMemo(() => {
     if (!childrenData || childrenData.length === 0) {
@@ -93,16 +177,15 @@ export function ManagerChildrenTable({
           },
         ),
         conversions,
-        ad_count: 1,
+        // adsets têm ad_count real vindo do backend — não sobrescrever
+        ad_count: config.addAdCount ? 1 : Number((child as any).ad_count ?? 0),
       };
     });
 
     let filteredData = searchTerm.trim()
       ? dataWithCalculations.filter((child) => {
           const search = searchTerm.toLowerCase();
-          const childAdName = String(child.ad_name || "").toLowerCase();
-          const childAdId = String(child.ad_id || "").toLowerCase();
-          return childAdName.includes(search) || childAdId.includes(search);
+          return config.searchFields(child).some((field) => field.toLowerCase().includes(search));
         })
       : dataWithCalculations;
 
@@ -123,19 +206,11 @@ export function ManagerChildrenTable({
     return getManagerFilterableColumns({
       visibleColumns,
       includeStatus: true,
-      textColumns: adsetId
-        ? [
-            { id: "ad_name", label: "Anúncio", isText: true },
-            { id: "campaign_name_filter", label: "Campanha", isText: true },
-          ]
-        : [
-            { id: "adset_name_filter", label: "Conjunto", isText: true },
-            { id: "campaign_name_filter", label: "Campanha", isText: true },
-          ],
+      textColumns: config.textColumns,
     });
-  }, [adsetId, visibleColumns]);
+  }, [config, visibleColumns]);
 
-  const colspan = visibleColumns.length + (adsetId ? 2 : 1);
+  const colspan = visibleColumns.length + config.colspanExtra;
 
   const handleSort = (column: string) => {
     setSortConfig((previous) => {
@@ -210,7 +285,8 @@ export function ManagerChildrenTable({
             onChange={setSearchTerm}
             placeholder="Buscar por nome ou ID..."
             wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
-            inputClassName="h-9 w-full text-xs"
+            size="sm"
+            inputClassName="w-full text-xs"
           />
           {(searchTerm.trim() || columnFilters.length > 0) && (
             <span className="flex-shrink-0 whitespace-nowrap text-xs text-muted-foreground">
@@ -232,9 +308,9 @@ export function ManagerChildrenTable({
             message={
               searchTerm.trim()
                 ? columnFilters.length > 0
-                  ? `Nenhuma ${singularLabel} encontrada para "${searchTerm}" com os filtros aplicados.`
-                  : `Nenhuma ${singularLabel} encontrada para "${searchTerm}".`
-                : `Nenhuma ${singularLabel} corresponde aos filtros aplicados.`
+                  ? config.emptyForSearchAndFilters(searchTerm)
+                  : config.emptyForSearch(searchTerm)
+                : config.emptyForFilters
             }
             framed={false}
             density="compact"
@@ -264,9 +340,9 @@ export function ManagerChildrenTable({
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={`cursor-pointer select-none p-4 text-left hover:text-brand ${sortConfig.column === "ad_id" ? "text-primary" : ""}`} onClick={() => handleSort("ad_id")}>
+                <th className={`cursor-pointer select-none p-4 text-left hover:text-brand ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
-                    {adsetId ? "Anúncios" : "Variações"}
+                    {config.nameHeader}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
@@ -283,34 +359,29 @@ export function ManagerChildrenTable({
             <tbody>
               {sortedData.map((child) => (
                 <tr
-                  key={child.ad_id}
+                  key={config.rowKey(child)}
                   className={`bg-background border-b border-border hover:bg-muted ${onRowClick ? "cursor-pointer" : ""}`}
                   onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
                 >
                   <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                    <StatusCell original={child} currentTab="individual" />
+                    <StatusCell original={child} currentTab={config.statusTab} />
                   </td>
                   <td className="px-4 py-3 text-left">
-                    <div className="flex items-center gap-2">
-                      <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
-                      <div className="min-w-0 flex-1">
-                        {adsetId ? (
-                          <>
-                            <div className="truncate text-xs font-medium">{child.ad_name || "Sem nome"}</div>
-                            <div className="flex items-center gap-2 truncate">
-                              <span className="truncate text-xs text-muted-foreground">{child.campaign_name}</span>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="truncate text-xs font-medium">{child.adset_name}</div>
-                            <div className="flex items-center gap-2 truncate">
-                              <span className="truncate text-xs text-muted-foreground">{child.campaign_name}</span>
-                            </div>
-                          </>
-                        )}
+                    {config.richNameCell ? (
+                      <div className="flex items-center gap-2">
+                        <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-xs font-medium">{config.nameTitle(child)}</div>
+                          <div className="flex items-center gap-2 truncate">
+                            <span className="truncate text-xs text-muted-foreground">{child.campaign_name}</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-medium">{config.nameTitle(child)}</div>
+                      </div>
+                    )}
                   </td>
                   {visibleColumns.map((column) => (
                     <td key={column.id} className="p-2 text-center">

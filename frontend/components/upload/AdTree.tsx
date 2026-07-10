@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
 import { IconPhoto, IconSearch } from "@tabler/icons-react"
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
-import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback"
 import type { AdsTreeResponse } from "@/lib/api/schemas"
@@ -57,15 +57,7 @@ export default function AdTree({ data, selectedAdId, onSelect }: AdTreeProps) {
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Buscar anuncio modelo"
-          className="pl-9"
-        />
-      </div>
+      <SearchInputWithClear value={query} onChange={setQuery} placeholder="Buscar anuncio modelo" />
 
       {filtered.length === 0 ? (
         <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">

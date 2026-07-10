@@ -312,7 +312,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
         </div>
       </div>
 
-      <div className="mt-1.5 flex justify-between px-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+      <div className="mt-1.5 flex justify-between px-0.5 text-2xs font-medium tabular-nums text-muted-foreground">
         <span>0</span>
         <span>25</span>
         <span>50</span>
@@ -356,7 +356,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
             )}
           </span>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-[11px] font-medium leading-tight text-primary-foreground-75">{eyebrow}</p>
+            <p className="text-2xs font-medium leading-tight text-primary-foreground-75">{eyebrow}</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-primary-foreground">{titleText}</p>
 
             {cancelling ? (
@@ -367,7 +367,7 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
               <>
                 <p className="pt-0.5 text-xs font-medium leading-snug text-destructive-300">{dynamicLine}</p>
                 {staged?.diagnosticLine && (
-                  <p className="pt-1 font-mono text-[10px] leading-snug text-destructive-300/70 break-all">{staged.diagnosticLine}</p>
+                  <p className="pt-1 font-mono text-2xs leading-snug text-destructive-300/70 break-all">{staged.diagnosticLine}</p>
                 )}
               </>
             ) : (
@@ -403,14 +403,14 @@ export function PausedToastCard({ packName, onReconnect, onCancel, animated = tr
             <IconAlertCircle />
           </span>
           <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-[11px] font-medium leading-tight text-primary-foreground-75">{packName}: Leadscore</p>
+            <p className="text-2xs font-medium leading-tight text-primary-foreground-75">{packName}: Leadscore</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-attention">Sincronização pausada</p>
             <p className="pt-0.5 text-sm leading-snug text-primary-foreground-82">Aguardando reconexão do Google para continuar a importação.</p>
           </div>
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" size="sm" variant="primary" shadow="md" onClick={onReconnect}>
+          <Button type="button" size="sm" onClick={onReconnect}>
             Reconectar Google
           </Button>
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>

@@ -1,14 +1,13 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { IconX, IconPlus, IconFilter, IconCheck, IconChevronDown } from "@tabler/icons-react";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { IconPlus, IconChevronDown } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { FilterValue, FilterOperator, TextFilterValue, TextFilterOperator, StatusFilterValue } from "@/components/common/ColumnFilter";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { CheckSquare } from "@/components/common/CheckSquare";
+import { FilterChip, FilterChipAction, FilterChipInput, FilterChipOperatorSelect } from "@/components/manager/FilterChip";
 import { getColumnId } from "@/lib/utils/columnFilters";
 
 interface FilterableColumn {
@@ -209,8 +208,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
               const selectedLabels = STATUS_OPTIONS.filter((o) => statusFilterValue.selectedStatuses?.includes(o.value)).map((o) => o.label);
 
               return (
-                <Badge key={filter.id} variant="outline" className="inline-flex items-center gap-1.5 px-2 py-1 h-8 text-xs font-medium bg-card border-border hover:bg-muted">
-                  <IconFilter className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <FilterChip key={filter.id}>
                   <Popover>
                     <PopoverTrigger asChild>
                       <button className="flex items-center gap-1 text-foreground hover:text-foreground-80 transition-colors">
@@ -224,7 +222,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                           const isChecked = statusFilterValue.selectedStatuses?.includes(option.value) ?? false;
                           return (
                             <button key={option.value} onClick={() => handleToggleStatus(option.value)} className="flex items-center gap-2 px-2 py-1.5 text-xs rounded-md hover:bg-muted transition-colors text-left">
-                              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${isChecked ? "bg-primary border-primary" : "border-border"}`}>{isChecked && <IconCheck className="w-3 h-3 text-primary-foreground" />}</div>
+                              <CheckSquare checked={isChecked} />
                               <span>{option.label}</span>
                             </button>
                           );
@@ -232,10 +230,8 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                       </div>
                     </PopoverContent>
                   </Popover>
-                  <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0 text-text hover:text-destructive" aria-label="Remover filtro Status">
-                    <IconX className="w-3 h-3" />
-                  </button>
-                </Badge>
+                  <FilterChipAction onRemove={() => handleRemoveFilter(filter.id)} label="Status" />
+                </FilterChip>
               );
             }
 
@@ -350,55 +346,22 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
               })();
 
               return (
-                <Badge key={filter.id} variant="outline" className="inline-flex items-center gap-1.5 px-2 py-1 h-8 text-xs font-medium bg-card border-border hover:bg-muted">
-                  <IconFilter className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+                <FilterChip key={filter.id}>
                   <span className="text-foreground whitespace-nowrap">{column.label}</span>
-
-                  <Select value={textFilterValue.operator} onValueChange={handleOperatorChange}>
-                    <SelectTrigger className="h-6 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus:ring-0 focus:ring-offset-0 w-fit h-auto gap-1.5">
-                      <SelectValue className="text-xs" />
-                    </SelectTrigger>
-                    <SelectContent disablePortal={true}>
-                      {textFilterOperators.map((op) => (
-                        <SelectItem key={op.value} value={op.value}>
-                          {op.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Input
+                  <FilterChipOperatorSelect value={textFilterValue.operator} onValueChange={handleOperatorChange} operators={textFilterOperators} />
+                  <FilterChipInput
                     ref={(el) => {
                       inputRefs.current[filter.id] = el;
                     }}
-                    type="text"
                     value={displayValue}
                     onChange={handleValueChange}
                     onBlur={handleValueBlur}
                     onKeyDown={handleValueKeyDown}
                     placeholder="Texto..."
-                    className="h-6 min-w-0 w-32 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0"
-                    onClick={(e) => e.stopPropagation()}
+                    widthClassName="w-32"
                   />
-
-                  {hasUnsavedChanges ? (
-                    <button
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        const currentInputValue = localInputValues[filter.id] ?? "";
-                        applyFilterValue(currentInputValue);
-                      }}
-                      className="ml-1 hover:bg-success-90 rounded-full p-0.5 transition-colors flex-shrink-0 bg-success"
-                      aria-label={`Aplicar filtro ${column.label}`}
-                    >
-                      <IconCheck className="w-3 h-3 text-success-foreground" />
-                    </button>
-                  ) : (
-                    <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0 text-text hover:text-destructive" aria-label={`Remover filtro ${column.label}`}>
-                      <IconX className="w-3 h-3" />
-                    </button>
-                  )}
-                </Badge>
+                  <FilterChipAction hasUnsavedChanges={hasUnsavedChanges} onApply={() => applyFilterValue(localInputValues[filter.id] ?? "")} onRemove={() => handleRemoveFilter(filter.id)} label={column.label} />
+                </FilterChip>
               );
             }
 
@@ -583,59 +546,26 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
             const placeholder = "Valor...";
 
             return (
-              <Badge key={filter.id} variant="outline" className="inline-flex items-center gap-1.5 px-2 py-1 h-8 text-xs font-medium bg-card border-border hover:bg-muted">
-                <IconFilter className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" />
+              <FilterChip key={filter.id}>
                 <span className="text-foreground whitespace-nowrap">{column.label}</span>
-
-                <Select value={numericFilterValue.operator} onValueChange={handleOperatorChange}>
-                  <SelectTrigger className="h-6 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus:ring-0 focus:ring-offset-0 w-fit h-auto gap-1.5">
-                    <SelectValue className="text-xs" />
-                  </SelectTrigger>
-                  <SelectContent disablePortal={true}>
-                    {filterOperators.map((op) => (
-                      <SelectItem key={op.value} value={op.value}>
-                        {op.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-
+                <FilterChipOperatorSelect value={numericFilterValue.operator} onValueChange={handleOperatorChange} operators={filterOperators} />
                 <div className="flex items-center gap-0.5">
-                  <Input
+                  <FilterChipInput
                     ref={(el) => {
                       inputRefs.current[filter.id] = el;
                     }}
-                    type="text"
                     value={displayValue}
                     onChange={handleValueChange}
                     onBlur={handleValueBlur}
                     onKeyDown={handleValueKeyDown}
                     placeholder={placeholder}
-                    className="h-6 min-w-0 w-16 px-2 py-0 text-xs border-0 bg-transparent hover:bg-muted-50 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                    onClick={(e) => e.stopPropagation()}
+                    widthClassName="w-16"
+                    className="[&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                   />
                   {column.isPercentage && <span className="text-muted-foreground text-xs">%</span>}
                 </div>
-
-                {hasUnsavedChanges ? (
-                  <button
-                    onMouseDown={(e) => {
-                      // Prevenir que o blur do input seja disparado antes do clique
-                      e.preventDefault();
-                      const currentInputValue = localInputValues[filter.id] ?? "";
-                      applyFilterValue(currentInputValue);
-                    }}
-                    className="ml-1 hover:bg-success-90 rounded-full p-0.5 transition-colors flex-shrink-0 bg-success"
-                    aria-label={`Aplicar filtro ${column.label}`}
-                  >
-                    <IconCheck className="w-3 h-3 text-success-foreground" />
-                  </button>
-                ) : (
-                  <button onClick={() => handleRemoveFilter(filter.id)} className="ml-1 hover:bg-muted rounded-full p-0.5 transition-colors flex-shrink-0 text-text hover:text-destructive" aria-label={`Remover filtro ${column.label}`}>
-                    <IconX className="w-3 h-3" />
-                  </button>
-                )}
-              </Badge>
+                <FilterChipAction hasUnsavedChanges={hasUnsavedChanges} onApply={() => applyFilterValue(localInputValues[filter.id] ?? "")} onRemove={() => handleRemoveFilter(filter.id)} label={column.label} />
+              </FilterChip>
             );
           })}
         </div>
@@ -648,7 +578,7 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
           )}
           {availableColumns.length > 0 && (
             <Select key={selectKey} value={selectValue || undefined} onValueChange={handleAddFilter}>
-              <SelectTrigger className="h-8 w-auto border-border bg-input-30 px-3">
+              <SelectTrigger className="w-auto border-border bg-input-30 px-3">
                 <div className="flex items-center gap-1.5">
                   <IconPlus className="w-3.5 h-3.5 text-muted-foreground" />
                   <span className="text-xs">Add filter</span>

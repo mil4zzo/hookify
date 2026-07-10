@@ -8,13 +8,11 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
   variants: {
     variant: {
       default: "primary-gradient text-primary-foreground border border-primary-foreground-5 has-[>svg]:px-3",
-      primary: "bg-primary text-primary-foreground border border-primary-foreground-5 has-[>svg]:px-3",
-      neutral: "neutral-gradient text-primary-foreground border border-primary-foreground-5 has-[>svg]:px-3",
       success: "success-gradient text-primary-foreground border border-primary-foreground-5 has-[>svg]:px-3",
       destructive: "destructive-gradient text-primary-foreground border border-primary-foreground-5",
-      destructiveOutline: "border border-destructive-50 text-destructive bg-transparent hover:border-destructive hover:bg-destructive-10 has-[>svg]:px-3",
-      outline: "border hover:bg-accent hover:text-accent-foreground border-border has-[>svg]:px-3",
-      secondary: "border bg-input-30 hover:bg-accent hover:text-accent-foreground border-border has-[>svg]:px-3",
+      destructiveOutline: "border border-destructive-50 text-destructive bg-transparent hover:border-destructive hover:bg-destructive-10 shadow-elevation-raised has-[>svg]:px-3",
+      outline: "border hover:bg-accent hover:text-accent-foreground border-border shadow-elevation-raised has-[>svg]:px-3",
+      secondary: "border bg-input-30 hover:bg-accent hover:text-accent-foreground border-border shadow-elevation-raised has-[>svg]:px-3",
       ghost: "hover:bg-accent hover:text-accent-foreground",
       link: "text-brand underline-offset-4 hover:underline",
     },
@@ -24,38 +22,10 @@ const buttonVariants = cva("inline-flex items-center justify-center gap-2 whites
       lg: "h-control-large py-2 px-8",
       icon: "h-control-default w-control-default",
     },
-    shadow: {
-      auto: null,
-      none: "shadow-none",
-      xs: "shadow-xs",
-      sm: "shadow-sm",
-      md: "shadow-md",
-      lg: "shadow-elevation-raised",
-      xl: "shadow-elevation-overlay",
-      "2xl": "shadow-elevation-overlay",
-    },
   },
-  compoundVariants: [
-    {
-      variant: "destructiveOutline",
-      shadow: "auto",
-      className: "shadow-xs",
-    },
-    {
-      variant: "outline",
-      shadow: "auto",
-      className: "shadow-xs",
-    },
-    {
-      variant: "secondary",
-      shadow: "auto",
-      className: "shadow-xs",
-    },
-  ],
   defaultVariants: {
     variant: "default",
     size: "default",
-    shadow: "auto",
   },
 });
 
@@ -63,9 +33,9 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   asChild?: boolean;
 }
 
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ className, variant, size, shadow, asChild = false, ...props }, ref) => {
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(({ className, variant, size, asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot : "button";
-  return <Comp data-slot="button" className={cn(buttonVariants({ variant, size, shadow, className }))} ref={ref} {...props} />;
+  return <Comp data-slot="button" className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
 });
 Button.displayName = "Button";
 

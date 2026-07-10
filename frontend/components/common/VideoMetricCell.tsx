@@ -46,7 +46,7 @@ export function VideoMetricCell({ label, value, valueClassName, deltaDisplay, su
 
   return (
     <div className={`min-w-0 rounded border pb-2 transition-colors transition-shadow ${qualitySurfaceClass}`}>
-      <div className={`mb-2 flex gap-2 border-b border-border p-2 text-[10px] text-muted-foreground ${hasHeaderMeta ? "items-center justify-between" : "flex-col"}`}>
+      <div className={`mb-2 flex gap-2 border-b border-border p-2 text-2xs text-muted-foreground ${hasHeaderMeta ? "items-center justify-between" : "flex-col"}`}>
         <span className={hasHeaderMeta ? "min-w-0 truncate" : ""}>{label}</span>
         {hasHeaderMeta ? <div className="min-w-0 flex flex-col items-end text-right leading-tight">{subtitleInLabelRow && subtitle ? <span className="truncate">{subtitle}</span> : null}</div> : null}
         {!subtitleInLabelRow && subtitle ? <span className="mt-0.5">{subtitle}</span> : null}
@@ -56,7 +56,7 @@ export function VideoMetricCell({ label, value, valueClassName, deltaDisplay, su
         <div className="min-w-0 flex flex-col items-start text-left">
           <div className={`${valueClassName ?? "text-md"} font-semibold leading-tight ${qualityValueClass}`.trim()}>{value}</div>
           {averageDisplay ? (
-            <div className="mt-0.5 text-left text-[10px] leading-tight text-muted-foreground">
+            <div className="mt-0.5 text-left text-2xs leading-tight text-muted-foreground">
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>

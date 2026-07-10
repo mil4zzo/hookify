@@ -1,8 +1,9 @@
 "use client"
 
 import { memo, useCallback, useMemo, useState } from "react"
-import { IconCheck, IconSearch, IconX } from "@tabler/icons-react"
-import { Input } from "@/components/ui/input"
+import { IconSearch } from "@tabler/icons-react"
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear"
+import { CheckSquare } from "@/components/common/CheckSquare"
 import { Button } from "@/components/ui/button"
 import type { AdsTreeResponse } from "@/lib/api/schemas"
 
@@ -85,24 +86,7 @@ const AdsetSelector = memo(function AdsetSelector({ data, selectedAdsetIds, onCh
     <div className="flex flex-col gap-3 min-h-0">
       {/* Header + controls */}
       <div className="flex items-center gap-3">
-        <div className="relative flex-1">
-          <IconSearch className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar por conjunto ou campanha…"
-            className="pl-9 pr-8"
-          />
-          {query && (
-            <button
-              type="button"
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              onClick={() => setQuery("")}
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
+        <SearchInputWithClear value={query} onChange={setQuery} placeholder="Buscar por conjunto ou campanha…" wrapperClassName="flex-1" />
         <Button
           type="button"
           variant="outline"
@@ -159,11 +143,7 @@ const AdsetSelector = memo(function AdsetSelector({ data, selectedAdsetIds, onCh
                         className={`group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted-40 cursor-pointer ${isSelected ? "bg-primary-5 hover:bg-primary-10" : ""}`}
                       >
                         {/* Checkbox visual */}
-                        <div
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${isSelected ? "border-primary bg-primary" : "border-border group-hover:border-primary-60"}`}
-                        >
-                          {isSelected && <IconCheck className="h-2.5 w-2.5 text-primary-foreground" />}
-                        </div>
+                        <CheckSquare checked={isSelected} className={isSelected ? undefined : "group-hover:border-primary-60"} />
 
                         {/* Info */}
                         <div className="min-w-0 flex-1">

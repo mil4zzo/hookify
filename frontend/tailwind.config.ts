@@ -163,8 +163,9 @@ export default {
         "control-compact": "2rem",
         "control-default": "2.5rem",
         "control-large": "3rem",
+        // row-*: alturas de linha das tabelas do manager — espelhadas em MANAGER_ROW_HEIGHT
+        // (components/manager/tableContentTypes.ts). Alterar os dois juntos.
         "row-compact": "2.5rem",
-        "row-default": "3.5rem",
         "row-detailed": "7.5rem",
         "widget-compact": "0.75rem",
         "widget-default": "1rem",
@@ -175,13 +176,15 @@ export default {
         "grid-compact": "0.75rem",
         grid: "1rem",
         "grid-spacious": "1.5rem",
-        workspace: "1.5rem",
+      },
+      fontSize: {
+        // Caption/overline: menor que text-xs (12px). Único degrau abaixo da escala core —
+        // não criar text-3xs; densidades menores que 10px não são legíveis no app.
+        "2xs": ["0.625rem", { lineHeight: "0.875rem" }],
       },
       boxShadow: {
-        xs: "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
-        sm: "0 1px 2px rgba(0,0,0,0.25)",
-        md: "0 4px 8px rgba(0,0,0,0.25)",
-        lg: "0 12px 24px rgba(0,0,0,0.30)",
+        // Única escala de elevação do app — shadow-sm/md/lg crus caem no default do Tailwind
+        // e são apontados pelo checker (regra raw-shadow). Não recriar overrides xs/sm/md/lg.
         "elevation-flat": "none",
         "elevation-raised": "0 1px 2px color-mix(in oklab, var(--foreground) 14%, transparent)",
         "elevation-overlay": "0 18px 50px color-mix(in oklab, var(--foreground) 22%, transparent)",
@@ -192,6 +195,7 @@ export default {
         overlay: "50",
         modal: "60",
         toast: "80",
+        tooltip: "90",
       },
       fontFamily: {
         sans: ["var(--font-geist)", "ui-sans-serif", "system-ui", "sans-serif"],

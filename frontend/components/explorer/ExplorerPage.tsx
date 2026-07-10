@@ -32,7 +32,7 @@ function SignalList({ title, icon: Icon, items }: { title: string; icon: typeof 
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-primary shadow-sm">
+        <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-primary shadow-elevation-raised">
           <Icon className="h-4 w-4" />
         </div>
         <div className="space-y-1">
@@ -43,7 +43,7 @@ function SignalList({ title, icon: Icon, items }: { title: string; icon: typeof 
 
       <div className="space-y-3">
         {items.map((item) => (
-          <div key={`${title}-${item.title}`} className={cn("rounded-md border p-5 shadow-sm transition-colors", getToneStyles(item.tone))}>
+          <div key={`${title}-${item.title}`} className={cn("rounded-md border p-5 shadow-elevation-raised transition-colors", getToneStyles(item.tone))}>
             <div className="flex items-start gap-2">
               <span className="inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full bg-background-70">
                 <IconCircleCheckFilled className="h-3.5 w-3.5" />
@@ -153,7 +153,7 @@ function ExplorerBodySkeleton() {
       </div>
 
       <div className="grid gap-8 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
-        <div className="w-full max-w-[260px] shadow-md">
+        <div className="w-full max-w-[260px] shadow-elevation-overlay">
           <div className="relative rounded-lg border-8 border-surface bg-black/60" style={{ aspectRatio: "9 / 16" }}>
             <RetentionVideoPlayerSkeleton />
           </div>
@@ -302,7 +302,7 @@ export function ExplorerPage() {
         ) : (
         <PageBodyStack className="space-y-10">
           <div className="grid gap-8 xl:grid-cols-[260px_minmax(0,1fr)] xl:items-start">
-            <div className="w-full max-w-[260px] shadow-md">
+            <div className="w-full max-w-[260px] shadow-elevation-overlay">
               <div className="relative rounded-lg border-8 border-surface bg-black/60" style={{ aspectRatio: "9 / 16" }}>
                 {isLoadingMedia ? <RetentionVideoPlayerSkeleton /> : selectedDetail.detail.videoSourceUrl ? <RetentionVideoPlayer src={selectedDetail.detail.videoSourceUrl} retentionCurve={selectedDetail.detail.retentionSeries} showRetentionYAxisLabels={false} /> : <div className="flex h-full items-center justify-center p-6 text-center text-sm text-muted-foreground">Video nao disponivel para este criativo.</div>}
               </div>

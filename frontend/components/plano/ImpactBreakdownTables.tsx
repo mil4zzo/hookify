@@ -128,7 +128,7 @@ function ValueStackCell({
   const inner = (
     <span className="inline-flex cursor-default flex-col items-center leading-tight">
       <span className={`text-sm font-semibold tabular-nums ${valueCls}`}>{valueText}</span>
-      {prevText != null && <span className="text-[11px] tabular-nums text-muted-foreground">{prevText}</span>}
+      {prevText != null && <span className="text-2xs tabular-nums text-muted-foreground">{prevText}</span>}
     </span>
   );
 
@@ -208,7 +208,7 @@ function SpendShareBar({
             )}
           </span>
         </div>
-        {prevText != null && <span className="text-[11px] tabular-nums text-muted-foreground">{prevText}</span>}
+        {prevText != null && <span className="text-2xs tabular-nums text-muted-foreground">{prevText}</span>}
       </div>
     </div>
   );

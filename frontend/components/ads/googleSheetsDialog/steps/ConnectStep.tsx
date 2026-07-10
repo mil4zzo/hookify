@@ -53,22 +53,22 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
                   </div>
                   <div className="flex items-center gap-2">
                     {isTesting ? (
-                      <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs" disabled>
+                      <Button type="button" variant="outline" size="sm" className="px-3 text-xs" disabled>
                         <IconLoader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                         Verificando...
                       </Button>
                     ) : isExpired ? (
                       <>
-                        <Button type="button" variant="default" size="sm" className="h-8 text-xs" onClick={(e) => onReconnect(conn.id, e)} disabled={isConnecting || isDeletingConnection}>
+                        <Button type="button" variant="default" size="sm" className="text-xs" onClick={(e) => onReconnect(conn.id, e)} disabled={isConnecting || isDeletingConnection}>
                           Reconectar
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title="Deletar conexão">
+                        <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title="Deletar conexão">
                           <IconTrash className="w-4 h-4" />
                         </Button>
                       </>
                     ) : (
                       <>
-                        <Button type="button" variant="outline" size="sm" className="h-8 px-3 text-xs border-border" onClick={(e) => onRetest(conn.id, e)} disabled={isDeletingConnection} title="Verificar novamente">
+                        <Button type="button" variant="outline" size="sm" className="px-3 text-xs border-border" onClick={(e) => onRetest(conn.id, e)} disabled={isDeletingConnection} title="Verificar novamente">
                           <div className="flex items-center gap-1.5">
                             <IconCheck className="w-3.5 h-3.5 text-success" />
                             <span className="text-success font-medium">Conectada</span>
@@ -76,7 +76,7 @@ export function ConnectStep({ connections, selectedConnectionId, isLoadingConnec
                             <IconRefresh className="w-3.5 h-3.5 text-muted-foreground" />
                           </div>
                         </Button>
-                        <Button type="button" variant="ghost" size="sm" className="h-8 w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title="Deletar conexão">
+                        <Button type="button" variant="ghost" size="sm" className="w-8 p-0 text-destructive hover:text-destructive hover:bg-destructive-10" onClick={(e) => onDelete(conn.id, e)} disabled={isDeletingConnection} title="Deletar conexão">
                           <IconTrash className="w-4 h-4" />
                         </Button>
                       </>

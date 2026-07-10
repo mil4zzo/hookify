@@ -101,7 +101,7 @@ export function AccentCard({
                 </TooltipProvider>
               ) : null}
             </div>
-            {subtitle ? <div className="truncate text-[11px] leading-tight text-muted-foreground">{subtitle}</div> : null}
+            {subtitle ? <div className="truncate text-2xs leading-tight text-muted-foreground">{subtitle}</div> : null}
           </div>
         </div>
         {trailing ? <div className="flex-shrink-0">{trailing}</div> : null}

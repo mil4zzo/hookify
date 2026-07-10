@@ -73,7 +73,7 @@ export function GenericColumn({ title, items, colorScheme, averageValue, renderC
           </div>
 
           <div className="flex items-center gap-2">
-            {showAverage ? <span className="text-[11px] text-muted-foreground">Média: {formatAverageValue(averageValue)}</span> : null}
+            {showAverage ? <span className="text-2xs text-muted-foreground">Média: {formatAverageValue(averageValue)}</span> : null}
             {headerRight}
           </div>
         </div>

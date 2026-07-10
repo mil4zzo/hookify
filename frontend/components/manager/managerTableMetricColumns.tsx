@@ -48,7 +48,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     const hasFilters = hasActiveFilters && !!filteredAveragesRef.current;
     const filteredAvg = formatFilteredAverageRef.current(metricId);
     const displayFilterValue: FilterValue | undefined = Array.isArray(filterValue) ? (filterValue.length > 0 ? filterValue[0] : undefined) : (filterValue ?? undefined);
-    const textSize = isMinimal ? "text-[10px]" : "text-xs";
+    const textSize = isMinimal ? "text-2xs" : "text-xs";
     const iconSize = isMinimal ? "w-2.5 h-2.5" : "w-3 h-3";
     const avgLeading = isMinimal ? "leading-none" : "";
     const isSum = sumMetrics.has(metricId);
@@ -340,7 +340,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
             const displayFilterValue: FilterValue | undefined = Array.isArray(filterValue) ? (filterValue.length > 0 ? filterValue[0] : undefined) : (filterValue ?? undefined);
             const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
             const hasFilters = hasActiveFilters && !!filteredAveragesRef.current;
-            const textSize = isMinimal ? "text-[10px]" : "text-xs";
+            const textSize = isMinimal ? "text-2xs" : "text-xs";
             const iconSize = isMinimal ? "w-2.5 h-2.5" : "w-3 h-3";
             const avgLeading = isMinimal ? "leading-none" : "";
             return (

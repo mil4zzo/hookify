@@ -160,7 +160,7 @@ export function GlobalSearch({ isCollapsed = false, className }: GlobalSearchPro
       <Button
         variant="ghost"
         size="sm"
-        className={cn("justify-center h-9 hover:bg-input-30 w-full", className)}
+        className={cn("justify-center hover:bg-input-30 w-full", className)}
         title="Search"
         onClick={() => {
           // Quando clicar no botão colapsado, não faz nada por enquanto
@@ -181,12 +181,12 @@ export function GlobalSearch({ isCollapsed = false, className }: GlobalSearchPro
         placeholder="Buscar..."
         inputRef={inputRef}
         onFocus={handleInputFocus}
-        inputClassName="h-9 bg-input-30 border-border text-text placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+        inputClassName="bg-input-30 border-border text-text placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
       />
 
       {/* Dropdown de Resultados */}
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-lg z-50 max-h-[400px] overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-1 bg-popover border border-border rounded-md shadow-elevation-overlay z-dropdown max-h-[400px] overflow-y-auto">
           {isLoading && results.length === 0 ? (
             <div className="p-4 text-center text-sm text-muted-foreground">
               <IconLoader2 className="h-4 w-4 animate-spin mx-auto mb-2" />

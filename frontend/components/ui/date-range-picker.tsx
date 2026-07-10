@@ -255,7 +255,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
   const isButtonDisabled = disabled || isLoadingPackDates;
 
   const buttonContent = (
-    <FilterSelectButton id="date" type="button" disabled={isButtonDisabled} onClick={useModal ? handleModalOpen : undefined} iconPosition="start" icon={<CalendarIcon className="mr-2 h-4 w-4 flex-shrink-0" />} showCaretDown={false} className={cn("justify-start text-left font-normal", "h-10", !currentDateRange?.from && "text-muted-foreground")}>
+    <FilterSelectButton id="date" type="button" disabled={isButtonDisabled} onClick={useModal ? handleModalOpen : undefined} iconPosition="start" icon={<CalendarIcon className="mr-2 h-4 w-4 flex-shrink-0" />} showCaretDown={false} className={cn("justify-start text-left font-normal", !currentDateRange?.from && "text-muted-foreground")}>
       {isLoadingPackDates ? (
         <span className="text-muted-foreground flex items-center gap-2">
           <Skeleton className="h-4 w-24" />
@@ -321,7 +321,9 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
           title="Selecionar Período"
           size="full"
           padding="lg"
+          // design-system-exception: arbitrary-z-index - modal sobre modal: precisa vencer z-modal (60) do dialog que o abriu; não há token de segundo nível
           className="z-[80] !max-w-[95vw] sm:!max-w-[min(95vw,45rem)] md:!max-w-[min(95vw,48rem)]"
+          // design-system-exception: arbitrary-z-index - overlay do modal aninhado, acima do conteúdo do modal pai (60)
           overlayClassName="z-[70]"
         >
           <div className="space-y-4 sm:space-y-6 w-full">
@@ -339,10 +341,10 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
             </div>
 
             <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 pt-4 sm:pt-5 border-t border-border">
-              <Button variant="outline" onClick={handleCancel} className="w-full sm:w-auto text-sm sm:text-base h-10 sm:h-11">
+              <Button variant="outline" onClick={handleCancel} className="w-full sm:w-auto text-sm">
                 Cancelar
               </Button>
-              <Button onClick={handleConfirm} variant={hasDateChangesModal ? "default" : "ghost"} disabled={!tempDateRange?.from || !tempDateRange?.to} className="w-full sm:w-auto text-sm sm:text-base h-10 sm:h-11">
+              <Button onClick={handleConfirm} variant={hasDateChangesModal ? "default" : "ghost"} disabled={!tempDateRange?.from || !tempDateRange?.to} className="w-full sm:w-auto text-sm">
                 Confirmar
               </Button>
             </div>
@@ -358,7 +360,7 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
       {showLabel && label && <label className="text-sm font-medium">{label}</label>}
       <Popover open={isPopoverOpen} onOpenChange={handlePopoverOpenChange}>
         <PopoverTrigger asChild>{buttonContent}</PopoverTrigger>
-        <PopoverContent className="w-auto p-0 z-[10000] max-w-[95vw] sm:max-w-none" align="start">
+        <PopoverContent className="w-auto p-0 z-dropdown max-w-[95vw] sm:max-w-none" align="start">
           <div className="space-y-2">
             {showPackDatesSwitch && onUsePackDatesChange && <ToggleSwitch id="use-pack-dates-popover" checked={usePackDates} onCheckedChange={onUsePackDatesChange} label="Usar datas dos packs" variant="default" size="md" />}
             <div className={cn("relative", usePackDates && "opacity-50 pointer-events-none")}>
@@ -366,10 +368,10 @@ export function DateRangePicker({ date, onDateChange, className, placeholder = "
             </div>
             {requireConfirmation && (
               <div className="flex flex-col-reverse sm:flex-row justify-end gap-2 sm:gap-3 p-3 pt-2 border-t border-border">
-                <Button variant="outline" onClick={handlePopoverCancel} className="w-full sm:w-auto text-sm sm:text-base h-9 sm:h-10">
+                <Button variant="outline" onClick={handlePopoverCancel} className="w-full sm:w-auto text-sm sm:text-base">
                   Cancelar
                 </Button>
-                <Button variant={hasDateChangesPopover ? "default" : "ghost"} onClick={handlePopoverConfirm} disabled={!tempDateRangePopover?.from || !tempDateRangePopover?.to} className="w-full sm:w-auto text-sm sm:text-base h-9 sm:h-10">
+                <Button variant={hasDateChangesPopover ? "default" : "ghost"} onClick={handlePopoverConfirm} disabled={!tempDateRangePopover?.from || !tempDateRangePopover?.to} className="w-full sm:w-auto text-sm sm:text-base">
                   Aplicar
                 </Button>
               </div>

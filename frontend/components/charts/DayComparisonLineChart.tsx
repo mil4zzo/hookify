@@ -312,7 +312,7 @@ function Inner({ series, tone, isCurrency = true, height: heightProp, valueLabel
 
               return (
                 <div
-                  className="absolute z-20 min-w-[132px] pointer-events-none rounded-md border border-border bg-background px-3 py-2 text-xs shadow-lg"
+                  className="absolute z-20 min-w-[132px] pointer-events-none rounded-md border border-border bg-background px-3 py-2 text-xs shadow-elevation-overlay"
                   style={{ bottom: bottomOffset, left: Math.min(Math.max(0, xScale(hover) + margin.left - 70), (width || 300) - 150) }}
                 >
                   <div className="flex items-center gap-1.5 text-muted-foreground">

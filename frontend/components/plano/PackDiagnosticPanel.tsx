@@ -109,10 +109,10 @@ export function PackDiagnosticPanel({
             O que mudou no período
           </span>
           {comparisonLabel && (
-            <span className="text-[10px] text-muted-foreground">{comparisonLabel}</span>
+            <span className="text-2xs text-muted-foreground">{comparisonLabel}</span>
           )}
           {decomposition && !decomposition.minVolumeOk && (
-            <span className="text-[10px] text-warning bg-warning-10 border border-warning-20 px-1.5 py-0.5 rounded font-medium">
+            <span className="text-2xs text-warning bg-warning-10 border border-warning-20 px-1.5 py-0.5 rounded font-medium">
               Volume baixo
             </span>
           )}

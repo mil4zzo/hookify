@@ -228,7 +228,7 @@ export default function WaitlistPage() {
                   <span className="h-2.5 w-2.5 rounded-full bg-success" />
                 </div>
                 <span className="font-mono text-xs text-muted-foreground">hookify · rankings</span>
-                <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-success-30 bg-success-10 px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-success">
+                <span className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-success-30 bg-success-10 px-2 py-0.5 font-mono text-2xs uppercase tracking-[0.16em] text-success">
                   <span className="lp-blink h-1.5 w-1.5 rounded-full bg-success" aria-hidden="true" />
                   Live
                 </span>
@@ -237,11 +237,11 @@ export default function WaitlistPage() {
               {/* Placar */}
               <div className="p-4 md:p-5">
                 <div className="grid grid-cols-[auto_1fr_repeat(3,auto)] items-center gap-x-3 gap-y-1 md:gap-x-5">
-                  <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">#</div>
-                  <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Criativo</div>
-                  <div className="text-right font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Hook</div>
-                  <div className="text-right font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">CTR</div>
-                  <div className="text-right font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">CPR</div>
+                  <div className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">#</div>
+                  <div className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">Criativo</div>
+                  <div className="text-right font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">Hook</div>
+                  <div className="text-right font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">CTR</div>
+                  <div className="text-right font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">CPR</div>
                   <div className="col-span-5 my-1 h-px bg-border" />
 
                   {SCOREBOARD.map((row, i) => (
@@ -259,11 +259,11 @@ export default function WaitlistPage() {
                         <span className={`truncate font-mono text-sm ${row.dim ? "text-muted-foreground" : "text-text"}`}>
                           {row.name}
                         </span>
-                        <span className="hidden shrink-0 rounded-sm bg-surface-fill px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-muted-foreground sm:inline">
+                        <span className="hidden shrink-0 rounded-sm bg-surface-fill px-1.5 py-0.5 font-mono text-2xs uppercase tracking-wide text-muted-foreground sm:inline">
                           {row.tag}
                         </span>
                         {row.top && (
-                          <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-primary px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-primary-foreground">
+                          <span className="inline-flex shrink-0 items-center gap-1 rounded-sm bg-primary px-1.5 py-0.5 font-mono text-2xs font-semibold uppercase tracking-wide text-primary-foreground">
                             <IconArrowUpRight size={11} stroke={2.5} aria-hidden="true" />
                             Top
                           </span>
@@ -385,7 +385,7 @@ export default function WaitlistPage() {
             {/* Mini-painel de métricas com destaque para o "vencedor" */}
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-2">
               <div className="rounded-lg border border-primary-30 bg-primary-10 p-4">
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-primary">Hook · campeão</p>
+                <p className="font-mono text-2xs uppercase tracking-[0.16em] text-primary">Hook · campeão</p>
                 <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">0.38</p>
                 <p className="mt-1 inline-flex items-center gap-1 font-mono text-xs text-success">
                   <IconArrowUpRight size={13} stroke={2.5} aria-hidden="true" />
@@ -393,17 +393,17 @@ export default function WaitlistPage() {
                 </p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">CTR</p>
+                <p className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">CTR</p>
                 <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">2.1%</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">link click</p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">CPR</p>
+                <p className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">CPR</p>
                 <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">R$ 12</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">custo / resultado</p>
               </div>
               <div className="rounded-lg border border-border bg-card p-4">
-                <p className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Leadscore</p>
+                <p className="font-mono text-2xs uppercase tracking-[0.16em] text-muted-foreground">Leadscore</p>
                 <p className="mt-2 font-mono text-3xl font-semibold tabular-nums text-text">8.4</p>
                 <p className="mt-1 font-mono text-xs text-muted-foreground">via Google Sheets</p>
               </div>

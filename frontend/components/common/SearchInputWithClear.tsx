@@ -2,16 +2,18 @@
 
 import React from "react";
 import { IconSearch, IconX } from "@tabler/icons-react";
-import { Input } from "@/components/ui/input";
+import { Input, type InputProps } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 
-export interface SearchInputWithClearProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type"> {
+export interface SearchInputWithClearProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "type" | "size"> {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
+  /** Variant de altura do Input ("default" 40px | "sm" 32px) — repassada ao Input. */
+  size?: InputProps["size"];
   /** Classes do wrapper (ex: w-72, flex-shrink-0) */
   wrapperClassName?: string;
-  /** Classes do input (ex: h-9, h-10, text-xs) - pl-9 pr-9 são sempre aplicados */
+  /** Classes do input (ex: text-xs) - pl-9 pr-9 são sempre aplicados */
   inputClassName?: string;
   inputRef?: React.Ref<HTMLInputElement>;
   /** Callback ao limpar - default: onChange("") */

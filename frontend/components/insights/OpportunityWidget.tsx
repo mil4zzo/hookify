@@ -210,7 +210,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
 
       {/* Botão anterior */}
       {canScrollLeft && (
-        <Button variant="outline" size="icon" className="absolute left-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full shadow-lg bg-background-80 backdrop-blur-sm hover:bg-background" onClick={scrollLeft} aria-label="Anterior">
+        <Button variant="outline" size="icon" className="absolute left-0 top-1/2 -translate-y-1/2 z-10 rounded-full shadow-elevation-overlay bg-background-80 backdrop-blur-sm hover:bg-background" onClick={scrollLeft} aria-label="Anterior">
           <IconChevronLeft className="h-5 w-5" />
         </Button>
       )}
@@ -228,7 +228,7 @@ export function OpportunityWidget({ rows, averages, actionType, onAdClick, globa
 
       {/* Botão próximo */}
       {canScrollRight && (
-        <Button variant="outline" size="icon" className="absolute right-0 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full shadow-lg bg-background-80 backdrop-blur-sm hover:bg-background" onClick={scrollRight} aria-label="Próximo">
+        <Button variant="outline" size="icon" className="absolute right-0 top-1/2 -translate-y-1/2 z-10 rounded-full shadow-elevation-overlay bg-background-80 backdrop-blur-sm hover:bg-background" onClick={scrollRight} aria-label="Próximo">
           <IconChevronRight className="h-5 w-5" />
         </Button>
       )}
@@ -358,12 +358,12 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
         {/* CPR destacado: Atual → Meta */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <span className="text-[10px] text-muted-foreground font-medium uppercase">CPR Atual</span>
+            <span className="text-2xs text-muted-foreground font-medium uppercase">CPR Atual</span>
             <span className={`${getValueColor(r.cpr_actual, avgCpr, true)} text-lg font-bold leading-none flex items-stretch gap-1`}>{formatCurrencyWithSmallSymbol(formatCurrency(r.cpr_actual))}</span>
           </div>
           <div className="text-foreground text-xl font-bold">→</div>
           <div className="flex flex-col items-end gap-1">
-            <span className="text-[10px] text-muted-foreground font-medium uppercase">CPR Meta</span>
+            <span className="text-2xs text-muted-foreground font-medium uppercase">CPR Meta</span>
             <span className={`${getValueColor(cprObjective, avgCpr, true)} text-lg font-bold leading-none flex items-stretch gap-1`}>{formatCurrencyWithSmallSymbol(formatCurrency(cprObjective))}</span>
           </div>
         </div>
@@ -373,7 +373,7 @@ function OpportunityCard({ row, idx, formatCurrency, avgHook, avgHoldRate, avgWe
         {/* Tabela de métricas na parte inferior */}
         <div className="flex-shrink-0 space-y-2">
           {/* Headers */}
-          <div className="grid grid-cols-7 gap-2 text-muted-foreground text-[10px] font-medium mb-1 px-3">
+          <div className="grid grid-cols-7 gap-2 text-muted-foreground text-2xs font-medium mb-1 px-3">
             <div className="col-span-3 flex items-center">MÉTRICA</div>
             <div className="col-span-2 flex items-center justify-end">ATUAL</div>
             <div className="col-span-2 flex items-center justify-end">MÉDIA</div>

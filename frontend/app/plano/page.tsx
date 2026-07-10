@@ -41,6 +41,7 @@ export default function PlanoPage() {
   const { targetCprByActionType, diagnosticCostMetric, savePreferences, isSaving } = useUserPreferences();
 
   const {
+    serverData,
     filteredRankings,
     validatedAds,
     notValidatedAds,
@@ -51,11 +52,16 @@ export default function PlanoPage() {
   } = useAdPerformancePipeline();
 
   // ─── Diagnostic hook (single series fetch for both hero + panel) ───────────
-  // Descriptive surface → feed it ALL ads (filteredRankings), not just validatedAds:
-  // spend/CPR/CPM must match the Meta Ads Manager. Validation stays on the action
-  // plan below (judgment). See the "métricas globais" principle.
+  // Descriptive surface → feed it serverData (ALL ads the server scoped to the
+  // selected packs via pack_ids), NOT filteredRankings. filteredRankings applies a
+  // SECOND, client-side pack-membership filter (packsAdsMap) on top of the server's
+  // scoping; the two can drift, dropping ads and making CPR/Connect Rate diverge from
+  // the identical widget on /insights (which feeds serverData). The diagnostic must
+  // match the Meta Ads Manager, so it sums over the server-scoped set — same as the
+  // series RPC, which also scopes by pack_ids. Validation/judgment (action plan,
+  // G.O.L.D.) below keeps using filteredRankings. See the "métricas globais" principle.
   const diagnostic = usePackDiagnostic({
-    ads: (filteredRankings ?? []) as RankingsItem[],
+    ads: (serverData ?? []) as RankingsItem[],
     actionType: actionType ?? "",
     selectedPackIds,
     dateRange: { start: dateRange.start ?? "", end: dateRange.end ?? "" },

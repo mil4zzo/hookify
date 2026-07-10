@@ -266,7 +266,7 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
 
             {/* Delta summary */}
             {deltaCurrency != null && targetPrev != null && (
-              <div className="absolute top-1 right-2 text-[10px] text-muted-foreground">
+              <div className="absolute top-1 right-2 text-2xs text-muted-foreground">
                 {deltaCurrency > 0 ? "+" : ""}{formatCurrency(deltaCurrency)}
                 {" "}({((deltaCurrency / targetPrev) * 100).toFixed(0)}%)
               </div>
@@ -281,7 +281,7 @@ function DriverWaterfallInner({ decomposition, selectedDriver, onSelectDriver }:
 export function DriverWaterfall(props: DriverWaterfallProps) {
   return (
     <div className="w-full min-w-0">
-      <div className="text-[11px] font-medium text-muted-foreground mb-1">O que causou a mudança? <span className="font-normal">(clique para ver os anúncios)</span></div>
+      <div className="text-2xs font-medium text-muted-foreground mb-1">O que causou a mudança? <span className="font-normal">(clique para ver os anúncios)</span></div>
       <DriverWaterfallInner {...props} />
     </div>
   );

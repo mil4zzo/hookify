@@ -299,15 +299,15 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                 {/* Nome do anúncio e resumo abaixo */}
                 <div className="space-y-0.5">
                   <div className="flex items-center justify-between gap-2 min-w-0">
-                    <p className="truncate text-[13px] font-medium text-white flex-1 min-w-0" title={ad.ad_name || undefined}>
+                    <p className="truncate text-xs font-medium text-foreground flex-1 min-w-0" title={ad.ad_name || undefined}>
                       {ad.ad_name || "Sem nome"}
                     </p>
                     {/* Rank badge na mesma linha do título */}
-                    <div className={cn("flex items-center justify-center text-[11px] font-bold transition-all flex-shrink-0 px-2 py-1 rounded text-muted-foreground")} style={rankBadgeStyles || undefined}>
+                    <div className={cn("flex items-center justify-center text-2xs font-bold transition-all flex-shrink-0 px-2 py-1 rounded text-muted-foreground")} style={rankBadgeStyles || undefined}>
                       <span style={{ color: rankTextColor }}>#{rank}</span>
                     </div>
                   </div>
-                  <p className="text-[11px] text-muted-foreground flex items-center gap-3">
+                  <p className="text-2xs text-muted-foreground flex items-center gap-3">
                     <AdStatusIcon status={(ad as any).effective_status} />
                     <span className="leading-none">{formatCurrency(spend)}</span>
                     <span className="flex items-center gap-1">
@@ -321,12 +321,12 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
                   <div className="flex flex-row items-end justify-between gap-1 mt-auto">
                     <div className="flex flex-col items-start">
                       <span className="text-sm font-medium text-muted-foreground">{highlightedMetric.label}</span>
-                      <span className="text-xl sm:text-xl font-extrabold leading-none sm:leading-none text-white">{highlightedMetric.formatted}</span>
+                      <span className="text-xl sm:text-xl font-extrabold leading-none sm:leading-none text-foreground">{highlightedMetric.formatted}</span>
                     </div>
                     {/* Barra de comparação com a média - posicionada à direita e alinhada ao fundo */}
                     {diffFromAverage != null && (
                       <div className="flex flex-col items-end gap-1">
-                        <div className={cn("flex-shrink-0 inline-flex items-center text-[12px] gap-1 font-semibold", isBetter ? "text-success" : "text-destructive")}>
+                        <div className={cn("flex-shrink-0 inline-flex items-center text-xs gap-1 font-semibold", isBetter ? "text-success" : "text-destructive")}>
                           {/* Para métricas onde menor é melhor (CPM, CPR): quando está ruim (acima da média), mostrar seta para cima */}
                           {/* Para métricas normais: quando está bom (acima da média), mostrar seta para cima */}
                           {isLowerBetter ? isBetter ? <IconArrowBigDownLinesFilled className="h-3 w-3" /> : <IconArrowBigUpLinesFilled className="h-3 w-3" /> : isBetter ? <IconArrowBigUpLinesFilled className="h-3 w-3" /> : <IconArrowBigDownLinesFilled className="h-3 w-3" />}

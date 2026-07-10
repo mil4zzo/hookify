@@ -3,7 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { AppDialog } from "./AppDialog";
 import { Button } from "@/components/ui/button";
-import { IconCircleCheck, IconCircleX, IconCheck } from "@tabler/icons-react";
+import { IconCircleCheck, IconCircleX } from "@tabler/icons-react";
+import { CheckSquare } from "@/components/common/CheckSquare";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
 
 // Função auxiliar para formatar data de YYYY-MM-DD para DD/MM/YYYY
@@ -87,7 +88,7 @@ export function AutoRefreshConfirmModal({ isOpen, packCount, autoRefreshPacks, o
             const isSelected = selectedPackIds.has(pack.id);
             return (
               <button key={pack.id} type="button" onClick={() => handleTogglePack(pack.id)} className="w-full flex items-center gap-3 p-3 rounded-md hover:bg-accent transition-colors text-left">
-                <div className={`flex items-center justify-center w-5 h-5 rounded border-2 transition-colors ${isSelected ? "bg-brand border-brand" : "border-border bg-background"}`}>{isSelected && <IconCheck className="h-3.5 w-3.5 text-primary-foreground" />}</div>
+                <CheckSquare checked={isSelected} className="w-5 h-5" />
                 <div className="flex-1 min-w-0 flex items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <p className="font-medium text-text truncate">{pack.name}</p>

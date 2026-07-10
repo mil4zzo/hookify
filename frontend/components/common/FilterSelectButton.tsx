@@ -27,7 +27,8 @@ export const FilterSelectButton = forwardRef<HTMLButtonElement, FilterSelectButt
         variant="outline"
         role="combobox"
         className={cn(
-          "h-control-default w-full items-center rounded-md border border-border bg-input-30 px-3 py-2 text-sm",
+          // Altura vem da variant `size` do Button (default = h-control-default) — não fixar aqui.
+          "w-full items-center rounded-md border border-border bg-input-30 px-3 py-2 text-sm",
           "ring-offset-background transition-colors",
           "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
           "disabled:cursor-not-allowed disabled:opacity-50",

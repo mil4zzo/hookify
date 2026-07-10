@@ -50,7 +50,7 @@ function Row({
       onClick={open}
       onKeyDown={(e) => { if (ad && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); open(); } }}
     >
-      <span className="w-5 flex-shrink-0 text-left text-[12px] font-semibold tabular-nums text-muted-foreground">
+      <span className="w-5 flex-shrink-0 text-left text-xs font-semibold tabular-nums text-muted-foreground">
         {rank}
       </span>
 
@@ -65,7 +65,7 @@ function Row({
           {ad && <AdStatusIcon status={(ad as { effective_status?: string }).effective_status} />}
           <span className="truncate text-xs font-medium text-foreground">{item.adName}</span>
         </div>
-        <span className={`mt-0.5 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${tag.className}`}>
+        <span className={`mt-0.5 inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-2xs font-medium ${tag.className}`}>
           <TagIcon className="h-2.5 w-2.5" /> {tag.label}
         </span>
       </div>
@@ -100,7 +100,7 @@ export function TopImpactAdList({
 
       {/* Table: fixed column header + scrollable rows */}
       <div className="flex min-h-0 flex-1 flex-col gap-2">
-        <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-border px-4 pb-3 text-[12px] font-medium uppercase tracking-wide text-muted-foreground">
+        <div className="flex flex-shrink-0 items-center gap-2.5 border-b border-border px-4 pb-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           <span className="w-5 flex-shrink-0 text-left">#</span>
           <span className="min-w-0 flex-1">Ad</span>
           <span className={`${COL_SPEND} flex-shrink-0 text-right`}>Spend</span>

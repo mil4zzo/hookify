@@ -84,7 +84,7 @@ export function AdPlayArea({ ad, thumbnailUrl, alt, aspectRatio = "3:4", size, c
               // Estado normal: cinza translúcido com blur
               "bg-muted-foreground-40 backdrop-blur-sm border border-border",
               // Hover: primary azul com shadow
-              "group-hover:bg-primary group-hover:shadow-lg",
+              "group-hover:bg-primary group-hover:shadow-elevation-overlay",
               // Scale no hover
               "scale-90 group-hover:scale-100"
             )}

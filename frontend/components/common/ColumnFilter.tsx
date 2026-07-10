@@ -176,7 +176,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
 
       {isOpen && (
         <div
-          className="absolute top-full right-0 mt-1 z-50 bg-card border border-border rounded-md shadow-lg p-2 min-w-[200px]"
+          className="absolute top-full right-0 mt-1 z-dropdown bg-card border border-border rounded-md shadow-elevation-overlay p-2 min-w-[200px]"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex flex-col gap-2">
@@ -186,7 +186,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
                 onValueChange={(val) => handleOperatorChange(val as FilterOperator)}
                 onOpenChange={(open) => setIsSelectOpen(open)}
               >
-                <SelectTrigger className="h-10 w-[120px] text-xs">
+                <SelectTrigger className="w-[120px] text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -204,7 +204,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
                 value={tempValue}
                 onChange={handleValueChange}
                 placeholder={placeholder}
-                className="h-10 text-xs flex-1 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                className="text-xs flex-1 [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
@@ -220,7 +220,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
                   variant="ghost"
                   size="sm"
                   onClick={handleClear}
-                  className="h-8 text-xs text-text hover:text-destructive"
+                  className="text-xs text-text hover:text-destructive"
                 >
                   <IconX className="w-3 h-3 mr-1" />
                   Limpar
@@ -230,7 +230,7 @@ export function ColumnFilter({ value, onChange, placeholder = "Filtrar...", clas
                 variant="default"
                 size="sm"
                 onClick={handleApply}
-                className="h-8 text-xs flex-1"
+                className="text-xs flex-1"
               >
                 Aplicar
               </Button>

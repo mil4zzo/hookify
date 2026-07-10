@@ -4,16 +4,74 @@ import React, { useRef, useState, useEffect, useCallback, useMemo } from "react"
 import { flexRender } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { StatePanel } from "@/components/common/States";
+// design-system-exception: direct-skeleton-import - dense table rows keep row-shaped skeletons
 import { Skeleton } from "@/components/ui/skeleton";
 import type { RankingsItem } from "@/lib/api/schemas";
-import type { SharedTableContentProps } from "@/components/manager/tableContentTypes";
+import { MANAGER_ROW_HEIGHT, type SharedTableContentProps } from "@/components/manager/tableContentTypes";
 
-export type TableContentProps = SharedTableContentProps;
+export type TableContentVariant = "detailed" | "minimal";
+
+export type TableContentProps = SharedTableContentProps & {
+  /** Densidade visual: "detailed" (cards espaçados, thumbnail grande) | "minimal" (grade densa). */
+  variant?: TableContentVariant;
+};
+
+/**
+ * Estilos por variante — única diferença real entre as antigas TableContent e
+ * MinimalTableContent. Toda a lógica (virtualização, resize, memo, estados) é compartilhada.
+ */
+const VARIANT_STYLES = {
+  detailed: {
+    estimateSize: MANAGER_ROW_HEIGHT.detailed,
+    overscan: 5,
+    container: "flex-1 min-h-0 overflow-auto overscroll-contain",
+    table: "w-full text-sm border-separate border-spacing-y-4",
+    thead: "sticky top-0 z-10 bg-background",
+    headerRow: "text-text/80",
+    th: (headerAlign: string) => `text-base font-normal py-4 px-4 ${headerAlign} relative`,
+    thWidthStyle: false,
+    sortGap: "gap-1",
+    resizeHandle: "w-1.5",
+    skeletonRow: "bg-background",
+    row: (isResizing: boolean) => `bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-input-30 cursor-pointer"}`,
+    cell: (cellAlign: string, isFirst: boolean, isLast: boolean) => `p-4 ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`,
+    emptyTd: "p-4",
+    skeletonThumb: "w-14 h-14",
+    skeletonName: (
+      <div className="flex-1 min-w-0 space-y-2">
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-3 w-1/2" />
+      </div>
+    ),
+    skeletonNameGap: "gap-3",
+    skeletonValue: "h-4 w-16 mx-auto",
+  },
+  minimal: {
+    estimateSize: MANAGER_ROW_HEIGHT.minimal,
+    overscan: 10, // Linhas menores — mais overscan
+    container: "flex-1 min-h-0 overflow-auto overscroll-contain border-x border-border rounded-t-lg",
+    table: "w-full text-xs border-collapse",
+    thead: "sticky top-0 z-10 bg-card border-b border-border",
+    headerRow: "",
+    th: (headerAlign: string) => `text-xs font-medium py-1.5 px-2 ${headerAlign} relative border-r border-border last:border-r-0 first:rounded-tl-lg last:rounded-tr-lg`,
+    thWidthStyle: true,
+    sortGap: "gap-0.5",
+    resizeHandle: "w-1",
+    skeletonRow: "border-b border-border",
+    row: (isResizing: boolean) => `border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"}`,
+    cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean) => `py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0`,
+    emptyTd: "p-2",
+    skeletonThumb: "w-8 h-8",
+    skeletonName: <Skeleton className="h-3 w-24" />,
+    skeletonNameGap: "gap-2",
+    skeletonValue: "h-3 w-12 mx-auto",
+  },
+} as const;
 
 // Função de comparação customizada otimizada para React.memo
 function areTableContentPropsEqual(prev: TableContentProps, next: TableContentProps): boolean {
   // 1. Comparações primitivas (rápidas)
-  if (prev.isLoadingEffective !== next.isLoadingEffective || prev.isError !== next.isError || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends || prev.colorMetricValue !== next.colorMetricValue) {
+  if (prev.variant !== next.variant || prev.isLoadingEffective !== next.isLoadingEffective || prev.isError !== next.isError || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends || prev.colorMetricValue !== next.colorMetricValue) {
     return false;
   }
 
@@ -62,6 +120,13 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
     return false;
   }
 
+  // Comparar rowSelection por referência: setRowSelection gera objeto novo a cada toggle.
+  // Sem isso, marcar/desmarcar um checkbox não re-renderiza a célula (getIsSelected fica defasado)
+  // até um render não relacionado — o "lag" percebido no checkbox.
+  if (prev.rowSelection !== next.rowSelection) {
+    return false;
+  }
+
   // IMPORTANTE: Não comparar columnSizing aqui porque:
   // 1. columnSizing não afeta quais rows são mostradas, só o tamanho das colunas
   // 2. Durante resize, columnSizing muda frequentemente mas os dados não mudam
@@ -86,8 +151,9 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, getRowKey, currentTab, setSelectedAd, sorting, onVisibleRowKeysChange, onOpenDrill }: TableContentProps) {
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, onVisibleRowKeysChange, onOpenDrill, variant = "detailed" }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
+  const styles = VARIANT_STYLES[variant];
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
   // rows só deve ser recalculado quando dados, filtros ou sorting mudarem
@@ -138,9 +204,8 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     };
   }, [isResizing]);
 
-  // Estimate row height: ~120px for main row + spacing
-  // Função estável para evitar recriação a cada render
-  const estimateSize = useCallback(() => 120, []);
+  // Estimativa de altura de linha por variante (real é medida via measureElement)
+  const estimateSize = useCallback(() => styles.estimateSize, [styles.estimateSize]);
 
   // Handler de click nas linhas memoizado para evitar recriação
   const handleRowClick = useCallback(
@@ -166,7 +231,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     count: isLoadingEffective ? 8 : rows.length,
     getScrollElement: () => tableContainerRef.current,
     estimateSize,
-    overscan: 5, // Render 5 extra rows above/below viewport
+    overscan: styles.overscan,
   });
 
   const virtualRows = rowVirtualizer.getVirtualItems();
@@ -196,8 +261,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
       .map((row) => getSeriesGroupKey(row))
       .filter(Boolean);
     if (keys.length === 0) return;
-    const uniqueKeys = Array.from(new Set(keys));
-    onVisibleRowKeysChange(uniqueKeys);
+    onVisibleRowKeysChange(Array.from(new Set(keys)));
   }, [virtualRows, rows, getSeriesGroupKey, onVisibleRowKeysChange, isLoadingEffective]);
 
   // Calculate padding for virtualization
@@ -209,7 +273,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
       {/* Overlay invisível durante resize para capturar eventos globalmente */}
       {isResizing && (
         <div
-          className="fixed inset-0 z-50 cursor-col-resize"
+          className="fixed inset-0 z-overlay cursor-col-resize"
           style={{ pointerEvents: "auto" }}
           onMouseUp={(e) => {
             // O TanStack Table com columnResizeMode: "onEnd" processa o mouseup internamente
@@ -223,25 +287,25 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
         />
       )}
       {/* Linha vertical que acompanha o mouse durante resize */}
-      {isResizing && resizePosition !== null && <div className="fixed top-0 bottom-0 w-[2px] bg-primary z-[60] pointer-events-none" style={{ left: `${resizePosition}px` }} />}
-      <div ref={tableContainerRef} className="flex-1 min-h-0 overflow-auto overscroll-contain">
-        <table className="w-full text-sm border-separate border-spacing-y-4" style={{ tableLayout: "fixed" }}>
+      {isResizing && resizePosition !== null && <div className="fixed top-0 bottom-0 w-[2px] bg-primary z-overlay pointer-events-none" style={{ left: `${resizePosition}px` }} />}
+      <div ref={tableContainerRef} className={styles.container}>
+        <table className={styles.table} style={{ tableLayout: "fixed" }}>
           <colgroup>
             {table.getVisibleLeafColumns().map((column) => (
               <col key={column.id} style={{ width: column.getSize() }} />
             ))}
           </colgroup>
-          <thead className="sticky top-0 z-10 bg-background">
+          <thead className={styles.thead}>
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} className="text-text/80">
+              <tr key={hg.id} className={styles.headerRow}>
                 {hg.headers.map((header) => {
                   const headerAlign = header.column.id === "ad_name" ? "text-left" : "text-center";
                   const justify = header.column.id === "ad_name" ? "justify-start" : "justify-center";
                   return (
-                    <th key={header.id} className={`text-base font-normal py-4 px-4 ${headerAlign} relative`}>
+                    <th key={header.id} className={styles.th(headerAlign)} style={styles.thWidthStyle ? { width: header.getSize() } : undefined}>
                       {header.isPlaceholder ? null : (
                         <div
-                          className={`flex items-center ${justify} gap-1 ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
+                          className={`flex items-center ${justify} ${styles.sortGap} ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
                           onClick={(e) => {
                             if (isResizing) {
                               e.preventDefault();
@@ -268,7 +332,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                             setIsResizing(true);
                             header.getResizeHandler()(e);
                           }}
-                          className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none touch-none hover:bg-border z-10"
+                          className={`absolute right-0 top-0 h-full ${styles.resizeHandle} cursor-col-resize select-none touch-none hover:bg-border z-10`}
                           style={{ userSelect: "none", WebkitUserSelect: "none", pointerEvents: "auto" }}
                         />
                       )}
@@ -287,24 +351,21 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
             {isLoadingEffective ? (
               // Loading skeletons
               virtualRows.map((virtualRow) => (
-                <tr key={`skeleton-${virtualRow.index}`} className="bg-background">
+                <tr key={`skeleton-${virtualRow.index}`} className={styles.skeletonRow}>
                   {table.getVisibleLeafColumns().map((column, colIndex) => {
                     const isFirstColumn = column.id === "ad_name";
                     const cellAlign = isFirstColumn ? "text-left" : "text-center";
                     const isFirst = colIndex === 0;
                     const isLast = colIndex === table.getVisibleLeafColumns().length - 1;
                     return (
-                      <td key={column.id} className={`p-4 ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`}>
+                      <td key={column.id} className={styles.cell(cellAlign, isFirst, isLast)}>
                         {isFirstColumn ? (
-                          <div className="flex items-center gap-3">
-                            {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className="w-14 h-14 rounded flex-shrink-0" />}
-                            <div className="flex-1 min-w-0 space-y-2">
-                              <Skeleton className="h-4 w-3/4" />
-                              <Skeleton className="h-3 w-1/2" />
-                            </div>
+                          <div className={`flex items-center ${styles.skeletonNameGap}`}>
+                            {currentTab !== "por-conjunto" && currentTab !== "por-campanha" && <Skeleton className={`${styles.skeletonThumb} rounded flex-shrink-0`} />}
+                            {styles.skeletonName}
                           </div>
                         ) : (
-                          <Skeleton className="h-4 w-16 mx-auto" />
+                          <Skeleton className={styles.skeletonValue} />
                         )}
                       </td>
                     );
@@ -313,7 +374,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
               ))
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={table.getVisibleLeafColumns().length} className="p-4">
+                <td colSpan={table.getVisibleLeafColumns().length} className={styles.emptyTd}>
                   <StatePanel
                     kind={isError ? "error" : "empty"}
                     message={isError ? "Erro ao carregar dados. Tente reduzir o período ou selecionar menos packs." : "Nenhum resultado com esses filtros."}
@@ -328,13 +389,13 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                 const row = rows[virtualRow.index];
 
                 return (
-                  <tr key={row.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={`bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-input-30 cursor-pointer"}`} onClick={(e) => handleRowClick(e, row)}>
+                  <tr key={row.id} data-index={virtualRow.index} ref={rowVirtualizer.measureElement} className={styles.row(isResizing)} onClick={(e) => handleRowClick(e, row)}>
                     {row.getVisibleCells().map((cell, cellIndex) => {
                       const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
                       const isFirst = cellIndex === 0;
                       const isLast = cellIndex === row.getVisibleCells().length - 1;
                       return (
-                        <td key={cell.id} className={`p-4 ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`}>
+                        <td key={cell.id} className={styles.cell(cellAlign, isFirst, isLast)}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );

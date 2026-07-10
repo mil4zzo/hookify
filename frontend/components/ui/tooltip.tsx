@@ -19,7 +19,7 @@ const tooltipArrowAnimationClasses = "animate-in fade-in-0 duration-200 data-[st
 
 const TooltipContent = React.forwardRef<React.ElementRef<typeof TooltipPrimitive.Content>, React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>>(({ className, sideOffset = 4, ...props }, ref) => (
   <TooltipPrimitive.Portal>
-    <TooltipPrimitive.Content ref={ref} sideOffset={sideOffset} className={cn("z-[10020] overflow-hidden rounded-md border border-border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-md", tooltipAnimationClasses, "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2", className)} {...props}>
+    <TooltipPrimitive.Content ref={ref} sideOffset={sideOffset} className={cn("z-tooltip overflow-hidden rounded-md border border-border bg-popover px-3 py-1.5 text-sm text-popover-foreground shadow-elevation-overlay", tooltipAnimationClasses, "data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2", className)} {...props}>
       {props.children}
       <TooltipArrow className={cn("fill-popover", tooltipArrowAnimationClasses)} width={24} height={12} />
     </TooltipPrimitive.Content>

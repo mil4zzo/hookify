@@ -114,13 +114,13 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
     <div className="flex-1 min-w-0 space-y-1">
       {/* Label */}
       <div className="flex items-center gap-1">
-        <span className="truncate text-[11px] font-semibold text-foreground">{label}</span>
-        {!required && <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">opc.</span>}
+        <span className="truncate text-2xs font-semibold text-foreground">{label}</span>
+        {!required && <span className="shrink-0 rounded bg-muted px-1 text-2xs text-muted-foreground">opc.</span>}
       </div>
 
       {/* Auto-fill badge */}
       {isAutoFilled && autoFilledFromLabel && (
-        <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+        <div className="flex items-center gap-1 text-2xs text-muted-foreground">
           <IconLink className="h-3 w-3 shrink-0" />
           <span>
             De <span className="font-medium">{autoFilledFromLabel}</span>
@@ -142,7 +142,7 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
             <>
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/60 to-transparent" />
               <div className="absolute inset-x-0 bottom-0 px-2 pb-1.5">
-                <p className="truncate text-[10px] leading-tight text-white drop-shadow">{file.name}</p>
+                <p className="truncate text-2xs leading-tight text-white drop-shadow">{file.name}</p>
               </div>
             </>
           )}
@@ -169,14 +169,14 @@ function FileSlot({ label, aspectRatios, file, required, isAutoFilled, autoFille
           }}
         >
           <IconPhotoFilled className={`h-6 w-6 transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`} />
-          <span className={`text-center text-[11px] font-medium leading-tight transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`}>Arraste ou selecione</span>
-          {aspectRatios.filter(Boolean).length > 0 && <span className="text-center text-[10px] text-muted-foreground-60 leading-tight">{aspectRatios.filter(Boolean).join(" · ")}</span>}
+          <span className={`text-center text-2xs font-medium leading-tight transition-colors ${isDragOver ? "text-primary" : "text-muted-foreground group-hover:text-primary"}`}>Arraste ou selecione</span>
+          {aspectRatios.filter(Boolean).length > 0 && <span className="text-center text-2xs text-muted-foreground-60 leading-tight">{aspectRatios.filter(Boolean).join(" · ")}</span>}
         </button>
       )}
 
       {/* Reset to auto-fill */}
       {onReset && resetSourceLabel && (
-        <button type="button" className="text-[10px] text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground" onClick={onReset}>
+        <button type="button" className="text-2xs text-muted-foreground underline underline-offset-2 transition-colors hover:text-foreground" onClick={onReset}>
           Usar mídia de {resetSourceLabel}
         </button>
       )}
@@ -210,10 +210,10 @@ function SlotCard({ set, index, templateSlots, onUpdate, onRemove }: { set: AdMe
       {/* Header */}
       <div className="flex items-center justify-between gap-3 rounded-t-md border-b border-border bg-card px-4 py-3">
         <div className="flex items-center gap-2.5">
-          {complete ? <IconCircleCheck className="h-4 w-4 shrink-0 text-primary" /> : <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground text-[10px] font-bold text-muted-foreground opacity-40">{index + 1}</div>}
+          {complete ? <IconCircleCheck className="h-4 w-4 shrink-0 text-primary" /> : <div className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 border-muted-foreground text-2xs font-bold text-muted-foreground opacity-40">{index + 1}</div>}
           <span className="text-sm font-semibold">Criativo {index + 1}</span>
           {filledCount > 0 && (
-            <Badge variant={complete ? "secondary" : "outline"} className="px-1.5 py-0.5 text-[10px]">
+            <Badge variant={complete ? "secondary" : "outline"} className="px-1.5 py-0.5 text-2xs">
               {filledCount}/{totalCount}
             </Badge>
           )}
@@ -225,7 +225,7 @@ function SlotCard({ set, index, templateSlots, onUpdate, onRemove }: { set: AdMe
 
       {/* Ad name — top */}
       <div className="px-4 pt-4 pb-3">
-        <Input className="h-9 text-sm" placeholder="Ex: Criativo Verão 01" value={set.adName} onChange={(e) => onUpdate({ ...set, adName: e.target.value })} />
+        <Input size="sm" placeholder="Ex: Criativo Verão 01" value={set.adName} onChange={(e) => onUpdate({ ...set, adName: e.target.value })} />
       </div>
 
       {/* Slots — horizontal row */}

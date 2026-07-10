@@ -238,7 +238,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                 <div className="absolute inset-0 rounded-md border-2 border-primary pointer-events-none z-[16] animate-pulse" />
 
                 {/* Badge no topo direito */}
-                <div className="absolute top-3 right-3 bg-primary text-primary-foreground px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-lg">
+                <div className="absolute top-3 right-3 bg-primary text-primary-foreground px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-elevation-overlay">
                   <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Atualizando...</span>
                 </div>
@@ -439,7 +439,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                         <label htmlFor={`auto-refresh-${pack.id}`} className="font-medium text-sm text-foreground cursor-pointer">
                           Manter atualizado
                         </label>
-                        <UpdatedAtText dateTime={pack.updated_at} className="text-[10px] text-muted-foreground" />
+                        <UpdatedAtText dateTime={pack.updated_at} className="text-2xs text-muted-foreground" />
                       </div>
                     </div>
                     <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} variant="minimal" switchClassName="data-[state=checked]:bg-success" />
@@ -458,7 +458,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                           Leadscore
                         </label>
                         {!pack.sheet_integration ? (
-                          <span className="text-[10px] text-muted-foreground">Não conectado</span>
+                          <span className="text-2xs text-muted-foreground">Não conectado</span>
                         ) : hasAnyLeadscoreSyncInfo ? (
                           <div className="flex items-center gap-1">
                             {leadscoreSyncFailed && (
@@ -473,7 +473,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                                 </Tooltip>
                               </TooltipProvider>
                             )}
-                            {leadscoreDateForDisplay ? <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-[10px] text-muted-foreground" /> : <span className="text-[10px] text-muted-foreground">Sem sync bem-sucedido</span>}
+                            {leadscoreDateForDisplay ? <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-2xs text-muted-foreground" /> : <span className="text-2xs text-muted-foreground">Sem sync bem-sucedido</span>}
                           </div>
                         ) : null}
                       </div>

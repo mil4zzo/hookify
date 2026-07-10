@@ -202,7 +202,7 @@ function ConditionRow({ condition, index, operatorLogic, onFieldChange, onOperat
       ) : index === 1 && showOperatorSelector && onOperatorLogicChange ? (
         <div className="w-16 flex items-center justify-start">
           <Select value={operatorLogic} onValueChange={onOperatorLogicChange}>
-            <SelectTrigger className="w-full h-8">
+            <SelectTrigger size="sm" className="w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -462,7 +462,7 @@ export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = 
             <div className="w-16 px-3 py-2 flex items-center justify-start">
               {index === 1 ? (
                 <Select value={globalLogic} onValueChange={(value: "AND" | "OR") => setGlobalLogic(value)}>
-                  <SelectTrigger className="w-full h-8">
+                  <SelectTrigger size="sm" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

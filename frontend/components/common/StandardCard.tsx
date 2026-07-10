@@ -28,7 +28,7 @@ export interface StandardCardProps extends React.HTMLAttributes<HTMLDivElement> 
  * - rounded-md border border-border
  * - bg-card (variante padrão)
  * - transition-all duration-420
- * - hover:border-primary hover:bg-card-hover hover:shadow-lg (quando interactive)
+ * - hover:border-primary hover:bg-card-hover hover:shadow-elevation-overlay (quando interactive)
  * - padding padrão: p-4
  */
 export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(({ children, className, variant = "default", padding, density = "default", elevation = "flat", interactive, disabled = false, onClick, ...props }, ref) => {
@@ -68,7 +68,7 @@ export const StandardCard = React.forwardRef<HTMLDivElement, StandardCardProps>(
     elevationStyles[elevation],
     "transition-all duration-420",
     // Hover effects apenas quando interativo e não desabilitado
-    isInteractive && !disabled && "hover:border-primary hover:bg-card-hover hover:shadow-lg",
+    isInteractive && !disabled && "hover:border-primary hover:bg-card-hover hover:shadow-elevation-overlay",
     // Cursor pointer apenas quando clicável e não desabilitado
     onClick && !disabled && "cursor-pointer",
     // Opacidade reduzida quando desabilitado

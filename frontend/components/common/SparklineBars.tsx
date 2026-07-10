@@ -250,10 +250,10 @@ export const SparklineBars = React.memo(function SparklineBars({
         })}
         {interactive && activeBar && activeBarData && (
           <div
-            className="fixed z-[10020] flex flex-col items-center whitespace-nowrap rounded-md border border-border bg-popover px-2.5 py-1 text-xs text-popover-foreground shadow-md pointer-events-none animate-in fade-in-0 zoom-in-95 duration-150"
+            className="fixed z-tooltip flex flex-col items-center whitespace-nowrap rounded-md border border-border bg-popover px-2.5 py-1 text-xs text-popover-foreground shadow-elevation-overlay pointer-events-none animate-in fade-in-0 zoom-in-95 duration-150"
             style={{ left: activeBar.left, top: activeBar.top, transform: "translate(-50%, calc(-100% - 8px))" }}
           >
-            {activeBarData.dateDisplay && <span className="text-[10px] leading-none text-muted-foreground mb-0.5">{activeBarData.dateDisplay}</span>}
+            {activeBarData.dateDisplay && <span className="text-2xs leading-none text-muted-foreground mb-0.5">{activeBarData.dateDisplay}</span>}
             <span className="leading-none">{activeBarData.numericValueDisplay}</span>
           </div>
         )}
@@ -284,7 +284,7 @@ export const SparklineBars = React.memo(function SparklineBars({
               </TooltipTrigger>
               <TooltipContent side="top" className="text-xs">
                 <div className="flex flex-col items-center">
-                  {bar.dateDisplay && <div className="text-[10px] text-muted-foreground mb-0.5 whitespace-nowrap">{bar.dateDisplay}</div>}
+                  {bar.dateDisplay && <div className="text-2xs text-muted-foreground mb-0.5 whitespace-nowrap">{bar.dateDisplay}</div>}
                   <div className={`whitespace-nowrap ${textClass}`}>{bar.valueDisplay}</div>
                 </div>
               </TooltipContent>

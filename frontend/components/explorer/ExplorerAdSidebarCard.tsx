@@ -42,7 +42,7 @@ export function ExplorerAdSidebarCard({ ad, metricLabel, metricKey, selected = f
 
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="min-w-0 space-y-0.5">
-            <p className="truncate text-base font-medium text-white" title={ad.ad_name || undefined}>
+            <p className="truncate text-base font-medium text-foreground" title={ad.ad_name || undefined}>
               {ad.ad_name || "Sem nome"}
             </p>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -55,7 +55,7 @@ export function ExplorerAdSidebarCard({ ad, metricLabel, metricKey, selected = f
             <div className="flex min-w-0 w-full flex-row items-center justify-between gap-2">
               <span className="text-sm font-medium text-muted-foreground">{metricLabel}</span>
               <div className="flex min-w-0 flex-shrink-0 items-center gap-2">
-                <span className="text-lg font-bold leading-none text-white sm:text-lg">{ad.metricFormatted}</span>
+                <span className="text-lg font-bold leading-none text-foreground sm:text-lg">{ad.metricFormatted}</span>
                 {diffFromAverage != null && metricKey !== "spend" ? (
                   <div className={cn("inline-flex items-center gap-0.5 text-xs font-semibold", isBetter ? "text-success" : "text-destructive")}>
                     {isLowerBetter ? (

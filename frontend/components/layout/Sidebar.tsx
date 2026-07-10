@@ -33,13 +33,13 @@ export default function Sidebar() {
   }, [isCollapsed]);
 
   return (
-    <aside className={cn("hidden md:flex fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground border-r border-border backdrop-blur supports-[backdrop-filter]:bg-background-60 z-40 flex-col transition-all duration-300 overflow-hidden", isCollapsed ? "w-16 ease-in" : "w-64 ease-out")}>
+    <aside className={cn("hidden md:flex fixed left-0 top-0 h-screen bg-sidebar text-sidebar-foreground border-r border-border backdrop-blur supports-[backdrop-filter]:bg-background-60 z-sticky flex-col transition-all duration-300 overflow-hidden", isCollapsed ? "w-16 ease-in" : "w-64 ease-out")}>
       {/* Logo and Collapse Button */}
       <div className={cn("pl-6 pr-3 py-4 flex items-center justify-between border-b border-border transition-all duration-300", isCollapsed ? "px-3 ease-in" : "ease-out")}>
         <Link href="/" className={cn("flex items-center hover:opacity-80 transition-all duration-300", isCollapsed ? "opacity-0 w-0 pointer-events-none ease-in" : "opacity-100 w-auto ease-out")}>
           <Image src="/logo-hookify-alpha.png" alt="Hookify" width={80} height={21} className="h-[21px] w-[80px]" priority />
         </Link>
-        <Button variant="ghost" size="sm" onClick={toggleCollapse} className={cn("h-8 w-8 p-0 hover:bg-border transition-all duration-300", isCollapsed && "mx-auto")}>
+        <Button variant="ghost" size="sm" onClick={toggleCollapse} className={cn("w-8 p-0 hover:bg-border transition-all duration-300", isCollapsed && "mx-auto")}>
           {isCollapsed ? <IconChevronRight className="h-4 w-4" /> : <IconChevronLeft className="h-4 w-4" />}
         </Button>
       </div>

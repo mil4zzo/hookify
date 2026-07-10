@@ -227,7 +227,7 @@ function PlanosContent() {
           <ul className="space-y-2">
             {STANDARD_FEATURES.map((f) => (
               <li key={f} className="flex items-start gap-2 text-sm text-muted-foreground">
-                <IconCheck className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                <IconCheck className="w-4 h-4 text-success mt-0.5 shrink-0" />
                 <span>{f}</span>
               </li>
             ))}
@@ -250,7 +250,7 @@ function PlanosContent() {
             {INSIDER_FEATURES.map((f, i) => (
               <li key={f} className="flex items-start gap-2 text-sm text-muted-foreground">
                 {i === 0 ? (
-                  <IconCheck className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                  <IconCheck className="w-4 h-4 text-success mt-0.5 shrink-0" />
                 ) : (
                   <IconLock className="w-4 h-4 text-primary mt-0.5 shrink-0" />
                 )}
@@ -298,7 +298,7 @@ function PlanosContent() {
                   onClick={() => setSelectedPlan("annual")}
                 >
                   Anual
-                  <span className="ml-1 text-[10px] opacity-80">−32%</span>
+                  <span className="ml-1 text-2xs opacity-80">−32%</span>
                 </button>
               </div>
 
@@ -345,7 +345,7 @@ function PlanosContent() {
                     )}
                     Pagar anual com Pix
                   </Button>
-                  <p className="text-[11px] text-muted-foreground text-center">
+                  <p className="text-2xs text-muted-foreground text-center">
                     Pix: 12 meses de acesso, sem renovação automática.
                   </p>
                 </>

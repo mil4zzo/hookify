@@ -217,7 +217,7 @@ export function ProgressItemCard({
         </div>
 
         {elapsedLabel && (
-          <div className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-[11px] font-medium tabular-nums text-muted-foreground">
+          <div className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-2xs font-medium tabular-nums text-muted-foreground">
             {elapsedLabel}
           </div>
         )}
@@ -237,7 +237,7 @@ export function ProgressItemCard({
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className={`flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
+          className={`flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-2xs font-medium transition-colors ${
             expanded
               ? "border-border bg-muted text-foreground"
               : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -254,7 +254,7 @@ export function ProgressItemCard({
       {expanded && (
         <div className="border-t border-border-60 px-4 pb-4 pt-3">
           {adsetName && (
-            <p className="mb-3 text-[11px] text-muted-foreground">{adsetName}</p>
+            <p className="mb-3 text-2xs text-muted-foreground">{adsetName}</p>
           )}
 
           {isError ? (
@@ -263,16 +263,16 @@ export function ProgressItemCard({
                 {errorDetails && (
                   <div className="space-y-0.5 border-t border-destructive-20 pt-1.5">
                     {errorDetails.error_subcode != null && (
-                      <p className="text-[10px] text-destructive-70">subcode: {String(errorDetails.error_subcode)}</p>
+                      <p className="text-2xs text-destructive-70">subcode: {String(errorDetails.error_subcode)}</p>
                     )}
                     {!!errorDetails.fbtrace_id && (
-                      <p className="break-all font-mono text-[10px] text-destructive-70">trace: {String(errorDetails.fbtrace_id)}</p>
+                      <p className="break-all font-mono text-2xs text-destructive-70">trace: {String(errorDetails.fbtrace_id)}</p>
                     )}
                     {!!errorDetails.type && (
-                      <p className="text-[10px] text-destructive-70">type: {String(errorDetails.type)}</p>
+                      <p className="text-2xs text-destructive-70">type: {String(errorDetails.type)}</p>
                     )}
                     {Array.isArray(errorDetails.error_blame_field_specs) && errorDetails.error_blame_field_specs.length > 0 && (
-                      <p className="break-all text-[10px] text-destructive-70">blame: {JSON.stringify(errorDetails.error_blame_field_specs)}</p>
+                      <p className="break-all text-2xs text-destructive-70">blame: {JSON.stringify(errorDetails.error_blame_field_specs)}</p>
                     )}
                   </div>
                 )}
@@ -344,7 +344,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
   return (
     <div className="space-y-4">
       {summary.total > 1 && (
-        <div className="overflow-hidden rounded-md border border-border bg-background shadow-sm">
+        <div className="overflow-hidden rounded-md border border-border bg-background shadow-elevation-raised">
           <div className="flex items-center gap-3 border-b border-border px-5 py-4">
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${
               isCompleted ? "bg-success-10" : isFailed ? "bg-destructive-10" : isCancelled ? "bg-muted" : "bg-primary-10"
@@ -382,7 +382,7 @@ export default function BulkProgressList({ progress, creative }: BulkProgressLis
             ].map(({ label, value, color }) => (
               <div key={label} className="py-3">
                 <div className={`text-xl font-bold tabular-nums ${color}`}>{value}</div>
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+                <div className="text-2xs uppercase tracking-wide text-muted-foreground">{label}</div>
               </div>
             ))}
           </div>

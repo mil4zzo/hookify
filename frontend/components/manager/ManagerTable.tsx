@@ -37,7 +37,6 @@ import { FilterBar } from "@/components/manager/FilterBar";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { DEFAULT_MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
-import { MinimalTableContent } from "@/components/manager/MinimalTableContent";
 import { ManagerDrillModal } from "@/components/manager/ManagerDrillModal";
 import { useDrillState, type DrillKind } from "@/lib/manager/useDrillState";
 import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStorage";
@@ -368,7 +367,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const [selectedAdset, setSelectedAdset] = useState<{ adsetId: string; adsetName?: string | null } | null>(null);
   const hydratingTabRef = useRef<ManagerTab | null>(null);
 
-  // Fullscreen: sobrepõe topbar/sidebar (z-40) com um overlay fixed z-50, dando toda a viewport à tabela.
+  // Fullscreen: sobrepõe topbar/sidebar (z-sticky) com um overlay fixed z-overlay, dando toda a viewport à tabela.
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -782,6 +781,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const formatAverageRef = useRef(formatAverage);
   const formatCurrencyRef = useRef(formatCurrency);
   const actionTypeRef = useRef(actionType);
+  // Âncora do último checkbox clicado sem shift — usada para seleção em intervalo (shift+click).
+  const selectionAnchorRef = useRef<string | null>(null);
 
   const columns = useMemo<ColumnDef<Ad, any>[]>(() => {
     return createManagerTableColumns({
@@ -805,6 +806,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       hasSheetIntegration,
       mqlLeadscoreMin,
       actionTypeRef,
+      selectionAnchorRef,
       applyNumericFilter,
       openSettings: openSettings as any,
       columnFiltersRef,
@@ -953,7 +955,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         onChange={setGlobalFilter}
         placeholder={placeholder}
         wrapperClassName="w-full md:max-w-[min(20rem,100%)] md:flex-shrink-0"
-        inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border h-10 w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
+        inputClassName="bg-background rounded-none border-b border-r-0 border-l-0 border-t-0 border-border w-full focus-visible:border-b-primary focus-visible:ring-0 focus-visible:ring-offset-0"
       />
     );
   }, [currentTab, globalFilter]);
@@ -1063,6 +1065,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       hasSheetIntegration,
       mqlLeadscoreMin,
       sorting,
+      rowSelection,
       dataLength: data.length,
       dataRef: data,
       showTrends,
@@ -1071,12 +1074,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       isError: isError && currentTab === "por-anuncio",
       onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
   return (
     <>
-      {/* Em fullscreen, o wrapper vira overlay fixed acima do topbar/sidebar (z-40) e a tabela ganha a viewport inteira. */}
-      <div className={cn(isFullscreen ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-background p-widget-default" : "flex min-h-0 min-w-0 flex-1 flex-col")}>
+      {/* Em fullscreen, o wrapper vira overlay fixed acima do topbar/sidebar (z-sticky) e a tabela ganha a viewport inteira. */}
+      <div className={cn(isFullscreen ? "fixed inset-0 z-overlay flex flex-col overflow-hidden bg-background p-widget-default" : "flex min-h-0 min-w-0 flex-1 flex-col")}>
       <TabbedWorkspace
         value={currentTab}
         onValueChange={handleTabChange}
@@ -1089,6 +1092,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <TabbedContentItem value="individual" variant="with-controls">
           <TableWorkspace
             compact={viewMode === "detailed"}
+            contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
             toolbar={
               <>
               {searchBar}
@@ -1096,13 +1100,13 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                 <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
               </div>
               {selectedCount > 0 && (
-                <div className="flex items-center gap-2 rounded-lg border border-input bg-background px-3 py-1.5 text-sm shrink-0">
+                <div className="flex h-control-default items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm shrink-0">
                   <span className="text-muted-foreground font-medium">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
                   <div className="h-4 w-px bg-border" />
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-auto py-0.5 px-2 text-xs gap-1"
+                    className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-destructive hover:text-destructive-foreground"
                     disabled={isBulkLoading}
                     onClick={() => { bulkPause(selectedAdIds); setRowSelection({}); }}
                   >
@@ -1112,7 +1116,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-auto py-0.5 px-2 text-xs gap-1"
+                    className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-success hover:text-success-foreground"
                     disabled={isBulkLoading}
                     onClick={() => { bulkActivate(selectedAdIds); setRowSelection({}); }}
                   >
@@ -1134,13 +1138,15 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </>
             }
           >
-            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+            {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
+            <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />
           </TableWorkspace>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-anuncio" variant="with-controls">
           <TableWorkspace
             compact={viewMode === "detailed"}
+            contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
             toolbar={
               <>
               {searchBar}
@@ -1150,13 +1156,15 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </>
             }
           >
-            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+            {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
+            <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />
           </TableWorkspace>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-conjunto" variant="with-controls">
           <TableWorkspace
             compact={viewMode === "detailed"}
+            contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
             toolbar={
               <>
               {searchBar}
@@ -1166,13 +1174,15 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </>
             }
           >
-            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+            {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
+            <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />
           </TableWorkspace>
         </TabbedContentItem>
 
         <TabbedContentItem value="por-campanha" variant="with-controls">
           <TableWorkspace
             compact={viewMode === "detailed"}
+            contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
             toolbar={
               <>
               {searchBar}
@@ -1182,7 +1192,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
               </>
             }
           >
-            {viewMode === "minimal" ? <MinimalTableContent {...tableContentProps} /> : <TableContent {...tableContentProps} />}
+            {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
+            <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />
           </TableWorkspace>
         </TabbedContentItem>
       </TabbedWorkspace>

@@ -269,7 +269,7 @@ export default async function PvPage({
 
             <div className="grid gap-4 md:grid-cols-3">
               {copy.sectionOutcomeItems.map((item) => (
-                <Card key={item.title} className="shadow-sm">
+                <Card key={item.title} className="shadow-elevation-raised">
                   <CardHeader className="gap-2">
                     <CardTitle className="text-xl">{item.title}</CardTitle>
                     <CardDescription className="text-sm leading-relaxed">{item.desc}</CardDescription>

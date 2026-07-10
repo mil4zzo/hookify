@@ -154,10 +154,10 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay backdrop-blur-sm">
+    <div className="fixed inset-0 z-modal flex items-center justify-center bg-overlay backdrop-blur-sm">
       <div className="relative flex items-start gap-10">
         {/* Botão fechar */}
-        <Button variant="outline" size="icon" className="absolute -top-12 right-0 h-10 w-10 rounded-full shadow-lg bg-background-90 backdrop-blur-sm hover:bg-background" onClick={onClose} aria-label="Fechar">
+        <Button variant="outline" size="icon" className="absolute -top-12 right-0 rounded-full shadow-elevation-overlay bg-background-90 backdrop-blur-sm hover:bg-background" onClick={onClose} aria-label="Fechar">
           <IconX className="h-5 w-5" />
         </Button>
 
@@ -240,7 +240,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                     <span className="text-xs text-muted-foreground">CPR</span>
                     <div className="flex flex-col items-baseline">
                       <span className="text-lg font-semibold text-foreground">{formatCurrency(row.cpr_actual)}</span>
-                      <span className="text-[11px] text-muted-foreground">({Math.round(conversions).toLocaleString("pt-BR")} conversões)</span>
+                      <span className="text-2xs text-muted-foreground">({Math.round(conversions).toLocaleString("pt-BR")} conversões)</span>
                     </div>
                   </div>
 
@@ -249,7 +249,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
                     <span className="text-xs text-muted-foreground">CPMQL</span>
                     <div className="flex flex-col items-baseline">
                       <span className="text-lg font-semibold text-foreground">{effectiveCpmql > 0 ? formatCurrency(effectiveCpmql) : "—"}</span>
-                      <span className="text-[11px] text-muted-foreground">({effectiveMqlCount.toLocaleString("pt-BR")} MQLs)</span>
+                      <span className="text-2xs text-muted-foreground">({effectiveMqlCount.toLocaleString("pt-BR")} MQLs)</span>
                     </div>
                   </div>
 

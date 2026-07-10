@@ -7,6 +7,7 @@ import { VideoMetricCell } from "@/components/common/VideoMetricCell";
 import { StatePanel } from "@/components/common/States";
 import { RetentionChart } from "@/components/charts/RetentionChart";
 import { Button } from "@/components/ui/button";
+// design-system-exception: direct-skeleton-import - media and chart-shaped skeletons in ad detail modal
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAdVariations, useAdDetails, useAdCreative, useVideoSource, useImageSource, useAdHistory, useAdNameHistory, useAdTranscription, useTranscribeAd } from "@/lib/api/hooks";
 import { RankingsItem } from "@/lib/api/schemas";
@@ -814,7 +815,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                         </TooltipProvider>
                       )}
                       {transcriptionData?.full_text && (
-                        <Button variant="ghost" size="sm" onClick={handleCopyTranscription} aria-label="Copiar transcrição" className={`h-8 px-2.5 rounded-md transition-colors duration-200 ${copiedTranscription ? "bg-success/15 hover:bg-success/20 text-success" : ""}`}>
+                        <Button variant="ghost" size="sm" onClick={handleCopyTranscription} aria-label="Copiar transcrição" className={`px-2.5 rounded-md transition-colors duration-200 ${copiedTranscription ? "bg-success/15 hover:bg-success/20 text-success" : ""}`}>
                           {copiedTranscription ? <IconCheck className="h-4 w-4 text-success animate-in zoom-in-50 duration-150" /> : <IconCopy className="h-4 w-4" />}
                         </Button>
                       )}

@@ -116,7 +116,7 @@ function FeedMockup({
           <IconBrandInstagram className="h-3.5 w-3.5" />
         </div>
         <span className="text-xs font-semibold text-gray-800">Instagram</span>
-        <span className="ml-auto text-[10px] text-gray-400">Patrocinado</span>
+        <span className="ml-auto text-2xs text-gray-400">Patrocinado</span>
       </div>
       <PreviewMedia creative={creative} resolvedImageUrl={resolvedImageUrl} loadingImage={loadingImage} className="aspect-square" />
       <div className="space-y-1.5 px-3 py-2.5 text-xs">
