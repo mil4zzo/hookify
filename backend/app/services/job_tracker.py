@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 import uuid
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.core.supabase_retry import with_postgrest_retry
 
 logger = logging.getLogger(__name__)
 
@@ -69,18 +70,24 @@ class JobTracker:
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Busca job pelo ID."""
         try:
-            result = self.sb.table("jobs").select("*").eq("id", job_id).eq("user_id", self.user_id).execute()
+            result = with_postgrest_retry(
+                f"get_job[{job_id}]",
+                lambda: self.sb.table("jobs").select("*").eq("id", job_id).eq("user_id", self.user_id).execute(),
+            )
             if result.data and len(result.data) > 0:
                 return result.data[0]
             return None
         except Exception as e:
             logger.exception(f"[JobTracker] Erro ao buscar job {job_id}: {e}")
             return None
-    
+
     def get_payload(self, job_id: str) -> Optional[Dict[str, Any]]:
         """Busca apenas o payload do job."""
         try:
-            result = self.sb.table("jobs").select("payload").eq("id", job_id).eq("user_id", self.user_id).execute()
+            result = with_postgrest_retry(
+                f"get_payload[{job_id}]",
+                lambda: self.sb.table("jobs").select("payload").eq("id", job_id).eq("user_id", self.user_id).execute(),
+            )
             if result.data and len(result.data) > 0:
                 return result.data[0].get("payload")
             return None
@@ -107,7 +114,10 @@ class JobTracker:
                 "created_at": _now_iso(),
                 "updated_at": _now_iso(),
             }
-            self.sb.table("jobs").upsert(data, on_conflict="id").execute()
+            with_postgrest_retry(
+                f"create_job[{job_id}]",
+                lambda: self.sb.table("jobs").upsert(data, on_conflict="id").execute(),
+            )
             logger.info(f"[JobTracker] Job {job_id} criado com status {status}")
             return True
         except Exception as e:
@@ -122,9 +132,12 @@ class JobTracker:
                 return False
             payload = current_job.get("payload") or {}
             payload.update(patch)
-            self.sb.table("jobs").update(
-                {"payload": payload, "updated_at": _now_iso()}
-            ).eq("id", job_id).eq("user_id", self.user_id).execute()
+            with_postgrest_retry(
+                f"merge_payload[{job_id}]",
+                lambda: self.sb.table("jobs").update(
+                    {"payload": payload, "updated_at": _now_iso()}
+                ).eq("id", job_id).eq("user_id", self.user_id).execute(),
+            )
             return True
         except Exception as e:
             logger.exception(f"[JobTracker] Erro ao mesclar payload do job {job_id}: {e}")
@@ -139,58 +152,77 @@ class JobTracker:
         details: Optional[Dict[str, Any]] = None,
         result_count: Optional[int] = None
     ) -> bool:
-        """Atualiza status/progresso do job (heartbeat)."""
-        try:
-            current_job = self.get_job(job_id)
-            current_status = (current_job or {}).get("status")
+        """Atualiza status/progresso do job (heartbeat).
 
-            # Preserve cancelled as a terminal state for cooperative cancellation.
-            if current_status == STATUS_CANCELLED and status != STATUS_CANCELLED:
-                logger.info(
-                    f"[JobTracker] Ignorando heartbeat para job {job_id}: "
-                    f"status atual é {STATUS_CANCELLED} e tentativa foi {status}"
-                )
-                return False
+        Contrato do retorno:
+            True  = heartbeat aplicado — OU falha transitória de rede tolerada
+                    (o job continua; heartbeat é best-effort).
+            False = há um motivo REAL para o worker parar: o job foi cancelado
+                    por fora, ou o lease foi genuinamente perdido para outro worker.
 
-            data: Dict[str, Any] = {
-                "status": status,
-                "progress": progress,
-                "updated_at": _now_iso(),
-            }
-            
-            if message is not None:
-                data["message"] = message
-            
-            if result_count is not None:
-                data["result_count"] = result_count
-            
-            # Se tiver details, mesclar no payload existente
-            if details is not None:
-                existing = self.get_payload(job_id) or {}
-                if "details" not in existing:
-                    existing["details"] = {}
-                existing["details"].update(details)
-                data["payload"] = existing
-            
-            if self.processing_owner:
-                if status in (STATUS_PROCESSING, STATUS_PERSISTING):
-                    if not self.renew_processing_claim(job_id):
-                        return False
-                else:
-                    owner_job = self.get_job(job_id)
-                    if not owner_job:
-                        return False
+        Falhas transitórias de rede (HTTP/2 GOAWAY / ConnectionTerminated) NUNCA
+        retornam False. Antes, o `except Exception: return False` colapsava um blip
+        de rede em "lease perdido" e MATAVA o job (erro "Lease de processamento
+        perdido durante atualização de progresso" sob refresh concorrente).
+        """
+        # 1) Checagem de cancelamento cooperativo (best-effort: get_job já faz retry
+        #    e devolve None em falha transitória — nesse caso não sabemos o status,
+        #    então seguimos; o próximo heartbeat/_check_if_cancelled pega o cancel).
+        current_job = self.get_job(job_id)
+        current_status = (current_job or {}).get("status")
+        if current_status == STATUS_CANCELLED and status != STATUS_CANCELLED:
+            logger.info(
+                f"[JobTracker] Ignorando heartbeat para job {job_id}: "
+                f"status atual é {STATUS_CANCELLED} e tentativa foi {status}"
+            )
+            return False
+
+        data: Dict[str, Any] = {
+            "status": status,
+            "progress": progress,
+            "updated_at": _now_iso(),
+        }
+        if message is not None:
+            data["message"] = message
+        if result_count is not None:
+            data["result_count"] = result_count
+
+        # Se tiver details, mesclar no payload existente
+        if details is not None:
+            existing = self.get_payload(job_id) or {}
+            if "details" not in existing:
+                existing["details"] = {}
+            existing["details"].update(details)
+            data["payload"] = existing
+
+        # 2) Lease: só bloqueia quando o DB responde que o lease é de outro
+        #    (renewed=False genuíno). Falha transitória do RPC (renewed=None) NÃO para.
+        if self.processing_owner:
+            if status in (STATUS_PROCESSING, STATUS_PERSISTING):
+                renewed = self.renew_processing_claim(job_id)
+                if renewed is False:
+                    return False  # motivo real: lease perdido para outro worker
+                # renewed is None → transitório → segue best-effort
+            else:
+                owner_job = self.get_job(job_id)
+                if owner_job is not None:
                     current_owner = owner_job.get("processing_owner")
                     if current_owner not in (None, self.processing_owner):
-                        return False
+                        return False  # motivo real: outro worker é o dono
+                # owner_job None (leitura falhou) → indeterminado → segue
 
-                self.sb.table("jobs").update(data).eq("id", job_id).eq("user_id", self.user_id).execute()
-            else:
-                self.sb.table("jobs").update(data).eq("id", job_id).eq("user_id", self.user_id).execute()
-            return True
+        # 3) Update final: best-effort. Falha transitória (mesmo após os retries do
+        #    with_postgrest_retry) apenas loga e segue — não mata o job.
+        try:
+            with_postgrest_retry(
+                f"heartbeat_update[{status}]",
+                lambda: self.sb.table("jobs").update(data).eq("id", job_id).eq("user_id", self.user_id).execute(),
+            )
         except Exception as e:
-            logger.exception(f"[JobTracker] Erro ao atualizar heartbeat do job {job_id}: {e}")
-            return False
+            logger.warning(
+                f"[JobTracker] Heartbeat do job {job_id} não persistido (transitório, job segue): {e}"
+            )
+        return True
     
     def try_claim_processing(
         self,
@@ -200,15 +232,18 @@ class JobTracker:
         """Tenta adquirir lease de processamento de forma atômica via RPC."""
         try:
             owner = self.processing_owner or str(uuid.uuid4())
-            result = self.sb.rpc(
-                "claim_job_processing",
-                {
-                    "p_job_id": job_id,
-                    "p_user_id": self.user_id,
-                    "p_owner": owner,
-                    "p_lease_seconds": lease_seconds,
-                },
-            ).execute()
+            result = with_postgrest_retry(
+                f"claim_job_processing[{job_id}]",
+                lambda: self.sb.rpc(
+                    "claim_job_processing",
+                    {
+                        "p_job_id": job_id,
+                        "p_user_id": self.user_id,
+                        "p_owner": owner,
+                        "p_lease_seconds": lease_seconds,
+                    },
+                ).execute(),
+            )
             payload = result.data or {}
             claimed = bool(payload.get("claimed"))
             if claimed:
@@ -223,39 +258,54 @@ class JobTracker:
         self,
         job_id: str,
         lease_seconds: int = DEFAULT_PROCESSING_LEASE_SECONDS,
-    ) -> bool:
-        """Renova lease do worker atual."""
+    ) -> Optional[bool]:
+        """Renova lease do worker atual (tri-state).
+
+        Returns:
+            True  = renovado (o worker ainda é o dono).
+            False = negado GENUINAMENTE pelo DB: outro worker assumiu o lease ou o
+                    job saiu de processing/persisting (cancelado/falhou/completou).
+                    → motivo real para parar.
+            None  = falha transitória de rede após os retries; indeterminado.
+                    → NÃO deve parar o job (o caller segue best-effort).
+        """
         if not self.processing_owner:
             return False
         try:
-            result = self.sb.rpc(
-                "renew_job_processing_lease",
-                {
-                    "p_job_id": job_id,
-                    "p_user_id": self.user_id,
-                    "p_owner": self.processing_owner,
-                    "p_lease_seconds": lease_seconds,
-                },
-            ).execute()
+            result = with_postgrest_retry(
+                f"renew_job_processing_lease[{job_id}]",
+                lambda: self.sb.rpc(
+                    "renew_job_processing_lease",
+                    {
+                        "p_job_id": job_id,
+                        "p_user_id": self.user_id,
+                        "p_owner": self.processing_owner,
+                        "p_lease_seconds": lease_seconds,
+                    },
+                ).execute(),
+            )
             payload = result.data or {}
             return bool(payload.get("renewed"))
         except Exception as e:
-            logger.exception(f"[JobTracker] Erro ao renovar lease do job {job_id}: {e}")
-            return False
+            logger.warning(f"[JobTracker] Renovação de lease do job {job_id} falhou (transitório, job segue): {e}")
+            return None
 
     def release_processing_claim(self, job_id: str) -> bool:
         """Libera lease do worker atual."""
         if not self.processing_owner:
             return True
         try:
-            result = self.sb.rpc(
-                "release_job_processing_lease",
-                {
-                    "p_job_id": job_id,
-                    "p_user_id": self.user_id,
-                    "p_owner": self.processing_owner,
-                },
-            ).execute()
+            result = with_postgrest_retry(
+                f"release_job_processing_lease[{job_id}]",
+                lambda: self.sb.rpc(
+                    "release_job_processing_lease",
+                    {
+                        "p_job_id": job_id,
+                        "p_user_id": self.user_id,
+                        "p_owner": self.processing_owner,
+                    },
+                ).execute(),
+            )
             payload = result.data or {}
             released = bool(payload.get("released"))
             if released:

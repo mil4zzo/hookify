@@ -165,6 +165,52 @@ function updateActiveRefresh(packId: string, updates: Partial<ActiveRefresh>) {
 }
 
 // ============================================================================
+// FILA SERIAL DE REFRESH
+// ============================================================================
+// Atualizar vários packs ao mesmo tempo saturava (a) o BANCO — cada refresh faz
+// upserts grandes em ad_metrics/ads e a contenção estourava o statement_timeout
+// (Postgres 57014 "canceling statement due to statement timeout" ao salvar
+// métricas) — e (b) os SOCKETS do backend (em dev Windows: WinError 10035
+// "WSAEWOULDBLOCK" ao salvar anúncios). Serializar os refresh na raiz elimina as
+// duas causas de uma vez, e é seguro porque os upserts são idempotentes
+// (reescrevem valores absolutos). Singleton de módulo → vale entre TODOS os
+// callers (Topbar, cards, página de packs), independente da instância do hook.
+
+/** Quantos refresh podem PROCESSAR de fato ao mesmo tempo. 1 = estritamente em fila. */
+const REFRESH_MAX_CONCURRENCY = 1;
+let refreshActiveCount = 0;
+const refreshQueue: Array<() => void> = [];
+
+function pumpRefreshQueue(): void {
+  while (refreshActiveCount < REFRESH_MAX_CONCURRENCY && refreshQueue.length > 0) {
+    const run = refreshQueue.shift()!;
+    refreshActiveCount++;
+    run();
+  }
+}
+
+/** Enfileira `task`; resolve/rejeita com o resultado dela, respeitando a concorrência máxima. */
+function enqueueRefresh<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    refreshQueue.push(() => {
+      Promise.resolve()
+        .then(task)
+        .then(resolve, reject)
+        .finally(() => {
+          refreshActiveCount--;
+          pumpRefreshQueue();
+        });
+    });
+    pumpRefreshQueue();
+  });
+}
+
+/** Este novo refresh vai ter que esperar (algo já processando ou na frente na fila)? */
+function refreshWillQueue(): boolean {
+  return refreshActiveCount >= REFRESH_MAX_CONCURRENCY || refreshQueue.length > 0;
+}
+
+// ============================================================================
 // MAIN HOOK
 // ============================================================================
 
@@ -920,6 +966,21 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       let leadscoreStarted = false;
       let leadscoreResult: { success: boolean; paused?: boolean; error?: string } = { success: false, error: "Leadscore não executado" };
 
+      // Sinaliza "na fila" quando já há refresh processando/aguardando. Mesmo toastId →
+      // sobrescrito pelo toast real do Meta assim que este pack de fato começar.
+      if (toggles.meta && refreshWillQueue()) {
+        showProgressToast(
+          toastId, packName, 0, 5,
+          undefined, undefined, metaToastIcon,
+          { stageLabel: "Na fila", stageTitle: "Aguardando outras atualizações", dynamicLine: "Começa assim que a anterior terminar…", stageContext: "Meta" },
+          0,
+        );
+      }
+
+      // Enfileira o trabalho pesado (Meta + persistência): só REFRESH_MAX_CONCURRENCY
+      // roda de fato ao mesmo tempo — evita saturar banco/sockets. A marcação de
+      // "updating" (acima) já aconteceu, então o card reflete o estado imediatamente.
+      await enqueueRefresh(async () => {
       try {
         // Meta → (Leadscore ∥ Transcrição): dependentes esperam Meta concluir.
         // Leadscore atualiza ad_metrics; Transcrição processa ads novos. Meta é quem
@@ -1015,6 +1076,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         const ar = activeRefreshes.get(packId);
         cleanupRefreshState(packId, ar?.metaJobId);
       }
+      });
     },
     [
       runMetaRefresh,
