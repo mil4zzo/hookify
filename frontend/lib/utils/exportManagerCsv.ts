@@ -94,7 +94,7 @@ export async function exportManagerToCsv({
 
   const visibleMetricColumns = MANAGER_COLUMNS.filter((col) => {
     if (!activeColumns.has(col.id)) return false
-    if ((col.id === "mqls" || col.id === "cpmql") && !hasSheetIntegration) return false
+    if ((col.id === "mqls" || col.id === "cpmql" || col.id === "leadscore_avg") && !hasSheetIntegration) return false
     return true
   })
 

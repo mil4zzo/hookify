@@ -40,6 +40,7 @@ export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   { id: "connect_rate", name: getManagerMetricLabel("connect_rate"), defaultVisible: true },
   { id: "lpv", name: getManagerMetricLabel("lpv") },
   { id: "page_conv", name: getManagerMetricLabel("page_conv"), defaultVisible: true },
+  { id: "leadscore_avg", name: getManagerMetricLabel("leadscore_avg") },
 ] as const;
 
 // Derivadas — sempre coerentes com MANAGER_COLUMNS

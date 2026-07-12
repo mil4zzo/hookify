@@ -62,7 +62,7 @@ export function isManagerMetricColumnVisible(
     return false;
   }
 
-  if ((columnId === "cpmql" || columnId === "mqls") && !hasSheetIntegration) {
+  if ((columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg") && !hasSheetIntegration) {
     return false;
   }
 

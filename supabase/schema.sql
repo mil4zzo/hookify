@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict GyM8amCi76NUhPqVvguZ3aO7ZT5vK7e5a4UHRa53ry2PPALn1O3m2o5nuJoYlaQ
+\restrict eF1WwQJZDJWOam38ygNy9Mm3dLSQeJGnc4gd3PQMmotnwLdoJiHjxmJecaFw5Xv
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -5639,7 +5639,13 @@ begin
           (select count(*)::integer from unnest(f.leadscore_values) v where v >= v_mql_min),
           0
         )
-      )::bigint as mql_count
+      )::bigint as mql_count,
+      sum(
+        coalesce((select sum(v) from unnest(f.leadscore_values) v), 0)
+      )::numeric as leadscore_sum,
+      sum(
+        coalesce(array_length(f.leadscore_values, 1), 0)
+      )::bigint as leadscore_count
     from filtered f
     where f.date >= v_axis_start
       and f.date <= v_date_stop
@@ -5714,6 +5720,13 @@ begin
             else null
           end
           order by a.d
+        ),
+        'leadscore_avg', jsonb_agg(
+          case
+            when coalesce(d.leadscore_count, 0) > 0 then d.leadscore_sum / d.leadscore_count
+            else null
+          end
+          order by a.d
         )
       ) as series
     from requested_groups rg
@@ -5746,7 +5759,7 @@ ALTER FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_st
 -- Name: FUNCTION fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) IS 'Manager series v2 RPC: returns sparkline series for requested group_keys, including clicks, inline_link_clicks, cpc, cplc, retention metrics and (v090) video_watched_p75, plays, thruplays and reach.';
+COMMENT ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) IS 'Manager series v2 RPC: returns sparkline series for requested group_keys, including clicks, inline_link_clicks, cpc, cplc, retention metrics, video_watched_p75/plays/thruplays/reach (v090) and leadscore_avg (v092, weighted by lead count, same daily-aggregation pattern as mqls/cpmql).';
 
 
 --
@@ -7871,5 +7884,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict GyM8amCi76NUhPqVvguZ3aO7ZT5vK7e5a4UHRa53ry2PPALn1O3m2o5nuJoYlaQ
+\unrestrict eF1WwQJZDJWOam38ygNy9Mm3dLSQeJGnc4gd3PQMmotnwLdoJiHjxmJecaFw5Xv
 

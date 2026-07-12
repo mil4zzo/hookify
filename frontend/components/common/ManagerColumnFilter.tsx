@@ -30,7 +30,8 @@ export type ManagerColumnType =
   | "scroll_stop"
   | "hold_rate"
   | "video_watched_p50"
-  | "video_watched_p75";
+  | "video_watched_p75"
+  | "leadscore_avg";
 
 interface ManagerColumnFilterProps {
   activeColumns: Set<ManagerColumnType>;

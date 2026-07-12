@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Literal, Set
+from typing import Any, Dict, List, Optional, Literal, Set, Tuple
 from datetime import datetime, timedelta
 import logging
 import time
@@ -336,6 +336,22 @@ def _count_mql(leadscore_values: Any, mql_leadscore_min: float) -> int:
     return cnt
 
 
+def _sum_count_leadscore(leadscore_values: Any) -> Tuple[float, int]:
+    """Soma e contagem dos leadscores válidos do dia (para leadscore_avg = soma/contagem)."""
+    if not isinstance(leadscore_values, list) or not leadscore_values:
+        return 0.0, 0
+    total = 0.0
+    cnt = 0
+    for v in leadscore_values:
+        try:
+            n = float(v)
+        except Exception:
+            continue
+        total += n
+        cnt += 1
+    return total, cnt
+
+
 def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include_cpmql: bool = True) -> Dict[str, Any]:
     """ConstrÃ³i payload `series` no formato consumido pelo frontend (sparklines)."""
     # Se S for None, usar dict vazio para evitar AttributeError
@@ -363,6 +379,7 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
     conversions_series: List[Dict[str, int]] = []  # conversions por dia
     cpmql_series: List[Optional[float]] = []
     mqls_series: List[Optional[int]] = []  # MQLs por dia
+    leadscore_avg_series: List[Optional[float]] = []  # leadscore médio por dia
 
     for d in axis:
         plays = (S.get("plays") or {}).get(d, 0) or 0
@@ -426,6 +443,10 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
             cpmql_series.append(cpmql_day)
             mqls_series.append(mql_count_day if mql_count_day > 0 else None)
 
+            leadscore_sum_day = ((S.get("leadscore_sum") or {}).get(d, 0.0)) or 0.0
+            leadscore_count_day = ((S.get("leadscore_count") or {}).get(d, 0)) or 0
+            leadscore_avg_series.append((leadscore_sum_day / leadscore_count_day) if leadscore_count_day > 0 else None)
+
     series: Dict[str, Any] = {
         "axis": axis,
         "hook": hook_series,
@@ -452,6 +473,7 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
     if include_cpmql:
         series["cpmql"] = cpmql_series
         series["mqls"] = mqls_series
+        series["leadscore_avg"] = leadscore_avg_series
     return series
 
 
@@ -1543,6 +1565,8 @@ def get_ad_name_details(
         "video_watched_p75_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
+        "leadscore_sum": {d: 0.0 for d in axis},
+        "leadscore_count": {d: 0 for d in axis},
     }
 
     for r in data:
@@ -1619,6 +1643,9 @@ def get_ad_name_details(
             series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
+                series_acc["leadscore_sum"][date] += ls_sum
+                series_acc["leadscore_count"][date] += ls_cnt
             except Exception:
                 pass
             _merge_row_conversions_actions(r, series_acc["conversions"][date])
@@ -1793,6 +1820,8 @@ def get_rankings_children(
         "video_watched_p75_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
+        "leadscore_sum": {d: 0.0 for d in axis},
+        "leadscore_count": {d: 0 for d in axis},
     })
 
     for r in data:
@@ -1882,6 +1911,9 @@ def get_rankings_children(
             S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
+                S["leadscore_sum"][date] += ls_sum
+                S["leadscore_count"][date] += ls_cnt
             except Exception:
                 pass
             _merge_row_conversions_actions(r, S["conversions"][date])
@@ -2067,6 +2099,8 @@ def get_campaign_children(
             "video_watched_p75_wsum": {d: 0.0 for d in axis},
             "conversions": {d: {} for d in axis},
             "mql_count": {d: 0 for d in axis},
+        "leadscore_sum": {d: 0.0 for d in axis},
+        "leadscore_count": {d: 0 for d in axis},
         }
     )
 
@@ -2181,6 +2215,9 @@ def get_campaign_children(
             S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
+                S["leadscore_sum"][date] += ls_sum
+                S["leadscore_count"][date] += ls_cnt
             except Exception:
                 pass
             _merge_row_conversions_actions(r, S["conversions"][date])
@@ -2338,6 +2375,8 @@ def get_adset_children(
             "video_watched_p75_wsum": {d: 0.0 for d in axis},
             "conversions": {d: {} for d in axis},
             "mql_count": {d: 0 for d in axis},
+        "leadscore_sum": {d: 0.0 for d in axis},
+        "leadscore_count": {d: 0 for d in axis},
         }
     )
 
@@ -2436,6 +2475,9 @@ def get_adset_children(
             # MQLs por dia
             try:
                 S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
+                S["leadscore_sum"][date] += ls_sum
+                S["leadscore_count"][date] += ls_cnt
             except Exception:
                 pass
 
@@ -2633,6 +2675,8 @@ def get_adset_details(
         "hook_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
+        "leadscore_sum": {d: 0.0 for d in axis},
+        "leadscore_count": {d: 0 for d in axis},
     }
 
     for r in data:
@@ -2719,6 +2763,9 @@ def get_adset_details(
 
             try:
                 series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
+                series_acc["leadscore_sum"][date] += ls_sum
+                series_acc["leadscore_count"][date] += ls_cnt
             except Exception:
                 pass
 
@@ -2876,6 +2923,8 @@ def get_ad_details(
         "video_watched_p75_wsum": {d: 0.0 for d in axis},
         "conversions": {d: {} for d in axis},
         "mql_count": {d: 0 for d in axis},
+        "leadscore_sum": {d: 0.0 for d in axis},
+        "leadscore_count": {d: 0 for d in axis},
     }
 
     for r in data:
@@ -2956,6 +3005,9 @@ def get_ad_details(
             series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
                 series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
+                series_acc["leadscore_sum"][date] += ls_sum
+                series_acc["leadscore_count"][date] += ls_cnt
             except Exception:
                 pass
             _merge_row_conversions_actions(r, series_acc["conversions"][date])

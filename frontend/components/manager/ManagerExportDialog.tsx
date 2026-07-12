@@ -30,8 +30,8 @@ interface ManagerExportDialogProps {
 }
 
 export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, hasSheetIntegration, currentTab, dateStart, dateStop }: ManagerExportDialogProps) {
-  // Colunas exportáveis (exclui cpmql/mqls quando não há integração de planilha — o export as descarta de qualquer forma)
-  const availableColumns = useMemo(() => MANAGER_COLUMNS.filter((c) => !((c.id === "cpmql" || c.id === "mqls") && !hasSheetIntegration)), [hasSheetIntegration]);
+  // Colunas exportáveis (exclui cpmql/mqls/leadscore_avg quando não há integração de planilha — o export as descarta de qualquer forma)
+  const availableColumns = useMemo(() => MANAGER_COLUMNS.filter((c) => !((c.id === "cpmql" || c.id === "mqls" || c.id === "leadscore_avg") && !hasSheetIntegration)), [hasSheetIntegration]);
 
   const [selected, setSelected] = useState<Set<ManagerColumnType>>(new Set());
   const [withTranscriptions, setWithTranscriptions] = useState(false);

@@ -393,4 +393,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-07-09 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-07-11 — via `supabase/generate_schema_map.py`*

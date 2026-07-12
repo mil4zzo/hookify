@@ -26,6 +26,7 @@ export type MetricBaseSeries = {
   page_conv?: MetricSeriesPoint[];
   cpr?: MetricSeriesPoint[];
   cpmql?: MetricSeriesPoint[];
+  leadscore_avg?: MetricSeriesPoint[];
   [key: string]: unknown;
 };
 
@@ -64,6 +65,7 @@ export type MetricSparklineKey = Extract<
   | "hold_rate"
   | "video_watched_p50"
   | "video_watched_p75"
+  | "leadscore_avg"
 >;
 
 export interface BuildGroupedMetricBaseSeriesOptions extends MetricValueContext {
@@ -373,6 +375,20 @@ export function getMetricSeriesAvailability(
       return {
         dataAvailability: [],
         zeroValueLabel: "Sem MQLs",
+      };
+    }
+    case "leadscore_avg": {
+      const leadscoreAvg = seriesData.leadscore_avg || [];
+      if (leadscoreAvg.length > 0) {
+        return {
+          dataAvailability: leadscoreAvg.map((value) => value != null),
+          zeroValueLabel: "Sem leads",
+        };
+      }
+      const leadscoreValues = seriesData.leadscore_values || [];
+      return {
+        dataAvailability: leadscoreValues.map((value) => value != null),
+        zeroValueLabel: "Sem leads",
       };
     }
     case "spend": {

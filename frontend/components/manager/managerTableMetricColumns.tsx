@@ -2,7 +2,7 @@
 
 import React from "react";
 import type { ColumnDef, Column } from "@tanstack/react-table";
-import { IconAlertTriangle, IconArrowNarrowDown, IconArrowNarrowUp, IconFilter } from "@tabler/icons-react";
+import { IconAlertTriangle, IconArrowNarrowDown, IconArrowNarrowUp } from "@tabler/icons-react";
 import { ColumnFilter, type FilterValue } from "@/components/common/ColumnFilter";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MetricCell } from "@/components/manager/MetricCell";
@@ -49,7 +49,6 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     const filteredAvg = formatFilteredAverageRef.current(metricId);
     const displayFilterValue: FilterValue | undefined = Array.isArray(filterValue) ? (filterValue.length > 0 ? filterValue[0] : undefined) : (filterValue ?? undefined);
     const textSize = isMinimal ? "text-2xs" : "text-xs";
-    const iconSize = isMinimal ? "w-2.5 h-2.5" : "w-3 h-3";
     const avgLeading = isMinimal ? "leading-none" : "";
     const isSum = sumMetrics.has(metricId);
 
@@ -72,14 +71,14 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
             </Tooltip>
           </TooltipProvider>
         )}
+        {/* Sem ícone de funil aqui: o funil significa "esta coluna tem filtro" (ColumnFilter
+            readonly ao lado do título) — este valor aparece em TODAS as colunas quando qualquer
+            filtro está ativo; a cor primary + tooltip já dizem que é o agregado filtrado. */}
         {hasFilters && filteredAvg && (
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className={`${textSize} text-primary font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
-                  <IconFilter className={iconSize} />
-                  {filteredAvg}
-                </span>
+                <span className={`${textSize} text-primary font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>{filteredAvg}</span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 <p className="text-xs">{isSum ? "Soma total dos filtrados" : "Média dos anúncios filtrados"}</p>
@@ -341,7 +340,6 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
             const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
             const hasFilters = hasActiveFilters && !!filteredAveragesRef.current;
             const textSize = isMinimal ? "text-2xs" : "text-xs";
-            const iconSize = isMinimal ? "w-2.5 h-2.5" : "w-3 h-3";
             const avgLeading = isMinimal ? "leading-none" : "";
             return (
               <div className={`flex flex-col items-center ${isMinimal ? "gap-1" : "gap-0.5"}`}>
@@ -398,10 +396,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <span className={`${textSize} text-primary font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>
-                          <IconFilter className={iconSize} />
-                          {formatFilteredAverageRef.current("cpmql")}
-                        </span>
+                        <span className={`${textSize} text-primary font-semibold flex items-center gap-0.5 cursor-help ${avgLeading}`}>{formatFilteredAverageRef.current("cpmql")}</span>
                       </TooltipTrigger>
                       <TooltipContent side="bottom">
                         <p className="text-xs">Média dos anúncios filtrados</p>
@@ -538,6 +533,9 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
 
   // LPV
   pushStandardMetricColumn("lpv");
+
+  // Leadscore médio
+  pushStandardMetricColumn("leadscore_avg", { nullable: true });
 
   // Page Conversion
   if (shouldShow("page_conv")) {

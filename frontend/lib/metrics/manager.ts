@@ -1,6 +1,7 @@
 import { METRIC_DEFINITIONS, type MetricKey } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import { getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
+import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 
 export type ManagerMetricKey = Extract<
   MetricKey,
@@ -28,6 +29,7 @@ export type ManagerMetricKey = Extract<
   | "connect_rate"
   | "lpv"
   | "page_conv"
+  | "leadscore_avg"
 >;
 
 export interface ManagerAverages {
@@ -57,6 +59,7 @@ export interface ManagerAverages {
   page_conv: number | null;
   cpmql: number | null;
   mqls: number;
+  leadscore_avg: number | null;
   sumSpend: number;
   sumImpressions: number;
   sumClicks: number;
@@ -95,6 +98,7 @@ const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
   page_conv: null,
   cpmql: null,
   mqls: 0,
+  leadscore_avg: null,
   sumSpend: 0,
   sumImpressions: 0,
   sumClicks: 0,
@@ -131,6 +135,7 @@ export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = [
   "connect_rate",
   "lpv",
   "page_conv",
+  "leadscore_avg",
 ] as const;
 
 // Métricas cujo header mostra a SOMA do pack (contagens), não a média por linha
@@ -267,6 +272,8 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
   let watched75Weight = 0;
   let scrollStopWeighted = 0;
   let scrollStopWeight = 0;
+  let leadscoreWeighted = 0;
+  let leadscoreWeight = 0;
 
   for (const row of rows) {
     const spend = getMetricNumericValueOrNull(row, "spend") ?? 0;
@@ -325,6 +332,18 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     if (hasSheetIntegration) {
       const mqls = getMetricNumericValueOrNull(row, "mqls", { mqlLeadscoreMin }) ?? 0;
       sumMqls += mqls;
+
+      // Ponderado pelo número de leads (leadscoreValues.length), não por plays — leadscore
+      // não tem relação com reprodução de vídeo, tem com volume de leads recebidos.
+      const { leadscoreValues, leadscoreAvg } = computeMqlMetricsFromLeadscore({
+        spend,
+        leadscoreRaw: row.leadscore_values,
+        mqlLeadscoreMin,
+      });
+      if (leadscoreValues.length > 0) {
+        leadscoreWeighted += leadscoreAvg * leadscoreValues.length;
+        leadscoreWeight += leadscoreValues.length;
+      }
     }
   }
 
@@ -355,6 +374,7 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     page_conv: sumLpv > 0 ? sumResults / sumLpv : null,
     cpmql: hasSheetIntegration && sumMqls > 0 ? sumSpend / sumMqls : null,
     mqls: hasSheetIntegration ? sumMqls / rows.length : 0,
+    leadscore_avg: hasSheetIntegration && leadscoreWeight > 0 ? leadscoreWeighted / leadscoreWeight : null,
     sumSpend,
     sumImpressions,
     sumClicks,

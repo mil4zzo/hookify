@@ -27,7 +27,8 @@ export type MetricKey =
   | "lpv"
   | "plays"
   | "thruplays"
-  | "reach";
+  | "reach"
+  | "leadscore_avg";
 
 export interface MetricDefinition {
   key: MetricKey;
@@ -252,6 +253,16 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Contagem estimada de usuários únicos impactados.",
     polarity: "higher",
     formatKind: "integer",
+  },
+  leadscore_avg: {
+    key: "leadscore_avg",
+    label: "Leadscore Médio",
+    shortLabel: "Leadscore",
+    didacticDescription: "Mostra a qualidade média dos leads gerados pelo anúncio.",
+    technicalDescription: "Média dos leadscore_values recebidos via planilha, ponderada pelo número de leads.",
+    polarity: "higher",
+    formatKind: "decimal",
+    requiresSheetIntegration: true,
   },
 };
 

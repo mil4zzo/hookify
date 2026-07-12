@@ -33,6 +33,7 @@ export type MetricValueSource = {
   page_conv?: number | null;
   mqls?: number | null;
   mql_count?: number | null;
+  leadscore_avg?: number | null;
   plays?: number | null;
   video_total_plays?: number | null;
   thruplays?: number | null;
@@ -205,6 +206,14 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       if (spend == null || !mqls || mqls <= 0) return null;
       return spend / mqls;
     }
+    case "leadscore_avg": {
+      const { leadscoreValues, leadscoreAvg } = computeMqlMetricsFromLeadscore({
+        spend: toFiniteNumber(source.spend) ?? 0,
+        leadscoreRaw: source.leadscore_values,
+        mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+      });
+      return leadscoreValues.length > 0 ? leadscoreAvg : null;
+    }
     default:
       return null;
   }
@@ -332,6 +341,21 @@ export function buildMetricSeriesFromSourceSeries(seriesData: Record<string, unk
       const mqlSeries = buildMetricSeriesFromSourceSeries(seriesData, "mqls", context);
       if (!spendSeries || !mqlSeries) return undefined;
       return divideSeries(spendSeries, mqlSeries);
+    }
+    case "leadscore_avg": {
+      // Fallback quando o backend ainda não manda a série diária pronta (ver mqls acima):
+      // seriesData.leadscore_values aqui é array-of-arrays (um array de leadscores por dia).
+      const leadscoreSeries = Array.isArray(seriesData.leadscore_values) ? seriesData.leadscore_values : undefined;
+      if (!leadscoreSeries) return undefined;
+
+      return leadscoreSeries.map((leadscoreRaw) => {
+        const { leadscoreValues, leadscoreAvg } = computeMqlMetricsFromLeadscore({
+          spend: 0,
+          leadscoreRaw,
+          mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+        });
+        return leadscoreValues.length > 0 ? leadscoreAvg : null;
+      });
     }
     default:
       return undefined;

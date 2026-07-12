@@ -260,6 +260,7 @@ test("derives manager presentation metadata from metric semantics", () => {
     page_conv: 0.5,
     cpmql: 40,
     mqls: 2,
+    leadscore_avg: null,
     sumSpend: 100,
     sumImpressions: 1000,
     sumClicks: 50,

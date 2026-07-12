@@ -442,6 +442,9 @@ const RankingsSeriesSchema = z.object({
   // CPMQL diário (calculado no backend usando leadscore_values por dia + mql_leadscore_min do usuário)
   // Opcional para manter compatibilidade com backends antigos.
   cpmql: z.array(z.number().nullable()).optional(),
+  // Leadscore médio diário (calculado no backend usando leadscore_values por dia). Opcional
+  // para manter compatibilidade com backends antigos.
+  leadscore_avg: z.array(z.number().nullable()).optional(),
   website_ctr: z.array(z.number().nullable()),
   conversions: z.array(z.record(z.string(), z.number())), // conversions por dia para calcular results/cpr/page_conv dinamicamente
 }).passthrough();
@@ -635,6 +638,7 @@ export const RankingsChildrenItemSchema = z.object({
   website_ctr: z.number().optional(),
   reach: z.number().optional(),
   frequency: z.number().nullable().optional(),
+  leadscore_values: z.array(z.number()).optional(), // Array agregado de leadscore_values para calcular MQLs/leadscore médio
   conversions: z.record(z.string(), z.number()),
   thumbnail: z.string().nullable().optional(),
   video_play_curve_actions: z.array(z.number()).nullable().optional(),
