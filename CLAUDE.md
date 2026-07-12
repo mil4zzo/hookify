@@ -178,28 +178,58 @@ Deployment docs in `/deploy/`: `README.md`, `QUICK_START.md`, `ENV_TEMPLATE.md`,
 
 ## Gerenciamento de memória e decisões técnicas
 
-Claude deve gerenciar memórias de forma autônoma e proativa ao longo do desenvolvimento. Sempre que identificar algo que vale registrar, deve fazê-lo sem precisar ser solicitado — e **sempre notificar o usuário** ao final da mensagem quando uma memória for criada, atualizada ou removida.
+O default é **NÃO registrar**. A memória existe para carregar, em toda sessão
+futura, apenas o que mudaria uma decisão — não para arquivar o que foi feito
+(isso é o git). Cada memória tem custo permanente: ocupa contexto e leitura em
+todas as conversas seguintes. Registre com parcimônia.
 
-### Quando criar/atualizar uma memória
+### Teste antes de registrar (todos precisam ser "sim")
 
-- Decisão de arquitetura ou abordagem com motivação não-óbvia
-- Lição aprendida a partir de um bug ou comportamento inesperado de API externa (ex.: Meta, Supabase)
-- Padrão validado que deve ser seguido em contextos similares
-- Restrição de negócio ou técnica que afeta escolhas futuras
+1. **Mudaria uma decisão futura?** Sem esta nota, eu (ou outro Claude)
+   repetiria um erro ou tomaria uma decisão pior numa próxima tarefa?
+2. **É não-derivável?** A informação NÃO pode ser recuperada lendo o código,
+   o schema, o histórico git ou o próprio `CLAUDE.md`?
+3. **É durável?** Continua verdadeira depois que a tarefa atual fechar (não é
+   estado de trabalho em andamento)?
 
-### Quando NÃO criar memória
+Na dúvida em qualquer um dos três → **não registre**. É melhor perder uma nota
+marginal do que inflar o contexto de todas as sessões futuras.
 
-- Padrões de código deriváveis lendo o próprio código
-- Detalhes de tarefas em andamento (usar tasks para isso)
-- Informações já documentadas no `CLAUDE.md`
+### Casos que tipicamente passam no teste
 
-### Como registrar
+- Comportamento inesperado/contra-intuitivo de API externa (Meta, Supabase) que
+  já custou um bug e voltaria a custar.
+- Restrição de negócio/técnica que o código não revela e que limita escolhas
+  futuras.
+- Decisão de arquitetura cuja motivação foi rejeitada em favor de outra — o
+  "por que NÃO fizemos X" que se perde no git.
 
-Sempre atualizar **ambos**:
+### Casos que NÃO registrar
 
-1. `C:\Users\worki\.claude\projects\C--projetos-Hookify\memory\` — arquivo individual + índice `MEMORY.md` (carregado pelo Claude em futuras conversas)
-2. `/documentation/decisoes-tecnicas.md` — espelho legível por humanos, versionado em git
+- Qualquer coisa derivável lendo código, schema ou git (estrutura, o fix em si).
+- Padrão de código "boa prática" genérico sem sutileza específica do projeto.
+- Detalhe de tarefa em andamento (use tasks).
+- O que já está no `CLAUDE.md`.
+- Uma sutileza a mais sobre um tema que já tem memória → **atualize a existente,
+  não crie um arquivo novo**.
 
-### Notificação obrigatória
+### Consolidação (preferir sobre criação)
 
-Toda vez que uma memória for criada, atualizada ou removida — seja por solicitação do usuário ou por iniciativa própria — Claude deve informar explicitamente ao final da mensagem: o que foi feito e qual arquivo foi afetado.
+Antes de criar, procure memória existente que cubra o mesmo tema e **edite-a**.
+Se duas memórias tratam do mesmo assunto, funda-as. Uma memória que se provou
+errada deve ser **removida**, não deixada como ruído. O objetivo é um conjunto
+pequeno e afiado, não um log que só cresce.
+
+### Como registrar (quando passar no teste)
+
+Atualizar **ambos**:
+
+1. `C:\Users\worki\.claude\projects\C--projetos-Hookify\memory\` — arquivo
+   individual + índice `MEMORY.md`.
+2. `/documentation/decisoes-tecnicas.md` — espelho humano, versionado em git.
+
+### Notificação
+
+Ao criar, atualizar ou remover uma memória, informar ao final da mensagem: o que
+foi feito e qual arquivo. (Não notificar quando decidir **não** registrar — isso
+é o comportamento normal, não um evento.)

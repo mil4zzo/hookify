@@ -101,6 +101,14 @@ Extensão da Hookify Academy: personalização de vídeo em escala usando geraç
 - Latência: geração na primeira vez que o usuário acessa a aula (on-demand) ou pré-gerado em background?
 - Cache: reusar o clipe gerado se o nome/contexto não mudou.
 
+### Jogo de Trunfo com Anúncios como Cartas — 2026-07-11
+
+Mini-jogo (Top Trumps / "trunfo") usando os anúncios como cartas. Dois jogadores recebem o mesmo número de cartas (anúncios) e, a cada rodada, um dos jogadores escolhe uma métrica: quem tiver o anúncio com o melhor valor na métrica escolhida vence a rodada.
+
+**Nota:** ideia de baixa prioridade / provavelmente pouco útil — registrada só para não perder.
+
+---
+
 ## UX / Design
 
 ## Infraestrutura / Tech
@@ -111,4 +119,4 @@ Extensão da Hookify Academy: personalização de vídeo em escala usando geraç
 
 ---
 
-*Última atualização: 2026-06-28*
+*Última atualização: 2026-07-11*
