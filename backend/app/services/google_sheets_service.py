@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import random
+import time
 from typing import List, Tuple, Optional, Dict, Any
 from urllib.parse import quote
 
@@ -65,6 +67,51 @@ def _get_access_token_or_raise(
     return access_token
 
 
+# Erros de rede transitorios do `requests` ao falar com a Google API. Incluem os
+# WinError 10054 (ConnectionReset) / 10035 (WouldBlock) embrulhados em ConnectionError:
+# a conexao TLS cai no meio do handshake, sobretudo em dev Windows sob carga de sockets
+# (Meta + Supabase + thumbnails + Sheets simultaneos). Sem retry, o sync do Leadscore
+# morria no 1o chunk. Espelha o with_postgrest_retry (que cobre o cliente httpx do Supabase).
+_TRANSIENT_REQUEST_ERRORS = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+)
+
+
+def _google_get_with_transient_retry(
+    url: str,
+    *,
+    headers: Dict[str, str],
+    params: Optional[Dict[str, Any]],
+    timeout: int,
+    operation: str,
+    attempts: int = 4,
+    base_delay: float = 0.4,
+) -> requests.Response:
+    """GET na Google API com retry/backoff em falhas de rede transitorias (nao em HTTP != 2xx)."""
+    last_exc: Optional[BaseException] = None
+    for attempt in range(attempts):
+        try:
+            return requests.get(url, headers=headers, params=params, timeout=timeout)
+        except _TRANSIENT_REQUEST_ERRORS as exc:
+            last_exc = exc
+            if attempt + 1 >= attempts:
+                logger.warning(
+                    "[GOOGLE] %s: falha de rede transitoria persistente apos %s tentativas: %s",
+                    operation, attempts, exc,
+                )
+                raise
+            delay = base_delay * (2 ** attempt) + random.uniform(0, 0.3)
+            logger.info(
+                "[GOOGLE] %s: falha de rede transitoria (%s), retry %s/%s em %.2fs",
+                operation, type(exc).__name__, attempt + 2, attempts, delay,
+            )
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
+
+
 def _request_with_retry(
     url: str,
     user_jwt: str,
@@ -74,14 +121,15 @@ def _request_with_retry(
     params: Optional[Dict[str, Any]] = None,
     timeout: int = 15,
 ) -> requests.Response:
-    """Faz GET na Google API com retry automatico em 401 (force_refresh do token)."""
+    """Faz GET na Google API com retry em falha de rede transitoria + retry em 401 (force_refresh)."""
     access_token = _get_access_token_or_raise(user_jwt, user_id, connection_id, operation)
 
-    resp = requests.get(
+    resp = _google_get_with_transient_retry(
         url,
         headers={"Authorization": f"Bearer {access_token}"},
         params=params,
         timeout=timeout,
+        operation=operation,
     )
 
     if resp.status_code == 401:
@@ -91,11 +139,12 @@ def _request_with_retry(
                 user_jwt, user_id, connection_id, force_refresh=True
             )
             if access_token:
-                resp = requests.get(
+                resp = _google_get_with_transient_retry(
                     url,
                     headers={"Authorization": f"Bearer {access_token}"},
                     params=params,
                     timeout=timeout,
+                    operation=operation,
                 )
         except Exception as refresh_error:
             logger.warning("[GOOGLE] Refresh failed for %s: %s", operation, refresh_error)
@@ -404,12 +453,14 @@ def get_spreadsheet_name(
     access_token = _get_access_token_or_raise(user_jwt, user_id, connection_id, "get_spreadsheet_name")
     url = f"{DRIVE_API_BASE}/files/{quote(spreadsheet_id)}"
 
-    # Usar request manual aqui porque 404 e um caso valido (nao e erro)
-    resp = requests.get(
+    # Usar request manual aqui porque 404 e um caso valido (nao e erro). O helper de retry
+    # so re-tenta falha de REDE (nao status HTTP), entao o 404/401 abaixo seguem tratados.
+    resp = _google_get_with_transient_retry(
         url,
         headers={"Authorization": f"Bearer {access_token}"},
         params={"fields": "name"},
         timeout=15,
+        operation="get_spreadsheet_name",
     )
 
     if resp.status_code == 401:
@@ -419,11 +470,12 @@ def get_spreadsheet_name(
                 user_jwt, user_id, connection_id, force_refresh=True
             )
             if access_token:
-                resp = requests.get(
+                resp = _google_get_with_transient_retry(
                     url,
                     headers={"Authorization": f"Bearer {access_token}"},
                     params={"fields": "name"},
                     timeout=15,
+                    operation="get_spreadsheet_name",
                 )
         except Exception as refresh_error:
             logger.warning("[GOOGLE_DRIVE] Refresh failed: %s", refresh_error)
