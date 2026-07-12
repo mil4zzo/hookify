@@ -6,6 +6,22 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Evento de conversão do topbar "sempre resetava" no /manager — gate de sync tem de ser "dados carregados", não "seleção existe"
+
+**Data:** 2026-07-11 · status: **corrigido (frontend/app/manager/page.tsx)**
+
+**Sintoma reportado:** o evento de conversão selecionado no topbar parecia não ser guardado em cache — resetava a cada visita.
+
+**Diagnóstico:** o valor **era** persistido corretamente (`persist`/`partialize` em `lib/store/filters.ts`) e restaurado na rehidratação. Quem apagava era a própria `/manager`. No manager, `availableConversionTypes` **não** vem de query async — é derivado SÍNCRONO do metadado `packs[].conversion_types`, e vale `[]` enquanto os packs carregam. O effect que propaga a lista pro store gateava apenas em `selectedPackIds.size > 0`. Como `packPreferences` é persistido, `selectedPackIds.size > 0` já é verdade na rehidratação — **antes** dos packs chegarem. Então dispara `setActionTypeOptions([])` na janela de loading, e o store limpa o `actionType` persistido (ramo "sem tipos disponíveis → `actionType=''`"). Quando os packs finalmente carregam, o fetch cai em `options[0]`. Resultado: seleção salva trocada pelo 1º item a cada abertura do manager.
+
+**Por que só o manager:** as outras superfícies gateiam em "dados resolvidos" — o pipeline (`useAdPerformancePipeline`) espera `queryData`; o Explorer gateia em `length > 0`. Só o manager chamava `setActionTypeOptions([])` durante o load.
+
+**Fix:** gatear o effect em `packsReady` (`packsClient && packs.length>0 && !packsLoading`) — o análogo de "queryData resolvido" para uma fonte síncrona. Preserva a limpeza legítima de `actionType` órfão (só quando os packs de fato têm 0 tipos), sem apagar a seleção durante o carregamento. **Não** gatear em `length>0` (isso reabriria o bug de CPR=0 por `actionType` órfão documentado em `actiontype_options_unconditional_sync`).
+
+**Regra derivada:** "chamar `setActionTypeOptions` após dados reais" tem de significar *dados carregados*, não *seleção não-vazia*. O gate de prontidão é `queryData` (fonte async) ou `packsReady` (fonte síncrona do metadado). Um gate por seleção deixa a rehidratação do persist disparar um `[]` transiente que zera a preferência salva.
+
+---
+
 ## Diagnóstico do dia = 1ª aba do /insights; redesign "Hangar" da Packs rejeitado
 
 **Data:** 2026-07-08 · status: **implementado (commits 060d4cd revert + dd2e3be)**
@@ -2063,3 +2079,31 @@ Memória correspondente: `meta_budget_api_rules.md`.
 2. `BudgetCell` → `BudgetEditor`: valor vira botão (hover mostra lápis) que abre Popover com Input size="sm" (aceita vírgula/ponto; com vírgula, pontos são milhar), símbolo da moeda, Enter/Esc, e **aviso quando a mudança passa de ~25%** (fase de aprendizado do Meta). Estados não-editáveis ("na campanha", "nos conjuntos", "—") intocados. Conversão exibição↔subunidade via `budgetValueToMinor`/`budgetMinorToValue` (offset 1 vs 100 por moeda).
 
 **Verificação:** 191 testes backend passando; tsc limpo; check:design-system passa; next build OK.
+
+## Filtros do Manager: chips inline → botão "Filtros (N)" + popover (2026-07-11)
+
+**Sintoma (reportado com prints, 2 iterações):** os chips de filtro no toolbar da tabela principal e do modal de expansão quebravam o layout conforme filtros eram adicionados — disputavam largura com busca/contagem/barra de ações em massa, com quebra de linha caótica. Uma primeira correção (chips em linha própria de largura total) criava desequilíbrio no estado vazio (busca no topo-esquerda, "Add filter" órfão embaixo-direita).
+
+**Decisão (proposta pelo usuário):** filtros saem do toolbar. O botão "Add filter" virou `[⚲ Filtros (N) ▾]` — ícone + badge com a contagem, idêntico ao FiltersDropdown do Topbar — abrindo popover com linhas verticais `[coluna][operador][valor][🗑]`, no mesmo estilo dos filtros do modal de criar packs, + "Adicionar filtro" e "Limpar todos". A perda do "ver de relance" dos chips é compensada por: badge (QUANTOS filtros) + **ícone de funil `text-primary` no header de cada coluna com filtro efetivo** (ONDE atuam) — tabela principal (`TableContent`, render de th centralizado) e modal (`ManagerChildrenTable`).
+
+**Implementação:** `FilterBar` reescrito (mesmo modelo de estado: instâncias `${colId}__${ts}`, savedValues/localInputValues, foco automático no filtro novo); helpers `isRestrictiveFilterValue`/`getFilteredColumnIds` em `lib/utils/columnFilters.ts` ("efetivo" = restringe de fato: value≠null; status só com subconjunto das 4 opções). Toolbar final: `[busca] ··· Exibindo X de Y · [Filtros (N)] · [bulk]` — 1 linha permanente nas duas superfícies. Linha de status usa toggles inline (evita popover aninhado). `FilterChip.tsx` deletado (órfão). Filtros de texto auxiliares (conjunto/campanha/ads ativos) mapeiam o funil para a coluna de nome.
+
+**Gotchas:** Selects DENTRO do popover precisam de `disablePortal` (clique no dropdown portalizado conta como interact-outside e fecha o popover). Blur do input APLICA o valor em vez de cancelar — em popover, clicar noutro controle não pode descartar a digitação (Escape cancela). Trocar a coluna de um filtro substitui a instância (novo id + valor default do tipo).
+
+**Regra que ficou:** toolbar de tabela com filtros dinâmicos → popover vertical com badge + indicador por coluna; nunca chips inline que crescem com o número de filtros. Memória: `manager_filterbar_popover_pattern.md`.
+
+## Nova coluna "Leadscore Médio" no /manager, com Média + Tendências (2026-07-11)
+
+**Contexto:** usuário pediu uma coluna opcional de leadscore médio no /manager. Como já havia toggle Média/Tendências, foi decidido (com o usuário) fazer o escopo completo — incluindo sparkline diário — em vez de só o modo Média.
+
+**Descoberta que simplificou o trabalho:** `mqls`/`cpmql` (padrão já existente) NUNCA vêm da core RPC nem de `averagesOverride` — são 100% derivadas no cliente a partir de `leadscore_values` (array já presente em `RankingsItem`/`RankingsChildrenItem`), via `computeMqlMetricsFromLeadscore` (que já calculava `leadscoreAvg`, usado até então só em cards do Insights/Gems). Isso significou que **a core RPC (`fetch_manager_rankings_core_v2_base_v090`) não precisou de nenhuma mudança** — nem migration de coluna em `ad_metrics`, nem `averages_payload`. Só a **série diária** precisou de trabalho de backend, porque o modo Tendências (sparkline) exige granularidade por dia que não é derivável do array já agregado.
+
+**Migration 092:** `create or replace` em `fetch_manager_rankings_series_v2` (mesma assinatura, sem novo parâmetro) — adiciona `leadscore_sum`/`leadscore_count` no CTE `daily` e a chave `leadscore_avg` (soma/contagem) em `series_by_group`, no mesmo padrão de `mql_count`/`cpmql` que já existia ali.
+
+**Backend Python (children/drill-down):** `_build_rankings_series` (helper compartilhado por 6 endpoints legados de expansão de linha: ad-name/adset-id/campaign-id children + ad-name/adset-id/ad-id details) ganhou o par `leadscore_sum`/`leadscore_count` no dict `series_acc`/`S` e a série `leadscore_avg` no output — 1 helper novo (`_sum_count_leadscore`) + edição idêntica nos 6 call sites. `get_ad_history`/`get_ad_name_history` (endpoints de "detalhe do anúncio", fora do pipeline do /manager) usam um padrão de agregação diferente e foram deixados de fora, por decisão de escopo.
+
+**Frontend:** seguiu o checklist de `manager_metric_column_pipeline.md` quase integralmente, exceto os passos de core RPC/`averages_payload` (não se aplicam). Ponderação da média: por **contagem de leads** (`leadscoreValues.length`), não por `plays` — leadscore não tem relação com reprodução de vídeo.
+
+**Gotcha de DRY:** o gate `requiresSheetIntegration` (que já existia para cpmql/mqls) está hardcoded por `columnId` em **6 lugares** do frontend, não deriva de `METRIC_DEFINITIONS` automaticamente: `managerColumnPreferences.ts`, `ManagerTable.tsx` (3 pontos: `isColumnEnabled`, `isColumnDisabled` inline, merge de `averages` no branch `averagesOverride`), `ManagerExportDialog.tsx`, `exportManagerCsv.ts`. Toda métrica nova com esse requisito precisa entrar nos 6.
+
+**Verificação:** `tsc --noEmit` limpo, 11/11 testes de `registry.test.ts`, `next build` OK, migration aplicada no banco remoto (confirmada via `pg_get_function_arguments` — assinatura da RPC inalterada) + `schema.sql`/`schema_map.md` regenerados. Memória: `manager_metric_column_pipeline.md` (atualizada, não nova).

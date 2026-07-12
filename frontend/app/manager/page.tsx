@@ -264,12 +264,17 @@ function ManagerPageContent() {
     return Array.from(set).sort();
   }, [packs, selectedPackIds]);
 
-  // Propagate available conversion types to global store
+  // Propagate available conversion types to global store.
+  // Gatear em packsReady (não só selectedPackIds.size>0) é essencial: enquanto os packs
+  // ainda carregam, availableConversionTypes é [] (mesmo com packPreferences rehidratado →
+  // selectedPackIds.size>0). Chamar setActionTypeOptions([]) nessa janela apaga o actionType
+  // persistido — que só é restaurado no reload — e o próximo fetch cai em options[0].
+  // Com packsReady, a limpeza de actionType órfão só ocorre quando os packs de fato têm 0 tipos.
   useEffect(() => {
-    if (selectedPackIds.size > 0) {
+    if (packsReady && selectedPackIds.size > 0) {
       setActionTypeOptions(availableConversionTypes);
     }
-  }, [availableConversionTypes, selectedPackIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [packsReady, availableConversionTypes, selectedPackIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Series request ─────────────────────────────────────────────────────────
   const activeSeriesKeys = visibleSeriesKeys[activeManagerTab];
