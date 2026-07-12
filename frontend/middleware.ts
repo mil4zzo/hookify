@@ -81,18 +81,27 @@ export async function middleware(req: NextRequest) {
   const requiredTier = ROUTE_MINIMUM_TIER[pathname] ??
     Object.entries(ROUTE_MINIMUM_TIER).find(([route]) => pathname.startsWith(route + '/'))?.[1]
   if (requiredTier && session) {
-    const { data: sub } = await supabase
-      .from('subscriptions')
-      .select('tier, expires_at')
-      .maybeSingle()
+    // Wrap em try/catch: se o Supabase (PostgREST) estiver inacessível durante um
+    // outage, a query lança e — sem guarda — o middleware inteiro estoura em 500
+    // sem CORS (erro opaco "Network Error"). Fail open: não expulsar um usuário
+    // pagante para /planos por causa de um blip transitório do banco. A página de
+    // destino lida com o backend degradado por conta própria.
+    try {
+      const { data: sub } = await supabase
+        .from('subscriptions')
+        .select('tier, expires_at')
+        .maybeSingle()
 
-    const rawTier = (sub?.tier ?? 'standard') as Tier
-    const userTier = getEffectiveTier(rawTier, sub?.expires_at ?? null)
-    if (!canAccess(userTier, requiredTier)) {
-      const url = req.nextUrl.clone()
-      url.pathname = '/planos'
-      url.searchParams.set('from', pathname)
-      return NextResponse.redirect(url)
+      const rawTier = (sub?.tier ?? 'standard') as Tier
+      const userTier = getEffectiveTier(rawTier, sub?.expires_at ?? null)
+      if (!canAccess(userTier, requiredTier)) {
+        const url = req.nextUrl.clone()
+        url.pathname = '/planos'
+        url.searchParams.set('from', pathname)
+        return NextResponse.redirect(url)
+      }
+    } catch {
+      // Supabase inacessível — deixar passar (fail open no gate de tier).
     }
   }
 

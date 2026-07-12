@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { getSupabaseClient } from '@/lib/supabase/client'
 import { formatToTitleCase } from '@/lib/utils/formatName'
 import { invalidateSessionCache } from '@/lib/api/client'
+import { normalizeAuthError } from '@/lib/utils/errors'
 
 type AuthState = {
   user: any | null
@@ -24,14 +25,20 @@ export function useSupabaseAuth() {
 
   useEffect(() => {
     const supabase = getSupabaseClient()
-    supabase.auth.getSession().then(({ data }) => {
-      setState((s) => ({
-        ...s,
-        session: data.session,
-        user: data.session?.user ?? null,
-        isLoading: false,
-      }))
-    })
+    supabase.auth.getSession()
+      .then(({ data }) => {
+        setState((s) => ({
+          ...s,
+          session: data.session,
+          user: data.session?.user ?? null,
+          isLoading: false,
+        }))
+      })
+      .catch(() => {
+        // Servidor de auth inacessível (ex.: gateway Supabase fora do ar):
+        // não deixar isLoading travado. Tratar como não autenticado.
+        setState((s) => ({ ...s, isLoading: false }))
+      })
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       invalidateSessionCache()
       setState((s) => ({ ...s, session, user: session?.user ?? null }))
@@ -54,37 +61,53 @@ export function useSupabaseAuth() {
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     const supabase = getSupabaseClient()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw error
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) throw error
+    } catch (error) {
+      throw normalizeAuthError(error)
+    }
   }, [])
 
   const signUpWithEmail = useCallback(async (email: string, password: string, metadata?: { name?: string }) => {
     const supabase = getSupabaseClient()
     // Formata o nome em titlecase antes de salvar
     const formattedName = formatToTitleCase(metadata?.name)
-    const { data, error } = await supabase.auth.signUp({ 
-      email, 
-      password,
-      options: {
-        data: {
-          name: formattedName
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            name: formattedName
+          }
         }
-      }
-    })
-    if (error) throw error
-    return data // Retornar data para verificar se há sessão
+      })
+      if (error) throw error
+      return data // Retornar data para verificar se há sessão
+    } catch (error) {
+      throw normalizeAuthError(error)
+    }
   }, [])
 
   const signInWithGoogle = useCallback(async () => {
     const supabase = getSupabaseClient()
-    const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })
-    if (error) throw error
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin } })
+      if (error) throw error
+    } catch (error) {
+      throw normalizeAuthError(error)
+    }
   }, [])
 
   const resetPassword = useCallback(async (email: string) => {
     const supabase = getSupabaseClient()
-    const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/reset-password' })
-    if (error) throw error
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin + '/reset-password' })
+      if (error) throw error
+    } catch (error) {
+      throw normalizeAuthError(error)
+    }
   }, [])
 
   const signOut = useCallback(async () => {
