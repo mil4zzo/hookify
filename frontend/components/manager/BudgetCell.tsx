@@ -8,7 +8,6 @@ import { useBudgetControl, type BudgetEntityType } from "@/lib/hooks/useBudgetCo
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils/cn";
 
 // Moedas que a Meta trata SEM subunidade (offset 1) — nas demais o budget vem em
 // centésimos (offset 100). Fonte: doc oficial de currencies da Marketing API.
@@ -102,14 +101,16 @@ function BudgetEditor({ entityType, entityId, currentMinor, isDaily, currency, f
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="group/budget mx-auto flex items-baseline justify-center gap-1 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-secondary"
+          className="group/budget mx-auto flex flex-col items-end justify-center gap-0 rounded-md px-2 py-0.5 tabular-nums transition-colors hover:bg-secondary"
           title={titleHint}
           onClick={(e) => e.stopPropagation()}
           aria-label={`Editar orçamento ${isDaily ? "diário" : "total"}`}
         >
-          <span className="text-sm">{formatted}</span>
-          <span className="text-xs text-muted-foreground">{isDaily ? "/dia" : "total"}</span>
-          <IconPencil className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover/budget:opacity-100" />
+          <span className="flex items-center gap-1">
+            <IconPencil className="h-3 w-3 text-muted-foreground opacity-0 transition-opacity group-hover/budget:opacity-100" />
+            <span className="text-sm">{formatted}</span>
+          </span>
+          <span className="text-xs leading-none text-muted-foreground">{isDaily ? "Diário" : "Total"}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-64 p-3" align="center" onClick={(e) => e.stopPropagation()}>
@@ -186,9 +187,11 @@ export function BudgetCell({ original, currentTab }: BudgetCellProps) {
     if (!entityId) {
       // Sem id da própria entidade não há o que editar — cai no display puro.
       return (
-        <div className={cn("flex w-full items-baseline justify-center gap-1 tabular-nums")} title={titleHint}>
-          <span className="text-sm">{formatted}</span>
-          <span className="text-xs text-muted-foreground">{daily !== null ? "/dia" : "total"}</span>
+        <div className="flex w-full justify-center" title={titleHint}>
+          <div className="flex flex-col items-end gap-0 tabular-nums">
+            <span className="text-sm">{formatted}</span>
+            <span className="text-xs leading-none text-muted-foreground">{daily !== null ? "Diário" : "Total"}</span>
+          </div>
         </div>
       );
     }
