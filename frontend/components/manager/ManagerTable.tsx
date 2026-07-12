@@ -249,7 +249,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   const isColumnEnabled = useCallback(
     (columnId: ManagerColumnType) => {
-      if (columnId === "cpmql" || columnId === "mqls") return hasSheetIntegration;
+      if (columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg") return hasSheetIntegration;
       return true;
     },
     [hasSheetIntegration],
@@ -682,9 +682,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         cpc: computedAverages.cpc,
         cplc: computedAverages.cplc,
         page_conv: averagesOverride.page_conv ?? computedAverages.page_conv,
-        // CPMQL e MQLs são calculados localmente e não vêm do servidor
+        // CPMQL, MQLs e Leadscore médio são calculados localmente e não vêm do servidor
         cpmql: computedAverages.cpmql,
         mqls: computedAverages.mqls,
+        leadscore_avg: computedAverages.leadscore_avg,
         sumSpend: computedAverages.sumSpend,
         sumImpressions: computedAverages.sumImpressions,
         sumClicks: computedAverages.sumClicks,
@@ -988,7 +989,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
           {/* Colunas: controle mais usado, permanece dedicado e fora do menu */}
           <div className="w-full sm:w-[190px]">
-            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
+            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls" || id === "leadscore_avg")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
           </div>
 
           {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}
@@ -1098,7 +1099,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   // Barra de ação em massa (pausar/ativar) — compartilhada pelas abas com seleção (individual,
   // por-conjunto, por-campanha). A seleção é resetada na troca de aba, então só a aba ativa a exibe.
-  const bulkActionBar = selectedCount > 0 ? (
+  // Memoizada para não quebrar o React.memo do FilterBar (recebe-a como trailingSlot).
+  const bulkActionBar = useMemo(() => selectedCount > 0 ? (
     <div className="flex h-control-default items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm shrink-0">
       <span className="text-muted-foreground font-medium">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
       <div className="h-4 w-px bg-border" />
@@ -1133,7 +1135,22 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <IconX className="h-3.5 w-3.5" />
       </Button>
     </div>
-  ) : null;
+  ) : null, [selectedCount, selectedIds, isBulkLoading, bulkPause, bulkActivate, setRowSelection]);
+
+  // Toolbar única compartilhada pelas 4 abas: 1ª linha = busca (leadingSlot) + contagem + Add filter
+  // + ações em massa (trailingSlot); 2ª linha = chips de filtro em largura total (dentro do FilterBar).
+  const tableToolbar = (
+    <FilterBar
+      columnFilters={columnFilters}
+      setColumnFilters={setColumnFilters}
+      filterableColumns={filterableColumns}
+      filteredCount={filterBarFilteredCount}
+      totalCount={adsEffectiveRaw.length}
+      itemLabel={filterBarItemLabel}
+      leadingSlot={searchBar}
+      trailingSlot={bulkActionBar}
+    />
+  );
 
   return (
     <>
@@ -1152,15 +1169,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           <TableWorkspace
             compact={viewMode === "detailed"}
             contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
-            toolbar={
-              <>
-              {searchBar}
-              <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
-              </div>
-              {bulkActionBar}
-              </>
-            }
+            toolbar={tableToolbar}
           >
             {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
             <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />
@@ -1171,14 +1180,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           <TableWorkspace
             compact={viewMode === "detailed"}
             contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
-            toolbar={
-              <>
-              {searchBar}
-              <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
-              </div>
-              </>
-            }
+            toolbar={tableToolbar}
           >
             {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
             <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />
@@ -1189,15 +1191,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           <TableWorkspace
             compact={viewMode === "detailed"}
             contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
-            toolbar={
-              <>
-              {searchBar}
-              <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
-              </div>
-              {bulkActionBar}
-              </>
-            }
+            toolbar={tableToolbar}
           >
             {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
             <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />
@@ -1208,15 +1202,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           <TableWorkspace
             compact={viewMode === "detailed"}
             contentClassName={viewMode === "detailed" ? "pt-stack-compact" : undefined}
-            toolbar={
-              <>
-              {searchBar}
-              <div className="flex-1 min-w-0">
-                <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} table={table} filteredCount={filterBarFilteredCount} totalCount={adsEffectiveRaw.length} itemLabel={filterBarItemLabel} />
-              </div>
-              {bulkActionBar}
-              </>
-            }
+            toolbar={tableToolbar}
           >
             {/* key força remount na troca de modo (reset de scroll/virtualizador, como quando eram 2 componentes) */}
             <TableContent key={viewMode} variant={viewMode} {...tableContentProps} />

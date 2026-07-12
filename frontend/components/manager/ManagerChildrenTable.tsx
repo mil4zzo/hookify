@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconArrowsSort, IconLoader2, IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
+import { IconArrowsSort, IconFilter, IconLoader2, IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -16,10 +16,15 @@ import { useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAd
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { applyRowFilters } from "@/lib/utils/applyRowFilters";
+import { getFilteredColumnIds } from "@/lib/utils/columnFilters";
 import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn } from "@/lib/metrics";
 
 /** Tipo de filho renderizado: anúncios de um adset, variações de um ad name, ou adsets de uma campanha. */
 export type ChildrenEntity = "ads" | "variations" | "adsets";
+
+// Fallback estável quando o caller não passa setColumnFilters (nunca ocorre no drill modal, que
+// sempre o fornece — existe só para manter a busca visível e o tipo do FilterBar satisfeito).
+const NOOP_SET_COLUMN_FILTERS: React.Dispatch<React.SetStateAction<ColumnFiltersState>> = () => {};
 
 type EntityConfig = {
   plural: string;
@@ -321,6 +326,13 @@ export function ManagerChildrenTable({
     });
   }, [config, visibleColumns]);
 
+  // Colunas com filtro EFETIVO — sinalizadas com funil no header. Filtros de texto (nome/
+  // campanha/conjunto) atuam sobre a coluna de nome desta tabela.
+  const filteredColumnIds = useMemo(() => getFilteredColumnIds(columnFilters), [columnFilters]);
+  const isNameColumnFiltered = config.textColumns.some((tc) => filteredColumnIds.has(tc.id));
+
+  const filterIndicator = <IconFilter className="h-3 w-3 shrink-0 text-primary" aria-label="Coluna com filtro ativo" />;
+
   // +1 pela coluna de checkbox de seleção (à esquerda do Status).
   const colspan = visibleColumns.length + config.colspanExtra + 1;
 
@@ -391,27 +403,27 @@ export function ManagerChildrenTable({
   const innerContent = (
     <div className={asContent ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden" : undefined}>
       <div className="flex-shrink-0 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
-        <div className="flex flex-nowrap items-center gap-3">
-          <SearchInputWithClear
-            value={searchTerm}
-            onChange={setSearchTerm}
-            placeholder="Buscar por nome ou ID..."
-            wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
-            size="sm"
-            inputClassName="w-full text-xs"
-          />
-          {(searchTerm.trim() || columnFilters.length > 0) && (
-            <span className="flex-shrink-0 whitespace-nowrap text-xs text-muted-foreground">
-              {`${sortedData.length} de ${childrenData.length || 0} ${childrenLabel}`}
-            </span>
-          )}
-          {setColumnFilters && (
-            <div className="min-w-0 flex-1">
-              <FilterBar columnFilters={columnFilters} setColumnFilters={setColumnFilters} filterableColumns={filterableColumns} />
-            </div>
-          )}
-          {bulkBar}
-        </div>
+        {/* Mesmo layout de duas linhas da tabela principal: busca + contagem + Add filter + ações na
+            1ª linha; chips de filtro em largura total na 2ª (renderizada pelo próprio FilterBar). */}
+        <FilterBar
+          columnFilters={columnFilters}
+          setColumnFilters={setColumnFilters ?? NOOP_SET_COLUMN_FILTERS}
+          filterableColumns={filterableColumns}
+          filteredCount={sortedData.length}
+          totalCount={childrenData.length || 0}
+          itemLabel={childrenLabel}
+          leadingSlot={
+            <SearchInputWithClear
+              value={searchTerm}
+              onChange={setSearchTerm}
+              placeholder="Buscar por nome ou ID..."
+              wrapperClassName="flex-shrink-0 w-72 max-w-[min(18rem,100%)]"
+              size="sm"
+              inputClassName="w-full text-xs"
+            />
+          }
+          trailingSlot={bulkBar}
+        />
       </div>
 
       {sortedData.length === 0 && (searchTerm.trim() || columnFilters.length > 0) ? (
@@ -457,22 +469,25 @@ export function ManagerChildrenTable({
                     />
                   </div>
                 </th>
-                <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
+                <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}${filteredColumnIds.has("status") ? " bg-primary-10" : ""}`} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
+                    {filteredColumnIds.has("status") && filterIndicator}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={`cursor-pointer select-none p-4 text-left hover:text-brand ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
+                <th className={`cursor-pointer select-none p-4 text-left hover:text-brand ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}${isNameColumnFiltered ? " bg-primary-10" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
                     {config.nameHeader}
+                    {isNameColumnFiltered && filterIndicator}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
                 {visibleColumns.map((column) => (
-                  <th key={column.id} className={`${metricColumnClass} ${sortConfig.column === column.id ? "text-primary" : ""}`} onClick={() => handleSort(column.id)}>
+                  <th key={column.id} className={`${metricColumnClass} ${sortConfig.column === column.id ? "text-primary" : ""}${filteredColumnIds.has(column.id) ? " bg-primary-10" : ""}`} onClick={() => handleSort(column.id)}>
                     <div className="flex items-center justify-center gap-1">
                       {column.name}
+                      {filteredColumnIds.has(column.id) && filterIndicator}
                       <IconArrowsSort className="h-3 w-3" />
                     </div>
                   </th>
@@ -499,10 +514,10 @@ export function ManagerChildrenTable({
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                  <td className={`px-4 py-3 text-center${filteredColumnIds.has("status") ? " bg-primary-5" : ""}`} onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab={config.statusTab} />
                   </td>
-                  <td className="px-4 py-3 text-left">
+                  <td className={`px-4 py-3 text-left${isNameColumnFiltered ? " bg-primary-5" : ""}`}>
                     {config.richNameCell ? (
                       <div className="flex items-center gap-2">
                         <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
@@ -520,7 +535,7 @@ export function ManagerChildrenTable({
                     )}
                   </td>
                   {visibleColumns.map((column) => (
-                    <td key={column.id} className="p-2 text-center">
+                    <td key={column.id} className={`p-2 text-center${filteredColumnIds.has(column.id) ? " bg-primary-5" : ""}`}>
                       {renderCellValue(child, column.id)}
                     </td>
                   ))}

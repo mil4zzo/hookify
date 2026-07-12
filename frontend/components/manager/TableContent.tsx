@@ -7,6 +7,7 @@ import { StatePanel } from "@/components/common/States";
 // design-system-exception: direct-skeleton-import - dense table rows keep row-shaped skeletons
 import { Skeleton } from "@/components/ui/skeleton";
 import type { RankingsItem } from "@/lib/api/schemas";
+import { getFilteredColumnIds } from "@/lib/utils/columnFilters";
 import { MANAGER_ROW_HEIGHT, type SharedTableContentProps } from "@/components/manager/tableContentTypes";
 
 export type TableContentVariant = "detailed" | "minimal";
@@ -151,9 +152,27 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, onVisibleRowKeysChange, onOpenDrill, variant = "detailed" }: TableContentProps) {
+// Filtros auxiliares (colunas ocultas) atuam sobre dados exibidos na célula de nome
+// (subtítulo de conjunto/campanha, contagem de ativos) — o tint aparece na coluna de nome.
+const AUX_FILTER_TO_VISIBLE_COLUMN: Record<string, string> = {
+  adset_name_filter: "ad_name",
+  campaign_name_filter: "ad_name",
+  active_count_filter: "ad_name",
+};
+
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, columnFilters, onVisibleRowKeysChange, onOpenDrill, variant = "detailed" }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const styles = VARIANT_STYLES[variant];
+
+  // Colunas com filtro EFETIVO (que restringe linhas) — sinalizadas tingindo a coluna inteira
+  // (th mais forte, células sutis). O funil ao lado do título fica por conta do ColumnFilter
+  // readonly que o header de métrica já renderiza — um único glifo com um único significado.
+  const filteredColumnIds = useMemo(() => {
+    const raw = getFilteredColumnIds(columnFilters ?? []);
+    const mapped = new Set<string>();
+    raw.forEach((id) => mapped.add(AUX_FILTER_TO_VISIBLE_COLUMN[id] ?? id));
+    return mapped;
+  }, [columnFilters]);
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
   // rows só deve ser recalculado quando dados, filtros ou sorting mudarem
@@ -302,7 +321,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                   const headerAlign = header.column.id === "ad_name" ? "text-left" : "text-center";
                   const justify = header.column.id === "ad_name" ? "justify-start" : "justify-center";
                   return (
-                    <th key={header.id} className={styles.th(headerAlign)} style={styles.thWidthStyle ? { width: header.getSize() } : undefined}>
+                    <th key={header.id} className={`${styles.th(headerAlign)}${filteredColumnIds.has(header.column.id) ? " bg-primary-10" : ""}`} style={styles.thWidthStyle ? { width: header.getSize() } : undefined}>
                       {header.isPlaceholder ? null : (
                         <div
                           className={`flex items-center ${justify} ${styles.sortGap} ${header.column.getCanSort() && !isResizing ? "cursor-pointer select-none hover:text-brand" : ""} ${header.column.getIsSorted() ? "text-primary" : ""}`}
@@ -405,7 +424,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                       const isFirst = cellIndex === 0;
                       const isLast = cellIndex === row.getVisibleCells().length - 1;
                       return (
-                        <td key={cell.id} className={styles.cell(cellAlign, isFirst, isLast)}>
+                        <td key={cell.id} className={`${styles.cell(cellAlign, isFirst, isLast)}${filteredColumnIds.has(cell.column.id) ? " bg-primary-5" : ""}`}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );
