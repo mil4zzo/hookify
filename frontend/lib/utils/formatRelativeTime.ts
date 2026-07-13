@@ -78,6 +78,13 @@ export function formatRelativeTime(dateTimeString: string): FormatRelativeTimeRe
       return { text: `Atualizado há ${diffHours}h e ${remainingMinutes} ${min}` };
     }
 
+    // diffDays === 1 mas NÃO é ontem no calendário (timestamp de ~24-48h atrás que cai no
+    // anteontem por fuso/borda de dia). Sem este ramo, cai no cálculo de anos abaixo e vira
+    // "Atualizado há 0 anos" (Math.floor(1/365) === 0) — texto sem sentido.
+    if (diffDays === 1) {
+      return { text: "Atualizado há 1 dia", tooltip };
+    }
+
     // 2+ dias no calendário
     if (diffDays === 2) {
       return { text: "Atualizado há 2 dias", tooltip };

@@ -14,6 +14,7 @@ import { showError } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
+import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
 
 const FILTER_FIELDS = [
   { label: "Campaign Name", value: "campaign.name" },
@@ -460,21 +461,27 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                         {!pack.sheet_integration ? (
                           <span className="text-2xs text-muted-foreground">Não conectado</span>
                         ) : hasAnyLeadscoreSyncInfo ? (
-                          <div className="flex items-center gap-1">
-                            {leadscoreSyncFailed && (
-                              <TooltipProvider>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <IconAlertCircle className="w-3 h-3 text-warning flex-shrink-0 cursor-help" />
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p>{lastSuccessfulSyncAt ? "A última tentativa de sincronização falhou. A data mostrada é da última sincronização bem-sucedida." : "A última tentativa de sincronização falhou e ainda não há sincronização bem-sucedida para este pack."}</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </TooltipProvider>
-                            )}
-                            {leadscoreDateForDisplay ? <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-2xs text-muted-foreground" /> : <span className="text-2xs text-muted-foreground">Sem sync bem-sucedido</span>}
-                          </div>
+                          leadscoreSyncFailed ? (
+                            // Falha na última tentativa: comunicar o ERRO explicitamente em vez de
+                            // mostrar o tempo relativo do último sucesso (que lia como "atualizado ok").
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <div className="flex items-center gap-1 cursor-help">
+                                    <IconAlertCircle className="w-3 h-3 text-warning flex-shrink-0" />
+                                    <span className="text-2xs text-warning font-medium">Falha ao atualizar</span>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>{lastSuccessfulSyncAt ? `A última tentativa de sincronização falhou. Última sincronização bem-sucedida: ${formatRelativeTime(lastSuccessfulSyncAt).text.replace(/^Atualizado /, "")}.` : "A última tentativa de sincronização falhou e ainda não há nenhuma sincronização bem-sucedida para este pack."}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : leadscoreDateForDisplay ? (
+                            <UpdatedAtText dateTime={leadscoreDateForDisplay} className="text-2xs text-muted-foreground" />
+                          ) : (
+                            <span className="text-2xs text-muted-foreground">Sem sync bem-sucedido</span>
+                          )
                         ) : null}
                       </div>
                     </div>
