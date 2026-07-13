@@ -75,6 +75,10 @@ ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS = max(1.0, ANALYTICS_MANAGER_POSTGRE
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")  # NUNCA expor no frontend
 
+# Rate limiting por usuário/IP (app.core.rate_limit). Desative apenas para
+# debug local ou testes de carga controlados — nunca em produção.
+RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # Thumbnail cache (best-effort, não bloqueia refresh principal)
 THUMB_CACHE_ENABLED = os.getenv("THUMB_CACHE_ENABLED", "true").lower() in ("true", "1", "yes")
 try:

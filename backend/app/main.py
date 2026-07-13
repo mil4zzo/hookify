@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 import logging
 from app.core.config import CORS_ORIGINS, LOG_AD_ID_TRUNCATED, LOG_LEVEL, LOG_SUPPRESS_HTTPX
 from app.core.logging_config import setup_httpx_logging_filter
+from app.core.rate_limit import rate_limit_middleware
 from app.core.request_context import current_page_route, current_route
 from app.routes.facebook import router as facebook_router
 from app.routes.analytics import router as analytics_router
@@ -62,7 +63,12 @@ async def _set_request_context(request: Request, call_next):
         current_page_route.reset(t_page)
 
 
-# CORS deve envolver _set_request_context (registrado por último = mais externo)
+# Rate limit registrado ANTES do CORSMiddleware (que é adicionado por último e
+# portanto fica mais externo): os 429 precisam sair COM headers CORS, senão o
+# browser os mascara como "Network Error" opaco (mesma armadilha do 500 acima).
+app.middleware("http")(rate_limit_middleware)
+
+# CORS deve envolver os middlewares acima (registrado por último = mais externo)
 # para que as respostas de erro carreguem os headers CORS.
 app.add_middleware(
     CORSMiddleware,

@@ -24,12 +24,18 @@ services:
       - "traefik.http.routers.backend.tls.certresolver=mytlschallenge"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
       - "traefik.http.middlewares.backend-stripprefix.stripprefix.prefixes=/api"
-      - "traefik.http.routers.backend.middlewares=backend-stripprefix"
+      # Anti-flood grosseiro por IP na borda (o rate limit fino, por usuário,
+      # vive no FastAPI — app/core/rate_limit.py). Na rota via Cloudflare o
+      # "IP" visto aqui é da CF (agregado) — aceitável: é só contenção bruta.
+      - "traefik.http.middlewares.backend-ratelimit.ratelimit.average=50"
+      - "traefik.http.middlewares.backend-ratelimit.ratelimit.burst=100"
+      - "traefik.http.routers.backend.middlewares=backend-stripprefix,backend-ratelimit"
       # Rota via api.hookifyads.com (DNS only no Cloudflare - sem limite de 100MB)
       - "traefik.http.routers.backend-direct.rule=Host(`api.hookifyads.com`)"
       - "traefik.http.routers.backend-direct.entrypoints=websecure"
       - "traefik.http.routers.backend-direct.tls.certresolver=mytlschallenge"
       - "traefik.http.routers.backend-direct.service=backend"
+      - "traefik.http.routers.backend-direct.middlewares=backend-ratelimit"
       - "traefik.docker.network=hookify-network"
 
   frontend:

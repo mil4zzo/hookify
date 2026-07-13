@@ -20,9 +20,9 @@
 **Ambos os bloqueadores de go-live foram resolvidos:** #1 (Next 15.5.20) e #2 (segredos
 rotacionados + `.env` destrastreado). Não há mais bloqueador 🔴 crítico.
 
-**Antes de tráfego real, falta o 🟠 Alto restante:** #4 (rate limiting). O #3 (security headers)
-foi implementado — 5 headers enforce + CSP em Report-Only (promover para enforce é follow-up
-pós-observação). Os 🟡/🟢 seguem como hardening incremental.
+**Todos os 🔴/🟠 estão resolvidos** (#1, #2, #3, #4). Os 🟡/🟢 (#5–#10) seguem como
+hardening incremental. Follow-ups em aberto: promover CSP de Report-Only para enforce
+(#3) e observar logs `[RATE_LIMIT]` em produção para calibrar limites (#4).
 
 **Stack real confirmada na auditoria:**
 Next.js `15.5.20` (era 15.5.9, atualizado em 2026-07-09) + React `18.3.1`
@@ -38,7 +38,7 @@ FastAPI + Supabase (JWKS/RLS) · Traefik + Let's Encrypt + Cloudflare.
 | 1 | 🟠 Alto (era 🔴) | Next.js desatualizado — May 2026 Security Release, 13 CVEs (middleware bypass/XSS/SSRF/DoS). React2Shell já estava corrigido em 15.5.9 | ✅ | ~~SIM~~ Resolvido |
 | 2 | 🔴 Crítico | `.env` raiz (órfão, não-usado) versionado em repo **PÚBLICO** — `ASSEMBLYAI_API_KEY` + `META_API_KEY`(legado). Chaves rotacionadas + destrastreado + push (Opção A) | ✅ | ~~SIM~~ Resolvido |
 | 3 | 🟠 Alto | Security headers (CSP, HSTS, X-Frame-Options…) — 5 enforce + CSP Report-Only no next.config.ts | ✅ | Não |
-| 4 | 🟠 Alto | Nenhum rate limiting de entrada em toda a API | ⬜ | Não |
+| 4 | 🟠 Alto | Nenhum rate limiting de entrada em toda a API — limiter por usuário no FastAPI + anti-flood por IP no Traefik | ✅ | Não |
 | 5 | 🟡 Médio | Middleware usa `getSession()` (não revalida) em vez de `getUser()` | ⬜ | Não |
 | 6 | 🟡 Médio | `ignoreBuildErrors` + `ignoreDuringBuilds` no build | ⬜ | Não |
 | 7 | 🟡 Médio | Sem esteira de segurança no CI/CD (SAST, secret scan, dep audit) | ⬜ | Não |
@@ -244,47 +244,59 @@ CSP em **Report-Only** (não bloqueia; allowlist dos hosts reais): `default-src 
 ---
 
 ### 4. 🟠 [Alto] Nenhum rate limiting de entrada em toda a API
-**Status:** ⬜ Não iniciado · **Bloqueia go-live:** Não
+**Status:** ✅ Concluído (2026-07-12) · **Bloqueia go-live:** Não
 **Área:** Backend / DoS
 
 **Contexto / risco:**
-Não existe rate limiting em nenhum endpoint. Os únicos "rate limit" no código
+Não existia rate limiting em nenhum endpoint. Os únicos "rate limit" no código
 (`ads_enricher.py`, `bulk_ad_service.py`) tratam o limite **de saída da Meta**, não protegem o
-Hookify. Expõe: força-bruta, scraping, e — crítico — **DoS nos RPCs de analytics** (documentado
-nas memórias como capaz de estourar `statement_timeout`). Reforçado pelos CVEs de DoS-RSC (#1).
+Hookify. Expunha: força-bruta, scraping, e — crítico — **DoS nos RPCs de analytics** (documentado
+nas memórias como capaz de estourar `statement_timeout`). Além de DoS, as rotas de "amplificação
+de custo" (1 request → dezenas de chamadas Meta / cobrança AssemblyAI) permitiam fatura arbitrária
+com um único JWT válido.
 
-**Evidência:**
-- `backend/requirements.txt` sem `slowapi`/limiter
-- `backend/app/main.py` sem middleware de rate limit
+**Implementação (camada dupla):**
 
-**Remediação — camada dupla (borda + app):**
-```python
-# backend/app/main.py
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
+1. **App (camada principal)** — `backend/app/core/rate_limit.py`: sliding window em memória
+   (sem dependência nova; suficiente para 1 container — **migrar p/ Redis se escalar horizontal**).
+   Chave = `user:{sub}` do JWT (decodificado sem verificação — sub forjado morre na auth com 401
+   barato) com fallback `ip:{último hop do X-Forwarded-For}` (o hop do Traefik, não-spoofável).
+   Registrado em `main.py` DENTRO do CORSMiddleware para o 429 sair com headers CORS.
+   Flag `RATE_LIMIT_ENABLED` (default true) em `config.py`.
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-# endpoints de analytics pesados: limites mais apertados (ex.: @limiter.limit("10/minute"))
-```
-```yaml
-# Traefik (borda)
-- "traefik.http.middlewares.api-ratelimit.ratelimit.average=50"
-- "traefik.http.middlewares.api-ratelimit.ratelimit.burst=100"
-```
-Cloudflare (já no caminho) também pode aplicar regras de rate limiting.
-**Atenção:** com Traefik/Cloudflare na frente, usar `get_remote_address` exige confiar em
-`X-Forwarded-For` corretamente (config de proxy), senão todo tráfego cai no mesmo IP.
+2. **Borda (anti-flood)** — Traefik `ratelimit` average=50/burst=100 por IP nos dois routers
+   do backend (`deploy/docker-compose.yml`). Na rota via Cloudflare o IP visto é da CF
+   (agregado) — aceitável, é contenção bruta; a rota principal (`api.hookifyads.com`, DNS-only)
+   vê o IP real.
+
+3. **Frontend** — retry global do TanStack Query não re-tenta 4xx (`ReactQueryProvider.tsx`):
+   429 não vira tempestade de retries.
+
+**Limites (por usuário/min, validados contra telemetria real do banco em 2026-07-12):**
+| Classe | Limite | Base empírica |
+|---|---|---|
+| Default autenticado | 300 | fan-out do manager ≈ 30 req/load; polling 1/s |
+| Analytics pesados (rankings/series/retention/dashboard/children/history) | 120 | máx. 12 packs/usuário; RPCs com histórico de 57014 |
+| refresh-pack, sheet-sync | 30 cada | **pico real medido: 12 jobs/min** (auto-refresh matinal) — por isso limites POR ROTA, não classe compartilhada |
+| transcription/start (retry por ad) | 30 | clicável em série |
+| bulk-ads, campaign-bulk, transcribe-pack, adaccounts/sync, billing | 10 cada | 1 request por ação humana (fan-out é server-side; pack de 3.767 ads = 1 request) |
+| status-sync | 20 | frontend manda todos os pack_ids num único POST |
+| DELETE account/data | 5 | sem uso legítimo repetido |
+| Webhook Stripe (por IP) | 240 | assinatura é a defesa real |
 
 **Verificação:**
-- [ ] Rajada acima do limite retorna 429
-- [ ] Endpoints de analytics têm limite dedicado mais baixo
-- [ ] Key function resolve o IP real do cliente (não o do proxy)
+- [x] Rajada acima do limite retorna 429 com `Retry-After` (12 testes em `tests/test_rate_limit.py`)
+- [x] Endpoints de analytics têm limite dedicado mais baixo (120/min)
+- [x] Key function usa JWT sub; IP só como fallback, resolvido pelo último hop do XFF
+- [x] Janela desliza (expiração parcial testada); buckets isolados por rota e usuário
+- [ ] Follow-up: observar logs `[RATE_LIMIT]` em produção 1-2 semanas; ajustar p/ cima se legítimo
 
 **Log:**
-- _(vazio)_
+- 2026-07-12: implementado. Decisão importante: proposta inicial de 10/min numa classe única de
+  "mutações caras" foi **derrubada por dados reais** (usuário legítimo com packs em auto-refresh
+  atinge 12 req/min) → limites por rota individual com folga 3-5× sobre o pico medido.
+- Brute-force de login NÃO passa por aqui: auth é direto no Supabase (GoTrue) — conferir rate
+  limits no dashboard do Supabase (Auth → Rate Limits).
 
 ---
 
@@ -495,6 +507,7 @@ após, mas idealmente antes de tráfego real.
 | 2026-07-09 | Claude + usuário | **#2 em andamento.** Investigado: repo PÚBLICO; root `.env` órfão (não carregado); `META_API_KEY` não usado (app é OAuth); segredos críticos nunca commitados. Parte git feita (`rm --cached` + `.gitignore`, staged sem commit/push). Falta rotação (usuário) + Opção A/B de finalização no remoto. |
 | 2026-07-09 | Claude + usuário | **#2 concluído (Opção A).** Usuário rotacionou as chaves; commit `7f1f629` + push para `main`. `.env` fora do HEAD (local preservado). **Ambos bloqueadores (#1,#2) resolvidos → veredito 🔴→🟡.** Dependabot reportou 62 vulns (25 high) no push → anexado ao #7. |
 | 2026-07-09 | Claude + usuário | **#3 concluído.** 5 security headers enforce + CSP Report-Only em `next.config.ts` (`/:path*`), allowlist dos hosts reais, HSTS prod-only. Verificado no `routes-manifest.json`. Follow-up: promover CSP para enforce após observar reports. Alto restante antes de tráfego = só #4. |
+| 2026-07-12 | Claude + usuário | **#4 concluído.** Rate limit por usuário (JWT sub) em `app/core/rate_limit.py` (sliding window em memória, 12 testes) + anti-flood por IP no Traefik + retry TanStack não re-tenta 4xx. Limites calibrados contra telemetria real do banco (pico de 12 jobs/min legítimo derrubou a proposta inicial de 10/min em classe compartilhada → limites por rota). **Todos os 🔴/🟠 resolvidos.** Follow-up: observar `[RATE_LIMIT]` em prod. |
 
 ---
 

@@ -13,7 +13,13 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
   const [client] = useState(() => new QueryClient({
     defaultOptions: {
       queries: {
-        retry: 2,
+        // Erros 4xx (400/401/403/429...) são determinísticos ou rate limit:
+        // re-tentar não resolve e, no caso do 429, amplifica o excesso.
+        retry: (failureCount, error) => {
+          const status = (error as { status?: number } | null)?.status
+          if (typeof status === 'number' && status >= 400 && status < 500) return false
+          return failureCount < 2
+        },
         staleTime: 30_000,
         refetchOnWindowFocus: false,
       },
