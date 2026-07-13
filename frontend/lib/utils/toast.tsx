@@ -132,10 +132,10 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
   if (stage === "paginação" || stage === "STAGE_PAGINATION") {
     const pageCount = details?.page_count;
     const totalCollected = details?.total_collected;
-    if (pageCount != null && totalCollected != null) {
+    if (pageCount > 0 && totalCollected != null) {
       return `Página ${pageCount} (${totalCollected} registros)`;
     }
-    if (pageCount != null) return `Página ${pageCount}`;
+    if (pageCount > 0) return `Página ${pageCount}`;
     return "Trabalhando nisso...";
   }
 
@@ -149,7 +149,7 @@ export function getMetaDynamicLine(status: string, stage: string, details?: any)
     if (adsEnriched != null && total != null && total > 0) {
       return `${adsEnriched} de ${total} anúncios`;
     }
-    if (details?.enrichment_batches != null && details?.enrichment_total != null) {
+    if (details?.enrichment_batches != null && details?.enrichment_total > 0) {
       return `Bloco ${details.enrichment_batches} de ${details.enrichment_total}`;
     }
     return "Buscando detalhes...";
@@ -360,6 +360,9 @@ export function calculateSheetsProgressPercent(status: string, details?: any): n
   if (status === "completed") return 100;
   if (status === "cancelled" || status === "failed") return 0;
   const { stepIndex } = getSheetsStageInfo(status, details);
+  // Última etapa (persistência) segura em 95% até o job concluir — evita barra cheia com spinner girando.
+  // Só chega a 100% no status "completed" (tratado acima). Espelha o comportamento do Meta.
+  if (stepIndex >= SHEETS_TOTAL_STAGES) return 95;
   const pctPerStep = 100 / SHEETS_TOTAL_STAGES;
   return Math.min(100, Math.round(stepIndex * pctPerStep));
 }
