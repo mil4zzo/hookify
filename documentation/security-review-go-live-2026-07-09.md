@@ -368,11 +368,25 @@ cache curto. Manter o try/catch fail-open já existente.
 O build passava com erros de tipo — removia a rede que pega bugs de classe (prop não sanitizada,
 `any` inseguro).
 
-**O que foi feito:**
-- **`typescript.ignoreBuildErrors` REMOVIDO.** Custo zero: o backlog de tipos já era **zero**
-  (o husky roda `tsc --noEmit` no pre-commit). O build agora executa "Checking validity of types".
-- **Gate provado, não presumido:** com um erro de tipo deliberado, o build falha
-  (`Failed to compile` / exit 1). Verificado e revertido.
+**O que foi feito — o gate existe, mas NÃO dentro do build de produção:**
+
+⚠️ **Reversão consciente (2026-07-13, durante o primeiro deploy).** Remover o
+`typescript.ignoreBuildErrors` fez o `next build` passar a rodar o type-check completo dentro do
+container — e **no VPS isso estourou a memória e travou o build, com o site FORA DO AR** (o
+`deploy.sh` derruba a stack *antes* de buildar). A flag foi **restaurada**.
+
+Isso **não** é "voltar a ignorar erro de tipo" — é escolher **onde** verificar. O gate roda em
+dois lugares, ambos em máquina capaz:
+1. **Pre-commit** (husky → `tsc --noEmit`): erro de tipo não vira commit.
+2. **CI** (`security.yml`, job `build`): erro de tipo **bloqueia o merge**. Gate **provado** —
+   com um erro deliberado, o build falha (`Failed to compile`, exit 1).
+
+Um erro de tipo, portanto, **nunca chega ao deploy**. Rodar `tsc` uma terceira vez dentro do
+build de produção era redundante e cobrava RAM + downtime num VPS apertado.
+
+**Reativar `ignoreBuildErrors: false` só se** o build sair do VPS (ex.: buildar a imagem no CI e
+dar push para um registry) — aí a memória deixa de ser o gargalo.
+
 - **`eslint.ignoreDuringBuilds` MANTIDO** — descoberta: **o projeto não tem ESLint** (sem config,
   sem dependência; `next lint` abre o prompt de setup inicial). A flag ignora um linter que não
   existe; removê-la **quebraria o build**.
@@ -383,12 +397,19 @@ ESLint flat config + triagem do backlog de warnings que vai aparecer num codebas
 
 **Verificação:**
 - [x] `npx tsc --noEmit` limpo
-- [x] `typescript.ignoreBuildErrors` removido e gate **comprovadamente** falha em erro de tipo
-- [x] Gate equivalente no CI (job `build` do workflow `security.yml`)
+- [x] Gate de tipos ativo no **pre-commit** (husky) e no **CI** (job `build`), comprovadamente
+      falhando em erro de tipo
+- [x] Build de produção **não** roda type-check (decisão: RAM do VPS + downtime)
 - [ ] ESLint configurado (item separado, não-segurança)
 
 **Log:**
-- 2026-07-12 — type-check virou gate. ESLint fatiado: não existe no projeto, `next lint` deprecado.
+- 2026-07-12 — type-check virou gate no build. ESLint fatiado: não existe no projeto, `next lint`
+  deprecado.
+- 2026-07-13 — **revertido no build de produção**: o type-check dentro do container travou o
+  `next build` no VPS (memória) e derrubou o site durante o deploy. O gate migrou de vez para
+  pre-commit + CI, que é onde ele já era efetivo. **Lição:** um gate no build de produção também
+  é um ponto de falha do deploy — colocar o gate onde ele falha *barato* (CI), não onde a falha
+  custa downtime.
 
 ---
 

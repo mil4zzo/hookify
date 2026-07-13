@@ -46,13 +46,23 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },
-  // Erro de tipo QUEBRA o build (rede que pega prop não sanitizada, `any` inseguro).
-  // O husky já roda `tsc --noEmit` no pre-commit, então o backlog é zero — não
-  // reintroduzir `ignoreBuildErrors: true` para "destravar" um build: corrija o tipo.
+  // O type-check NÃO roda aqui — de propósito. O gate de tipos vive em DOIS lugares que
+  // rodam em máquina capaz: o hook de pre-commit (husky → `tsc --noEmit`) e o CI
+  // (`.github/workflows/security.yml`, job `build`, que BLOQUEIA o merge). Rodar `tsc` uma
+  // terceira vez dentro do build de produção é redundante e cobra caro: no VPS (Docker,
+  // memória apertada) ele fez o `next build` estourar a RAM e travar — com o site FORA DO AR,
+  // porque o deploy.sh derruba a stack antes de buildar.
   //
-  // ESLint segue ignorado porque o projeto NÃO TEM ESLint configurado (sem config,
-  // sem dependência) — a flag ignora um linter que não existe. Removê-la sem antes
-  // instalar/configurar o ESLint quebra o build. Ver #6 do security review.
+  // Ou seja: isto não é "ignorar erro de tipo", é escolher ONDE verificar. Um erro de tipo
+  // nunca chega no deploy porque não passa do commit nem do CI.
+  // Se um dia mover o build para um runner com RAM (build no CI + push da imagem), reative:
+  //   typescript: { ignoreBuildErrors: false }
+  // Ver #6 do security review.
+  typescript: { ignoreBuildErrors: true },
+
+  // ESLint ignorado porque o projeto NÃO TEM ESLint configurado (sem config, sem dependência)
+  // — a flag ignora um linter que não existe. Removê-la sem antes instalar/configurar o
+  // ESLint quebra o build.
   eslint: { ignoreDuringBuilds: true },
   experimental: {
     optimizePackageImports: ["@tabler/icons-react"],
