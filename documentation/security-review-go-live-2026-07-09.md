@@ -15,14 +15,14 @@
 
 ---
 
-## Veredito atual: 🟡 Bloqueadores críticos resolvidos — falta hardening antes de tráfego real
+## Veredito atual: 🟢 Liberado para go-live — resta hardening residual
 
-**Ambos os bloqueadores de go-live foram resolvidos:** #1 (Next 15.5.20) e #2 (segredos
-rotacionados + `.env` destrastreado). Não há mais bloqueador 🔴 crítico.
+**Todos os 🔴 críticos e 🟠 altos estão resolvidos** (#1, #2, #3, #4), assim como as deps
+vulneráveis (#7a: 44 → 0) e a esteira de CI (#7b). Nada mais bloqueia o lançamento.
 
-**Todos os 🔴/🟠 estão resolvidos** (#1, #2, #3, #4). Os 🟡/🟢 (#5–#10) seguem como
-hardening incremental. Follow-ups em aberto: promover CSP de Report-Only para enforce
-(#3) e observar logs `[RATE_LIMIT]` em produção para calibrar limites (#4).
+**Resta apenas hardening 🟡/🟢** (#5, #8, #9, #10) — nenhum deles é brecha de autorização de
+dados. Ver "Ordem de execução" no fim do doc para a fila e os follow-ups que dependem de
+observação em produção (CSP enforce, logs de rate limit, SAST bloqueante).
 
 **Stack real confirmada na auditoria:**
 Next.js `15.5.20` (era 15.5.9, atualizado em 2026-07-09) + React `18.3.1`
@@ -40,8 +40,8 @@ FastAPI + Supabase (JWKS/RLS) · Traefik + Let's Encrypt + Cloudflare.
 | 3 | 🟠 Alto | Security headers (CSP, HSTS, X-Frame-Options…) — 5 enforce + CSP Report-Only no next.config.ts | ✅ | Não |
 | 4 | 🟠 Alto | Nenhum rate limiting de entrada em toda a API — limiter por usuário no FastAPI + anti-flood por IP no Traefik | ✅ | Não |
 | 5 | 🟡 Médio | Middleware usa `getSession()` (não revalida) em vez de `getUser()` | ⬜ | Não |
-| 6 | 🟡 Médio | `ignoreBuildErrors` + `ignoreDuringBuilds` no build | ⬜ | Não |
-| 7 | 🟡 Médio | Deps vulneráveis (44 → **0**) + esteira de CI/CD (SAST, secret scan) ainda pendente | 🟡 | Não |
+| 6 | 🟡 Médio | `ignoreBuildErrors` removido (type-check é gate). ESLint não existe no projeto → fatiado como item próprio (não-segurança) | 🟡 | Não |
+| 7 | 🟡 Médio | Deps vulneráveis (44 → **0**) + esteira de CI/CD (`security.yml`: gitleaks, audits, build, testes) | ✅ | Não |
 | 8 | 🟢 Baixo | `SENTRY_AUTH_TOKEN` como build-arg do Docker | ⬜ | Não |
 | 9 | 🟢 Baixo | JSON-LD via `dangerouslySetInnerHTML` sem escapar `</script>` | ⬜ | Não |
 | 10 | 🟢 Baixo | CORS `allow_methods/headers=["*"]` + credentials | ⬜ | Não |
@@ -331,26 +331,35 @@ cache curto. Manter o try/catch fail-open já existente.
 ---
 
 ### 6. 🟡 [Médio] Build ignora type-check e lint
-**Status:** ⬜ Não iniciado · **Bloqueia go-live:** Não
+**Status:** 🟡 Parcial — **type-check é gate (2026-07-12)**; ESLint não existe no projeto · **Bloqueia go-live:** Não
 **Área:** CI/CD / Frontend
 
 **Contexto / risco:**
-`frontend/next.config.ts:8-9`: `typescript.ignoreBuildErrors: true` e
-`eslint.ignoreDuringBuilds: true`. O build passa com erros de tipo/lint — remove uma rede que
-pega bugs de classe (props não sanitizadas, `any` inseguro). Higiene fraca para go-live.
+`frontend/next.config.ts`: `typescript.ignoreBuildErrors: true` e `eslint.ignoreDuringBuilds: true`.
+O build passava com erros de tipo — removia a rede que pega bugs de classe (prop não sanitizada,
+`any` inseguro).
 
-**Remediação:**
-Remover ambos (ou mover a checagem para gate obrigatório de CI) e corrigir o backlog de erros
-antes do deploy. Provavelmente há um backlog acumulado — pode exigir esforço; medir primeiro
-com `npx tsc --noEmit` e `npm run lint`.
+**O que foi feito:**
+- **`typescript.ignoreBuildErrors` REMOVIDO.** Custo zero: o backlog de tipos já era **zero**
+  (o husky roda `tsc --noEmit` no pre-commit). O build agora executa "Checking validity of types".
+- **Gate provado, não presumido:** com um erro de tipo deliberado, o build falha
+  (`Failed to compile` / exit 1). Verificado e revertido.
+- **`eslint.ignoreDuringBuilds` MANTIDO** — descoberta: **o projeto não tem ESLint** (sem config,
+  sem dependência; `next lint` abre o prompt de setup inicial). A flag ignora um linter que não
+  existe; removê-la **quebraria o build**.
+
+**Pendente (fatiado como item próprio):** instalar/configurar ESLint. Não é trabalho de segurança
+e não é "ligar a flag": `next lint` está **deprecado** (removido no Next 16) → exige migração para
+ESLint flat config + triagem do backlog de warnings que vai aparecer num codebase deste tamanho.
 
 **Verificação:**
-- [ ] `npx tsc --noEmit` limpo
-- [ ] `npm run lint` limpo (ou erros restantes triados/justificados)
-- [ ] Flags removidas de `next.config.ts` OU gate de CI equivalente ativo
+- [x] `npx tsc --noEmit` limpo
+- [x] `typescript.ignoreBuildErrors` removido e gate **comprovadamente** falha em erro de tipo
+- [x] Gate equivalente no CI (job `build` do workflow `security.yml`)
+- [ ] ESLint configurado (item separado, não-segurança)
 
 **Log:**
-- _(vazio)_
+- 2026-07-12 — type-check virou gate. ESLint fatiado: não existe no projeto, `next lint` deprecado.
 
 ---
 
@@ -389,20 +398,37 @@ bump de dependência direta.
 **Validação:** 221 testes backend · `tsc --noEmit` limpo · `next build` OK (CSS gerado ⇒ override do
 postcss não quebrou o Tailwind) · design-system check OK.
 
-#### 7b. Esteira de CI/CD — ⬜ PENDENTE
+#### 7b. Esteira de CI/CD — ✅ CONCLUÍDO (2026-07-12)
 
-**Remediação — pipeline mínimo antes do deploy:**
-- **Secret scanning:** `gitleaks detect` (teria pego o achado #2) ou TruffleHog
-- **SAST:** `semgrep --config auto` + `bandit -r backend/app`
-- **Deps:** `npm audit --audit-level=high` + `pip-audit` (agora que a base está em 0, o gate segura)
-- **DAST (staging):** OWASP ZAP baseline scan
-- Rodar `next build` **sem** os `ignore*` (ver #6) como gate
+**`.github/workflows/security.yml`** — roda em PR e push na `main`. Antes disso **não havia CI
+nenhum** no repo (só hooks de husky no pre-commit, que o dev pode pular com `--no-verify`).
+
+| Job | Bloqueia merge? | O que trava |
+|---|---|---|
+| `secrets` (gitleaks, `fetch-depth: 0`) | ✅ | Segredo commitado — **teria pego o achado #2** |
+| `deps-frontend` (`npm audit --audit-level=high`) | ✅ | Regressão das deps (base está em **0** — ver 7a) |
+| `deps-backend` (`pip-audit`) | ✅ | idem, backend |
+| `build` (`tsc --noEmit` + design-system + `next build`) | ✅ | Erro de tipo (gate do #6) |
+| `tests-backend` (pytest) | ✅ | Regressão (221 testes) |
+| `sast` (semgrep + bandit) | ⚠️ report-only | — |
+
+**Decisões:**
+- **SAST entra como report-only** (`continue-on-error: true`). Semgrep/bandit têm falso-positivo
+  demais para bloquear merge sem uma fase de triagem. **Promover a bloqueante depois de zerar o
+  backlog inicial** — remover a linha `continue-on-error`.
+- **Jobs independentes** (não encadeados): um achado de SAST não pode esconder um vazamento de
+  segredo. Todos rodam sempre.
+- O job `build` usa **valores dummy** nas `NEXT_PUBLIC_*` (embedadas em build-time). Ele só valida
+  que compila — não faz deploy. **Não colocar segredo real ali.**
+
+**Ainda fora do escopo:** DAST (OWASP ZAP baseline em staging) — exige ambiente de staging.
 
 **Verificação:**
 - [x] `npm audit` limpo no frontend (0 vulnerabilidades)
 - [x] Deps vulneráveis do backend corrigidas (`requests`, `python-dotenv`)
-- [x] Dependabot habilitado (já estava)
-- [ ] Workflow de CI roda gitleaks + semgrep + audits e falha em achados altos
+- [x] Dependabot habilitado (já estava) — **44 → 0 alertas confirmado via API**
+- [x] Workflow de CI roda gitleaks + audits + build + testes e falha em achados altos
+- [ ] Promover SAST de report-only para bloqueante (após triagem do backlog)
 
 **Log:**
 - 2026-07-09 — `ws`(high)/`uuid` detectados ao rodar `npm audit` durante o #1. Registrados aqui
@@ -502,18 +528,33 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 
 ---
 
-## Ordem de execução recomendada
+## Ordem de execução
 
-1. **#1** React2Shell (bloqueador) — atualizar Next
-2. **#2** Segredos no git (bloqueador) — rotacionar + purgar
-3. **#3** Security headers
-4. **#4** Rate limiting
-5. **#6** Remover ignore de type-check/lint
-6. **#7** Esteira de CI/CD
-7. **#5, #8, #9, #10** hardening residual
+**Concluído (2026-07-09 → 2026-07-12):**
+1. ✅ **#1** Next desatualizado (era bloqueador)
+2. ✅ **#2** Segredos no git (era bloqueador)
+3. ✅ **#3** Security headers
+4. ✅ **#4** Rate limiting
+5. ✅ **#7a** Deps vulneráveis (44 → 0)
+6. 🟡 **#6** Type-check virou gate (ESLint fatiado — não-segurança)
+7. ✅ **#7b** Esteira de CI/CD (`security.yml`)
 
-Itens **#1 e #2 são os únicos que travam o lançamento**. Os demais podem ir em paralelo/logo
-após, mas idealmente antes de tráfego real.
+**Restante — nenhum bloqueia o go-live:**
+
+| Prioridade | Item | Nota |
+|---|---|---|
+| 1 | **#5** `getSession()` → `getUser()` | Só hardening do gate de **UX**; a autorização real já é imposta pelo backend (JWT + RLS). Custa 1 request extra por navegação — medir latência |
+| 2 | **#10** CORS (métodos + guard `*`+credentials) | Baixo esforço |
+| 3 | **#9** JSON-LD escapar `</script>` | Baixo esforço; conteúdo hoje não é controlado pelo usuário |
+| 4 | **#8** `SENTRY_AUTH_TOKEN` build-arg | Baixo esforço; BuildKit secret mount |
+| — | ESLint do zero (fatiado do #6) | Alto esforço, **não é segurança** |
+
+**Follow-ups que dependem de tempo em produção (não de código):**
+- Promover **CSP de Report-Only → enforce** após 1-2 semanas sem violações nos reports (#3).
+- Observar logs **`[RATE_LIMIT]`**: se um usuário legítimo tomar 429, **subir o limite** (#4).
+- Promover **SAST de report-only → bloqueante** após triagem do backlog inicial (#7b).
+- **Auth do Supabase (GoTrue):** brute-force de login não passa pelo nosso backend — conferir os
+  rate limits no dashboard (Auth → Rate Limits).
 
 ---
 
@@ -527,7 +568,8 @@ após, mas idealmente antes de tráfego real.
 | 2026-07-09 | Claude + usuário | **#2 concluído (Opção A).** Usuário rotacionou as chaves; commit `7f1f629` + push para `main`. `.env` fora do HEAD (local preservado). **Ambos bloqueadores (#1,#2) resolvidos → veredito 🔴→🟡.** Dependabot reportou 62 vulns (25 high) no push → anexado ao #7. |
 | 2026-07-09 | Claude + usuário | **#3 concluído.** 5 security headers enforce + CSP Report-Only em `next.config.ts` (`/:path*`), allowlist dos hosts reais, HSTS prod-only. Verificado no `routes-manifest.json`. Follow-up: promover CSP para enforce após observar reports. Alto restante antes de tráfego = só #4. |
 | 2026-07-12 | Claude + usuário | **#4 concluído.** Rate limit por usuário (JWT sub) em `app/core/rate_limit.py` (sliding window em memória, 12 testes) + anti-flood por IP no Traefik + retry TanStack não re-tenta 4xx. Limites calibrados contra telemetria real do banco (pico de 12 jobs/min legítimo derrubou a proposta inicial de 10/min em classe compartilhada → limites por rota). **Todos os 🔴/🟠 resolvidos.** Follow-up: observar `[RATE_LIMIT]` em prod. |
-| 2026-07-12 | Claude + usuário | **#7a concluído (deps).** 44 alertas Dependabot → **0** no `npm audit`. axios 1.13→1.18 (sozinho = 21/44), postcss 8.5.18, `npm audit fix` p/ transitivas, `overrides` p/ postcss (next pina 8.4.31) e esbuild (tsx pina 0.27.3); backend: requests 2.33.0 + python-dotenv 1.2.2. Build/tsc/221 testes OK. #7b (esteira CI/CD) segue pendente. |
+| 2026-07-12 | Claude + usuário | **#7a concluído (deps).** 44 alertas Dependabot → **0** no `npm audit`. axios 1.13→1.18 (sozinho = 21/44), postcss 8.5.18, `npm audit fix` p/ transitivas, `overrides` p/ postcss (next pina 8.4.31) e esbuild (tsx pina 0.27.3); backend: requests 2.33.0 + python-dotenv 1.2.2. Build/tsc/221 testes OK. Rescan do Dependabot confirmou **0 alertas abertos**. |
+| 2026-07-12 | Claude + usuário | **#6 parcial + #7b concluído.** `ignoreBuildErrors` removido (backlog de tipos já era zero; gate **provado** com erro deliberado → build falha). Descoberto que **o projeto não tem ESLint** → `ignoreDuringBuilds` mantido e ESLint fatiado como item próprio (não-segurança; `next lint` deprecado no Next 16). Criado `.github/workflows/security.yml` — **primeiro CI do repo**: gitleaks + npm audit + pip-audit + tsc/build + pytest bloqueiam merge; SAST (semgrep/bandit) report-only até triagem. |
 
 ---
 

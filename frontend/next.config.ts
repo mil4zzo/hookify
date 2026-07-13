@@ -46,7 +46,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }]
   },
-  typescript: { ignoreBuildErrors: true },
+  // Erro de tipo QUEBRA o build (rede que pega prop não sanitizada, `any` inseguro).
+  // O husky já roda `tsc --noEmit` no pre-commit, então o backlog é zero — não
+  // reintroduzir `ignoreBuildErrors: true` para "destravar" um build: corrija o tipo.
+  //
+  // ESLint segue ignorado porque o projeto NÃO TEM ESLint configurado (sem config,
+  // sem dependência) — a flag ignora um linter que não existe. Removê-la sem antes
+  // instalar/configurar o ESLint quebra o build. Ver #6 do security review.
   eslint: { ignoreDuringBuilds: true },
   experimental: {
     optimizePackageImports: ["@tabler/icons-react"],
