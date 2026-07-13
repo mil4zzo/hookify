@@ -6,6 +6,34 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## "N / M anúncios" do conjunto não batia com o Gerenciador — anúncio pausado que nunca entregou não existe no nosso banco
+
+**Data:** 2026-07-12 · status: **implementado (migration 094 aplicada; ad_inventory.py, supabase_repo.py, job_processor.py); 178 testes backend**
+
+**Sintoma:** conjunto que o Gerenciador da Meta mostrava com **19 anúncios** aparecia no Hookify como **10 / 12**. Os 10 ativos estavam certos; o total é que divergia. Sintoma correlato do mesmo usuário: **trocar o filtro de período mudava o total** de cada conjunto, sem correlação óbvia.
+
+**Causa raiz:** o denominador vinha de `count(distinct ad_id)` sobre `ad_metrics` **dentro da janela** — ou seja, "anúncios com alguma linha no período", não "anúncios do conjunto". E `ad_metrics` só recebe quem **entregou** (via `/insights`) ou quem é **deliverable** (linha-zero sintetizada, ver a entrada do inventário-first). Logo:
+
+> Um anúncio **PAUSADO que nunca entregou** não existe em lugar nenhum do nosso banco — nem em `ad_metrics`, nem em `ads` (porque `upsert_ads` grava só o que veio de `raw_data`). Ele é baixado da Meta pelo `fetch_inventory` e **descartado** no `select_zero_delivery_ads`.
+
+A aritmética do caso fechou exata: 19 na Meta = 10 ativos + 9 pausados; desses 9, **2** foram pausados *dentro* da janela (entregaram → têm linha real → entram) e **7** foram pausados antes (gasto zero → invisíveis). 10 + 2 = 12. Confirmado por SQL no banco e pelo usuário no Gerenciador.
+
+Isso também explicava a variação por período: alargar a janela captura mais dias de entrega dos pausados, e eles reaparecem.
+
+**Decisão: corrigir SÓ o denominador.** Persistir os pausados-sem-entrega como anúncios de verdade foi **rejeitado** — eles virariam zumbis all-zero nas abas Criativos/Por anúncio em qualquer período, e custariam enrichment de criativo/thumbnail de anúncio que nunca rodou. A regra "pausado sem métrica no range é ruído histórico" continua certa para as **métricas**; ela só não servia para a **contagem**.
+
+**Fix:** o inventário completo já era baixado a cada refresh (edge `/ads`, que inclui pausados e exclui archived/deleted — exatamente o universo do Gerenciador). Agora `ad_inventory.count_ads_by_adset()` conta **todos os status** e a contagem por conjunto é persistida em `parent_entities.ads_count`; o wrapper de leitura a usa como `ad_count` na aba Por conjunto. `active_count` não muda. Resultado: **10 / 19**.
+
+**Duas armadilhas que o fix teve de desviar:**
+1. **Não injetar `ads_count` no payload de `upsert_parent_entities`.** Aquele payload cobre **todos** os adsets da conta (snapshot dos edges), enquanto o inventário é escopado ao pack do job → gravaria `NULL` nos adsets dos *outros* packs a cada refresh. Por isso existe o `upsert_parent_ads_counts` dedicado, que só carrega as colunas da contagem (PostgREST faz `ON CONFLICT DO UPDATE` apenas das colunas presentes no payload).
+2. **O read-path é o WRAPPER, não o `_base_v*`.** O `fetch_manager_rankings_core_v2` (overload de **16 args** — o que o backend aciona, por enviar `p_campaign_id`) já pós-processava as linhas de adset/campanha com um `left join lateral` em `parent_entities` para injetar budget. Foi ali que o `ad_count` entrou — **sem tocar a agregação pesada** (`_base_v093`), evitando o risco de `statement_timeout`. Há um overload **morto** de 15 args ainda apontando pro `_base_v060` antigo: sempre tracear a cadeia real no banco antes de editar RPC.
+
+**Rollout sem big-bang:** enquanto `ads_count` é `NULL`, o wrapper cai no `ad_count` antigo. Verificado em produção: antes do refresh a RPC devolve `10/12` (fallback intacto); com `ads_count=19` simulado, devolve `10/19`. Os números corrigem conforme cada pack é atualizado.
+
+**Regra derivada:** contagem de inventário e agregação de métricas são eixos diferentes — não derive "quantos anúncios existem" de uma tabela que só guarda "quem teve atividade". `active_count` (status atual) sobre `ad_count` (period-scoped) é razão entre populações distintas.
+
+---
+
 ## O verify pós-write de status também mente — read-after-write de effective_status é eventualmente consistente
 
 **Data:** 2026-07-12 · status: **implementado (graph_api.py, facebook.py, useAdStatusControl.ts, BulkActionsBar.tsx); 209 testes backend + tsc/design-system clean**
@@ -2179,3 +2207,40 @@ Três armadilhas do npm nesse caminho (detalhe na memória `npm_audit_next_downg
 - `npm audit` propôs **downgrade do next 15.5.20 → 9.3.3** como "fix". É lixo: o alerta em `next` existia só porque ele empacota `postcss@8.4.31`. **Ler o `via` antes de aceitar qualquer `--force`.**
 - Dep transitiva **pinada pelo pai** não é tocada por `npm audit fix` — só `overrides` resolve. E `overrides` é **dívida técnica**: remover cada entrada quando o pai subir a própria dep (o `package.json` carrega uma chave `"//overrides"` com a justificativa de cada uma).
 - Override de dep que **também é direta** exige a sintaxe `"postcss": "$postcss"` — a forma literal falha com `EOVERRIDE`.
+
+## Procedência (pack e conta) por linha no Manager (2026-07-12)
+
+**Problema:** ao abrir um anúncio (ou olhar a tabela), não dava para saber de qual **pack** e de qual **conta de anúncio** ele veio. A RPC do Manager *filtra* por pack (semi-join em `ad_metric_pack_map`) mas **descartava** a informação.
+
+### O seletor de packs não substitui a informação na linha — mas coluna fixa também não era a resposta
+
+Regra que guiou o design: **uma dimensão só merece espaço na linha quando ela VARIA.** Com um pack selecionado, o seletor já respondeu "de onde vêm estas linhas" — repetir o mesmo nome em todas as linhas seria uma coluna inteira de valor constante, numa tabela que já disputa largura com ~25 métricas. A procedência só vira informação nova quando o resultado **mistura** packs ou contas.
+
+Daí o desenho em duas camadas:
+- **Badge automático** na célula de nome, que aparece **sozinho** quando a dimensão varia (`computeProvenanceVisibility`). Zero configuração, zero custo de layout quando é redundante. Fica *inline* com o subtítulo, nunca numa linha nova: a tabela é virtualizada com altura estimada por `viewMode` (40px no minimal) e uma linha extra causaria jank no scroll.
+- **Colunas opcionais Pack/Conta** (desligadas por padrão) para quem precisa ordenar, filtrar ou exportar.
+- **No modal, sempre** — lá é a ficha de identidade do anúncio, e é exatamente para isso que se abre.
+
+### Os dados derrubaram a alternativa barata (e revelaram um bug)
+
+A opção sem backend era expor `packs.ad_ids` (já existe no banco) e cruzar no cliente. Medir antes de implementar matou a ideia e achou um bug:
+
+| Fato medido no banco | Consequência |
+|---|---|
+| **0 de 17.625** pares (user, ad) pertencem a >1 pack | Para um **ad individual**, pack é 1:1 na prática. A UI otimiza para 1 valor, com `+N` só como salvaguarda. |
+| **17%** das linhas da aba "Por anúncio" reúnem ads de **packs diferentes** | Uma linha agregada não expõe os `ad_ids` dos filhos → o cruzamento no cliente **falharia exatamente aqui**. Só o backend resolve. |
+| **14%** das linhas da aba "Por anúncio" reúnem **contas diferentes** | **Bug pré-existente:** `account_id` da linha vem do CTE `rep` — o ad **representante** (maior impressões), não uma agregação. Em 1 de cada 7 linhas agregadas, exibir esse `account_id` como "a conta da linha" seria **mentira**. |
+
+Por isso a migration 093 devolve **`account_ids[]`** (todas as contas do grupo) além do `pack_ids[]`. Para exibir conta, usar SEMPRE o array; `account_id` só serve de fallback para payload antigo.
+
+### Custo: essencialmente zero
+
+O `pack_agg` é um join sobre o CTE `filtered` (linhas **já** reduzidas pelos filtros) usando o índice reverso que já existia (`ad_metric_pack_map_user_ad_date_idx` em `(user_id, ad_id, metric_date)`). O `EXPLAIN ANALYZE` mostra **Nested Loop + Memoize a 0,045 ms por lookup**; o custo dominante da RPC continua sendo a varredura de `ad_metrics`. Medido com cache quente: v090 ≈ v093 (~24 ms) — sem regressão detectável.
+
+### Armadilhas que o código encapsula
+
+- **Célula reativa:** os nomes são resolvidos por **hook** dentro da célula (`useProvenanceIndex`), não por prop. `TableContent` é `React.memo` sobre uma instância **estável** de `table` — recriar as colunas quando `adAccounts` termina de carregar **não** re-renderizaria a célula; uma mudança de store, sim.
+- **CSV:** as dimensões são resolvidas a partir de `row.original`, **nunca** por `row.getValue(id)` — o dialog de export permite escolher uma coluna que não está ativa na tabela, e para essa o TanStack devolve `undefined` (a coluna nem foi construída) → a coluna sairia vazia. E nome de pack é **texto livre** → passa por `neutralizeFormula` (anti formula-injection), ao contrário de qualquer métrica.
+- **Tabela de variações:** dimensões são filtradas fora — os filhos vêm de `RankingsChildrenItem`, que não carrega `pack_ids`/`account_ids`.
+
+**Verificação:** `pack_ids`/`account_ids` conferidos chamando a RPC real no banco com `auth.uid()` simulado; `tsc --noEmit`, `check:design-system`, `next build` e testes (4 de colunas + 5 novos de `provenance`) limpos.
