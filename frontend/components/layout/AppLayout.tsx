@@ -21,20 +21,24 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                        pathname?.startsWith("/waitlist") ||
                        pathname?.startsWith("/suporte");
   
+  // Onboarding: experiência focada — sem sidebar nem bottom-nav (o Topbar entra
+  // em modo mínimo internamente). LayoutContent já remove a margem lateral.
+  const isOnboardingRoute = pathname?.startsWith("/onboarding");
+
   // Se for rota de autenticação ou pública, renderiza apenas o conteúdo
   if (isAuthRoute || isPublicRoute) {
     return <>{children}</>;
   }
-  
+
   // Para todas as rotas autenticadas, renderiza o layout completo
   return (
     <PacksLoader>
-      <Sidebar />
+      {!isOnboardingRoute && <Sidebar />}
       <LayoutContent>
         <Topbar />
         <MainContent>{children}</MainContent>
       </LayoutContent>
-      <BottomNavigationBar />
+      {!isOnboardingRoute && <BottomNavigationBar />}
     </PacksLoader>
   );
 }

@@ -15,8 +15,8 @@ export function SuccessStep(props: { onBack: () => void }) {
   return (
     <FormPageSection title="Pronto para carregar seus anúncios" description="Seu ambiente inicial está configurado. Agora você pode carregar um Pack de Anúncios para começar a análise.">
         <Button className="w-full flex items-center gap-2" size="lg" onClick={handleFinish}>
-          <IconChevronRight className="w-4 h-4" />
           Carregue seu primeiro Pack de Anúncios
+          <IconChevronRight className="w-4 h-4" />
         </Button>
         <div className="flex justify-start">
           <Button variant="outline" onClick={props.onBack}>

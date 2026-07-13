@@ -9,10 +9,13 @@ import { FacebookConnectionCard } from "@/components/facebook/FacebookConnection
 import { FormPageSection } from "@/components/common/layout";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { AuthPopupError } from "@/lib/utils/authPopup";
+import { useQueryClient } from "@tanstack/react-query";
+import { patchOnboardingStatusCache } from "@/lib/hooks/useOnboardingStatus";
 
 export function FacebookStep(props: { onContinue: () => void; onBack: () => void }) {
   const { connections, connect, hasActiveConnection, disconnect, refreshPicture } = useFacebookAccountConnection();
   const { verifyConnections } = useFacebookConnectionVerification();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (connections.data && connections.data.length > 0) {
@@ -25,6 +28,7 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
     try {
       const ok = await connect.mutateAsync({});
       if (ok) {
+        patchOnboardingStatusCache(queryClient, { facebook_connected: true });
         showSuccess("Facebook conectado com sucesso!");
         props.onContinue();
       }

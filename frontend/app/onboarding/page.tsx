@@ -13,12 +13,16 @@ import { SuccessStep } from "./steps/SuccessStep";
 
 type Step = 1 | 2 | 3 | 4;
 
+// Largura contida e centralizada: o onboarding é um wizard focado, não uma página de dados.
+const ONBOARDING_SHELL_CLASS = "mx-auto w-full max-w-3xl";
+
 function OnboardingSkeleton() {
   return (
     <PageContainer
       variant="standard"
       title="Configuração inicial"
       description="Vamos deixar tudo pronto para o Hookify analisar seus anúncios."
+      className={ONBOARDING_SHELL_CLASS}
     >
       <PageBodyStack density="spacious">
         <StateSkeleton variant="widget" rows={1} className="rounded-md border border-border bg-card" />
@@ -75,6 +79,7 @@ export default function OnboardingPage() {
       variant="standard"
       title="Configuração inicial"
       description="Vamos deixar tudo pronto para o Hookify analisar seus anúncios."
+      className={ONBOARDING_SHELL_CLASS}
     >
       <MultiStepBreadcrumb
         steps={[

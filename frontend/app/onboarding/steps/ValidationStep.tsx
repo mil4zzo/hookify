@@ -6,6 +6,8 @@ import { IconChevronRight, IconChevronLeft, IconLoader2 } from "@tabler/icons-re
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { ValidationCondition, ValidationCriteriaBuilder, validateConditions } from "@/components/common/ValidationCriteriaBuilder";
 import { api } from "@/lib/api/endpoints";
+import { useQueryClient } from "@tanstack/react-query";
+import { patchOnboardingStatusCache } from "@/lib/hooks/useOnboardingStatus";
 import { FormPageSection } from "@/components/common/layout";
 import { StateSkeleton } from "@/components/common/States";
 import { showError, showSuccess } from "@/lib/utils/toast";
@@ -14,6 +16,7 @@ const RECOMMENDED_IMPRESSIONS = 3000;
 
 export function ValidationStep(props: { onContinue: () => void; onBack: () => void }) {
   const { criteria, isLoading, isSaving, saveCriteria, updateCriteria } = useValidationCriteria();
+  const queryClient = useQueryClient();
   const defaultsApplied = useRef(false);
 
   // Sugerir "Impressions >= 3000" se não houver critérios ainda
@@ -35,6 +38,10 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
   const handleSave = async (conditions: ValidationCondition[]) => {
     await saveCriteria(conditions);
     await api.onboarding.complete();
+    patchOnboardingStatusCache(queryClient, {
+      validation_criteria_configured: true,
+      has_completed_onboarding: true,
+    });
     showSuccess("Configuração concluída!");
     props.onContinue();
   };

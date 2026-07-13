@@ -193,6 +193,10 @@ export default function Topbar() {
   // Não mostrar em rotas de autenticação (DEPOIS de todos os hooks)
   const isAuthRoute = pathname?.startsWith("/login") || pathname?.startsWith("/callback");
 
+  // Onboarding: modo mínimo — só logo + avatar (sem filtros globais, stats ou
+  // botões de conectar/atualizar, que não fazem sentido antes do setup terminar).
+  const isOnboardingRoute = pathname?.startsWith("/onboarding");
+
   if (isAuthRoute) {
     return null;
   }
@@ -792,26 +796,28 @@ export default function Topbar() {
       <header className="z-sticky w-full border-b border-border bg-background-95 backdrop-blur supports-[backdrop-filter]:bg-background-60">
         {/* Layout unificado: um único container evita duplicar renderProfileMenu (que causava 2 popups) */}
         <div className={cn("container mx-auto grid grid-cols-[1fr_auto_1fr] h-16 items-center", APP_PAGE_SHELL_X)}>
-          {/* Left: Título (desktop) ou Logo (mobile) */}
+          {/* Left: Título (desktop) ou Logo (mobile; sempre no onboarding) */}
           <div className="flex min-w-0 items-center gap-3">
-            <div className="hidden md:flex md:items-center md:gap-3">
-              {Icon && <Icon className="h-6 w-6 text-brand" />}
-              <h1 className="text-2xl font-bold text-text">{title}</h1>
-            </div>
-            <Link href="/" className="flex md:hidden items-center hover:opacity-80 transition-opacity flex-shrink-0">
+            {!isOnboardingRoute && (
+              <div className="hidden md:flex md:items-center md:gap-3">
+                {Icon && <Icon className="h-6 w-6 text-brand" />}
+                <h1 className="text-2xl font-bold text-text">{title}</h1>
+              </div>
+            )}
+            <Link href="/" className={cn("flex items-center hover:opacity-80 transition-opacity flex-shrink-0", !isOnboardingRoute && "md:hidden")}>
               <Image src="/logo-hookify-alpha.png" alt="Hookify" width={80} height={21} className="h-[21px] w-[80px]" priority />
             </Link>
           </div>
 
-          {/* Center: global filters (desktop only) */}
+          {/* Center: global filters (desktop only; ocultos durante o onboarding) */}
           <div className="flex items-center justify-center">
-            <TopbarFilters />
+            {!isOnboardingRoute && <TopbarFilters />}
           </div>
 
           {/* Right: seção única com update/reset/profile (profile menu renderizado apenas 1x) */}
           <div className="flex items-center justify-end gap-3">
             {/* Conectar Facebook ou Atualizar Dados Button - only show when authenticated */}
-            {isAuthenticated && (
+            {isAuthenticated && !isOnboardingRoute && (
               <>
                 {/* Stats: sourced from Zustand/IndexedDB — no dependency on connections query */}
                 {packs.length > 0 && (

@@ -7,6 +7,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { IconChevronRight, IconLoader2 } from "@tabler/icons-react";
 import { FormPageSection } from "@/components/common/layout";
 import { api } from "@/lib/api/endpoints";
+import { useQueryClient } from "@tanstack/react-query";
+import { patchOnboardingStatusCache } from "@/lib/hooks/useOnboardingStatus";
 import { showError, showSuccess } from "@/lib/utils/toast";
 
 export function InitialSettingsStep(props: { onContinue: () => void }) {
@@ -14,6 +16,7 @@ export function InitialSettingsStep(props: { onContinue: () => void }) {
   const [currency, setCurrency] = useState<string>("BRL");
   const [niche, setNiche] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+  const queryClient = useQueryClient();
 
   const handleSave = async () => {
     if (!language || !currency) {
@@ -28,6 +31,7 @@ export function InitialSettingsStep(props: { onContinue: () => void }) {
         currency,
         niche: niche || "",
       });
+      patchOnboardingStatusCache(queryClient, { initial_settings_configured: true });
       showSuccess("Configurações salvas com sucesso!");
       props.onContinue();
     } catch (e: any) {
