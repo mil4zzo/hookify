@@ -41,7 +41,7 @@ FastAPI + Supabase (JWKS/RLS) · Traefik + Let's Encrypt + Cloudflare.
 | 4 | 🟠 Alto | Nenhum rate limiting de entrada em toda a API — limiter por usuário no FastAPI + anti-flood por IP no Traefik | ✅ | Não |
 | 5 | 🟡 Médio | Middleware usa `getSession()` (não revalida) em vez de `getUser()` | ⬜ | Não |
 | 6 | 🟡 Médio | `ignoreBuildErrors` + `ignoreDuringBuilds` no build | ⬜ | Não |
-| 7 | 🟡 Médio | Sem esteira de segurança no CI/CD (SAST, secret scan, dep audit) | ⬜ | Não |
+| 7 | 🟡 Médio | Deps vulneráveis (44 → **0**) + esteira de CI/CD (SAST, secret scan) ainda pendente | 🟡 | Não |
 | 8 | 🟢 Baixo | `SENTRY_AUTH_TOKEN` como build-arg do Docker | ⬜ | Não |
 | 9 | 🟢 Baixo | JSON-LD via `dangerouslySetInnerHTML` sem escapar `</script>` | ⬜ | Não |
 | 10 | 🟢 Baixo | CORS `allow_methods/headers=["*"]` + credentials | ⬜ | Não |
@@ -354,42 +354,61 @@ com `npx tsc --noEmit` e `npm run lint`.
 
 ---
 
-### 7. 🟡 [Médio] Sem esteira de segurança no CI/CD
-**Status:** ⬜ Não iniciado · **Bloqueia go-live:** Não
-**Área:** CI/CD
+### 7. 🟡 [Médio] Deps vulneráveis + sem esteira de segurança no CI/CD
+**Status:** 🟡 Parcial — **deps zeradas (2026-07-12)**; esteira de CI/CD pendente · **Bloqueia go-live:** Não
+**Área:** CI/CD / Supply chain
 
-**Contexto:** Não há SAST, secret scanning nem dep audit no fluxo.
+**Contexto:** Não há SAST, secret scanning nem dep audit no fluxo. O Dependabot (já ativo) vinha
+reportando 62 → 44 vulnerabilidades na branch default.
+
+#### 7a. Dependências vulneráveis — ✅ CONCLUÍDO (2026-07-12)
+
+Ponto de partida: **44 alertas** do Dependabot (16 high, 25 moderate, 3 low) / **19** no `npm audit`.
+Resultado: **`npm audit` → 0 vulnerabilidades**; backend sem alertas pip.
+
+O grosso era **um único pacote**: `axios` respondia por **21 dos 44 alertas** (prototype pollution,
+ReDoS, vazamento de `Proxy-Authorization` em redirect, SSRF via `no_proxy`) — todos resolvidos num
+bump de dependência direta.
+
+| Ação | Detalhe |
+|---|---|
+| `axios` 1.13.2 → **1.18.1** | direta; mata 21 alertas + `form-data`/`follow-redirects` (transitivas dele) |
+| `postcss` 8.5.6 → **8.5.18** | direta |
+| `npm audit fix` (sem `--force`) | `lodash`, `ws`, `picomatch`, `brace-expansion`, `uuid`, `@babel/core`, `@opentelemetry/*`, `@sentry/*` |
+| `overrides` no package.json | `postcss: "$postcss"` (next@15.5.20 **pina 8.4.31** internamente) e `esbuild: ^0.28.1` (tsx@4.21 pina 0.27.3) |
+| `requests` 2.32.3 → **2.33.0**, `python-dotenv` 1.0.1 → **1.2.2** | backend |
+
+**Armadilhas encontradas (não repetir):**
+- `npm audit` propõe "fix" de `next` para **`next@9.3.3` (downgrade major)** — lixo. O alerta de
+  `next` existe **só** porque ele empacota `postcss@8.4.31`; a correção real é o `override`.
+- O `override` de uma dep que **também é direta** precisa usar a sintaxe `"$postcss"` (referência à
+  direta), senão o npm falha com `EOVERRIDE`.
+- Os `overrides` são dívida técnica: **remover cada entrada quando o pai subir a sua própria dep**
+  (comentário `//overrides` no package.json registra o porquê de cada uma).
+
+**Validação:** 221 testes backend · `tsc --noEmit` limpo · `next build` OK (CSS gerado ⇒ override do
+postcss não quebrou o Tailwind) · design-system check OK.
+
+#### 7b. Esteira de CI/CD — ⬜ PENDENTE
 
 **Remediação — pipeline mínimo antes do deploy:**
 - **Secret scanning:** `gitleaks detect` (teria pego o achado #2) ou TruffleHog
 - **SAST:** `semgrep --config auto` + `bandit -r backend/app`
-- **Deps:** `npm audit --audit-level=high` + `pip-audit`
+- **Deps:** `npm audit --audit-level=high` + `pip-audit` (agora que a base está em 0, o gate segura)
 - **DAST (staging):** OWASP ZAP baseline scan
 - Rodar `next build` **sem** os `ignore*` (ver #6) como gate
-- Habilitar **Dependabot** para `frontend/package.json` e `backend/requirements.txt`
-
-**Backlog de deps vulneráveis já detectado (2026-07-09):**
-- **GitHub Dependabot (repo inteiro, reportado no `git push`):** **62 vulnerabilidades** na branch
-  default — **25 high, 32 moderate, 5 low**. Já está ativo; painel em
-  github.com/mil4zzo/hookify/security/dependabot. Cobre frontend (npm) + backend (pip) + outros
-  manifests. **Agir a partir deste painel** é o caminho mais rápido.
-- **`npm audit` do frontend (durante o #1):** 19 vulns (2 low, 12 moderate, 5 high). Não são do
-  Next/RSC. Priorizar:
-- 🟠 **`ws` 8.0.0–8.20.1 (high)** — uninitialized memory disclosure + DoS por fragmentos. Verificar
-  se é só toolchain de build/HMR (produção usa `next start`, que não abre HMR ws) ou runtime.
-- **`uuid` vulnerável via `@sentry/webpack-plugin`** — build-time (upload de source maps), não vai
-  pro bundle do cliente.
-- Rodar `npm audit fix` (sem `--force`) resolve parte com segurança; o resto exige avaliação de
-  breaking changes. Fazer isto como parte deste item, não do #1.
 
 **Verificação:**
+- [x] `npm audit` limpo no frontend (0 vulnerabilidades)
+- [x] Deps vulneráveis do backend corrigidas (`requests`, `python-dotenv`)
+- [x] Dependabot habilitado (já estava)
 - [ ] Workflow de CI roda gitleaks + semgrep + audits e falha em achados altos
-- [ ] Dependabot habilitado
-- [ ] `npm audit --audit-level=high` limpo no frontend (ou high restantes triados/justificados)
 
 **Log:**
 - 2026-07-09 — `ws`(high)/`uuid` detectados ao rodar `npm audit` durante o #1. Registrados aqui
   para tratamento no escopo de deps.
+- 2026-07-12 — **7a concluído.** 44 → 0. Lição: sempre checar se um punhado de alertas não é
+  **uma única dep direta** desatualizada antes de tratar item a item (axios = 21/44).
 
 ---
 
@@ -508,6 +527,7 @@ após, mas idealmente antes de tráfego real.
 | 2026-07-09 | Claude + usuário | **#2 concluído (Opção A).** Usuário rotacionou as chaves; commit `7f1f629` + push para `main`. `.env` fora do HEAD (local preservado). **Ambos bloqueadores (#1,#2) resolvidos → veredito 🔴→🟡.** Dependabot reportou 62 vulns (25 high) no push → anexado ao #7. |
 | 2026-07-09 | Claude + usuário | **#3 concluído.** 5 security headers enforce + CSP Report-Only em `next.config.ts` (`/:path*`), allowlist dos hosts reais, HSTS prod-only. Verificado no `routes-manifest.json`. Follow-up: promover CSP para enforce após observar reports. Alto restante antes de tráfego = só #4. |
 | 2026-07-12 | Claude + usuário | **#4 concluído.** Rate limit por usuário (JWT sub) em `app/core/rate_limit.py` (sliding window em memória, 12 testes) + anti-flood por IP no Traefik + retry TanStack não re-tenta 4xx. Limites calibrados contra telemetria real do banco (pico de 12 jobs/min legítimo derrubou a proposta inicial de 10/min em classe compartilhada → limites por rota). **Todos os 🔴/🟠 resolvidos.** Follow-up: observar `[RATE_LIMIT]` em prod. |
+| 2026-07-12 | Claude + usuário | **#7a concluído (deps).** 44 alertas Dependabot → **0** no `npm audit`. axios 1.13→1.18 (sozinho = 21/44), postcss 8.5.18, `npm audit fix` p/ transitivas, `overrides` p/ postcss (next pina 8.4.31) e esbuild (tsx pina 0.27.3); backend: requests 2.33.0 + python-dotenv 1.2.2. Build/tsc/221 testes OK. #7b (esteira CI/CD) segue pendente. |
 
 ---
 

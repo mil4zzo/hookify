@@ -11,6 +11,11 @@
     "check:design-system": "npx tsx scripts/check-design-system.ts",
     "prepare": "cd .. && husky frontend/.husky"
   },
+  "//overrides": "Força versões corrigidas em deps transitivas que os pais ainda pinam vulneráveis. postcss: next@15.5.20 pina 8.4.31 (GHSA-qx2v-qp2m-jg93, XSS no stringify) — 8.5.x é minor compatível. esbuild: tsx@4.21 pina 0.27.3 (GHSA de leitura de arquivo no dev server). Remover cada entrada quando o pai subir a sua própria dep.",
+  "overrides": {
+    "postcss": "$postcss",
+    "esbuild": "^0.28.1"
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -36,7 +41,7 @@
     "@tanstack/react-virtual": "^3.13.14",
     "@visx/annotation": "^3.12.0",
     "@visx/visx": "^3.12.0",
-    "axios": "^1.7.7",
+    "axios": "^1.18.1",
     "class-variance-authority": "^0.7.0",
     "classnames": "^2.5.1",
     "clsx": "^2.1.1",
@@ -62,7 +67,7 @@
     "@types/three": "^0.184.1",
     "autoprefixer": "^10.4.20",
     "husky": "^9.1.7",
-    "postcss": "^8.4.47",
+    "postcss": "^8.5.18",
     "tailwindcss": "^3.4.13",
     "tsx": "^4.19.2",
     "typescript": "^5.6.2"
