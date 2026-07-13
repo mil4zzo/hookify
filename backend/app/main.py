@@ -72,10 +72,13 @@ app.middleware("http")(rate_limit_middleware)
 # para que as respostas de erro carreguem os headers CORS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=CORS_ORIGINS,  # nunca "*" — guard de boot em config.py
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Explícitos em vez de "*": o app só usa estes verbos e cabeçalhos. Reduz a
+    # superfície e faz um método/header novo aparecer como erro de CORS no dev
+    # (sinal claro) em vez de passar despercebido.
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Page-Route"],
 )
 
 

@@ -39,12 +39,12 @@ FastAPI + Supabase (JWKS/RLS) · Traefik + Let's Encrypt + Cloudflare.
 | 2 | 🔴 Crítico | `.env` raiz (órfão, não-usado) versionado em repo **PÚBLICO** — `ASSEMBLYAI_API_KEY` + `META_API_KEY`(legado). Chaves rotacionadas + destrastreado + push (Opção A) | ✅ | ~~SIM~~ Resolvido |
 | 3 | 🟠 Alto | Security headers (CSP, HSTS, X-Frame-Options…) — 5 enforce + CSP Report-Only no next.config.ts | ✅ | Não |
 | 4 | 🟠 Alto | Nenhum rate limiting de entrada em toda a API — limiter por usuário no FastAPI + anti-flood por IP no Traefik | ✅ | Não |
-| 5 | 🟡 Médio | Middleware usa `getSession()` (não revalida) em vez de `getUser()` | ⬜ | Não |
+| 5 | 🟡 Médio | Middleware usa `getSession()` (não revalida) em vez de `getUser()` | ⏭️ | Não — **risco aceito** |
 | 6 | 🟡 Médio | `ignoreBuildErrors` removido (type-check é gate). ESLint não existe no projeto → fatiado como item próprio (não-segurança) | 🟡 | Não |
 | 7 | 🟡 Médio | Deps vulneráveis (44 → **0**) + esteira de CI/CD (`security.yml`: gitleaks, audits, build, testes) | ✅ | Não |
 | 8 | 🟢 Baixo | `SENTRY_AUTH_TOKEN` como build-arg do Docker | ⬜ | Não |
-| 9 | 🟢 Baixo | JSON-LD via `dangerouslySetInnerHTML` sem escapar `</script>` | ⬜ | Não |
-| 10 | 🟢 Baixo | CORS `allow_methods/headers=["*"]` + credentials | ⬜ | Não |
+| 9 | 🟢 Baixo | JSON-LD via `dangerouslySetInnerHTML` sem escapar `</script>` — helper `serializeJsonLd` | ✅ | Não |
+| 10 | 🟢 Baixo | CORS `allow_methods/headers=["*"]` + credentials — guard de boot + allowlist explícita | ✅ | Não |
 | — | ✅ OK | JWT, webhook Stripe, autorização admin, separação de segredos | — | — |
 
 ---
@@ -304,6 +304,13 @@ com um único JWT válido.
 **Status:** ⬜ Não iniciado · **Bloqueia go-live:** Não
 **Área:** Frontend / Auth
 
+> **⏭️ RISCO ACEITO pelo dono do produto (2026-07-13).** Decisão explícita: o trade-off não
+> compensa. Forjar um cookie só permite ver **a casca da interface** (layout vazio) — nenhum dado
+> vaza, porque toda leitura passa pelo backend (validação de JWT + RLS). Em troca, `getUser()`
+> custaria **1 request extra a cada navegação**. Reabrir só se: (a) o middleware passar a decidir
+> algo além de UX (ex.: servir conteúdo sensível direto do edge), ou (b) o gate de tier no
+> middleware virar a única barreira de alguma feature paga.
+
 **Contexto / risco:**
 `frontend/middleware.ts` usa `supabase.auth.getSession()` para gatear rotas. A documentação do
 Supabase alerta explicitamente para **não confiar** em `getSession()` em código de servidor
@@ -476,27 +483,29 @@ do cliente — impacto limitado — mas vaza se a imagem for compartilhada.
 ---
 
 ### 9. 🟢 [Baixo] JSON-LD sem escapar `</script>`
-**Status:** ⬜ Não iniciado · **Bloqueia go-live:** Não
+**Status:** ✅ Concluído (2026-07-13) · **Bloqueia go-live:** Não
 **Área:** Frontend / XSS (latente)
 
 **Contexto / risco:**
 3 usos de `dangerouslySetInnerHTML`, **todos com dados estáticos controlados pelo dev** — não
-são XSS exploráveis hoje. Risco é latente: `JSON.stringify` não escapa `</script>`, então se
-um campo dinâmico entrar nesses schemas no futuro, vira XSS.
+eram XSS exploráveis. Risco **latente**: `JSON.stringify` não escapa `</script>`, então no dia
+em que alguém tornar o FAQ dinâmico (banco/CMS/input) o furo abre sozinho — e ninguém vai
+lembrar de checar um `dangerouslySetInnerHTML` de meses atrás.
 
-**Evidência:**
-- `frontend/app/waitlist/page.tsx:145` (JSON-LD estático)
-- `frontend/app/pv/page.tsx:129` (JSON-LD estático)
-- `frontend/components/waitlist/WaitlistV2.tsx:264` (CSS estático — seguro)
+**O que foi feito:** helper `lib/utils/jsonLd.ts` → `serializeJsonLd()`, aplicado em
+`app/waitlist/page.tsx` e `app/pv/page.tsx`. Escapa `<` (→ `<`) e U+2028/U+2029.
+`components/waitlist/WaitlistV2.tsx:264` é CSS estático, não JSON — deixado como está.
 
-**Remediação (defense-in-depth):**
-```tsx
-const safeJsonLd = JSON.stringify(schema).replace(/</g, '\\u003c')
-<script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd }} />
-```
+**Verificado com payload de ataque real** (não só "parece certo"):
+`{name: "</script><script>alert(document.cookie)</script>"}` →
+saída sem nenhum `<` literal, e `JSON.parse` da saída é idêntico ao objeto original.
+No HTML buildado, o JSON-LD atual sai **byte-idêntico** (não há `<` no conteúdo hoje) ⇒
+zero regressão de SEO.
 
 **Verificação:**
-- [ ] Todos os JSON-LD escapam `<` antes de injetar
+- [x] Todos os JSON-LD escapam `<` antes de injetar
+- [x] Payload de ataque neutralizado; JSON continua válido para o Google
+- [x] `tsc --noEmit` + `next build` OK
 
 **Log:**
 - _(vazio)_
@@ -504,22 +513,29 @@ const safeJsonLd = JSON.stringify(schema).replace(/</g, '\\u003c')
 ---
 
 ### 10. 🟢 [Baixo] CORS `allow_methods/headers=["*"]` + credentials
-**Status:** ⬜ Não iniciado · **Bloqueia go-live:** Não
+**Status:** ✅ Concluído (2026-07-13) · **Bloqueia go-live:** Não
 **Área:** Backend
 
 **Contexto / risco:**
-`backend/app/main.py:40-46` usa `allow_methods=["*"]`, `allow_headers=["*"]`,
-`allow_credentials=True`. **Seguro na config atual** porque `CORS_ORIGINS` é explícito em
-produção (`https://hookifyads.com,...` no compose). Risco é operacional: se setarem
-`CORS_ORIGINS=*`, o Starlette passa a ecoar o Origin com credenciais → roubo de sessão.
+`backend/app/main.py` usava `allow_methods=["*"]`, `allow_headers=["*"]`,
+`allow_credentials=True`. **Não era furo na config atual** (CORS_ORIGINS é explícito em
+produção) — era uma **mina terrestre operacional**: bastaria alguém pôr `CORS_ORIGINS=*`
+"pra destravar um teste" e o Starlette passaria a ecoar QUALQUER Origin **com credenciais**
+→ qualquer site lê os dados de um usuário logado.
 
-**Remediação:**
-- Restringir métodos ao necessário: `["GET","POST","PATCH","OPTIONS"]`
-- Guard de startup que aborta se `"*" in CORS_ORIGINS and allow_credentials`
+**O que foi feito:**
+- **Guard de boot** em `config.py`: se `"*" in CORS_ORIGINS`, levanta `RuntimeError` no
+  import → **o container não sobe**. Torna o erro impossível de cometer, em vez de depender
+  de disciplina. (Verificado: `CORS_ORIGINS=* python -c "import app.core.config"` → bloqueia.)
+- **Métodos e headers explícitos**: `["GET","POST","PATCH","DELETE","OPTIONS"]` e
+  `["Authorization","Content-Type","X-Page-Route"]` — exatamente o que o frontend envia
+  (confirmado em `lib/api/client.ts`). Um header novo agora aparece como erro de CORS no dev
+  (sinal claro) em vez de passar despercebido.
 
 **Verificação:**
-- [ ] Métodos restritos
-- [ ] Guard impede a combinação `*` + credentials
+- [x] Métodos e headers restritos ao uso real
+- [x] Guard impede a combinação `*` + credentials (app recusa subir)
+- [x] 225 testes passando
 
 **Log:**
 - _(vazio)_
@@ -557,15 +573,16 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 6. 🟡 **#6** Type-check virou gate (ESLint fatiado — não-segurança)
 7. ✅ **#7b** Esteira de CI/CD (`security.yml`)
 
+8. ✅ **#10** CORS (guard de boot + allowlist explícita)
+9. ✅ **#9** JSON-LD escapado (`serializeJsonLd`)
+
 **Restante — nenhum bloqueia o go-live:**
 
-| Prioridade | Item | Nota |
-|---|---|---|
-| 1 | **#5** `getSession()` → `getUser()` | Só hardening do gate de **UX**; a autorização real já é imposta pelo backend (JWT + RLS). Custa 1 request extra por navegação — medir latência |
-| 2 | **#10** CORS (métodos + guard `*`+credentials) | Baixo esforço |
-| 3 | **#9** JSON-LD escapar `</script>` | Baixo esforço; conteúdo hoje não é controlado pelo usuário |
-| 4 | **#8** `SENTRY_AUTH_TOKEN` build-arg | Baixo esforço; BuildKit secret mount |
-| — | ESLint do zero (fatiado do #6) | Alto esforço, **não é segurança** |
+| Item | Situação |
+|---|---|
+| **#8** `SENTRY_AUTH_TOKEN` build-arg | Único achado em aberto. Dockerfile **já usa BuildKit** (`syntax=1.4` + cache mounts) → o secret mount é ~5 linhas. **Bloqueio:** secrets de build exigem **Docker Compose ≥ 2.23** e o `deploy.sh` tem fallback para o `docker-compose` v1 legado. Rodar `docker compose version` **no VPS** antes de aplicar |
+| **#5** `getSession()` → `getUser()` | ⏭️ **Risco aceito** (ver justificativa no achado) |
+| ESLint do zero (fatiado do #6) | Alto esforço, **não é segurança** |
 
 **Follow-ups que dependem de tempo em produção (não de código):**
 - Promover **CSP de Report-Only → enforce** após 1-2 semanas sem violações nos reports (#3).
@@ -588,6 +605,7 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 | 2026-07-12 | Claude + usuário | **#4 concluído.** Rate limit por usuário (JWT sub) em `app/core/rate_limit.py` (sliding window em memória, 12 testes) + anti-flood por IP no Traefik + retry TanStack não re-tenta 4xx. Limites calibrados contra telemetria real do banco (pico de 12 jobs/min legítimo derrubou a proposta inicial de 10/min em classe compartilhada → limites por rota). **Todos os 🔴/🟠 resolvidos.** Follow-up: observar `[RATE_LIMIT]` em prod. |
 | 2026-07-12 | Claude + usuário | **#7a concluído (deps).** 44 alertas Dependabot → **0** no `npm audit`. axios 1.13→1.18 (sozinho = 21/44), postcss 8.5.18, `npm audit fix` p/ transitivas, `overrides` p/ postcss (next pina 8.4.31) e esbuild (tsx pina 0.27.3); backend: requests 2.33.0 + python-dotenv 1.2.2. Build/tsc/221 testes OK. Rescan do Dependabot confirmou **0 alertas abertos**. |
 | 2026-07-12 | Claude + usuário | **#6 parcial + #7b concluído.** `ignoreBuildErrors` removido (backlog de tipos já era zero; gate **provado** com erro deliberado → build falha). Descoberto que **o projeto não tem ESLint** → `ignoreDuringBuilds` mantido e ESLint fatiado como item próprio (não-segurança; `next lint` deprecado no Next 16). Criado `.github/workflows/security.yml` — **primeiro CI do repo**: gitleaks + npm audit + pip-audit + tsc/build + pytest bloqueiam merge; SAST (semgrep/bandit) report-only até triagem. |
+| 2026-07-13 | Claude + usuário | **#10 e #9 concluídos; #5 aceito como risco.** #10: guard de boot recusa subir o backend com `CORS_ORIGINS=*` (a mina real) + métodos/headers explícitos. #9: helper `serializeJsonLd` nas 2 landing pages, verificado com payload de ataque (`</script><script>alert(...)`) → neutralizado, JSON íntegro, HTML buildado byte-idêntico. #5: dono do produto aceitou o risco (só expõe a casca da UI; backend+RLS protegem o dado; `getUser()` custaria 1 request/navegação). **Resta só o #8.** |
 | 2026-07-12 | Claude + usuário | **O CI provou seu valor na 1ª execução.** `pip-audit` (bloqueante) falhou com 9 vulns em deps **transitivas** que o Dependabot não enxergava: `starlette` 0.38.6 (8 CVEs, preso pelo pin do fastapi) → **fastapi 0.115→0.139** destrava starlette **1.3.1**; validado com 225 testes + smoke test (app sobe, CORS no 401, rate limit engata com CORS no 429 — starlette 1.x é major). `ecdsa` (sem fix, não-explorável: morto em runtime pois o python-jose usa o backend `cryptography`) → exceção documentada `--ignore-vuln`, sem silenciar o job. |
 
 ---

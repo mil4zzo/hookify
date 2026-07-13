@@ -4,6 +4,7 @@ import Link from "next/link";
 import { IconBolt, IconCrown, IconRoute, IconArrowUpRight } from "@tabler/icons-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { getSiteOrigin, getSiteUrl } from "@/lib/utils/siteUrl";
+import { serializeJsonLd } from "@/lib/utils/jsonLd";
 import { WaitlistForm } from "@/components/waitlist/WaitlistForm";
 
 const SITE_URL = getSiteUrl();
@@ -142,7 +143,7 @@ export default function WaitlistPage() {
     <div className="relative min-h-screen overflow-hidden bg-background text-text">
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify([orgSchema, faqSchema]) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd([orgSchema, faqSchema]) }}
       />
 
       {/* HERO */}

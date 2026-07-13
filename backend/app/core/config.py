@@ -9,6 +9,19 @@ load_dotenv(env_path)
 
 CORS_ORIGINS = [o.strip() for o in os.getenv("CORS_ORIGINS", "http://localhost:3000,https://localhost:3000,http://localhost:8501").split(",") if o.strip()]
 
+# Guard de boot: "*" + credenciais é a combinação que transforma o CORS numa porta
+# aberta — o Starlette passa a ecoar QUALQUER Origin junto com os cookies/Authorization
+# da vítima, e aí qualquer site consegue ler os dados de um usuário logado. O app usa
+# allow_credentials=True (necessário), então "*" NUNCA pode entrar em CORS_ORIGINS.
+# Falhar no import (container não sobe) é melhor que subir silenciosamente inseguro:
+# o erro típico é alguém pôr CORS_ORIGINS=* "só pra destravar um teste".
+if "*" in CORS_ORIGINS:
+    raise RuntimeError(
+        "CORS_ORIGINS não pode conter '*': o backend usa allow_credentials=True e a "
+        "combinação '*' + credenciais expõe os dados de qualquer usuário logado a "
+        "qualquer site. Liste as origens explicitamente (ex.: https://hookifyads.com)."
+    )
+
 # Meta Graph API – versão centralizada
 META_API_VERSION = os.getenv("META_API_VERSION", "v24.0")
 META_GRAPH_BASE_URL = f"https://graph.facebook.com/{META_API_VERSION}/"

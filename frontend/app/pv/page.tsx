@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSiteOrigin, getSiteUrl } from "@/lib/utils/siteUrl";
+import { serializeJsonLd } from "@/lib/utils/jsonLd";
 
 const SITE_URL = getSiteUrl();
 
@@ -127,7 +128,7 @@ export default async function PvPage({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify([schemaOrg, schemaWebsite, schemaPage]),
+            __html: serializeJsonLd([schemaOrg, schemaWebsite, schemaPage]),
           }}
         />
 
