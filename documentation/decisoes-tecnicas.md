@@ -6,6 +6,27 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## O verify pós-write de status também mente — read-after-write de effective_status é eventualmente consistente
+
+**Data:** 2026-07-12 · status: **implementado (graph_api.py, facebook.py, useAdStatusControl.ts, BulkActionsBar.tsx); 209 testes backend + tsc/design-system clean**
+
+**Sintoma:** pausar um anúncio mostrava "Pausado com sucesso" mas o toggle continuava ativo — inclusive após F5 — embora o Meta tivesse pausado de fato. Corrigia sozinho só no on-focus sync (TTL 5 min). A divergência toast/toggle é a assinatura: o toast usava `data.status` (pedido) e o toggle `data.effective_status` (verify).
+
+**Causa raiz:** o fluxo write→verify relê o `effective_status` **imediatamente** após o POST, e esse campo é derivado/assíncrono no Meta — em ~18% dos casos (medido: 27/147 num batch de pause) a releitura volta transitória (`IN_PROCESS`) ou defasada. O valor era congelado como "verdade lida" no Supabase (`ads.effective_status`) e devolvido ao frontend; `isPausedStatus` não reconhece `IN_PROCESS` → renderiza como ativo. Ironia: o verify existe para matar o "sucesso fantasma" inverso (docs de 2026-07-03/06/07 nesta mesma saga) — ele resolve aquilo, mas confiar cegamente numa leitura read-after-write de campo eventualmente consistente criou este.
+
+**Fix (3 camadas — `_reconcile_verified_status` + `_STATUS_VERIFY_BACKOFFS` em graph_api.py):**
+1. **Reconciliação lógica:** verify que contradiz um write aceito é descartado — pausou→`ACTIVE` e ativou→`PAUSED` são impossíveis (o own status é determinístico após o 200); `IN_PROCESS` é transitório. Estados **informativos** (`ADSET_PAUSED`, `CAMPAIGN_PAUSED`, `PENDING_REVIEW`, `WITH_ISSUES`) continuam aceitos na 1ª leitura — são a razão de ser do verify.
+2. **Retry só dos não-assentados** (backoff 2s/3s, individual e batch); esgotado → vale o status pedido. A UI cobre a janela com `toast.loading` imediato no `onMutate` (individual e bulk — antes o bulk ficava segundos sem feedback nenhum, "nem vi toast").
+3. **`IN_PROCESS` nunca persiste** (guard em `_write_local_statuses`) — protege também o on-focus sync, que podia regravar transitório por cima do valor correto segundos após um toggle.
+
+**Bônus de rate limit:** pre-check/verify do bulk de ads migrou de Batch GET (1 sub-request/ad, cada uma contando no rate limit) para leitura filtrada `ad.id IN` no edge `/ads` (`get_ad_statuses_by_ids` + `_read_effective_statuses`, ~1 chamada por conta, agrupamento vindo da tabela `ads`). O campo `ad.id` não é enumerado na doc do edge (que é omissa sobre `filtering`), então o caminho é **auto-validante**: se a Meta rejeitar o filtro (#100), cai no Batch GET — degrada exatamente para o comportamento anterior.
+
+**UX de segurança:** toda ação em massa (pausar/ativar) agora exige `ConfirmDialog` (dentro da `BulkActionsBar`, ambas as superfícies ganham de graça) — pausa acidental de 147 anúncios já aconteceu. Toggle individual segue sem confirmação.
+
+**Regra derivada:** verify pós-write de campo derivado nunca é verdade absoluta — reconcilie com o que o write determinou, re-leia o que for transitório e **jamais persista estado transitório**. Testes: `backend/tests/test_status_verify_reconciliation.py`.
+
+---
+
 ## Evento de conversão do topbar "sempre resetava" no /manager — gate de sync tem de ser "dados carregados", não "seleção existe"
 
 **Data:** 2026-07-11 · status: **corrigido (frontend/app/manager/page.tsx)**
@@ -2086,7 +2107,9 @@ Memória correspondente: `meta_budget_api_rules.md`.
 
 **Decisão (proposta pelo usuário):** filtros saem do toolbar. O botão "Add filter" virou `[⚲ Filtros (N) ▾]` — ícone + badge com a contagem, idêntico ao FiltersDropdown do Topbar — abrindo popover com linhas verticais `[coluna][operador][valor][🗑]`, no mesmo estilo dos filtros do modal de criar packs, + "Adicionar filtro" e "Limpar todos". A perda do "ver de relance" dos chips é compensada por: badge (QUANTOS filtros) + **tint na coluna filtrada** (`bg-primary-10` no th, `bg-primary-5` nas células — ONDE atuam), na tabela principal (`TableContent`, render de th/td centralizado) e no modal (`ManagerChildrenTable`).
 
-**Iteração — o funil triplicado:** a 1ª versão sinalizava a coluna filtrada com um ícone de funil NOVO no header, que colidiu com DOIS funis pré-existentes: (1) o `ColumnFilter readonly` ao lado do título (indicador original do app, só na coluna filtrada) e (2) o funil da linha de média/soma filtrada, que aparece em TODAS as colunas de métrica quando qualquer filtro/busca está ativo → 3 funis na coluna filtrada (reportado pelo usuário com print). Fix: o glifo de funil passou a ter UM significado ("esta coluna tem filtro") — mantido só o (1); a média filtrada perdeu o ícone (cor primary + tooltip já dizem que é o agregado filtrado); o sinal de coluna virou o tint. Lição: antes de adicionar indicador em header do manager, inventariar os elementos condicionais que `renderMetricHeader` já renderiza.
+**Iteração — o funil triplicado:** a 1ª versão sinalizava a coluna filtrada com um ícone de funil NOVO no header, que colidiu com DOIS funis pré-existentes: (1) o `ColumnFilter readonly` ao lado do título (indicador original do app, só na coluna filtrada) e (2) o funil da linha de média/soma filtrada, que aparece em TODAS as colunas de métrica quando qualquer filtro/busca está ativo → 3 funis na coluna filtrada (reportado pelo usuário com print). Fix: o glifo de funil passou a ter UM significado ("esta coluna tem filtro") — mantido só o (1); a média filtrada perdeu o ícone (cor primary + tooltip já dizem que é o agregado filtrado). Lição: antes de adicionar indicador em header do manager, inventariar os elementos condicionais que `renderMetricHeader` já renderiza.
+
+**Iteração 2 — tint REJEITADO; funil em todas; bulk bar flutuante:** o sinal de coluna filtrada chegou a ser um tint (`bg-primary-10` no th + `bg-primary-5` nas células), testado pelo usuário e rejeitado ("ficou ruim") — **não re-propor tint de coluna**. Estado final: UM funil preenchido (`IconFilter w-3.5 fill-current text-primary`) em toda coluna filtrável com filtro efetivo — métricas via `ColumnFilter readonly`, Status/Nome via `ActiveFilterIcon` (mesmo visual) em `managerTableColumns` (Status/Nome não tinham indicador nenhum; o valor do filtro pode chegar AGREGADO em array no estado da tabela → `Array.isArray(...).some(isRestrictiveFilterValue)`). A barra de ações em massa saiu do toolbar e virou **`BulkActionsBar` flutuante** (pill centrado na base da área da tabela, `absolute bottom + z-sticky`, pai `relative`), compartilhada pela tabela principal e pelo modal, com "Selecionar/Desmarcar todos" além de Pausar/Ativar/limpar — a ação fica perto das linhas clicadas e o toolbar deixa de ser disputado.
 
 **Implementação:** `FilterBar` reescrito (mesmo modelo de estado: instâncias `${colId}__${ts}`, savedValues/localInputValues, foco automático no filtro novo); helpers `isRestrictiveFilterValue`/`getFilteredColumnIds` em `lib/utils/columnFilters.ts` ("efetivo" = restringe de fato: value≠null; status só com subconjunto das 4 opções). Toolbar final: `[busca] ··· Exibindo X de Y · [Filtros (N)] · [bulk]` — 1 linha permanente nas duas superfícies. Linha de status usa toggles inline (evita popover aninhado). `FilterChip.tsx` deletado (órfão). Filtros de texto auxiliares (conjunto/campanha/ads ativos) mapeiam o tint para a coluna de nome.
 
@@ -2121,3 +2144,38 @@ Memória correspondente: `meta_budget_api_rules.md`.
 **Padrão (recorrente):** helpers de "retry" no backend costumam cobrir só o caso feliz e deixar passar os transitórios de socket que de fato acontecem. Já visto em `with_postgrest_retry` (não cobre 57014 nem httpx.WriteError). Contexto: WinError 10054/10035 são majoritariamente artefato de **dev Windows**; produção (Linux) vê muito menos, mas retry é correto em qualquer ambiente. A fila serial reduz a carga concorrente, mas não substitui retry por chamada.
 
 **Verificação:** `ast.parse` OK; lógica do retry testada isolada (recupera após N falhas, levanta ao esgotar).
+
+## Card do Leadscore mostrava "Atualizado há 0 anos" após falha de sync (2026-07-11)
+
+**Sintoma:** quando o sync do Leadscore falhava, o card do pack exibia "Atualizado há 0 anos" — sem sentido e sem comunicar o erro.
+
+**Dois bugs:**
+1. **Formatador (`formatRelativeTime`):** faltava o ramo `diffDays === 1` quando NÃO é "ontem" no calendário (timestamp de ~24-48h atrás que cai no anteontem por borda de dia/fuso). Sem ele, caía no cálculo de anos → `Math.floor(1/365) === 0` → "Atualizado há 0 anos". Corrigido com ramo explícito → "Atualizado há 1 dia". Agora todos os `diffDays` estão cobertos (0,1,2,3-29,30-364,≥365) — sem fall-through.
+2. **UX do estado de erro (`PackCard`):** a infra de falha já existia (backend marca `last_sync_status="failed"`; frontend tinha `leadscoreSyncFailed` + ícone de aviso), mas mostrava o tempo relativo do ÚLTIMO SUCESSO com um ícone sutil — lia como "atualizado ok". Agora, quando falhou, o card mostra explicitamente **"Falha ao atualizar"** (cor de warning) e move a data do último sucesso para o tooltip.
+
+**Relação com o fix anterior:** o retry de rede do Google Sheets (mesma data) reduz a FREQUÊNCIA da falha; este fix trata a EXIBIÇÃO quando ela ainda ocorre. Complementares.
+
+**Verificação:** `tsc --noEmit` limpo; lógica do formatador testada isolada (caso do bug → "há 1 dia"; "ontem" e ranges 2/40/400 dias ok).
+
+## Security review pré-go-live: rate limiting e zerar deps vulneráveis (2026-07-12)
+
+Doc vivo com o inventário completo e o status de cada achado: `documentation/security-review-go-live-2026-07-09.md`. Registro aqui só as duas lições que mudam decisões futuras.
+
+### Limite de rate: calibrar contra telemetria real, não contra intuição
+
+A proposta inicial era uma classe única de "mutações caras" (refresh-pack, transcribe, bulk-ads, sync) a **10/min por usuário** — números escolhidos por raciocínio ("são cliques humanos deliberados"). Consultar o banco antes de implementar **derrubou a proposta**: há registro de **12 jobs criados por um único usuário em 1 minuto** (auto-refresh matinal de vários packs encadeando refresh Meta + sync do Sheets). O limite teria quebrado um fluxo legítimo no primeiro dia.
+
+Correção: **limites por rota individual**, cada um com folga de 3-5× sobre o pico medido (refresh-pack e sheet-sync a 30/min; bulk/billing/transcribe-pack seguem a 10/min porque de fato são 1 request por ação humana — o fan-out de um pack com 3.767 ads acontece server-side). O rate limit é um **disjuntor anti-abuso, não traffic shaping**: usuário legítimo nunca deve ver 429.
+
+Implementação: `backend/app/core/rate_limit.py` — sliding window em memória (suficiente para 1 container; **migrar para Redis se escalar horizontal**, senão os limites se multiplicam silenciosamente por réplica), chaveado pelo `sub` do JWT (decodificado sem verificar — um `sub` forjado troca de bucket mas morre logo depois na auth com um 401 barato) e com fallback pro **último hop** do `X-Forwarded-For` (o que o Traefik anexou; o primeiro hop é spoofável). Registrado **dentro** do CORSMiddleware — senão o 429 sai sem header CORS e o browser o mascara como "Network Error" opaco (mesma armadilha já documentada para o 500).
+
+### 44 alertas de dependência eram, na prática, uma dep direta desatualizada
+
+O Dependabot reportava 44 vulnerabilidades (16 high). Tratar item a item teria sido um desperdício: **`axios` sozinho respondia por 21 dos 44** (prototype pollution, ReDoS, vazamento de `Proxy-Authorization` em redirect, SSRF via `no_proxy`) — um bump 1.13→1.18 matou metade da lista. Resultado final: `npm audit` → **0 vulnerabilidades**.
+
+Ordem que funcionou: (a) bump das **diretas** (axios, postcss), (b) `npm audit fix` **sem `--force`** para as transitivas, (c) `overrides` só para o resíduo que o pai pina (next pina `postcss@8.4.31`; tsx pina `esbuild@0.27.3`), (d) validar com `next build` — que é o teste real de um override de postcss (se o CSS sai gerado, o Tailwind não quebrou).
+
+Três armadilhas do npm nesse caminho (detalhe na memória `npm_audit_next_downgrade_and_overrides`):
+- `npm audit` propôs **downgrade do next 15.5.20 → 9.3.3** como "fix". É lixo: o alerta em `next` existia só porque ele empacota `postcss@8.4.31`. **Ler o `via` antes de aceitar qualquer `--force`.**
+- Dep transitiva **pinada pelo pai** não é tocada por `npm audit fix` — só `overrides` resolve. E `overrides` é **dívida técnica**: remover cada entrada quando o pai subir a própria dep (o `package.json` carrega uma chave `"//overrides"` com a justificativa de cada uma).
+- Override de dep que **também é direta** exige a sintaxe `"postcss": "$postcss"` — a forma literal falha com `EOVERRIDE`.
