@@ -6,6 +6,7 @@ clampadas ao created_time (ver decisoes-tecnicas 2026-06-12).
 """
 from app.services.ad_inventory import (
     DELIVERABLE_STATUSES,
+    count_ads_by_adset,
     select_zero_delivery_ads,
     synthesize_zero_raw_rows,
 )
@@ -110,6 +111,35 @@ def test_max_rows_cap_prioritizes_recent_ads():
     # Range de 10 dias, teto de 10 linhas → só cabe um ad; o mais recente vence
     rows = synthesize_zero_raw_rows(ads, "2026-06-21", "2026-06-30", max_rows=10)
     assert {r["ad_id"] for r in rows} == {"new"}
+
+
+# ---------- count_ads_by_adset (denominador "N / M anúncios") ----------
+
+def test_count_ads_by_adset_includes_paused_ads():
+    """O caso real: 19 no Gerenciador, 12 em ad_metrics. O total tem que contar TODOS."""
+    inventory = [_inv(str(i), "ACTIVE") for i in range(10)]          # 10 ativos
+    inventory += [_inv(f"p{i}", "PAUSED") for i in range(9)]          # 9 pausados
+    counts = count_ads_by_adset(inventory)
+    # Pausados NÃO são deliverable (ficam fora de ad_metrics), mas contam no total.
+    assert counts == {"as1": 19}
+    assert len(select_zero_delivery_ads(inventory, known_ad_ids=set())) == 10
+
+
+def test_count_ads_by_adset_groups_por_adset():
+    inventory = [
+        _inv("1"), _inv("2"),
+        {**_inv("3"), "adset_id": "as2"},
+    ]
+    assert count_ads_by_adset(inventory) == {"as1": 2, "as2": 1}
+
+
+def test_count_ads_by_adset_ignores_missing_adset_id():
+    inventory = [_inv("1"), {**_inv("2"), "adset_id": ""}, {**_inv("3"), "adset_id": None}]
+    assert count_ads_by_adset(inventory) == {"as1": 1}
+
+
+def test_count_ads_by_adset_empty():
+    assert count_ads_by_adset([]) == {}
 
 
 # ---------- integração com o formatter ----------

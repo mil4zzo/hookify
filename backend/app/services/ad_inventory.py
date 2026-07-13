@@ -38,6 +38,24 @@ def _parse_date(value: Any) -> Optional[datetime]:
         return None
 
 
+def count_ads_by_adset(inventory: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Total de ads por adset_id no inventário — TODOS os status, não só DELIVERABLE.
+
+    É o denominador de "N / M anúncios" na aba Por conjunto. Ads pausados que nunca
+    entregaram não existem em ad_metrics nem em ads (não vêm do /insights e não recebem
+    linha-zero), então o count(distinct ad_id) da RPC os perdia e o total divergia do
+    Gerenciador. O inventário é a única fonte que os enxerga.
+
+    Espelha o Gerenciador: o edge /ads inclui pausados e exclui archived/deleted.
+    """
+    counts: Dict[str, int] = {}
+    for ad in inventory or []:
+        adset_id = str(ad.get("adset_id") or "").strip()
+        if adset_id:
+            counts[adset_id] = counts.get(adset_id, 0) + 1
+    return counts
+
+
 def select_zero_delivery_ads(
     inventory: List[Dict[str, Any]],
     known_ad_ids: Set[str],

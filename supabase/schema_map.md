@@ -335,6 +335,7 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | budget_mode | text |  |
 | effective_status | text |  |
 | updated_at | timestamp | NOT NULL, DEFAULT |
+| ads_count | integer |  |
 
 ---
 
@@ -393,4 +394,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-07-11 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-07-12 — via `supabase/generate_schema_map.py`*

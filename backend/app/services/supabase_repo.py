@@ -779,6 +779,51 @@ def upsert_parent_entities(
     logger.info("upsert_parent_entities: %d entidades gravadas para user %s", len(rows), user_id)
 
 
+def upsert_parent_ads_counts(
+    user_jwt: Optional[str],
+    user_id: str,
+    counts_by_adset: Dict[str, int],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """
+    Grava parent_entities.ads_count (total de ads do conjunto pelo inventário do /ads).
+
+    Upsert DEDICADO — só as colunas da contagem — de propósito: o payload de
+    upsert_parent_entities cobre TODOS os adsets da conta (snapshot dos edges), enquanto o
+    inventário é escopado ao pack do job. Injetar ads_count naquele payload gravaria NULL nos
+    adsets dos OUTROS packs, zerando a contagem deles a cada refresh. Aqui só tocamos os
+    adsets que o inventário deste job realmente viu; os demais mantêm o valor anterior
+    (PostgREST faz ON CONFLICT DO UPDATE apenas das colunas presentes no payload).
+    """
+    if not user_id or not counts_by_adset:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+
+    now_iso = _now_iso()
+    rows = [
+        {
+            "user_id": user_id,
+            "entity_id": str(adset_id),
+            "level": "adset",
+            "ads_count": int(count),
+            "updated_at": now_iso,
+        }
+        for adset_id, count in counts_by_adset.items()
+        if str(adset_id).strip()
+    ]
+    if not rows:
+        return
+
+    for i in range(0, len(rows), 500):
+        chunk = rows[i : i + 500]
+        with_postgrest_retry(
+            f"upsert_parent_ads_counts[{len(chunk)}]",
+            lambda c=chunk: sb.table("parent_entities").upsert(c, on_conflict="user_id,entity_id").execute(),
+        )
+    logger.info("upsert_parent_ads_counts: %d conjuntos com total de ads gravado", len(rows))
+
+
 def update_parent_entity_budget(
     user_jwt: Optional[str],
     user_id: str,

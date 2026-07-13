@@ -26,7 +26,7 @@ from app.services.job_tracker import (
     STAGE_PERSISTENCE,
 )
 from app.services.insights_collector import get_insights_collector
-from app.services.ad_inventory import select_zero_delivery_ads, synthesize_zero_raw_rows
+from app.services.ad_inventory import count_ads_by_adset, select_zero_delivery_ads, synthesize_zero_raw_rows
 from app.services.ads_enricher import get_ads_enricher
 from app.services.dataformatter import format_ads_for_api
 from app.core.supabase_client import get_supabase_service
@@ -497,6 +497,7 @@ class JobProcessor:
                 job_id, payload, formatted_data, is_refresh, pack_id_from_payload,
                 parent_statuses=enrich_result.get("parent_statuses") or {},
                 parent_entities=enrich_result.get("parent_entities") or {},
+                adset_ads_counts=count_ads_by_adset(inventory_rows) if inventory_rows else None,
             )
 
             # ===== CONCLUSÃO =====
@@ -564,6 +565,7 @@ class JobProcessor:
         *,
         parent_statuses: Optional[Dict[str, Any]] = None,
         parent_entities: Optional[Dict[str, Any]] = None,
+        adset_ads_counts: Optional[Dict[str, int]] = None,
     ) -> Optional[str]:
         """Persiste dados no Supabase."""
         # Heartbeat limiter: evita spam de updates no jobs durante loops longos
@@ -705,6 +707,21 @@ class JobProcessor:
                         )
                     except Exception as e:
                         logger.warning(f"[JobProcessor] upsert_parent_entities falhou (best-effort): {e}")
+
+                # Total de ads por conjunto pelo INVENTÁRIO — inclui pausados que nunca
+                # entregaram, que não existem em ad_metrics/ads e por isso sumiam do
+                # denominador "N / M anúncios" (divergia do Gerenciador). Só a contagem é
+                # corrigida: esses ads seguem fora das métricas. Best-effort.
+                if adset_ads_counts:
+                    try:
+                        supabase_repo.upsert_parent_ads_counts(
+                            self.user_jwt,
+                            self.user_id,
+                            adset_ads_counts,
+                            sb_client=self._sb,
+                        )
+                    except Exception as e:
+                        logger.warning(f"[JobProcessor] upsert_parent_ads_counts falhou (best-effort): {e}")
 
                 ensure_not_cancelled("before_metrics")
                 hb("Salvando métricas...", force=True)
