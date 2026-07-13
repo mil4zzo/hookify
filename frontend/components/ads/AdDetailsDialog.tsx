@@ -19,14 +19,15 @@ import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { buildMetricSeriesFromSourceSeries, getMetricAverageTooltip, getMetricBetterDirection, getMetricDisplayLabel, getMetricNumericValue, getMetricNumericValueOrNull } from "@/lib/metrics";
-import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
-import { loadManagerColumnsPreference } from "@/components/manager/managerColumnPreferences";
+import { loadManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
 import { IconAlignLeft, IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCheck, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
 import { retentionToColor, findHookBoundary, secondToRetentionIndex } from "@/lib/utils/retentionColor";
 import type { TimestampedWord } from "@/lib/api/schemas";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
+import { useAdAccountsDb } from "@/lib/api/hooks";
+import { formatProvenanceTitle, getRowAccountNames, getRowPackNames, useProvenanceIndex } from "@/lib/manager/provenance";
 import { extractActorIdFromCreative, extractInstagramMediaId, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 import { RetentionVideoPlayer, RetentionVideoPlayerSkeleton } from "@/components/common/RetentionVideoPlayer";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
@@ -70,7 +71,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
   const [retentionViewMode, setRetentionViewMode] = useState<"chart" | "metrics">("metrics");
   const [variationColumnFilters, setVariationColumnFilters] = useState<ColumnFiltersState>([]);
-  const [variationActiveColumns] = useState<Set<ManagerColumnType>>(() => loadManagerColumnsPreference());
+  // Espelha a preferência de colunas do Manager (visibilidade + ordem) na tabela de variações.
+  const [variationColumnPreferences] = useState(() => loadManagerColumnPreferences());
   const [transcriptionPending, setTranscriptionPending] = useState(false);
   const [copiedTranscription, setCopiedTranscription] = useState(false);
   const [transcriptionViewMode, setTranscriptionViewMode] = useState<"plain" | "retention">("retention");
@@ -621,6 +623,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const statusDotClass = groupByAdName ? (activeVariations > 0 ? "bg-success" : "bg-muted") : isAdActive ? "bg-success" : "bg-muted";
   const detailsTabContentGapClassName = "gap-4 md:gap-8";
 
+  // Procedência: de qual conta e de qual pack vieram os dados deste anúncio. No modal aparece
+  // SEMPRE (ao contrário da tabela, que só mostra quando a dimensão varia) — é a ficha de
+  // identidade do anúncio, e é exatamente aqui que se vem para saber tudo sobre ele.
+  useAdAccountsDb();
+  const provenanceIndex = useProvenanceIndex();
+  const accountNames = getRowAccountNames(ad, provenanceIndex);
+  const packNames = getRowPackNames(ad, provenanceIndex);
+
   return (
     <div className="h-full flex flex-col gap-4">
       {/* Header */}
@@ -643,6 +653,8 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                 </div>
               </>
             )}
+            {accountNames.length > 0 && <div className="truncate">{`Conta: ${formatProvenanceTitle(accountNames)}`}</div>}
+            {packNames.length > 0 && <div className="truncate">{`Pack: ${formatProvenanceTitle(packNames)}`}</div>}
           </div>
           <div className="mt-1">{groupByAdName ? <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">Agrupado</span> : <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">Individual</span>}</div>
         </div>
@@ -669,7 +681,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       >
         {groupByAdName && (
           <TabbedContentItem value="variations" variant="simple" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationActiveColumns} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={variationColumnFilters} setColumnFilters={setVariationColumnFilters} asContent />
+            <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationColumnPreferences.active} columnOrder={variationColumnPreferences.order} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={variationColumnFilters} setColumnFilters={setVariationColumnFilters} asContent />
           </TabbedContentItem>
         )}
 

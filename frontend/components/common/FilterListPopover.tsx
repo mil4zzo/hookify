@@ -1,9 +1,12 @@
 "use client";
 
-import { type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
+import { closestCenter, DndContext, type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
-import { IconCheck } from "@tabler/icons-react";
+import { IconCheck, IconGripVertical } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { CheckSquare } from "@/components/common/CheckSquare";
 
@@ -48,6 +51,13 @@ export interface FilterListPopoverProps {
   /** Bulk (só multi): mostram a barra "Selecionar todos · Limpar  N/M" */
   onSelectAll?: () => void;
   onDeselectAll?: () => void;
+  /**
+   * Só multi e sem `groups`: cada opção ganha uma alça de arrastar e a lista vira reordenável.
+   * Fica suspenso enquanto há busca ativa — a lista filtrada não representa a ordem real.
+   */
+  reorderable?: boolean;
+  /** Nova ordem completa dos ids após um drag (mesma ordem em que `options` deve ser reemitida). */
+  onReorder?: (orderedIds: string[]) => void;
   align?: "start" | "center" | "end";
   /** Sobrescreve classes do PopoverContent (default: w-[300px]) */
   contentClassName?: string;
@@ -55,12 +65,32 @@ export interface FilterListPopoverProps {
   disabled?: boolean;
 }
 
+/** Posição/arrasto de uma linha reordenável — injetado em renderOption quando o drag está ativo. */
+interface SortableRowState {
+  setNodeRef?: (node: HTMLElement | null) => void;
+  style?: CSSProperties;
+  handleProps?: Record<string, unknown>;
+}
+
+function SortableFilterListRow({ id, children }: { id: string; children: (state: SortableRowState) => ReactElement }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return children({
+    setNodeRef,
+    style: {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.5 : undefined,
+    },
+    handleProps: { ...attributes, ...listeners },
+  });
+}
+
 /**
  * Popover genérico de seleção em lista (multi ou single) com busca, atalhos bulk e grupos.
  * Base de GemsColumnFilter, ManagerColumnFilter, PackFilter e ActionTypeFilter — criar
  * novos filtros de lista SEMPRE por aqui, nunca reimplementando popover+lista+checkbox.
  */
-export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", onSelectAll, onDeselectAll, align = "start", contentClassName, onOpenChange, disabled = false }: FilterListPopoverProps) {
+export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", onSelectAll, onDeselectAll, reorderable = false, onReorder, align = "start", contentClassName, onOpenChange, disabled = false }: FilterListPopoverProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -92,7 +122,26 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
     if (mode === "single") handleOpenChange(false);
   };
 
-  const renderOption = (option: FilterListOption) => {
+  // Drag só faz sentido na lista plana e sem busca: com filtro ativo a posição visual não
+  // corresponde à posição real na ordem, e um arrasto sairia em cima da coluna errada.
+  const dragEnabled = reorderable && mode === "multi" && !groups && !!onReorder && !normalizedSearch;
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const ids = options.map((option) => option.id);
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from === -1 || to === -1) return;
+    onReorder?.(arrayMove(ids, from, to));
+  };
+
+  const renderOption = (option: FilterListOption, sortable: SortableRowState = {}) => {
     const isSelected = selectedIds.has(option.id);
     const showDisabledStyle = !!option.disabled && !isSelected;
 
@@ -122,6 +171,8 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
     return (
       <div
         key={option.id}
+        ref={sortable.setNodeRef}
+        style={sortable.style}
         className={cn(
           "relative flex cursor-default select-none items-center rounded-sm px-2 py-1.5 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
           isSelected && "bg-accent",
@@ -129,6 +180,18 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
         )}
         onClick={() => handleSelect(option)}
       >
+        {sortable.handleProps && (
+          <button
+            type="button"
+            {...sortable.handleProps}
+            // O clique na alça não deve alternar a seleção da opção.
+            onClick={(e) => e.stopPropagation()}
+            className="mr-1 flex h-5 w-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground outline-none hover:text-text active:cursor-grabbing"
+            aria-label={`Reordenar ${option.label}`}
+          >
+            <IconGripVertical className="h-3.5 w-3.5" />
+          </button>
+        )}
         <div className="flex items-center space-x-2 flex-1 min-w-0">
           <CheckSquare checked={isSelected} />
           <div className="flex-1 min-w-0 flex items-center justify-between gap-2">
@@ -156,16 +219,34 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
             return (
               <div key={group.id} className="mb-1 last:mb-0">
                 <div className={cn("px-2 py-1.5 text-xs font-semibold", group.labelClassName)}>{group.label}</div>
-                {groupOptions.map(renderOption)}
+                {groupOptions.map((option) => renderOption(option))}
               </div>
             );
           })}
         </div>
       );
     }
+    if (dragEnabled) {
+      return (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={filteredOptions.map((option) => option.id)} strategy={verticalListSortingStrategy}>
+            <div className="p-1">
+              <div className="space-y-1">
+                {filteredOptions.map((option) => (
+                  <SortableFilterListRow key={option.id} id={option.id}>
+                    {(sortable) => renderOption(option, sortable)}
+                  </SortableFilterListRow>
+                ))}
+              </div>
+            </div>
+          </SortableContext>
+        </DndContext>
+      );
+    }
+
     return (
       <div className="p-1">
-        <div className="space-y-1">{filteredOptions.map(renderOption)}</div>
+        <div className="space-y-1">{filteredOptions.map((option) => renderOption(option))}</div>
       </div>
     );
   };

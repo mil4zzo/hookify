@@ -1,23 +1,24 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { IconArrowsSort, IconFilter, IconLoader2, IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
+import { IconArrowsSort, IconFilter } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { StatePanel } from "@/components/common/States";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { BulkActionsBar } from "@/components/manager/BulkActionsBar";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { StatusCell } from "@/components/manager/StatusCell";
-import { useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
+import { BULK_ENTITY_NOUN, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { applyRowFilters } from "@/lib/utils/applyRowFilters";
 import { getFilteredColumnIds } from "@/lib/utils/columnFilters";
-import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn } from "@/lib/metrics";
+import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn, type ManagerMetricKey } from "@/lib/metrics";
+import { isManagerMetricColumn } from "@/components/manager/managerColumns";
 
 /** Tipo de filho renderizado: anúncios de um adset, variações de um ad name, ou adsets de uma campanha. */
 export type ChildrenEntity = "ads" | "variations" | "adsets";
@@ -124,6 +125,8 @@ interface ManagerChildrenTableProps {
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;
   activeColumns: Set<ManagerColumnType>;
+  /** Ordem das colunas de métrica escolhida no Manager. Ausente = ordem padrão. */
+  columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number;
   columnFilters?: ColumnFiltersState;
@@ -143,6 +146,7 @@ export function ManagerChildrenTable({
   formatCurrency,
   formatPct,
   activeColumns,
+  columnOrder,
   hasSheetIntegration = false,
   mqlLeadscoreMin = 0,
   columnFilters = [],
@@ -168,7 +172,10 @@ export function ManagerChildrenTable({
     selectionAnchorRef.current = null;
   }, [childrenData, resolvedEntity]);
 
-  const visibleColumns = useMemo(() => getVisibleManagerColumns({ activeColumns, hasSheetIntegration }), [activeColumns, hasSheetIntegration]);
+  // Só métricas: as dimensões de procedência (Pack/Conta) são descartadas aqui. Os filhos vêm de
+  // outro endpoint (RankingsChildrenItem), que não carrega pack_ids/account_ids — a coluna sairia
+  // vazia. E a pergunta "de qual pack veio?" já foi respondida na linha-pai que abriu este drill.
+  const visibleColumns = useMemo(() => getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration }).filter(isManagerMetricColumn), [activeColumns, columnOrder, hasSheetIntegration]);
   const childrenLabel = config.plural;
 
   const sortedData = useMemo(() => {
@@ -281,43 +288,6 @@ export function ManagerChildrenTable({
     [orderedSelectableKeys, selectedKeys],
   );
 
-  const bulkBar = selectedCount > 0 ? (
-    <div className="flex h-control-default flex-shrink-0 items-center gap-2 rounded-lg border border-input bg-background px-3">
-      <span className="whitespace-nowrap text-xs font-medium text-muted-foreground">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
-      <div className="h-4 w-px bg-border" />
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-destructive hover:text-destructive-foreground"
-        disabled={bulk.isLoading}
-        onClick={() => { bulk.bulkPause(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
-      >
-        {bulk.isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
-        Pausar
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-success hover:text-success-foreground"
-        disabled={bulk.isLoading}
-        onClick={() => { bulk.bulkActivate(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
-      >
-        {bulk.isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
-        Ativar
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-auto px-1 py-0.5 text-muted-foreground"
-        disabled={bulk.isLoading}
-        onClick={() => setSelectedKeys(new Set())}
-        aria-label="Limpar seleção"
-      >
-        <IconX className="h-3.5 w-3.5" />
-      </Button>
-    </div>
-  ) : null;
-
   const filterableColumns = useMemo(() => {
     return getManagerFilterableColumns({
       visibleColumns,
@@ -331,7 +301,8 @@ export function ManagerChildrenTable({
   const filteredColumnIds = useMemo(() => getFilteredColumnIds(columnFilters), [columnFilters]);
   const isNameColumnFiltered = config.textColumns.some((tc) => filteredColumnIds.has(tc.id));
 
-  const filterIndicator = <IconFilter className="h-3 w-3 shrink-0 text-primary" aria-label="Coluna com filtro ativo" />;
+  // Mesmo visual do ColumnFilter readonly das colunas de métrica da tabela principal.
+  const filterIndicator = <IconFilter className="h-3.5 w-3.5 shrink-0 fill-current text-primary" aria-label="Filtro ativo" />;
 
   // +1 pela coluna de checkbox de seleção (à esquerda do Status).
   const colspan = visibleColumns.length + config.colspanExtra + 1;
@@ -346,7 +317,7 @@ export function ManagerChildrenTable({
     });
   };
 
-  const renderCellValue = (child: any, columnId: ManagerColumnType) => {
+  const renderCellValue = (child: any, columnId: ManagerMetricKey) => {
     return formatManagerChildMetricValue(columnId, child, { currencyFormatter: formatCurrency });
   };
 
@@ -401,7 +372,7 @@ export function ManagerChildrenTable({
   }
 
   const innerContent = (
-    <div className={asContent ? "flex h-full min-h-0 flex-1 flex-col overflow-hidden" : undefined}>
+    <div className={asContent ? "relative flex h-full min-h-0 flex-1 flex-col overflow-hidden" : "relative"}>
       <div className="flex-shrink-0 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
         {/* Mesmo layout de duas linhas da tabela principal: busca + contagem + Add filter + ações na
             1ª linha; chips de filtro em largura total na 2ª (renderizada pelo próprio FilterBar). */}
@@ -422,7 +393,6 @@ export function ManagerChildrenTable({
               inputClassName="w-full text-xs"
             />
           }
-          trailingSlot={bulkBar}
         />
       </div>
 
@@ -469,14 +439,14 @@ export function ManagerChildrenTable({
                     />
                   </div>
                 </th>
-                <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}${filteredColumnIds.has("status") ? " bg-primary-10" : ""}`} onClick={() => handleSort("status")}>
+                <th className={`w-20 cursor-pointer select-none p-4 text-center hover:text-brand ${sortConfig.column === "status" ? "text-primary" : ""}`} onClick={() => handleSort("status")}>
                   <div className="flex items-center justify-center gap-1">
                     Status
                     {filteredColumnIds.has("status") && filterIndicator}
                     <IconArrowsSort className="h-3 w-3" />
                   </div>
                 </th>
-                <th className={`cursor-pointer select-none p-4 text-left hover:text-brand ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}${isNameColumnFiltered ? " bg-primary-10" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
+                <th className={`cursor-pointer select-none p-4 text-left hover:text-brand ${sortConfig.column === config.nameSortKey ? "text-primary" : ""}`} onClick={() => handleSort(config.nameSortKey)}>
                   <div className="flex items-center gap-1">
                     {config.nameHeader}
                     {isNameColumnFiltered && filterIndicator}
@@ -484,7 +454,7 @@ export function ManagerChildrenTable({
                   </div>
                 </th>
                 {visibleColumns.map((column) => (
-                  <th key={column.id} className={`${metricColumnClass} ${sortConfig.column === column.id ? "text-primary" : ""}${filteredColumnIds.has(column.id) ? " bg-primary-10" : ""}`} onClick={() => handleSort(column.id)}>
+                  <th key={column.id} className={`${metricColumnClass} ${sortConfig.column === column.id ? "text-primary" : ""}`} onClick={() => handleSort(column.id)}>
                     <div className="flex items-center justify-center gap-1">
                       {column.name}
                       {filteredColumnIds.has(column.id) && filterIndicator}
@@ -514,10 +484,10 @@ export function ManagerChildrenTable({
                       </div>
                     ) : null}
                   </td>
-                  <td className={`px-4 py-3 text-center${filteredColumnIds.has("status") ? " bg-primary-5" : ""}`} onClick={(e) => e.stopPropagation()}>
+                  <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                     <StatusCell original={child} currentTab={config.statusTab} />
                   </td>
-                  <td className={`px-4 py-3 text-left${isNameColumnFiltered ? " bg-primary-5" : ""}`}>
+                  <td className="px-4 py-3 text-left">
                     {config.richNameCell ? (
                       <div className="flex items-center gap-2">
                         <ThumbnailImage src={getAdThumbnail(child)} alt="thumb" size="sm" />
@@ -535,7 +505,7 @@ export function ManagerChildrenTable({
                     )}
                   </td>
                   {visibleColumns.map((column) => (
-                    <td key={column.id} className={`p-2 text-center${filteredColumnIds.has(column.id) ? " bg-primary-5" : ""}`}>
+                    <td key={column.id} className="p-2 text-center">
                       {renderCellValue(child, column.id)}
                     </td>
                   ))}
@@ -545,6 +515,19 @@ export function ManagerChildrenTable({
           </table>
         </div>
       )}
+
+      {/* Ações em massa flutuantes — mesma barra da tabela principal, ancorada na base do modal. */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        isLoading={bulk.isLoading}
+        allSelected={allSelected}
+        entityNoun={BULK_ENTITY_NOUN[config.bulkEntityType]}
+        onPause={() => { bulk.bulkPause(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
+        onActivate={() => { bulk.bulkActivate(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
+        onToggleAll={toggleAll}
+        onClear={() => setSelectedKeys(new Set())}
+        className="bottom-4"
+      />
     </div>
   );
 

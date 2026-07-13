@@ -453,6 +453,14 @@ export const RankingsItemSchema = z.object({
   group_key: z.string().nullable().optional(),
   unique_id: z.string().nullable().optional(),
   account_id: z.string().nullable().optional(),
+  // Procedência da linha (migration 093). account_id acima é o do REPRESENTANTE do grupo (ad de
+  // maior impressões) e mente quando o grupo mistura contas — na aba "Por anúncio", ~14% das
+  // linhas agregam mais de uma conta. Prefira account_ids para exibir conta.
+  account_ids: z.array(z.string()).nullable().optional(),
+  // Packs de onde vieram as métricas da linha, restritos aos packs selecionados. Multi-valorado
+  // por natureza (~17% das linhas da aba "Por anúncio" reúnem ads de packs diferentes), ainda que
+  // um ad individual, nos dados atuais, pertença sempre a um único pack.
+  pack_ids: z.array(z.string()).nullable().optional(),
   campaign_id: z.string().nullable().optional(),
   campaign_name: z.string().nullable().optional(),
   adset_id: z.string().nullable().optional(),

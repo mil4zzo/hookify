@@ -1,7 +1,8 @@
 import type { Table } from "@tanstack/react-table"
 import type { RankingsItem } from "@/lib/api/schemas"
-import { MANAGER_COLUMNS } from "@/components/manager/managerColumns"
+import { getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences"
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
+import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance"
 import { api } from "@/lib/api/endpoints"
 
 type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha"
@@ -71,17 +72,35 @@ const MEDIA_TYPE_LABEL: Record<string, string> = {
   image: "Imagem",
 }
 
+/**
+ * Valor de uma coluna de dimensão (Pack/Conta) para o CSV.
+ *
+ * Resolvido a partir de `row.original`, e NÃO de `row.getValue(id)`: o dialog de export permite
+ * escolher colunas que não estão ativas na tabela, e para essas o TanStack devolveria `undefined`
+ * (a coluna nem foi construída) — a coluna sairia vazia no CSV.
+ */
+function dimensionValue(colId: ManagerColumnType, original: RankingsItem, provenanceIndex: ProvenanceIndex): string {
+  const names = colId === "pack" ? getRowPackNames(original, provenanceIndex) : getRowAccountNames(original, provenanceIndex)
+  return names.join(" | ")
+}
+
 export async function exportManagerToCsv({
   table,
   activeColumns,
+  columnOrder,
   hasSheetIntegration,
   currentTab,
   dateStart,
   dateStop,
   withTranscriptions = false,
+  provenanceIndex,
 }: {
   table: Table<RankingsItem>
   activeColumns: Set<ManagerColumnType>
+  /** Índice id→nome de packs/contas — as colunas Pack/Conta saem com nome, não com UUID. */
+  provenanceIndex: ProvenanceIndex
+  /** Ordem das colunas escolhida no Manager — o CSV sai na mesma ordem da tabela. */
+  columnOrder?: readonly ManagerColumnType[]
   hasSheetIntegration: boolean
   currentTab: ManagerTab
   dateStart?: string
@@ -92,11 +111,7 @@ export async function exportManagerToCsv({
   const showTranscriptions = withTranscriptions && TABS_WITH_TRANSCRIPTION.has(currentTab)
   const showMediaType = TABS_WITH_MEDIA_TYPE.has(currentTab)
 
-  const visibleMetricColumns = MANAGER_COLUMNS.filter((col) => {
-    if (!activeColumns.has(col.id)) return false
-    if ((col.id === "mqls" || col.id === "cpmql" || col.id === "leadscore_avg") && !hasSheetIntegration) return false
-    return true
-  })
+  const visibleMetricColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration })
 
   // Buscar transcrições em batch se necessário
   let transcriptionMap: Record<string, string> = {}
@@ -128,7 +143,15 @@ export async function exportManagerToCsv({
       const mt = row.original.media_type ?? ""
       cells.push(MEDIA_TYPE_LABEL[mt] ?? "")
     }
-    for (const col of visibleMetricColumns) cells.push(formatValue(col.id, row.getValue(col.id)))
+    for (const col of visibleMetricColumns) {
+      // Nome de pack/conta é texto livre (o usuário nomeia o pack) → anti formula-injection.
+      // Métricas nunca passam por aqui: podem ser negativas e o apóstrofo as corromperia.
+      if (col.isDimension) {
+        cells.push(neutralizeFormula(dimensionValue(col.id, row.original, provenanceIndex)))
+        continue
+      }
+      cells.push(formatValue(col.id, row.getValue(col.id)))
+    }
     if (showTranscriptions) {
       const adName = String(row.original.ad_name ?? "")
       cells.push(neutralizeFormula(transcriptionMap[adName] ?? ""))

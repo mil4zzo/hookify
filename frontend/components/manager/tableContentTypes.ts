@@ -37,6 +37,9 @@ export interface SharedTableContentProps {
   columnFilters: ColumnFiltersState;
   setColumnFilters: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   activeColumns: Set<ManagerColumnType>;
+  /** Ordem das colunas de métrica. Não é lida no render (a tabela já vem ordenada por state.columnOrder),
+   * mas precisa ser prop explícita: `table` é instância mutável estável e o React.memo não veria o reorder. */
+  columnOrder: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number;
   // Adicionado para comparação confiável no React.memo

@@ -4,11 +4,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { Table } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import { MANAGER_COLUMNS } from "@/components/manager/managerColumns";
+import { MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER, type ManagerColumnOption } from "@/components/manager/managerColumns";
 import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { exportManagerToCsv } from "@/lib/utils/exportManagerCsv";
+import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { IconPlus, IconX, IconFileText, IconLoader2, IconDownload } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { logger } from "@/lib/utils/logger";
@@ -23,15 +24,26 @@ interface ManagerExportDialogProps {
   table: Table<RankingsItem>;
   /** Colunas ativas na tabela — semente da seleção de export */
   activeColumns: Set<ManagerColumnType>;
+  /** Ordem das colunas na tabela — o CSV e a lista deste dialog seguem a mesma ordem. */
+  columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration: boolean;
   currentTab: ManagerTab;
   dateStart?: string;
   dateStop?: string;
 }
 
-export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, hasSheetIntegration, currentTab, dateStart, dateStop }: ManagerExportDialogProps) {
-  // Colunas exportáveis (exclui cpmql/mqls/leadscore_avg quando não há integração de planilha — o export as descarta de qualquer forma)
-  const availableColumns = useMemo(() => MANAGER_COLUMNS.filter((c) => !((c.id === "cpmql" || c.id === "mqls" || c.id === "leadscore_avg") && !hasSheetIntegration)), [hasSheetIntegration]);
+export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop }: ManagerExportDialogProps) {
+  const provenanceIndex = useProvenanceIndex();
+
+  // Colunas exportáveis, na ordem da tabela (exclui cpmql/mqls/leadscore_avg quando não há integração de planilha — o export as descarta de qualquer forma)
+  const availableColumns = useMemo(() => {
+    const byId = new Map(MANAGER_COLUMNS.map((c) => [c.id, c]));
+    const order = columnOrder && columnOrder.length > 0 ? columnOrder : MANAGER_COLUMN_RENDER_ORDER;
+    return order
+      .map((id) => byId.get(id))
+      .filter((c): c is ManagerColumnOption => !!c)
+      .filter((c) => !((c.id === "cpmql" || c.id === "mqls" || c.id === "leadscore_avg") && !hasSheetIntegration));
+  }, [columnOrder, hasSheetIntegration]);
 
   const [selected, setSelected] = useState<Set<ManagerColumnType>>(new Set());
   const [withTranscriptions, setWithTranscriptions] = useState(false);
@@ -77,6 +89,8 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, has
       await exportManagerToCsv({
         table,
         activeColumns: selected,
+        provenanceIndex,
+        columnOrder,
         hasSheetIntegration,
         currentTab,
         dateStart,

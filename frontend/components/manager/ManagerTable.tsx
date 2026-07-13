@@ -10,7 +10,7 @@ import { AdInfoCard } from "@/components/ads/AdInfoCard";
 const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState, RowSelectionState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconPlayerPause, IconPlayerPlay, IconX, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { ManagerExportDialog } from "@/components/manager/ManagerExportDialog";
@@ -34,8 +34,9 @@ const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDi
 import { MetricCell } from "@/components/manager/MetricCell";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
+import { BulkActionsBar } from "@/components/manager/BulkActionsBar";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import { DEFAULT_MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
+import { MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
 import { ManagerDrillModal } from "@/components/manager/ManagerDrillModal";
 import { useDrillState, type DrillKind } from "@/lib/manager/useDrillState";
@@ -43,8 +44,10 @@ import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStora
 import { logger } from "@/lib/utils/logger";
 import { getColumnId } from "@/lib/utils/columnFilters";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
-import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
-import { useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
+import { getManagerFilterableColumns, getVisibleManagerColumns, loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
+import { computeProvenanceVisibility, useProvenanceIndex, type ProvenanceVisibility } from "@/lib/manager/provenance";
+import { useAdAccountsDb } from "@/lib/api/hooks";
+import { BULK_ENTITY_NOUN, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { cn } from "@/lib/utils/cn";
 
 type Ad = RankingsItem;
@@ -107,7 +110,6 @@ interface ManagerTableProps {
 
 const columnHelper = createColumnHelper<Ad>();
 
-const STORAGE_KEY_MANAGER_COLUMNS = "hookify-manager-columns";
 const STORAGE_KEY_VIEW_MODE = "hookify-manager-view-mode";
 const STORAGE_KEY_COLOR_METRICS = "hookify-manager-color-metrics";
 
@@ -137,33 +139,36 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Use debounced session storage to batch writes and reduce I/O
   const debouncedStorage = useDebouncedSessionStorage(500);
 
-  const loadManagerColumns = useCallback((): Set<ManagerColumnType> => {
-    if (typeof window === "undefined") return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
-    try {
-      const saved = sessionStorage.getItem(STORAGE_KEY_MANAGER_COLUMNS);
-      if (!saved) return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        const valid = parsed.filter((col) => (MANAGER_COLUMN_RENDER_ORDER as readonly string[]).includes(col));
-        if (valid.length === 0) return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
-        return new Set<ManagerColumnType>(valid as ManagerColumnType[]);
-      }
-      return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
-    } catch (e) {
-      logger.error("Erro ao carregar colunas do Manager do sessionStorage:", e);
-      return new Set<ManagerColumnType>(DEFAULT_MANAGER_COLUMNS);
-    }
+  // Visibilidade + ordem das colunas vivem juntas (mesma preferência persistida, ver managerColumnPreferences).
+  const [columnPreferences, setColumnPreferences] = useState<ManagerColumnPreferences>(() => loadManagerColumnPreferences());
+  const { active: activeColumns, order: columnOrder } = columnPreferences;
+
+  /** Atualiza e persiste as preferências de coluna. O updater pode devolver `prev` para não mudar nada. */
+  const updateColumnPreferences = useCallback((updater: (prev: ManagerColumnPreferences) => ManagerColumnPreferences) => {
+    setColumnPreferences((prev) => {
+      const next = updater(prev);
+      if (next === prev) return prev;
+      saveManagerColumnPreferences(next);
+      return next;
+    });
   }, []);
 
-  const saveManagerColumns = useCallback(
-    (columns: Set<ManagerColumnType>) => {
-      if (typeof window === "undefined") return;
-      debouncedStorage.setItem(STORAGE_KEY_MANAGER_COLUMNS, JSON.stringify(Array.from(columns)));
+  const setActiveColumns = useCallback(
+    (updater: (prev: Set<ManagerColumnType>) => Set<ManagerColumnType>) => {
+      updateColumnPreferences((prev) => {
+        const nextActive = updater(prev.active);
+        return nextActive === prev.active ? prev : { ...prev, active: nextActive };
+      });
     },
-    [debouncedStorage],
+    [updateColumnPreferences],
   );
 
-  const [activeColumns, setActiveColumns] = useState<Set<ManagerColumnType>>(() => loadManagerColumns());
+  const handleReorderColumns = useCallback(
+    (nextOrder: ManagerColumnType[]) => {
+      updateColumnPreferences((prev) => ({ ...prev, order: nextOrder }));
+    },
+    [updateColumnPreferences],
+  );
 
   // Estado para modo de visualização
   const loadViewMode = useCallback((): ViewMode => {
@@ -225,11 +230,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         const next = new Set(prev);
         if (hasCpmql) next.delete("cpmql");
         if (hasMqls) next.delete("mqls");
-        saveManagerColumns(next);
         return next;
       });
     }
-  }, [hasSheetIntegration, saveManagerColumns]);
+  }, [hasSheetIntegration, setActiveColumns]);
 
   // Re-adicionar cpmql e mqls a activeColumns quando hasSheetIntegration passar a true (ex.: após packs carregarem)
   useEffect(() => {
@@ -241,11 +245,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         const next = new Set(prev);
         if (needsCpmql) next.add("cpmql");
         if (needsMqls) next.add("mqls");
-        saveManagerColumns(next);
         return next;
       });
     }
-  }, [hasSheetIntegration, saveManagerColumns]);
+  }, [hasSheetIntegration, setActiveColumns]);
 
   const isColumnEnabled = useCallback(
     (columnId: ManagerColumnType) => {
@@ -270,26 +273,21 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         } else {
           next.add(columnId);
         }
-        saveManagerColumns(next);
         return next;
       });
     },
-    [saveManagerColumns],
+    [setActiveColumns],
   );
 
   // Bulk: seleciona todas as colunas habilitadas (ex: cpmql/mqls ficam de fora sem planilha)
   const handleSelectAllColumns = useCallback(() => {
-    const next = new Set<ManagerColumnType>(MANAGER_COLUMN_OPTIONS.filter((column) => isColumnEnabled(column.id)).map((column) => column.id));
-    saveManagerColumns(next);
-    setActiveColumns(next);
-  }, [isColumnEnabled, saveManagerColumns]);
+    setActiveColumns(() => new Set<ManagerColumnType>(MANAGER_COLUMN_OPTIONS.filter((column) => isColumnEnabled(column.id)).map((column) => column.id)));
+  }, [isColumnEnabled, setActiveColumns]);
 
   // Bulk: limpa a seleção (mesmo padrão do PackFilter — 0 é um estado válido)
   const handleDeselectAllColumns = useCallback(() => {
-    const next = new Set<ManagerColumnType>();
-    saveManagerColumns(next);
-    setActiveColumns(next);
-  }, [saveManagerColumns]);
+    setActiveColumns(() => new Set<ManagerColumnType>());
+  }, [setActiveColumns]);
   const handleTabChange = (value: string) => {
     const next = value as ManagerTab;
     if (activeTab === undefined) {
@@ -593,6 +591,17 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       return adName.includes(searchValue);
     });
   }, [adsEffective, deferredGlobalFilter]);
+
+  // Procedência (pack/conta por linha). As contas são carregadas aqui porque o Manager é a única
+  // tela que precisa do nome delas e não as buscava: a query é cacheada e compartilha a queryKey
+  // com a /packs, então isso não gera request extra em quem já passou por lá.
+  useAdAccountsDb();
+  const provenanceIndex = useProvenanceIndex();
+  const { showPack, showAccount } = useMemo(() => computeProvenanceVisibility(data), [data]);
+  // Reconstruído só quando os BOOLEANOS mudam — um objeto novo a cada render recriaria todas as
+  // colunas (showProvenance é dep do useMemo de `columns`) a cada chegada de dados.
+  const showProvenance = useMemo<ProvenanceVisibility>(() => ({ showPack, showAccount }), [showPack, showAccount]);
+
   const formatCurrency = useFormatCurrency();
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
@@ -808,6 +817,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       formatPct,
       viewMode,
       colorMetricValue,
+      provenanceIndex,
+      showProvenance,
       hasSheetIntegration,
       mqlLeadscoreMin,
       actionTypeRef,
@@ -817,7 +828,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, showProvenance, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -847,6 +858,18 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       value: values.length === 1 ? values[0] : values,
     }));
   }, [columnFilters]);
+
+  // Ordem das colunas para a tabela. As fixas (seleção, status, nome, orçamento, filtros ocultos) mantêm
+  // a ordem em que foram declaradas; as de métrica seguem a ordem escolhida pelo usuário. Ids ausentes
+  // desta lista iriam parar no fim da tabela — por isso ela precisa cobrir TODAS as colunas montadas.
+  const tableColumnOrder = useMemo(() => {
+    const metricIds = new Set<string>(MANAGER_COLUMN_RENDER_ORDER);
+    const builtIds = columns.map((column) => (column.id ?? (column as { accessorKey?: string }).accessorKey) as string | undefined).filter((id): id is string => !!id);
+    const fixedIds = builtIds.filter((id) => !metricIds.has(id));
+    const builtIdSet = new Set(builtIds);
+    const metricIdsInUserOrder = columnOrder.filter((id) => builtIdSet.has(id));
+    return [...fixedIds, ...metricIdsInUserOrder];
+  }, [columns, columnOrder]);
 
   const table = useReactTable({
     data,
@@ -879,6 +902,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       sorting,
       columnSizing,
       rowSelection,
+      columnOrder: tableColumnOrder,
       columnVisibility: {
         adset_name_filter: false,
         campaign_name_filter: false,
@@ -934,7 +958,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   // Mapeamento de colunas disponíveis para filtro
   const filterableColumns = useMemo(() => {
-    const visibleColumns = getVisibleManagerColumns({ activeColumns, hasSheetIntegration });
+    const visibleColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration });
     const nameColumn =
       currentTab === "por-conjunto"
         ? { id: "ad_name", label: "Conjunto", isText: true }
@@ -960,7 +984,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       includeStatus: currentTab !== "por-anuncio",
       textColumns,
     });
-  }, [hasSheetIntegration, currentTab, activeColumns]);
+  }, [hasSheetIntegration, currentTab, activeColumns, columnOrder]);
 
   const searchBar = useMemo(() => {
     const placeholder =
@@ -989,7 +1013,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
           {/* Colunas: controle mais usado, permanece dedicado e fora do menu */}
           <div className="w-full sm:w-[190px]">
-            <ManagerColumnFilter activeColumns={activeColumns} onToggleColumn={handleToggleColumn} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls" || id === "leadscore_avg")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
+            <ManagerColumnFilter activeColumns={activeColumns} columnOrder={columnOrder} onToggleColumn={handleToggleColumn} onReorderColumns={handleReorderColumns} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls" || id === "leadscore_avg")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
           </div>
 
           {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}
@@ -1061,7 +1085,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, showTrends, onShowTrendsChange, colorMetricValue, handleColorMetricValueChange, activeColumns, handleToggleColumn, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
+    [viewMode, handleViewModeChange, showTrends, onShowTrendsChange, colorMetricValue, handleColorMetricValueChange, activeColumns, columnOrder, handleToggleColumn, handleReorderColumns, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
   );
 
   const tableContentProps = useMemo(
@@ -1082,6 +1106,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFilters,
       setColumnFilters,
       activeColumns,
+      columnOrder,
       hasSheetIntegration,
       mqlLeadscoreMin,
       sorting,
@@ -1094,51 +1119,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       isError: isError && currentTab === "por-anuncio",
       onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
 
-  // Barra de ação em massa (pausar/ativar) — compartilhada pelas abas com seleção (individual,
-  // por-conjunto, por-campanha). A seleção é resetada na troca de aba, então só a aba ativa a exibe.
-  // Memoizada para não quebrar o React.memo do FilterBar (recebe-a como trailingSlot).
-  const bulkActionBar = useMemo(() => selectedCount > 0 ? (
-    <div className="flex h-control-default items-center gap-2 rounded-lg border border-input bg-background px-3 text-sm shrink-0">
-      <span className="text-muted-foreground font-medium">{selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}</span>
-      <div className="h-4 w-px bg-border" />
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-destructive hover:text-destructive-foreground"
-        disabled={isBulkLoading}
-        onClick={() => { bulkPause(selectedIds); setRowSelection({}); }}
-      >
-        {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
-        Pausar
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-auto py-0.5 px-2 text-xs gap-1 hover:bg-success hover:text-success-foreground"
-        disabled={isBulkLoading}
-        onClick={() => { bulkActivate(selectedIds); setRowSelection({}); }}
-      >
-        {isBulkLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
-        Ativar
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-auto py-0.5 px-1 text-muted-foreground"
-        disabled={isBulkLoading}
-        onClick={() => setRowSelection({})}
-        aria-label="Limpar seleção"
-      >
-        <IconX className="h-3.5 w-3.5" />
-      </Button>
-    </div>
-  ) : null, [selectedCount, selectedIds, isBulkLoading, bulkPause, bulkActivate, setRowSelection]);
-
-  // Toolbar única compartilhada pelas 4 abas: 1ª linha = busca (leadingSlot) + contagem + Add filter
-  // + ações em massa (trailingSlot); 2ª linha = chips de filtro em largura total (dentro do FilterBar).
+  // Toolbar única compartilhada pelas 4 abas: busca (leadingSlot) + contagem + botão Filtros.
+  // As ações em massa vivem na BulkActionsBar flutuante (base da tabela), fora do toolbar.
   const tableToolbar = (
     <FilterBar
       columnFilters={columnFilters}
@@ -1148,14 +1133,14 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       totalCount={adsEffectiveRaw.length}
       itemLabel={filterBarItemLabel}
       leadingSlot={searchBar}
-      trailingSlot={bulkActionBar}
     />
   );
 
   return (
     <>
-      {/* Em fullscreen, o wrapper vira overlay fixed acima do topbar/sidebar (z-sticky) e a tabela ganha a viewport inteira. */}
-      <div className={cn(isFullscreen ? "fixed inset-0 z-overlay flex flex-col overflow-hidden bg-background p-widget-default" : "flex min-h-0 min-w-0 flex-1 flex-col")}>
+      {/* Em fullscreen, o wrapper vira overlay fixed acima do topbar/sidebar (z-sticky) e a tabela ganha a viewport inteira.
+          `relative` ancora a BulkActionsBar flutuante na base da área da tabela. */}
+      <div className={cn(isFullscreen ? "fixed inset-0 z-overlay flex flex-col overflow-hidden bg-background p-widget-default" : "relative flex min-h-0 min-w-0 flex-1 flex-col")}>
       <TabbedWorkspace
         value={currentTab}
         onValueChange={handleTabChange}
@@ -1209,6 +1194,18 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
           </TableWorkspace>
         </TabbedContentItem>
       </TabbedWorkspace>
+
+      {/* Ações em massa flutuantes — perto das linhas selecionadas, sem disputar o toolbar. */}
+      <BulkActionsBar
+        selectedCount={selectedCount}
+        isLoading={isBulkLoading}
+        allSelected={table.getIsAllPageRowsSelected()}
+        entityNoun={BULK_ENTITY_NOUN[bulkEntityType]}
+        onPause={() => { bulkPause(selectedIds); setRowSelection({}); }}
+        onActivate={() => { bulkActivate(selectedIds); setRowSelection({}); }}
+        onToggleAll={(checked) => table.toggleAllPageRowsSelected(checked)}
+        onClear={() => setRowSelection({})}
+      />
       </div>
 
       {/* Drill Modal — substitui a expansão inline (campanha → conjuntos → anúncios) */}
@@ -1220,6 +1217,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         formatCurrency={formatCurrency}
         formatPct={formatPct}
         activeColumns={activeColumns}
+        columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         mqlLeadscoreMin={mqlLeadscoreMin}
         onSelectAd={handleSelectAd}
@@ -1241,6 +1239,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         onClose={() => setIsExportOpen(false)}
         table={table}
         activeColumns={activeColumns}
+        columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         currentTab={currentTab}
         dateStart={dateStart}

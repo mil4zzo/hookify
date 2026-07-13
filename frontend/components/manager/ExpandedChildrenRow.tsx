@@ -22,6 +22,8 @@ interface ExpandedChildrenRowProps {
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;
   activeColumns: Set<ManagerColumnType>;
+  /** Ordem das colunas de métrica escolhida no Manager. Ausente = ordem padrão. */
+  columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number;
   columnFilters?: ColumnFiltersState;
@@ -34,6 +36,7 @@ interface ExpandedChildrenRowProps {
 
 function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: ExpandedChildrenRowProps): boolean {
   const activeColumnsEqual = prev.activeColumns.size === next.activeColumns.size && Array.from(prev.activeColumns).every((column) => next.activeColumns.has(column));
+  const columnOrderEqual = (prev.columnOrder?.length ?? 0) === (next.columnOrder?.length ?? 0) && (prev.columnOrder ?? []).every((column, i) => next.columnOrder?.[i] === column);
   const columnFiltersEqual = (prev.columnFilters?.length ?? 0) === (next.columnFilters?.length ?? 0) && JSON.stringify(prev.columnFilters ?? []) === JSON.stringify(next.columnFilters ?? []);
   const prevPackKey = [...(prev.packIds ?? [])].sort().join("|");
   const nextPackKey = [...(next.packIds ?? [])].sort().join("|");
@@ -49,6 +52,7 @@ function areExpandedChildrenRowPropsEqual(prev: ExpandedChildrenRowProps, next: 
     prev.formatCurrency === next.formatCurrency &&
     prev.formatPct === next.formatPct &&
     activeColumnsEqual &&
+    columnOrderEqual &&
     prev.hasSheetIntegration === next.hasSheetIntegration &&
     prev.mqlLeadscoreMin === next.mqlLeadscoreMin &&
     columnFiltersEqual &&
@@ -67,6 +71,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   formatCurrency,
   formatPct,
   activeColumns,
+  columnOrder,
   hasSheetIntegration = false,
   mqlLeadscoreMin = 0,
   columnFilters = [],
@@ -88,6 +93,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
       formatCurrency={formatCurrency}
       formatPct={formatPct}
       activeColumns={activeColumns}
+      columnOrder={columnOrder}
       hasSheetIntegration={hasSheetIntegration}
       mqlLeadscoreMin={mqlLeadscoreMin}
       columnFilters={columnFilters}

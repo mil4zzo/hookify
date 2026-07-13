@@ -18,6 +18,8 @@ interface ManagerDrillModalProps {
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;
   activeColumns: Set<ManagerColumnType>;
+  /** Ordem das colunas de métrica escolhida no Manager — o drill espelha a tabela de origem. */
+  columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number;
   /** Acionado ao clicar em uma linha terminal (ad). O parent abre o AdDetailsDialog existente. */
@@ -38,6 +40,7 @@ export function ManagerDrillModal({
   formatCurrency,
   formatPct,
   activeColumns,
+  columnOrder,
   hasSheetIntegration = false,
   mqlLeadscoreMin = 0,
   onSelectAd,
@@ -81,6 +84,7 @@ export function ManagerDrillModal({
         formatCurrency={formatCurrency}
         formatPct={formatPct}
         activeColumns={activeColumns}
+        columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         mqlLeadscoreMin={mqlLeadscoreMin}
         columnFilters={columnFilters}
@@ -100,6 +104,7 @@ export function ManagerDrillModal({
         formatCurrency={formatCurrency}
         formatPct={formatPct}
         activeColumns={activeColumns}
+        columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         mqlLeadscoreMin={mqlLeadscoreMin}
         columnFilters={columnFilters}
@@ -119,6 +124,7 @@ export function ManagerDrillModal({
         formatCurrency={formatCurrency}
         formatPct={formatPct}
         activeColumns={activeColumns}
+        columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         mqlLeadscoreMin={mqlLeadscoreMin}
         columnFilters={columnFilters}
