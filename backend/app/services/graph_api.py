@@ -25,6 +25,38 @@ class GraphAPIError(Exception):
         self.message = message
 
 
+# Backoffs do verify pós-write (1ª leitura imediata + 2 retries). O read-after-write de
+# effective_status é eventualmente consistente: medido ~18% de leituras transitórias
+# (IN_PROCESS) logo após um batch de pause. Janela total ~5s — coberta na UI pelo
+# toast de loading.
+_STATUS_VERIFY_BACKOFFS = (0.0, 2.0, 3.0)
+
+# Releituras pós-write que contradizem o write aceito, por status pedido. PAUSED→ACTIVE
+# e ACTIVE→PAUSED são impossíveis (o próprio write determinou o own status; PAUSED como
+# effective_status significa pausa PRÓPRIA); IN_PROCESS é transitório por definição.
+_UNSETTLED_VERIFY_BY_REQUEST = {
+    "PAUSED": {"ACTIVE", "IN_PROCESS"},
+    "ACTIVE": {"PAUSED", "IN_PROCESS"},
+}
+
+
+def _reconcile_verified_status(requested: str, verified: Optional[str]) -> Optional[str]:
+    """
+    Reconcilia o effective_status relido (verify) com o write recém-aceito.
+
+    Devolve o valor verificado quando ele é plausível (inclui os estados informativos que
+    são a razão de ser do verify: ADSET_PAUSED/CAMPAIGN_PAUSED, PENDING_REVIEW,
+    WITH_ISSUES...), ou None quando a leitura é transitória/impossível — caso em que o
+    caller deve re-tentar e, esgotado, assumir o status pedido (o write foi aceito).
+    """
+    value = str(verified or "").upper()
+    if not value:
+        return None
+    if value in _UNSETTLED_VERIFY_BY_REQUEST.get(str(requested).upper(), set()):
+        return None
+    return value
+
+
 def test_facebook_connection(access_token: str) -> Dict[str, Any]:
     """
     Testa se um token do Facebook está válido fazendo uma chamada simples à API.
@@ -808,11 +840,30 @@ class GraphAPI:
         if result.get("status") != "success":
             return result
 
-        verify = self.get_entity_status(entity_id)
-        if verify.get("status") == "success":
-            eff = verify.get("effective_status")
-            result["effective_status"] = eff
+        # Verify com reconciliação: a releitura imediata de effective_status pode vir
+        # transitória (IN_PROCESS) ou defasada (contradizendo o write aceito). Nesses casos
+        # re-lê com backoff; esgotado, vale o status pedido — congelar a leitura defasada
+        # no cache/UI era a causa do toggle "pausado com sucesso" que continuava ativo.
+        settled: Optional[str] = None
+        verify_read_ok = False
+        for delay in _STATUS_VERIFY_BACKOFFS:
+            if delay:
+                time.sleep(delay)
+            verify = self.get_entity_status(entity_id)
+            if verify.get("status") != "success":
+                break
+            verify_read_ok = True
             result["own_status"] = verify.get("own_status")
+            settled = _reconcile_verified_status(status, verify.get("effective_status"))
+            if settled is not None:
+                break
+            logger.info(
+                "_activate_or_pause: verify não-assentado (%s → %s) para %s %s — retry",
+                status, verify.get("effective_status"), entity_type, entity_id,
+            )
+        if verify_read_ok:
+            eff = settled or status
+            result["effective_status"] = eff
             # Se o pre-check falhou e só agora detectamos a pausa herdada, bloqueia honestamente.
             if status == "ACTIVE" and eff in blockers:
                 return {"status": "blocked", "reason": blockers[eff], "effective_status": eff}
@@ -1050,6 +1101,102 @@ class GraphAPI:
             logger.exception("get_ad_statuses_by_parent error (%s=%s): %s", parent_field, parent_id, err)
             return {"status": "error", "message": str(err)}
 
+    # Tamanho do chunk de ids no array do `filtering` (segurança de URL — o filtro viaja
+    # no querystring). 100 ids ≈ 2KB de filtro; bem abaixo dos limites práticos.
+    _FILTER_IDS_CHUNK = 100
+
+    def get_ad_statuses_by_ids(self, act_id: str, ad_ids: List[str], *, deadline: Optional[float] = None) -> Dict[str, Any]:
+        """
+        Lê o effective_status de ads ESPECÍFICOS de uma conta via edge filtrado:
+        GET /act_{id}/ads?fields=id,effective_status&filtering=[{field: ad.id, IN, [ids]}]
+
+        1 chamada real E contabilizada por chunk de até 100 ids — no Batch API cada
+        sub-request de 50 conta individualmente no rate limit. O campo `ad.id` no filtering
+        não é enumerado na doc do edge (que é omissa sobre o parâmetro), então o caller
+        (`_read_effective_statuses`) trata esta leitura como best-effort: ids ausentes do
+        retorno caem no fallback via Batch GET — se a Meta rejeitar o filtro (#100), o
+        comportamento degrada exatamente para o atual.
+
+        Retorna: {"status": "success", "statuses": {ad_id: effective_status}} (parcial
+        fail-open; ids não lidos ficam ausentes) ou {"status": "auth_error", ...}.
+        """
+        statuses: Dict[str, Any] = {}
+        if not act_id or not ad_ids:
+            return {"status": "success", "statuses": statuses}
+
+        for i in range(0, len(ad_ids), self._FILTER_IDS_CHUNK):
+            if deadline is not None and time.monotonic() > deadline:
+                logger.warning("get_ad_statuses_by_ids: deadline estourado no chunk %d — parcial fail-open", i // self._FILTER_IDS_CHUNK)
+                break
+            chunk = [str(a) for a in ad_ids[i : i + self._FILTER_IDS_CHUNK]]
+            url = f"{self.base_url}{act_id}/ads"
+            params: Dict[str, Any] = {
+                "access_token": self.access_token,
+                "fields": "id,effective_status",
+                "limit": len(chunk),
+                "filtering": json.dumps([{"field": "ad.id", "operator": "IN", "value": chunk}]),
+            }
+            try:
+                resp = requests.get(url, params=params, timeout=60)
+                resp.raise_for_status()
+                log_meta_usage(resp, "GraphAPI.get_ad_statuses_by_ids")
+                body = resp.json()
+                for row in (body.get("data") or []):
+                    row_id = str(row.get("id") or "").strip()
+                    if row_id:
+                        statuses[row_id] = str(row.get("effective_status") or "").upper() or None
+            except requests.exceptions.HTTPError as http_err:
+                error_data = http_err.response.json() if http_err.response is not None and http_err.response.content else {}
+                error_obj = error_data.get("error", {}) if isinstance(error_data, dict) else {}
+                if error_obj.get("code") == 190:
+                    return {"status": "auth_error", "message": error_obj.get("message", "Token expirado"), "error": error_obj}
+                # #100 aqui = filtro ad.id não suportado → chunk fica ausente e o caller
+                # cai no Batch GET. Log em warning para diagnóstico da Etapa 0 em produção.
+                logger.warning("get_ad_statuses_by_ids HTTP error no chunk %d (%s): %s", i // self._FILTER_IDS_CHUNK, act_id, http_err)
+            except Exception as err:
+                logger.exception("get_ad_statuses_by_ids error no chunk %d (%s): %s", i // self._FILTER_IDS_CHUNK, act_id, err)
+        return {"status": "success", "statuses": statuses}
+
+    def _read_effective_statuses(
+        self,
+        ad_ids: List[str],
+        *,
+        account_groups: Optional[Dict[str, List[str]]] = None,
+        deadline: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Lê effective_status de um conjunto de ads da forma mais barata disponível:
+        leitura filtrada por conta (`get_ad_statuses_by_ids`, 1 chamada/chunk de 100)
+        quando o mapeamento act_id → ad_ids é conhecido; ids não cobertos (conta
+        desconhecida, filtro rejeitado, ad não retornado) caem no Batch GET clássico.
+
+        Mesmo shape/semântica de `batch_get_effective_status`: fail-open (ids ilegíveis
+        ficam ausentes), auth_error propagado.
+        """
+        requested = [str(a) for a in ad_ids]
+        statuses: Dict[str, Any] = {}
+        if not requested:
+            return {"status": "success", "statuses": statuses}
+
+        if account_groups:
+            requested_set = set(requested)
+            for act_id, ids in account_groups.items():
+                wanted = [str(i) for i in ids if str(i) in requested_set]
+                if not wanted:
+                    continue
+                read = self.get_ad_statuses_by_ids(act_id, wanted, deadline=deadline)
+                if read.get("status") == "auth_error":
+                    return read
+                statuses.update(read.get("statuses", {}) or {})
+
+        missing = [a for a in requested if a not in statuses]
+        if missing:
+            read = self.batch_get_effective_status(missing, deadline=deadline)
+            if read.get("status") == "auth_error":
+                return read
+            statuses.update(read.get("statuses", {}) or {})
+        return {"status": "success", "statuses": statuses}
+
     def get_entity_statuses_for_account(self, act_id: str, edge: str) -> Dict[str, Any]:
         """
         Lê id+effective_status de todas as entidades de um edge da conta (`campaigns`,
@@ -1100,7 +1247,14 @@ class GraphAPI:
             logger.exception("get_entity_statuses_for_account error (%s/%s): %s", act_id, edge, err)
             return {"status": "error", "message": str(err)}
 
-    def batch_update_ad_status(self, ad_ids: List[str], status: str, entity_type: str = "ad") -> Dict[str, Any]:
+    def batch_update_ad_status(
+        self,
+        ad_ids: List[str],
+        status: str,
+        entity_type: str = "ad",
+        *,
+        account_groups: Optional[Dict[str, List[str]]] = None,
+    ) -> Dict[str, Any]:
         """
         Atualiza status de múltiplos nós (ad/adset/campaign) em lote via Meta Batch API.
 
@@ -1108,19 +1262,24 @@ class GraphAPI:
         leitura = `GET /{object_id}?fields=effective_status`), então o mesmo loop de write/verify
         serve para ad, adset e campaign. Só o mapa de pausa herdada muda por tipo (`entity_type`).
 
-        Ao ATIVAR: lê o effective_status fresco (batch GET) e BLOQUEIA os nós pausados por um pai
+        `account_groups` (act_id → ad_ids; só faz sentido para entity_type="ad"): habilita
+        pre-check/verify via leitura FILTRADA (`_read_effective_statuses`, ~1 chamada por conta)
+        em vez de Batch GET (1 sub-request por ad, cada uma contando no rate limit).
+
+        Ao ATIVAR: lê o effective_status fresco e BLOQUEIA os nós pausados por um pai
         (ad: ADSET_PAUSED/CAMPAIGN_PAUSED; adset: CAMPAIGN_PAUSED; campaign: nenhum) — ativar o
         próprio nó não retomaria a entrega e reportaria "sucesso fantasma". Bloqueados NÃO são
         escritos e voltam em `blocked` (id → motivo).
 
-        Após escrever, relê o effective_status dos nós escritos (verify, mesmo padrão do fluxo
-        individual). Ao ATIVAR, nós que o verify mostrar ainda pausados por um pai (caso fail-open:
-        o pre-check não conseguiu lê-los) são movidos de `updated_ids` para `blocked` — sem isso o
-        fail-open reintroduz o "sucesso fantasma" no lote.
+        Após escrever, relê o effective_status dos nós escritos (verify) COM reconciliação:
+        leituras transitórias/impossíveis (IN_PROCESS; valor que contradiz o write aceito) são
+        re-lidas com backoff (`_STATUS_VERIFY_BACKOFFS`) e, esgotado, assumem o status pedido —
+        nunca congelamos uma leitura defasada como verdade. Ao ATIVAR, nós que o verify
+        (assentado) mostrar pausados por um pai são movidos de `updated_ids` para `blocked`.
 
         Retorna: {"status": "success", "updated_ids": [...], "failed_ids": [...],
                   "blocked": {id: "adset"|"campaign"},
-                  "verified_statuses": {id: effective_status relido}}
+                  "verified_statuses": {id: effective_status reconciliado}}
         """
         if not ad_ids:
             return {"status": "success", "updated_ids": [], "failed_ids": [], "blocked": {}, "verified_statuses": {}}
@@ -1137,9 +1296,11 @@ class GraphAPI:
         blocked: Dict[str, str] = {}
         writable = list(ad_ids)
         verified_statuses: Dict[str, Any] = {}
+        # Leitura filtrada só se aplica a ads (o filtro é ad.id no edge /ads).
+        groups = account_groups if entity_type == "ad" else None
 
         if status == "ACTIVE":
-            pre = self.batch_get_effective_status(ad_ids)
+            pre = self._read_effective_statuses(ad_ids, account_groups=groups)
             if pre.get("status") == "auth_error":
                 return pre
             statuses = pre.get("statuses", {})
@@ -1159,20 +1320,52 @@ class GraphAPI:
             return result
         updated_ids = list(result.get("updated_ids") or [])
         if updated_ids:
-            verify = self.batch_get_effective_status(updated_ids)
-            if verify.get("status") == "success":
-                # merge (não substituir): preserva a verdade do pre-check dos bloqueados
+            # Verify com retry: cada rodada relê SÓ os ainda não-assentados.
+            pending = [str(a) for a in updated_ids]
+            verify_failed = False
+            for delay in _STATUS_VERIFY_BACKOFFS:
+                if delay:
+                    time.sleep(delay)
+                verify = self._read_effective_statuses(pending, account_groups=groups)
+                if verify.get("status") == "auth_error":
+                    return verify
+                if verify.get("status") != "success":
+                    verify_failed = True
+                    break
                 verify_statuses = verify.get("statuses", {}) or {}
-                verified_statuses.update(verify_statuses)
-                if status == "ACTIVE":
-                    still_updated = []
-                    for ad_id in updated_ids:
-                        reason = inherited_pause.get(verify_statuses.get(str(ad_id)) or "")
-                        if reason:
-                            blocked[str(ad_id)] = reason
-                        else:
-                            still_updated.append(ad_id)
-                    updated_ids = still_updated
+                still_pending: List[str] = []
+                for ad_id in pending:
+                    if ad_id not in verify_statuses:
+                        # Ilegível (fail-open): sem verify — o caller aplica a heurística
+                        # conservadora antiga para estes. Não insistir.
+                        continue
+                    settled = _reconcile_verified_status(status, verify_statuses.get(ad_id))
+                    if settled is None:
+                        still_pending.append(ad_id)
+                    else:
+                        # merge (não substituir): preserva a verdade do pre-check dos bloqueados
+                        verified_statuses[ad_id] = settled
+                pending = still_pending
+                if not pending:
+                    break
+            if pending and not verify_failed:
+                # Esgotou os retries com leitura ainda transitória/defasada: o write foi
+                # aceito — vale o status pedido (nunca persistir IN_PROCESS/valor velho).
+                logger.info(
+                    "batch_update_ad_status: %d %s(s) não assentaram no verify — assumindo %s",
+                    len(pending), entity_type, status,
+                )
+                for ad_id in pending:
+                    verified_statuses[ad_id] = status
+            if status == "ACTIVE":
+                still_updated = []
+                for ad_id in updated_ids:
+                    reason = inherited_pause.get(verified_statuses.get(str(ad_id)) or "")
+                    if reason:
+                        blocked[str(ad_id)] = reason
+                    else:
+                        still_updated.append(ad_id)
+                updated_ids = still_updated
             # verify com falha (não-auth) é fail-open: mantém a classificação otimista do write.
 
         result["updated_ids"] = updated_ids

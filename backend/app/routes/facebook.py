@@ -757,6 +757,11 @@ def _write_local_statuses(*, user_jwt: str, user_id: str, statuses: Dict[str, An
     Grava effective_status por ad no cache local (Supabase `ads`), agrupando por valor
     (1 UPDATE por status distinto, em chunks de 200 para não estourar a URL do PostgREST).
     Ads com status None/vazio (leitura fail-open do Meta) não são tocados.
+
+    IN_PROCESS nunca é persistido: é transitório por definição (Meta ainda aplicando a
+    mudança) e a UI o renderiza como "ativo" — congelá-lo no banco foi a causa do toggle
+    que mostrava ativo após pausar. Vale para TODOS os caminhos que passam por aqui
+    (toggle individual/bulk, sync de filhos pós-toggle de pai, sync on-focus).
     """
     from app.core.supabase_client import get_supabase_for_user
 
@@ -764,7 +769,10 @@ def _write_local_statuses(*, user_jwt: str, user_id: str, statuses: Dict[str, An
     for ad_id, status in (statuses or {}).items():
         if not status:
             continue
-        by_status.setdefault(str(status).upper(), []).append(str(ad_id))
+        status_value = str(status).upper()
+        if status_value == "IN_PROCESS":
+            continue
+        by_status.setdefault(status_value, []).append(str(ad_id))
     if not by_status:
         return
 
@@ -1107,20 +1115,28 @@ def _finalize_status_update(
     }
 
 
-def _filter_ads_belonging_to_user(*, user_jwt: str, user_id: str, ad_ids: List[str]) -> List[str]:
+def _filter_ads_belonging_to_user(*, user_jwt: str, user_id: str, ad_ids: List[str]) -> Tuple[List[str], Dict[str, List[str]]]:
     """
-    Retorna apenas os ad_ids da lista que pertencem ao usuário.
-    Chunks de 200 para não estourar o limite de URL do PostgREST.
+    Retorna (ad_ids do usuário, agrupamento act_id → ad_ids) — mesmo SELECT.
+    O agrupamento habilita a leitura filtrada de status por conta (1 chamada/conta em vez
+    de 1 sub-request por ad no Batch API). Chunks de 200 (limite de URL do PostgREST).
     """
     from app.core.supabase_client import get_supabase_for_user
     sb = get_supabase_for_user(user_jwt)
     valid: set = set()
+    account_groups: Dict[str, List[str]] = {}
     for i in range(0, len(ad_ids), 200):
         chunk = ad_ids[i : i + 200]
-        res = sb.table("ads").select("ad_id").eq("user_id", user_id).in_("ad_id", chunk).execute()
+        res = sb.table("ads").select("ad_id,account_id").eq("user_id", user_id).in_("ad_id", chunk).execute()
         for row in (res.data or []):
-            valid.add(row["ad_id"])
-    return [aid for aid in ad_ids if aid in valid]
+            ad_id = str(row["ad_id"])
+            valid.add(ad_id)
+            account_id = str(row.get("account_id") or "").strip()
+            if account_id:
+                # ads.account_id vem sem prefixo act_ (padrão da tabela)
+                act_id = account_id if account_id.startswith("act_") else f"act_{account_id}"
+                account_groups.setdefault(act_id, []).append(ad_id)
+    return [aid for aid in ad_ids if aid in valid], account_groups
 
 
 def _filter_entities_belonging_to_user(*, user_jwt: str, user_id: str, entity_type: str, ids: List[str]) -> List[str]:
@@ -1254,12 +1270,13 @@ def update_ads_batch_status(
     user_jwt = user["token"]
     user_id = user["user_id"]
 
-    # Filtrar apenas ads que pertencem ao usuário (segurança)
-    owned_ids = _filter_ads_belonging_to_user(user_jwt=user_jwt, user_id=user_id, ad_ids=request.ad_ids)
+    # Filtrar apenas ads que pertencem ao usuário (segurança). O agrupamento por conta
+    # habilita pre-check/verify via leitura filtrada (1 chamada/conta) no serviço.
+    owned_ids, account_groups = _filter_ads_belonging_to_user(user_jwt=user_jwt, user_id=user_id, ad_ids=request.ad_ids)
     if not owned_ids:
         raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": "Nenhum dos anúncios encontrado para este usuário"})
 
-    result = api.batch_update_ad_status(owned_ids, request.status)
+    result = api.batch_update_ad_status(owned_ids, request.status, account_groups=account_groups)
 
     if result.get("status") == "auth_error":
         mark_connection_as_expired(user_jwt, user_id)

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api/endpoints";
-import { showError, showSuccess } from "@/lib/utils/toast";
+import { showError } from "@/lib/utils/toast";
 import { toast } from "sonner";
 
 export type AdEntityType = "ad" | "adset" | "campaign";
@@ -149,11 +149,26 @@ export interface UseBulkEntityStatusControlReturn {
 // Retrocompat: o call-site antigo importa este nome.
 export type UseBulkAdStatusControlReturn = UseBulkEntityStatusControlReturn;
 
-const BULK_ENTITY_NOUN: Record<AdEntityType, { singular: string; plural: string; parentHint: string }> = {
+export const BULK_ENTITY_NOUN: Record<AdEntityType, { singular: string; plural: string; parentHint: string }> = {
   ad: { singular: "anúncio", plural: "anúncios", parentHint: "a campanha/conjunto" },
   adset: { singular: "conjunto", plural: "conjuntos", parentHint: "a campanha" },
   campaign: { singular: "campanha", plural: "campanhas", parentHint: "" },
 };
+
+/**
+ * O write+verify no Meta leva segundos (e até ~5s extras quando o verify precisa de retry
+ * por leitura transitória) — sem loading imediato o usuário fica sem feedback nenhum até a
+ * resposta voltar ("nem vi toast"). O toast terminal atualiza o MESMO id in-place.
+ */
+function showStatusLoadingToast(toastId: string, status: AdEntityStatus, subject: string): void {
+  toast.loading(`${status === "PAUSED" ? "Pausando" : "Ativando"} ${subject}…`, { id: toastId });
+}
+
+/** Fecha o loading e delega ao showError (card persistente com botão de fechar). */
+function failStatusToast(toastId: string, message: string): void {
+  toast.dismiss(toastId);
+  showError(message);
+}
 
 /**
  * Pausar/ativar em massa via Meta Batch API (1 req/50), para ad, adset ou campaign.
@@ -164,12 +179,16 @@ const BULK_ENTITY_NOUN: Record<AdEntityType, { singular: string; plural: string;
 export function useBulkEntityStatusControl(entityType: AdEntityType = "ad"): UseBulkEntityStatusControlReturn {
   const qc = useQueryClient();
   const noun = BULK_ENTITY_NOUN[entityType];
+  const toastId = `bulk-status-${entityType}`;
 
   const mutation = useMutation({
     mutationFn: ({ ids, status }: { ids: string[]; status: "PAUSED" | "ACTIVE" }) => {
       if (entityType === "adset") return api.facebook.batchUpdateAdsetStatus(ids, status);
       if (entityType === "campaign") return api.facebook.batchUpdateCampaignStatus(ids, status);
       return api.facebook.batchUpdateAdStatus(ids, status);
+    },
+    onMutate: ({ ids, status }) => {
+      showStatusLoadingToast(toastId, status, `${ids.length} ${ids.length === 1 ? noun.singular : noun.plural}`);
     },
     onSuccess: async (data, variables) => {
       const { status } = variables;
@@ -198,7 +217,7 @@ export function useBulkEntityStatusControl(entityType: AdEntityType = "ad"): Use
       const nounFor = (n: number) => (n === 1 ? noun.singular : noun.plural);
 
       if (blockedIds.length === 0 && failed_ids.length === 0) {
-        showSuccess(`${updated_ids.length} ${nounFor(updated_ids.length)} ${verb(updated_ids.length)}.`);
+        toast.success(`${updated_ids.length} ${nounFor(updated_ids.length)} ${verb(updated_ids.length)}.`, { id: toastId });
         return;
       }
 
@@ -207,7 +226,7 @@ export function useBulkEntityStatusControl(entityType: AdEntityType = "ad"): Use
         const segments = [`${updated_ids.length} ${verb(updated_ids.length)}`];
         if (blockedIds.length > 0) segments.push(`${blockedIds.length} bloqueado${plural(blockedIds.length)} (pai pausado)`);
         if (failed_ids.length > 0) segments.push(`${failed_ids.length} com falha`);
-        toast.warning(`${segments.join(", ")}.`, { duration: 6000 });
+        toast.warning(`${segments.join(", ")}.`, { id: toastId, duration: 6000 });
         return;
       }
 
@@ -216,20 +235,20 @@ export function useBulkEntityStatusControl(entityType: AdEntityType = "ad"): Use
         // Todos bloqueados por pausa herdada: é orientação, não falha do Meta.
         toast.warning(
           `Nenhum ativado: ${blockedIds.length} bloqueado${plural(blockedIds.length)} porque ${noun.parentHint || "um pai"} está pausado(a). Ative ${noun.parentHint || "a campanha/conjunto"} primeiro.`,
-          { duration: 7000 },
+          { id: toastId, duration: 7000 },
         );
         return;
       }
 
-      showError(`Falha ao atualizar ${failed_ids.length} ${nounFor(failed_ids.length)}.`);
+      failStatusToast(toastId, `Falha ao atualizar ${failed_ids.length} ${nounFor(failed_ids.length)}.`);
     },
     onError: (e: any) => {
       const msg = e?.message || "Falha ao atualizar status em lote.";
       if (isMetaRateLimitMessage(msg)) {
-        toast.warning("Limite de requisições do Meta atingido. Aguarde alguns segundos e tente novamente.", { duration: 7000 });
+        toast.warning("Limite de requisições do Meta atingido. Aguarde alguns segundos e tente novamente.", { id: toastId, duration: 7000 });
         return;
       }
-      showError(msg);
+      failStatusToast(toastId, msg);
     },
   });
 
@@ -264,6 +283,8 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
 
   const effectiveStatus = statusOverride ?? (currentStatus ?? null);
   const isPaused = useMemo(() => isPausedStatus(effectiveStatus), [effectiveStatus]);
+  // Id inclui a entidade: toggles rápidos em linhas diferentes não podem clobber o toast um do outro.
+  const toastId = `status-${entityType}-${entityId}`;
 
   const mutation = useMutation({
     mutationFn: async (nextStatus: AdEntityStatus) => {
@@ -274,6 +295,9 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       if (entityType === "adset") return api.facebook.updateAdsetStatus(entityId, nextStatus);
       return api.facebook.updateCampaignStatus(entityId, nextStatus);
     },
+    onMutate: (nextStatus) => {
+      showStatusLoadingToast(toastId, nextStatus, BULK_ENTITY_NOUN[entityType].singular);
+    },
     onSuccess: async (data) => {
       // Refletir o effective_status REAL relido do Meta (verify), não o status pedido.
       // Evita o "sucesso fantasma" que revertia no próximo refresh: se o Meta devolver um
@@ -282,7 +306,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       setStatusOverride(realStatus);
       onSuccess?.(data.status);
 
-      showSuccess(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.");
+      toast.success(data.status === "PAUSED" ? "Pausado com sucesso." : "Ativado com sucesso.", { id: toastId });
 
       if (entityType === "ad") {
         // Toggle de status não muda métricas — só effective_status. Patch in-place
@@ -312,7 +336,7 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
         if (entityType !== "ad") {
           void qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
         }
-        toast.warning(msg, { duration: 6000 });
+        toast.warning(msg, { id: toastId, duration: 6000 });
         return;
       }
       // Rate limit do Meta: pausar/ativar anúncios um a um em sequência dispara 2 chamadas Meta
@@ -322,11 +346,11 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       if (isMetaRateLimitMessage(msg)) {
         toast.warning(
           "Muitas ações de status em sequência. Aguarde alguns segundos e tente de novo — ou selecione vários anúncios e use “Pausar/Ativar em massa”.",
-          { duration: 7000 },
+          { id: toastId, duration: 7000 },
         );
         return;
       }
-      showError(msg);
+      failStatusToast(toastId, msg);
     },
   });
 

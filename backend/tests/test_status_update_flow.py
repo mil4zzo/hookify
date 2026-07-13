@@ -123,10 +123,11 @@ class _StubBatchGraphAPI(GraphAPI):
         self.written = None            # ad_ids que chegaram ao write
         self.effective_calls = 0
 
-    def batch_get_effective_status(self, ad_ids):  # type: ignore[override]
+    def batch_get_effective_status(self, ad_ids, **kwargs):  # type: ignore[override]
         self.effective_calls += 1
         source = self._verify_map if self.written is not None else self._effective_map
-        return {"status": "success", "statuses": {aid: source.get(aid) for aid in ad_ids}}
+        # Contrato real: ads que o Meta não conseguiu ler ficam AUSENTES do dict (fail-open).
+        return {"status": "success", "statuses": {aid: source[aid] for aid in ad_ids if aid in source}}
 
     def _batch_write_status(self, ad_ids, status):  # type: ignore[override]
         self.written = list(ad_ids)
@@ -137,12 +138,17 @@ class _StubBatchGraphAPI(GraphAPI):
 
 class TestBatchActivateBlocksInheritedPause(unittest.TestCase):
     def test_activate_partitions_blocked_from_writable(self):
-        api = _StubBatchGraphAPI({
-            "own_paused": "PAUSED",          # pausa própria → escreve
-            "camp_paused": "CAMPAIGN_PAUSED",  # pai pausado → bloqueia
-            "adset_paused": "ADSET_PAUSED",    # pai pausado → bloqueia
-            "already_on": "ACTIVE",          # já ativo → deixa passar (no-op inofensivo)
-        })
+        api = _StubBatchGraphAPI(
+            {
+                "own_paused": "PAUSED",          # pausa própria → escreve
+                "camp_paused": "CAMPAIGN_PAUSED",  # pai pausado → bloqueia
+                "adset_paused": "ADSET_PAUSED",    # pai pausado → bloqueia
+                "already_on": "ACTIVE",          # já ativo → deixa passar (no-op inofensivo)
+            },
+            # Verify pós-write realista: os escritos assentam em ACTIVE (sem isso o
+            # PAUSED pré-write dispararia o retry de leitura não-assentada).
+            verify_map={"own_paused": "ACTIVE", "already_on": "ACTIVE"},
+        )
         res = api.batch_update_ad_status(
             ["own_paused", "camp_paused", "adset_paused", "already_on"], "ACTIVE"
         )
