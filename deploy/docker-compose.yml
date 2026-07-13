@@ -55,9 +55,13 @@ services:
         - NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=${NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY}
         - NEXT_PUBLIC_SENTRY_DSN=${NEXT_PUBLIC_SENTRY_DSN}
         - NEXT_PUBLIC_BILLING_PIX_ENABLED=${NEXT_PUBLIC_BILLING_PIX_ENABLED:-false}
-        - SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN}
         - SENTRY_ORG=${SENTRY_ORG}
         - SENTRY_PROJECT=${SENTRY_PROJECT}
+      # SENTRY_AUTH_TOKEN vai como SECRET, não como build arg: args ficam gravados nas
+      # camadas da imagem (`docker history` expõe). Como secret, ele só existe durante
+      # o RUN do build. Se não estiver no ambiente, o build segue sem upload de source maps.
+      secrets:
+        - sentry_auth_token
     container_name: hookify-frontend
     restart: unless-stopped
     environment:
@@ -76,6 +80,13 @@ services:
       - "traefik.http.middlewares.frontend-headers.headers.customrequestheaders.X-Forwarded-Proto=https"
       - "traefik.http.routers.frontend.middlewares=frontend-headers"
       - "traefik.docker.network=hookify-network"
+
+secrets:
+  # Lê o valor de SENTRY_AUTH_TOKEN do ambiente (deploy/.env ou shell) no momento do
+  # build e o entrega ao BuildKit como secret — nunca como camada da imagem.
+  # Requer Docker Compose >= 2.23 (VPS roda v5.x).
+  sentry_auth_token:
+    environment: SENTRY_AUTH_TOKEN
 
 networks:
   hookify-network:

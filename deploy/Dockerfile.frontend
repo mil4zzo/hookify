@@ -11,9 +11,12 @@ ARG NEXT_PUBLIC_SUPABASE_URL
 ARG NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
 ARG NEXT_PUBLIC_SENTRY_DSN
 ARG NEXT_PUBLIC_BILLING_PIX_ENABLED
-ARG SENTRY_AUTH_TOKEN
 ARG SENTRY_ORG
 ARG SENTRY_PROJECT
+# SENTRY_AUTH_TOKEN NÃO entra como ARG: build args ficam GRAVADOS nas camadas da
+# imagem (qualquer um com a imagem lê o token via `docker history`). Ele é montado
+# como secret do BuildKit no RUN do build — existe só durante aquele comando e não
+# deixa rastro em camada nenhuma. Ver deploy/docker-compose.yml (bloco `secrets:`).
 
 # Definir como variáveis de ambiente para o build
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
@@ -23,7 +26,6 @@ ENV NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
 ENV NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=$NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY
 ENV NEXT_PUBLIC_SENTRY_DSN=$NEXT_PUBLIC_SENTRY_DSN
 ENV NEXT_PUBLIC_BILLING_PIX_ENABLED=$NEXT_PUBLIC_BILLING_PIX_ENABLED
-ENV SENTRY_AUTH_TOKEN=$SENTRY_AUTH_TOKEN
 ENV SENTRY_ORG=$SENTRY_ORG
 ENV SENTRY_PROJECT=$SENTRY_PROJECT
 
@@ -54,8 +56,13 @@ COPY instrumentation-client.ts ./
 COPY sentry.server.config.ts ./
 COPY sentry.edge.config.ts ./
 
-# Build com cache mount do .next/cache (incremental compile)
+# Build com cache mount do .next/cache (incremental compile) + secret mount do token
+# do Sentry. O `|| true` mantém o build funcionando quando o secret NÃO é passado
+# (ex.: build local/CI sem credencial): sem token, o plugin do Sentry apenas pula o
+# upload dos source maps — o app compila igual. Sem isso, um build sem secret quebraria.
 RUN --mount=type=cache,target=/app/.next/cache \
+    --mount=type=secret,id=sentry_auth_token \
+    SENTRY_AUTH_TOKEN="$(cat /run/secrets/sentry_auth_token 2>/dev/null || true)" \
     npm run build
 
 # ─────────────────────────────────────────────────────────────────────

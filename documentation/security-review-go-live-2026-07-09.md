@@ -42,7 +42,7 @@ FastAPI + Supabase (JWKS/RLS) · Traefik + Let's Encrypt + Cloudflare.
 | 5 | 🟡 Médio | Middleware usa `getSession()` (não revalida) em vez de `getUser()` | ⏭️ | Não — **risco aceito** |
 | 6 | 🟡 Médio | `ignoreBuildErrors` removido (type-check é gate). ESLint não existe no projeto → fatiado como item próprio (não-segurança) | 🟡 | Não |
 | 7 | 🟡 Médio | Deps vulneráveis (44 → **0**) + esteira de CI/CD (`security.yml`: gitleaks, audits, build, testes) | ✅ | Não |
-| 8 | 🟢 Baixo | `SENTRY_AUTH_TOKEN` como build-arg do Docker | ⬜ | Não |
+| 8 | 🟢 Baixo | `SENTRY_AUTH_TOKEN` como build-arg → BuildKit secret mount (verificar no 1º deploy) | 🟡 | Não |
 | 9 | 🟢 Baixo | JSON-LD via `dangerouslySetInnerHTML` sem escapar `</script>` — helper `serializeJsonLd` | ✅ | Não |
 | 10 | 🟢 Baixo | CORS `allow_methods/headers=["*"]` + credentials — guard de boot + allowlist explícita | ✅ | Não |
 | — | ✅ OK | JWT, webhook Stripe, autorização admin, separação de segredos | — | — |
@@ -467,18 +467,39 @@ nenhum** no repo (só hooks de husky no pre-commit, que o dev pode pular com `--
 **Status:** ⬜ Não iniciado · **Bloqueia go-live:** Não
 **Área:** Infra
 
+**Status:** 🟡 Implementado (2026-07-13) — **falta verificar no primeiro deploy real**
+
 **Contexto / risco:**
-`deploy/docker-compose.yml:51` passa o token como `build.args`, que fica gravado nas camadas da
+`deploy/docker-compose.yml` passava o token como `build.args`, que fica gravado nas camadas da
 imagem (`docker history` revela). É segredo de build (upload de source maps), não vai pro bundle
-do cliente — impacto limitado — mas vaza se a imagem for compartilhada.
+do cliente e não dá acesso a banco/Meta/Stripe — impacto limitado — mas vaza se a imagem sair
+do VPS (registry, snapshot, contratado).
 
-**Remediação:** BuildKit secret mount (`RUN --mount=type=secret,id=sentry_token`) em vez de `ARG`.
+**O que foi feito — BuildKit secret mount:**
+O Dockerfile **já usava BuildKit** (`# syntax=docker/dockerfile:1.4` + `--mount=type=cache`),
+então foi só usar um recurso já disponível:
+- `Dockerfile.frontend`: removidos `ARG`/`ENV SENTRY_AUTH_TOKEN`; o RUN do build ganhou
+  `--mount=type=secret,id=sentry_auth_token` e lê de `/run/secrets/`. O secret existe **só
+  durante aquele comando** e não vira camada.
+- `docker-compose.yml`: bloco `secrets:` com `environment: SENTRY_AUTH_TOKEN` + `build.secrets`
+  no serviço `frontend`. **Exige Compose ≥ 2.23 — VPS confirmado em v5.1.0.**
+- `|| true` na leitura do secret: build **sem** token continua funcionando (o plugin do Sentry
+  só pula o upload de source maps). Sem isso, um build local/CI sem credencial quebraria.
+- `ENV_TEMPLATE.md`: nota de que a var continua no `deploy/.env` — muda só o **transporte**.
 
-**Verificação:**
-- [ ] `docker history` da imagem do frontend não expõe o token
+⚠️ **Não foi possível verificar localmente** (sem Docker na máquina de dev). YAML validado e a
+cadeia conferida (compose → Dockerfile → `next.config.ts` lê `process.env.SENTRY_AUTH_TOKEN`),
+mas **a prova real é o primeiro deploy**.
+
+**Verificação (rodar no VPS após o próximo `./deploy.sh`):**
+- [ ] Build conclui sem erro
+- [ ] Source maps chegaram ao Sentry (stack trace legível num erro de teste)
+- [ ] `docker history hookify-frontend --no-trunc | grep -i sentry_auth` → **não** deve retornar
+      o valor do token (só o `SENTRY_ORG`/`SENTRY_PROJECT`, que não são segredo)
 
 **Log:**
-- _(vazio)_
+- 2026-07-13 — implementado após confirmar Compose v5.1.0 no VPS (o `deploy.sh` tem fallback
+  para o `docker-compose` v1 legado, onde secrets de build **não** funcionam; não é o caso aqui).
 
 ---
 
@@ -580,7 +601,7 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 
 | Item | Situação |
 |---|---|
-| **#8** `SENTRY_AUTH_TOKEN` build-arg | Único achado em aberto. Dockerfile **já usa BuildKit** (`syntax=1.4` + cache mounts) → o secret mount é ~5 linhas. **Bloqueio:** secrets de build exigem **Docker Compose ≥ 2.23** e o `deploy.sh` tem fallback para o `docker-compose` v1 legado. Rodar `docker compose version` **no VPS** antes de aplicar |
+| **#8** `SENTRY_AUTH_TOKEN` build-arg | 🟡 **Implementado** (BuildKit secret mount; Compose do VPS confirmado em v5.1.0). **Falta a prova real:** rodar `./deploy.sh` e checar o `docker history` — ver checklist no achado |
 | **#5** `getSession()` → `getUser()` | ⏭️ **Risco aceito** (ver justificativa no achado) |
 | ESLint do zero (fatiado do #6) | Alto esforço, **não é segurança** |
 
@@ -605,6 +626,7 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 | 2026-07-12 | Claude + usuário | **#4 concluído.** Rate limit por usuário (JWT sub) em `app/core/rate_limit.py` (sliding window em memória, 12 testes) + anti-flood por IP no Traefik + retry TanStack não re-tenta 4xx. Limites calibrados contra telemetria real do banco (pico de 12 jobs/min legítimo derrubou a proposta inicial de 10/min em classe compartilhada → limites por rota). **Todos os 🔴/🟠 resolvidos.** Follow-up: observar `[RATE_LIMIT]` em prod. |
 | 2026-07-12 | Claude + usuário | **#7a concluído (deps).** 44 alertas Dependabot → **0** no `npm audit`. axios 1.13→1.18 (sozinho = 21/44), postcss 8.5.18, `npm audit fix` p/ transitivas, `overrides` p/ postcss (next pina 8.4.31) e esbuild (tsx pina 0.27.3); backend: requests 2.33.0 + python-dotenv 1.2.2. Build/tsc/221 testes OK. Rescan do Dependabot confirmou **0 alertas abertos**. |
 | 2026-07-12 | Claude + usuário | **#6 parcial + #7b concluído.** `ignoreBuildErrors` removido (backlog de tipos já era zero; gate **provado** com erro deliberado → build falha). Descoberto que **o projeto não tem ESLint** → `ignoreDuringBuilds` mantido e ESLint fatiado como item próprio (não-segurança; `next lint` deprecado no Next 16). Criado `.github/workflows/security.yml` — **primeiro CI do repo**: gitleaks + npm audit + pip-audit + tsc/build + pytest bloqueiam merge; SAST (semgrep/bandit) report-only até triagem. |
+| 2026-07-13 | Claude + usuário | **#8 implementado.** `SENTRY_AUTH_TOKEN` deixa de ser build-arg (gravado em camada) e vira **secret do BuildKit** — o Dockerfile já usava BuildKit, então foi só usar. Compose do VPS confirmado em **v5.1.0** (secrets de build exigem ≥2.23). Build sem o token continua funcionando (só pula upload de source maps). **Não verificável localmente (sem Docker no dev) — a prova é o 1º deploy: checar `docker history`.** |
 | 2026-07-13 | Claude + usuário | **#10 e #9 concluídos; #5 aceito como risco.** #10: guard de boot recusa subir o backend com `CORS_ORIGINS=*` (a mina real) + métodos/headers explícitos. #9: helper `serializeJsonLd` nas 2 landing pages, verificado com payload de ataque (`</script><script>alert(...)`) → neutralizado, JSON íntegro, HTML buildado byte-idêntico. #5: dono do produto aceitou o risco (só expõe a casca da UI; backend+RLS protegem o dado; `getUser()` custaria 1 request/navegação). **Resta só o #8.** |
 | 2026-07-12 | Claude + usuário | **O CI provou seu valor na 1ª execução.** `pip-audit` (bloqueante) falhou com 9 vulns em deps **transitivas** que o Dependabot não enxergava: `starlette` 0.38.6 (8 CVEs, preso pelo pin do fastapi) → **fastapi 0.115→0.139** destrava starlette **1.3.1**; validado com 225 testes + smoke test (app sobe, CORS no 401, rate limit engata com CORS no 429 — starlette 1.x é major). `ecdsa` (sem fix, não-explorável: morto em runtime pois o python-jose usa o backend `cryptography`) → exceção documentada `--ignore-vuln`, sem silenciar o job. |
 

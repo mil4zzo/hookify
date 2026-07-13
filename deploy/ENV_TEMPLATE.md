@@ -55,6 +55,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sua_publishable_key_aqui
 NEXT_PUBLIC_SENTRY_DSN=
 # Mostrar botão "Pagar anual com Pix" — ligar junto com STRIPE_PIX_ENABLED do backend
 NEXT_PUBLIC_BILLING_PIX_ENABLED=false
+# SENTRY_AUTH_TOKEN é consumido como SECRET do BuildKit (não como build arg), para não
+# ficar gravado nas camadas da imagem. Continua sendo lido daqui — só muda o transporte.
 SENTRY_AUTH_TOKEN=
 SENTRY_ORG=
 SENTRY_PROJECT=
@@ -74,6 +76,8 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=sua_publishable_key_aqui
 NEXT_PUBLIC_SENTRY_DSN=
 # Mostrar botão "Pagar anual com Pix" — ligar junto com STRIPE_PIX_ENABLED do backend
 NEXT_PUBLIC_BILLING_PIX_ENABLED=false
+# SENTRY_AUTH_TOKEN é consumido como SECRET do BuildKit (não como build arg), para não
+# ficar gravado nas camadas da imagem. Continua sendo lido daqui — só muda o transporte.
 SENTRY_AUTH_TOKEN=
 SENTRY_ORG=
 SENTRY_PROJECT=
