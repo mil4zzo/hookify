@@ -386,6 +386,24 @@ bump de dependência direta.
 | `npm audit fix` (sem `--force`) | `lodash`, `ws`, `picomatch`, `brace-expansion`, `uuid`, `@babel/core`, `@opentelemetry/*`, `@sentry/*` |
 | `overrides` no package.json | `postcss: "$postcss"` (next@15.5.20 **pina 8.4.31** internamente) e `esbuild: ^0.28.1` (tsx@4.21 pina 0.27.3) |
 | `requests` 2.32.3 → **2.33.0**, `python-dotenv` 1.0.1 → **1.2.2** | backend |
+| `fastapi` 0.115.0 → **0.139.0**, `uvicorn` → 0.32.1 | backend — **achado pelo próprio CI** (ver abaixo) |
+
+**O CI encontrou o que o Dependabot não via (2026-07-12):** na primeira execução, o `pip-audit`
+falhou com **9 vulnerabilidades em 2 pacotes transitivos** — invisíveis para quem só olha os pins
+do `requirements.txt`:
+- **`starlette` 0.38.6 — 8 CVEs** (PYSEC-2026-161/248/249/1941/1943, CVE-2026-48817/48818). Estava
+  **preso** porque `fastapi==0.115.0` pina `starlette<0.39.0`. A partir de `fastapi 0.139.0` a
+  restrição vira `starlette>=0.46.0` **sem teto** → destrava a linha **1.3.1** (corrigida).
+  Starlette 1.x é **major**: validado com 225 testes + smoke test real (app sobe; CORS presente no
+  401; rate limit engata no 6º request com `Retry-After` e header CORS no próprio 429 —
+  `BaseHTTPMiddleware` é justamente o que muda entre majors).
+- **`ecdsa` 0.19.2 (PYSEC-2026-1325) — SEM FIX.** Minerva timing attack; os mantenedores declararam
+  resistência a side-channel **fora de escopo** (é Python puro). **Não é explorável aqui:** o
+  `ecdsa` entra como dep dura do `python-jose`, mas fica **morto em runtime** — com `cryptography`
+  instalado, o python-jose resolve `ECKey → CryptographyECKey` e a verificação ES256 do JWT nunca
+  passa pelo `ecdsa` (verificado). Tratado como **exceção documentada** no workflow
+  (`--ignore-vuln PYSEC-2026-1325`), **não** silenciando o job inteiro. Revisar se o `python-jose`
+  sair do projeto.
 
 **Armadilhas encontradas (não repetir):**
 - `npm audit` propõe "fix" de `next` para **`next@9.3.3` (downgrade major)** — lixo. O alerta de
@@ -570,6 +588,7 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 | 2026-07-12 | Claude + usuário | **#4 concluído.** Rate limit por usuário (JWT sub) em `app/core/rate_limit.py` (sliding window em memória, 12 testes) + anti-flood por IP no Traefik + retry TanStack não re-tenta 4xx. Limites calibrados contra telemetria real do banco (pico de 12 jobs/min legítimo derrubou a proposta inicial de 10/min em classe compartilhada → limites por rota). **Todos os 🔴/🟠 resolvidos.** Follow-up: observar `[RATE_LIMIT]` em prod. |
 | 2026-07-12 | Claude + usuário | **#7a concluído (deps).** 44 alertas Dependabot → **0** no `npm audit`. axios 1.13→1.18 (sozinho = 21/44), postcss 8.5.18, `npm audit fix` p/ transitivas, `overrides` p/ postcss (next pina 8.4.31) e esbuild (tsx pina 0.27.3); backend: requests 2.33.0 + python-dotenv 1.2.2. Build/tsc/221 testes OK. Rescan do Dependabot confirmou **0 alertas abertos**. |
 | 2026-07-12 | Claude + usuário | **#6 parcial + #7b concluído.** `ignoreBuildErrors` removido (backlog de tipos já era zero; gate **provado** com erro deliberado → build falha). Descoberto que **o projeto não tem ESLint** → `ignoreDuringBuilds` mantido e ESLint fatiado como item próprio (não-segurança; `next lint` deprecado no Next 16). Criado `.github/workflows/security.yml` — **primeiro CI do repo**: gitleaks + npm audit + pip-audit + tsc/build + pytest bloqueiam merge; SAST (semgrep/bandit) report-only até triagem. |
+| 2026-07-12 | Claude + usuário | **O CI provou seu valor na 1ª execução.** `pip-audit` (bloqueante) falhou com 9 vulns em deps **transitivas** que o Dependabot não enxergava: `starlette` 0.38.6 (8 CVEs, preso pelo pin do fastapi) → **fastapi 0.115→0.139** destrava starlette **1.3.1**; validado com 225 testes + smoke test (app sobe, CORS no 401, rate limit engata com CORS no 429 — starlette 1.x é major). `ecdsa` (sem fix, não-explorável: morto em runtime pois o python-jose usa o backend `cryptography`) → exceção documentada `--ignore-vuln`, sem silenciar o job. |
 
 ---
 

@@ -65,7 +65,14 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install pip-audit
-      - run: pip-audit -r backend/requirements.txt
+      # PYSEC-2026-1325 (ecdsa): Minerva timing attack. SEM VERSÃO DE FIX — os mantenedores
+      # do `ecdsa` declararam resistência a side-channel fora de escopo (é Python puro).
+      # NÃO é explorável aqui: o `ecdsa` entra como dep dura do `python-jose`, mas fica
+      # MORTO em runtime — com `cryptography` instalado, o python-jose resolve
+      # `ECKey -> CryptographyECKey` e a verificação ES256 do JWT nunca passa pelo ecdsa.
+      # (Verificado: `from jose.backends import ECKey` → jose.backends.cryptography_backend.)
+      # Revisar se algum dia o python-jose sair, ou o backend cryptography deixar de existir.
+      - run: pip-audit -r backend/requirements.txt --ignore-vuln PYSEC-2026-1325
 
   build:
     name: Build + type-check (frontend)

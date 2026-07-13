@@ -1,6 +1,9 @@
-fastapi==0.115.0
+# fastapi 0.115 pinava starlette<0.39 — e o starlette 0.38.6 acumulou 8 CVEs
+# (PYSEC-2026-161/248/249/1941/1943, CVE-2026-48817/48818). A partir de 0.139 o
+# fastapi aceita starlette>=0.46 sem teto, o que destrava a linha 1.x corrigida.
+fastapi==0.139.0
 stripe>=15.2.0,<16.0.0
-uvicorn==0.30.6
+uvicorn==0.32.1
 requests==2.33.0
 pandas>=2.2.3
 numpy==2.1.1
