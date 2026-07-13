@@ -2244,3 +2244,17 @@ O `pack_agg` é um join sobre o CTE `filtered` (linhas **já** reduzidas pelos f
 - **Tabela de variações:** dimensões são filtradas fora — os filhos vêm de `RankingsChildrenItem`, que não carrega `pack_ids`/`account_ids`.
 
 **Verificação:** `pack_ids`/`account_ids` conferidos chamando a RPC real no banco com `auth.uid()` simulado; `tsc --noEmit`, `check:design-system`, `next build` e testes (4 de colunas + 5 novos de `provenance`) limpos.
+
+## Rate limit em memória vale ×N com `uvicorn --workers N` (2026-07-13)
+
+**Sintoma (pego na revisão pré-deploy, antes de subir):** o rate limiter do `#4` da security review foi calibrado contra telemetria real, com folga de 3-5× sobre o pico legítimo. Só que o `deploy/Dockerfile.backend` sobe o app com **`uvicorn --workers 4`**.
+
+**Causa:** os contadores vivem na memória **do processo** (`_buckets` em `app/core/rate_limit.py`). Com 4 workers são **4 baldes independentes**, e as requisições de um mesmo usuário caem em workers aleatórios. Resultado: **o teto efetivo é ~4× o número escrito no código** (`user-delete` 5/min vira ~20/min; `transcribe-pack` 10 vira ~40).
+
+**A premissa errada foi minha:** documentei "roda em 1 container ⇒ sliding window local basta". É 1 **container** com 4 **processos** — coisas diferentes. "Escalar horizontalmente" não é a única forma de multiplicar réplicas do estado; `--workers` já faz isso dentro do mesmo container.
+
+**Decisão:** aceito conscientemente para o lançamento (continua sendo um disjuntor: o abuso segue limitado, só que com folga maior). **Correção planejada: Redis compartilhado** (`redis:7-alpine`, ~30MB, +1 serviço no compose), com **fail-open** se o Redis cair — infra de rate limit jamais deve derrubar tráfego legítimo.
+
+**NÃO compensar dividindo os limites por 4:** a distribuição entre workers não é uniforme; `user-delete` viraria 1,25/min por worker e um usuário legítimo tomaria 429 falso. O conserto é o storage compartilhado, não o número.
+
+**Padrão generalizável:** qualquer estado em memória de processo (rate limit, cache de dedup, locks, contadores, circuit breakers) é **silenciosamente multiplicado por `--workers`**. Antes de assumir "processo único", ler o `CMD` do Dockerfile — não só o `docker-compose.yml`.

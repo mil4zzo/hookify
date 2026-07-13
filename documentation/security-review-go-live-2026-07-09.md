@@ -257,8 +257,30 @@ com um único JWT válido.
 
 **Implementação (camada dupla):**
 
+> ### ⚠️ DÍVIDA CONHECIDA: o limite efetivo é ~4× o configurado (descoberto 2026-07-13)
+>
+> O backend sobe com **`uvicorn --workers 4`** (`deploy/Dockerfile.backend`). Os contadores
+> vivem na memória **do processo** → são **4 baldes independentes**, e as requisições de um
+> usuário caem em workers aleatórios. **Teto real ≈ 4× o número da tabela abaixo**
+> (`user-delete` 5/min → ~20/min; `transcribe-pack` 10/min → ~40/min; analytics 120 → ~480).
+>
+> A premissa original ("1 container ⇒ memória basta") estava **errada**: é 1 container com 4
+> processos. Continua sendo um disjuntor (o abuso segue limitado), mas a folga calibrada
+> contra a telemetria (3-5× sobre o pico legítimo) virou 12-20× — proteção fraca demais para
+> o propósito principal do item (conter fatura da AssemblyAI e estouro do rate limit da Meta).
+>
+> **Decisão (dono do produto, 2026-07-13): aceito para o lançamento; corrigir depois com Redis.**
+> Deploy feito conscientemente com o 4×.
+>
+> **Correção planejada:** mover os buckets para um `redis:7-alpine` compartilhado (~30MB RAM,
+> +1 serviço no compose, ~40 linhas), com **fail-open** se o Redis cair — infra de rate limit
+> nunca deve derrubar tráfego legítimo. Aí os números passam a valer literalmente.
+>
+> **NÃO "compensar" dividindo os limites por 4:** a distribuição entre workers não é uniforme e
+> `user-delete` viraria 1,25/min por worker → 429 em uso legítimo.
+
 1. **App (camada principal)** — `backend/app/core/rate_limit.py`: sliding window em memória
-   (sem dependência nova; suficiente para 1 container — **migrar p/ Redis se escalar horizontal**).
+   (sem dependência nova) — **ver a dívida do `--workers 4` acima**.
    Chave = `user:{sub}` do JWT (decodificado sem verificação — sub forjado morre na auth com 401
    barato) com fallback `ip:{último hop do X-Forwarded-For}` (o hop do Traefik, não-spoofável).
    Registrado em `main.py` DENTRO do CORSMiddleware para o 429 sair com headers CORS.
@@ -601,6 +623,7 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 
 | Item | Situação |
 |---|---|
+| **#4-bis** Rate limit ×4 (`uvicorn --workers 4`) | 🟡 **Dívida aceita para o lançamento.** Corrigir com Redis compartilhado — ver o box de aviso no achado #4. **É o maior item em aberto** |
 | **#8** `SENTRY_AUTH_TOKEN` build-arg | 🟡 **Implementado** (BuildKit secret mount; Compose do VPS confirmado em v5.1.0). **Falta a prova real:** rodar `./deploy.sh` e checar o `docker history` — ver checklist no achado |
 | **#5** `getSession()` → `getUser()` | ⏭️ **Risco aceito** (ver justificativa no achado) |
 | ESLint do zero (fatiado do #6) | Alto esforço, **não é segurança** |
@@ -626,6 +649,7 @@ Verificados na auditoria e considerados corretos — cuidado ao mexer:
 | 2026-07-12 | Claude + usuário | **#4 concluído.** Rate limit por usuário (JWT sub) em `app/core/rate_limit.py` (sliding window em memória, 12 testes) + anti-flood por IP no Traefik + retry TanStack não re-tenta 4xx. Limites calibrados contra telemetria real do banco (pico de 12 jobs/min legítimo derrubou a proposta inicial de 10/min em classe compartilhada → limites por rota). **Todos os 🔴/🟠 resolvidos.** Follow-up: observar `[RATE_LIMIT]` em prod. |
 | 2026-07-12 | Claude + usuário | **#7a concluído (deps).** 44 alertas Dependabot → **0** no `npm audit`. axios 1.13→1.18 (sozinho = 21/44), postcss 8.5.18, `npm audit fix` p/ transitivas, `overrides` p/ postcss (next pina 8.4.31) e esbuild (tsx pina 0.27.3); backend: requests 2.33.0 + python-dotenv 1.2.2. Build/tsc/221 testes OK. Rescan do Dependabot confirmou **0 alertas abertos**. |
 | 2026-07-12 | Claude + usuário | **#6 parcial + #7b concluído.** `ignoreBuildErrors` removido (backlog de tipos já era zero; gate **provado** com erro deliberado → build falha). Descoberto que **o projeto não tem ESLint** → `ignoreDuringBuilds` mantido e ESLint fatiado como item próprio (não-segurança; `next lint` deprecado no Next 16). Criado `.github/workflows/security.yml` — **primeiro CI do repo**: gitleaks + npm audit + pip-audit + tsc/build + pytest bloqueiam merge; SAST (semgrep/bandit) report-only até triagem. |
+| 2026-07-13 | Claude + usuário | **⚠️ Descoberto na revisão pré-deploy: o rate limit do #4 vale ~4× o configurado.** O backend sobe com `uvicorn --workers 4` → 4 processos, 4 baldes em memória. A premissa "1 container ⇒ memória basta" estava errada. **Aceito conscientemente para o lançamento**; correção via Redis compartilhado fica no backlog (é o maior item em aberto). Docstring do `rate_limit.py` corrigido — o código afirmava a premissa errada. Migration 095 verificada: **já estava aplicada** (o alarme anterior veio de uma checagem falha — testei a função VIVA de 16 args, que a 095 não remove). |
 | 2026-07-13 | Claude + usuário | **#8 implementado.** `SENTRY_AUTH_TOKEN` deixa de ser build-arg (gravado em camada) e vira **secret do BuildKit** — o Dockerfile já usava BuildKit, então foi só usar. Compose do VPS confirmado em **v5.1.0** (secrets de build exigem ≥2.23). Build sem o token continua funcionando (só pula upload de source maps). **Não verificável localmente (sem Docker no dev) — a prova é o 1º deploy: checar `docker history`.** |
 | 2026-07-13 | Claude + usuário | **#10 e #9 concluídos; #5 aceito como risco.** #10: guard de boot recusa subir o backend com `CORS_ORIGINS=*` (a mina real) + métodos/headers explícitos. #9: helper `serializeJsonLd` nas 2 landing pages, verificado com payload de ataque (`</script><script>alert(...)`) → neutralizado, JSON íntegro, HTML buildado byte-idêntico. #5: dono do produto aceitou o risco (só expõe a casca da UI; backend+RLS protegem o dado; `getUser()` custaria 1 request/navegação). **Resta só o #8.** |
 | 2026-07-12 | Claude + usuário | **O CI provou seu valor na 1ª execução.** `pip-audit` (bloqueante) falhou com 9 vulns em deps **transitivas** que o Dependabot não enxergava: `starlette` 0.38.6 (8 CVEs, preso pelo pin do fastapi) → **fastapi 0.115→0.139** destrava starlette **1.3.1**; validado com 225 testes + smoke test (app sobe, CORS no 401, rate limit engata com CORS no 429 — starlette 1.x é major). `ecdsa` (sem fix, não-explorável: morto em runtime pois o python-jose usa o backend `cryptography`) → exceção documentada `--ignore-vuln`, sem silenciar o job. |

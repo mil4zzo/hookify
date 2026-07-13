@@ -1,10 +1,20 @@
 """Rate limiting em memória, por usuário (JWT sub) com fallback por IP.
 
-Por que em memória e não Redis/slowapi: o backend roda em UM container
-(deploy/docker-compose.yml), então um sliding window local é suficiente e
-evita dependência nova. Se o backend escalar horizontalmente, este módulo
-precisa migrar para um storage compartilhado (Redis) — os limites passariam
-a valer por réplica, o que os multiplica silenciosamente.
+⚠️ LIMITAÇÃO CONHECIDA E ACEITA (2026-07-13): os contadores vivem na memória DO
+PROCESSO, e o backend sobe com `uvicorn --workers 4` (deploy/Dockerfile.backend).
+São 4 processos, cada um com o seu próprio `_buckets` — e as requisições de um
+mesmo usuário caem em workers aleatórios. Portanto **o teto efetivo é ~4x o
+limite configurado aqui** (ex.: `user-delete` 5/min vira ~20/min na prática).
+
+Continua sendo um disjuntor útil (o abuso segue limitado), mas a folga que
+calibramos contra a telemetria real (3-5x sobre o pico legítimo) virou 12-20x.
+**Correção planejada: mover os buckets para um Redis compartilhado** (fail-open
+se o Redis cair — infra de rate limit nunca deve derrubar tráfego legítimo).
+Ao fazer isso, os números abaixo passam a valer literalmente — não os reajuste
+"para compensar" antes disso.
+
+NÃO tente compensar dividindo os limites por 4: a distribuição entre workers não
+é uniforme, e `user-delete` viraria 1,25/min por worker → 429 em uso legítimo.
 
 Chave do bucket:
 - Requests com Bearer token: ``user:{sub}`` extraído SEM verificar assinatura.
