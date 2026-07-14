@@ -86,6 +86,23 @@ export const queryKeys = {
     ['analytics', 'rankings-retention', params.date_start, params.date_stop, params.group_by, params.group_key, params.pack_ids] as const,
 }
 
+// Retry das queries analíticas pesadas (rankings/series/retention).
+//
+// Elas acionam RPCs caras no Supabase. Uma resposta HTTP de erro — inclusive 5xx —
+// significa que a RPC rodou e falhou: re-tentar cai na mesma conexão do pool, refaz o
+// mesmo trabalho e só multiplica a carga no banco (o retry do frontend compõe com o do
+// backend, então 1 falha vira várias execuções). Só vale re-tentar quando NÃO houve
+// resposta: aí o request pode nem ter chegado.
+//
+// parseError() só preenche `status` quando existe response HTTP; erro de rede
+// (NETWORK/ECONNABORTED/ETIMEDOUT) vem sem `status`. Isso também evita re-tentar a
+// rejeição sintética do guard de logout (`{ cancelled: true, status: 0 }`).
+const retryOnlyNetworkErrors = (failureCount: number, error: unknown): boolean => {
+  const status = (error as AppError | null)?.status
+  if (status !== undefined) return false
+  return failureCount < 2
+}
+
 const hashStringArray = (values: string[]): string => {
   let hash = 2166136261
   for (const value of values) {
@@ -495,7 +512,7 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
     enabled: enabled && !!params.date_start && !!params.date_stop,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 60 * 1000,
-    retry: 2,
+    retry: retryOnlyNetworkErrors,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
@@ -519,7 +536,7 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
       normalizedKeys.length > 0,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 2 * 60 * 1000,
-    retry: 1,
+    retry: retryOnlyNetworkErrors,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   })
@@ -532,7 +549,7 @@ export const useAdPerformanceRetention = (params: RankingsRetentionRequest, enab
     enabled: enabled && !!params.date_start && !!params.date_stop && !!params.group_key,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 10 * 60 * 1000,
-    retry: 1,
+    retry: retryOnlyNetworkErrors,
   })
 }
 

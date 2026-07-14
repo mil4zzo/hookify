@@ -39,6 +39,11 @@ def _get_analytics_supabase(jwt_token: str):
 
 
 def _is_transient_analytics_rpc_error(error: Exception) -> bool:
+    # 57014 (statement timeout) NÃO é transitório: a retentativa cai na mesma
+    # conexão do pool e re-executa a mesma query, só dobrando a carga no banco.
+    if getattr(error, "code", None) == "57014":
+        return False
+
     text = str(error or "")
     transient_markers = (
         "ReadTimeout",

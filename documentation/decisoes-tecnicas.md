@@ -6,6 +6,31 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## Timeouts intermitentes (57014) no Manager — generic plan do Postgres na 6ª execução da conexão, não volume de dados
+
+**Data:** 2026-07-13 · status: **implementado (migration 096 aplicada em produção; analytics.py)**
+
+**Sintoma:** "de vez em quando" o `/analytics/ad-performance` estourava `statement timeout` (57014) e a tela não carregava — tipicamente com vários packs, um deles grande. A mesma query, testada isolada, rodava em ~1,7s.
+
+**Causa raiz (medida em produção):** o PL/pgSQL cacheia planos por conexão. Após 5 execuções, o Postgres pode trocar o *custom plan* pelo *generic plan* — e as RPCs analíticas dependem de constant-folding dos parâmetros opcionais (`p_pack_ids is null or exists (...)`, `case when v_group_by = ...`), que só existe no custom plan. Sob generic plan, o plano vira catastrófico. Medição na mesma sessão, mesmos parâmetros (`fetch_manager_rankings_core_v2`, 4 packs, 75 dias, `group_by=ad_id`):
+
+```
+exec 1..5 →    ~860 ms   (custom plan)
+exec 6    → 233.814 ms   (generic plan — 273x) → 57014 sob o timeout de 30s do authenticated
+```
+
+Como o PostgREST mantém conexões persistentes, o fenômeno depende de qual conexão do pool atende a chamada e quantas vezes ela já executou a função — daí a intermitência. **Não era volume:** `ad_metrics` inteira tem ~73k linhas (108 MB); a janela que falhava toca 16k linhas. Subir a instância não resolveria.
+
+**Fix (migration 096):** `ALTER FUNCTION ... SET plan_cache_mode = force_custom_plan` nas 8 RPCs com o padrão de parâmetro opcional (`rankings_core_v2_base_v093`, `series_v2`, `retention_v2`, `aggregated_base_v047/48/49`, `fetch_ad_metrics_for_analytics`, `batch_update_ad_metrics_enrichment`). Custo: replanejar a cada chamada (dezenas de ms) vs. eliminar o cliff de 273x. Validado pós-migration: 10/10 execuções em ~855ms na mesma conexão.
+
+**Fixes acessórios:**
+- `_is_transient_analytics_rpc_error` agora recusa retry explícito para `57014` — retentar a query idêntica cai na mesma conexão com o mesmo plano ruim e só dobra a carga.
+- `diagnose_manager_rpc_timing` foi **dropada**: estava defasada (filtrava pack por `am.pack_ids && p_pack_ids` enquanto a RPC real usa `EXISTS` contra `ad_metric_pack_map`) — media uma query que não existe mais e teria apontado a causa errada.
+
+**Regra derivada:** 57014 intermitente em RPC com parâmetros opcionais → reproduzir com 6+ execuções na mesma sessão psql **antes** de mexer em índice, query ou instância. Se as 5 primeiras voam e a 6ª explode, é plan cache. Memória: `postgres_generic_plan_flip_on_optional_params.md`.
+
+---
+
 ## "N / M anúncios" do conjunto não batia com o Gerenciador — anúncio pausado que nunca entregou não existe no nosso banco
 
 **Data:** 2026-07-12 · status: **implementado (migration 094 aplicada; ad_inventory.py, supabase_repo.py, job_processor.py); 178 testes backend**
@@ -2212,14 +2237,15 @@ Três armadilhas do npm nesse caminho (detalhe na memória `npm_audit_next_downg
 
 **Problema:** ao abrir um anúncio (ou olhar a tabela), não dava para saber de qual **pack** e de qual **conta de anúncio** ele veio. A RPC do Manager *filtra* por pack (semi-join em `ad_metric_pack_map`) mas **descartava** a informação.
 
-### O seletor de packs não substitui a informação na linha — mas coluna fixa também não era a resposta
+### O seletor de packs não substitui a informação na linha — mas nada disso pertence à coluna de nome
 
-Regra que guiou o design: **uma dimensão só merece espaço na linha quando ela VARIA.** Com um pack selecionado, o seletor já respondeu "de onde vêm estas linhas" — repetir o mesmo nome em todas as linhas seria uma coluna inteira de valor constante, numa tabela que já disputa largura com ~25 métricas. A procedência só vira informação nova quando o resultado **mistura** packs ou contas.
+Ponto de partida: com um pack selecionado, o seletor já respondeu "de onde vêm estas linhas" — repetir o mesmo nome em todas as linhas seria uma coluna inteira de valor constante, numa tabela que já disputa largura com ~25 métricas. A procedência só vira informação nova quando o resultado **mistura** packs ou contas.
 
-Daí o desenho em duas camadas:
-- **Badge automático** na célula de nome, que aparece **sozinho** quando a dimensão varia (`computeProvenanceVisibility`). Zero configuração, zero custo de layout quando é redundante. Fica *inline* com o subtítulo, nunca numa linha nova: a tabela é virtualizada com altura estimada por `viewMode` (40px no minimal) e uma linha extra causaria jank no scroll.
-- **Colunas opcionais Pack/Conta** (desligadas por padrão) para quem precisa ordenar, filtrar ou exportar.
-- **No modal, sempre** — lá é a ficha de identidade do anúncio, e é exatamente para isso que se abre.
+Daí veio a hipótese de um **badge automático na célula de nome**, que apareceria sozinho quando a dimensão variasse. Foi implementada e **REJEITADA na revisão visual: poluiu a coluna de nome** (que já carrega thumbnail, nome, status e subtítulo). **Não re-propor.** A lição: "só aparece quando varia" resolve o problema de *redundância*, mas não o de *densidade* — a célula de nome já estava no limite, e um badge condicional continua sendo mais um elemento competindo por atenção na linha mais carregada da tabela.
+
+Desenho final, com a procedência **fora** da linha:
+- **No modal, sempre** — badges no mesmo vocabulário visual do "Agrupado"/"Individual" (`ProvenanceBadge`). Um valor → mostra o nome direto (nada a revelar no hover). Vários → mostra a contagem (“3 Packs”) e revela a lista no tooltip. É a ficha de identidade do anúncio, e é exatamente para isso que se abre o modal.
+- **Colunas opcionais Pack/Conta** na tabela (desligadas por padrão) para quem precisa ordenar, filtrar ou exportar — opt-in, sem custo para quem não liga.
 
 ### Os dados derrubaram a alternativa barata (e revelaram um bug)
 
