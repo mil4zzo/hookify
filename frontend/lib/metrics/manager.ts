@@ -30,6 +30,7 @@ export type ManagerMetricKey = Extract<
   | "lpv"
   | "page_conv"
   | "leadscore_avg"
+  | "mql_rate"
 >;
 
 export interface ManagerAverages {
@@ -60,6 +61,7 @@ export interface ManagerAverages {
   cpmql: number | null;
   mqls: number;
   leadscore_avg: number | null;
+  mql_rate: number | null;
   sumSpend: number;
   sumImpressions: number;
   sumClicks: number;
@@ -99,6 +101,7 @@ const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
   cpmql: null,
   mqls: 0,
   leadscore_avg: null,
+  mql_rate: null,
   sumSpend: 0,
   sumImpressions: 0,
   sumClicks: 0,
@@ -136,6 +139,7 @@ export const MANAGER_METRIC_KEYS: readonly ManagerMetricKey[] = [
   "lpv",
   "page_conv",
   "leadscore_avg",
+  "mql_rate",
 ] as const;
 
 // Métricas cujo header mostra a SOMA do pack (contagens), não a média por linha
@@ -375,6 +379,10 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     cpmql: hasSheetIntegration && sumMqls > 0 ? sumSpend / sumMqls : null,
     mqls: hasSheetIntegration ? sumMqls / rows.length : 0,
     leadscore_avg: hasSheetIntegration && leadscoreWeight > 0 ? leadscoreWeighted / leadscoreWeight : null,
+    // Taxa de qualificação do pack: MQLs sobre o TOTAL de leads. `leadscoreWeight` já é a
+    // contagem de leads acumulada acima, então a média sai ponderada por volume (não é
+    // média simples das taxas por linha, que daria peso igual a um ad de 2 e um de 200 leads).
+    mql_rate: hasSheetIntegration && leadscoreWeight > 0 ? sumMqls / leadscoreWeight : null,
     sumSpend,
     sumImpressions,
     sumClicks,

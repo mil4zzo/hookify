@@ -126,7 +126,7 @@ export function isManagerMetricColumnVisible(
     return false;
   }
 
-  if ((columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg") && !hasSheetIntegration) {
+  if ((columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg" || columnId === "mql_rate") && !hasSheetIntegration) {
     return false;
   }
 

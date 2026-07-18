@@ -34,6 +34,7 @@ export type MetricValueSource = {
   mqls?: number | null;
   mql_count?: number | null;
   leadscore_avg?: number | null;
+  mql_rate?: number | null;
   plays?: number | null;
   video_total_plays?: number | null;
   thruplays?: number | null;
@@ -214,6 +215,19 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       });
       return leadscoreValues.length > 0 ? leadscoreAvg : null;
     }
+    case "mql_rate": {
+      const fromBackend = toFiniteNumber(source.mql_rate);
+      if (fromBackend != null) return fromBackend;
+
+      // Taxa de qualificação: MQLs sobre o TOTAL de leads (denominador nunca é "não-MQLs").
+      const { leadscoreValues, mqlCount } = computeMqlMetricsFromLeadscore({
+        spend: toFiniteNumber(source.spend) ?? 0,
+        leadscoreRaw: source.leadscore_values,
+        mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+      });
+      if (leadscoreValues.length === 0) return null;
+      return mqlCount / leadscoreValues.length;
+    }
     default:
       return null;
   }
@@ -355,6 +369,21 @@ export function buildMetricSeriesFromSourceSeries(seriesData: Record<string, unk
           mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
         });
         return leadscoreValues.length > 0 ? leadscoreAvg : null;
+      });
+    }
+    case "mql_rate": {
+      // Fallback: o backend já manda `mql_rate` pronto (capturado no directSeries acima).
+      // Aqui seriesData.leadscore_values é array-of-arrays (um array de leadscores por dia).
+      const leadscoreSeries = Array.isArray(seriesData.leadscore_values) ? seriesData.leadscore_values : undefined;
+      if (!leadscoreSeries) return undefined;
+
+      return leadscoreSeries.map((leadscoreRaw) => {
+        const { leadscoreValues, mqlCount } = computeMqlMetricsFromLeadscore({
+          spend: 0,
+          leadscoreRaw,
+          mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+        });
+        return leadscoreValues.length > 0 ? mqlCount / leadscoreValues.length : null;
       });
     }
     default:

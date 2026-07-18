@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict UUzPleaAgJ8XW3csdMt8vuRFpNkRaszOYdOXu7eIeetAaHIX7JrkaP9ekHg8KMV
+\restrict ogO6DIEYiCmVhyH3EcoeKufxsRlxQpWmPOnAkfKVZcPjSDTlOGJIpg5UXfvzTid
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -3561,7 +3561,6 @@ COMMENT ON FUNCTION public.fetch_manager_rankings_retention_v2(p_user_id uuid, p
 CREATE FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text DEFAULT 'ad_name'::text, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text, p_action_type text DEFAULT NULL::text, p_group_keys text[] DEFAULT NULL::text[], p_window integer DEFAULT 5) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
-    SET plan_cache_mode TO 'force_custom_plan'
     AS $$
 declare
   v_group_by text := lower(coalesce(p_group_by, 'ad_name'));
@@ -3879,6 +3878,15 @@ begin
             else null
           end
           order by a.d
+        ),
+        -- Taxa de qualificação do dia: MQLs sobre o TOTAL de leads (escala 0-1).
+        -- Denominador é leadscore_count (todos os leads), nunca (leads - mqls).
+        'mql_rate', jsonb_agg(
+          case
+            when coalesce(d.leadscore_count, 0) > 0 then d.mql_count::numeric / d.leadscore_count
+            else null
+          end
+          order by a.d
         )
       ) as series
     from requested_groups rg
@@ -3911,7 +3919,7 @@ ALTER FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_st
 -- Name: FUNCTION fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) IS 'Manager series v2 RPC: returns sparkline series for requested group_keys, including clicks, inline_link_clicks, cpc, cplc, retention metrics, video_watched_p75/plays/thruplays/reach (v090) and leadscore_avg (v092, weighted by lead count, same daily-aggregation pattern as mqls/cpmql).';
+COMMENT ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_group_keys text[], p_window integer) IS 'Manager series v2 RPC: returns sparkline series for requested group_keys, including clicks, inline_link_clicks, cpc, cplc, retention metrics, video_watched_p75/plays/thruplays/reach (v090), leadscore_avg (v092) and mql_rate (v093 = mql_count / leadscore_count, qualification rate on a 0-1 scale).';
 
 
 --
@@ -5996,5 +6004,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict UUzPleaAgJ8XW3csdMt8vuRFpNkRaszOYdOXu7eIeetAaHIX7JrkaP9ekHg8KMV
+\unrestrict ogO6DIEYiCmVhyH3EcoeKufxsRlxQpWmPOnAkfKVZcPjSDTlOGJIpg5UXfvzTid
 

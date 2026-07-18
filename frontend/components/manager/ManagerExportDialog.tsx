@@ -35,14 +35,14 @@ interface ManagerExportDialogProps {
 export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop }: ManagerExportDialogProps) {
   const provenanceIndex = useProvenanceIndex();
 
-  // Colunas exportáveis, na ordem da tabela (exclui cpmql/mqls/leadscore_avg quando não há integração de planilha — o export as descarta de qualquer forma)
+  // Colunas exportáveis, na ordem da tabela (exclui as métricas de planilha — cpmql/mqls/leadscore_avg/mql_rate — quando não há integração; o export as descarta de qualquer forma)
   const availableColumns = useMemo(() => {
     const byId = new Map(MANAGER_COLUMNS.map((c) => [c.id, c]));
     const order = columnOrder && columnOrder.length > 0 ? columnOrder : MANAGER_COLUMN_RENDER_ORDER;
     return order
       .map((id) => byId.get(id))
       .filter((c): c is ManagerColumnOption => !!c)
-      .filter((c) => !((c.id === "cpmql" || c.id === "mqls" || c.id === "leadscore_avg") && !hasSheetIntegration));
+      .filter((c) => !((c.id === "cpmql" || c.id === "mqls" || c.id === "leadscore_avg" || c.id === "mql_rate") && !hasSheetIntegration));
   }, [columnOrder, hasSheetIntegration]);
 
   const [selected, setSelected] = useState<Set<ManagerColumnType>>(new Set());

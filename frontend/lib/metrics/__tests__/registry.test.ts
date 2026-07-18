@@ -155,6 +155,33 @@ test("computes manager averages and short labels from the registry", () => {
   assert.equal(formatManagerAverageValue("spend", averages, { currencyFormatter: (value) => `R$ ${value.toFixed(2)}` }), "R$ 150.00");
 });
 
+test("mql_rate divides MQLs by TOTAL leads, weighted by lead volume", () => {
+  // Fixture escolhida para separar as 3 fórmulas plausíveis:
+  //   A: 6 leads, 3 MQLs (taxa 0.5)   B: 2 leads, 2 MQLs (taxa 1.0)
+  //   ponderada por leads  = 5/8  = 0.625  <- correta
+  //   média simples das taxas = 0.75
+  //   MQLs / não-MQLs         = 5/3  = 1.667
+  const rows = [
+    { spend: 100, leadscore_values: [80, 70, 60, 50, 40, 10] },
+    { spend: 50, leadscore_values: [90, 65] },
+  ];
+  const options = { hasSheetIntegration: true, mqlLeadscoreMin: 60 };
+
+  const averages = computeManagerAverages(rows, options);
+  assert.equal(averages.sumMqls, 5);
+  assert.equal(averages.mql_rate, 0.625);
+  assert.equal(averages.leadscore_avg, 465 / 8); // soma dos leadscores / total de leads
+
+  // Por linha: 0% é valor legítimo (teve lead, nenhum qualificou); sem lead nenhum é null.
+  assert.equal(getMetricNumericValue(rows[0], "mql_rate", { mqlLeadscoreMin: 60 }), 0.5);
+  assert.equal(getMetricNumericValue({ spend: 10, leadscore_values: [10, 20] }, "mql_rate", { mqlLeadscoreMin: 60 }), 0);
+  assert.equal(getManagerMetricCurrentValue({ spend: 10, leadscore_values: [] }, "mql_rate", { hasSheetIntegration: true }), null);
+
+  // Sem integração de planilha a métrica não existe, mesmo com leadscore_values na linha.
+  assert.equal(computeManagerAverages(rows, { ...options, hasSheetIntegration: false }).mql_rate, null);
+  assert.equal(getManagerMetricCurrentValue(rows[0], "mql_rate", { hasSheetIntegration: false }), null);
+});
+
 test("builds grouped base series with derived metrics for manager fallback", () => {
   const { axis, byKey } = buildGroupedMetricBaseSeries(
     [
@@ -261,6 +288,7 @@ test("derives manager presentation metadata from metric semantics", () => {
     cpmql: 40,
     mqls: 2,
     leadscore_avg: null,
+    mql_rate: null,
     sumSpend: 100,
     sumImpressions: 1000,
     sumClicks: 50,

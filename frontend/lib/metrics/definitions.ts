@@ -28,7 +28,8 @@ export type MetricKey =
   | "plays"
   | "thruplays"
   | "reach"
-  | "leadscore_avg";
+  | "leadscore_avg"
+  | "mql_rate";
 
 export interface MetricDefinition {
   key: MetricKey;
@@ -262,6 +263,16 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Média dos leadscore_values recebidos via planilha, ponderada pelo número de leads.",
     polarity: "higher",
     formatKind: "decimal",
+    requiresSheetIntegration: true,
+  },
+  mql_rate: {
+    key: "mql_rate",
+    label: "% de MQLs",
+    shortLabel: "% MQLs",
+    didacticDescription: "Mostra que fatia dos leads do anúncio chegou qualificada.",
+    technicalDescription: "MQLs dividido pelo TOTAL de leads (não pelos não-MQLs). Escala 0-1.",
+    polarity: "higher",
+    formatKind: "ratioPercent",
     requiresSheetIntegration: true,
   },
 };

@@ -385,6 +385,7 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
     cpmql_series: List[Optional[float]] = []
     mqls_series: List[Optional[int]] = []  # MQLs por dia
     leadscore_avg_series: List[Optional[float]] = []  # leadscore médio por dia
+    mql_rate_series: List[Optional[float]] = []  # taxa de qualificação por dia (MQLs / total de leads, escala 0-1)
 
     for d in axis:
         plays = (S.get("plays") or {}).get(d, 0) or 0
@@ -452,6 +453,9 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
             leadscore_count_day = ((S.get("leadscore_count") or {}).get(d, 0)) or 0
             leadscore_avg_series.append((leadscore_sum_day / leadscore_count_day) if leadscore_count_day > 0 else None)
 
+            # Taxa de qualificação: MQLs sobre o TOTAL de leads do dia (não sobre os não-MQLs).
+            mql_rate_series.append((mql_count_day / leadscore_count_day) if leadscore_count_day > 0 else None)
+
     series: Dict[str, Any] = {
         "axis": axis,
         "hook": hook_series,
@@ -479,6 +483,7 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         series["cpmql"] = cpmql_series
         series["mqls"] = mqls_series
         series["leadscore_avg"] = leadscore_avg_series
+        series["mql_rate"] = mql_rate_series
     return series
 
 

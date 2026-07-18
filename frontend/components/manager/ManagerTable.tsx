@@ -252,7 +252,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   const isColumnEnabled = useCallback(
     (columnId: ManagerColumnType) => {
-      if (columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg") return hasSheetIntegration;
+      if (columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg" || columnId === "mql_rate") return hasSheetIntegration;
       return true;
     },
     [hasSheetIntegration],
@@ -695,6 +695,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         cpmql: computedAverages.cpmql,
         mqls: computedAverages.mqls,
         leadscore_avg: computedAverages.leadscore_avg,
+        mql_rate: computedAverages.mql_rate,
         sumSpend: computedAverages.sumSpend,
         sumImpressions: computedAverages.sumImpressions,
         sumClicks: computedAverages.sumClicks,
@@ -1013,7 +1014,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
           {/* Colunas: controle mais usado, permanece dedicado e fora do menu */}
           <div className="w-full sm:w-[190px]">
-            <ManagerColumnFilter activeColumns={activeColumns} columnOrder={columnOrder} onToggleColumn={handleToggleColumn} onReorderColumns={handleReorderColumns} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls" || id === "leadscore_avg")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
+            <ManagerColumnFilter activeColumns={activeColumns} columnOrder={columnOrder} onToggleColumn={handleToggleColumn} onReorderColumns={handleReorderColumns} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls" || id === "leadscore_avg" || id === "mql_rate")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
           </div>
 
           {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}

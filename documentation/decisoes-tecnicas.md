@@ -2186,6 +2186,22 @@ Memória correspondente: `meta_budget_api_rules.md`.
 
 **Verificação:** `tsc --noEmit` limpo, 11/11 testes de `registry.test.ts`, `next build` OK, migration aplicada no banco remoto (confirmada via `pg_get_function_arguments` — assinatura da RPC inalterada) + `schema.sql`/`schema_map.md` regenerados. Memória: `manager_metric_column_pipeline.md` (atualizada, não nova).
 
+## Coluna "% de MQLs" (taxa de qualificação) no /manager (2026-07-11)
+
+**Decisão de produto — o denominador:** o pedido original dizia "MQLs sobre não MQLs". Levantada a ambiguidade com o usuário, que confirmou querer a **taxa de qualificação convencional: MQLs / TOTAL de leads**. A alternativa literal (MQLs / não-MQLs) é uma razão de odds, não uma porcentagem: passa de 100%, vira infinito quando todos os leads qualificam, e o valor "100%" significaria "metade dos leads" — confuso de ler numa tabela. Escala 0-1 (`formatKind: ratioPercent`), `null` quando não houve lead (0% é valor legítimo e distinto de "sem dado").
+
+**Custo quase zero por causa da 092:** o CTE `daily` da RPC de séries já acumulava `mql_count` (desde a versão original) e `leadscore_count` (adicionado na 092 para o leadscore médio). A migration 093 é literalmente **uma divisão a mais** num `jsonb_agg` — nenhum acumulador novo, nenhuma mudança na core RPC. Idem no `_build_rankings_series` do Python: os dois números já estavam no dict `S`.
+
+**Média do pack ponderada por volume de leads,** não média simples das taxas por linha — senão um anúncio com 2 leads pesaria igual a um com 200. Reusa o acumulador `leadscoreWeight` que a 092 já tinha criado: `mql_rate = sumMqls / leadscoreWeight`.
+
+**Teste de regressão com fixture discriminante:** a fixture (A: 6 leads/3 MQLs, B: 2 leads/2 MQLs) foi escolhida para separar as três fórmulas plausíveis — ponderada por leads = 0,625 (correta), média simples das taxas = 0,75, MQLs/não-MQLs = 1,667. Qualquer regressão numa das duas decisões (denominador ou ponderação) quebra o teste com valor distinto.
+
+**Smoke test end-to-end no banco:** RPC chamada com dados reais dentro de transação com `rollback`, simulando `auth.uid()` via `set local request.jwt.claims`. Retorno confirmou 156 MQLs com taxa 0,8168 → 191 leads totais, e a série sempre limitada a 0-1 (com denominador "não-MQLs" daria 4,46).
+
+**Drift corrigido na memória:** a refatoração de colunas reordenáveis mudou dois fatos que estavam registrados. (1) Os pontos de gating `requiresSheetIntegration` caíram de 6 para 5 — `exportManagerCsv.ts` passou a delegar a `getVisibleManagerColumns` e não tem mais gate próprio. (2) A ordem visual da tabela agora vem de `state.columnOrder` (preferência persistida do usuário), não da sequência de `push` no factory; `normalizeManagerColumnOrder` já anexa colunas novas ao final de ordens salvas, então nenhuma migração de preferência é necessária ao adicionar métrica.
+
+**Verificação:** `tsc --noEmit` limpo, 12/12 testes de `registry.test.ts` (11 + o novo), 8/8 dos testes de manager, `check:design-system` passou, `next build` OK, migration 093 aplicada + smoke test com dados reais + `schema.sql`/`schema_map.md` regenerados.
+
 ## Sync do Leadscore (Google Sheets) morria em ConnectionReset (WinError 10054): retry de rede faltando (2026-07-11)
 
 **Sintoma:** ao atualizar packs (com a fila serial já funcionando), o sync do Google Sheets falhava com `Erro ao ler planilha do Google: ('Connection aborted.', ConnectionResetError(10054, ...))` no 1º chunk.

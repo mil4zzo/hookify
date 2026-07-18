@@ -27,6 +27,8 @@ export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   { id: "spend", name: getManagerMetricLabel("spend"), defaultVisible: true },
   { id: "results", name: getManagerMetricLabel("results"), defaultVisible: true },
   { id: "mqls", name: getManagerMetricLabel("mqls"), defaultVisible: true },
+  // Volume qualificado (mqls) → fatia qualificada (mql_rate) → qualidade média (leadscore_avg).
+  { id: "mql_rate", name: getManagerMetricLabel("mql_rate") },
   { id: "leadscore_avg", name: getManagerMetricLabel("leadscore_avg") },
   // 2) Custos — a eficiência desse resultado.
   { id: "cpr", name: getManagerMetricLabel("cpr"), defaultVisible: true },

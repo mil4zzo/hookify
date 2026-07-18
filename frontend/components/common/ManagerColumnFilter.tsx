@@ -34,7 +34,8 @@ export type ManagerColumnType =
   | "hold_rate"
   | "video_watched_p50"
   | "video_watched_p75"
-  | "leadscore_avg";
+  | "leadscore_avg"
+  | "mql_rate";
 
 interface ManagerColumnFilterProps {
   activeColumns: Set<ManagerColumnType>;

@@ -537,6 +537,9 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
   // Leadscore médio
   pushStandardMetricColumn("leadscore_avg", { nullable: true });
 
+  // % de MQLs (taxa de qualificação) — ratioPercent, escala 0-1, logo percentageFilter
+  pushStandardMetricColumn("mql_rate", { percentageFilter: true, nullable: true });
+
   // Page Conversion
   if (shouldShow("page_conv")) {
     cols.push(

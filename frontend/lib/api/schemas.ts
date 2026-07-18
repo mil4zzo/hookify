@@ -445,6 +445,8 @@ const RankingsSeriesSchema = z.object({
   // Leadscore médio diário (calculado no backend usando leadscore_values por dia). Opcional
   // para manter compatibilidade com backends antigos.
   leadscore_avg: z.array(z.number().nullable()).optional(),
+  // Taxa de qualificação diária (MQLs / total de leads, escala 0-1). Opcional pelo mesmo motivo.
+  mql_rate: z.array(z.number().nullable()).optional(),
   website_ctr: z.array(z.number().nullable()),
   conversions: z.array(z.record(z.string(), z.number())), // conversions por dia para calcular results/cpr/page_conv dinamicamente
 }).passthrough();

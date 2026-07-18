@@ -27,6 +27,7 @@ export type MetricBaseSeries = {
   cpr?: MetricSeriesPoint[];
   cpmql?: MetricSeriesPoint[];
   leadscore_avg?: MetricSeriesPoint[];
+  mql_rate?: MetricSeriesPoint[];
   [key: string]: unknown;
 };
 
@@ -66,6 +67,7 @@ export type MetricSparklineKey = Extract<
   | "video_watched_p50"
   | "video_watched_p75"
   | "leadscore_avg"
+  | "mql_rate"
 >;
 
 export interface BuildGroupedMetricBaseSeriesOptions extends MetricValueContext {
@@ -382,6 +384,22 @@ export function getMetricSeriesAvailability(
       if (leadscoreAvg.length > 0) {
         return {
           dataAvailability: leadscoreAvg.map((value) => value != null),
+          zeroValueLabel: "Sem leads",
+        };
+      }
+      const leadscoreValues = seriesData.leadscore_values || [];
+      return {
+        dataAvailability: leadscoreValues.map((value) => value != null),
+        zeroValueLabel: "Sem leads",
+      };
+    }
+    case "mql_rate": {
+      // 0% é um valor legítimo (teve leads, nenhum qualificou) — a disponibilidade olha se
+      // HOUVE lead no dia, não se a taxa é > 0.
+      const mqlRate = seriesData.mql_rate || [];
+      if (mqlRate.length > 0) {
+        return {
+          dataAvailability: mqlRate.map((value) => value != null),
           zeroValueLabel: "Sem leads",
         };
       }
