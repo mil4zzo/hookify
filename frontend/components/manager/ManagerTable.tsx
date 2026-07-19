@@ -45,7 +45,7 @@ import { logger } from "@/lib/utils/logger";
 import { getColumnId } from "@/lib/utils/columnFilters";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
 import { getManagerFilterableColumns, getVisibleManagerColumns, loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
-import { computeProvenanceVisibility, useProvenanceIndex, type ProvenanceVisibility } from "@/lib/manager/provenance";
+import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { useAdAccountsDb } from "@/lib/api/hooks";
 import { BULK_ENTITY_NOUN, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { cn } from "@/lib/utils/cn";
@@ -592,15 +592,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     });
   }, [adsEffective, deferredGlobalFilter]);
 
-  // Procedência (pack/conta por linha). As contas são carregadas aqui porque o Manager é a única
-  // tela que precisa do nome delas e não as buscava: a query é cacheada e compartilha a queryKey
-  // com a /packs, então isso não gera request extra em quem já passou por lá.
+  // Procedência (pack/conta): alimenta as colunas opcionais Pack/Conta e o header do modal de
+  // detalhes. As contas são carregadas aqui porque o Manager precisa do NOME delas e não as
+  // buscava — a query é cacheada e compartilha a queryKey com a /packs, sem request extra.
   useAdAccountsDb();
   const provenanceIndex = useProvenanceIndex();
-  const { showPack, showAccount } = useMemo(() => computeProvenanceVisibility(data), [data]);
-  // Reconstruído só quando os BOOLEANOS mudam — um objeto novo a cada render recriaria todas as
-  // colunas (showProvenance é dep do useMemo de `columns`) a cada chegada de dados.
-  const showProvenance = useMemo<ProvenanceVisibility>(() => ({ showPack, showAccount }), [showPack, showAccount]);
 
   const formatCurrency = useFormatCurrency();
   const { mqlLeadscoreMin } = useMqlLeadscore();
@@ -819,7 +815,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       viewMode,
       colorMetricValue,
       provenanceIndex,
-      showProvenance,
       hasSheetIntegration,
       mqlLeadscoreMin,
       actionTypeRef,
@@ -829,7 +824,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, showProvenance, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -1245,6 +1240,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         currentTab={currentTab}
         dateStart={dateStart}
         dateStop={dateStop}
+        metricContext={{ actionType, mqlLeadscoreMin }}
       />
     </>
   );

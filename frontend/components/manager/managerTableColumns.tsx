@@ -16,7 +16,7 @@ import { BudgetCell, getRowBudgetMinor } from "@/components/manager/BudgetCell";
 import { ProvenanceCell } from "@/components/manager/ProvenanceCell";
 import { Checkbox } from "@/components/ui/checkbox";
 import { isRestrictiveFilterValue } from "@/lib/utils/columnFilters";
-import { getRowAccountNames, getRowPackNames, type ProvenanceIndex, type ProvenanceVisibility } from "@/lib/manager/provenance";
+import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance";
 
 export type ViewMode = "detailed" | "minimal";
 
@@ -61,8 +61,6 @@ export type CreateManagerTableColumnsParams = {
   /** Índice id→nome de packs/contas. Alimenta os accessors das colunas Pack/Conta — e portanto
    *  ordenação, filtro de texto e CSV. (As células resolvem de novo via hook: ver ProvenanceCell.) */
   provenanceIndex: ProvenanceIndex;
-  /** Quais badges de procedência mostrar na célula de nome — só as dimensões que VARIAM no resultado. */
-  showProvenance: ProvenanceVisibility;
   hasSheetIntegration: boolean;
   mqlLeadscoreMin: number;
   actionTypeRef: React.MutableRefObject<string>;
@@ -154,7 +152,7 @@ function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: Ra
 }
 
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
-  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex, showProvenance } = params;
+  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex } = params;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
@@ -288,7 +286,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       cell: (info) => {
         const original = info.row.original as RankingsItem;
         const name = String(info.getValue() || "—");
-        return <AdNameCell original={original} value={name} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} minimal={viewMode === "minimal"} onOpenDrill={onOpenDrill} showProvenance={showProvenance} />;
+        return <AdNameCell original={original} value={name} groupByAdNameEffective={groupByAdNameEffective} currentTab={currentTab} minimal={viewMode === "minimal"} onOpenDrill={onOpenDrill} />;
       },
     }),
   );

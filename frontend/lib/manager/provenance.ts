@@ -76,43 +76,14 @@ export function getRowAccountNames(row: RankingsItem | null | undefined, index: 
   return Array.from(new Set(names)).sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
-export interface ProvenanceVisibility {
-  showPack: boolean;
-  showAccount: boolean;
-}
-
-/**
- * Uma dimensão só merece espaço na linha quando ela VARIA no resultado.
- *
- * Com um único pack selecionado, o seletor de packs já respondeu "de onde vêm estas linhas" —
- * repetir o mesmo nome em todas as linhas seria ruído puro numa tabela que já disputa largura com
- * ~25 métricas. O mesmo vale para conta. Só quando o resultado MISTURA packs (ou contas) é que a
- * procedência vira informação que o usuário não consegue obter de nenhum outro lugar da tela.
- */
-export function computeProvenanceVisibility(rows: readonly RankingsItem[] | null | undefined): ProvenanceVisibility {
-  const packIds = new Set<string>();
-  const accountIds = new Set<string>();
-
-  for (const row of rows ?? []) {
-    for (const id of row?.pack_ids ?? []) packIds.add(String(id));
-
-    const accounts = Array.isArray(row?.account_ids) && row.account_ids.length > 0 ? row.account_ids : row?.account_id ? [row.account_id] : [];
-    for (const id of accounts) accountIds.add(normalizeAccountId(id));
-
-    if (packIds.size > 1 && accountIds.size > 1) break;
-  }
-
-  return { showPack: packIds.size > 1, showAccount: accountIds.size > 1 };
-}
-
-/** Rótulo curto para o badge: "Pack de Junho" ou "Pack de Junho +2". */
+/** Rótulo curto para a célula da coluna: "Junho" ou "Junho +2". */
 export function formatProvenanceNames(names: readonly string[]): string {
   if (names.length === 0) return "";
   if (names.length === 1) return names[0];
   return `${names[0]} +${names.length - 1}`;
 }
 
-/** Lista completa, para o tooltip/title de um badge truncado. */
+/** Lista completa, para o title de uma célula truncada. */
 export function formatProvenanceTitle(names: readonly string[]): string {
   return names.join(" · ");
 }

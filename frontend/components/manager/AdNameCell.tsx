@@ -6,7 +6,6 @@ import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { IconChevronRight, IconMicrophone } from "@tabler/icons-react";
-import { formatProvenanceNames, formatProvenanceTitle, getRowAccountNames, getRowPackNames, useProvenanceIndex, type ProvenanceVisibility } from "@/lib/manager/provenance";
 
 interface AdNameCellProps {
   original: RankingsItem;
@@ -17,12 +16,6 @@ interface AdNameCellProps {
   minimal?: boolean;
   /** Acionado ao clicar no chevron — abre o modal de drill no nível apropriado. */
   onOpenDrill?: (original: RankingsItem) => void;
-  /**
-   * Quais dimensões de procedência exibir. Calculado sobre o resultado inteiro (não por linha):
-   * só marcamos true quando a dimensão VARIA entre as linhas — com um pack só, o seletor de packs
-   * já respondeu de onde vêm os dados e o badge seria ruído em toda linha.
-   */
-  showProvenance?: ProvenanceVisibility;
 }
 
 function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
@@ -32,29 +25,10 @@ function arePropsEqual(prev: AdNameCellProps, next: AdNameCellProps): boolean {
   if (prev.minimal !== next.minimal) return false;
   if (prev.groupByAdNameEffective !== next.groupByAdNameEffective) return false;
   if (prev.onOpenDrill !== next.onOpenDrill) return false;
-  if (prev.showProvenance?.showPack !== next.showProvenance?.showPack) return false;
-  if (prev.showProvenance?.showAccount !== next.showProvenance?.showAccount) return false;
   return true;
 }
 
-export const AdNameCell = React.memo(function AdNameCell({ original, value, groupByAdNameEffective, currentTab, minimal = false, onOpenDrill, showProvenance }: AdNameCellProps) {
-  // Hook interno (e não prop): quando as contas terminam de carregar, o store muda e a célula
-  // re-renderiza sozinha — o React.memo não bloqueia re-render por mudança de store.
-  const provenanceIndex = useProvenanceIndex();
-  const provenanceBadges: { key: string; label: string; title: string }[] = [];
-  if (showProvenance?.showPack) {
-    const packNames = getRowPackNames(original, provenanceIndex);
-    if (packNames.length > 0) {
-      provenanceBadges.push({ key: "pack", label: formatProvenanceNames(packNames), title: `Pack: ${formatProvenanceTitle(packNames)}` });
-    }
-  }
-  if (showProvenance?.showAccount) {
-    const accountNames = getRowAccountNames(original, provenanceIndex);
-    if (accountNames.length > 0) {
-      provenanceBadges.push({ key: "account", label: formatProvenanceNames(accountNames), title: `Conta: ${formatProvenanceTitle(accountNames)}` });
-    }
-  }
-
+export const AdNameCell = React.memo(function AdNameCell({ original, value, groupByAdNameEffective, currentTab, minimal = false, onOpenDrill }: AdNameCellProps) {
   const showThumbnail = currentTab !== "por-conjunto" && currentTab !== "por-campanha";
   const thumbnail = getAdThumbnail(original);
   const name = String(value || "—");
@@ -112,10 +86,8 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, grou
         <div className="flex items-center gap-2 truncate">
           <span className="truncate flex-1">{name}</span>
         </div>
-        {/* Procedência entra INLINE com o subtítulo, nunca numa linha nova: a tabela é virtualizada
-            com altura estimada por viewMode (40px no minimal) e uma linha extra causaria jank. */}
-        <div className={`flex items-center gap-1.5 overflow-hidden ${canDrill ? "mt-1" : ""}`}>
-          {canDrill ? (
+        {canDrill ? (
+          <div className="mt-1">
             <Button size="sm" variant="ghost" onClick={handleOpenDrill} className="h-auto py-1 px-2 text-xs gap-1.5 text-muted-foreground hover:text-text">
               {currentTab === "por-campanha" ? (
                 <>
@@ -130,15 +102,10 @@ export const AdNameCell = React.memo(function AdNameCell({ original, value, grou
                 </>
               )}
             </Button>
-          ) : (
-            <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{secondLine}</span>
-          )}
-          {provenanceBadges.map((badge) => (
-            <span key={badge.key} title={badge.title} className="max-w-[8rem] shrink-0 truncate rounded bg-muted px-1.5 py-0.5 text-2xs text-muted-foreground">
-              {badge.label}
-            </span>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="text-xs text-muted-foreground truncate">{secondLine}</div>
+        )}
       </div>
     </div>
   );

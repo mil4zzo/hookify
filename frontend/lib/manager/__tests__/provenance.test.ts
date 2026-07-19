@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeProvenanceVisibility, formatProvenanceNames, formatProvenanceTitle, getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "../provenance";
+import { formatProvenanceNames, formatProvenanceTitle, getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "../provenance";
 
 const index: ProvenanceIndex = {
   packNameById: new Map([
@@ -49,27 +49,6 @@ test("account_ids tem precedência sobre account_id (que é só o representante 
   // Payload antigo (sem account_ids): cai para o representante em vez de não mostrar nada.
   const legacy = row({ account_id: "act_222" });
   assert.deepEqual(getRowAccountNames(legacy, index), ["CA - 02"]);
-});
-
-test("visibilidade: a dimensão só aparece quando VARIA entre as linhas", () => {
-  // Um pack e uma conta só → o seletor de packs já respondeu; repetir em toda linha seria ruído.
-  const uniform = [row({ pack_ids: ["pack-1"], account_ids: ["act_111"] }), row({ pack_ids: ["pack-1"], account_ids: ["act_111"] })];
-  assert.deepEqual(computeProvenanceVisibility(uniform), { showPack: false, showAccount: false });
-
-  // Packs diferentes entre linhas → procedência vira informação que não está em nenhum outro lugar.
-  const mixedPacks = [row({ pack_ids: ["pack-1"], account_ids: ["act_111"] }), row({ pack_ids: ["pack-2"], account_ids: ["act_111"] })];
-  assert.deepEqual(computeProvenanceVisibility(mixedPacks), { showPack: true, showAccount: false });
-
-  // Uma única linha que já mistura packs/contas (grupo por ad_name) também conta como variação.
-  const mixedWithinRow = [row({ pack_ids: ["pack-1", "pack-2"], account_ids: ["act_111", "act_222"] })];
-  assert.deepEqual(computeProvenanceVisibility(mixedWithinRow), { showPack: true, showAccount: true });
-
-  // Fallback: variação detectada via account_id (payload antigo, sem account_ids).
-  const legacyMixed = [row({ account_id: "act_111" }), row({ account_id: "act_222" })];
-  assert.deepEqual(computeProvenanceVisibility(legacyMixed), { showPack: false, showAccount: true });
-
-  assert.deepEqual(computeProvenanceVisibility([]), { showPack: false, showAccount: false });
-  assert.deepEqual(computeProvenanceVisibility(undefined), { showPack: false, showAccount: false });
 });
 
 test("formatação: otimiza para o caso de um valor, com +N como salvaguarda", () => {
