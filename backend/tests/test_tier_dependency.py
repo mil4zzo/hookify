@@ -83,7 +83,10 @@ class TestRequireMinTier:
         return asyncio.get_event_loop().run_until_complete(coro)
 
     def test_insider_user_passes_insider_gate(self):
-        future = (NOW + timedelta(days=30)).isoformat()
+        # A dependency real usa o relógio de verdade — o expiry precisa ser relativo a
+        # now() real, não ao NOW congelado (que virou bomba-relógio: passou a falhar
+        # quando NOW+30d+grace ficou no passado).
+        future = (datetime.now(timezone.utc) + timedelta(days=30)).isoformat()
         sb = _make_sb_with_row("insider", future)
         dep = require_min_tier("insider")
         user = {"user_id": "u1"}
@@ -95,7 +98,6 @@ class TestRequireMinTier:
 
     def test_standard_user_blocked_by_insider_gate(self):
         from fastapi import HTTPException
-        future = (NOW + timedelta(days=30)).isoformat()
         sb = _make_sb_with_row("standard", None)
         dep = require_min_tier("insider")
         user = {"user_id": "u2"}
