@@ -5,7 +5,7 @@ import {
   GetAdsResponse,
   GetVideoSourceRequest,
   GetVideoSourceResponse,
-  VideoSourceUrlsBatchResponse,
+  MediaSourceUrlsBatchResponse,
   GetImageSourceRequest,
   GetImageSourceResponse,
   AuthTokenRequest,
@@ -122,10 +122,12 @@ export const api = {
     getVideoSource: (params: GetVideoSourceRequest): Promise<GetVideoSourceResponse> =>
       apiClient.get('/facebook/video-source', { params }),
 
-    /** URLs reproduzíveis (CDN Meta, perecíveis) por ad_name — export CSV.
-     * Cache-first no backend; timeout largo porque pode tocar a Meta por vídeo único não-cacheado. */
-    getVideoSourceUrlsBatch: (adNames: string[]): Promise<VideoSourceUrlsBatchResponse> =>
-      apiClient.post('/facebook/video-source-urls/batch', { ad_names: adNames }, { timeout: 120000 }),
+    /** URLs de mídia (vídeo + imagem em alta) por ad_name — export CSV.
+     * Timeout de 5min: uma rodada FRIA (centenas de mídias sem cache, vídeos a 4 por vez)
+     * passa de 2min com folga; o backend cacheia conforme resolve, então retentar após
+     * timeout é barato. Rodadas seguintes são majoritariamente cache. */
+    getMediaSourceUrlsBatch: (adNames: string[]): Promise<MediaSourceUrlsBatchResponse> =>
+      apiClient.post('/facebook/media-source-urls/batch', { ad_names: adNames }, { timeout: 300000 }),
 
     getImageSource: (params: GetImageSourceRequest): Promise<GetImageSourceResponse> =>
       apiClient.get('/facebook/image-source', { params }),

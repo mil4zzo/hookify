@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict WY8rPbzKgcgpLdeuHuk8RsNLh8ST9olRRTSefKU5kr6JX3OIgHtZLzyE3ErlVCO
+\restrict CC166jvGEai4LB6edIVcnhTjZ4vGR6YHphN4hnxY1e6nY0Lez5myI0Lx4rRXI0k
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -4344,6 +4344,8 @@ CREATE TABLE public.ads (
     campaign_status text,
     video_source_url text,
     video_source_expires_at timestamp with time zone,
+    image_source_url text,
+    image_source_expires_at timestamp with time zone,
     CONSTRAINT ads_media_type_check CHECK ((media_type = ANY (ARRAY['video'::text, 'image'::text, 'unknown'::text])))
 );
 
@@ -6020,5 +6022,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict WY8rPbzKgcgpLdeuHuk8RsNLh8ST9olRRTSefKU5kr6JX3OIgHtZLzyE3ErlVCO
+\unrestrict CC166jvGEai4LB6edIVcnhTjZ4vGR6YHphN4hnxY1e6nY0Lez5myI0Lx4rRXI0k
 

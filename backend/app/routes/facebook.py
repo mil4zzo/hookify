@@ -45,6 +45,10 @@ from app.services.video_source_cache import (
     MODAL_MIN_TTL_S,
     resolve_video_source_cached,
 )
+from app.services.image_source_cache import (
+    extract_image_hashes,
+    resolve_image_sources_batch,
+)
 from concurrent.futures import ThreadPoolExecutor
 from fastapi import Query
 
@@ -3246,18 +3250,21 @@ _VIDEO_URL_BATCH_MAX_NAMES = 500
 _VIDEO_URL_BATCH_CONCURRENCY = 4
 
 
-@router.post("/video-source-urls/batch")
-def get_video_source_urls_batch(
+@router.post("/media-source-urls/batch")
+@router.post("/video-source-urls/batch", include_in_schema=False)  # alias legado (frontend antigo)
+def get_media_source_urls_batch(
     body: Dict[str, Any] = Body(...),
     api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Resolve URLs reproduzíveis (CDN Meta) para uma lista de ad_names — export CSV.
+    """Resolve URLs de mídia (vídeo E imagem em alta) para uma lista de ad_names — export CSV.
 
     Controle de volume de chamadas à Meta:
-    - cache-first em ads.video_source_url (margem EXPORT_MIN_TTL_S, só renova o vencido);
-    - dedupe por vídeo (ads que compartilham criativo pagam 1 chamada);
-    - erro por item — um vídeo inacessível não derruba o batch.
+    - cache-first em ads.video_source_url / ads.image_source_url (margem EXPORT_MIN_TTL_S);
+    - vídeo: dedupe por video_id (ads que compartilham criativo pagam 1 chamada);
+    - imagem: hashes do creative já no banco + /adimages em LOTE por conta (1 chamada
+      cobre dezenas de imagens); permalink_url é efetivamente permanente;
+    - erro por item — uma mídia inacessível não derruba o batch.
     """
     ad_names_raw = body.get("ad_names", [])
     if not isinstance(ad_names_raw, list) or not ad_names_raw:
@@ -3277,8 +3284,8 @@ def get_video_source_urls_batch(
     try:
         rows = supabase_repo.get_ads_video_fields_by_names(user_jwt, user_id, ad_names)
 
-        # Representante por ad_name: primeiro ad com vídeo (mesma regra do worker
-        # de transcrição — ver _extract_video_info).
+        # Representante de VÍDEO por ad_name: primeiro ad com vídeo (mesma regra do
+        # worker de transcrição — ver _extract_video_info).
         representatives: Dict[str, Dict[str, Any]] = {}
         for row in rows:
             name = str(row.get("ad_name") or "").strip()
@@ -3299,6 +3306,33 @@ def get_video_source_urls_batch(
                     "cached_url": row.get("video_source_url"),
                     "cached_expires_at": row.get("video_source_expires_at"),
                 }
+
+        # Representante de IMAGEM: nomes sem vídeo, com hash no creative (96% dos ads
+        # de imagem) ou igm como fallback. Prefere linha que tenha hashes.
+        image_reps: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            name = str(row.get("ad_name") or "").strip()
+            if not name or name in representatives:
+                continue
+            media_type = str(row.get("media_type") or "").strip().lower()
+            if media_type == "video":
+                continue
+            creative = row.get("creative") or {}
+            hashes = extract_image_hashes(creative)
+            ig_media_id = str(creative.get("effective_instagram_media_id") or "").strip()
+            if not (media_type == "image" or hashes or ig_media_id):
+                continue
+            existing = image_reps.get(name)
+            if existing and (existing["hashes"] or not hashes):
+                continue
+            image_reps[name] = {
+                "ad_id": str(row.get("ad_id") or "").strip(),
+                "account_id": str(row.get("account_id") or "").strip(),
+                "hashes": hashes,
+                "ig_media_id": ig_media_id,
+                "cached_url": row.get("image_source_url"),
+                "cached_expires_at": row.get("image_source_expires_at"),
+            }
 
         # Dedupe por mídia: ads que compartilham o mesmo vídeo resolvem uma vez só
         media_infos: Dict[str, Dict[str, Any]] = {}
@@ -3342,8 +3376,25 @@ def get_video_source_urls_batch(
                 for key, res in pool.map(_resolve_one, list(media_infos.keys())):
                     resolved_by_key[key] = res
 
+        # Imagens: lote por conta (cache-first no serviço) + 1 retentativa dos transitórios
+        image_results: Dict[str, Dict[str, Any]] = {}
+        if image_reps:
+            image_results = resolve_image_sources_batch(
+                api, user_jwt=user_jwt, user_id=user_id, representatives=image_reps
+            )
+            transient_names = [n for n, r in image_results.items() if r.get("error") and r.get("transient")]
+            if transient_names:
+                time.sleep(1.5)
+                retry_results = resolve_image_sources_batch(
+                    api,
+                    user_jwt=user_jwt,
+                    user_id=user_id,
+                    representatives={n: image_reps[n] for n in transient_names},
+                )
+                image_results.update(retry_results)
+
         # Token expirado invalida o batch inteiro — 401 padronizado (frontend reconecta)
-        for res in resolved_by_key.values():
+        for res in list(resolved_by_key.values()) + list(image_results.values()):
             if res.get("error"):
                 _raise_if_meta_token_expired(str(res["error"]), user)
 
@@ -3353,27 +3404,32 @@ def get_video_source_urls_batch(
         from_cache_count = 0
         for name in ad_names:
             info = representatives.get(name)
-            if not info:
-                results[name] = {"url": None, "expires_at": None, "video_id": None, "error": "Anúncio sem vídeo ou não encontrado"}
+            if info:
+                res = resolved_by_key.get(media_key_by_name[name]) or {"error": "Falha desconhecida"}
+                video_id = info["video_id"] or None
+            elif name in image_reps:
+                res = image_results.get(name) or {"error": "Falha desconhecida"}
+                video_id = None
+            else:
+                results[name] = {"url": None, "expires_at": None, "video_id": None, "error": "Anúncio sem mídia ou não encontrado"}
                 failed_count += 1
                 continue
-            res = resolved_by_key.get(media_key_by_name[name]) or {"error": "Falha desconhecida"}
             if res.get("url"):
                 expires_at = res.get("expires_at")
                 results[name] = {
                     "url": res["url"],
                     "expires_at": expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at,
-                    "video_id": info["video_id"] or None,
+                    "video_id": video_id,
                 }
                 resolved_count += 1
                 if res.get("from_cache"):
                     from_cache_count += 1
             else:
-                results[name] = {"url": None, "expires_at": None, "video_id": info["video_id"] or None, "error": str(res.get("error"))}
+                results[name] = {"url": None, "expires_at": None, "video_id": video_id, "error": str(res.get("error"))}
                 failed_count += 1
 
         logger.info(
-            f"[VIDEO_URL_BATCH] {len(ad_names)} ad_names → {len(media_infos)} vídeos únicos: "
+            f"[MEDIA_URL_BATCH] {len(ad_names)} ad_names → {len(media_infos)} vídeos únicos + {len(image_reps)} imagens: "
             f"{resolved_count} ok ({from_cache_count} do cache), {failed_count} falhas"
         )
         if failed_count:
@@ -3383,7 +3439,7 @@ def get_video_source_urls_batch(
                 if err:
                     reason_counts[err] = reason_counts.get(err, 0) + 1
             grouped = " | ".join(f"{count}x {reason[:160]}" for reason, count in sorted(reason_counts.items(), key=lambda kv: -kv[1]))
-            logger.warning(f"[VIDEO_URL_BATCH] Motivos das falhas: {grouped}")
+            logger.warning(f"[MEDIA_URL_BATCH] Motivos das falhas: {grouped}")
         return {
             "results": results,
             "resolved": resolved_count,
@@ -3393,7 +3449,7 @@ def get_video_source_urls_batch(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Error in /video-source-urls/batch endpoint")
+        logger.exception("Error in /media-source-urls/batch endpoint")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/image-source")

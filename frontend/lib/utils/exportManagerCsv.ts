@@ -5,8 +5,7 @@ import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
 import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance"
 import { getMetricNumericValueOrNull, type MetricValueContext } from "@/lib/metrics/calculations"
 import { api } from "@/lib/api/endpoints"
-import type { VideoSourceUrlsBatchResponse } from "@/lib/api/schemas"
-import { getAdThumbnail } from "@/lib/utils/thumbnailFallback"
+import type { MediaSourceUrlsBatchResponse } from "@/lib/api/schemas"
 
 type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha"
 
@@ -72,12 +71,12 @@ const TABS_WITH_MEDIA_TYPE = new Set<ManagerTab>(["por-anuncio", "individual"])
 const TABS_WITH_MEDIA_URLS = new Set<ManagerTab>(["por-anuncio", "individual"])
 
 // Limite do endpoint batch de URLs (backend rejeita acima disso) — fatiar
-const VIDEO_URL_BATCH_CHUNK = 500
+const MEDIA_URL_BATCH_CHUNK = 500
 
-export type VideoUrlMap = VideoSourceUrlsBatchResponse["results"]
+export type MediaUrlMap = MediaSourceUrlsBatchResponse["results"]
 
-export interface VideoUrlFetchResult {
-  map: VideoUrlMap
+export interface MediaUrlFetchResult {
+  map: MediaUrlMap
   resolved: number
   /** ad_names que falharam — entrada do "Tentar novamente" (re-resolve só estes). */
   failedNames: string[]
@@ -85,26 +84,26 @@ export interface VideoUrlFetchResult {
   failuresByReason: Record<string, string[]>
 }
 
-/** ad_names de vídeo do conjunto exportado (filtrado+ordenado), dedupe preservando ordem.
+/** ad_names com mídia (vídeo OU imagem) do conjunto exportado, dedupe preservando ordem.
  * Recebe as LINHAS (não a table) para operar sobre o snapshot congelado do dialog. */
-export function getVideoAdNames(rows: readonly Row<RankingsItem>[]): string[] {
+export function getMediaAdNames(rows: readonly Row<RankingsItem>[]): string[] {
   return Array.from(
     new Set(
       rows
-        .filter((r) => r.original.media_type === "video")
+        .filter((r) => r.original.media_type === "video" || r.original.media_type === "image")
         .map((r) => String(r.original.ad_name ?? ""))
         .filter(Boolean)
     )
   )
 }
 
-/** Resolve URLs de vídeo em batch. `baseMap` (retry) preserva sucessos anteriores — o
+/** Resolve URLs de mídia em batch. `baseMap` (retry) preserva sucessos anteriores — o
  * backend serve os já-resolvidos do cache, mas manter o merge deixa o retry incremental. */
-export async function fetchVideoUrls(adNames: string[], baseMap: VideoUrlMap = {}): Promise<VideoUrlFetchResult> {
-  const map: VideoUrlMap = { ...baseMap }
-  for (let i = 0; i < adNames.length; i += VIDEO_URL_BATCH_CHUNK) {
-    const chunk = adNames.slice(i, i + VIDEO_URL_BATCH_CHUNK)
-    const res = await api.facebook.getVideoSourceUrlsBatch(chunk)
+export async function fetchMediaUrls(adNames: string[], baseMap: MediaUrlMap = {}): Promise<MediaUrlFetchResult> {
+  const map: MediaUrlMap = { ...baseMap }
+  for (let i = 0; i < adNames.length; i += MEDIA_URL_BATCH_CHUNK) {
+    const chunk = adNames.slice(i, i + MEDIA_URL_BATCH_CHUNK)
+    const res = await api.facebook.getMediaSourceUrlsBatch(chunk)
     Object.assign(map, res.results)
   }
   let resolved = 0
@@ -150,7 +149,7 @@ export async function exportManagerToCsv({
   dateStop,
   withTranscriptions = false,
   withMediaUrls = false,
-  videoUrlMap,
+  mediaUrlMap,
   rowsSnapshot,
   metricContext,
   provenanceIndex,
@@ -168,7 +167,7 @@ export async function exportManagerToCsv({
   withTranscriptions?: boolean
   withMediaUrls?: boolean
   /** Mapa pré-resolvido pelo dialog (fase de revisão). Sem ele, resolve aqui. */
-  videoUrlMap?: VideoUrlMap
+  mediaUrlMap?: MediaUrlMap
   /** Linhas congeladas pelo dialog no início do fluxo. Sem isso, um refetch da tabela
    * entre a resolução de URLs e o download reclassificaria linhas e o arquivo
    * divergiria da tela de revisão (vídeo sem entrada no mapa → célula vazia). */
@@ -204,13 +203,13 @@ export async function exportManagerToCsv({
     }
   }
 
-  // URLs de vídeo: usa o mapa pré-resolvido do dialog ou resolve aqui (só linhas
-  // de vídeo; imagens usam a thumb do Storage)
-  let resolvedVideoUrlMap: VideoUrlMap = videoUrlMap ?? {}
-  if (showMediaUrls && !videoUrlMap) {
-    const videoAdNames = getVideoAdNames(rows)
-    if (videoAdNames.length > 0) {
-      resolvedVideoUrlMap = (await fetchVideoUrls(videoAdNames)).map
+  // URLs de mídia (vídeo + imagem em alta): usa o mapa pré-resolvido do dialog
+  // ou resolve aqui
+  let resolvedMediaUrlMap: MediaUrlMap = mediaUrlMap ?? {}
+  if (showMediaUrls && !mediaUrlMap) {
+    const mediaAdNames = getMediaAdNames(rows)
+    if (mediaAdNames.length > 0) {
+      resolvedMediaUrlMap = (await fetchMediaUrls(mediaAdNames)).map
     }
   }
 
@@ -246,17 +245,12 @@ export async function exportManagerToCsv({
       cells.push(neutralizeFormula(transcriptionMap[adName] ?? ""))
     }
     if (showMediaUrls) {
-      const original = row.original
-      if (original.media_type === "video") {
-        const entry = resolvedVideoUrlMap[String(original.ad_name ?? "")]
-        // Falha vira "ERRO: <motivo>" — quem consome a planilha (IA) distingue
-        // "sem vídeo" de "falhou ao resolver"
-        const urlCell = entry?.url ?? (entry?.error ? `ERRO: ${entry.error}` : "")
-        cells.push(neutralizeFormula(urlCell), entry?.expires_at ?? "", entry?.video_id ?? "")
-      } else {
-        // Imagem: thumbnail do Storage (permanente) — sem expiry, sem video_id
-        cells.push(getAdThumbnail(original) ?? "", "", "")
-      }
+      // Vídeo e imagem saem do mesmo mapa (imagem em ALTA via permalink, não a thumb
+      // 64px do Storage). Falha vira "ERRO: <motivo>" — quem consome a planilha (IA)
+      // distingue "sem mídia" de "falhou ao resolver". video_id vem vazio para imagens.
+      const entry = resolvedMediaUrlMap[String(row.original.ad_name ?? "")]
+      const urlCell = entry?.url ?? (entry?.error ? `ERRO: ${entry.error}` : "")
+      cells.push(neutralizeFormula(urlCell), entry?.expires_at ?? "", entry?.video_id ?? "")
     }
     return cells
   })

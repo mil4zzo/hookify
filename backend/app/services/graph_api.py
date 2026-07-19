@@ -580,6 +580,43 @@ class GraphAPI:
             logger.exception("get_image_source_url error: %s", err)
             return {"status": "error", "message": str(err)}
 
+    def get_ad_images_by_hashes(self, act_id: str, hashes: List[str]) -> Dict[str, Any]:
+        """Resolve várias imagens de uma conta numa chamada: /act_{id}/adimages?hashes=[...].
+
+        Retorna {"images": {hash: {"permalink_url", "url"}}} em sucesso (hash ausente na
+        resposta simplesmente não aparece no dict), ou {"status", "message"} em erro —
+        mesmo shape de erro de get_video_source_url, para reusar a classificação
+        transitório/permanente do chamador. Usa o token de USUÁRIO (não precisa de page token).
+        """
+        if not act_id or not hashes:
+            return {"images": {}}
+        act = act_id if str(act_id).startswith("act_") else f"act_{act_id}"
+        try:
+            resp = requests.get(
+                self.base_url + act + "/adimages" + self.user_token,
+                params={
+                    "hashes": json.dumps(list(hashes)),
+                    "fields": "hash,permalink_url,url",
+                },
+                timeout=20,
+            )
+            resp.raise_for_status()
+            log_meta_usage(resp, "GraphAPI.get_ad_images_by_hashes")
+            images: Dict[str, Dict[str, Any]] = {}
+            for item in (resp.json() or {}).get("data", []):
+                h = item.get("hash")
+                if h:
+                    images[h] = {"permalink_url": item.get("permalink_url"), "url": item.get("url")}
+            return {"images": images}
+        except requests.exceptions.HTTPError as http_err:
+            decoded_text = urllib.parse.unquote(http_err.response.text)
+            logger.warning("get_ad_images_by_hashes http_error: status=%s act_id=%s body=%s",
+                           http_err.response.status_code, act, decoded_text[:300])
+            return {"status": f"Status: {http_err.response.status_code} - http_error", "message": decoded_text}
+        except Exception as err:
+            logger.warning("get_ad_images_by_hashes error act_id=%s: %s", act, err)
+            return {"status": "error", "message": str(err)}
+
     ## MANAGE STATUS
 
     def _update_entity_status(self, entity_id: str, status: str) -> Dict[str, Any]:

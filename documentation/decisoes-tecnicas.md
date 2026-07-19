@@ -21,6 +21,8 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 **Regra derivada:** qualquer URL de CDN da Meta (thumbnail, source, media_url de IG) expira. Antes de expor uma numa feature, decidir: Storage (permanente, para render) ou cache-com-expiry (para consumo pontual). Memória: `meta_video_access.md`.
 
+**Extensão para IMAGEM em alta (2026-07-19, migration 098):** a thumb 64px do Storage é inútil para análise de criativo; o export passou a resolver a imagem ORIGINAL. Verificado com download anônimo real: o `permalink_url` do `/act_{id}/adimages` (facebook.com/ads/image/?d=...) serve a imagem cheia **sem login** via redirect que re-assina o CDN a cada acesso — é a exceção à regra acima, efetivamente permanente (gravamos expiry sintético de 30d em `ads.image_source_url/expires_at` e renovamos no miss; consumidor deve seguir redirects). Custo Meta ~zero: os `image_hash`es já estão em `ads.creative` (96% de cobertura) e o `/adimages` aceita lote de hashes por conta com token de usuário — 200 imagens ≈ 1 chamada por conta; igm só como fallback SHARE (~4%). Serviço `image_source_cache.resolve_image_sources_batch`; endpoint unificado `POST /facebook/media-source-urls/batch` (alias legado mantido); no CSV, imagem e vídeo saem do mesmo mapa, falha vira `ERRO: motivo` (sem fallback silencioso para thumb).
+
 ---
 
 ## Timeouts intermitentes (57014) no Manager — generic plan do Postgres na 6ª execução da conexão, não volume de dados

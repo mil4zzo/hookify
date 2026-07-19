@@ -164,9 +164,10 @@ export const GetVideoSourceResponseSchema = z.object({
   video_owner_page_id: z.string().optional(),
 }).passthrough()
 
-// URLs reproduzíveis por ad_name (export CSV). url é CDN Meta assinada e PERECÍVEL —
-// expires_at diz até quando vale; nunca persistir/exibir como permanente.
-export const VideoSourceUrlsBatchResponseSchema = z.object({
+// URLs de mídia por ad_name (export CSV) — vídeo (CDN assinada, perecível) e imagem em
+// alta (permalink /ads/image, longa validade). expires_at diz até quando vale;
+// video_id vem null para imagens.
+export const MediaSourceUrlsBatchResponseSchema = z.object({
   results: z.record(
     z.string(),
     z.object({
@@ -256,7 +257,7 @@ export type AuthTokenRequest = z.infer<typeof AuthTokenRequestSchema>
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 export type GetAdsResponse = z.infer<typeof GetAdsResponseSchema>
 export type GetVideoSourceResponse = z.infer<typeof GetVideoSourceResponseSchema>
-export type VideoSourceUrlsBatchResponse = z.infer<typeof VideoSourceUrlsBatchResponseSchema>
+export type MediaSourceUrlsBatchResponse = z.infer<typeof MediaSourceUrlsBatchResponseSchema>
 export type GetImageSourceResponse = z.infer<typeof GetImageSourceResponseSchema>
 export type AuthTokenResponse = z.infer<typeof AuthTokenResponseSchema>
 export type AuthUrlResponse = z.infer<typeof AuthUrlResponseSchema>

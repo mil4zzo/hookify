@@ -1115,6 +1115,32 @@ def update_ad_video_source(
         )
 
 
+def update_ads_image_source(
+    user_jwt: str,
+    user_id: str,
+    *,
+    ad_names: List[str],
+    url: str,
+    expires_at_iso: str,
+) -> None:
+    """Persiste o cache da URL de source de imagem (migration 098) para um grupo de ads.
+
+    Sem coluna própria para image_hash, a chave de propagação é o ad_name: todos os
+    ads do usuário com esses nomes (que compartilham o criativo) herdam a URL numa
+    escrita por lote. Best-effort — falha nunca bloqueia o consumidor."""
+    names = [str(n).strip() for n in ad_names if str(n or "").strip()]
+    if not names or not url:
+        return
+    payload = {"image_source_url": url, "image_source_expires_at": expires_at_iso}
+    try:
+        sb = get_supabase_for_user(user_jwt)
+        batch_size = 200
+        for i in range(0, len(names), batch_size):
+            sb.table("ads").update(payload).eq("user_id", user_id).in_("ad_name", names[i : i + batch_size]).execute()
+    except Exception as e:
+        logger.warning(f"[UPDATE_ADS_IMAGE_SOURCE] Falha (best-effort) para {len(names)} nomes: {e}")
+
+
 def get_ad_video_source_cache(
     user_jwt: str,
     user_id: str,
@@ -1145,18 +1171,18 @@ def get_ads_video_fields_by_names(
     user_id: str,
     ad_names: List[str],
 ) -> List[Dict[str, Any]]:
-    """Busca os campos de mídia/cache de vídeo dos ads pelos ad_names.
+    """Busca os campos de mídia/cache de vídeo E imagem dos ads pelos ad_names.
 
-    Usado pelo export (batch de URLs) e pelo worker de transcrição para consultar
-    o cache de video_source_url antes de chamar a Meta."""
+    Usado pelo export (batch de URLs de mídia) e pelo worker de transcrição para
+    consultar o cache de video_source_url antes de chamar a Meta."""
     names = sorted({str(n).strip() for n in ad_names if str(n or "").strip()})
     if not names:
         return []
 
     sb = get_supabase_for_user(user_jwt)
     select_fields = (
-        "ad_id,ad_name,primary_video_id,media_type,video_owner_page_id,"
-        "video_source_url,video_source_expires_at,creative"
+        "ad_id,ad_name,account_id,primary_video_id,media_type,video_owner_page_id,"
+        "video_source_url,video_source_expires_at,image_source_url,image_source_expires_at,creative"
     )
     # 200 nomes por .in_() (limite de URL), mas ad_name é duplicado em massa
     # (dezenas de instâncias por nome) — um lote de 200 nomes passa fácil das

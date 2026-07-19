@@ -170,6 +170,8 @@ Anúncios importados da Meta API com metadados do criativo.
 | campaign_status | text |  |
 | video_source_url | text |  |
 | video_source_expires_at | timestamp |  |
+| image_source_url | text |  |
+| image_source_expires_at | timestamp |  |
 
 ---
 
@@ -396,4 +398,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-07-18 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-07-19 — via `supabase/generate_schema_map.py`*

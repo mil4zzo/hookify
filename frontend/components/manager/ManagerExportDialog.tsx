@@ -8,11 +8,11 @@ import { MANAGER_COLUMNS, MANAGER_COLUMN_RENDER_ORDER, type ManagerColumnOption 
 import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
-import { exportManagerToCsv, fetchVideoUrls, getVideoAdNames, type VideoUrlFetchResult, type VideoUrlMap } from "@/lib/utils/exportManagerCsv";
+import { exportManagerToCsv, fetchMediaUrls, getMediaAdNames, type MediaUrlFetchResult, type MediaUrlMap } from "@/lib/utils/exportManagerCsv";
 import type { MetricValueContext } from "@/lib/metrics/calculations";
 import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { IconPlus, IconX, IconFileText, IconLoader2, IconDownload, IconVideo, IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
-import { toast } from "sonner";
+import { showError } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
 type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
@@ -54,7 +54,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
   const [withMediaUrls, setWithMediaUrls] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   // Fase de revisão: batch de URLs voltou com falhas — usuário decide retentar ou exportar assim mesmo
-  const [videoUrlReview, setVideoUrlReview] = useState<VideoUrlFetchResult | null>(null);
+  const [mediaUrlReview, setMediaUrlReview] = useState<MediaUrlFetchResult | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
   // Snapshot das linhas congelado no clique de "Exportar": a tabela pode refetchar com o
   // dialog aberto (fim de refresh de pack invalida o rankings) e reclassificar linhas —
@@ -69,7 +69,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     setSelected(seed);
     setWithTranscriptions(false);
     setWithMediaUrls(false);
-    setVideoUrlReview(null);
+    setMediaUrlReview(null);
     exportRowsRef.current = null;
   }, [isOpen, availableColumns, activeColumns]);
 
@@ -85,13 +85,17 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     return { withT, total: rows.length };
   }, [isOpen, showTranscriptionToggle, table]);
 
-  // Quantos ads/criativos (mesmo conjunto que o export percorre) são vídeo — alvo das URLs
+  // Quantos ads/criativos (mesmo conjunto que o export percorre) têm mídia — alvo das URLs
   const mediaUrlStats = useMemo(() => {
-    if (!isOpen || !showMediaUrlsToggle) return { videos: 0, total: 0 };
+    if (!isOpen || !showMediaUrlsToggle) return { videos: 0, images: 0, total: 0 };
     const rows = table.getSortedRowModel().rows;
     let videos = 0;
-    for (const r of rows) if (r.original.media_type === "video") videos++;
-    return { videos, total: rows.length };
+    let images = 0;
+    for (const r of rows) {
+      if (r.original.media_type === "video") videos++;
+      else if (r.original.media_type === "image") images++;
+    }
+    return { videos, images, total: rows.length };
   }, [isOpen, showMediaUrlsToggle, table]);
 
   const activeList = availableColumns.filter((c) => selected.has(c.id));
@@ -108,7 +112,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
 
   const itemLabel = currentTab === "individual" ? "anúncios" : "criativos";
 
-  const doExport = async (videoUrlMap?: VideoUrlMap) => {
+  const doExport = async (mediaUrlMap?: MediaUrlMap) => {
     await exportManagerToCsv({
       table,
       activeColumns: selected,
@@ -120,7 +124,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
       dateStop,
       withTranscriptions: withTranscriptions && showTranscriptionToggle,
       withMediaUrls: withMediaUrls && showMediaUrlsToggle,
-      videoUrlMap,
+      mediaUrlMap,
       rowsSnapshot: exportRowsRef.current ?? undefined,
       metricContext,
     });
@@ -133,10 +137,10 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     try {
       // Com URLs de mídia: resolve ANTES de baixar — se houver falhas, abre a
       // fase de revisão (retentar / exportar assim mesmo) em vez de baixar direto
-      if (withMediaUrls && showMediaUrlsToggle && mediaUrlStats.videos > 0) {
-        const result = await fetchVideoUrls(getVideoAdNames(exportRowsRef.current));
+      if (withMediaUrls && showMediaUrlsToggle && mediaUrlStats.videos + mediaUrlStats.images > 0) {
+        const result = await fetchMediaUrls(getMediaAdNames(exportRowsRef.current));
         if (result.failedNames.length > 0) {
-          setVideoUrlReview(result);
+          setMediaUrlReview(result);
           return;
         }
         await doExport(result.map);
@@ -144,8 +148,8 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
       }
       await doExport();
     } catch (e) {
-      logger.error("Erro ao exportar CSV:", e);
-      toast.error("Erro ao exportar CSV.");
+      logger.error("Erro ao exportar CSV:", e instanceof Error ? e.message : e, e);
+      showError(e);
     } finally {
       setIsExporting(false);
     }
@@ -153,38 +157,38 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
 
   // Re-resolve só as falhas; sucessos anteriores vêm do cache/merge. Zerou → exporta direto.
   const handleRetryFailed = async () => {
-    if (!videoUrlReview) return;
+    if (!mediaUrlReview) return;
     setIsRetrying(true);
     try {
-      const result = await fetchVideoUrls(videoUrlReview.failedNames, videoUrlReview.map);
+      const result = await fetchMediaUrls(mediaUrlReview.failedNames, mediaUrlReview.map);
       if (result.failedNames.length === 0) {
         await doExport(result.map);
         return;
       }
-      setVideoUrlReview(result);
+      setMediaUrlReview(result);
     } catch (e) {
-      logger.error("Erro ao retentar URLs de vídeo:", e);
-      toast.error("Erro ao retentar URLs de vídeo.");
+      logger.error("Erro ao retentar URLs de mídia:", e instanceof Error ? e.message : e, e);
+      showError(e);
     } finally {
       setIsRetrying(false);
     }
   };
 
   const handleExportAnyway = async () => {
-    if (!videoUrlReview) return;
+    if (!mediaUrlReview) return;
     setIsExporting(true);
     try {
-      await doExport(videoUrlReview.map);
+      await doExport(mediaUrlReview.map);
     } catch (e) {
-      logger.error("Erro ao exportar CSV:", e);
-      toast.error("Erro ao exportar CSV.");
+      logger.error("Erro ao exportar CSV:", e instanceof Error ? e.message : e, e);
+      showError(e);
     } finally {
       setIsExporting(false);
     }
   };
 
-  if (videoUrlReview) {
-    const totalVideos = videoUrlReview.resolved + videoUrlReview.failedNames.length;
+  if (mediaUrlReview) {
+    const totalMedia = mediaUrlReview.resolved + mediaUrlReview.failedNames.length;
     const isBusy = isRetrying || isExporting;
     return (
       <AppDialog isOpen={isOpen} onClose={onClose} title="Exportar CSV" size="lg" padding="md">
@@ -192,7 +196,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
           <div className="space-y-1">
             <h2 className="text-lg font-semibold text-text">Exportar CSV</h2>
             <p className="text-sm text-muted-foreground">
-              {videoUrlReview.resolved} de {totalVideos} URLs de vídeo resolvidas — {videoUrlReview.failedNames.length} falharam.
+              {mediaUrlReview.resolved} de {totalMedia} URLs de mídia resolvidas — {mediaUrlReview.failedNames.length} falharam.
             </p>
           </div>
 
@@ -202,7 +206,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
               <span className="text-sm text-text">Motivos das falhas</span>
             </div>
             <ul className="max-h-60 space-y-2 overflow-y-auto">
-              {Object.entries(videoUrlReview.failuresByReason)
+              {Object.entries(mediaUrlReview.failuresByReason)
                 .sort(([, a], [, b]) => b.length - a.length)
                 .map(([reason, names]) => (
                   <li key={reason} className="space-y-0.5">
@@ -225,7 +229,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">
-            <Button variant="ghost" onClick={() => setVideoUrlReview(null)} disabled={isBusy}>
+            <Button variant="ghost" onClick={() => setMediaUrlReview(null)} disabled={isBusy}>
               Voltar
             </Button>
             <Button variant="outline" onClick={handleExportAnyway} disabled={isBusy}>
@@ -234,7 +238,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
             </Button>
             <Button onClick={handleRetryFailed} disabled={isBusy}>
               {isRetrying ? <IconLoader2 className="h-4 w-4 mr-2 animate-spin" /> : <IconRefresh className="h-4 w-4 mr-2" />}
-              Tentar novamente ({videoUrlReview.failedNames.length})
+              Tentar novamente ({mediaUrlReview.failedNames.length})
             </Button>
           </div>
         </div>
@@ -325,7 +329,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
               <div className="flex min-w-0 flex-col">
                 <span className="text-sm text-text">Incluir URLs das mídias</span>
                 <span className="text-xs text-muted-foreground">
-                  {mediaUrlStats.videos} de {mediaUrlStats.total} {itemLabel} são vídeo — links da Meta expiram (validade na coluna do CSV)
+                  {mediaUrlStats.videos} vídeos e {mediaUrlStats.images} imagens de {mediaUrlStats.total} {itemLabel} — validade de cada link na coluna do CSV
                 </span>
               </div>
             </div>
@@ -335,7 +339,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
               onCheckedChange={setWithMediaUrls}
               variant="minimal"
               ariaLabel="Incluir URLs das mídias"
-              disabled={mediaUrlStats.total === 0}
+              disabled={mediaUrlStats.videos + mediaUrlStats.images === 0}
             />
           </div>
         )}
