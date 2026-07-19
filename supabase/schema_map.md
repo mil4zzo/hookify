@@ -168,6 +168,8 @@ Anúncios importados da Meta API com metadados do criativo.
 | media_type | text | NOT NULL, DEFAULT |
 | adset_status | text |  |
 | campaign_status | text |  |
+| video_source_url | text |  |
+| video_source_expires_at | timestamp |  |
 
 ---
 

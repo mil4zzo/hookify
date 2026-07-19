@@ -982,22 +982,31 @@ def _hydrate_media_type_for_rankings_rows(
     if not ad_names:
         return 0
 
+    # Precedência por nome: video > image; 'unknown' nunca entra no mapa — um nome
+    # com instâncias em estados mistos (ex.: cópia recém-criada ainda 'unknown' ao
+    # lado de instâncias 'video') deve reportar o tipo definitivo, não o acidental
+    # de qual linha o banco devolveu primeiro.
+    precedence = {"video": 2, "image": 1}
     name_to_media_type: Dict[str, str] = {}
     batch_size = 200
     for i in range(0, len(ad_names), batch_size):
         batch = ad_names[i : i + batch_size]
         try:
-            res = (
-                sb.table("ads")
-                .select("ad_name, media_type")
-                .eq("user_id", user_id)
-                .in_("ad_name", batch)
-                .execute()
+            # ad_name é duplicado em massa (dezenas de instâncias por nome): 200 nomes
+            # passam fácil das 1000 linhas que o PostgREST corta em silêncio → paginar.
+            ads_rows = supabase_repo._fetch_all_paginated(
+                sb,
+                "ads",
+                "ad_name, media_type",
+                lambda q, b=batch: q.eq("user_id", user_id).in_("ad_name", b).order("ad_id"),
             )
-            for ad_row in (res.data or []):
+            for ad_row in ads_rows:
                 name = str(ad_row.get("ad_name") or "").strip()
                 mt = str(ad_row.get("media_type") or "").strip()
-                if name and mt and name not in name_to_media_type:
+                rank = precedence.get(mt)
+                if not name or rank is None:
+                    continue
+                if rank > precedence.get(name_to_media_type.get(name, ""), 0):
                     name_to_media_type[name] = mt
         except Exception as e:
             logger.warning("[rankings_media_type] hydration failed batch=%s err=%s", len(batch), e)

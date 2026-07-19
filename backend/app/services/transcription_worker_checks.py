@@ -48,7 +48,15 @@ class TestExtractVideoInfo(unittest.TestCase):
 
         self.assertEqual(
             result,
-            {"ad-com-primary": {"video_id": "video-123", "actor_id": "actor-2"}},
+            {
+                "ad-com-primary": {
+                    "video_id": "video-123",
+                    "actor_id": "actor-2",
+                    "ig_media_id": "",
+                    "ad_id": "",
+                    "video_owner_page_id": "",
+                }
+            },
         )
 
 
@@ -125,6 +133,89 @@ class TestRunTranscriptionBatch(unittest.TestCase):
         self.assertEqual(final_heartbeat["details"]["skipped_existing"], 0)
         self.assertTrue(final_heartbeat["details"]["completed_with_failures"])
         self.assertIn("parcialmente", final_heartbeat["message"])
+
+    @patch("app.services.transcription_worker._transcribe_single")
+    @patch("app.services.transcription_worker._resolve_video_url", return_value="https://video.test/a.mp4")
+    @patch("app.services.transcription_worker.GraphAPI")
+    @patch("app.services.transcription_worker.supabase_repo.get_existing_transcriptions", return_value={})
+    @patch("app.services.transcription_worker.get_job_tracker")
+    def test_all_no_audio_completes_instead_of_failing(
+        self,
+        get_job_tracker: Mock,
+        get_existing_transcriptions: Mock,
+        graph_api_cls: Mock,
+        resolve_video_url: Mock,
+        transcribe_single: Mock,
+    ) -> None:
+        tracker = _FakeTracker()
+        get_job_tracker.return_value = tracker
+        transcribe_single.side_effect = [
+            TranscriptionResult(
+                success=False,
+                error="No audio stream found in the file. File type is video/mp4.",
+            ),
+            TranscriptionResult(
+                success=False,
+                error="Transcript contains no spoken audio.",
+            ),
+        ]
+
+        formatted_ads = [
+            {"ad_name": "ad-1", "primary_video_id": "video-1", "creative": {"actor_id": "actor-1"}},
+            {"ad_name": "ad-2", "primary_video_id": "video-2", "creative": {"actor_id": "actor-2"}},
+        ]
+
+        run_transcription_batch(
+            "jwt",
+            "user-1",
+            "access-token",
+            formatted_ads,
+            transcription_job_id="job-3",
+        )
+
+        final_heartbeat = tracker.heartbeats[-1]
+        self.assertEqual(final_heartbeat["status"], "completed")
+        self.assertEqual(final_heartbeat["details"]["success_count"], 0)
+        self.assertEqual(final_heartbeat["details"]["fail_count"], 0)
+        self.assertEqual(final_heartbeat["details"]["no_audio_count"], 2)
+        self.assertFalse(final_heartbeat["details"]["completed_with_failures"])
+        self.assertIn("sem áudio", final_heartbeat["message"])
+
+    @patch("app.services.transcription_worker._transcribe_single")
+    @patch("app.services.transcription_worker._resolve_video_url", return_value="https://video.test/a.mp4")
+    @patch("app.services.transcription_worker.GraphAPI")
+    @patch("app.services.transcription_worker.supabase_repo.get_existing_transcriptions", return_value={})
+    @patch("app.services.transcription_worker.get_job_tracker")
+    def test_force_no_audio_skips_permanent_failure_filter(
+        self,
+        get_job_tracker: Mock,
+        get_existing_transcriptions: Mock,
+        graph_api_cls: Mock,
+        resolve_video_url: Mock,
+        transcribe_single: Mock,
+    ) -> None:
+        tracker = _FakeTracker()
+        get_job_tracker.return_value = tracker
+        transcribe_single.return_value = TranscriptionResult(success=True)
+
+        formatted_ads = [
+            {"ad_name": "ad-1", "primary_video_id": "video-1", "creative": {"actor_id": "actor-1"}},
+        ]
+
+        run_transcription_batch(
+            "jwt",
+            "user-1",
+            "access-token",
+            formatted_ads,
+            transcription_job_id="job-4",
+            force_no_audio=True,
+        )
+
+        _, kwargs = get_existing_transcriptions.call_args
+        self.assertFalse(kwargs["include_no_audio_failed"])
+        final_heartbeat = tracker.heartbeats[-1]
+        self.assertEqual(final_heartbeat["status"], "completed")
+        self.assertEqual(final_heartbeat["details"]["success_count"], 1)
 
     @patch("app.services.transcription_worker._transcribe_single")
     @patch("app.services.transcription_worker._resolve_video_url", return_value="https://video.test/a.mp4")

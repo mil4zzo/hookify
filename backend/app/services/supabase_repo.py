@@ -1078,6 +1078,105 @@ def update_ad_video_owner(
         logger.warning(f"[UPDATE_AD_VIDEO_OWNER] Falha (best-effort) para ad_id={ad_id}: {e}")
 
 
+def update_ad_video_source(
+    user_jwt: str,
+    user_id: str,
+    *,
+    ad_id: str,
+    primary_video_id: str,
+    url: str,
+    expires_at_iso: str,
+    video_owner_page_id: Optional[str] = None,
+) -> None:
+    """Persiste o cache da URL de source do vídeo (ver migration 097).
+
+    Quando há primary_video_id, atualiza TODOS os ads do usuário que compartilham
+    o vídeo — ads duplicados do mesmo criativo herdam o cache numa única escrita.
+    """
+    payload: Dict[str, Any] = {
+        "video_source_url": url,
+        "video_source_expires_at": expires_at_iso,
+    }
+    if video_owner_page_id:
+        payload["video_owner_page_id"] = video_owner_page_id
+    try:
+        sb = get_supabase_for_user(user_jwt)
+        query = sb.table("ads").update(payload).eq("user_id", user_id)
+        if primary_video_id:
+            query = query.eq("primary_video_id", primary_video_id)
+        elif ad_id:
+            query = query.eq("ad_id", ad_id)
+        else:
+            return
+        query.execute()
+    except Exception as e:
+        logger.warning(
+            f"[UPDATE_AD_VIDEO_SOURCE] Falha (best-effort) para video_id={primary_video_id!r} ad_id={ad_id!r}: {e}"
+        )
+
+
+def get_ad_video_source_cache(
+    user_jwt: str,
+    user_id: str,
+    ad_id: str,
+) -> Optional[Dict[str, Any]]:
+    """Lê o cache de video_source de um ad (best-effort; None se ausente/falha)."""
+    ad_id = str(ad_id or "").strip()
+    if not ad_id:
+        return None
+    try:
+        sb = get_supabase_for_user(user_jwt)
+        res = (
+            sb.table("ads")
+            .select("primary_video_id,video_source_url,video_source_expires_at")
+            .eq("user_id", user_id)
+            .eq("ad_id", ad_id)
+            .limit(1)
+            .execute()
+        )
+        return res.data[0] if res.data else None
+    except Exception as e:
+        logger.warning(f"[GET_AD_VIDEO_SOURCE_CACHE] Falha (best-effort) para ad_id={ad_id}: {e}")
+        return None
+
+
+def get_ads_video_fields_by_names(
+    user_jwt: str,
+    user_id: str,
+    ad_names: List[str],
+) -> List[Dict[str, Any]]:
+    """Busca os campos de mídia/cache de vídeo dos ads pelos ad_names.
+
+    Usado pelo export (batch de URLs) e pelo worker de transcrição para consultar
+    o cache de video_source_url antes de chamar a Meta."""
+    names = sorted({str(n).strip() for n in ad_names if str(n or "").strip()})
+    if not names:
+        return []
+
+    sb = get_supabase_for_user(user_jwt)
+    select_fields = (
+        "ad_id,ad_name,primary_video_id,media_type,video_owner_page_id,"
+        "video_source_url,video_source_expires_at,creative"
+    )
+    # 200 nomes por .in_() (limite de URL), mas ad_name é duplicado em massa
+    # (dezenas de instâncias por nome) — um lote de 200 nomes passa fácil das
+    # 1000 linhas que o PostgREST corta em silêncio. Paginar as LINHAS de cada
+    # lote é obrigatório; order() estabiliza as páginas.
+    batch_size = 200
+    rows: List[Dict[str, Any]] = []
+    for i in range(0, len(names), batch_size):
+        batch = names[i : i + batch_size]
+        rows.extend(
+            _fetch_all_paginated(
+                sb,
+                "ads",
+                select_fields,
+                lambda q, b=batch: q.eq("user_id", user_id).in_("ad_name", b).order("ad_id"),
+            )
+        )
+    return rows
+
+
 def _extract_conv_keys(rows: List[Dict[str, Any]]) -> List[str]:
     """Extrai os conv_keys distintos das linhas de ad_metrics em memória.
 
@@ -2870,27 +2969,40 @@ def get_pack_thumbnail_cache(user_jwt: str, pack: Dict[str, Any], user_id: Optio
 
 # ============ TRANSCRIPTION ============
 
-# Frase que indica falha permanente (vídeo sem áudio/fala) — não retentar
-_NO_SPOKEN_AUDIO_PHRASE = "no spoken audio"
+# Frases da AssemblyAI que indicam falha permanente (vídeo sem áudio/fala) — não retentar.
+# "no spoken audio": tem trilha de áudio mas sem fala detectável.
+# "no audio stream": arquivo de vídeo sem trilha de áudio nenhuma.
+_NO_AUDIO_PHRASES = ("no spoken audio", "no audio stream")
+
+
+def is_no_audio_error_message(error_message: Any) -> bool:
+    """True se a mensagem de erro indica vídeo sem áudio/fala (falha permanente)."""
+    msg = str(error_message or "").strip().lower()
+    return any(phrase in msg for phrase in _NO_AUDIO_PHRASES)
 
 
 def _is_no_audio_failure(metadata: Any) -> bool:
     """True se metadata indica erro de vídeo sem áudio/fala (falha permanente)."""
     if not metadata or not isinstance(metadata, dict):
         return False
-    msg = str(metadata.get("error_message") or "").strip().lower()
-    return _NO_SPOKEN_AUDIO_PHRASE in msg
+    if metadata.get("no_voice_detected"):
+        return True
+    return is_no_audio_error_message(metadata.get("error_message"))
 
 
 def get_existing_transcriptions(
     user_jwt: str,
     user_id: str,
     ad_names: List[str],
+    *,
+    include_no_audio_failed: bool = True,
 ) -> Dict[str, str]:
     """Retorna mapa {ad_name: status} para ad_names que devem ser ignorados ao transcrever.
 
-    Inclui: completed, processing, pending e failed com erro de 'no spoken audio'
-    (vídeo sem áudio/fala — falha permanente). Outros failed são excluídos para permitir retry.
+    Inclui: completed, processing, pending e failed com erro de vídeo sem áudio/fala
+    (falha permanente). Outros failed são excluídos para permitir retry.
+    include_no_audio_failed=False remove os failed-sem-áudio do mapa — usado pelo
+    "Forçar nova tentativa" para dar saída a possíveis falsos positivos.
     """
     if not user_id or not ad_names:
         return {}
@@ -2916,7 +3028,11 @@ def get_existing_transcriptions(
                 status = str(row.get("status") or "").strip()
                 if status in ("completed", "processing", "pending"):
                     result[name] = status
-                elif status == "failed" and _is_no_audio_failure(row.get("metadata")):
+                elif (
+                    status == "failed"
+                    and include_no_audio_failed
+                    and _is_no_audio_failure(row.get("metadata"))
+                ):
                     result[name] = status
         except Exception as e:
             logger.warning(f"[TRANSCRIPTION] Erro ao consultar transcriptions existentes: {e}")

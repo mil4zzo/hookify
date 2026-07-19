@@ -1,9 +1,12 @@
-import type { Table } from "@tanstack/react-table"
+import type { Row, Table } from "@tanstack/react-table"
 import type { RankingsItem } from "@/lib/api/schemas"
 import { getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences"
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
 import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance"
+import { getMetricNumericValueOrNull, type MetricValueContext } from "@/lib/metrics/calculations"
 import { api } from "@/lib/api/endpoints"
+import type { VideoSourceUrlsBatchResponse } from "@/lib/api/schemas"
+import { getAdThumbnail } from "@/lib/utils/thumbnailFallback"
 
 type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha"
 
@@ -66,6 +69,59 @@ function triggerDownload(csvContent: string, filename: string): void {
 
 const TABS_WITH_TRANSCRIPTION = new Set<ManagerTab>(["por-anuncio", "individual"])
 const TABS_WITH_MEDIA_TYPE = new Set<ManagerTab>(["por-anuncio", "individual"])
+const TABS_WITH_MEDIA_URLS = new Set<ManagerTab>(["por-anuncio", "individual"])
+
+// Limite do endpoint batch de URLs (backend rejeita acima disso) — fatiar
+const VIDEO_URL_BATCH_CHUNK = 500
+
+export type VideoUrlMap = VideoSourceUrlsBatchResponse["results"]
+
+export interface VideoUrlFetchResult {
+  map: VideoUrlMap
+  resolved: number
+  /** ad_names que falharam — entrada do "Tentar novamente" (re-resolve só estes). */
+  failedNames: string[]
+  /** motivo → ad_names que falharam com ele, para exibição agrupada no dialog. */
+  failuresByReason: Record<string, string[]>
+}
+
+/** ad_names de vídeo do conjunto exportado (filtrado+ordenado), dedupe preservando ordem.
+ * Recebe as LINHAS (não a table) para operar sobre o snapshot congelado do dialog. */
+export function getVideoAdNames(rows: readonly Row<RankingsItem>[]): string[] {
+  return Array.from(
+    new Set(
+      rows
+        .filter((r) => r.original.media_type === "video")
+        .map((r) => String(r.original.ad_name ?? ""))
+        .filter(Boolean)
+    )
+  )
+}
+
+/** Resolve URLs de vídeo em batch. `baseMap` (retry) preserva sucessos anteriores — o
+ * backend serve os já-resolvidos do cache, mas manter o merge deixa o retry incremental. */
+export async function fetchVideoUrls(adNames: string[], baseMap: VideoUrlMap = {}): Promise<VideoUrlFetchResult> {
+  const map: VideoUrlMap = { ...baseMap }
+  for (let i = 0; i < adNames.length; i += VIDEO_URL_BATCH_CHUNK) {
+    const chunk = adNames.slice(i, i + VIDEO_URL_BATCH_CHUNK)
+    const res = await api.facebook.getVideoSourceUrlsBatch(chunk)
+    Object.assign(map, res.results)
+  }
+  let resolved = 0
+  const failedNames: string[] = []
+  const failuresByReason: Record<string, string[]> = {}
+  for (const [name, entry] of Object.entries(map)) {
+    if (entry.url) {
+      resolved++
+    } else {
+      failedNames.push(name)
+      const reason = entry.error ?? "Falha desconhecida"
+      if (!failuresByReason[reason]) failuresByReason[reason] = []
+      failuresByReason[reason].push(name)
+    }
+  }
+  return { map, resolved, failedNames, failuresByReason }
+}
 
 const MEDIA_TYPE_LABEL: Record<string, string> = {
   video: "Vídeo",
@@ -93,6 +149,10 @@ export async function exportManagerToCsv({
   dateStart,
   dateStop,
   withTranscriptions = false,
+  withMediaUrls = false,
+  videoUrlMap,
+  rowsSnapshot,
+  metricContext,
   provenanceIndex,
 }: {
   table: Table<RankingsItem>
@@ -106,10 +166,25 @@ export async function exportManagerToCsv({
   dateStart?: string
   dateStop?: string
   withTranscriptions?: boolean
+  withMediaUrls?: boolean
+  /** Mapa pré-resolvido pelo dialog (fase de revisão). Sem ele, resolve aqui. */
+  videoUrlMap?: VideoUrlMap
+  /** Linhas congeladas pelo dialog no início do fluxo. Sem isso, um refetch da tabela
+   * entre a resolução de URLs e o download reclassificaria linhas e o arquivo
+   * divergiria da tela de revisão (vídeo sem entrada no mapa → célula vazia). */
+  rowsSnapshot?: readonly Row<RankingsItem>[]
+  /** Contexto das métricas (actionType p/ results/CPR, mqlLeadscoreMin p/ MQL) — necessário
+   * para calcular colunas que NÃO estão ativas na tabela (sem accessor no TanStack). */
+  metricContext?: MetricValueContext
 }): Promise<void> {
-  const rows = table.getSortedRowModel().rows
+  const rows = rowsSnapshot ?? table.getSortedRowModel().rows
+  // Colunas realmente construídas na tabela: só nessas row.getValue() é válido —
+  // para as demais (escolhidas no dialog mas inativas), TanStack loga erro e devolve
+  // undefined; calculamos direto de row.original com a função compartilhada.
+  const tableColumnIds = new Set(table.getAllFlatColumns().map((c) => c.id))
   const showTranscriptions = withTranscriptions && TABS_WITH_TRANSCRIPTION.has(currentTab)
   const showMediaType = TABS_WITH_MEDIA_TYPE.has(currentTab)
+  const showMediaUrls = withMediaUrls && TABS_WITH_MEDIA_URLS.has(currentTab)
 
   const visibleMetricColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration })
 
@@ -129,12 +204,23 @@ export async function exportManagerToCsv({
     }
   }
 
-  // Ordem: Nome | Status | Media type | [métricas] | Transcrição
+  // URLs de vídeo: usa o mapa pré-resolvido do dialog ou resolve aqui (só linhas
+  // de vídeo; imagens usam a thumb do Storage)
+  let resolvedVideoUrlMap: VideoUrlMap = videoUrlMap ?? {}
+  if (showMediaUrls && !videoUrlMap) {
+    const videoAdNames = getVideoAdNames(rows)
+    if (videoAdNames.length > 0) {
+      resolvedVideoUrlMap = (await fetchVideoUrls(videoAdNames)).map
+    }
+  }
+
+  // Ordem: Nome | Status | Media type | [métricas] | Transcrição | URL da mídia | URL expira em | Video ID
   const headers: string[] = [TAB_NAME_HEADER[currentTab]]
   headers.push("Status")
   if (showMediaType) headers.push("Media type")
   for (const col of visibleMetricColumns) headers.push(col.name)
   if (showTranscriptions) headers.push("Transcrição")
+  if (showMediaUrls) headers.push("URL da mídia", "URL expira em", "Video ID")
 
   const dataRows = rows.map((row) => {
     const cells: string[] = [neutralizeFormula(getNameValue(currentTab, row))]
@@ -150,11 +236,27 @@ export async function exportManagerToCsv({
         cells.push(neutralizeFormula(dimensionValue(col.id, row.original, provenanceIndex)))
         continue
       }
-      cells.push(formatValue(col.id, row.getValue(col.id)))
+      const raw = tableColumnIds.has(col.id)
+        ? row.getValue(col.id)
+        : getMetricNumericValueOrNull(row.original, col.id, metricContext ?? {})
+      cells.push(formatValue(col.id, raw))
     }
     if (showTranscriptions) {
       const adName = String(row.original.ad_name ?? "")
       cells.push(neutralizeFormula(transcriptionMap[adName] ?? ""))
+    }
+    if (showMediaUrls) {
+      const original = row.original
+      if (original.media_type === "video") {
+        const entry = resolvedVideoUrlMap[String(original.ad_name ?? "")]
+        // Falha vira "ERRO: <motivo>" — quem consome a planilha (IA) distingue
+        // "sem vídeo" de "falhou ao resolver"
+        const urlCell = entry?.url ?? (entry?.error ? `ERRO: ${entry.error}` : "")
+        cells.push(neutralizeFormula(urlCell), entry?.expires_at ?? "", entry?.video_id ?? "")
+      } else {
+        // Imagem: thumbnail do Storage (permanente) — sem expiry, sem video_id
+        cells.push(getAdThumbnail(original) ?? "", "", "")
+      }
     }
     return cells
   })

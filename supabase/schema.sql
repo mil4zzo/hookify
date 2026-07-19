@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict ogO6DIEYiCmVhyH3EcoeKufxsRlxQpWmPOnAkfKVZcPjSDTlOGJIpg5UXfvzTid
+\restrict WY8rPbzKgcgpLdeuHuk8RsNLh8ST9olRRTSefKU5kr6JX3OIgHtZLzyE3ErlVCO
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -4342,6 +4342,8 @@ CREATE TABLE public.ads (
     media_type text DEFAULT 'unknown'::text NOT NULL,
     adset_status text,
     campaign_status text,
+    video_source_url text,
+    video_source_expires_at timestamp with time zone,
     CONSTRAINT ads_media_type_check CHECK ((media_type = ANY (ARRAY['video'::text, 'image'::text, 'unknown'::text])))
 );
 
@@ -4402,6 +4404,20 @@ COMMENT ON COLUMN public.ads.adset_status IS 'effective_status oficial do adset 
 --
 
 COMMENT ON COLUMN public.ads.campaign_status IS 'effective_status oficial da campanha pai (denormalizado; fonte: Meta API — enrich/toggle/sync). NULL = ainda não sincronizado.';
+
+
+--
+-- Name: COLUMN ads.video_source_url; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ads.video_source_url IS 'Última URL de source do vídeo resolvida na Meta (CDN assinada, perecível). Usar apenas se video_source_expires_at ainda tiver margem.';
+
+
+--
+-- Name: COLUMN ads.video_source_expires_at; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ads.video_source_expires_at IS 'Expiry da video_source_url (extraído do parâmetro oe= da URL; fallback conservador quando ausente).';
 
 
 --
@@ -6004,5 +6020,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict ogO6DIEYiCmVhyH3EcoeKufxsRlxQpWmPOnAkfKVZcPjSDTlOGJIpg5UXfvzTid
+\unrestrict WY8rPbzKgcgpLdeuHuk8RsNLh8ST9olRRTSefKU5kr6JX3OIgHtZLzyE3ErlVCO
 

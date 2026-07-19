@@ -6,6 +6,23 @@ Registro de decisões de arquitetura, abordagens escolhidas e lições aprendida
 
 ---
 
+## URL de source de vídeo da Meta é perecível — cache lazy no banco, nunca eager no refresh
+
+**Data:** 2026-07-18 · status: **implementado (migration 097 aplicada; video_source_cache.py; export CSV com URLs de mídia)**
+
+**Contexto:** o export do Manager ganhou colunas "URL da mídia / URL expira em / Video ID" (para análise de criativos por IA com ffmpeg). A URL reproduzível vem de `GET /{video_id}?fields=source` — e é **CDN assinada que expira** (~horas a ~48h; o expiry real está no parâmetro `oe=` da URL, unix timestamp em hex). Três consumidores precisam dela (transcrição, export, player do modal) e, sem cache, cada um refazia as mesmas chamadas à Meta.
+
+**Decisões:**
+- **Cache no banco com expiry explícito** (`ads.video_source_url` + `video_source_expires_at`): diferente da lição das thumbnails (nunca servir CDN Meta como permanente), aqui a URL nunca é tratada como verdade — só como atalho válido-até, revalidado a cada uso. Write-back por `primary_video_id`: todos os ads que compartilham o criativo herdam o cache numa escrita.
+- **Lazy, nunca eager:** o enrichment do refresh **não** busca `fields=source` (isso custaria +1 chamada/vídeo no fluxo mais frequente do app). O cache é populado sob demanda pelo primeiro consumidor que precisar.
+- **Margem mínima por consumidor** em vez de UI de "atualizar links": transcrição/modal exigem 1h restante; export exige 12h (garante planilha útil sem perguntar nada ao usuário — uma UI de opt-in induziria "atualizar sempre", anulando o cache). Constantes em `video_source_cache.py`.
+- **Consumidor novo deve usar `resolve_video_source_cached`**, nunca `get_video_source_url` direto.
+- Endpoint batch `POST /facebook/video-source-urls/batch`: dedupe por vídeo único, pool de 4, erro por item (um vídeo inacessível não derruba o batch), 401 padronizado só para token expirado.
+
+**Regra derivada:** qualquer URL de CDN da Meta (thumbnail, source, media_url de IG) expira. Antes de expor uma numa feature, decidir: Storage (permanente, para render) ou cache-com-expiry (para consumo pontual). Memória: `meta_video_access.md`.
+
+---
+
 ## Timeouts intermitentes (57014) no Manager — generic plan do Postgres na 6ª execução da conexão, não volume de dados
 
 **Data:** 2026-07-13 · status: **implementado (migration 096 aplicada em produção; analytics.py)**
@@ -842,6 +859,8 @@ Migration 072 trocou o **wrapper** para apontar para `_v060` (sem fallback `pack
 3. Bugs causados por esse cap são **silenciosamente plausíveis**: a soma parcial não é zero nem absurdamente alta, então passa despercebida em revisão. Sempre conferir contra SQL direto quando há divergência com fonte externa (Ads Manager).
 
 **Arquivos alterados:** `backend/app/services/supabase_repo.py` (`calculate_pack_stats_essential`).
+
+**Recidiva (2026-07-18) — batch de nomes NÃO limita linhas:** o bug voltou em duas queries por `ad_name` que *pareciam* limitadas por batchear 200 nomes por `.in_()`: `get_ads_video_fields_by_names` (batch de URLs de vídeo do export CSV) e `_hydrate_media_type_for_rankings_rows` (coluna "Media type" do Manager). O limite de 200 nomes existe pelo **tamanho da URL**; o número de LINHAS é outra dimensão — `ad_name` tem fan-out de ~27,5 instâncias por nome no workflow real de duplicação em massa (medido: 200 nomes → 1.467 linhas). Sintomas do truncamento (que varia por request, sem ORDER BY): media_type piscando entre fetches no Manager/export, e "ERRO: Anúncio sem vídeo ou não encontrado" no export para ads com 6 instâncias `video` saudáveis no banco. Correção: `_fetch_all_paginated` com `.order("ad_id")` dentro de cada lote de nomes; na hidratação, precedência `video > image` (e `unknown` nunca sobrescreve) em vez de first-row-wins; no dialog de export, snapshot congelado das linhas para o CSV sempre bater com a tela de revisão. Regra nova: **toda query em tabela com fan-out (1 nome → N ads) pagina linhas, mesmo com IN-list pequena**.
 
 ---
 
