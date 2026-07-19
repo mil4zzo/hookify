@@ -164,6 +164,23 @@ export const GetVideoSourceResponseSchema = z.object({
   video_owner_page_id: z.string().optional(),
 }).passthrough()
 
+// URLs reproduzíveis por ad_name (export CSV). url é CDN Meta assinada e PERECÍVEL —
+// expires_at diz até quando vale; nunca persistir/exibir como permanente.
+export const VideoSourceUrlsBatchResponseSchema = z.object({
+  results: z.record(
+    z.string(),
+    z.object({
+      url: z.string().nullable(),
+      expires_at: z.string().nullable(),
+      video_id: z.string().nullable(),
+      error: z.string().optional(),
+    })
+  ),
+  resolved: z.number(),
+  failed: z.number(),
+  from_cache: z.number(),
+})
+
 export const AuthTokenResponseSchema = z.object({
   access_token: z.string(),
   token_type: z.string(),
@@ -239,6 +256,7 @@ export type AuthTokenRequest = z.infer<typeof AuthTokenRequestSchema>
 export type GetMeResponse = z.infer<typeof GetMeResponseSchema>
 export type GetAdsResponse = z.infer<typeof GetAdsResponseSchema>
 export type GetVideoSourceResponse = z.infer<typeof GetVideoSourceResponseSchema>
+export type VideoSourceUrlsBatchResponse = z.infer<typeof VideoSourceUrlsBatchResponseSchema>
 export type GetImageSourceResponse = z.infer<typeof GetImageSourceResponseSchema>
 export type AuthTokenResponse = z.infer<typeof AuthTokenResponseSchema>
 export type AuthUrlResponse = z.infer<typeof AuthUrlResponseSchema>
@@ -983,6 +1001,8 @@ export interface PackTranscriptionStatus {
   processing: number
   untranscribed_ads: TranscriptionAdInfo[]
   processing_ads: TranscriptionAdInfo[]
+  transcribed_ads: TranscriptionAdInfo[]
+  no_voice_ads: TranscriptionAdInfo[]
 }
 
 // ========== Meta API Usage ==========

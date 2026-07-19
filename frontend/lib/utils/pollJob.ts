@@ -8,6 +8,15 @@ export interface PollJobConfig<TResult> {
   intervalMs?: number;
   /** Max polling attempts before timeout */
   maxAttempts: number;
+  /**
+   * Optional stall detection: give up only if the progress signature stays
+   * unchanged for this long. When set, every signature change ALSO resets the
+   * attempts counter, so a job that keeps signaling life is never abandoned by
+   * wall-clock time — maxAttempts becomes "max attempts without any change"
+   * (a redundant backstop). Include a backend keepalive in the signature so
+   * long-running items don't read as stalls.
+   */
+  stallTimeoutMs?: number;
   /** Max consecutive fetch errors before giving up (default: 5) */
   maxConsecutiveErrors?: number;
   /** Returns true if the job was cancelled */
@@ -26,7 +35,15 @@ export interface PollJobConfig<TResult> {
     lastPercent: number
   ) =>
     | { done: true; result: TResult }
-    | { done: false; progressPercent: number };
+    | {
+        done: false;
+        progressPercent: number;
+        /**
+         * Fine-grained progress marker for stall detection (e.g. "12/104").
+         * Falls back to progressPercent when omitted.
+         */
+        progressSignature?: string;
+      };
   /**
    * Handle a fetch error. Receives consecutive error count and last known progress.
    * Use lastPercent to preserve progress instead of resetting to 0.
@@ -53,6 +70,7 @@ export async function pollJob<TResult>(
     label,
     intervalMs = 2000,
     maxAttempts,
+    stallTimeoutMs,
     maxConsecutiveErrors = 5,
     getCancelled,
     getMounted,
@@ -68,6 +86,8 @@ export async function pollJob<TResult>(
   let attempts = 0;
   let consecutiveErrors = 0;
   let lastPercent = 0;
+  let lastProgressSignature: string | null = null;
+  let lastProgressChangeAt = Date.now();
 
   while (attempts < maxAttempts) {
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
@@ -100,6 +120,20 @@ export async function pollJob<TResult>(
         return result.result;
       }
       lastPercent = result.progressPercent;
+
+      if (stallTimeoutMs !== undefined) {
+        const signature = result.progressSignature ?? String(result.progressPercent);
+        if (signature !== lastProgressSignature) {
+          lastProgressSignature = signature;
+          lastProgressChangeAt = Date.now();
+          attempts = 0; // job vivo: nunca desistir por relógio
+        } else if (Date.now() - lastProgressChangeAt >= stallTimeoutMs) {
+          logger.warn(
+            `[pollJob:${label}] Stalled: no progress for ${stallTimeoutMs}ms (signature "${signature}")`
+          );
+          return onTimeout();
+        }
+      }
     } catch (error) {
       if (!getMounted()) return onUnmounted();
       if (getCancelled()) return onCancelled();

@@ -110,6 +110,21 @@ SUPABASE_JWKS_URL = os.getenv("SUPABASE_JWKS_URL") or (
 # AssemblyAI (speech-to-text para transcrição de vídeos de anúncios)
 ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY")
 
+# Concorrência do batch de transcrição (vídeos processados em paralelo).
+# A fila do AssemblyAI absorve excesso (fica "queued"); o limite real a observar
+# é o rate limit da Meta na resolução de URL. "or" cobre var presente-mas-vazia.
+try:
+    TRANSCRIPTION_CONCURRENCY = int(os.getenv("TRANSCRIPTION_CONCURRENCY") or 20)
+except ValueError:
+    TRANSCRIPTION_CONCURRENCY = 20
+TRANSCRIPTION_CONCURRENCY = max(1, TRANSCRIPTION_CONCURRENCY)
+
+# Cadeia server-side do refresh: quando ON, o backend dispara o sync do
+# Leadscore ao concluir o Meta (request com chain_sheets_after_meta) e o
+# refresh-pack rejeita com 409 packs que já têm job ativo. OFF = orquestração
+# 100% no frontend (comportamento legado). Rollback = desligar a flag.
+REFRESH_SERVER_CHAIN_ENABLED = os.getenv("REFRESH_SERVER_CHAIN_ENABLED", "false").lower() in ("true", "1", "yes")
+
 # Chave de criptografia para tokens de conectores (se usar app-level encryption)
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 

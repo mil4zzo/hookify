@@ -519,6 +519,13 @@ export default function PacksPage() {
     startTranscriptionOnly(id, name, adNames);
   };
 
+  const handleForceTranscription = (adNames: string[]) => {
+    if (!transcriptionDialogPack) return;
+    const { id, name } = transcriptionDialogPack;
+    setTranscriptionDialogPack(null);
+    startTranscriptionOnly(id, name, adNames, { forceNoAudio: true });
+  };
+
   const cancelRefreshPack = () => {
     // Verifica se algum pack está atualizando
     const currentPackId = packToRefresh?.id;
@@ -1008,7 +1015,7 @@ export default function PacksPage() {
       <ConfirmDialog isOpen={!!packToDisableAutoRefresh} onClose={() => !isTogglingAutoRefresh && cancelDisableAutoRefresh()} title="Desativar atualização automática?" message="Ao desativar você precisará lembrar de atualizá-lo manualmente quando necessário." onConfirm={() => packToDisableAutoRefresh && confirmToggleAutoRefresh(packToDisableAutoRefresh.id, false)} onCancel={cancelDisableAutoRefresh} confirmText="Desativar" isLoading={!!isTogglingAutoRefresh} />
 
       {/* Transcription Status Dialog */}
-      <TranscriptionStatusDialog isOpen={!!transcriptionDialogPack} onClose={() => setTranscriptionDialogPack(null)} packId={transcriptionDialogPack?.id ?? ""} packName={transcriptionDialogPack?.name ?? ""} onConfirm={handleConfirmTranscription} />
+      <TranscriptionStatusDialog isOpen={!!transcriptionDialogPack} onClose={() => setTranscriptionDialogPack(null)} packId={transcriptionDialogPack?.id ?? ""} packName={transcriptionDialogPack?.name ?? ""} onConfirm={handleConfirmTranscription} onForce={handleForceTranscription} />
 
       {/* Booster de planilha por pack (Google Sheets) */}
       <GoogleSheetIntegrationDialog

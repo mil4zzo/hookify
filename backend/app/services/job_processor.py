@@ -10,6 +10,7 @@ Responsável por:
 Executa fora do request de polling para não bloquear.
 """
 import logging
+import threading
 from typing import Any, Dict, List, Optional
 import time
 from app.services.job_tracker import (
@@ -509,12 +510,25 @@ class JobProcessor:
                 "ads_formatted": len(formatted_data)
             }
 
-            self.tracker.mark_completed(
+            # Cadeia server-side Meta→Leadscore: criar o sync job ANTES do
+            # mark_completed para o id chegar ao frontend no primeiro poll
+            # "completed" (sem janela de corrida). Só no caminho de sucesso —
+            # cancelled/failed retornam antes deste ponto.
+            chained_sync_job_id = self._prepare_chained_sheet_sync(job_id, payload)
+            if chained_sync_job_id:
+                completion_details["chained_sync_job_id"] = chained_sync_job_id
+
+            completed_ok = self.tracker.mark_completed(
                 job_id,
                 pack_id,
                 result_count=len(formatted_data),
                 details=completion_details,
             )
+
+            if chained_sync_job_id:
+                self._finalize_chained_sheet_sync(
+                    job_id, chained_sync_job_id, payload.get("sheet_integration_id", ""), completed_ok
+                )
 
             logger.info(f"[JobProcessor] Job {job_id} concluído com sucesso. Pack: {pack_id}, Ads: {len(formatted_data)}")
 
@@ -554,7 +568,80 @@ class JobProcessor:
             return {"success": False, "error": str(e)}
         finally:
             self.tracker.release_processing_claim(job_id)
-    
+
+    def _prepare_chained_sheet_sync(self, job_id: str, payload: Dict[str, Any]) -> Optional[str]:
+        """Cria (ou reusa, no resume) o sync job encadeado do Leadscore.
+
+        Best-effort: falha aqui NÃO impede o completed do Meta — o frontend
+        detecta a ausência de chained_sync_job_id nos details e faz fallback
+        disparando o sync client-side.
+        """
+        if not payload.get("chain_sheet_sync"):
+            return None
+        integration_id = payload.get("sheet_integration_id")
+        if not integration_id:
+            return None
+
+        # Resume pós-crash: run anterior pode ter criado o sync job e caído
+        # antes do mark_completed — reusar em vez de duplicar.
+        existing = payload.get("chained_sync_job_id")
+        if existing:
+            logger.info(f"[JobProcessor] Resume: reusando sync job encadeado {existing}")
+            return str(existing)
+
+        try:
+            from app.services.google_sheet_sync_job import create_sync_job
+
+            sync_job_id = create_sync_job(
+                user_jwt=self.user_jwt,
+                user_id=self.user_id,
+                integration_id=integration_id,
+            )
+            # Persistir no payload do pai para o resume não criar duplicado.
+            self.tracker.merge_payload(job_id, {"chained_sync_job_id": sync_job_id})
+            logger.info(f"[JobProcessor] Sync encadeado {sync_job_id} criado para job {job_id}")
+            return sync_job_id
+        except Exception as e:
+            logger.warning(f"[JobProcessor] Falha ao criar sync encadeado para job {job_id}: {e}")
+            return None
+
+    def _finalize_chained_sheet_sync(
+        self, job_id: str, sync_job_id: str, integration_id: str, completed_ok: bool
+    ) -> None:
+        """Decide o destino do sync encadeado após o mark_completed do pai.
+
+        mark_completed recusado = cancel de última hora OU lease perdido. Só
+        cancelar o sync se o pai foi CANCELADO — em perda de lease, o worker
+        que assumiu reusará este sync job (via payload.chained_sync_job_id).
+        """
+        if completed_ok:
+            self._start_chained_sheet_sync(sync_job_id, integration_id)
+            return
+        job_now = self.tracker.get_job(job_id)
+        if job_now and job_now.get("status") == STATUS_CANCELLED:
+            self.tracker.mark_cancelled(sync_job_id, "Refresh Meta cancelado")
+
+    def _start_chained_sheet_sync(self, sync_job_id: str, integration_id: str) -> None:
+        """Roda o sync encadeado em thread própria (padrão do legado em refresh_pack)."""
+        from app.services.google_sheet_sync_job import process_sync_job
+
+        def run_sync() -> None:
+            try:
+                logger.info(f"[JobProcessor] Iniciando sync encadeado {sync_job_id} (pós-Meta)")
+                process_sync_job(
+                    user_jwt=self.user_jwt,
+                    user_id=self.user_id,
+                    job_id=sync_job_id,
+                    integration_id=integration_id,
+                )
+                logger.info(f"[JobProcessor] Sync encadeado {sync_job_id} concluído")
+            except Exception as e:
+                logger.error(f"[JobProcessor] Erro no sync encadeado {sync_job_id}: {e}")
+
+        threading.Thread(
+            target=run_sync, daemon=False, name=f"chained-sync-{sync_job_id[:8]}"
+        ).start()
+
     def _persist_data(
         self,
         job_id: str,

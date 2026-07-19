@@ -139,9 +139,15 @@ def process_sync_job(
         return {"success": False, "error": error_message, "error_code": error_code}
 
     except Exception as e:
-        error_message = f"Erro inesperado: {str(e)}"
+        # Mensagem do usuário fica legível; o repr da exceção vai só para o log e
+        # para details.technical (linha de diagnóstico do toast).
+        error_message = "Erro inesperado ao sincronizar a planilha."
         logger.exception(f"[GoogleSheetSyncJob] Erro inesperado ao processar job {job_id}")
-        tracker.mark_failed(job_id, error_message, details={"integration_id": integration_id})
+        tracker.mark_failed(
+            job_id,
+            error_message,
+            details={"integration_id": integration_id, "technical": f"{type(e).__name__}: {e}"},
+        )
         _mark_integration_failed(user_jwt, user_id, integration_id)
         return {"success": False, "error": error_message}
 

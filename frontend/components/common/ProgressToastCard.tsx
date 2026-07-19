@@ -243,6 +243,8 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
   const outsideOffset = mix(12, 2, labelInsideProgress);
 
   const percentLabelClass = variant === "success" ? "text-success-400" : variant === "initializing" ? "text-primary-foreground" : variant === "loading" && !labelInsideFill ? "text-primary-foreground" : "text-primary";
+  /** Movimento contínuo (flare + pulso da ponta) só enquanto está processando — em estado terminal lê como "ainda rodando". */
+  const showMotion = animated && (variant === "loading" || variant === "initializing");
 
   return (
     <div className="relative">
@@ -263,10 +265,21 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
             }}
           />
 
+          {showMotion && (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-md">
+              <div
+                className="absolute inset-y-0 left-0 w-1/3 motion-safe:animate-toast-sweep"
+                style={{
+                  background: "linear-gradient(105deg, transparent, color-mix(in oklab, var(--surface-fill) 26%, transparent) 45%, transparent)",
+                }}
+              />
+            </div>
+          )}
+
           {variant === "success" && (
             <>
               <div
-                className="absolute inset-y-0 left-0 rounded-md bg-primary-foreground"
+                className="absolute inset-y-0 left-0 rounded-sm bg-primary-foreground"
                 style={{
                   width: "100%",
                   boxShadow: "0 6px 18px color-mix(in oklab, var(--surface-fill) 18%, transparent), 0 0 22px color-mix(in oklab, var(--surface-fill) 22%, transparent)",
@@ -279,7 +292,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
           {variant !== "success" && numericProgress > 0 && (
             <>
               <div
-                className="absolute inset-y-0 left-0 rounded-md bg-primary-foreground"
+                className="absolute inset-y-0 left-0 rounded-sm bg-primary-foreground"
                 style={{
                   width: `${numericProgress}%`,
                   minWidth: "4px",
@@ -331,12 +344,24 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
   const hasStagedLayout = Boolean(stagedContent?.stageLabel && stagedContent?.stageTitle && stagedContent?.dynamicLine !== undefined);
   const staged = hasStagedLayout ? stagedContent : undefined;
 
-  const eyebrow = staged ? (staged.stageContext ? `${packName}: ${staged.stageContext} › ${staged.stageLabel}` : `Atualizando ${packName} — ${staged.stageLabel}`) : `${packName} — etapa ${currentStep}/${totalSteps}`;
+  // packName pode vir vazio (toasts terminais sem contexto de pack) — nesse caso
+  // o cabeçalho omite o nome em vez de exibir separadores órfãos.
+  const name = packName?.trim() ?? "";
+  const eyebrow = staged
+    ? staged.stageContext
+      ? [name ? `${name}:` : null, staged.stageContext, "›", staged.stageLabel].filter(Boolean).join(" ")
+      : name
+        ? `Atualizando ${name} — ${staged.stageLabel}`
+        : staged.stageLabel
+    : name
+      ? `${name} — etapa ${currentStep}/${totalSteps}`
+      : `Etapa ${currentStep}/${totalSteps}`;
 
   const titleText = staged ? staged.stageTitle : "Processando";
   const dynamicLine = staged ? staged.dynamicLine : message || "...";
   const isSuccess = variant === "success";
   const showBar = !cancelling && !inlineError;
+  const showIconRing = Boolean(icon) && !inlineError && !cancelling && !isSuccess;
   const showActionButton = Boolean(onCancel) && !(terminal && isSuccess);
   const actionButtonLabel = terminal && inlineError ? "Fechar" : "Cancelar";
 
@@ -344,7 +369,18 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
     <ToastCardFrame variant={variant} progress={animatedProgress} animated={animated}>
       <div className="flex flex-col gap-3 px-4 pb-4 pt-3 text-primary-foreground" role="status" aria-live="polite" aria-valuemin={0} aria-valuemax={100} aria-valuenow={showBar ? animatedProgress : undefined}>
         <div className="flex items-start gap-2">
-          <span className="mt-0.5 flex-shrink-0 [&_svg]:h-5 [&_svg]:w-5">
+          <span className={cn("relative mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center", showIconRing ? "[&_svg]:h-4 [&_svg]:w-4" : "[&_svg]:h-5 [&_svg]:w-5")}>
+            {showIconRing && (
+              <span
+                aria-hidden
+                className="pointer-events-none absolute inset-0 rounded-full border-2 motion-safe:animate-spin"
+                style={{
+                  borderColor: "color-mix(in oklab, var(--surface-fill) 20%, transparent)",
+                  borderTopColor: "color-mix(in oklab, var(--surface-fill) 85%, transparent)",
+                  animationDuration: "1.1s",
+                }}
+              />
+            )}
             {cancelling ? (
               <IconLoader2 className="animate-spin opacity-90" />
             ) : icon ? (

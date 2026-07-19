@@ -26,6 +26,11 @@ class RefreshPackRequest(BaseModel):
     refresh_type: str = "since_last_refresh"
     # Se True, pula o sync automático de Google Sheets (frontend controla independentemente)
     skip_sheets_sync: bool = False
+    # Cadeia server-side (REFRESH_SERVER_CHAIN_ENABLED): pede que o BACKEND
+    # dispare o sync do Leadscore após o Meta concluir. Independente de
+    # skip_sheets_sync (que aciona o legado paralelo, morto em produção).
+    chain_sheets_after_meta: bool = False
+    sheet_integration_id: Optional[str] = None
 
 class UpdateStatusRequest(BaseModel):
     """

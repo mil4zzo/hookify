@@ -327,12 +327,32 @@ def fetch_all_rows(
             )
         except GoogleSheetsError:
             raise
+        except _TRANSIENT_REQUEST_ERRORS as e:
+            # Rede caiu e o retry interno já esgotou as tentativas. A mensagem vai
+            # direto para o toast do usuário — o repr da exceção fica só no
+            # `details` (linha de diagnóstico) e no log.
+            logger.warning(
+                "[GOOGLE_SHEETS] Falha de rede ao buscar chunk %s: %s", chunk_num, e
+            )
+            raise GoogleSheetsError(
+                "Falha de conexão com o Google Sheets. Tente novamente em alguns instantes.",
+                code=GOOGLE_SHEETS_ERROR,
+                details={
+                    "operation": "fetch_all_rows",
+                    "chunk": chunk_num,
+                    "technical": f"{type(e).__name__}: {e}",
+                },
+            ) from e
         except Exception as e:
             logger.exception("[GOOGLE_SHEETS] Erro inesperado ao buscar chunk %s", chunk_num)
             raise GoogleSheetsError(
-                f"Erro ao ler planilha do Google: {e}",
+                "Não foi possível ler a planilha do Google.",
                 code=GOOGLE_SHEETS_ERROR,
-                details={"operation": "fetch_all_rows", "chunk": chunk_num}
+                details={
+                    "operation": "fetch_all_rows",
+                    "chunk": chunk_num,
+                    "technical": f"{type(e).__name__}: {e}",
+                },
             ) from e
 
         if not values:

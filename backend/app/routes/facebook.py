@@ -37,8 +37,15 @@ from app.core.config import (
     FACEBOOK_TOKEN_URL,
     FACEBOOK_AUTH_BASE_URL,
     FACEBOOK_OAUTH_SCOPES,
+    REFRESH_SERVER_CHAIN_ENABLED,
 )
 from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
+from app.services.video_source_cache import (
+    EXPORT_MIN_TTL_S,
+    MODAL_MIN_TTL_S,
+    resolve_video_source_cached,
+)
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import Query
 
 # Novos imports para arquitetura "2 fases"
@@ -3167,6 +3174,20 @@ def get_job_progress(
         logger.exception(f"Error getting job progress for {job_id}")
         raise HTTPException(status_code=500, detail=str(e))
 
+def _raise_if_meta_token_expired(error_msg: str, user: Dict[str, Any]) -> None:
+    """Converte erro de token Meta expirado em HTTP 401 padronizado (marca a conexão)."""
+    if check_meta_error_for_token_expiry(error_msg):
+        mark_connection_as_expired(user["token"], user["user_id"])
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "facebook_token_expired",
+                "code": "TOKEN_EXPIRED",
+                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
+            }
+        )
+
+
 @router.get("/video-source")
 def get_video_source(
     video_id: str = "",
@@ -3177,56 +3198,202 @@ def get_video_source(
     api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user)
 ):
-    """Get Facebook video source URL, resolving video owner page when needed."""
+    """Get Facebook video source URL, resolving video owner page when needed.
+
+    Cache-first (ads.video_source_url, migration 097): URL ainda válida não gera
+    chamada à Meta; resolução fresca faz write-back (URL + expiry + owner)."""
     try:
         if not video_id and not ig_media_id:
             raise HTTPException(status_code=422, detail="video_id or ig_media_id is required")
-        result = api.get_video_source_url(
-            video_id or None, actor_id, video_owner_page_id=video_owner_page_id or None,
-            ig_media_id=ig_media_id or None,
+
+        cached_url = None
+        cached_expires_at = None
+        if ad_id:
+            cache_row = supabase_repo.get_ad_video_source_cache(user["token"], user["user_id"], ad_id)
+            if cache_row and (not video_id or str(cache_row.get("primary_video_id") or "").strip() == video_id):
+                cached_url = cache_row.get("video_source_url")
+                cached_expires_at = cache_row.get("video_source_expires_at")
+
+        result = resolve_video_source_cached(
+            api,
+            user_jwt=user["token"],
+            user_id=user["user_id"],
+            ad_id=ad_id,
+            video_id=video_id,
+            actor_id=actor_id,
+            ig_media_id=ig_media_id,
+            video_owner_page_id=video_owner_page_id,
+            cached_url=cached_url,
+            cached_expires_at=cached_expires_at,
+            min_ttl_seconds=MODAL_MIN_TTL_S,
         )
 
-        # Check if result is an error dict
-        if isinstance(result, dict) and "status" in result:
-            error_msg = result.get("message", "")
-
-            # Verificar se é erro de token expirado
-            if check_meta_error_for_token_expiry(error_msg):
-                user_jwt = user["token"]
-                user_id = user["user_id"]
-                mark_connection_as_expired(user_jwt, user_id)
-                raise HTTPException(
-                    status_code=401,
-                    detail={
-                        "error": "facebook_token_expired",
-                        "code": "TOKEN_EXPIRED",
-                        "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook."
-                    }
-                )
-
+        if result.get("error"):
+            error_msg = str(result["error"])
+            _raise_if_meta_token_expired(error_msg, user)
             raise HTTPException(status_code=400, detail=error_msg)
 
-        # result is now {"source": url, "video_owner_page_id": id}
-        source_url = result.get("source") if isinstance(result, dict) else result
-        resolved_owner = result.get("video_owner_page_id") if isinstance(result, dict) else None
-
-        # Persist resolved owner (fire-and-forget, best-effort)
-        if ad_id and resolved_owner and resolved_owner != video_owner_page_id:
-            try:
-                supabase_repo.update_ad_video_owner(
-                    user_jwt=user["token"],
-                    user_id=user["user_id"],
-                    ad_id=ad_id,
-                    video_owner_page_id=resolved_owner,
-                )
-            except Exception:
-                pass  # best-effort, already logged inside the function
-
-        return {"source_url": source_url, "video_owner_page_id": resolved_owner}
+        resolved_owner = result.get("video_owner_page_id") or (video_owner_page_id or None)
+        return {"source_url": result["url"], "video_owner_page_id": resolved_owner}
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error in /video-source endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+_VIDEO_URL_BATCH_MAX_NAMES = 500
+_VIDEO_URL_BATCH_CONCURRENCY = 4
+
+
+@router.post("/video-source-urls/batch")
+def get_video_source_urls_batch(
+    body: Dict[str, Any] = Body(...),
+    api: GraphAPI = Depends(get_graph_api),
+    user: Dict[str, Any] = Depends(get_current_user),
+):
+    """Resolve URLs reproduzíveis (CDN Meta) para uma lista de ad_names — export CSV.
+
+    Controle de volume de chamadas à Meta:
+    - cache-first em ads.video_source_url (margem EXPORT_MIN_TTL_S, só renova o vencido);
+    - dedupe por vídeo (ads que compartilham criativo pagam 1 chamada);
+    - erro por item — um vídeo inacessível não derruba o batch.
+    """
+    ad_names_raw = body.get("ad_names", [])
+    if not isinstance(ad_names_raw, list) or not ad_names_raw:
+        return {"results": {}, "resolved": 0, "failed": 0, "from_cache": 0}
+    ad_names = list(dict.fromkeys(str(n).strip() for n in ad_names_raw if str(n or "").strip()))
+    if not ad_names:
+        return {"results": {}, "resolved": 0, "failed": 0, "from_cache": 0}
+    if len(ad_names) > _VIDEO_URL_BATCH_MAX_NAMES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Máximo de {_VIDEO_URL_BATCH_MAX_NAMES} ad_names por request (recebido: {len(ad_names)})",
+        )
+
+    user_jwt = user["token"]
+    user_id = user["user_id"]
+
+    try:
+        rows = supabase_repo.get_ads_video_fields_by_names(user_jwt, user_id, ad_names)
+
+        # Representante por ad_name: primeiro ad com vídeo (mesma regra do worker
+        # de transcrição — ver _extract_video_info).
+        representatives: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            name = str(row.get("ad_name") or "").strip()
+            if not name or name in representatives:
+                continue
+            creative = row.get("creative") or {}
+            video_id = str(row.get("primary_video_id") or "").strip()
+            ig_media_id = str(creative.get("effective_instagram_media_id") or "").strip()
+            media_type = str(row.get("media_type") or "").strip().lower()
+            is_video = media_type == "video" or (media_type not in ("image",) and bool(video_id))
+            if is_video and (video_id or ig_media_id):
+                representatives[name] = {
+                    "ad_id": str(row.get("ad_id") or "").strip(),
+                    "video_id": video_id,
+                    "ig_media_id": ig_media_id,
+                    "actor_id": str(creative.get("actor_id") or "").strip(),
+                    "video_owner_page_id": str(row.get("video_owner_page_id") or "").strip(),
+                    "cached_url": row.get("video_source_url"),
+                    "cached_expires_at": row.get("video_source_expires_at"),
+                }
+
+        # Dedupe por mídia: ads que compartilham o mesmo vídeo resolvem uma vez só
+        media_infos: Dict[str, Dict[str, Any]] = {}
+        media_key_by_name: Dict[str, str] = {}
+        for name, info in representatives.items():
+            key = info["video_id"] or f"igm:{info['ig_media_id']}"
+            media_key_by_name[name] = key
+            if key not in media_infos:
+                media_infos[key] = info
+
+        def _resolve_one(key: str) -> Tuple[str, Dict[str, Any]]:
+            info = media_infos[key]
+
+            def _attempt() -> Dict[str, Any]:
+                return resolve_video_source_cached(
+                    api,
+                    user_jwt=user_jwt,
+                    user_id=user_id,
+                    ad_id=info["ad_id"],
+                    video_id=info["video_id"],
+                    actor_id=info["actor_id"],
+                    ig_media_id=info["ig_media_id"],
+                    video_owner_page_id=info["video_owner_page_id"],
+                    cached_url=info["cached_url"],
+                    cached_expires_at=info["cached_expires_at"],
+                    min_ttl_seconds=EXPORT_MIN_TTL_S,
+                )
+
+            res = _attempt()
+            # Falha transitória (rede/429/5xx): 1 retentativa com backoff curto.
+            # Permanentes (erro 100, vídeo removido) não se retentam — mesma resposta.
+            if res.get("error") and res.get("transient"):
+                time.sleep(1.5)
+                res = _attempt()
+            return key, res
+
+        resolved_by_key: Dict[str, Dict[str, Any]] = {}
+        if media_infos:
+            max_workers = min(_VIDEO_URL_BATCH_CONCURRENCY, len(media_infos))
+            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="video-url-batch") as pool:
+                for key, res in pool.map(_resolve_one, list(media_infos.keys())):
+                    resolved_by_key[key] = res
+
+        # Token expirado invalida o batch inteiro — 401 padronizado (frontend reconecta)
+        for res in resolved_by_key.values():
+            if res.get("error"):
+                _raise_if_meta_token_expired(str(res["error"]), user)
+
+        results: Dict[str, Dict[str, Any]] = {}
+        resolved_count = 0
+        failed_count = 0
+        from_cache_count = 0
+        for name in ad_names:
+            info = representatives.get(name)
+            if not info:
+                results[name] = {"url": None, "expires_at": None, "video_id": None, "error": "Anúncio sem vídeo ou não encontrado"}
+                failed_count += 1
+                continue
+            res = resolved_by_key.get(media_key_by_name[name]) or {"error": "Falha desconhecida"}
+            if res.get("url"):
+                expires_at = res.get("expires_at")
+                results[name] = {
+                    "url": res["url"],
+                    "expires_at": expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at,
+                    "video_id": info["video_id"] or None,
+                }
+                resolved_count += 1
+                if res.get("from_cache"):
+                    from_cache_count += 1
+            else:
+                results[name] = {"url": None, "expires_at": None, "video_id": info["video_id"] or None, "error": str(res.get("error"))}
+                failed_count += 1
+
+        logger.info(
+            f"[VIDEO_URL_BATCH] {len(ad_names)} ad_names → {len(media_infos)} vídeos únicos: "
+            f"{resolved_count} ok ({from_cache_count} do cache), {failed_count} falhas"
+        )
+        if failed_count:
+            reason_counts: Dict[str, int] = {}
+            for entry in results.values():
+                err = entry.get("error")
+                if err:
+                    reason_counts[err] = reason_counts.get(err, 0) + 1
+            grouped = " | ".join(f"{count}x {reason[:160]}" for reason, count in sorted(reason_counts.items(), key=lambda kv: -kv[1]))
+            logger.warning(f"[VIDEO_URL_BATCH] Motivos das falhas: {grouped}")
+        return {
+            "results": results,
+            "resolved": resolved_count,
+            "failed": failed_count,
+            "from_cache": from_cache_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error in /video-source-urls/batch endpoint")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/image-source")
@@ -3436,6 +3603,38 @@ def refresh_pack(
 
             logger.info(f"[REFRESH_PACK] Pack {pack_id} - Tipo: todo o período - Range: {since_str} até {until_str} (auto_refresh: {auto_refresh})")
 
+        # Guard anti-dupla atualização: se já existe um job de refresh ATIVO
+        # (com heartbeat fresco) para este pack — iniciado por outra aba/sessão —
+        # rejeitar com 409 e devolver o job_id para o frontend re-anexar em vez
+        # de criar um segundo refresh. Filtro por is_refresh (só o payload do
+        # refresh tem essa chave) cobre também jobs antigos sem "type".
+        # Gated pela flag para nunca expor 409 a um frontend que não o trata.
+        if REFRESH_SERVER_CHAIN_ENABLED:
+            active_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+            existing_refresh = (
+                sb.table("jobs")
+                .select("id,status,updated_at")
+                .eq("user_id", user["user_id"])
+                .contains("payload", {"pack_id": pack_id, "is_refresh": True})
+                .in_("status", ["pending", "running", "meta_running", "meta_completed", "processing", "persisting"])
+                .gte("updated_at", active_cutoff)
+                .limit(1)
+                .execute()
+            ).data or []
+            if existing_refresh:
+                existing_job_id = existing_refresh[0].get("id")
+                logger.info(
+                    f"[REFRESH_PACK] Pack {pack_id} já tem refresh ativo (job {existing_job_id}); rejeitando com 409"
+                )
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "REFRESH_ALREADY_RUNNING",
+                        "message": "Este pack já está sendo atualizado.",
+                        "details": {"job_id": existing_job_id, "pack_id": pack_id},
+                    },
+                )
+
         # Atualizar status do pack para "running"
         supabase_repo.update_pack_refresh_status(
             user["token"],
@@ -3485,9 +3684,26 @@ def refresh_pack(
             "level": pack.get("level", "ad"),
             "filters": filters_list,
             "name": pack.get("name", ""),
+            "pack_name": pack.get("name", ""),
+            "type": "pack_refresh",
             "auto_refresh": pack.get("auto_refresh", False),
             "is_refresh": True,
         }
+
+        # Cadeia server-side: gravar a INTENÇÃO no payload — o trigger real fica
+        # no JobProcessor, no caminho de sucesso (Meta failed/cancelled nunca
+        # dispara sync). Fonte de verdade da integração é o pack, não o request.
+        server_chain = False
+        if REFRESH_SERVER_CHAIN_ENABLED and request.chain_sheets_after_meta:
+            chain_integration_id = pack.get("sheet_integration_id") or request.sheet_integration_id
+            if chain_integration_id:
+                payload_data["chain_sheet_sync"] = True
+                payload_data["sheet_integration_id"] = chain_integration_id
+                server_chain = True
+            else:
+                logger.warning(
+                    f"[REFRESH_PACK] chain_sheets_after_meta pedido mas pack {pack_id} não tem integração Sheets; cadeia ignorada"
+                )
 
         # Verificar se pack tem integração Sheets e criar job paralelo
         sheet_integration_id = pack.get("sheet_integration_id")
@@ -3559,6 +3775,9 @@ def refresh_pack(
                 "until": until_str
             },
             "sync_job_id": sync_job_id,
+            # true ⇒ o BACKEND dispara o sync do Leadscore após o Meta; o
+            # frontend NÃO deve disparar sheets (contrato de orquestrador único).
+            "server_chain": server_chain,
         }
 
     except HTTPException:
@@ -3576,6 +3795,75 @@ def refresh_pack(
         except:
             pass
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/jobs/active")
+def list_active_jobs(user: Dict[str, Any] = Depends(get_current_user)):
+    """Lista jobs ativos (com heartbeat recente) do usuário, para re-attach da UI.
+
+    O frontend usa isto ao carregar o app: se existe um job em andamento
+    (ex.: transcrição iniciada antes de um reload/login), ele retoma o polling
+    e o toast de progresso. Jobs sem heartbeat há mais de 10 min são
+    considerados mortos e omitidos — re-anexar neles só geraria stall.
+    """
+    from app.core.supabase_client import get_supabase_for_user
+
+    try:
+        sb = get_supabase_for_user(user["token"])
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        rows = (
+            sb.table("jobs")
+            .select("id,status,progress,message,payload,updated_at")
+            .eq("user_id", user["user_id"])
+            .in_("status", ["pending", "running", "processing", "persisting", "meta_running", "meta_completed"])
+            .gte("updated_at", cutoff)
+            .order("updated_at", desc=True)
+            .limit(20)
+            .execute()
+        ).data or []
+
+        jobs = []
+        for row in rows:
+            payload = row.get("payload") or {}
+            jobs.append(
+                {
+                    "job_id": row.get("id"),
+                    "status": row.get("status"),
+                    "progress": row.get("progress", 0),
+                    "message": row.get("message"),
+                    "type": payload.get("type"),
+                    "pack_id": payload.get("pack_id"),
+                    "pack_name": payload.get("pack_name"),
+                    "integration_id": payload.get("integration_id"),
+                    "updated_at": row.get("updated_at"),
+                }
+            )
+
+        # Jobs de sync de planilha guardam só integration_id no payload —
+        # resolver pack_id/pack_name aqui para o re-attach ter o contexto do toast.
+        sheet_jobs = [j for j in jobs if j["type"] == "google_sheet_sync" and j["integration_id"] and not j["pack_id"]]
+        if sheet_jobs:
+            integ_ids = list({j["integration_id"] for j in sheet_jobs})
+            integ_rows = (
+                sb.table("ad_sheet_integrations").select("id,pack_id").in_("id", integ_ids).execute()
+            ).data or []
+            integ_to_pack = {r["id"]: r.get("pack_id") for r in integ_rows}
+            pack_ids = [p for p in set(integ_to_pack.values()) if p]
+            pack_names: Dict[str, str] = {}
+            if pack_ids:
+                pack_rows = (
+                    sb.table("packs").select("id,name").in_("id", pack_ids).execute()
+                ).data or []
+                pack_names = {r["id"]: r.get("name") for r in pack_rows}
+            for j in sheet_jobs:
+                pid = integ_to_pack.get(j["integration_id"])
+                j["pack_id"] = pid
+                j["pack_name"] = pack_names.get(pid)
+
+        return {"jobs": jobs}
+    except Exception as e:
+        logger.exception(f"[ACTIVE_JOBS] Erro ao listar jobs ativos: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao listar jobs ativos")
 
 
 @router.post("/jobs/cancel-batch")
@@ -3688,6 +3976,8 @@ def start_transcription(
 
 class TranscribePackRequest(BaseModel):
     ad_names: Optional[List[str]] = None
+    # Retenta também failed-sem-áudio (escape para falsos positivos do "sem áudio")
+    force_no_audio: bool = False
 
 
 @router.post("/packs/{pack_id}/transcribe", status_code=202)
@@ -3739,10 +4029,12 @@ def start_pack_transcription(
             if filtered:
                 formatted_ads = filtered
 
+        force_no_audio = bool(body and body.force_no_audio)
         pending = count_pending_transcriptions(
             user_jwt=user["token"],
             user_id=user["user_id"],
             formatted_ads=formatted_ads,
+            force_no_audio=force_no_audio,
         )
         if pending <= 0:
             return JSONResponse(
@@ -3762,6 +4054,7 @@ def start_pack_transcription(
             payload={
                 "type": "transcription",
                 "pack_id": pack_id,
+                "pack_name": pack_name,
                 "total": pending,
             },
             status=STATUS_PROCESSING,
@@ -3789,6 +4082,7 @@ def start_pack_transcription(
                     api.access_token,
                     formatted_ads,
                     transcription_job_id=transcription_job_id,
+                    force_no_audio=force_no_audio,
                 )
             except Exception as e:
                 logger.warning(f"[TRANSCRIBE_PACK] Transcription batch failed: {e}")
@@ -3861,6 +4155,7 @@ def get_pack_transcription_status(
                 "total_ads": total_ads, "total_video_ads": 0,
                 "transcribed": 0, "untranscribed": 0, "no_voice": 0, "processing": 0,
                 "untranscribed_ads": [], "processing_ads": [],
+                "transcribed_ads": [], "no_voice_ads": [],
             }
 
         ad_names = list(seen.keys())
@@ -3885,35 +4180,38 @@ def get_pack_transcription_status(
                     no_voice_names.add(str(row.get("ad_name") or "").strip())
 
         # Categorizar
-        transcribed = 0
-        no_voice = 0
         processing_count = 0
         untranscribed_ads = []
         processing_ads = []
+        transcribed_ads = []
+        no_voice_ads = []
 
         for ad_name, thumb in seen.items():
             status = existing.get(ad_name)
             thumbnail_url = thumb.get("thumbnail_url")
+            info = {"ad_name": ad_name, "thumbnail_url": thumbnail_url}
             if status == "completed":
-                transcribed += 1
+                transcribed_ads.append(info)
             elif status in ("processing", "pending"):
                 processing_count += 1
-                processing_ads.append({"ad_name": ad_name, "thumbnail_url": thumbnail_url})
+                processing_ads.append(info)
             elif status == "failed" and ad_name in no_voice_names:
-                no_voice += 1
+                no_voice_ads.append(info)
             else:
                 # sem registro ou failed retriable
-                untranscribed_ads.append({"ad_name": ad_name, "thumbnail_url": thumbnail_url})
+                untranscribed_ads.append(info)
 
         return {
             "total_ads": total_ads,
             "total_video_ads": total_video_ads,
-            "transcribed": transcribed,
+            "transcribed": len(transcribed_ads),
             "untranscribed": len(untranscribed_ads),
-            "no_voice": no_voice,
+            "no_voice": len(no_voice_ads),
             "processing": processing_count,
             "untranscribed_ads": untranscribed_ads,
             "processing_ads": processing_ads,
+            "transcribed_ads": transcribed_ads,
+            "no_voice_ads": no_voice_ads,
         }
     except HTTPException:
         raise

@@ -593,8 +593,11 @@ export function finishProgressToast(
   };
 
   const card = (
+    // packName vazio é tratado pelo card (cabeçalho sem o nome). Nunca cair para
+    // `message` aqui: a mensagem já é a linha principal e apareceria duplicada
+    // no cabeçalho ("Atualizando <mensagem inteira> — Falhou").
     <ProgressToastCard
-      packName={packName || message}
+      packName={packName}
       progress={success ? 100 : 0}
       currentStep={1}
       totalSteps={1}

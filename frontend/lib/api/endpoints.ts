@@ -5,6 +5,7 @@ import {
   GetAdsResponse,
   GetVideoSourceRequest,
   GetVideoSourceResponse,
+  VideoSourceUrlsBatchResponse,
   GetImageSourceRequest,
   GetImageSourceResponse,
   AuthTokenRequest,
@@ -121,24 +122,43 @@ export const api = {
     getVideoSource: (params: GetVideoSourceRequest): Promise<GetVideoSourceResponse> =>
       apiClient.get('/facebook/video-source', { params }),
 
+    /** URLs reproduzíveis (CDN Meta, perecíveis) por ad_name — export CSV.
+     * Cache-first no backend; timeout largo porque pode tocar a Meta por vídeo único não-cacheado. */
+    getVideoSourceUrlsBatch: (adNames: string[]): Promise<VideoSourceUrlsBatchResponse> =>
+      apiClient.post('/facebook/video-source-urls/batch', { ad_names: adNames }, { timeout: 120000 }),
+
     getImageSource: (params: GetImageSourceRequest): Promise<GetImageSourceResponse> =>
       apiClient.get('/facebook/image-source', { params }),
     
-    refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh", skipSheetsSync: boolean = false): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string }> =>
-      apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType, skip_sheets_sync: skipSheetsSync }),
+    /**
+     * Inicia refresh do pack. `chainSheetsAfterMeta` pede ao BACKEND para
+     * encadear o sync do Leadscore após o Meta; a response diz `server_chain`
+     * (true ⇒ o frontend NÃO deve disparar sheets — orquestrador único; ausente
+     * = backend antigo/flag off ⇒ fluxo client-side atual).
+     */
+    refreshPack: (packId: string, untilDate: string, refreshType: "since_last_refresh" | "full_period" = "since_last_refresh", skipSheetsSync: boolean = false, chainSheetsAfterMeta: boolean = false, sheetIntegrationId?: string): Promise<{ job_id: string; status: string; message: string; pack_id: string; date_range: { since: string; until: string }; sync_job_id?: string; server_chain?: boolean }> =>
+      apiClient.post(`/facebook/refresh-pack/${packId}`, { until_date: untilDate, refresh_type: refreshType, skip_sheets_sync: skipSheetsSync, chain_sheets_after_meta: chainSheetsAfterMeta, sheet_integration_id: sheetIntegrationId }),
 
     /** Retorna contagens e listas de ads por categoria de transcrição para um pack. */
     getPackTranscriptionStatus: (packId: string): Promise<PackTranscriptionStatus> =>
       apiClient.get(`/facebook/packs/${packId}/transcription-status`),
 
-    /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Retorna transcription_job_id para polling. */
-    startPackTranscription: (packId: string, adNames?: string[]): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null }> =>
-      apiClient.post(`/facebook/packs/${packId}/transcribe`, adNames ? { ad_names: adNames } : {}),
+    /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Retorna transcription_job_id para polling.
+     * forceNoAudio retenta também os failed-sem-áudio (escape para falsos positivos). */
+    startPackTranscription: (packId: string, adNames?: string[], forceNoAudio?: boolean): Promise<{ message: string; pack_id: string; pack_name: string; transcription_job_id: string | null }> =>
+      apiClient.post(`/facebook/packs/${packId}/transcribe`, {
+        ...(adNames ? { ad_names: adNames } : {}),
+        ...(forceNoAudio ? { force_no_audio: true } : {}),
+      }),
 
     /** Inicia ou reinicia a transcrição de um anúncio por ad_name. */
     transcribeAd: (adName: string): Promise<{ message: string; ad_name: string }> =>
       apiClient.post('/facebook/transcription/start', { ad_name: adName }),
     
+    /** Jobs ativos (heartbeat recente) do usuário — usado para re-attach de progresso após reload/login. */
+    getActiveJobs: (): Promise<{ jobs: Array<{ job_id: string; status: string; progress: number; message: string | null; type: string | null; pack_id: string | null; pack_name: string | null; integration_id: string | null; updated_at: string }> }> =>
+      apiClient.get('/facebook/jobs/active'),
+
     cancelJobsBatch: (jobIds: string[], reason?: string): Promise<{ cancelled_count: number; total_requested: number; message: string }> =>
       apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout' }),
 

@@ -104,6 +104,56 @@ export function parseError(err: unknown): AppError {
 export const isUnauthorized = (e: AppError) => e.status === 401
 export const isRateLimited = (e: AppError) => e.status === 429
 
+/** Prefixos redundantes que o backend acumula ao propagar erros entre camadas. */
+const REDUNDANT_ERROR_PREFIX = /^\s*(erro|error)\s*:\s*/i
+
+/**
+ * Cauda técnica de exceção Python que vaza para o `message` do job:
+ * `('Connection aborted.', ConnectionResetError(10054, '...'))` ou `KeyError('x')`.
+ */
+const TECHNICAL_TAIL = /(?:\s*:\s*)?(\((?:'|")[\s\S]*|\b[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception)\([\s\S]*)$/
+
+const MAX_DIAGNOSTIC_LENGTH = 240
+
+/**
+ * Prepara a mensagem de erro de um job para exibição no toast.
+ *
+ * Por que existe: `job_tracker.mark_failed` grava `message` como "Erro: <causa>",
+ * o serviço que falhou já prefixa a sua própria camada ("Erro ao ler planilha…"),
+ * e o card de toast ainda tem o título "Erro" — o usuário via o mesmo prefixo
+ * três vezes, seguido do `repr` cru da exceção Python. Aqui a linha principal
+ * fica legível e o detalhe técnico vai para a `diagnosticLine` (mono, discreta),
+ * que continua útil para suporte sem poluir a leitura.
+ */
+export function normalizeJobErrorMessage(
+  raw?: string | null,
+  fallback = 'Erro desconhecido',
+): { message: string; diagnostic?: string } {
+  let message = String(raw ?? '').trim()
+  if (!message) return { message: fallback }
+
+  // Repetido: cada camada que reembrulhou o erro adicionou o seu prefixo.
+  let previous: string
+  do {
+    previous = message
+    message = message.replace(REDUNDANT_ERROR_PREFIX, '').trim()
+  } while (message !== previous)
+
+  let diagnostic: string | undefined
+  const technical = message.match(TECHNICAL_TAIL)
+  if (technical && technical.index !== undefined && technical.index > 0) {
+    diagnostic = technical[1].trim()
+    message = message.slice(0, technical.index).replace(/[\s:—-]+$/, '').trim()
+  }
+
+  if (diagnostic && diagnostic.length > MAX_DIAGNOSTIC_LENGTH) {
+    diagnostic = `${diagnostic.slice(0, MAX_DIAGNOSTIC_LENGTH)}…`
+  }
+
+  if (!message) return { message: fallback, diagnostic }
+  return { message, diagnostic }
+}
+
 /**
  * Normaliza erros vindos do Supabase Auth (@supabase/auth-js) para AppError.
  *

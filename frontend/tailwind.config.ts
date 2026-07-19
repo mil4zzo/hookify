@@ -210,10 +210,15 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "toast-sweep": {
+          from: { transform: "translateX(-150%)" },
+          to: { transform: "translateX(400%)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.3s ease-out",
         "accordion-up": "accordion-up 0.3s ease-out",
+        "toast-sweep": "toast-sweep 1.9s cubic-bezier(0.4, 0, 0.2, 1) infinite",
       },
     },
   },

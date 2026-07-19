@@ -23,7 +23,7 @@ import {
   GOOGLE_TOKEN_EXPIRED,
   GOOGLE_CONNECTION_NOT_FOUND,
 } from "@/lib/utils/googleAuthError";
-import { AppError } from "@/lib/utils/errors";
+import { AppError, normalizeJobErrorMessage } from "@/lib/utils/errors";
 import { logger } from "@/lib/utils/logger";
 import React from "react";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
@@ -145,10 +145,23 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
           return { done: true, result: { success: false, error: errorMessage, paused: true, needsGoogleReconnect: true } };
         }
 
-        const syncError = new Error(`Erro ao sincronizar planilha: ${progress.message || "Erro desconhecido"}`);
-        logger.error(syncError);
-        finishProgressToast(toastId, false, syncError.message);
-        return { done: true, result: { success: false, error: progress.message || "Erro desconhecido" } };
+        // O cabeçalho do toast já diz "<pack>: Leadscore › Falhou" — a linha
+        // principal fica com a causa do backend (sem reprefixar) e o detalhe
+        // técnico vai para a linha de diagnóstico.
+        const { message: userMessage, diagnostic } = normalizeJobErrorMessage(
+          progress.message,
+          "Não foi possível sincronizar a planilha.",
+        );
+        // O backend manda o detalhe técnico em details.technical; a extração da
+        // mensagem é fallback para erros antigos/de outras camadas.
+        const technical = typeof details?.technical === "string" ? details.technical : undefined;
+        logger.error(new Error(`Sync de planilha falhou: ${progress.message || "sem mensagem"}`));
+        finishProgressToast(toastId, false, userMessage, {
+          context: "sheets",
+          packName,
+          diagnosticLine: technical ?? diagnostic,
+        });
+        return { done: true, result: { success: false, error: userMessage } };
       }
 
       const sheetsContent = buildSheetsToastContent(progress.status, details);
@@ -232,13 +245,25 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
     },
 
     onTimeout: () => {
-      finishProgressToast(toastId, false, `Timeout ao sincronizar planilha (demorou mais de 10 minutos)`);
+      finishProgressToast(
+        toastId, false,
+        "A importação da planilha demorou mais de 10 minutos e o acompanhamento foi encerrado.",
+        {
+          context: "sheets",
+          packName,
+          diagnosticLine: "Registros já importados estão salvos. Rode a sincronização novamente se necessário.",
+        }
+      );
       return { success: false, error: "Timeout" };
     },
     onCancelled: () => ({ success: false, error: "Cancelado pelo usuário" }),
     onUnmounted: () => ({ success: false, error: "Componente desmontado" }),
     onMaxConsecutiveErrors: () => {
-      finishProgressToast(toastId, false, `Erro persistente ao sincronizar planilha. Tente novamente.`);
+      finishProgressToast(
+        toastId, false,
+        "Não foi possível verificar o progresso da importação. Verifique sua conexão e tente novamente.",
+        { context: "sheets", packName }
+      );
       return { success: false, error: "Erros consecutivos" };
     },
   });
