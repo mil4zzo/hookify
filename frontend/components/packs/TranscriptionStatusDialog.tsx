@@ -227,7 +227,9 @@ export function TranscriptionStatusDialog({ isOpen, onClose, packId, packName, o
             <IconCircleX className="h-5 w-5" />
             Cancelar
           </Button>
-          {activeTab === "untranscribed" && (status?.untranscribed ?? 0) > 0 && (
+          {/* durante o load o botão já ocupa o slot (desabilitado): evita que a
+              linha de ações mude de largura quando o status chega */}
+          {(isLoading || (activeTab === "untranscribed" && (status?.untranscribed ?? 0) > 0)) && (
             <Button
               onClick={() => onConfirm(Array.from(selected))}
               disabled={confirmCount === 0 || isLoading || !status}
@@ -330,29 +332,39 @@ function TranscriptionStatusSkeleton() {
         <Skeleton className="h-4 w-full rounded-full" />
       </div>
 
-      {/* espelha a barra de abas + linha de seleção + lista de ads */}
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-control-default w-full rounded-lg" />
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-5 w-28" />
+      {/* espelha TabsList: mesma moldura, 3 triggers dividindo a largura */}
+      <div>
+        <div className="flex w-full items-center gap-1 rounded-lg border border-border bg-card p-1 shadow-elevation-raised">
+          {[0, 1, 2].map((i) => (
+            <Skeleton key={i} className="h-control-compact flex-1 rounded-md" />
+          ))}
         </div>
 
-        <div className={cn(AD_LIST_BOX, "space-y-1 overflow-hidden")}>
-          {SKELETON_ROW_WIDTHS.map((width, i) => (
-            <div key={i} className="flex items-center gap-3 p-3">
-              <Skeleton className="h-4 w-4 shrink-0 rounded-sm" />
-              <Skeleton className="h-9 w-9 shrink-0 rounded" />
-              <Skeleton className={`h-4 ${width}`} />
-            </div>
-          ))}
+        {/* espelha TabsContent (pt-3) com SelectionHeader + AdList */}
+        <div className="flex flex-col gap-2 pt-3">
+          <div className="flex h-control-compact items-center justify-between">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+
+          <div className={cn(AD_LIST_BOX, "space-y-1 overflow-hidden")}>
+            {SKELETON_ROW_WIDTHS.map((width, i) => (
+              <div key={i} className="flex items-center gap-3 p-3">
+                <Skeleton className="h-4 w-4 shrink-0 rounded-sm" />
+                <Skeleton className="h-9 w-9 shrink-0 rounded" />
+                <Skeleton className={cn("h-4", width)} />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </>
   );
 }
 
-const SKELETON_ROW_WIDTHS = ["w-3/5", "w-4/5", "w-1/2", "w-2/3"];
+// 5 linhas: a última é cortada pela altura fixa do AD_LIST_BOX, sinalizando
+// que a lista tem continuação em vez de deixar a caixa meio vazia.
+const SKELETON_ROW_WIDTHS = ["w-3/5", "w-4/5", "w-1/2", "w-2/3", "w-3/4"];
 
 interface AdRowProps {
   ad: TranscriptionAdInfo;
