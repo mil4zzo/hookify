@@ -2321,3 +2321,30 @@ O `pack_agg` é um join sobre o CTE `filtered` (linhas **já** reduzidas pelos f
 **NÃO compensar dividindo os limites por 4:** a distribuição entre workers não é uniforme; `user-delete` viraria 1,25/min por worker e um usuário legítimo tomaria 429 falso. O conserto é o storage compartilhado, não o número.
 
 **Padrão generalizável:** qualquer estado em memória de processo (rate limit, cache de dedup, locks, contadores, circuit breakers) é **silenciosamente multiplicado por `--workers`**. Antes de assumir "processo único", ler o `CMD` do Dockerfile — não só o `docker-compose.yml`.
+
+## Pack somava menos que o Gerenciador: /insights level=ad omite ads DELETADOS (2026-07-19)
+
+**Sintoma:** pack "EI.29 - Captação CA4" (13/04–13/05) somava **R$520.156,25**; o Gerenciador, no mesmo
+período de veiculação, mostrava **R$545.673,12** (−R$25.516,87, ~4,7%). Conferência campanha a campanha
+contra o CSV exportado do Gerenciador: a diferença estava 100% concentrada em **15 campanhas evergreen**
+(AUTO/ADV+/FEED) — as campanhas de teste batiam **ao centavo**.
+
+**Causa (provada por A/B na Graph API):** o `/insights` com `level=ad` — exatamente o que o
+`start_ads_job` usa — **omite por default o histórico de ads que foram DELETADOS/ARQUIVADOS depois de
+entregar**. O gasto deles não é redistribuído; simplesmente some da soma. O Gerenciador agrega no nível
+da campanha, que inclui tudo. Prova numa campanha ([QUENTE] [AUTO]): `level=ad` default = 43.171,63
+(327 ads, idêntico ao banco do Hookify); `level=ad` com
+`filtering=[{"field":"ad.effective_status","operator":"IN","value":[...,"ARCHIVED","DELETED"]}]` =
+46.997,19 (465 ads, idêntico ao Gerenciador). **138 ads deletados carregavam a diferença.**
+
+**Assinatura do problema (para reconhecer de novo):** divergência só em campanhas onde o gestor deleta
+criativos perdedores em pleno voo; cresce quanto mais tarde o pack é criado em relação ao período; os
+últimos dias do range batem exato (os ads que entregaram no fim são os sobreviventes). Pistas que
+DESCARTAMOS no caminho: `date_stop` do pack (13/05) menor que o range do relatório (19/05) — irrelevante,
+não houve entrega após 11/05; e o dip de gasto em 24–25/04 — real, presente também nas campanhas que batem.
+
+**Fix possível (não implementado):** incluir o `filtering` de `ad.effective_status` com
+DELETED/ARCHIVED no `start_ads_job`. Antes de fazer, resolver os efeitos colaterais: ads deletados não
+existem no inventário `/ads` (`fetch_inventory`) → sem enrichment de criativo/thumb/status; e
+`parent_entities.ads_count` espelha o Gerenciador excluindo deleted na CONTAGEM, enquanto o spend do
+Gerenciador os INCLUI — as duas convenções precisariam ser reconciliadas na UI.
