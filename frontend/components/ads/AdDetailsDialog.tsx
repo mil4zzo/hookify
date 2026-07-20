@@ -612,7 +612,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       finishProgressToast(transcriptionToastId.current, true, "Transcrição concluída", {
         context: "transcription",
         packName: adName,
-        visibleDurationOnly: 5,
+        durationSeconds: 5,
       });
       setTranscriptionPending(false);
     } else if (transcriptionData?.status === "failed") {

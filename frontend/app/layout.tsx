@@ -38,6 +38,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               expand={true}
               visibleToasts={5}
               gap={8}
+              // Sem isto a duração é tempo de relógio: um toast disparado com a aba
+              // em segundo plano nasce e morre sem o usuário ver. Com a prop, o timer
+              // pausa enquanto document.hidden e retoma o restante ao voltar.
+              pauseWhenPageIsHidden
             />
           </SidebarProvider>
         </ReactQueryProvider>

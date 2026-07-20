@@ -1,11 +1,44 @@
 import { toast } from "sonner";
 import { AppError } from "./errors";
 import { parseError } from "./errors";
-import { IconAlertCircle, IconMicrophone, IconX } from "@tabler/icons-react";
+import { IconMicrophone } from "@tabler/icons-react";
 import React, { type ReactNode } from "react";
-import { PausedToastCard, ProgressToastCard } from "@/components/common/ProgressToastCard";
+import { PausedToastCard, ProgressToastCard, StatusToastCard } from "@/components/common/ProgressToastCard";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
+
+/** Duração dos toasts efêmeros. Alimenta o timer do sonner E a barra de contagem — uma fonte só, para não dessincronizar. */
+const STATUS_TOAST_DURATION_MS: Record<"success" | "info" | "warning", number> = {
+  success: 4000,
+  info: 4000,
+  warning: 5000,
+};
+
+function makeToastId(prefix: string) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Dispara um toast de status efêmero com barra de contagem regressiva sincronizada. */
+function emitStatusToast(
+  variant: "success" | "info" | "warning",
+  message: ReactNode,
+  options?: { eyebrow?: string; icon?: ReactNode },
+) {
+  const toastId = makeToastId(variant);
+  const duration = STATUS_TOAST_DURATION_MS[variant];
+  const card = (
+    <StatusToastCard
+      variant={variant}
+      message={message}
+      eyebrow={options?.eyebrow}
+      icon={options?.icon}
+      countdownMs={duration}
+      onDismiss={() => toast.dismiss(toastId)}
+    />
+  );
+  const emit = variant === "success" ? toast.success : variant === "warning" ? toast.warning : toast;
+  emit(card, getToastCardOptions(toastId, duration, true));
+}
 
 export function showError(error: AppError | Error | string | unknown) {
   // Garantir que sempre temos um AppError com message string
@@ -27,39 +60,23 @@ export function showError(error: AppError | Error | string | unknown) {
   const message = typeof appError.message === "string" ? appError.message : JSON.stringify(appError.message);
 
   // Toasts de erro nunca fecham sozinhos: usuário deve dispensar para garantir que leu.
-  const toastId = `error-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const toastId = makeToastId("error");
   toast.error(
-    <div className="flex items-start gap-3 w-full min-w-0">
-      <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-destructive" />
-      <div className="flex items-center gap-2 flex-1 min-w-0">
-        <span className="flex-1 min-w-0 text-sm text-foreground break-words">{message}</span>
-        <button type="button" onClick={() => toast.dismiss(toastId)} className="flex-shrink-0 p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted-50 focus:outline-none focus:ring-1 focus:ring-ring" aria-label="Fechar">
-          <IconX className="h-4 w-4" strokeWidth={2} />
-        </button>
-      </div>
-    </div>,
-    { id: toastId, duration: Infinity, dismissible: true },
+    <StatusToastCard variant="error" message={message} onDismiss={() => toast.dismiss(toastId)} />,
+    getToastCardOptions(toastId, Infinity, true),
   );
 }
 
 export function showSuccess(message: string) {
-  toast.success(message);
+  emitStatusToast("success", message);
 }
 
 export function showInfo(message: string) {
-  toast(message);
+  emitStatusToast("info", message);
 }
 
 export function showWarning(message: string) {
-  toast.warning(
-    <div className="flex items-start gap-3">
-      <IconAlertCircle className="h-5 w-5 flex-shrink-0 text-warning" />
-      <span className="text-sm text-foreground break-words">{message}</span>
-    </div>,
-    {
-      duration: 5000,
-    },
-  );
+  emitStatusToast("warning", message);
 }
 
 /**
@@ -75,25 +92,8 @@ export function showProcessCancelledWarning(context: "meta" | "sheets" | "transc
   const label = context === "meta" ? "Meta" : context === "sheets" ? "Leadscore" : "Transcrição";
   const message = context === "transcription" ? "Transcrição cancelada." : "Atualização cancelada.";
 
-  const LeftIcon = context === "meta" ? MetaIcon : context === "sheets" ? GoogleSheetsIcon : IconMicrophone;
-
-  toast.warning(
-    <div className="flex items-center gap-3">
-      <LeftIcon className="h-5 w-5 flex-shrink-0" />
-      <div className="flex flex-col gap-0.5 min-w-0 flex-1">
-        <span className="text-xs text-muted-foreground">
-          {packName}: {label}
-        </span>
-        <div className="flex items-center gap-2">
-          <IconAlertCircle className="h-4 w-4 text-warning flex-shrink-0" />
-          <span className="text-sm text-foreground">{message}</span>
-        </div>
-      </div>
-    </div>,
-    {
-      duration: 5000,
-    },
-  );
+  const { icon } = getTerminalContextMeta(context);
+  emitStatusToast("warning", message, { eyebrow: packName ? `${packName}: ${label}` : label, icon });
 }
 
 // Meta Ads: mapeamento status/stage -> índice 1-5 para "Etapa X de 5"
@@ -538,26 +538,6 @@ export function showCancellingToast(toastId: string, packName: string, icon?: Re
   );
 }
 
-const TICK_MS = 100;
-
-/**
- * Agenda dismiss do toast após N segundos de tempo com a aba visível.
- * O contador só avança quando document.visibilityState === 'visible'; ao ficar hidden, pausa (não zera).
- */
-function dismissAfterVisibleSeconds(toastId: string, visibleSeconds: number): void {
-  if (typeof document === "undefined") return;
-  let accumulated = 0;
-  const intervalId = setInterval(() => {
-    if (document.visibilityState === "visible") {
-      accumulated += TICK_MS / 1000;
-      if (accumulated >= visibleSeconds) {
-        clearInterval(intervalId);
-        toast.dismiss(toastId);
-      }
-    }
-  }, TICK_MS);
-}
-
 // Ícones reutilizados nos toasts terminais (criados uma vez por módulo).
 const META_TOAST_ICON = <MetaIcon className="h-5 w-5 flex-shrink-0" />;
 const SHEETS_TOAST_ICON = <GoogleSheetsIcon className="h-5 w-5 flex-shrink-0" />;
@@ -572,14 +552,15 @@ function getTerminalContextMeta(context?: "meta" | "sheets" | "transcription"): 
 
 /**
  * Finaliza toast de progresso com sucesso ou erro reutilizando o ProgressToastCard.
- * - Sucesso: progress=100 → variant "success" (gradiente verde + barra cheia). Auto-dismiss em 5s ou em N segundos com a aba visível (visibleDurationOnly).
+ * - Sucesso: progress=100 → variant "success" (gradiente verde + barra cheia). Auto-dismiss em durationSeconds (padrão 5s).
+ *   O Toaster usa pauseWhenPageIsHidden, então a contagem só corre com a aba visível.
  * - Erro: inlineError + terminal → variant "error" (gradiente vermelho) + botão X "Fechar". Persistente até o usuário fechar.
  */
 export function finishProgressToast(
   toastId: string,
   success: boolean,
   message: string,
-  options?: { visibleDurationOnly?: number; context?: "meta" | "sheets" | "transcription"; packName?: string; diagnosticLine?: string },
+  options?: { durationSeconds?: number; context?: "meta" | "sheets" | "transcription"; packName?: string; diagnosticLine?: string },
 ) {
   const { stageContext, icon } = getTerminalContextMeta(options?.context);
   const packName = options?.packName ?? "";
@@ -591,6 +572,9 @@ export function finishProgressToast(
     stageContext,
     diagnosticLine: success ? undefined : options?.diagnosticLine,
   };
+
+  const seconds = options?.durationSeconds;
+  const successDuration = seconds != null && seconds > 0 ? seconds * 1000 : 5000;
 
   const card = (
     // packName vazio é tratado pelo card (cabeçalho sem o nome). Nunca cair para
@@ -606,18 +590,13 @@ export function finishProgressToast(
       inlineError={!success}
       terminal
       animated={false}
+      countdownMs={success ? successDuration : undefined}
       onCancel={success ? undefined : () => toast.dismiss(toastId)}
     />
   );
 
   if (success) {
-    const visibleOnly = options?.visibleDurationOnly;
-    if (visibleOnly != null && visibleOnly > 0) {
-      toast.success(card, getToastCardOptions(toastId, Infinity));
-      dismissAfterVisibleSeconds(toastId, visibleOnly);
-    } else {
-      toast.success(card, getToastCardOptions(toastId, 5000));
-    }
+    toast.success(card, getToastCardOptions(toastId, successDuration));
   } else {
     // Erro sempre persistente até usuário fechar (botão X).
     toast.error(card, getToastCardOptions(toastId, Infinity, true));

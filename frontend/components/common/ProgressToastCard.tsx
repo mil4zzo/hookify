@@ -1,7 +1,7 @@
 "use client";
 
 import React, { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { IconAlertCircle, IconLoader2, IconX } from "@tabler/icons-react";
+import { IconAlertCircle, IconAlertTriangle, IconCircleCheck, IconInfoCircle, IconLoader2, IconX } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { Button } from "@/components/ui/button";
 
@@ -10,7 +10,7 @@ const CONTENT_TRANSITION = "520ms cubic-bezier(0.22, 1, 0.36, 1)";
 const PROGRESS_STEP_SIZE = 1;
 const MIN_STEP_DELAY_MS = 10;
 const MAX_STEP_DELAY_MS = 42;
-const VARIANT_ORDER = ["initializing", "loading", "success", "error"] as const;
+const VARIANT_ORDER = ["initializing", "loading", "success", "error", "warning"] as const;
 
 export type ProgressToastVisualVariant = (typeof VARIANT_ORDER)[number];
 
@@ -26,6 +26,8 @@ type ToastCardFrameProps = {
   variant: ProgressToastVisualVariant;
   progress: number;
   animated?: boolean;
+  /** Duração do auto-dismiss em ms. Desenha a barra de contagem regressiva. Omitir em toasts persistentes. */
+  countdownMs?: number;
   children: ReactNode;
 };
 
@@ -49,6 +51,8 @@ export type ProgressToastCardProps = {
   animated?: boolean;
   /** Terminal frame: success (progress=100) or error (inlineError). Hides cancel UI on success and shows an icon-only "Fechar" on error. */
   terminal?: boolean;
+  /** Duração do auto-dismiss em ms — desenha a barra de contagem regressiva (só no frame terminal de sucesso). */
+  countdownMs?: number;
 };
 
 export type PausedToastCardProps = {
@@ -126,12 +130,30 @@ function useAnimatedProgress(targetProgress: number, enabled: boolean) {
   return displayProgress;
 }
 
+/**
+ * Espelha o document.hidden para pausar a barra de contagem junto com o timer do sonner
+ * (Toaster usa pauseWhenPageIsHidden). Começa em false para não divergir do SSR.
+ */
+function usePageHidden() {
+  const [pageHidden, setPageHidden] = useState(false);
+
+  useEffect(() => {
+    const sync = () => setPageHidden(document.hidden);
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => document.removeEventListener("visibilitychange", sync);
+  }, []);
+
+  return pageHidden;
+}
+
 function getBackgroundLayerClasses(): Record<ProgressToastVisualVariant, string> {
   return {
     initializing: "neutral-gradient",
     loading: "primary-gradient",
     success: "success-gradient",
     error: "destructive-gradient",
+    warning: "warning-gradient",
   };
 }
 
@@ -156,6 +178,16 @@ function getFrameConfig(variant: ProgressToastVisualVariant, progress: number) {
     };
   }
 
+  if (variant === "warning") {
+    return {
+      ambientShadow: `0 24px 64px color-mix(in oklab, var(--neutral-950) 58%, transparent),
+        0 8px 28px color-mix(in oklab, var(--warning) 14%, transparent)`,
+      surfaceOpacity: 0.16,
+      sheenOpacity: 0.11,
+      glowPulse: 1,
+    };
+  }
+
   if (variant === "initializing") {
     return {
       ambientShadow: `0 24px 64px color-mix(in oklab, var(--neutral-950) 52%, transparent),
@@ -176,9 +208,11 @@ function getFrameConfig(variant: ProgressToastVisualVariant, progress: number) {
   };
 }
 
-function ToastCardFrame({ variant, progress, animated = true, children }: ToastCardFrameProps) {
+function ToastCardFrame({ variant, progress, animated = true, countdownMs, children }: ToastCardFrameProps) {
   const { ambientShadow, glowPulse } = getFrameConfig(variant, progress);
   const backgroundClasses = getBackgroundLayerClasses();
+  const pageHidden = usePageHidden();
+  const showCountdown = countdownMs != null && Number.isFinite(countdownMs) && countdownMs > 0;
 
   return (
     <div
@@ -230,6 +264,22 @@ function ToastCardFrame({ variant, progress, animated = true, children }: ToastC
       />
 
       <div className="relative z-20">{children}</div>
+
+      {showCountdown && (
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-30 h-1"
+          style={{ background: "color-mix(in oklab, var(--neutral-950) 30%, transparent)" }}
+        >
+          <div
+            data-toast-countdown
+            className="h-full w-full origin-left bg-primary-foreground-70"
+            style={{
+              animation: `toast-countdown ${countdownMs}ms linear forwards`,
+              animationPlayState: pageHidden ? "paused" : "running",
+            }}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -336,7 +386,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
   );
 }
 
-export function ProgressToastCard({ packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps, inlineError = false, cancelling = false, animated = true, terminal = false }: ProgressToastCardProps) {
+export function ProgressToastCard({ packName, progress, stagedContent, message, onCancel, icon, currentStep, totalSteps, inlineError = false, cancelling = false, animated = true, terminal = false, countdownMs }: ProgressToastCardProps) {
   const targetProgress = clamp(Math.round(progress), 0, 100);
   const animatedProgress = useAnimatedProgress(targetProgress, animated && !inlineError && !cancelling);
   const variant = useMemo(() => getVariant(inlineError || cancelling ? targetProgress : animatedProgress, inlineError, cancelling), [animatedProgress, cancelling, inlineError, targetProgress]);
@@ -363,10 +413,27 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
   const showBar = !cancelling && !inlineError;
   const showIconRing = Boolean(icon) && !inlineError && !cancelling && !isSuccess;
   const showActionButton = Boolean(onCancel) && !(terminal && isSuccess);
-  const actionButtonLabel = terminal && inlineError ? "Fechar" : "Cancelar";
+  const isCloseAction = terminal && inlineError;
+  const actionButtonLabel = isCloseAction ? "Fechar" : "Cancelar";
+
+  // O "X" pode ser lido como "minimizar/dispensar" — cancelar exige confirmação
+  // inline antes de disparar onCancel. Só o "Fechar" do erro terminal fecha direto.
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const hasCancel = Boolean(onCancel);
+  useEffect(() => {
+    if (terminal || cancelling || isSuccess || !hasCancel) setConfirmingCancel(false);
+  }, [terminal, cancelling, isSuccess, hasCancel]);
+
+  const handleActionClick = () => {
+    if (isCloseAction) {
+      onCancel?.();
+      return;
+    }
+    setConfirmingCancel((current) => !current);
+  };
 
   return (
-    <ToastCardFrame variant={variant} progress={animatedProgress} animated={animated}>
+    <ToastCardFrame variant={variant} progress={animatedProgress} animated={animated} countdownMs={countdownMs}>
       <div className="flex flex-col gap-3 px-4 pb-4 pt-3 text-primary-foreground" role="status" aria-live="polite" aria-valuemin={0} aria-valuemax={100} aria-valuenow={showBar ? animatedProgress : undefined}>
         <div className="flex items-start gap-2">
           <span className={cn("relative mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center", showIconRing ? "[&_svg]:h-4 [&_svg]:w-4" : "[&_svg]:h-5 [&_svg]:w-5")}>
@@ -414,9 +481,10 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
           {showActionButton && (
             <button
               type="button"
-              onClick={onCancel}
+              onClick={handleActionClick}
               aria-label={actionButtonLabel}
               title={actionButtonLabel}
+              aria-expanded={isCloseAction ? undefined : confirmingCancel}
               className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-primary-foreground-75 hover:bg-primary-foreground-10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-primary-foreground-30"
             >
               <IconX className="h-4 w-4" strokeWidth={2} />
@@ -424,7 +492,102 @@ export function ProgressToastCard({ packName, progress, stagedContent, message, 
           )}
         </div>
 
+        {confirmingCancel && (
+          <div className="flex flex-col gap-2 rounded-md border border-primary-foreground-10 px-3 py-2" style={{ background: "color-mix(in oklab, var(--neutral-950) 25%, transparent)" }} role="alertdialog" aria-label="Confirmar cancelamento">
+            <div className="flex items-start gap-2">
+              <IconAlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-attention" />
+              <p className="text-xs font-medium leading-snug text-primary-foreground">
+                Cancelar esta operação? O progresso será perdido.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" size="sm" variant="ghost" onClick={() => setConfirmingCancel(false)}>
+                Continuar
+              </Button>
+              <Button type="button" size="sm" variant="destructive" onClick={onCancel}>
+                Sim, cancelar
+              </Button>
+            </div>
+          </div>
+        )}
+
         {showBar && <ProgressBar progress={animatedProgress} variant={variant} animated={animated} />}
+      </div>
+    </ToastCardFrame>
+  );
+}
+
+export type StatusToastVariant = "success" | "error" | "warning" | "info";
+
+export type StatusToastCardProps = {
+  variant: StatusToastVariant;
+  /** Mensagem principal. */
+  message: ReactNode;
+  /** Linha fina acima da mensagem (ex.: "Pack X: Meta"). */
+  eyebrow?: string;
+  /** Ícone de contexto à esquerda (ex.: MetaIcon). Sem ele, usa o ícone padrão da variante. */
+  icon?: ReactNode;
+  onDismiss?: () => void;
+  /** Duração do auto-dismiss em ms — desenha a barra de contagem regressiva. */
+  countdownMs?: number;
+};
+
+const STATUS_FRAME_VARIANT: Record<StatusToastVariant, ProgressToastVisualVariant> = {
+  success: "success",
+  error: "error",
+  warning: "warning",
+  info: "initializing",
+};
+
+const STATUS_ACCENT_CLASS: Record<StatusToastVariant, string> = {
+  success: "text-success-400",
+  error: "text-destructive-300",
+  // Amarelo sobre o gradiente âmbar fica apagado — o branco é quem dá contraste aqui.
+  warning: "text-primary-foreground",
+  info: "text-primary-foreground-75",
+};
+
+function getStatusDefaultIcon(variant: StatusToastVariant) {
+  if (variant === "success") return <IconCircleCheck />;
+  if (variant === "error") return <IconAlertCircle />;
+  if (variant === "warning") return <IconAlertTriangle />;
+  return <IconInfoCircle />;
+}
+
+/**
+ * Toast compacto (sem barra de progresso) no mesmo visual dos toasts de progresso:
+ * frame com gradiente por variante, eyebrow opcional e botão de fechar.
+ * Usado por showError/showWarning/showSuccess/showInfo e pelos avisos de processo cancelado.
+ */
+export function StatusToastCard({ variant, message, eyebrow, icon, onDismiss, countdownMs }: StatusToastCardProps) {
+  const accentClass = STATUS_ACCENT_CLASS[variant];
+
+  return (
+    <ToastCardFrame variant={STATUS_FRAME_VARIANT[variant]} progress={variant === "success" ? 100 : 0} animated={false} countdownMs={countdownMs}>
+      <div className="flex items-start gap-2 px-4 pb-3.5 pt-3 text-primary-foreground" role={variant === "error" ? "alert" : "status"} aria-live={variant === "error" ? "assertive" : "polite"}>
+        <span className={cn("mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center [&_svg]:h-5 [&_svg]:w-5", icon ? undefined : accentClass)}>
+          {icon ?? getStatusDefaultIcon(variant)}
+        </span>
+
+        <div className="min-w-0 flex-1 space-y-1">
+          {eyebrow && <p className="text-2xs font-medium leading-tight text-primary-foreground-75">{eyebrow}</p>}
+          <div className={cn("flex min-w-0 items-start gap-2", eyebrow ? "pt-0.5" : undefined)}>
+            {icon && <span className={cn("mt-px flex-shrink-0 [&_svg]:h-4 [&_svg]:w-4", accentClass)}>{getStatusDefaultIcon(variant)}</span>}
+            <span className="min-w-0 flex-1 break-words text-sm font-medium leading-snug text-primary-foreground">{message}</span>
+          </div>
+        </div>
+
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Fechar"
+            title="Fechar"
+            className="ml-1 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-primary-foreground-75 hover:bg-primary-foreground-10 hover:text-primary-foreground focus:outline-none focus:ring-1 focus:ring-primary-foreground-30"
+          >
+            <IconX className="h-4 w-4" strokeWidth={2} />
+          </button>
+        )}
       </div>
     </ToastCardFrame>
   );

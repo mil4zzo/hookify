@@ -363,7 +363,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             finishProgressToast(
               toastId, true,
               summary,
-              { visibleDurationOnly: 5, context: "transcription", packName }
+              { durationSeconds: 5, context: "transcription", packName }
             );
             return { done: true, result: { success: true } };
           }
@@ -582,7 +582,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
             : `Pack "${packName}" atualizado com sucesso (${elapsedStr}).`;
         finishProgressToast(
           toastId, true, metaSuccessMessage,
-          { visibleDurationOnly: 5, context: "meta", packName }
+          { durationSeconds: 5, context: "meta", packName }
         );
 
         try {

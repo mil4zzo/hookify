@@ -417,7 +417,7 @@ export function usePackCreation(options?: PackCreationOptions): UsePackCreationR
         ? `Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo (${elapsedStr}).`
         : `Pack "${packName}" criado com ${videoAdsCount} anúncios de vídeo de ${totalAds} total (${elapsedStr}).`;
 
-      finishProgressToast(toastId, true, message, { visibleDurationOnly: 5, context: "meta", packName });
+      finishProgressToast(toastId, true, message, { durationSeconds: 5, context: "meta", packName });
 
       optionsRef.current?.onComplete?.({ packId, packName, adsCount: totalAds });
     } catch (error) {

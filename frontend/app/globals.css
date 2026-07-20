@@ -9,6 +9,19 @@
   to { transform: translateX(var(--marquee-distance, 0px)); }
 }
 
+/* Contagem regressiva dos toasts efêmeros: espelha o timer do sonner.
+   O sonner pausa o timer ao passar o mouse em QUALQUER ponto do toaster
+   (onMouseEnter no container, não no toast individual) — a barra segue a mesma regra.
+   A pausa por aba oculta é aplicada inline pelo card (animation-play-state). */
+@keyframes toast-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+[data-sonner-toaster]:hover [data-toast-countdown] {
+  animation-play-state: paused !important;
+}
+
 /* Receitas de gradiente compartilhadas entre botões e cards */
 .neutral-gradient {
   --gradient-fill: radial-gradient(
@@ -87,6 +100,28 @@
   --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--destructive-600) 10%, transparent);
   --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--destructive-600) 25%, transparent);
   background-color: var(--destructive-800);
+  background-image:
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--surface-fill) 16%, transparent),
+      color-mix(in oklab, var(--surface-fill) 5%, transparent) 38%,
+      transparent 100%
+    ),
+    var(--gradient-fill);
+}
+
+/* Warning radial gradient — sem escala numérica no tema, derivado de --warning */
+.warning-gradient {
+  --gradient-fill: radial-gradient(
+    circle at 50% 100%,
+    color-mix(in oklab, var(--warning) 95%, transparent),
+    color-mix(in oklab, var(--warning) 88%, transparent) 34%,
+    color-mix(in oklab, color-mix(in oklab, var(--warning) 55%, var(--neutral-950)) 98%, transparent) 72%,
+    color-mix(in oklab, var(--warning) 22%, var(--neutral-950)) 100%
+  );
+  --gradient-glow: 0px 0px 18px color-mix(in oklab, var(--warning) 10%, transparent);
+  --gradient-glow-hover: 0px 0px 28px color-mix(in oklab, var(--warning) 25%, transparent);
+  background-color: color-mix(in oklab, var(--warning) 62%, var(--neutral-950));
   background-image:
     linear-gradient(
       180deg,

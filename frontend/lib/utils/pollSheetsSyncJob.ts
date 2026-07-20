@@ -186,7 +186,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
           toastId,
           true,
           `Planilha importada com sucesso! ${updatedRows > 0 ? `${updatedRows} registros atualizados.` : "Nenhuma atualização necessária."}`,
-          { visibleDurationOnly: 5, context: "sheets", packName }
+          { durationSeconds: 5, context: "sheets", packName }
         );
 
         onCompleted?.({
