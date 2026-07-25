@@ -36,8 +36,21 @@ router = APIRouter(prefix="/shares", tags=["shares"])
 SHARE_TTL_DAYS = 30
 MAX_SHARE_ITEMS = 20
 _MAX_AD_NAME_LEN = 300
-_TOKEN_BYTES = 24  # token_urlsafe(24) → 32 chars
 _INSERT_RETRIES = 3
+
+# Token curto (URL "elegante") mas ainda seguro contra brute-force: alfabeto
+# Base58 (sem 0/O/1/l ambíguos — legível para copiar/ditar em voz alta) em 10
+# posições dá ~58.6 bits de entropia (log2(58)*10). Ordem de grandeza: mesmo a
+# 1000 req/s sustentados (rate limit dedicado abaixo torna isso já difícil),
+# variar um span de milhares de shares ativos levaria décadas para colidir —
+# muito acima do necessário para dados de performance de anúncio (sensível,
+# mas não credencial). NÃO reduzir sem also apertar o rate limit da rota.
+_TOKEN_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+_TOKEN_LENGTH = 10
+
+
+def _generate_share_token() -> str:
+    return "".join(secrets.choice(_TOKEN_ALPHABET) for _ in range(_TOKEN_LENGTH))
 
 # Chaves aceitas no snapshot de métricas — as do modal de detalhamento
 # (Resultados/Funil/Retenção/Visibilidade) + contagens usadas como subtítulo.
@@ -228,7 +241,7 @@ def create_share(
     sb = get_supabase_for_user(user["token"])
     last_error: Optional[Exception] = None
     for _ in range(_INSERT_RETRIES):
-        token = secrets.token_urlsafe(_TOKEN_BYTES)
+        token = _generate_share_token()
         try:
             res = (
                 sb.table("ad_shares")
@@ -298,7 +311,7 @@ def get_share_public(token: str):
     não-adivinhável. 404 genérico para inexistente/revogado/expirado (não
     distinguir — não vazar existência). Nunca retorna user_id/id."""
     token = str(token or "").strip()
-    if not (10 <= len(token) <= 128):
+    if len(token) != _TOKEN_LENGTH:
         raise HTTPException(status_code=404, detail="Link não encontrado")
 
     sb = get_supabase_service()

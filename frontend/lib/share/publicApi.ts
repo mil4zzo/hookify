@@ -5,10 +5,14 @@ import type { PublicShare } from "./types";
 // numa página anônima. Mesmo padrão do health check (useServerHealth).
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
 
+// Espelha _TOKEN_LENGTH do backend (backend/app/routes/shares.py) — só para
+// evitar uma request óbvia de graça; a validação real vive no backend.
+const SHARE_TOKEN_LENGTH = 10;
+
 /** Busca o snapshot público de um share. null = inexistente/revogado/expirado/erro. */
 export async function fetchPublicShare(token: string): Promise<PublicShare | null> {
   const clean = (token || "").trim();
-  if (clean.length < 10 || clean.length > 128) return null;
+  if (clean.length !== SHARE_TOKEN_LENGTH) return null;
   try {
     const res = await fetch(`${API_BASE}/shares/public/${encodeURIComponent(clean)}`, {
       cache: "no-store",

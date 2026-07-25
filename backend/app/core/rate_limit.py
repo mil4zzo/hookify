@@ -79,6 +79,11 @@ _RULES: Tuple[Tuple[str, re.Pattern[str], str, int], ...] = tuple(
         ("POST", r"^/analytics/(rankings|ad-performance)(/series|/retention)?$", "analytics-heavy", 120),
         ("POST", r"^/analytics/dashboard$", "analytics-heavy", 120),
         ("GET", r"^/analytics/rankings/", "analytics-heavy", 120),
+        # Link público de share: sem auth (chave vira IP) e o token tem só ~59 bits
+        # de entropia (10 chars, Base58) — o default de 300/min por IP seria
+        # generoso demais para varredura de token. Um viewer legítimo faz 1 hit
+        # por abertura de link; 20/min cobre folgado navegação repetida.
+        ("GET", r"^/shares/public/", "share-public-lookup", 20),
     ]
 )
 

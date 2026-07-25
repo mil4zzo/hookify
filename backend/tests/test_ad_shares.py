@@ -20,6 +20,7 @@ from fastapi import HTTPException
 
 from app.routes.shares import (
     MAX_SHARE_ITEMS,
+    _TOKEN_ALPHABET,
     build_share_items,
     create_share,
     get_share_public,
@@ -262,7 +263,8 @@ class TestCreateShare:
         result = create_share(body=_valid_body(), api=MagicMock(), user=dict(_USER))
 
         assert result["id"] == "uuid-1"
-        assert len(result["token"]) >= 30
+        assert len(result["token"]) == 10
+        assert all(c in _TOKEN_ALPHABET for c in result["token"])
         inserted = sb.table.return_value.insert.call_args[0][0]
         assert inserted["user_id"] == "user-1"
         assert inserted["currency"] == "BRL"
@@ -328,7 +330,7 @@ def _fake_sb_public(row):
 _PUBLIC_ROW = {
     "id": "uuid-1",
     "user_id": "user-1",
-    "token": "tok_" + "x" * 28,
+    "token": "tokABC123x",  # 10 chars — respeita o gate de comprimento de get_share_public
     "view_count": 5,
     "items": [{"ad_name": "A", "media": {}, "metrics": {}}],
     "date_start": "2026-07-01",
@@ -357,7 +359,7 @@ class TestGetSharePublic:
     def test_not_found_404(self, get_sb):
         get_sb.return_value = _fake_sb_public(None)
         with pytest.raises(HTTPException) as exc:
-            get_share_public("tok_" + "x" * 28)
+            get_share_public("nowhere123")  # 10 chars, passa o gate mas não existe no DB
         assert exc.value.status_code == 404
 
     @patch("app.routes.shares.get_supabase_service")
