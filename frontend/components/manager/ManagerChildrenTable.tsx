@@ -12,7 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionsBar } from "@/components/manager/BulkActionsBar";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { StatusCell } from "@/components/manager/StatusCell";
-import { BULK_ENTITY_NOUN, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
+import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { applyRowFilters } from "@/lib/utils/applyRowFilters";
@@ -238,8 +238,13 @@ export function ManagerChildrenTable({
   }, [actionType, childrenData, columnFilters, hasSheetIntegration, mqlLeadscoreMin, searchTerm, sortConfig]);
 
   // Chaves selecionáveis na ordem visível atual (pós-filtro/sort) — base do select-all e do shift.
+  // Entidades arquivadas/deletadas na Meta ficam fora da seleção: gasto histórico, sem ação.
   const orderedSelectableKeys = useMemo(
-    () => sortedData.map((c) => config.selectionId(c)).filter(Boolean),
+    () =>
+      sortedData
+        .filter((c) => !isTerminalEntityStatus((c as any)?.effective_status))
+        .map((c) => config.selectionId(c))
+        .filter(Boolean),
     [sortedData, config],
   );
   const selectedCount = selectedKeys.size;
@@ -472,7 +477,7 @@ export function ManagerChildrenTable({
                   onClick={onRowClick ? () => onRowClick(child as RankingsChildrenItem) : undefined}
                 >
                   <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                    {config.selectionId(child) ? (
+                    {config.selectionId(child) && !isTerminalEntityStatus((child as any)?.effective_status) ? (
                       <div className="flex items-center justify-center">
                         <Checkbox
                           checked={selectedKeys.has(config.selectionId(child))}

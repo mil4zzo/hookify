@@ -2343,8 +2343,23 @@ criativos perdedores em pleno voo; cresce quanto mais tarde o pack é criado em 
 DESCARTAMOS no caminho: `date_stop` do pack (13/05) menor que o range do relatório (19/05) — irrelevante,
 não houve entrega após 11/05; e o dip de gasto em 24–25/04 — real, presente também nas campanhas que batem.
 
-**Fix possível (não implementado):** incluir o `filtering` de `ad.effective_status` com
-DELETED/ARCHIVED no `start_ads_job`. Antes de fazer, resolver os efeitos colaterais: ads deletados não
-existem no inventário `/ads` (`fetch_inventory`) → sem enrichment de criativo/thumb/status; e
-`parent_entities.ads_count` espelha o Gerenciador excluindo deleted na CONTAGEM, enquanto o spend do
-Gerenciador os INCLUI — as duas convenções precisariam ser reconciliadas na UI.
+**Fix implementado (2026-07-19, mesma sessão):**
+- `start_ads_job` injeta `filtering` de `ad.effective_status` com a lista completa de 12 status do SDK
+  (`GraphAPI.AD_EFFECTIVE_STATUS_ALL`) — superset do default, validada por A/B; só injeta se o caller
+  não passou um filtro de status próprio.
+- `enrich()` resolve o status real dos ads fora do inventário via `batch_get_effective_status` (o NÓ
+  do ad continua legível após arquivar/deletar). Nó ilegível com batch OK = DELETED presumido; falha
+  total do batch deixa sem status (fail-open — não rotula errado). No refresh, status terminais já
+  persistidos não são relidos: DELETED não volta, e ARCHIVED desarquivado reaparece no inventário.
+- Enrichment de criativo/thumb e transcrição já eram naturalmente fail-open (o edge /ads filtrado por
+  id simplesmente não devolve deletados; transcrição exige vídeo do creative).
+- UI: `isTerminalEntityStatus` (fonte única em `useAdStatusControl.ts`) — StatusCell mostra badge
+  "Excluído"/"Arquivado" no lugar do toggle; ManagerTable e ManagerChildrenTable excluem essas linhas
+  da seleção em massa (checkbox, select-all e shift+range).
+- `parent_entities.ads_count` NÃO mudou: o Gerenciador também exclui deleted da CONTAGEM de ads — a
+  assimetria dele (linhas escondem, totais incluem) vira no Hookify "linha visível com badge".
+- **Packs carregados antes do fix continuam com o total antigo** até um re-fetch completo da janela
+  (refresh incremental não revisita dias antigos).
+- Verificação: suíte backend (242 testes, 6 novos em `test_insights_status_filter.py`), `tsc --noEmit`
+  e `check:design-system` limpos; job assíncrono real com o código novo reconciliado campanha a
+  campanha contra o CSV do Gerenciador.

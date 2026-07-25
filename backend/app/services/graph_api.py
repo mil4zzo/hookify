@@ -208,6 +208,18 @@ class GraphAPI:
             logger.exception("get_adaccounts error: %s", err)
             return {'status': 'error', 'message': str(err)}
 
+    # Universo completo de status de ad para o filtering do /insights (lista do SDK
+    # oficial, Ad.EffectiveStatus). Sem este filtro a Meta OMITE do level=ad o histórico
+    # de ads deletados/arquivados — o gasto deles não é redistribuído, simplesmente some,
+    # e o total do pack fica menor que o do Gerenciador (que agrega no nível da campanha
+    # e inclui tudo). A/B validado em conta real: default 43.171,63 vs filtrado 46.997,19
+    # (= Gerenciador), 138 ads ARCHIVED carregavam a diferença.
+    AD_EFFECTIVE_STATUS_ALL: List[str] = [
+        "ACTIVE", "PAUSED", "DELETED", "PENDING_REVIEW", "DISAPPROVED", "PREAPPROVED",
+        "PENDING_BILLING_INFO", "CAMPAIGN_PAUSED", "ARCHIVED", "ADSET_PAUSED",
+        "IN_PROCESS", "WITH_ISSUES",
+    ]
+
     def start_ads_job(self, act_id: str, time_range: Dict[str, str], filters: List[Dict[str, Any]]) -> str:
         """Start async ads job and return report_run_id.
 
@@ -215,6 +227,13 @@ class GraphAPI:
             GraphAPIError: on any Meta API or network error.
         """
         url = self.base_url + act_id + '/insights' + self.user_token
+        filters = list(filters or [])
+        if not any(str(f.get("field") or "") == "ad.effective_status" for f in filters):
+            filters.append({
+                "field": "ad.effective_status",
+                "operator": "IN",
+                "value": self.AD_EFFECTIVE_STATUS_ALL,
+            })
         json_filters = [json.dumps(f) for f in filters] if filters else []
 
         payload = {

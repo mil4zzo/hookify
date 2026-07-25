@@ -906,6 +906,53 @@ class AdsEnricher:
                 if ad_id and ad_id in status_map:
                     ad["effective_status"] = status_map[ad_id]
 
+            # Ads presentes no insights mas AUSENTES do inventário: o edge /ads omite
+            # ARCHIVED e DELETED, então o gasto histórico deles chega (via filtering de
+            # ad.effective_status no start_ads_job) sem linha de status. O NÓ do ad
+            # continua legível depois de arquivar/deletar → batch de GETs resolve o
+            # status real; quem nem o nó responder é DELETED presumido (só quando o
+            # batch como um todo funcionou — falha total deixa como está, fail-open).
+            # Status terminais já persistidos não são relidos: DELETED não volta, e
+            # ARCHIVED desarquivado reaparece no inventário e se corrige via status_map.
+            _TERMINAL_STATUSES = {"DELETED", "ARCHIVED"}
+            missing_status_ids = [
+                i for i in unique_ad_ids
+                if i not in status_map
+                and str((existing_ads_map.get(i) or {}).get("effective_status") or "").upper()
+                not in _TERMINAL_STATUSES
+            ]
+            if missing_status_ids:
+                node_statuses: Dict[str, Any] = {}
+                batch_ok = False
+                try:
+                    from app.services.graph_api import GraphAPI
+
+                    node_result = GraphAPI(self.access_token).batch_get_effective_status(
+                        missing_status_ids
+                    )
+                    batch_ok = node_result.get("status") == "success"
+                    node_statuses = node_result.get("statuses") or {}
+                except Exception as node_exc:
+                    logger.warning(
+                        "[AdsEnricher] Batch de status por nó falhou (%s); %d ads fora do inventário ficam sem status",
+                        node_exc, len(missing_status_ids),
+                    )
+                logger.info(
+                    "[AdsEnricher] Status por nó: %d ads fora do inventário, %d resolvidos (%s)",
+                    len(missing_status_ids), len(node_statuses),
+                    ", ".join(sorted({str(v) for v in node_statuses.values() if v})) or "-",
+                )
+                missing_status_set = set(missing_status_ids)
+                for ad in enriched:
+                    ad_id = str(ad.get("ad_id") or "")
+                    if ad_id not in missing_status_set:
+                        continue
+                    resolved = node_statuses.get(ad_id)
+                    if resolved:
+                        ad["effective_status"] = resolved
+                    elif batch_ok:
+                        ad["effective_status"] = "DELETED"
+
             # Snapshot oficial dos PAIS (campanha/adset): status — devolvido para o caller
             # gravar POR parent_id (nunca por linha de ad; ver supabase_repo.write_parent_statuses)
             # — e orçamento+status (tabela parent_entities), lidos num único passe nos edges.

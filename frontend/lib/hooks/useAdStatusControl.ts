@@ -8,6 +8,16 @@ export type AdEntityType = "ad" | "adset" | "campaign";
 export type AdEntityStatus = "PAUSED" | "ACTIVE";
 
 /**
+ * Status terminais na Meta: a entidade foi arquivada/deletada — o gasto histórico
+ * permanece no pack (paridade com o Gerenciador), mas não existe ação possível
+ * (toggle, bulk pause/activate). Fonte única para StatusCell e seleção em massa.
+ */
+export function isTerminalEntityStatus(status?: string | null): boolean {
+  const s = String(status || "").toUpperCase();
+  return s === "DELETED" || s === "ARCHIVED";
+}
+
+/**
  * Os caches de rankings vivem todos sob ["analytics","rankings"], mas nem toda entrada tem
  * linhas de nível de ANÚNCIO. Linhas agregadas (adset/campanha/ad_name) carregam
  * ad_id = anúncio representante do grupo — patchar por ad_id nelas contamina o status do

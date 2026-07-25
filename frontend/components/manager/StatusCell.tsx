@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useMemo } from "react";
+import { Badge } from "@/components/ui/badge";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
-import { useAdStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
+import { isTerminalEntityStatus, useAdStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { RankingsItem } from "@/lib/api/schemas";
 
 interface StatusCellProps {
@@ -51,6 +52,18 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
     const kind = entityType === "ad" ? "anúncio" : entityType === "adset" ? "conjunto" : "campanha";
     return isPaused ? `Ativar ${kind}` : `Pausar ${kind}`;
   }, [entityType, isPaused]);
+
+  // Ads arquivados/deletados na Meta: o gasto histórico permanece no pack (paridade
+  // com o Gerenciador), mas não há ação possível — badge no lugar do toggle.
+  if (isTerminalEntityStatus(effectiveStatus)) {
+    return (
+      <div className="flex items-center justify-center w-full" onClick={(e) => e.stopPropagation()}>
+        <Badge variant="outline" className="rounded-sm px-1 py-0 text-2xs font-medium text-muted-foreground">
+          {String(effectiveStatus).toUpperCase() === "DELETED" ? "Excluído" : "Arquivado"}
+        </Badge>
+      </div>
+    );
+  }
 
   if (statusResolved === false) {
     return (
