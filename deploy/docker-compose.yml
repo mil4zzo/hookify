@@ -66,6 +66,11 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=production
+      # Fetches SERVER-SIDE do Next (ex.: página pública /s/[token]) não conseguem
+      # alcançar o próprio domínio público de dentro da rede Docker (hairpin via
+      # Traefik falha) — usam o DNS interno do compose. Runtime env (não build arg):
+      # vars sem NEXT_PUBLIC_ não são inlined no bundle, o Node lê na hora.
+      - API_BASE_INTERNAL_URL=http://backend:8000
       # Remover as outras - já estão no env_file e nos build args
     env_file:
       - ../frontend/.env.local

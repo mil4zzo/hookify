@@ -2363,3 +2363,25 @@ não houve entrega após 11/05; e o dip de gasto em 24–25/04 — real, present
 - Verificação: suíte backend (242 testes, 6 novos em `test_insights_status_filter.py`), `tsc --noEmit`
   e `check:design-system` limpos; job assíncrono real com o código novo reconciliado campanha a
   campanha contra o CSV do Gerenciador.
+
+---
+
+## Fetch server-side do Next não alcança o domínio público da API em produção (2026-07-25)
+
+**Contexto:** a página pública de compartilhamento `/s/[token]` foi o PRIMEIRO fetch server-side do
+repo — todas as outras páginas de dados chamam a API pelo browser. Em produção, o link recém-gerado
+renderizava sempre o estado "link expirado", enquanto localmente funcionava.
+
+**Causa:** o fetch roda no processo Node do container do frontend, e de dentro da rede Docker o
+container não alcança o próprio domínio público (`api.hookifyads.com` → hairpin até o Traefik falha).
+O sintoma engana em três camadas: a API responde 200 de fora (curl externo), o share existe no banco,
+e o app inteiro funciona (chamadas de browser). A pista decisiva foi `view_count = 0` — a página
+renderizou sem nunca ter tocado o backend.
+
+**Fix:** precedência `API_BASE_INTERNAL_URL || NEXT_PUBLIC_API_BASE_URL || localhost` em
+`frontend/lib/share/publicApi.ts`, com `API_BASE_INTERNAL_URL=http://backend:8000` (DNS interno do
+compose) no `environment` do frontend em `deploy/docker-compose.yml`. Runtime env, não build arg:
+vars sem `NEXT_PUBLIC_` não são inlined no bundle, o Node lê na hora — mudar não exige rebuild.
+
+**Regra daqui pra frente:** qualquer código que faça fetch à API no servidor do Next (server
+component, `generateMetadata`, route handler) precisa da mesma precedência de URL interna.
