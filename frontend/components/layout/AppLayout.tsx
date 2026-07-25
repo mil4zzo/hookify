@@ -19,7 +19,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
                        pathname?.startsWith("/exclusao-de-dados") ||
                        pathname?.startsWith("/pv") ||
                        pathname?.startsWith("/waitlist") ||
-                       pathname?.startsWith("/suporte");
+                       pathname?.startsWith("/suporte") ||
+                       // Links compartilhados de criativos (/s/{token}) — barra final
+                       // deliberada para não capturar futuras rotas iniciadas em "s".
+                       pathname?.startsWith("/s/");
   
   // Onboarding: experiência focada — sem sidebar nem bottom-nav (o Topbar entra
   // em modo mínimo internamente). LayoutContent já remove a margem lateral.

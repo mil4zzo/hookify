@@ -89,6 +89,24 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 
 ---
 
+### ad_shares
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| user_id | uuid | NOT NULL |
+| token | text | NOT NULL |
+| date_start | date | NOT NULL |
+| date_stop | date | NOT NULL |
+| currency | text |  |
+| items | jsonb | NOT NULL, DEFAULT |
+| view_count | integer | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| expires_at | timestamp |  |
+| revoked_at | timestamp |  |
+
+---
+
 ### ad_sheet_integrations
 Integrações com Google Sheets para importar leadscores via planilha.
 
@@ -398,4 +416,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-07-19 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-07-25 — via `supabase/generate_schema_map.py`*

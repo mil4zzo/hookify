@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict CC166jvGEai4LB6edIVcnhTjZ4vGR6YHphN4hnxY1e6nY0Lez5myI0Lx4rRXI0k
+\restrict 6TZcI2of2wLZDzThve1P00YQE87LvuOCxC624zd38wZE6ppLQwBkZCpAx8xbPQy
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -4224,6 +4224,76 @@ COMMENT ON COLUMN public.ad_metrics.video_watched_p75 IS 'Percentual inteiro (0-
 
 
 --
+-- Name: ad_shares; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ad_shares (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    token text NOT NULL,
+    date_start date NOT NULL,
+    date_stop date NOT NULL,
+    currency text,
+    items jsonb DEFAULT '[]'::jsonb NOT NULL,
+    view_count integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone,
+    revoked_at timestamp with time zone
+);
+
+
+ALTER TABLE public.ad_shares OWNER TO postgres;
+
+--
+-- Name: TABLE ad_shares; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.ad_shares IS 'Links públicos de compartilhamento de criativos (formato stories, /s/{token}). Snapshot autocontido: o read-path público (backend, service role) lê só esta tabela. Sem policy anon — acesso anônimo é intermediado pelo backend.';
+
+
+--
+-- Name: COLUMN ad_shares.token; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.token IS 'Token não-adivinhável do link público (secrets.token_urlsafe no backend). Unique.';
+
+
+--
+-- Name: COLUMN ad_shares.currency; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.currency IS 'Moeda das métricas monetárias do snapshot (ex.: BRL). Congelada na criação — a conta pode mudar depois, o share não.';
+
+
+--
+-- Name: COLUMN ad_shares.items; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.items IS 'Array de slides: {ad_name, media: {type, thumbnail_url, video_url, video_expires_at, image_url}, metrics: {...}}. video_url expira (oe= da CDN da Meta) — o viewer compara video_expires_at com o relógio e degrada para aviso, por design.';
+
+
+--
+-- Name: COLUMN ad_shares.view_count; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.view_count IS 'Contador best-effort de aberturas do link público (incremento não-atômico; precisão aproximada é suficiente).';
+
+
+--
+-- Name: COLUMN ad_shares.expires_at; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.expires_at IS 'Expiração do LINK inteiro (default: criação + 30 dias, gravado pelo backend). NULL = sem expiração (não usado no MVP). Independente da expiração do vídeo de cada slide.';
+
+
+--
+-- Name: COLUMN ad_shares.revoked_at; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.revoked_at IS 'Revogação manual pelo dono (DELETE /shares/{id} faz UPDATE aqui, preservando view_count para histórico). NULL = ativo.';
+
+
+--
 -- Name: ad_sheet_integrations; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -4829,6 +4899,14 @@ ALTER TABLE ONLY public.ad_metrics
 
 
 --
+-- Name: ad_shares ad_shares_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_shares
+    ADD CONSTRAINT ad_shares_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: ad_sheet_integrations ad_sheet_integrations_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -5045,6 +5123,20 @@ CREATE INDEX ad_metrics_user_date_idx ON public.ad_metrics USING btree (user_id,
 --
 
 CREATE INDEX ad_metrics_user_name_date_ad_idx ON public.ad_metrics USING btree (user_id, ad_name, date, ad_id);
+
+
+--
+-- Name: ad_shares_token_key; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE UNIQUE INDEX ad_shares_token_key ON public.ad_shares USING btree (token);
+
+
+--
+-- Name: ad_shares_user_created_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX ad_shares_user_created_idx ON public.ad_shares USING btree (user_id, created_at DESC);
 
 
 --
@@ -5496,6 +5588,19 @@ CREATE POLICY ad_metrics_modify_own ON public.ad_metrics USING ((user_id = ( SEL
 
 
 --
+-- Name: ad_shares; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.ad_shares ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_shares ad_shares_modify_own; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY ad_shares_modify_own ON public.ad_shares USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+
+
+--
 -- Name: ad_sheet_integrations; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -5842,6 +5947,15 @@ GRANT ALL ON TABLE public.ad_metrics TO service_role;
 
 
 --
+-- Name: TABLE ad_shares; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ad_shares TO anon;
+GRANT ALL ON TABLE public.ad_shares TO authenticated;
+GRANT ALL ON TABLE public.ad_shares TO service_role;
+
+
+--
 -- Name: TABLE ad_sheet_integrations; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -6022,5 +6136,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict CC166jvGEai4LB6edIVcnhTjZ4vGR6YHphN4hnxY1e6nY0Lez5myI0Lx4rRXI0k
+\unrestrict 6TZcI2of2wLZDzThve1P00YQE87LvuOCxC624zd38wZE6ppLQwBkZCpAx8xbPQy
 

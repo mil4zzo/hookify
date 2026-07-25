@@ -49,6 +49,7 @@ import {
   MetaUsageDistinctResponse,
 } from './schemas'
 import { env } from '@/lib/config/env'
+import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
 
 // Tipos simples para o fluxo de onboarding inicial
 export interface OnboardingStatusResponse {
@@ -527,6 +528,19 @@ export const api = {
       stripe_status?: string
       tier: 'standard' | 'insider' | 'admin'
     }> => apiClient.post('/billing/sync'),
+  },
+
+  // Shares (links públicos de criativos em stories — /s/[token])
+  shares: {
+    // Resolve mídia na Meta (cache-first) — pode demorar em links com muitos vídeos
+    create: (payload: CreateSharePayload): Promise<CreateShareResponse> =>
+      apiClient.post('/shares', payload, { timeout: 300000 }),
+
+    list: (): Promise<{ shares: ShareSummary[] }> =>
+      apiClient.get('/shares'),
+
+    revoke: (shareId: string): Promise<{ ok: boolean }> =>
+      apiClient.delete(`/shares/${encodeURIComponent(shareId)}`),
   },
 
   // Admin

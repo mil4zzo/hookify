@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { IconLoader2, IconPlayerPause, IconPlayerPlay, IconX } from "@tabler/icons-react";
+import { IconLoader2, IconPlayerPause, IconPlayerPlay, IconShare2, IconX } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { cn } from "@/lib/utils/cn";
@@ -13,8 +13,11 @@ export interface BulkActionsBarProps {
   allSelected: boolean;
   /** Substantivo da entidade para copy do dialog de confirmação (ex.: anúncio/anúncios). */
   entityNoun: { singular: string; plural: string };
-  onPause: () => void;
-  onActivate: () => void;
+  /** Ações de status (pausar/ativar). Ausentes na aba Criativos, onde a seleção existe para compartilhar. */
+  onPause?: () => void;
+  onActivate?: () => void;
+  /** Abre o fluxo de compartilhamento da seleção (link público em stories). Sem confirmação — não é destrutivo. */
+  onShare?: () => void;
   /** Selecionar todos (true) / desmarcar todos (false) — sobre as linhas visíveis pós-filtro. */
   onToggleAll: (checked: boolean) => void;
   onClear: () => void;
@@ -32,17 +35,18 @@ export interface BulkActionsBarProps {
  * aconteceu. O dialog vive aqui dentro para que toda superfície que renderize a barra
  * (ManagerTable, ManagerChildrenTable) ganhe a proteção sem duplicar estado.
  */
-export function BulkActionsBar({ selectedCount, isLoading, allSelected, entityNoun, onPause, onActivate, onToggleAll, onClear, className }: BulkActionsBarProps) {
+export function BulkActionsBar({ selectedCount, isLoading, allSelected, entityNoun, onPause, onActivate, onShare, onToggleAll, onClear, className }: BulkActionsBarProps) {
   const [pendingAction, setPendingAction] = React.useState<"pause" | "activate" | null>(null);
 
   if (selectedCount === 0) return null;
 
   const noun = selectedCount === 1 ? entityNoun.singular : entityNoun.plural;
   const isPause = pendingAction === "pause";
+  const hasStatusActions = !!(onPause && onActivate);
 
   const handleConfirm = () => {
-    if (pendingAction === "pause") onPause();
-    if (pendingAction === "activate") onActivate();
+    if (pendingAction === "pause") onPause?.();
+    if (pendingAction === "activate") onActivate?.();
     setPendingAction(null);
   };
 
@@ -53,26 +57,42 @@ export function BulkActionsBar({ selectedCount, isLoading, allSelected, entityNo
           {selectedCount} selecionado{selectedCount !== 1 ? "s" : ""}
         </span>
         <div className="h-4 w-px bg-border" />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-destructive hover:text-destructive-foreground"
-          disabled={isLoading}
-          onClick={() => setPendingAction("pause")}
-        >
-          {isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
-          Pausar
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-success hover:text-success-foreground"
-          disabled={isLoading}
-          onClick={() => setPendingAction("activate")}
-        >
-          {isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
-          Ativar
-        </Button>
+        {hasStatusActions && (
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-destructive hover:text-destructive-foreground"
+              disabled={isLoading}
+              onClick={() => setPendingAction("pause")}
+            >
+              {isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPause className="h-3.5 w-3.5" />}
+              Pausar
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto gap-1 px-2 py-0.5 text-xs hover:bg-success hover:text-success-foreground"
+              disabled={isLoading}
+              onClick={() => setPendingAction("activate")}
+            >
+              {isLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : <IconPlayerPlay className="h-3.5 w-3.5" />}
+              Ativar
+            </Button>
+          </>
+        )}
+        {onShare && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto gap-1 px-2 py-0.5 text-xs text-brand hover:bg-primary hover:text-primary-foreground"
+            disabled={isLoading}
+            onClick={onShare}
+          >
+            <IconShare2 className="h-3.5 w-3.5" />
+            Compartilhar
+          </Button>
+        )}
         <div className="h-4 w-px bg-border" />
         <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs text-muted-foreground" disabled={isLoading} onClick={() => onToggleAll(!allSelected)}>
           {allSelected ? "Desmarcar todos" : "Selecionar todos"}

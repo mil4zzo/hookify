@@ -90,6 +90,7 @@ const RULE_ALLOWLIST: RuleAllowlistEntry[] = [
   { pattern: /^app\/\(auth\)\//, rules: [DIRECT_PRIMITIVE_RULE], reason: "auth pages are outside authenticated app shell recipes" },
   { pattern: /^app\/(?:api-test|ui-demo|design-system|pv|waitlist|waitlist-v2)\//, rules: [DIRECT_PRIMITIVE_RULE, DIRECT_SKELETON_RULE, INLINE_NOTICE_RULE, "emoji-icon"], reason: "dev/demo/public surfaces" },
   { pattern: /^lib\/store\/activeJobs\.ts$/, rules: ["emoji-icon"], reason: "emoji markers in console diagnostics, not UI" },
+  { pattern: /^components\/share\//, rules: ["emoji-icon"], reason: "public share viewer (/s) uses deliberate playful emoji in expiry states" },
   { pattern: /^components\/waitlist\/(?:WaitlistV2|CanvasRevealEffect)\.tsx$/, rules: [...COLOR_RULES, DIRECT_PRIMITIVE_RULE], reason: "cinematic public waitlist v2 keeps a raw black/white/accent palette" },
 
   // Exceções pontuais de skeleton agora vivem inline nos arquivos ("design-system-exception: direct-skeleton-import - ..."),

@@ -10,10 +10,11 @@ import { AdInfoCard } from "@/components/ads/AdInfoCard";
 const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState, RowSelectionState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown } from "@tabler/icons-react";
+import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown, IconShare2 } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { ManagerExportDialog } from "@/components/manager/ManagerExportDialog";
+import { ShareCreateDialog } from "@/components/manager/ShareCreateDialog";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { api } from "@/lib/api/endpoints";
@@ -47,7 +48,7 @@ import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAv
 import { getManagerFilterableColumns, getVisibleManagerColumns, loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
 import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { useAdAccountsDb } from "@/lib/api/hooks";
-import { BULK_ENTITY_NOUN, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
+import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { cn } from "@/lib/utils/cn";
 
 type Ad = RankingsItem;
@@ -875,24 +876,31 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     getFilteredRowModel: getFilteredRowModel(),
     enableSorting: true,
     enableColumnFilters: true,
-    // Seleção nas abas individual (ad), por-conjunto (adset) e por-campanha (campaign) — só em
-    // linhas que têm o id da entidade (Criativos/por-anuncio, agrupada por nome, fica sem seleção).
+    // Seleção em todas as abas. Nas abas de entidade (individual/por-conjunto/por-campanha) ela
+    // alimenta pausar/ativar — entidades arquivadas/deletadas ficam fora (gasto histórico, não ação).
+    // Na aba Criativos (por-anuncio, chave = ad_name) ela alimenta o COMPARTILHAMENTO — grupos
+    // pausados/arquivados também são compartilháveis (métricas históricas), então não há exclusão.
     enableRowSelection: (row) => {
       const r = row.original as any;
+      if (currentTab === "por-anuncio") return !!r.ad_name;
+      if (isTerminalEntityStatus(r?.effective_status)) return false;
       if (currentTab === "por-conjunto") return !!r.adset_id;
       if (currentTab === "por-campanha") return !!r.campaign_id;
       if (currentTab === "individual") return !!r.ad_id;
       return false;
     },
     columnResizeMode: "onEnd", // Atualiza apenas ao soltar o mouse (melhor performance)
-    // Chave de seleção = id da entidade da aba (adset_id/campaign_id/ad_id). A seleção é resetada
-    // na troca de aba (handleTabChange), então não há colisão de chaves entre abas.
+    // Chave de seleção = id da entidade da aba (adset_id/campaign_id/ad_id; ad_name na aba
+    // Criativos, onde a linha é o grupo). A seleção é resetada na troca de aba (handleTabChange),
+    // então não há colisão de chaves entre abas.
     getRowId: (row) =>
       (currentTab === "por-conjunto"
         ? row.adset_id
         : currentTab === "por-campanha"
           ? row.campaign_id
-          : row.ad_id) ?? "",
+          : currentTab === "por-anuncio"
+            ? row.ad_name
+            : row.ad_id) ?? "",
     state: {
       columnFilters: tableColumnFilters,
       sorting,
@@ -1084,6 +1092,59 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [viewMode, handleViewModeChange, showTrends, onShowTrendsChange, colorMetricValue, handleColorMetricValueChange, activeColumns, columnOrder, handleToggleColumn, handleReorderColumns, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
   );
 
+  // ── Compartilhamento (aba Criativos): seleção/preset → dialog → link público /s/{token} ──
+  const [shareRows, setShareRows] = useState<RankingsItem[] | null>(null);
+
+  const openShareFromSelection = useCallback(() => {
+    const selectedKeys = new Set(Object.keys(table.getState().rowSelection));
+    // Ordem visual atual (pós-filtro/sort) define a ordem dos slides; selecionados
+    // escondidos pelo filtro atual entram no fim (não são descartados em silêncio).
+    const visibleSelected = table.getRowModel().rows.filter((r) => selectedKeys.has(r.id));
+    const visibleIds = new Set(visibleSelected.map((r) => r.id));
+    const hiddenSelected = table.getSelectedRowModel().rows.filter((r) => !visibleIds.has(r.id));
+    const rows = [...visibleSelected, ...hiddenSelected].map((r) => r.original as RankingsItem);
+    if (rows.length === 0) return;
+    setShareRows(rows);
+  }, [table]);
+
+  const openShareFromPreset = useCallback(
+    (metric: "spend" | "ctr") => {
+      const rows = table.getRowModel().rows.map((r) => r.original as RankingsItem);
+      const top = [...rows]
+        .sort((a, b) => Number((b as any)[metric] ?? 0) - Number((a as any)[metric] ?? 0))
+        .slice(0, 5);
+      if (top.length === 0) {
+        toast.info("Nenhum criativo visível para compartilhar.");
+        return;
+      }
+      setShareRows(top);
+    },
+    [table],
+  );
+
+  // Memoizado por referência — o FilterBar (React.memo) compara trailingSlot por ===.
+  const shareMenu = useMemo(() => {
+    if (currentTab !== "por-anuncio") return undefined;
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="outline" size="sm" className="gap-1.5 whitespace-nowrap">
+            <IconShare2 className="h-4 w-4" />
+            Compartilhar
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem disabled={selectedCount === 0} onSelect={openShareFromSelection}>
+            Seleção atual ({selectedCount})
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => openShareFromPreset("spend")}>Top 5 por gasto</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => openShareFromPreset("ctr")}>Top 5 por CTR</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }, [currentTab, selectedCount, openShareFromSelection, openShareFromPreset]);
+
   const tableContentProps = useMemo(
     () => ({
       table,
@@ -1129,6 +1190,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       totalCount={adsEffectiveRaw.length}
       itemLabel={filterBarItemLabel}
       leadingSlot={searchBar}
+      trailingSlot={shareMenu}
     />
   );
 
@@ -1191,14 +1253,16 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         </TabbedContentItem>
       </TabbedWorkspace>
 
-      {/* Ações em massa flutuantes — perto das linhas selecionadas, sem disputar o toolbar. */}
+      {/* Ações em massa flutuantes — perto das linhas selecionadas, sem disputar o toolbar.
+          Na aba Criativos a seleção alimenta compartilhar (sem pausar/ativar — não há entidade única). */}
       <BulkActionsBar
         selectedCount={selectedCount}
         isLoading={isBulkLoading}
         allSelected={table.getIsAllPageRowsSelected()}
-        entityNoun={BULK_ENTITY_NOUN[bulkEntityType]}
-        onPause={() => { bulkPause(selectedIds); setRowSelection({}); }}
-        onActivate={() => { bulkActivate(selectedIds); setRowSelection({}); }}
+        entityNoun={currentTab === "por-anuncio" ? { singular: "criativo", plural: "criativos" } : BULK_ENTITY_NOUN[bulkEntityType]}
+        onPause={currentTab === "por-anuncio" ? undefined : () => { bulkPause(selectedIds); setRowSelection({}); }}
+        onActivate={currentTab === "por-anuncio" ? undefined : () => { bulkActivate(selectedIds); setRowSelection({}); }}
+        onShare={currentTab === "por-anuncio" ? openShareFromSelection : undefined}
         onToggleAll={(checked) => table.toggleAllPageRowsSelected(checked)}
         onClear={() => setRowSelection({})}
       />
@@ -1241,6 +1305,17 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         dateStart={dateStart}
         dateStop={dateStop}
         metricContext={{ actionType, mqlLeadscoreMin }}
+      />
+
+      {/* Share Dialog — link público de criativos em stories (aba Criativos) */}
+      <ShareCreateDialog
+        isOpen={shareRows !== null}
+        onClose={() => setShareRows(null)}
+        rows={shareRows ?? []}
+        dateStart={dateStart ?? ""}
+        dateStop={dateStop ?? ""}
+        actionType={actionType}
+        mqlLeadscoreMin={mqlLeadscoreMin}
       />
     </>
   );

@@ -1203,6 +1203,36 @@ def get_ads_video_fields_by_names(
     return rows
 
 
+def get_ads_media_summary_by_names(
+    user_jwt: str,
+    user_id: str,
+    ad_names: List[str],
+) -> List[Dict[str, Any]]:
+    """Campos leves de mídia (thumb + tipo) dos ads pelos ad_names.
+
+    Usado pela criação de share (/shares) para thumbnail do Storage e
+    classificação vídeo/imagem do representante — e, de quebra, como prova de
+    ownership: nome sem linha aqui não pertence ao usuário (RLS)."""
+    names = sorted({str(n).strip() for n in ad_names if str(n or "").strip()})
+    if not names:
+        return []
+
+    sb = get_supabase_for_user(user_jwt)
+    batch_size = 200
+    rows: List[Dict[str, Any]] = []
+    for i in range(0, len(names), batch_size):
+        batch = names[i : i + batch_size]
+        rows.extend(
+            _fetch_all_paginated(
+                sb,
+                "ads",
+                "ad_name,media_type,thumb_storage_path",
+                lambda q, b=batch: q.eq("user_id", user_id).in_("ad_name", b).order("ad_id"),
+            )
+        )
+    return rows
+
+
 def _extract_conv_keys(rows: List[Dict[str, Any]]) -> List[str]:
     """Extrai os conv_keys distintos das linhas de ad_metrics em memória.
 

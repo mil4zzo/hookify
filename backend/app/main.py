@@ -15,6 +15,7 @@ from app.routes.onboarding import router as onboarding_router
 from app.routes.user import router as user_router
 from app.routes.admin import router as admin_router
 from app.routes.billing import router as billing_router
+from app.routes.shares import router as shares_router
 
 # Configure logging
 logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper()))
@@ -92,6 +93,7 @@ app.include_router(onboarding_router)
 app.include_router(user_router)
 app.include_router(admin_router)
 app.include_router(billing_router)
+app.include_router(shares_router)
 
 @app.get("/")
 def root():

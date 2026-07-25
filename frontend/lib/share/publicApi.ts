@@ -1,0 +1,24 @@
+import type { PublicShare } from "./types";
+
+// Fetch público (sem Authorization) — NÃO usar o apiClient aqui: o interceptor
+// de 401 dele dispara o handler global de sessão expirada, que não faz sentido
+// numa página anônima. Mesmo padrão do health check (useServerHealth).
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+/** Busca o snapshot público de um share. null = inexistente/revogado/expirado/erro. */
+export async function fetchPublicShare(token: string): Promise<PublicShare | null> {
+  const clean = (token || "").trim();
+  if (clean.length < 10 || clean.length > 128) return null;
+  try {
+    const res = await fetch(`${API_BASE}/shares/public/${encodeURIComponent(clean)}`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as PublicShare;
+    if (!Array.isArray(data?.items)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
