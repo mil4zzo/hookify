@@ -1328,6 +1328,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         dateStop={dateStop ?? ""}
         actionType={actionType}
         mqlLeadscoreMin={mqlLeadscoreMin}
+        averages={averages}
       />
     </>
   );
