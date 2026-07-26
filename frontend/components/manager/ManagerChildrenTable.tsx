@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { IconArrowsSort, IconFilter } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
@@ -9,7 +9,9 @@ import { StatePanel } from "@/components/common/States";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { Checkbox } from "@/components/ui/checkbox";
-import { BulkActionsBar } from "@/components/manager/BulkActionsBar";
+import { BulkActionsBar } from "@/components/common/BulkActionsBar";
+import { buildManagerBulkActions } from "@/components/manager/managerBulkActions";
+import { useMultiSelect } from "@/lib/hooks/useMultiSelect";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { StatusCell } from "@/components/manager/StatusCell";
 import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
@@ -162,15 +164,7 @@ export function ManagerChildrenTable({
   });
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Seleção em massa (checkbox + shift), local a esta tabela (não usa TanStack). Chave = selectionId.
-  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
-  const selectionAnchorRef = useRef<string | null>(null);
   const bulk = useBulkEntityStatusControl(config.bulkEntityType);
-  // Resetar seleção ao trocar de nível no drill (nova lista de filhos) ou de tipo de entidade.
-  useEffect(() => {
-    setSelectedKeys(new Set());
-    selectionAnchorRef.current = null;
-  }, [childrenData, resolvedEntity]);
 
   // Só métricas: as dimensões de procedência (Pack/Conta) são descartadas aqui. Os filhos vêm de
   // outro endpoint (RankingsChildrenItem), que não carrega pack_ids/account_ids — a coluna sairia
@@ -247,50 +241,23 @@ export function ManagerChildrenTable({
         .filter(Boolean),
     [sortedData, config],
   );
-  const selectedCount = selectedKeys.size;
-  const allSelected = orderedSelectableKeys.length > 0 && orderedSelectableKeys.every((k) => selectedKeys.has(k));
-  const someSelected = selectedCount > 0 && !allSelected;
+  // Seleção em massa (checkbox + shift), local a esta tabela (não usa TanStack). Chave = selectionId.
+  const { selectedKeys, selectedCount, allSelected, someSelected, toggleOne, toggleAll, handleCheckboxClick, clear: clearSelection } = useMultiSelect(orderedSelectableKeys);
 
-  const toggleOne = useCallback((key: string, checked: boolean) => {
-    setSelectedKeys((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(key);
-      else next.delete(key);
-      return next;
-    });
-  }, []);
+  // Resetar seleção ao trocar de nível no drill (nova lista de filhos) ou de tipo de entidade.
+  useEffect(() => {
+    clearSelection();
+  }, [childrenData, resolvedEntity, clearSelection]);
 
-  const toggleAll = useCallback((checked: boolean) => {
-    setSelectedKeys(checked ? new Set(orderedSelectableKeys) : new Set());
-    selectionAnchorRef.current = null;
-  }, [orderedSelectableKeys]);
-
-  const handleRowCheckboxClick = useCallback(
-    (e: React.MouseEvent, key: string) => {
-      e.stopPropagation();
-      const anchor = selectionAnchorRef.current;
-      if (e.shiftKey && anchor && anchor !== key) {
-        const anchorPos = orderedSelectableKeys.indexOf(anchor);
-        const clickedPos = orderedSelectableKeys.indexOf(key);
-        if (anchorPos !== -1 && clickedPos !== -1) {
-          // Suprime o toggle nativo do Radix (checa defaultPrevented) — senão a linha clicada re-alterna.
-          e.preventDefault();
-          const [start, end] = anchorPos < clickedPos ? [anchorPos, clickedPos] : [clickedPos, anchorPos];
-          const value = !selectedKeys.has(key);
-          setSelectedKeys((prev) => {
-            const next = new Set(prev);
-            for (let i = start; i <= end; i++) {
-              if (value) next.add(orderedSelectableKeys[i]);
-              else next.delete(orderedSelectableKeys[i]);
-            }
-            return next;
-          });
-          return;
-        }
-      }
-      selectionAnchorRef.current = key;
-    },
-    [orderedSelectableKeys, selectedKeys],
+  // Age sobre selectedKeys (não selectedInOrder): o que foi marcado antes de filtrar
+  // continua valendo, como sempre valeu nesta tabela.
+  const bulkActions = useMemo(
+    () =>
+      buildManagerBulkActions({
+        onPause: () => { bulk.bulkPause(Array.from(selectedKeys)); clearSelection(); },
+        onActivate: () => { bulk.bulkActivate(Array.from(selectedKeys)); clearSelection(); },
+      }),
+    [bulk, selectedKeys, clearSelection],
   );
 
   const filterableColumns = useMemo(() => {
@@ -483,7 +450,7 @@ export function ManagerChildrenTable({
                           checked={selectedKeys.has(config.selectionId(child))}
                           onCheckedChange={(v) => toggleOne(config.selectionId(child), !!v)}
                           onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
-                          onClick={(e) => handleRowCheckboxClick(e, config.selectionId(child))}
+                          onClick={(e) => handleCheckboxClick(e, config.selectionId(child))}
                           aria-label="Selecionar linha"
                         />
                       </div>
@@ -527,10 +494,9 @@ export function ManagerChildrenTable({
         isLoading={bulk.isLoading}
         allSelected={allSelected}
         entityNoun={BULK_ENTITY_NOUN[config.bulkEntityType]}
-        onPause={() => { bulk.bulkPause(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
-        onActivate={() => { bulk.bulkActivate(Array.from(selectedKeys)); setSelectedKeys(new Set()); }}
+        actions={bulkActions}
         onToggleAll={toggleAll}
-        onClear={() => setSelectedKeys(new Set())}
+        onClear={clearSelection}
         className="bottom-4"
       />
     </div>

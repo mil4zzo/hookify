@@ -35,7 +35,8 @@ const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDi
 import { MetricCell } from "@/components/manager/MetricCell";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
-import { BulkActionsBar } from "@/components/manager/BulkActionsBar";
+import { BulkActionsBar } from "@/components/common/BulkActionsBar";
+import { buildManagerBulkActions } from "@/components/manager/managerBulkActions";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
@@ -1179,6 +1180,19 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
 
+  // Na aba Criativos a seleção existe para compartilhar, não para mexer em status — daí o
+  // conjunto de ações (e o substantivo) mudarem conforme a aba.
+  const isCreativesTab = currentTab === "por-anuncio";
+  const bulkActions = useMemo(
+    () =>
+      buildManagerBulkActions({
+        onPause: isCreativesTab ? undefined : () => { bulkPause(selectedIds); setRowSelection({}); },
+        onActivate: isCreativesTab ? undefined : () => { bulkActivate(selectedIds); setRowSelection({}); },
+        onShare: isCreativesTab ? openShareFromSelection : undefined,
+      }),
+    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds],
+  );
+
   // Toolbar única compartilhada pelas 4 abas: busca (leadingSlot) + contagem + botão Filtros.
   // As ações em massa vivem na BulkActionsBar flutuante (base da tabela), fora do toolbar.
   const tableToolbar = (
@@ -1259,10 +1273,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         selectedCount={selectedCount}
         isLoading={isBulkLoading}
         allSelected={table.getIsAllPageRowsSelected()}
-        entityNoun={currentTab === "por-anuncio" ? { singular: "criativo", plural: "criativos" } : BULK_ENTITY_NOUN[bulkEntityType]}
-        onPause={currentTab === "por-anuncio" ? undefined : () => { bulkPause(selectedIds); setRowSelection({}); }}
-        onActivate={currentTab === "por-anuncio" ? undefined : () => { bulkActivate(selectedIds); setRowSelection({}); }}
-        onShare={currentTab === "por-anuncio" ? openShareFromSelection : undefined}
+        entityNoun={isCreativesTab ? { singular: "criativo", plural: "criativos" } : BULK_ENTITY_NOUN[bulkEntityType]}
+        actions={bulkActions}
         onToggleAll={(checked) => table.toggleAllPageRowsSelected(checked)}
         onClear={() => setRowSelection({})}
       />
