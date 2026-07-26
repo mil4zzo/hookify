@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
 import { TranscriptionStatusDialog } from "@/components/packs/TranscriptionStatusDialog";
-import { PacksOverflowMenu } from "@/components/packs/PacksOverflowMenu";
 import { Input } from "@/components/ui/input";
+import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AppDialog } from "@/components/common/AppDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
@@ -19,7 +19,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone, IconArrowsSort, IconRefresh, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
 
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -38,6 +38,13 @@ import { usePackRefresh, type RefreshToggles } from "@/lib/hooks/usePackRefresh"
 import { usePackCreation } from "@/lib/hooks/usePackCreation";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { logger } from "@/lib/utils/logger";
+import { usePackSortStore } from "@/lib/store/packSort";
+import { PACK_SORT_OPTIONS, filterPacksBySearch, sortPacks, type PackSortKey } from "@/lib/utils/packSort";
+import { useMultiSelect } from "@/lib/hooks/useMultiSelect";
+import { useBulkPackDelete } from "@/lib/hooks/useBulkPackDelete";
+import { BulkActionsBar, type BulkAction } from "@/components/common/BulkActionsBar";
+import { Checkbox } from "@/components/ui/checkbox";
+import { cn } from "@/lib/utils/cn";
 
 const STORAGE_KEY_DATE_RANGE = "hookify-packs-date-range";
 const STORAGE_KEY_REFRESH_TOGGLES = "hookify:refresh-toggles";
@@ -168,7 +175,8 @@ export default function PacksPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [packToRemove, setPackToRemove] = useState<{ id: string; name: string; adsCount: number } | null>(null);
-  const [packToRefresh, setPackToRefresh] = useState<{ id: string; name: string } | null>(null);
+  // Lista de ids: um pack individual é só o caso N=1, então o dialog serve aos dois fluxos.
+  const [packsToRefresh, setPacksToRefresh] = useState<string[] | null>(null);
   const [refreshType, setRefreshType] = useState<"since_last_refresh" | "full_period">("since_last_refresh");
   const [refreshToggles, setRefreshToggles] = useState<RefreshToggles>(() => loadRefreshToggles() ?? DEFAULT_REFRESH_TOGGLES);
   const [packToDisableAutoRefresh, setPackToDisableAutoRefresh] = useState<{ id: string; name: string } | null>(null);
@@ -187,6 +195,7 @@ export default function PacksPage() {
     },
   });
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
+  const [packToRemoveIntegration, setPackToRemoveIntegration] = useState<AdsPack | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
   const getTwoDaysAgoLocal = (): string => {
@@ -234,6 +243,7 @@ export default function PacksPage() {
   const { packs, removePack, updatePack } = useClientPacks();
   const { authStatus, onboardingStatus } = useOnboardingGate("app");
   const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
+  const { deletePacks, isDeleting: isBulkDeleting } = useBulkPackDelete();
   const { isLoading: isLoadingPacks } = usePacksLoading();
 
   // API hooks
@@ -251,9 +261,120 @@ export default function PacksPage() {
     return map;
   }, [adAccountsData]);
 
+  // Busca é efêmera (some ao sair da página); a ordenação é preferência persistida.
+  const [packSearch, setPackSearch] = useState("");
+  const packSortKey = usePackSortStore((state) => state.sortKey);
+  const packSortDirection = usePackSortStore((state) => state.direction);
+  const setPackSortKey = usePackSortStore((state) => state.setSortKey);
+  const togglePackSortDirection = usePackSortStore((state) => state.toggleDirection);
+
+  // Ordena antes de filtrar para sobrar a lista ordenada COMPLETA: a seleção pode conter
+  // packs que a busca escondeu, e eles precisam de uma ordem definida na hora de agir.
+  const sortedPacks = useMemo(() => sortPacks(packs, packSortKey, { accountNameById: adAccountNameById, direction: packSortDirection }), [packs, packSortKey, packSortDirection, adAccountNameById]);
+  const visiblePacks = useMemo(() => filterPacksBySearch(sortedPacks, packSearch, { accountNameById: adAccountNameById }), [sortedPacks, packSearch, adAccountNameById]);
+
+  const isSearching = packSearch.trim().length > 0;
+  // Com 0 ou 1 pack a barra é só ruído — nada a buscar, ordenar ou selecionar.
+  const showPacksToolbar = !isLoadingPacks && packs.length > 1;
+
+  // Selecionável = o que está visível (a busca define o universo do "selecionar todos").
+  const visiblePackIds = useMemo(() => visiblePacks.map((p) => p.id), [visiblePacks]);
+  const {
+    selectedKeys: selectedPackKeys,
+    selectedCount: selectedPackCount,
+    allSelected: allPacksSelected,
+    isSelected: isPackSelected,
+    toggleOne: togglePack,
+    toggleAll: toggleAllPacks,
+    handleCheckboxClick: handlePackCheckboxClick,
+    clear: clearPackSelection,
+  } = useMultiSelect(visiblePackIds);
+
+  // TODA a seleção (inclusive o que a busca escondeu), na ordem da tela — senão o contador
+  // da barra prometeria N packs e a ação rodaria em menos.
+  const selectedPacksList = useMemo(() => sortedPacks.filter((p) => selectedPackKeys.has(p.id)), [sortedPacks, selectedPackKeys]);
+  const selectedPackIds = useMemo(() => selectedPacksList.map((p) => p.id), [selectedPacksList]);
+
+  const selectedPacksWithSheets = useMemo(() => selectedPacksList.filter((p) => !!p.sheet_integration?.id), [selectedPacksList]);
+
+  /** Remove só a integração de planilha, um pack de cada vez. O pack em si fica intacto. */
+  const handleBulkRemoveSheetIntegration = async () => {
+    const targets = selectedPacksWithSheets;
+    if (targets.length === 0) return;
+
+    const failed: string[] = [];
+    for (const pack of targets) {
+      try {
+        await api.integrations.google.deleteSheetIntegration(pack.sheet_integration!.id);
+        updatePack(pack.id, { sheet_integration: undefined });
+      } catch (error) {
+        logger.error(`Erro ao remover integração do pack ${pack.id}:`, error);
+        failed.push(pack.name);
+      }
+    }
+
+    clearPackSelection();
+    if (failed.length === 0) showSuccess(`Integração removida de ${targets.length} ${targets.length === 1 ? "pack" : "packs"}.`);
+    else showError({ message: `Falha ao remover a integração de: ${failed.join(", ")}.` });
+  };
+
+  const handleBulkDeletePacks = async () => {
+    const targets = selectedPacksList.map((p) => ({ id: p.id, name: p.name }));
+    clearPackSelection();
+    await deletePacks(targets);
+  };
+
+  // Sem useMemo: os handlers acima são recriados a cada render de qualquer forma, e a barra
+  // não é memoizada — memoizar aqui só exigiria suprimir o lint de deps sem ganho nenhum.
+  const packBulkActions: BulkAction[] = [
+    {
+      id: "refresh",
+      label: "Atualizar",
+      icon: <IconRefresh className="h-3.5 w-3.5" />,
+      className: "hover:bg-success hover:text-success-foreground",
+      // Sem confirm: o próprio dialog de atualização é a confirmação, e ele traz as opções.
+      onSelect: () => {
+        setPacksToRefresh(selectedPackIds);
+        setRefreshType("since_last_refresh");
+      },
+    },
+    {
+      id: "remove-sheets",
+      label: "Remover planilha",
+      icon: <GoogleSheetsIcon className="h-3.5 w-3.5" />,
+      disabled: selectedPacksWithSheets.length === 0,
+      confirm: {
+        title: () => `Remover integração de ${selectedPacksWithSheets.length} ${selectedPacksWithSheets.length === 1 ? "pack" : "packs"}?`,
+        message: () => "Os packs continuam existindo — só o vínculo com a planilha é desfeito, e apenas nos packs selecionados que têm integração. A planilha no Google não é alterada.",
+        confirmText: "Remover integração",
+        variant: "destructive",
+        icon: <GoogleSheetsIcon className="h-5 w-5" />,
+      },
+      onSelect: handleBulkRemoveSheetIntegration,
+    },
+    {
+      id: "delete",
+      label: "Deletar",
+      icon: <IconTrash className="h-3.5 w-3.5" />,
+      className: "hover:bg-destructive hover:text-destructive-foreground",
+      showsLoading: true,
+      confirm: {
+        title: (count, noun) => `Deletar ${count} ${noun}?`,
+        message: (count, noun) =>
+          `Os anúncios e métricas exclusivos ${count === 1 ? "deste" : "destes"} ${noun} serão apagados, e a integração com o Google Sheets de cada um é removida junto (planilhas de outros packs não são afetadas). Os packs são deletados um de cada vez. Esta ação não pode ser desfeita.`,
+        confirmText: "Deletar",
+        variant: "destructive",
+        icon: <IconTrash className="h-5 w-5" />,
+      },
+      onSelect: handleBulkDeletePacks,
+    },
+  ];
+
   // Para o modal de refresh: habilita botão Confirmar apenas se ao menos um processo estiver selecionado
-  const refreshModalPack = packToRefresh ? packs.find((p) => p.id === packToRefresh.id) : null;
-  const hasSheetIntegrationInModal = !!refreshModalPack?.sheet_integration?.id;
+  const refreshModalPacks = useMemo(() => (packsToRefresh ? (packsToRefresh.map((id) => packs.find((p) => p.id === id)).filter(Boolean) as AdsPack[]) : []), [packsToRefresh, packs]);
+  const isBulkRefresh = refreshModalPacks.length > 1;
+  // Em lote, basta UM pack com planilha para o toggle fazer sentido; quem não tem, pula essa perna.
+  const hasSheetIntegrationInModal = refreshModalPacks.some((p) => !!p.sheet_integration?.id);
   const canConfirmRefresh = refreshToggles.meta || (refreshToggles.leadscore && hasSheetIntegrationInModal) || refreshToggles.transcription;
 
   // Update pack name when packs change or modal opens
@@ -455,10 +576,7 @@ export default function PacksPage() {
     const pack = packs.find((p) => p.id === packId);
     if (!pack) return;
 
-    setPackToRefresh({
-      id: pack.id,
-      name: pack.name,
-    });
+    setPacksToRefresh([pack.id]);
     // Resetar para opção padrão (desde última atualização)
     setRefreshType("since_last_refresh");
   };
@@ -527,75 +645,63 @@ export default function PacksPage() {
   };
 
   const cancelRefreshPack = () => {
-    // Verifica se algum pack está atualizando
-    const currentPackId = packToRefresh?.id;
-    if (currentPackId && isRefreshing(currentPackId)) return; // Não permite cancelar durante o refresh
-    setPackToRefresh(null);
+    // Não permite cancelar se algum dos packs do modal já está atualizando
+    if (refreshModalPacks.some((p) => isRefreshing(p.id))) return;
+    setPacksToRefresh(null);
     setRefreshType("since_last_refresh"); // Resetar para padrão
   };
 
   /**
-   * Confirma e executa o refresh do pack usando o hook centralizado
+   * Confirma e executa o refresh usando o hook centralizado.
+   *
+   * Em lote não há nada de especial: dispara um refresh por pack, exatamente como
+   * se o usuário tivesse clicado um a um. A fila do usePackRefresh
+   * (REFRESH_MAX_CONCURRENCY = 1) serializa o trabalho pesado, e o hook já ignora
+   * pack que esteja em refresh. O allSettled só evita rejeição não tratada.
    */
   const confirmRefreshPack = async () => {
-    if (!packToRefresh) return;
-
-    const packId = packToRefresh.id;
-    const packName = packToRefresh.name;
-    const pack = packs.find((p) => p.id === packId);
-    const hasSheetIntegration = !!pack?.sheet_integration?.id;
-
-    // Toggles efetivos: leadscore só conta se o pack tiver integração
-    const effectiveToggles: RefreshToggles = {
-      ...refreshToggles,
-      leadscore: refreshToggles.leadscore && hasSheetIntegration,
-    };
+    const targets = refreshModalPacks;
+    if (targets.length === 0) return;
 
     // Persistir preferência dos toggles para a próxima abertura do modal
     saveRefreshToggles(refreshToggles);
 
     // Fechar modal imediatamente após confirmar
-    setPackToRefresh(null);
+    setPacksToRefresh(null);
+    clearPackSelection();
 
-    // Usar hook centralizado para refresh (processos independentes conforme toggles)
-    await refreshPack({
-      packId,
-      packName,
-      refreshType,
-      sheetIntegrationId: pack?.sheet_integration?.id,
-      toggles: effectiveToggles,
-    });
+    await Promise.allSettled(
+      targets.map((pack) =>
+        refreshPack({
+          packId: pack.id,
+          packName: pack.name,
+          refreshType,
+          sheetIntegrationId: pack.sheet_integration?.id,
+          // Leadscore só conta para quem tem planilha — os demais rodam só o Meta.
+          toggles: { ...refreshToggles, leadscore: refreshToggles.leadscore && !!pack.sheet_integration?.id },
+        }),
+      ),
+    );
   };
 
   const handleEditSheetIntegration = (pack: AdsPack) => {
     setSheetIntegrationPack(pack);
   };
 
-  const handleDeleteSheetIntegration = async (pack: AdsPack) => {
+  const handleDeleteSheetIntegration = (pack: AdsPack) => {
     if (!pack.sheet_integration?.id) return;
+    setPackToRemoveIntegration(pack);
+  };
 
-    if (!confirm(`Tem certeza que deseja remover a integração de planilha do pack "${pack.name}"?`)) {
-      return;
-    }
+  const confirmRemoveSheetIntegration = async () => {
+    const pack = packToRemoveIntegration;
+    if (!pack?.sheet_integration?.id) return;
 
+    setPackToRemoveIntegration(null);
     try {
       await api.integrations.google.deleteSheetIntegration(pack.sheet_integration.id);
+      updatePack(pack.id, { sheet_integration: undefined });
       showSuccess("Integração removida com sucesso!");
-
-      // Recarregar packs para atualizar dados
-      try {
-        const response = await api.analytics.listPacks(false);
-        if (response.success && response.packs) {
-          const updatedPack = response.packs.find((p: any) => p.id === pack.id);
-          if (updatedPack) {
-            updatePack(pack.id, {
-              sheet_integration: updatedPack.sheet_integration || null,
-            } as Partial<AdsPack>);
-          }
-        }
-      } catch (error) {
-        logger.error("Erro ao recarregar pack após deletar integração:", error);
-      }
     } catch (error) {
       showError(error instanceof Error ? error : new Error("Erro ao remover integração"));
     }
@@ -624,13 +730,51 @@ export default function PacksPage() {
           <PageActions className="sm:flex-nowrap">
             <Button className="flex items-center gap-2" onClick={() => setIsDialogOpen(true)}>
               <IconPlus className="w-4 h-4" />
-              Carregar Pack
+              Novo Pack
             </Button>
-            <PacksOverflowMenu />
           </PageActions>
         }
       >
         <PageBodyStack>
+          {/* Busca + ordenação */}
+          {showPacksToolbar && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SearchInputWithClear value={packSearch} onChange={setPackSearch} placeholder="Buscar por nome ou conta..." wrapperClassName="w-full sm:w-80" aria-label="Buscar packs" />
+              <div className="flex items-center gap-3">
+                {isSearching && (
+                  <span className="text-sm text-muted-foreground whitespace-nowrap">
+                    {visiblePacks.length} de {packs.length}
+                  </span>
+                )}
+                <Select value={packSortKey} onValueChange={(value) => setPackSortKey(value as PackSortKey)}>
+                  <SelectTrigger className="w-full sm:w-[210px]" aria-label="Ordenar packs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <IconArrowsSort className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                      <SelectValue />
+                    </div>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PACK_SORT_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  onClick={togglePackSortDirection}
+                  aria-label={packSortDirection === "asc" ? "Ordem crescente. Clique para inverter para decrescente." : "Ordem decrescente. Clique para inverter para crescente."}
+                  title={packSortDirection === "asc" ? "Crescente" : "Decrescente"}
+                >
+                  {packSortDirection === "asc" ? <IconChevronUp className="h-4 w-4" /> : <IconChevronDown className="h-4 w-4" />}
+                </Button>
+              </div>
+            </div>
+          )}
+
           {/* Packs Grid */}
           {isLoadingPacks ? (
             <PacksGridSkeleton />
@@ -654,14 +798,49 @@ export default function PacksPage() {
                 </StandardCard>
               </div>
             </div>
+          ) : visiblePacks.length === 0 ? (
+            <StatePanel kind="empty" title="Nenhum pack encontrado" message={`Nenhum pack corresponde a "${packSearch.trim()}".`} action={<Button variant="outline" onClick={() => setPackSearch("")}>Limpar busca</Button>} />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-x-10 gap-y-8">
-              {packs.map((pack) => (
-                <PackCard key={pack.id} pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+              {visiblePacks.map((pack) => (
+                <div key={pack.id} className="group/select relative">
+                  {showPacksToolbar && (
+                    // O card inteiro é um DropdownMenuTrigger — parar a propagação aqui evita
+                    // que marcar o checkbox abra o menu do pack.
+                    <div
+                      className={cn("absolute left-3 top-3 z-20 transition-opacity", isPackSelected(pack.id) || selectedPackCount > 0 ? "opacity-100" : "opacity-0 focus-within:opacity-100 group-hover/select:opacity-100")}
+                      onClick={(e) => e.stopPropagation()}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onMouseDown={(e) => e.stopPropagation()}
+                    >
+                      <Checkbox
+                        checked={isPackSelected(pack.id)}
+                        onCheckedChange={(v) => togglePack(pack.id, !!v)}
+                        onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
+                        onClick={(e) => handlePackCheckboxClick(e, pack.id)}
+                        aria-label={`Selecionar ${pack.name}`}
+                      />
+                    </div>
+                  )}
+                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                </div>
               ))}
             </div>
           )}
         </PageBodyStack>
+
+        {/* `fixed` sobrepõe o `absolute` da barra: a página de packs rola, então ancorar na
+            base do grid deixaria a barra fora da tela ao selecionar cards do topo. */}
+        <BulkActionsBar
+          selectedCount={selectedPackCount}
+          isLoading={isBulkDeleting}
+          allSelected={allPacksSelected}
+          entityNoun={{ singular: "pack", plural: "packs" }}
+          actions={packBulkActions}
+          onToggleAll={toggleAllPacks}
+          onClear={clearPackSelection}
+          className="fixed"
+        />
       </PageContainer>
 
       {/* Load Pack Modal */}
@@ -905,19 +1084,26 @@ export default function PacksPage() {
       </AppDialog>
 
       {/* Refresh Pack Confirmation Dialog */}
-      <AppDialog isOpen={!!packToRefresh} onClose={cancelRefreshPack} title="Atualizar Pack" size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
+      <AppDialog isOpen={refreshModalPacks.length > 0} onClose={cancelRefreshPack} title={isBulkRefresh ? "Atualizar Packs" : "Atualizar Pack"} size="md" padding="md" closeOnOverlayClick closeOnEscape showCloseButton>
         <div className="flex flex-col gap-5 py-4">
           <div>
-            <h2 className="text-xl font-semibold text-text mb-1">Atualizar Pack?</h2>
+            <h2 className="text-xl font-semibold text-text mb-1">{isBulkRefresh ? `Atualizar ${refreshModalPacks.length} packs?` : "Atualizar Pack?"}</h2>
             <p className="text-sm text-text-muted">
-              Deseja atualizar o pack <strong>"{packToRefresh?.name}"</strong>? Escolha o tipo de atualização:
+              {isBulkRefresh ? (
+                <>
+                  Os packs serão atualizados <strong>um de cada vez</strong>, na ordem da tela. Escolha o tipo de atualização:
+                </>
+              ) : (
+                <>
+                  Deseja atualizar o pack <strong>"{refreshModalPacks[0]?.name}"</strong>? Escolha o tipo de atualização:
+                </>
+              )}
             </p>
           </div>
 
           {/* Toggles: Meta, Leadscore, Transcrição */}
           {(() => {
-            const pack = packToRefresh ? packs.find((p) => p.id === packToRefresh.id) : null;
-            const hasSheetIntegration = !!pack?.sheet_integration?.id;
+            const hasSheetIntegration = hasSheetIntegrationInModal;
             return (
               <div className="w-full space-y-2">
                 <div className="flex flex-col gap-3">
@@ -942,7 +1128,7 @@ export default function PacksPage() {
 
           {/* Opções de período */}
           {(() => {
-            const pack = refreshModalPack;
+            const pack = refreshModalPacks[0];
             const formatDateDisplay = (s: string) => {
               if (!s) return "";
               const [y, m, d] = s.split("-");
@@ -950,8 +1136,10 @@ export default function PacksPage() {
             };
             const today = getTodayLocal();
             const sinceLastAnchor = pack?.last_refreshed_at || pack?.date_stop;
-            const sinceLastRange = sinceLastAnchor ? `${formatDateDisplay(formatDateLocal(subDays(new Date(sinceLastAnchor + "T12:00:00"), 1)))} → ${formatDateDisplay(today)}` : "—";
-            const fullPeriodRange = pack?.date_start && pack?.date_stop ? (pack.auto_refresh ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(today)}` : `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(pack.date_stop)}`) : "—";
+            // Em lote cada pack tem sua própria âncora e seu próprio período — um range
+            // concreto seria mentira. Descreve a regra em vez de resumir datas.
+            const sinceLastRange = isBulkRefresh ? "Cada pack a partir da sua última atualização" : sinceLastAnchor ? `${formatDateDisplay(formatDateLocal(subDays(new Date(sinceLastAnchor + "T12:00:00"), 1)))} → ${formatDateDisplay(today)}` : "—";
+            const fullPeriodRange = isBulkRefresh ? "O período completo de cada pack" : pack?.date_start && pack?.date_stop ? (pack.auto_refresh ? `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(today)}` : `${formatDateDisplay(pack.date_start)} → ${formatDateDisplay(pack.date_stop)}`) : "—";
             return (
               <div className="w-full space-y-2">
                 <button type="button" onClick={() => setRefreshType("since_last_refresh")} className={`w-full p-3 rounded-lg border-2 text-left transition-all cursor-pointer ${refreshType === "since_last_refresh" ? "border-primary bg-primary-10" : "border-border hover:border-primary-50 bg-input-30"}`}>
@@ -990,6 +1178,19 @@ export default function PacksPage() {
           </div>
         </div>
       </AppDialog>
+
+      {/* Remoção da integração de planilha (individual) */}
+      <ConfirmDialog
+        isOpen={!!packToRemoveIntegration}
+        onClose={() => setPackToRemoveIntegration(null)}
+        title="Remover integração de planilha"
+        message={`O pack "${packToRemoveIntegration?.name}" continua existindo — só o vínculo com a planilha é desfeito. A planilha no Google não é alterada.`}
+        onConfirm={confirmRemoveSheetIntegration}
+        variant="destructive"
+        confirmText="Remover integração"
+        layout="left-aligned"
+        confirmIcon={<GoogleSheetsIcon className="w-4 h-4" />}
+      />
 
       {/* Confirmation Dialog */}
       <ConfirmDialog isOpen={!!packToRemove} onClose={() => !isDeleting && setPackToRemove(null)} title={isDeleting ? "Deletando Pack..." : "Confirmar Remoção"} message={isDeleting ? `Excluindo os dados do pack "${packToRemove?.name}..."` : `Tem certeza que deseja remover o pack "${packToRemove?.name}"?`} onConfirm={confirmRemovePack} onCancel={cancelRemovePack} variant="destructive" confirmText="Remover Pack" isLoading={isDeleting} loadingText="Deletando..." layout="left-aligned" confirmIcon={<IconTrash className="w-4 h-4" />}>

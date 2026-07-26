@@ -15,6 +15,7 @@ import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
 import { formatRelativeTime } from "@/lib/utils/formatRelativeTime";
+import { cn } from "@/lib/utils/cn";
 
 const FILTER_FIELDS = [
   { label: "Campaign Name", value: "campaign.name" },
@@ -42,6 +43,8 @@ export interface PackCardProps {
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
   /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
   onTranscribeAds?: (packId: string, packName: string) => void;
+  /** Selecionado para uma ação em massa — destaca o card inteiro, não só o checkbox. */
+  isSelected?: boolean;
   // Estados de loading
   isUpdating: boolean;
   isTogglingAutoRefresh: string | null;
@@ -58,7 +61,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isSelected = false, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
@@ -222,13 +225,24 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
 
   return (
     <div className="relative inline-block w-full group">
-      {/* Cards decorativos: leque sutil, pivotando do bottom — inspirado em pasta de papéis */}
-      <div className="absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border border-border-50 opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85" />
-      <div className="absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border border-border-50 opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85" />
+      {/* Cards decorativos: leque sutil, pivotando do bottom — inspirado em pasta de papéis.
+          Selecionados, acompanham a borda do card da frente para o "maço" inteiro ler como um só. */}
+      <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:-rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border-50")} />
+      <div className={cn("absolute inset-x-0 top-4 bottom-0 rounded-lg bg-card border opacity-60 pointer-events-none transition-[transform,opacity] duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] group-hover:rotate-[1.5deg] group-hover:-translate-y-3 group-hover:opacity-85", isSelected ? "border-primary-40" : "border-border-50")} />
 
       <DropdownMenu open={isEditingName ? false : undefined}>
         <DropdownMenuTrigger asChild>
-          <StandardCard variant="default" padding="none" interactive className="relative flex flex-col cursor-pointer z-10 w-full overflow-hidden hover:bg-card hover:border-border hover:shadow-elevation-overlay">
+          <StandardCard
+            variant="default"
+            padding="none"
+            interactive
+            className={cn(
+              "relative flex flex-col cursor-pointer z-10 w-full overflow-hidden transition-colors hover:shadow-elevation-overlay",
+              // As variantes de hover precisam ser repetidas no estado selecionado: o hover
+              // base reseta borda/fundo e apagaria o destaque justamente ao passar o mouse.
+              isSelected ? "border-primary bg-primary-10 ring-2 ring-primary-20 hover:border-primary hover:bg-primary-10" : "hover:bg-card hover:border-border",
+            )}
+          >
             {/* Feedback visual de atualização */}
             {isUpdating && (
               <>

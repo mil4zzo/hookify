@@ -8,11 +8,17 @@ import { FilterListPopover } from "@/components/common/FilterListPopover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
+import { usePackSortStore } from "@/lib/store/packSort";
+import { sortPacks } from "@/lib/utils/packSort";
 
 interface Pack {
   id: string;
   name: string;
   ads: any[];
+  // Campos consumidos apenas pela ordenação compartilhada (ver lib/utils/packSort).
+  adaccount_id?: string;
+  created_at?: string;
+  last_refreshed_at?: string;
   stats?: {
     totalAds?: number;
     uniqueAds?: number;
@@ -46,15 +52,22 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
   // Se não há packs e não está carregando, mostrar mensagem de "nenhum pack"
   const hasNoPacks = packs.length === 0 && packsClient && !isLoading;
 
+  // Mesma preferência de ordenação (critério + direção) da página /packs: as duas
+  // superfícies ficam montadas ao mesmo tempo e divergir de ordem confunde. Sem o mapa
+  // de contas, o critério "Conta" agrupa pelo adaccount_id (a ordem entre contas é
+  // arbitrária, mas packs da mesma conta ficam adjacentes).
+  const sortKey = usePackSortStore((state) => state.sortKey);
+  const sortDirection = usePackSortStore((state) => state.direction);
+
   const options = useMemo(
     () =>
-      packs.map((pack) => {
+      sortPacks(packs, sortKey, { direction: sortDirection }).map((pack) => {
         // Usar stats.uniqueAds (preferencialmente do backend)
         // Não usar pack.ads porque ads estão no cache IndexedDB
         const adCount = pack.stats?.uniqueAds || 0;
         return { id: pack.id, label: pack.name, meta: `(${adCount} ${adCount === 1 ? "anúncio" : "anúncios"})` };
       }),
-    [packs],
+    [packs, sortKey, sortDirection],
   );
 
   if (hasNoPacks) {
