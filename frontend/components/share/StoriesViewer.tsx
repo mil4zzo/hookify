@@ -5,100 +5,45 @@ import Image from "next/image";
 import {
   IconBrandParsinta,
   IconChartFunnel,
+  IconChevronDown,
   IconChevronUp,
   IconCurrencyDollar,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlayerPlayFilled,
   IconVolume,
   IconVolumeOff,
   IconWorld,
-  IconX,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
 import { getSiteOrigin } from "@/lib/utils/siteUrl";
-import type { PublicShare, ShareItem, ShareMetricKey } from "@/lib/share/types";
+import { PublicMetricCell } from "@/components/share/PublicMetricCell";
+import {
+  SHARE_METRIC_SECTIONS,
+  findMetricCardConfig,
+  hasMetric,
+} from "@/lib/share/metricsDisplay";
+import type { PublicShare, ShareItem } from "@/lib/share/types";
 
 // Gramática de stories padrão (Instagram/WhatsApp): segmentos no topo, tap
-// direita/esquerda navega, segurar pausa, swipe-up abre métricas. A identidade
-// Hookify entra pelos tokens (bg-background, primary, Geist) e pelo rodapé.
+// direita/esquerda navega, segurar pausa, painel de métricas na base. A
+// identidade Hookify entra pelos tokens (bg-background, primary, Geist).
 
 const IMAGE_DURATION_MS = 7000;
 const TAP_MAX_MS = 300;
 const SWIPE_UP_MIN_PX = 60;
 
-// ── Formatação (espelho do modal de detalhamento; snapshot usa a escala da linha) ──
+// Zonas de toque na mídia (fração da largura). O centro pausa/retoma — daí
+// prev/next ficarem nas bordas, ainda com alvo confortável no polegar.
+const TAP_ZONE_PREV_MAX = 0.35;
+const TAP_ZONE_PAUSE_MAX = 0.65;
 
-const METRIC_LABELS: Record<ShareMetricKey, string> = {
-  cpmql: "CPMQL",
-  cpr: "CPR",
-  cpc: "CPC",
-  cpm: "CPM",
-  ctr: "CTR",
-  website_ctr: "Link CTR",
-  connect_rate: "Connect Rate",
-  page_conv: "Page Conv",
-  scroll_stop: "Scroll Stop",
-  hook: "Hook",
-  hold_rate: "Hold Rate",
-  video_watched_p50: "50% View",
-  spend: "Spend",
-  frequency: "Frequency",
-  impressions: "Impressions",
-  reach: "Reach",
-  results: "Resultados",
-  clicks: "Cliques",
-  mql_count: "MQLs",
+const SECTION_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  Resultados: IconCurrencyDollar,
+  Funil: IconChartFunnel,
+  Retenção: IconBrandParsinta,
+  Visibilidade: IconWorld,
 };
-
-const CURRENCY_KEYS = new Set<ShareMetricKey>(["cpmql", "cpr", "cpc", "cpm", "spend"]);
-const FRACTION_PCT_KEYS = new Set<ShareMetricKey>(["ctr", "website_ctr", "connect_rate", "page_conv", "scroll_stop", "hook", "hold_rate"]);
-
-function formatMetric(key: ShareMetricKey, value: number, currency: string | null): string {
-  if (CURRENCY_KEYS.has(key)) {
-    try {
-      return new Intl.NumberFormat("pt-BR", { style: "currency", currency: currency || "BRL" }).format(value);
-    } catch {
-      return value.toFixed(2);
-    }
-  }
-  if (FRACTION_PCT_KEYS.has(key)) return `${(value * 100).toFixed(2)}%`;
-  if (key === "video_watched_p50") return `${Math.round(value)}%`;
-  if (key === "frequency") return value.toFixed(2);
-  return Math.round(value).toLocaleString("pt-BR");
-}
-
-interface SectionConfig {
-  title: string;
-  icon: React.ComponentType<{ className?: string }>;
-  cards: Array<{ key: ShareMetricKey; subtitleOf?: ShareMetricKey; subtitleLabel?: string }>;
-}
-
-// Mesmas 4 seções e 16 métricas do AdDetailsDialog (aba Geral)
-const SECTIONS: SectionConfig[] = [
-  {
-    title: "Resultados",
-    icon: IconCurrencyDollar,
-    cards: [
-      { key: "cpmql", subtitleOf: "mql_count", subtitleLabel: "MQLs" },
-      { key: "cpr", subtitleOf: "results", subtitleLabel: "resultados" },
-      { key: "cpc", subtitleOf: "clicks", subtitleLabel: "cliques" },
-      { key: "cpm" },
-    ],
-  },
-  {
-    title: "Funil",
-    icon: IconChartFunnel,
-    cards: [{ key: "ctr" }, { key: "website_ctr" }, { key: "connect_rate" }, { key: "page_conv" }],
-  },
-  {
-    title: "Retenção",
-    icon: IconBrandParsinta,
-    cards: [{ key: "scroll_stop" }, { key: "hook" }, { key: "hold_rate" }, { key: "video_watched_p50" }],
-  },
-  {
-    title: "Visibilidade",
-    icon: IconWorld,
-    cards: [{ key: "spend" }, { key: "frequency" }, { key: "impressions" }, { key: "reach" }],
-  },
-];
 
 function formatDatePt(iso: string): string {
   if (!iso) return "";
@@ -175,19 +120,26 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
   const items = share.items;
   const [index, setIndex] = useState(0);
   const [isHolding, setIsHolding] = useState(false);
+  // Pausa deliberada (botão do topo ou toque no centro). STICKY: sobrevive à
+  // troca de slide — o usuário navega pausado e o tempo nunca corre sozinho.
+  const [isUserPaused, setIsUserPaused] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
-  const [isMetricsOpen, setIsMetricsOpen] = useState(false);
+  const [isMetricsExpanded, setIsMetricsExpanded] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const pointerStartRef = useRef<{ t: number; x: number; y: number } | null>(null);
 
   const current = items[index];
   const expired = isVideoExpired(current);
   const hasPlayableVideo = current.media.type === "video" && !!current.media.video_url && !expired;
-  const isPaused = isHolding || isMetricsOpen;
+  const isPaused = isHolding || isUserPaused || isMetricsExpanded;
+
+  const metrics = current.metrics || {};
+  const averages = share.averages || {};
+  const highlights = (share.highlight_metrics || []).filter((key) => hasMetric(metrics, key));
 
   const goTo = useCallback(
     (target: number) => {
-      setIsMetricsOpen(false);
+      setIsMetricsExpanded(false);
       setIndex(Math.max(0, Math.min(target, items.length - 1)));
     },
     [items.length],
@@ -195,7 +147,7 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
   const next = useCallback(() => goTo(index + 1), [goTo, index]);
   const prev = useCallback(() => goTo(index - 1), [goTo, index]);
 
-  // Pausa/retoma o vídeo junto com o estado do viewer (hold ou métricas abertas)
+  // Pausa/retoma o vídeo junto com o estado do viewer
   useEffect(() => {
     const el = videoRef.current;
     if (!el || !hasPlayableVideo) return;
@@ -203,12 +155,16 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
     else el.play().catch(() => {});
   }, [isPaused, hasPlayableVideo, index]);
 
-  // Teclado (desktop): setas navegam, Esc fecha métricas
+  // Teclado (desktop): setas navegam, espaço pausa, Esc fecha o painel
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowRight") next();
       else if (e.key === "ArrowLeft") prev();
-      else if (e.key === "Escape") setIsMetricsOpen(false);
+      else if (e.key === "Escape") setIsMetricsExpanded(false);
+      else if (e.key === " ") {
+        e.preventDefault();
+        setIsUserPaused((p) => !p);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -227,13 +183,14 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
       if (!start) return;
       const deltaY = e.clientY - start.y;
       if (deltaY < -SWIPE_UP_MIN_PX) {
-        setIsMetricsOpen(true);
+        setIsMetricsExpanded(true);
         return;
       }
-      if (performance.now() - start.t > TAP_MAX_MS) return; // hold = pausa, não navega
+      if (performance.now() - start.t > TAP_MAX_MS) return; // hold = pausa transitória, não navega
       const rect = e.currentTarget.getBoundingClientRect();
       const relX = (e.clientX - rect.left) / rect.width;
-      if (relX < 0.3) prev();
+      if (relX < TAP_ZONE_PREV_MAX) prev();
+      else if (relX < TAP_ZONE_PAUSE_MAX) setIsUserPaused((p) => !p);
       else next();
     },
     [next, prev],
@@ -244,10 +201,9 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
     setIsHolding(false);
   }, []);
 
-  const metrics = current.metrics || {};
-  const visibleSections = SECTIONS.map((section) => ({
+  const visibleSections = SHARE_METRIC_SECTIONS.map((section) => ({
     ...section,
-    cards: section.cards.filter((card) => typeof metrics[card.key] === "number"),
+    cards: section.cards.filter((card) => hasMetric(metrics, card.key)),
   })).filter((section) => section.cards.length > 0);
 
   return (
@@ -306,6 +262,15 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">Sem prévia disponível</div>
             )}
           </div>
+
+          {/* Indicador de pausa: play centralizado (o toque no centro retoma). */}
+          {isUserPaused && (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="rounded-full bg-background-60 p-4 shadow-elevation-overlay">
+                <IconPlayerPlayFilled className="h-9 w-9 text-text" />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Header: segmentos + logo + contagem/período (gradiente para legibilidade) */}
@@ -331,6 +296,14 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
               <span className="text-2xs text-muted-foreground">
                 {index + 1}/{items.length} · {formatDatePt(share.date_start)}–{formatDatePt(share.date_stop)}
               </span>
+              <button
+                type="button"
+                aria-label={isUserPaused ? "Retomar" : "Pausar"}
+                className="pointer-events-auto rounded-full bg-background-60 p-1.5 text-text"
+                onClick={() => setIsUserPaused((p) => !p)}
+              >
+                {isUserPaused ? <IconPlayerPlay className="h-4 w-4" /> : <IconPlayerPause className="h-4 w-4" />}
+              </button>
               {hasPlayableVideo && (
                 <button
                   type="button"
@@ -345,95 +318,121 @@ export function StoriesViewer({ share }: { share: PublicShare }) {
           </div>
         </div>
 
-        {/* Rodapé: nome do criativo + CTA de métricas + marca */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-overlay to-transparent px-4 pb-3 pt-10 text-center">
-          <p className="truncate text-sm font-medium">{current.ad_name}</p>
-          <button
-            type="button"
-            className="pointer-events-auto mx-auto mt-1 flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium text-text"
-            onClick={() => setIsMetricsOpen(true)}
-          >
-            <IconChevronUp className="h-4 w-4 animate-bounce" />
-            Ver métricas
-          </button>
-          <a
-            href={`${getSiteOrigin()}/pv`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="pointer-events-auto mt-1 inline-block text-2xs text-muted-foreground hover:text-text"
-          >
-            Feito com <span className="font-semibold text-brand">Hookify</span>
-          </a>
-        </div>
-
-        {/* Backdrop das métricas (fecha ao tocar fora) */}
-        {isMetricsOpen && (
+        {/* Backdrop do painel expandido (toque fora colapsa) */}
+        {isMetricsExpanded && (
           <button
             type="button"
             aria-label="Fechar métricas"
             className="absolute inset-0 z-20 bg-background-60"
-            onClick={() => setIsMetricsOpen(false)}
+            onClick={() => setIsMetricsExpanded(false)}
           />
         )}
 
-        {/* Sheet de métricas — mesmas 4 seções do modal de detalhamento */}
+        {/*
+          Painel de métricas em DUAS ALTURAS (mesmo container): espiado mostra
+          só os destaques; expandido revela as 4 seções. Translúcido para a
+          mídia continuar respirando por trás no estado espiado.
+        */}
         <div
           className={cn(
-            "absolute inset-x-0 bottom-0 z-30 max-h-[75%] overflow-y-auto rounded-t-lg border-t border-border bg-card p-4 shadow-elevation-overlay transition-transform duration-300",
-            isMetricsOpen ? "translate-y-0" : "translate-y-full",
+            // bg-card (não translúcido): o `card` não tem escala de alpha registrada,
+            // e o par card/background é o mesmo contraste dos cards do modal.
+            "absolute inset-x-0 bottom-0 z-30 flex flex-col rounded-t-lg border-t border-border bg-card transition-[max-height] duration-300",
+            isMetricsExpanded ? "max-h-[85%]" : "max-h-[45%]",
           )}
-          aria-hidden={!isMetricsOpen}
         >
-          <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{current.ad_name}</p>
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 px-3 pb-1.5 pt-2 text-left"
+            onClick={() => setIsMetricsExpanded((v) => !v)}
+            aria-expanded={isMetricsExpanded}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{current.ad_name}</p>
               <p className="text-2xs text-muted-foreground">
-                {formatDatePt(share.date_start)}–{formatDatePt(share.date_stop)} · snapshot na criação do link
+                {isMetricsExpanded
+                  ? `${formatDatePt(share.date_start)}–${formatDatePt(share.date_stop)} · snapshot na criação do link`
+                  : "Ver todas as métricas"}
               </p>
             </div>
-            <button
-              type="button"
-              aria-label="Fechar métricas"
-              className="rounded-full p-1 text-muted-foreground hover:text-text"
-              onClick={() => setIsMetricsOpen(false)}
-            >
-              <IconX className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {visibleSections.map((section) => {
-              const SectionIcon = section.icon;
-              return (
-                <div key={section.title} className="space-y-2">
-                  <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
-                    <SectionIcon className="h-4 w-4 flex-shrink-0" />
-                    <span>{section.title}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {section.cards.map((card) => {
-                      const value = metrics[card.key] as number;
-                      const subtitleValue = card.subtitleOf != null ? metrics[card.subtitleOf] : null;
-                      return (
-                        <div key={card.key} className="rounded-md border border-border bg-background p-2">
-                          <p className="text-2xs text-muted-foreground">{METRIC_LABELS[card.key]}</p>
-                          <p className="text-base font-semibold">{formatMetric(card.key, value, share.currency)}</p>
-                          {typeof subtitleValue === "number" && (
-                            <p className="text-2xs text-muted-foreground">
-                              {Math.round(subtitleValue).toLocaleString("pt-BR")} {card.subtitleLabel}
-                            </p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-            {visibleSections.length === 0 && (
-              <p className="py-4 text-center text-sm text-muted-foreground">Sem métricas disponíveis para este criativo.</p>
+            {isMetricsExpanded ? (
+              <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <IconChevronUp className="h-4 w-4 shrink-0 animate-bounce text-muted-foreground" />
             )}
-          </div>
+          </button>
+
+          {/* Espiado: só os destaques escolhidos na criação do link */}
+          {!isMetricsExpanded && highlights.length > 0 && (
+            <div className={cn("grid gap-2 px-3 pb-2", highlights.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
+              {highlights.map((key) => {
+                const config = findMetricCardConfig(key);
+                const subtitleValue = config.subtitleOf != null ? metrics[config.subtitleOf] : null;
+                return (
+                  <PublicMetricCell
+                    key={key}
+                    metricKey={key}
+                    value={metrics[key] as number}
+                    average={averages[key]}
+                    currency={share.currency}
+                    subtitle={
+                      typeof subtitleValue === "number"
+                        ? `${Math.round(subtitleValue).toLocaleString("pt-BR")} ${config.subtitleLabel ?? ""}`.trim()
+                        : undefined
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+
+          {/* Expandido: as 4 seções do modal de detalhamento */}
+          {isMetricsExpanded && (
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 pb-3">
+              {visibleSections.map((section) => {
+                const SectionIcon = SECTION_ICONS[section.title];
+                return (
+                  <div key={section.title} className="space-y-2">
+                    <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
+                      {SectionIcon ? <SectionIcon className="h-4 w-4 flex-shrink-0" /> : null}
+                      <span>{section.title}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {section.cards.map((card) => {
+                        const subtitleValue = card.subtitleOf != null ? metrics[card.subtitleOf] : null;
+                        return (
+                          <PublicMetricCell
+                            key={card.key}
+                            metricKey={card.key}
+                            value={metrics[card.key] as number}
+                            average={averages[card.key]}
+                            currency={share.currency}
+                            subtitle={
+                              typeof subtitleValue === "number"
+                                ? `${Math.round(subtitleValue).toLocaleString("pt-BR")} ${card.subtitleLabel ?? ""}`.trim()
+                                : undefined
+                            }
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {visibleSections.length === 0 && (
+                <p className="py-4 text-center text-sm text-muted-foreground">Sem métricas disponíveis para este criativo.</p>
+              )}
+            </div>
+          )}
+
+          <a
+            href={`${getSiteOrigin()}/pv`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 border-t border-border py-1.5 text-center text-2xs text-muted-foreground hover:text-text"
+          >
+            Feito com <span className="font-semibold text-brand">Hookify</span>
+          </a>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 6TZcI2of2wLZDzThve1P00YQE87LvuOCxC624zd38wZE6ppLQwBkZCpAx8xbPQy
+\restrict YqJPMPpcintRfcRlNcpEenwwuEnwiLaNa68V2Yx9JSW0xqdA7Kqjb6XGRUUxRPp
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -4238,7 +4238,9 @@ CREATE TABLE public.ad_shares (
     view_count integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     expires_at timestamp with time zone,
-    revoked_at timestamp with time zone
+    revoked_at timestamp with time zone,
+    averages jsonb,
+    highlight_metrics jsonb DEFAULT '[]'::jsonb NOT NULL
 );
 
 
@@ -4291,6 +4293,20 @@ COMMENT ON COLUMN public.ad_shares.expires_at IS 'Expiração do LINK inteiro (d
 --
 
 COMMENT ON COLUMN public.ad_shares.revoked_at IS 'Revogação manual pelo dono (DELETE /shares/{id} faz UPDATE aqui, preservando view_count para histórico). NULL = ativo.';
+
+
+--
+-- Name: COLUMN ad_shares.averages; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.averages IS 'Medias do conjunto de criativos no momento da criacao (mesmas chaves de items[].metrics). Congeladas junto com as metricas: comparar valor de ontem com media de hoje mentiria. NULL = share criado antes desta migration (viewer degrada para cards neutros, sem cor/delta).';
+
+
+--
+-- Name: COLUMN ad_shares.highlight_metrics; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_shares.highlight_metrics IS 'Ate 2 chaves de metrica exibidas no painel "espiado" do viewer, sem expandir. [] = nenhuma em destaque (painel so abre no toque).';
 
 
 --
@@ -6136,5 +6152,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 6TZcI2of2wLZDzThve1P00YQE87LvuOCxC624zd38wZE6ppLQwBkZCpAx8xbPQy
+\unrestrict YqJPMPpcintRfcRlNcpEenwwuEnwiLaNa68V2Yx9JSW0xqdA7Kqjb6XGRUUxRPp
 

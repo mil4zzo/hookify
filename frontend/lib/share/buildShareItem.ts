@@ -1,4 +1,4 @@
-import { getMetricNumericValueOrNull } from "@/lib/metrics";
+import { getMetricNumericValueOrNull, type ManagerAverages } from "@/lib/metrics";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ShareItemMetrics } from "./types";
 
@@ -40,5 +40,32 @@ export function buildShareMetricsFromRow(
     clicks: value("clicks"),
     // Backend/viewer usam "mql_count"; no registry a chave canônica é "mqls".
     mql_count: value("mqls"),
+  };
+}
+
+/**
+ * Médias do conjunto para dentro do snapshot — a página pública não tem como
+ * recalculá-las (não acessa ad_metrics). É a MESMA média do modal de
+ * detalhamento (`useManagerAverages`), então a cor/delta do link batem com o
+ * que o gestor viu no app.
+ *
+ * Só as métricas que o modal compara: Visibilidade (spend/frequency/
+ * impressions/reach) não mostra média lá e também não mostra aqui.
+ */
+export function buildShareAverages(averages: ManagerAverages | null | undefined): ShareItemMetrics {
+  if (!averages) return {};
+  return {
+    cpmql: averages.cpmql,
+    cpr: averages.cpr,
+    cpc: averages.cpc,
+    cpm: averages.cpm,
+    ctr: averages.ctr,
+    website_ctr: averages.website_ctr,
+    connect_rate: averages.connect_rate,
+    page_conv: averages.page_conv,
+    scroll_stop: averages.scroll_stop,
+    hook: averages.hook,
+    hold_rate: averages.hold_rate,
+    video_watched_p50: averages.video_watched_p50,
   };
 }

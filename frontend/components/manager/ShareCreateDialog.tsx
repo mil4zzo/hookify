@@ -8,12 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ThumbnailImage } from "@/components/common/ThumbnailImage";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
+import { cn } from "@/lib/utils/cn";
 import { api } from "@/lib/api/endpoints";
-import { buildShareMetricsFromRow } from "@/lib/share/buildShareItem";
-import { MAX_SHARE_ITEMS, buildShareUrl } from "@/lib/share/types";
+import { buildShareAverages, buildShareMetricsFromRow } from "@/lib/share/buildShareItem";
+import { MAX_HIGHLIGHT_METRICS, MAX_SHARE_ITEMS, SHARE_HIGHLIGHT_OPTIONS, buildShareUrl } from "@/lib/share/types";
+import type { ShareMetricKey } from "@/lib/share/types";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { useSettings } from "@/lib/store/settings";
 import type { RankingsItem } from "@/lib/api/schemas";
+import type { ManagerAverages } from "@/lib/metrics";
+
+/** Sempre disponíveis, e o par que o gestor mais compartilha. */
+const DEFAULT_HIGHLIGHTS: ShareMetricKey[] = ["spend", "ctr"];
 
 export interface ShareCreateDialogProps {
   isOpen: boolean;
@@ -24,6 +30,8 @@ export interface ShareCreateDialogProps {
   dateStop: string;
   actionType: string;
   mqlLeadscoreMin: number;
+  /** Médias do conjunto — congeladas no snapshot para colorir o viewer público. */
+  averages?: ManagerAverages | null;
 }
 
 function formatDatePt(iso: string): string {
@@ -45,11 +53,12 @@ function extractErrorDetail(error: unknown): string {
  * snapshot da própria linha do Manager (mesmos valores do modal de detalhamento);
  * a mídia é resolvida no backend na criação.
  */
-export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, actionType, mqlLeadscoreMin }: ShareCreateDialogProps) {
+export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, actionType, mqlLeadscoreMin, averages }: ShareCreateDialogProps) {
   const formatCurrency = useFormatCurrency();
   const { settings } = useSettings();
 
   const [items, setItems] = useState<RankingsItem[]>([]);
+  const [highlights, setHighlights] = useState<ShareMetricKey[]>(DEFAULT_HIGHLIGHTS);
   const [isCreating, setIsCreating] = useState(false);
   const [result, setResult] = useState<{ token: string; expires_at: string } | null>(null);
 
@@ -59,9 +68,19 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
       toast.info(`Máximo de ${MAX_SHARE_ITEMS} criativos por link — mantivemos os ${MAX_SHARE_ITEMS} primeiros.`);
     }
     setItems(rows.filter((r) => !!r.ad_name).slice(0, MAX_SHARE_ITEMS));
+    setHighlights(DEFAULT_HIGHLIGHTS);
     setResult(null);
     setIsCreating(false);
   }, [isOpen, rows]);
+
+  /** Seleção circular: cheio + nova escolha descarta a mais antiga (sem beco sem saída). */
+  const toggleHighlight = useCallback((key: ShareMetricKey) => {
+    setHighlights((prev) => {
+      if (prev.includes(key)) return prev.filter((k) => k !== key);
+      if (prev.length < MAX_HIGHLIGHT_METRICS) return [...prev, key];
+      return [...prev.slice(1), key];
+    });
+  }, []);
 
   const shareUrl = result ? buildShareUrl(result.token) : null;
 
@@ -91,6 +110,8 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
           ad_name: String(row.ad_name),
           metrics: buildShareMetricsFromRow(row, { actionType, mqlLeadscoreMin }),
         })),
+        averages: buildShareAverages(averages),
+        highlight_metrics: highlights,
       };
       const res = await api.shares.create(payload);
       setResult({ token: res.token, expires_at: res.expires_at });
@@ -99,7 +120,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
     } finally {
       setIsCreating(false);
     }
-  }, [items, isCreating, dateStart, dateStop, settings.currency, actionType, mqlLeadscoreMin]);
+  }, [items, isCreating, dateStart, dateStop, settings.currency, actionType, mqlLeadscoreMin, averages, highlights]);
 
   return (
     <AppDialog isOpen={isOpen} onClose={onClose} title="Compartilhar criativos" size="lg" padding="md">
@@ -138,6 +159,39 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
             <p className="py-6 text-center text-sm text-muted-foreground">Nenhum criativo na lista.</p>
           )}
         </div>
+
+        {!result && (
+          <div className="space-y-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-sm font-medium">Métricas em destaque</p>
+              <p className="text-2xs text-muted-foreground">
+                {highlights.length}/{MAX_HIGHLIGHT_METRICS} · aparecem sem precisar expandir
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {SHARE_HIGHLIGHT_OPTIONS.map((option) => {
+                const isSelected = highlights.includes(option.key);
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    aria-pressed={isSelected}
+                    disabled={isCreating}
+                    onClick={() => toggleHighlight(option.key)}
+                    className={cn(
+                      "rounded-full border px-2.5 py-1 text-xs transition-colors",
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground"
+                        : "border-border bg-card text-muted-foreground hover:text-text",
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {result && shareUrl ? (
           <div className="space-y-2 rounded-md border border-success-30 bg-success-10 p-3">

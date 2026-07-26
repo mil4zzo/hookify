@@ -67,6 +67,9 @@ ALLOWED_METRIC_KEYS = frozenset({
     "results", "clicks", "mql_count",
 })
 
+# Máximo de métricas exibidas no painel "espiado" do viewer (sem expandir).
+MAX_HIGHLIGHT_METRICS = 2
+
 
 # ── Helpers puros (unit-testáveis) ───────────────────────────────────────────
 
@@ -91,6 +94,23 @@ def sanitize_metrics(metrics: Any) -> Dict[str, Optional[float]]:
     return out
 
 
+def sanitize_highlight_metrics(raw: Any) -> List[str]:
+    """Normaliza as métricas em destaque: chaves conhecidas, sem duplicatas,
+    no máximo MAX_HIGHLIGHT_METRICS. Entrada inválida vira lista vazia (o
+    viewer simplesmente não mostra o painel espiado) — destaque é preferência
+    de exibição, nunca motivo para recusar a criação do link."""
+    if not isinstance(raw, list):
+        return []
+    out: List[str] = []
+    for key in raw:
+        if not isinstance(key, str) or key not in ALLOWED_METRIC_KEYS or key in out:
+            continue
+        out.append(key)
+        if len(out) >= MAX_HIGHLIGHT_METRICS:
+            break
+    return out
+
+
 def _parse_date(value: Any, field: str) -> str:
     try:
         return datetime.strptime(str(value or ""), "%Y-%m-%d").date().isoformat()
@@ -99,10 +119,12 @@ def _parse_date(value: Any, field: str) -> str:
 
 
 def validate_share_payload(body: Dict[str, Any]) -> Dict[str, Any]:
-    """Valida o body do POST /shares → {date_start, date_stop, currency, items}.
+    """Valida o body do POST /shares → {date_start, date_stop, currency, items,
+    averages, highlight_metrics}.
 
     items normalizados: [{"ad_name": str, "metrics": {...sanitizado}}], sem
-    duplicatas, ordem preservada (é a ordem dos slides)."""
+    duplicatas, ordem preservada (é a ordem dos slides). averages usa a mesma
+    allowlist das métricas (é a média do conjunto, congelada junto)."""
     date_start = _parse_date(body.get("date_start"), "date_start")
     date_stop = _parse_date(body.get("date_stop"), "date_stop")
     if date_start > date_stop:
@@ -130,7 +152,14 @@ def validate_share_payload(body: Dict[str, Any]) -> Dict[str, Any]:
         seen.add(ad_name)
         items.append({"ad_name": ad_name, "metrics": sanitize_metrics(raw.get("metrics"))})
 
-    return {"date_start": date_start, "date_stop": date_stop, "currency": currency, "items": items}
+    return {
+        "date_start": date_start,
+        "date_stop": date_stop,
+        "currency": currency,
+        "items": items,
+        "averages": sanitize_metrics(body.get("averages")),
+        "highlight_metrics": sanitize_highlight_metrics(body.get("highlight_metrics")),
+    }
 
 
 def summarize_media_rows(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -201,6 +230,10 @@ def public_share_payload(row: Dict[str, Any]) -> Dict[str, Any]:
         "date_start": row.get("date_start"),
         "date_stop": row.get("date_stop"),
         "currency": row.get("currency"),
+        # Shares criados antes da migration 100 não têm médias/destaques: o
+        # viewer degrada para cards neutros e painel só-sob-toque.
+        "averages": row.get("averages") or {},
+        "highlight_metrics": row.get("highlight_metrics") or [],
         "created_at": row.get("created_at"),
         "expires_at": row.get("expires_at"),
     }
@@ -252,6 +285,8 @@ def create_share(
                     "date_stop": payload["date_stop"],
                     "currency": payload["currency"],
                     "items": slides,
+                    "averages": payload["averages"],
+                    "highlight_metrics": payload["highlight_metrics"],
                     "expires_at": expires_at.isoformat(),
                 })
                 .execute()

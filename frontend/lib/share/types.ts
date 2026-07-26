@@ -37,6 +37,33 @@ export type ShareMetricKey = (typeof SHARE_METRIC_KEYS)[number];
 
 export type ShareItemMetrics = Partial<Record<ShareMetricKey, number | null>>;
 
+/** Máximo de métricas exibidas sem expandir o painel (espelho do backend). */
+export const MAX_HIGHLIGHT_METRICS = 2;
+
+/**
+ * Métricas oferecidas como destaque, na ordem das seções do modal de
+ * detalhamento. As de "Visibilidade" (spend/frequency/impressions/reach) não
+ * têm média no modal e portanto aparecem sem cor/delta — igual lá.
+ */
+export const SHARE_HIGHLIGHT_OPTIONS: Array<{ key: ShareMetricKey; label: string }> = [
+  { key: "spend", label: "Spend" },
+  { key: "cpr", label: "CPR" },
+  { key: "cpmql", label: "CPMQL" },
+  { key: "cpc", label: "CPC" },
+  { key: "cpm", label: "CPM" },
+  { key: "ctr", label: "CTR" },
+  { key: "website_ctr", label: "Link CTR" },
+  { key: "connect_rate", label: "Connect Rate" },
+  { key: "page_conv", label: "Page Conv" },
+  { key: "scroll_stop", label: "Scroll Stop" },
+  { key: "hook", label: "Hook" },
+  { key: "hold_rate", label: "Hold Rate" },
+  { key: "video_watched_p50", label: "50% View" },
+  { key: "frequency", label: "Frequency" },
+  { key: "impressions", label: "Impressions" },
+  { key: "reach", label: "Reach" },
+];
+
 export interface ShareItem {
   ad_name: string;
   media: ShareItemMedia;
@@ -49,6 +76,10 @@ export interface PublicShare {
   date_start: string;
   date_stop: string;
   currency: string | null;
+  /** Médias congeladas do conjunto — base da cor/delta. {} em shares legados. */
+  averages: ShareItemMetrics;
+  /** Até 2 métricas exibidas sem expandir o painel. [] = painel só sob toque. */
+  highlight_metrics: ShareMetricKey[];
   created_at: string;
   expires_at: string | null;
 }
@@ -58,6 +89,8 @@ export interface CreateSharePayload {
   date_stop: string;
   currency?: string | null;
   items: Array<{ ad_name: string; metrics: ShareItemMetrics }>;
+  averages?: ShareItemMetrics;
+  highlight_metrics?: ShareMetricKey[];
 }
 
 export interface CreateShareResponse {

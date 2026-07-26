@@ -104,6 +104,8 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | created_at | timestamp | NOT NULL, DEFAULT |
 | expires_at | timestamp |  |
 | revoked_at | timestamp |  |
+| averages | jsonb |  |
+| highlight_metrics | jsonb | NOT NULL, DEFAULT |
 
 ---
 

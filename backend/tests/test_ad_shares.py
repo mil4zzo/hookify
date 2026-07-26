@@ -21,6 +21,7 @@ from fastapi import HTTPException
 from app.routes.shares import (
     MAX_SHARE_ITEMS,
     _TOKEN_ALPHABET,
+    sanitize_highlight_metrics,
     build_share_items,
     create_share,
     get_share_public,
@@ -80,6 +81,21 @@ def _valid_body(**overrides):
     return body
 
 
+class TestSanitizeHighlightMetrics:
+    def test_keeps_known_keys_in_order(self):
+        assert sanitize_highlight_metrics(["spend", "ctr"]) == ["spend", "ctr"]
+
+    def test_caps_at_two(self):
+        assert sanitize_highlight_metrics(["spend", "ctr", "cpr"]) == ["spend", "ctr"]
+
+    def test_drops_unknown_and_duplicates(self):
+        assert sanitize_highlight_metrics(["user_id", "spend", "spend", "cpr"]) == ["spend", "cpr"]
+
+    def test_non_list_returns_empty(self):
+        assert sanitize_highlight_metrics(None) == []
+        assert sanitize_highlight_metrics("spend") == []
+
+
 class TestValidateSharePayload:
     def test_happy_path_normalizes(self):
         payload = validate_share_payload(_valid_body())
@@ -87,6 +103,18 @@ class TestValidateSharePayload:
         assert payload["currency"] == "BRL"
         assert [i["ad_name"] for i in payload["items"]] == ["Criativo A", "Criativo B"]
         assert payload["items"][0]["metrics"] == {"spend": 10.0}
+
+    def test_averages_and_highlights_sanitized(self):
+        payload = validate_share_payload(
+            _valid_body(averages={"ctr": 0.015, "user_id": "evil"}, highlight_metrics=["spend", "ctr", "cpm"])
+        )
+        assert payload["averages"] == {"ctr": 0.015}
+        assert payload["highlight_metrics"] == ["spend", "ctr"]
+
+    def test_averages_and_highlights_default_empty(self):
+        payload = validate_share_payload(_valid_body())
+        assert payload["averages"] == {}
+        assert payload["highlight_metrics"] == []
 
     def test_invalid_currency_becomes_none(self):
         assert validate_share_payload(_valid_body(currency="R$"))["currency"] is None
@@ -225,9 +253,16 @@ class TestPublicPayload:
         }
         payload = public_share_payload(row)
         assert set(payload.keys()) == {
-            "items", "date_start", "date_stop", "currency", "created_at", "expires_at",
+            "items", "date_start", "date_stop", "currency",
+            "averages", "highlight_metrics", "created_at", "expires_at",
         }
         assert "user_id" not in str(payload)
+
+    def test_legacy_row_without_averages_degrades(self):
+        """Share criado antes da migration 100: viewer recebe vazios, não None."""
+        payload = public_share_payload({"items": [], "averages": None, "highlight_metrics": None})
+        assert payload["averages"] == {}
+        assert payload["highlight_metrics"] == []
 
 
 # ── create_share (endpoint, mocks) ───────────────────────────────────────────
