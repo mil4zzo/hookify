@@ -384,12 +384,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   // Drill state (URL-backed). Substitui a expansão inline por um modal único com breadcrumb.
   const drill = useDrillState();
-  const drillPushRef = useRef(drill.push);
+  const drillOpenChainRef = useRef(drill.openChain);
   const drillCloseRef = useRef(drill.close);
   useEffect(() => {
-    drillPushRef.current = drill.push;
+    drillOpenChainRef.current = drill.openChain;
     drillCloseRef.current = drill.close;
-  }, [drill.push, drill.close]);
+  }, [drill.openChain, drill.close]);
 
   const handleOpenDrill = useCallback(
     (original: RankingsItem) => {
@@ -401,20 +401,33 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       };
       const kind = tabToKind[currentTab];
       if (!kind) return;
-      let id = "";
-      let name: string | null = null;
+
+      // O drill abre já com a hierarquia completa acima do nível clicado — o breadcrumb
+      // precisa mostrar campanha/conjunto mesmo quando o usuário não desceu por eles.
+      // Ancestrais vêm do representante do grupo; para ad_name isso pode colapsar vários
+      // conjuntos, e o modal marca o crumb como ambíguo ao carregar os filhos.
+      const campaignId = String((original as any).campaign_id || "").trim();
+      const campaignName = String((original as any).campaign_name || "") || null;
+      const adsetId = String((original as any).adset_id || "").trim();
+      const adsetName = String((original as any).adset_name || "") || null;
+      const rowLabel = String((original as any).ad_name || "") || null;
+
+      const chain: { kind: DrillKind; id: string; name?: string | null }[] = [];
       if (kind === "campaign") {
-        id = String((original as any).campaign_id || "").trim();
-        name = String((original as any).campaign_name || (original as any).ad_name || "") || null;
+        if (!campaignId) return;
+        chain.push({ kind: "campaign", id: campaignId, name: campaignName || rowLabel });
       } else if (kind === "adset") {
-        id = String((original as any).adset_id || "").trim();
-        name = String((original as any).adset_name || (original as any).ad_name || "") || null;
+        if (!adsetId) return;
+        if (campaignId) chain.push({ kind: "campaign", id: campaignId, name: campaignName });
+        chain.push({ kind: "adset", id: adsetId, name: adsetName || rowLabel });
       } else {
-        id = String(original.ad_name || "").trim();
-        name = id || null;
+        const adName = String(original.ad_name || "").trim();
+        if (!adName) return;
+        if (campaignId) chain.push({ kind: "campaign", id: campaignId, name: campaignName });
+        if (adsetId) chain.push({ kind: "adset", id: adsetId, name: adsetName });
+        chain.push({ kind: "adname", id: adName, name: adName });
       }
-      if (!id) return;
-      drillPushRef.current({ kind, id, name });
+      drillOpenChainRef.current(chain);
     },
     [currentTab],
   );

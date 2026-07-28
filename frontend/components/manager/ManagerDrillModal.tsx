@@ -5,8 +5,9 @@ import type { ColumnFiltersState } from "@tanstack/react-table";
 import { AppDialog } from "@/components/common/AppDialog";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
-import { ManagerDrillBreadcrumb } from "@/components/manager/ManagerDrillBreadcrumb";
+import { ManagerDrillBreadcrumb, KIND_LABEL, type DrillCrumb } from "@/components/manager/ManagerDrillBreadcrumb";
 import { useDrillState } from "@/lib/manager/useDrillState";
+import { useAdVariations, useAdsetChildren } from "@/lib/api/hooks";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import type { RankingsItem, RankingsChildrenItem } from "@/lib/api/schemas";
 
@@ -58,6 +59,53 @@ export function ManagerDrillModal({
     if (!current) return "Drill";
     return KIND_TITLE[current.kind];
   }, [current]);
+
+  // Nomes dos ancestrais vêm das linhas-filhas já carregadas pelo corpo do modal (mesma
+  // queryKey → cache do TanStack, sem request extra). É a única fonte que sabe se o nível
+  // atual tem UM pai: um ad_name pode viver em vários conjuntos/campanhas.
+  const adNameLevel = current?.kind === "adname" ? current.id : "";
+  const adsetLevel = current?.kind === "adset" ? current.id : "";
+  const variationsQuery = useAdVariations(adNameLevel, dateStart || "", dateStop || "", selectedPackIds, !!adNameLevel);
+  const adsetChildrenQuery = useAdsetChildren(adsetLevel, dateStart || "", dateStop || "", selectedPackIds, !!adsetLevel);
+  const childrenRows = adNameLevel ? variationsQuery.data : adsetLevel ? adsetChildrenQuery.data : undefined;
+
+  const parentNames = useMemo(() => {
+    if (!childrenRows || childrenRows.length === 0) return null;
+    const campaigns = new Set<string>();
+    const adsets = new Set<string>();
+    for (const row of childrenRows) {
+      const campaign = String(row.campaign_name || "").trim();
+      if (campaign) campaigns.add(campaign);
+      const adset = String(row.adset_name || "").trim();
+      if (adset) adsets.add(adset);
+    }
+    return { campaign: [...campaigns], adset: [...adsets] };
+  }, [childrenRows]);
+
+  const currentNoun = current ? KIND_LABEL[current.kind].toLowerCase() : "item";
+
+  const crumbs = useMemo<DrillCrumb[]>(
+    () =>
+      stack.map((step, index) => {
+        const isLast = index === stack.length - 1;
+        // Só os ancestrais são reconciliados: no último crumb, adset/campaign do filho
+        // descrevem o próprio nível, não o pai.
+        const observed = !isLast && step.kind !== "adname" ? parentNames?.[step.kind] : undefined;
+        if (observed && observed.length > 1) {
+          const noun = step.kind === "campaign" ? "campanhas" : "conjuntos";
+          return {
+            kind: step.kind,
+            label: `Vários (${observed.length})`,
+            interactive: false,
+            hint: `Este ${currentNoun} existe em ${observed.length} ${noun}`,
+          };
+        }
+        const cached = step.name?.trim() || "";
+        const label = cached || (observed?.length === 1 ? observed[0] : "") || `${KIND_LABEL[step.kind]} #${step.id}`;
+        return { kind: step.kind, label };
+      }),
+    [stack, parentNames, currentNoun],
+  );
 
   if (!isOpen || !current) return null;
 
@@ -147,7 +195,7 @@ export function ManagerDrillModal({
       bodyClassName="flex min-h-0 flex-1 flex-col"
     >
       <header className="flex items-start border-b border-border px-6 py-4 pr-12">
-        <ManagerDrillBreadcrumb stack={stack} onNavigate={popTo} />
+        <ManagerDrillBreadcrumb crumbs={crumbs} onNavigate={popTo} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-card">
         {body}

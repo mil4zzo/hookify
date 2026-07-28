@@ -88,6 +88,12 @@ export interface UseDrillStateResult {
   current: ResolvedDrillStep | null;
   /** Push a new drill level. Pass `name` so breadcrumb can render a friendly label. */
   push: (step: DrillStep & { name?: string | null }) => void;
+  /**
+   * Abre o modal já com a cadeia completa (ex.: campanha → conjunto ao clicar numa
+   * linha da aba "Por conjunto"). Substitui a pilha atual — o breadcrumb passa a
+   * mostrar a hierarquia inteira mesmo sem o usuário ter navegado por ela.
+   */
+  openChain: (steps: (DrillStep & { name?: string | null })[]) => void;
   /** Truncate stack to keep only steps up to (and including) the given index. */
   popTo: (index: number) => void;
   /** Close the modal entirely. */
@@ -138,6 +144,24 @@ export function useDrillState(): UseDrillStateResult {
     [rawStack, writeStack],
   );
 
+  const openChain = useCallback(
+    (steps: (DrillStep & { name?: string | null })[]) => {
+      const valid = steps.filter((s) => s.id);
+      if (valid.length === 0) return;
+      const cache = readNameCache();
+      let dirty = false;
+      for (const step of valid) {
+        if (step.name) {
+          cache[nameCacheKey(step)] = step.name;
+          dirty = true;
+        }
+      }
+      if (dirty) writeNameCache(cache);
+      writeStack(valid.map(({ kind, id }) => ({ kind, id })));
+    },
+    [writeStack],
+  );
+
   const popTo = useCallback(
     (index: number) => {
       const safeIndex = Math.max(0, Math.min(index, rawStack.length - 1));
@@ -165,6 +189,7 @@ export function useDrillState(): UseDrillStateResult {
     isOpen: stack.length > 0,
     current,
     push,
+    openChain,
     popTo,
     close,
     setName,
