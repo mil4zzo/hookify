@@ -217,16 +217,18 @@ class UpdatePackNameRequest(BaseModel):
 
 
 class UpdatePackJudgmentRequest(BaseModel):
-    """Override de julgamento do pack. Campo ausente = nao mexe; null = volta a herdar."""
+    """Criterio de julgamento do pack. Campo ausente = nao mexe; null = nao definido.
+
+    So os campos INERENTES ao pack entram aqui. `diagnostic_cost_metric` e
+    `validation_criteria` sao controles de visualizacao e vivem em
+    `user_preferences` — nao tem override por pack.
+    """
 
     mql_leadscore_min: Optional[float] = Field(
-        default=None, description="Leadscore minimo para MQL neste pack. null = herda do usuario."
+        default=None, description="Leadscore minimo para MQL neste pack. null = nao definido (MQL/CPMQL indisponiveis)."
     )
     target_cpr: Optional[Dict[str, float]] = Field(
-        default=None, description="CPR alvo por action_type neste pack. null = herda do usuario."
-    )
-    diagnostic_cost_metric: Optional[str] = Field(
-        default=None, description="Metrica de custo do diagnostico: 'cpr' | 'cpmql'. null = herda do usuario."
+        default=None, description="CPR alvo por action_type neste pack. null = sem meta definida."
     )
 
     model_config = {"extra": "forbid"}
@@ -285,80 +287,91 @@ def _extract_lpv(row: Dict[str, Any]) -> int:
     return int(lpv or 0)
 
 
-def _get_user_mql_leadscore_min(sb, user_id: str) -> float:
-    """Busca o mql_leadscore_min PADRAO do usuario. Fallback seguro para 0.
+def _assert_pack_writable(user_id: str, pack_id: str) -> str:
+    """Garante que o ator pode ESCREVER a configuracao do pack. Devolve o papel.
 
-    Este e o padrao herdado. Para o valor efetivo de uma consulta, use
-    `_resolve_mql_leadscore_min`, que aplica o override do pack.
+    Dono e editor escrevem; viewer nao. A checagem passa por `resolve_pack_access`
+    e nao pela RLS de `packs`, que so enxerga o proprio silo — por ela, um editor
+    de pack alheio seria recusado antes de a regra de papel ser consultada.
     """
     try:
-        res = sb.table("user_preferences").select("mql_leadscore_min").eq("user_id", user_id).limit(1).execute()
-        if res and res.data:
-            raw = res.data[0].get("mql_leadscore_min")
-            v = float(raw) if raw is not None else 0.0
-            return v if v >= 0 else 0.0
-    except Exception:
-        pass
-    return 0.0
+        sb = get_supabase_service()
+        res = sb.rpc(
+            "resolve_pack_access",
+            {"p_pack_ids": [str(pack_id)], "p_actor_id": str(user_id)},
+        ).execute()
+    except Exception as e:
+        logger.exception("[JUDGMENT] Falha ao resolver acesso ao pack %s: %s", pack_id, e)
+        raise HTTPException(status_code=500, detail="Erro ao verificar acesso ao pack")
+
+    role = None
+    for row in (res.data or []):
+        if isinstance(row, dict) and str(row.get("pack_id")) == str(pack_id):
+            role = row.get("role")
+            break
+
+    if role is None:
+        # 404 e nao 403: nao confirmar a existencia de pack alheio.
+        raise HTTPException(status_code=404, detail="Pack nao encontrado")
+    if role not in ("dono", "editor"):
+        raise HTTPException(
+            status_code=403, detail="Somente dono ou editor podem editar a configuracao do pack"
+        )
+    return role
 
 
-def _resolve_mql_leadscore_min(sb, user_id: str, pack_ids: Optional[List[str]] = None) -> float:
-    """Resolve o mql_leadscore_min efetivo para os packs selecionados.
+def _resolve_mql_leadscore_min(user_id: str, pack_ids: Optional[List[str]] = None) -> Optional[float]:
+    """Corte de leadscore para MQL dos packs selecionados, ou None se indefinido.
 
-    Heranca com override — mesma regra do resolvedor SQL
-    (`public.resolve_pack_mql_leadscore_min`), que serve a RPC de series:
+    O corte vive SO no pack (migration 110) — nao ha mais heranca de
+    `user_preferences`. Retorna None quando nao ha packs, quando o pack nao tem
+    corte, ou quando os packs selecionados discordam entre si.
 
-      - 0 packs (ou nenhum encontrado)  -> padrao do usuario
-      - todos resolvem para o mesmo     -> esse valor
-      - divergem entre si               -> padrao do usuario
+    None significa NAO DEFINIDO, e nao zero. Zero afirmaria que todo lead e MQL,
+    o que derruba o CPMQL e produz um numero excelente e falso — falha silenciosa
+    na direcao que ninguem investiga. Quem consome precisa OMITIR MQL/CPMQL.
 
-    Pack com `mql_leadscore_min` NULL herda o padrao do usuario, entao um
-    conjunto de packs sem override nenhum nunca e considerado divergente.
-
-    A divergencia cai no padrao (e nao em erro) porque julgamento nao pode
-    quebrar a leitura: a UI e quem avisa que os packs discordam.
+    Delega ao resolvedor SQL em vez de reimplementar a regra. As duas copias ja
+    divergiram uma vez: esta aqui filtrava `user_id = ator` e, num pack
+    COMPARTILHADO, nunca encontrava o pack. Com um resolvedor so, nao repete.
     """
-    default = _get_user_mql_leadscore_min(sb, user_id)
-
     cleaned = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
     if not cleaned:
-        return default
+        return None
 
     try:
-        res = (
-            sb.table("packs")
-            .select("mql_leadscore_min")
-            .eq("user_id", user_id)
-            .in_("id", cleaned)
-            .execute()
-        )
-    except Exception:
-        return default
+        # Service role: a RPC e helper interno, revogada de `authenticated`. O
+        # escopo vem de `p_user_id`, que o resolvedor cruza com resolve_pack_access
+        # — pack sem acesso simplesmente nao entra na conta.
+        sb = get_supabase_service()
+        res = sb.rpc(
+            "resolve_pack_mql_leadscore_min",
+            {"p_user_id": str(user_id), "p_pack_ids": cleaned},
+        ).execute()
+    except Exception as e:
+        logger.warning("[MQL] Falha ao resolver corte de leadscore: %s", e)
+        return None
 
-    rows = (res.data or []) if res else []
-    if not rows:
-        return default
-
-    effective = set()
-    for row in rows:
-        raw = row.get("mql_leadscore_min") if isinstance(row, dict) else None
-        if raw is None:
-            effective.add(default)
-            continue
-        try:
-            v = float(raw)
-        except (TypeError, ValueError):
-            effective.add(default)
-            continue
-        effective.add(v if v >= 0 else 0.0)
-
-    if len(effective) == 1:
-        return next(iter(effective))
-    return default
+    raw = res.data if res else None
+    if raw is None:
+        return None
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return v if v >= 0 else None
 
 
-def _count_mql(leadscore_values: Any, mql_leadscore_min: float) -> int:
-    """Conta quantos leadscores sÃ£o >= mql_leadscore_min (valores invÃ¡lidos sÃ£o ignorados)."""
+def _count_mql(leadscore_values: Any, mql_leadscore_min: Optional[float]) -> Optional[int]:
+    """Conta quantos leadscores sao >= o corte (valores invalidos sao ignorados).
+
+    Sem corte definido retorna None — nao 0. "Nenhum lead qualificou" e um fato;
+    "nao da para dizer quantos qualificaram" e outra coisa. Quem acumula converte
+    para 0 no somatorio, mas a camada que MONTA a resposta decide pelo corte ser
+    None, nunca pelo acumulador estar zerado.
+    """
+    if mql_leadscore_min is None:
+        return None
     if not isinstance(leadscore_values, list) or not leadscore_values:
         return 0
     cnt = 0
@@ -388,8 +401,21 @@ def _sum_count_leadscore(leadscore_values: Any) -> Tuple[float, int]:
     return total, cnt
 
 
-def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include_cpmql: bool = True) -> Dict[str, Any]:
-    """ConstrÃ³i payload `series` no formato consumido pelo frontend (sparklines)."""
+def _build_rankings_series(
+    axis: List[str],
+    S: Optional[Dict[str, Any]],
+    include_cpmql: bool = True,
+    mql_available: bool = True,
+) -> Dict[str, Any]:
+    """ConstrÃ³i payload `series` no formato consumido pelo frontend (sparklines).
+
+    `mql_available=False` (corte de leadscore indefinido ou divergente entre os
+    packs) zera a AFIRMACAO, nao o valor: cpmql/mqls/mql_rate saem como null.
+    `leadscore_avg` continua saindo, porque a media nao depende do corte.
+
+    A decisao olha o corte, nunca o acumulador. `mql_count` zerado e ambiguo —
+    pode ser "nenhum lead atingiu o corte", que e um fato publicavel.
+    """
     # Se S for None, usar dict vazio para evitar AttributeError
     if S is None:
         S = {}
@@ -475,17 +501,23 @@ def _build_rankings_series(axis: List[str], S: Optional[Dict[str, Any]], include
         conversions_series.append(conversions_day)
 
         if include_cpmql:
-            mql_count_day = ((S.get("mql_count") or {}).get(d, 0)) or 0
-            cpmql_day = (spend_day / mql_count_day) if (mql_count_day and spend_day > 0) else None
-            cpmql_series.append(cpmql_day)
-            mqls_series.append(mql_count_day if mql_count_day > 0 else None)
-
             leadscore_sum_day = ((S.get("leadscore_sum") or {}).get(d, 0.0)) or 0.0
             leadscore_count_day = ((S.get("leadscore_count") or {}).get(d, 0)) or 0
+            # Independe do corte: e a media dos leads, nao a fatia qualificada.
             leadscore_avg_series.append((leadscore_sum_day / leadscore_count_day) if leadscore_count_day > 0 else None)
 
-            # Taxa de qualificação: MQLs sobre o TOTAL de leads do dia (não sobre os não-MQLs).
-            mql_rate_series.append((mql_count_day / leadscore_count_day) if leadscore_count_day > 0 else None)
+            if not mql_available:
+                cpmql_series.append(None)
+                mqls_series.append(None)
+                mql_rate_series.append(None)
+            else:
+                mql_count_day = ((S.get("mql_count") or {}).get(d, 0)) or 0
+                cpmql_day = (spend_day / mql_count_day) if (mql_count_day and spend_day > 0) else None
+                cpmql_series.append(cpmql_day)
+                mqls_series.append(mql_count_day if mql_count_day > 0 else None)
+
+                # Taxa de qualificação: MQLs sobre o TOTAL de leads do dia (não sobre os não-MQLs).
+                mql_rate_series.append((mql_count_day / leadscore_count_day) if leadscore_count_day > 0 else None)
 
     series: Dict[str, Any] = {
         "axis": axis,
@@ -1517,7 +1549,7 @@ def get_ad_name_details(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -1688,7 +1720,7 @@ def get_ad_name_details(
             series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
-                series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                series_acc["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
                 ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
                 series_acc["leadscore_sum"][date] += ls_sum
                 series_acc["leadscore_count"][date] += ls_cnt
@@ -1740,7 +1772,7 @@ def get_ad_name_details(
             else:
                 aggregated_curve.append(0)
 
-    series = _build_rankings_series(axis, series_acc, include_cpmql=True)
+    series = _build_rankings_series(axis, series_acc, include_cpmql=True, mql_available=mql_leadscore_min is not None)
 
     return {
         "account_id": agg["account_id"],
@@ -1791,7 +1823,7 @@ def get_rankings_children(
     entre packs com date_ranges diferentes super-contam.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -1956,7 +1988,7 @@ def get_rankings_children(
             S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
-                S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                S["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
                 ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
                 S["leadscore_sum"][date] += ls_sum
                 S["leadscore_count"][date] += ls_cnt
@@ -2010,7 +2042,7 @@ def get_rankings_children(
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
 
         S = series_acc.get(key)
-        series = _build_rankings_series(axis, S, include_cpmql=True) if S else None
+        series = _build_rankings_series(axis, S, include_cpmql=True, mql_available=mql_leadscore_min is not None) if S else None
 
         items.append({
             "account_id": A.get("account_id"),
@@ -2095,7 +2127,7 @@ def get_campaign_children(
         )
     return {"data": items}
 
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -2260,7 +2292,7 @@ def get_campaign_children(
             S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
-                S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                S["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
                 ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
                 S["leadscore_sum"][date] += ls_sum
                 S["leadscore_count"][date] += ls_cnt
@@ -2271,7 +2303,7 @@ def get_campaign_children(
     items: List[Dict[str, Any]] = []
     for key, A in agg.items():
         S = series_acc.get(key)
-        series = _build_rankings_series(axis, S, include_cpmql=True) if S else None
+        series = _build_rankings_series(axis, S, include_cpmql=True, mql_available=mql_leadscore_min is not None) if S else None
 
         hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
         hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
@@ -2348,7 +2380,7 @@ def get_adset_children(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -2520,7 +2552,7 @@ def get_adset_children(
 
             # MQLs por dia
             try:
-                S["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                S["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
                 ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
                 S["leadscore_sum"][date] += ls_sum
                 S["leadscore_count"][date] += ls_cnt
@@ -2572,7 +2604,7 @@ def get_adset_children(
         cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
         website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
 
-        series = _build_rankings_series(axis, series_acc.get(key), include_cpmql=True)
+        series = _build_rankings_series(axis, series_acc.get(key), include_cpmql=True, mql_available=mql_leadscore_min is not None)
 
         items.append(
             {
@@ -2630,7 +2662,7 @@ def get_adset_details(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -2808,7 +2840,7 @@ def get_adset_details(
             series_acc["conversions"][date] = conversions_day
 
             try:
-                series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                series_acc["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
                 ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
                 series_acc["leadscore_sum"][date] += ls_sum
                 series_acc["leadscore_count"][date] += ls_cnt
@@ -2823,7 +2855,7 @@ def get_adset_details(
     cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
     website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
 
-    series = _build_rankings_series(axis, series_acc, include_cpmql=True)
+    series = _build_rankings_series(axis, series_acc, include_cpmql=True, mql_available=mql_leadscore_min is not None)
 
     return {
         "account_id": agg["account_id"],
@@ -2869,7 +2901,7 @@ def get_ad_details(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -3050,7 +3082,7 @@ def get_ad_details(
             series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
             series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
             try:
-                series_acc["mql_count"][date] += _count_mql(leadscore_values, mql_leadscore_min)
+                series_acc["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
                 ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
                 series_acc["leadscore_sum"][date] += ls_sum
                 series_acc["leadscore_count"][date] += ls_cnt
@@ -3092,7 +3124,7 @@ def get_ad_details(
             else:
                 aggregated_curve.append(0)
 
-    series = _build_rankings_series(axis, series_acc, include_cpmql=True)
+    series = _build_rankings_series(axis, series_acc, include_cpmql=True, mql_available=mql_leadscore_min is not None)
 
     return {
         "account_id": agg["account_id"],
@@ -3211,7 +3243,7 @@ def get_ad_history(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     # Gerar array de datas do perÃ­odo
     axis = _axis_date_range(date_start, date_stop)
@@ -3337,7 +3369,7 @@ def get_ad_history(
         data_by_date[date]["hold_rate_wsum"] += hold_rate_val * plays
         data_by_date[date]["scroll_stop_wsum"] += scroll_stop_val * plays
         data_by_date[date]["reach"] += reach
-        data_by_date[date]["mql_count"] += _count_mql(leadscore_values, mql_leadscore_min)
+        data_by_date[date]["mql_count"] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
 
     # Construir array de resultados com todas as datas do perÃ­odo
     result = []
@@ -3368,8 +3400,14 @@ def get_ad_history(
         hold_rate = _safe_div(day_data["hold_rate_wsum"], day_data["plays"]) if day_data["plays"] else 0
         scroll_stop = _safe_div(day_data["scroll_stop_wsum"], day_data["plays"]) if day_data["plays"] else 0
         frequency = _safe_div(day_data["impressions"], day_data["reach"]) if day_data["reach"] else 0
-        mqls = day_data["mql_count"]
-        cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
+        # Corte de leadscore indefinido -> MQL/CPMQL sao INDISPONIVEIS, nao zero.
+        # Zero aqui viraria "nenhum lead qualificou", afirmacao que nao se pode fazer.
+        if mql_leadscore_min is None:
+            mqls = None
+            cpmql = None
+        else:
+            mqls = day_data["mql_count"]
+            cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
 
         result.append({
             "date": date,
@@ -3411,7 +3449,7 @@ def get_ad_name_history(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
+    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
 
     # Gerar array de datas do perÃ­odo (inclusive)
     axis = _axis_date_range(date_start, date_stop)
@@ -3537,7 +3575,7 @@ def get_ad_name_history(
         data_by_date[date]["hold_rate_wsum"] += hold_rate_val * plays
         data_by_date[date]["scroll_stop_wsum"] += scroll_stop_val * plays
         data_by_date[date]["reach"] += reach
-        data_by_date[date]["mql_count"] += _count_mql(leadscore_values, mql_leadscore_min)
+        data_by_date[date]["mql_count"] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
 
     # Construir array de resultados com todas as datas do perÃ­odo
     result: List[Dict[str, Any]] = []
@@ -3567,8 +3605,14 @@ def get_ad_name_history(
         hold_rate = _safe_div(day_data["hold_rate_wsum"], day_data["plays"]) if day_data["plays"] else 0
         scroll_stop = _safe_div(day_data["scroll_stop_wsum"], day_data["plays"]) if day_data["plays"] else 0
         frequency = _safe_div(day_data["impressions"], day_data["reach"]) if day_data["reach"] else 0
-        mqls = day_data["mql_count"]
-        cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
+        # Corte de leadscore indefinido -> MQL/CPMQL sao INDISPONIVEIS, nao zero.
+        # Zero aqui viraria "nenhum lead qualificou", afirmacao que nao se pode fazer.
+        if mql_leadscore_min is None:
+            mqls = None
+            cpmql = None
+        else:
+            mqls = day_data["mql_count"]
+            cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
 
         result.append({
             "date": date,
@@ -3860,17 +3904,17 @@ def update_pack_judgment(
     request: UpdatePackJudgmentRequest = Body(...),
     user=Depends(get_current_user)
 ):
-    """Atualiza os overrides de julgamento de um pack.
+    """Define o criterio de julgamento de um pack.
 
-    Semantica de heranca:
+    Semantica:
       - campo ausente no body -> nao mexe
-      - campo com valor null  -> limpa o override (pack volta a herdar do usuario)
-      - campo com valor       -> define o override
+      - campo com valor null  -> limpa (fica NAO DEFINIDO; MQL/CPMQL indisponiveis)
+      - campo com valor       -> define
+
+    Escrevem dono e editor. Viewer recebe 403.
     """
     try:
-        pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
-        if not pack:
-            raise HTTPException(status_code=404, detail="Pack nao encontrado")
+        _assert_pack_writable(user["user_id"], pack_id)
 
         # exclude_unset preserva a distincao entre "nao enviado" e "enviado como null".
         fields = request.model_dump(exclude_unset=True)
@@ -3878,10 +3922,6 @@ def update_pack_judgment(
         mql = fields.get("mql_leadscore_min")
         if "mql_leadscore_min" in fields and mql is not None and mql < 0:
             raise HTTPException(status_code=400, detail="mql_leadscore_min deve ser >= 0")
-
-        metric = fields.get("diagnostic_cost_metric")
-        if "diagnostic_cost_metric" in fields and metric is not None and metric not in ("cpr", "cpmql"):
-            raise HTTPException(status_code=400, detail="diagnostic_cost_metric deve ser 'cpr' ou 'cpmql'")
 
         target = fields.get("target_cpr")
         if "target_cpr" in fields and target is not None:
@@ -3895,7 +3935,7 @@ def update_pack_judgment(
         if not fields:
             raise HTTPException(status_code=400, detail="Nenhum campo de julgamento enviado")
 
-        supabase_repo.update_pack_judgment(user["token"], pack_id, user["user_id"], fields)
+        supabase_repo.update_pack_judgment(pack_id, fields, user["user_id"])
 
         return {"success": True, "pack_id": pack_id, "judgment": fields}
     except HTTPException:

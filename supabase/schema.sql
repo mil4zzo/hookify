@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict F0aGGfyK0WSCEyTAfWDKZ8qHIz38k9BdxThkjdhWVjhvMRVDZF5IonjHHkxpXNq
+\restrict A7jFY3wzDPstfy94jlrLfRZEdPDyU02PfbruOneoGKM1gGGPB9jRaTM06jW8E1G
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -2889,7 +2889,7 @@ declare
   v_selected_key text := trim(coalesce(p_action_type, ''));
   v_action_source text := null;
   v_action_name text := null;
-  v_mql_min numeric := 0;
+  v_mql_min numeric;  -- null = corte NAO definido (nao e zero)
   v_result jsonb;
   v_owners uuid[];
   v_requested integer;
@@ -3154,12 +3154,15 @@ begin
       sum(f.hold_rate_value * f.plays)::numeric as hold_rate_wsum,
       sum(f.video_watched_p50_value * f.plays)::numeric as video_watched_p50_wsum,
       sum(f.video_watched_p75_value * f.plays)::numeric as video_watched_p75_wsum,
-      sum(
-        coalesce(
-          (select count(*)::integer from unnest(f.leadscore_values) v where v >= v_mql_min),
-          0
+      (case
+        when v_mql_min is null then null
+        else sum(
+          coalesce(
+            (select count(*)::integer from unnest(f.leadscore_values) v where v >= v_mql_min),
+            0
+          )
         )
-      )::bigint as mql_count,
+      end)::bigint as mql_count,
       sum(
         coalesce((select sum(v) from unnest(f.leadscore_values) v), 0)
       )::numeric as leadscore_sum,
@@ -3252,7 +3255,8 @@ begin
         -- Denominador é leadscore_count (todos os leads), nunca (leads - mqls).
         'mql_rate', jsonb_agg(
           case
-            when coalesce(d.leadscore_count, 0) > 0 then d.mql_count::numeric / d.leadscore_count
+            when d.mql_count is not null and coalesce(d.leadscore_count, 0) > 0
+              then d.mql_count::numeric / d.leadscore_count
             else null
           end
           order by a.d
@@ -3528,45 +3532,34 @@ CREATE FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids
     SET search_path TO 'public'
     AS $$
 declare
-  v_actor_default numeric;
   v_distinct_count integer := 0;
   v_value numeric;
 begin
-  select coalesce(up.mql_leadscore_min, 0)
-    into v_actor_default
-  from public.user_preferences up
-  where up.user_id = p_user_id
-  limit 1;
-
-  v_actor_default := greatest(coalesce(v_actor_default, 0), 0);
-
   if p_pack_ids is null or array_length(p_pack_ids, 1) is null then
-    return v_actor_default;
+    return null;
   end if;
 
-  -- Um valor efetivo por pack ACESSIVEL: override do pack, senao o default do
-  -- DONO daquele pack. Pack sem acesso nao aparece em resolve_pack_access.
+  -- Um valor por pack ACESSIVEL (proprio ou compartilhado). Pack sem acesso nao
+  -- aparece em resolve_pack_access, entao nao ha como sondar pack alheio aqui.
+  --
+  -- `select distinct` trata NULL como valor: se um pack tem corte e outro nao,
+  -- o conjunto tem 2 elementos e cai em divergencia — que e o desejado, porque
+  -- misturar "cortado em 40" com "sem corte" nao produz um numero honesto.
   select count(*), min(s.v)
     into v_distinct_count, v_value
   from (
-    select distinct greatest(
-             coalesce(
-               p.mql_leadscore_min,
-               (select coalesce(owner_prefs.mql_leadscore_min, 0)
-                  from public.user_preferences owner_prefs
-                 where owner_prefs.user_id = a.owner_id),
-               0
-             ), 0) as v
+    select distinct pk.mql_leadscore_min as v
     from public.resolve_pack_access(p_pack_ids, p_user_id) a
-    join public.packs p on p.id = a.pack_id
+    join public.packs pk on pk.id = a.pack_id
   ) s;
 
   if v_distinct_count = 1 then
-    return greatest(coalesce(v_value, v_actor_default), 0);
+    return v_value;  -- pode ser NULL: pack unico e sem corte definido
   end if;
 
-  -- 0 packs acessiveis, ou divergencia: terreno neutro e o default do ator.
-  return v_actor_default;
+  -- 0 packs acessiveis, ou divergencia -> indefinido. Sem fallback: nao existe
+  -- mais "padrao do ator" para onde cair, e inventar um recriaria o furo.
+  return null;
 end;
 $$;
 
@@ -3577,7 +3570,7 @@ ALTER FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids 
 -- Name: FUNCTION resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids uuid[]); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids uuid[]) IS 'Leadscore minimo de MQL efetivo para um conjunto de packs. Por pack: override do pack, senao o default do DONO do pack (o criterio acompanha o pack compartilhado). Packs divergentes caem no default do ator. Acesso via resolve_pack_access. Helper interno — nao exposto ao PostgREST.';
+COMMENT ON FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids uuid[]) IS 'Corte de leadscore para MQL dos packs selecionados. Vem SO do pack — sem heranca de user_preferences. Retorna NULL quando indefinido ou divergente entre packs, e nesse caso MQL/CPMQL ficam indisponiveis. Helper interno — nao exposto ao PostgREST.';
 
 
 --
@@ -5863,5 +5856,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict F0aGGfyK0WSCEyTAfWDKZ8qHIz38k9BdxThkjdhWVjhvMRVDZF5IonjHHkxpXNq
+\unrestrict A7jFY3wzDPstfy94jlrLfRZEdPDyU02PfbruOneoGKM1gGGPB9jRaTM06jW8E1G
 
