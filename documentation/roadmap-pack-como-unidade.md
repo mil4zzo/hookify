@@ -5,9 +5,10 @@
 >
 > Última atualização: 2026-08-18
 >
-> **Concluído:** P2 (julgamento por pack) · P3.1 (grants + resolvedor de dono).
-> **Próximo passo:** P3.2 — fazer as RPCs derivarem o dono a partir de `p_pack_ids`.
-> É a fase de maior risco do P3: mexe no caminho mais quente do app.
+> **Concluído:** P2 · P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
+> **Próximo passo:** camadas 1 e 3 do bloqueio de conflito (pré-checagem na
+> seleção + estado bloqueante na UI), e os 8 endpoints de drill em `analytics.py`,
+> que ainda filtram `user_id = me` no Python.
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
@@ -272,12 +273,95 @@ N index scans, não varredura.
 Efeito colateral positivo: fica **mais seguro que hoje** — o cliente para de enviar
 um `user_id`, então não há id para forjar.
 
+### P3.2 — o que já foi feito (migration `104_manager_multi_owner_read_path.sql`)
+
+A RPC principal do Manager (`fetch_manager_rankings_core_v2`) passou a derivar os
+**donos** do dado a partir de `p_pack_ids`. Packs de donos diferentes convivem numa
+única agregação — uma query, uma média.
+
+**Desvio deliberado do roadmap: a assinatura foi PRESERVADA.** O plano previa remover
+`p_user_id`. Não foi feito porque mudar a lista de parâmetros cria ambiguidade de
+overload no PostgREST — exatamente a armadilha que a migration 095 teve de limpar.
+`p_user_id` passou a significar o **ator** e segue validado contra `auth.uid()`. O
+argumento do roadmap ("não há id para forjar") já era atendido por esse guard, então
+a remoção custaria risco real por ganho cosmético.
+
+#### O desenho ingênuo teria destruído o Manager
+
+Medido com `EXPLAIN ANALYZE` sobre dados reais (90 dias):
+
+| Variante | Tempo |
+|---|---|
+| Hoje: um dono, igualdade escalar | 67 ms |
+| **`am.user_id = any(v_owners)`** — o que o roadmap sugeria | **4010 ms** (60x pior) |
+| Dirigido pelos donos → map → metrics | **11 ms** (6x melhor que hoje) |
+| Dois silos, 22.9k linhas | 197 ms |
+
+`= ANY(array)` faz o planner perder `ad_metric_pack_map_user_pack_date_ad_idx` e cair
+no PK varrendo todos os `user_id`. Invertendo a direção — dirigir a partir dos donos
+resolvidos — o nested loop liga as 4 colunas do índice composto. **A mudança de
+correção também acelera o caminho de dono único que já existia.**
+
+O ramo legado (`p_pack_ids` nulo, sem map para dirigir) fica num `UNION ALL` cujo ramo
+morto o planner poda por completo — verificado no plano.
+
+#### Dedup cross-silo
+
+`distinct on (ad_id, date)`, vencendo o silo do **dono do pack compartilhado**
+(desempate por uuid). Custo zero: o Postgres já eliminava `user_id` da chave de
+ordenação por ser constante. Testado com sobreposição sintética — soma ingênua daria
+8822.85, o resultado é 3822.90.
+
+#### Como foi validado
+
+`v093` foi **mantida** e a troca do wrapper é de uma linha, então reverter é trivial.
+Antes de trocar, diferencial `v104` vs `v093`: **idêntico em 7 combinações**
+(ad_name/ad_id/adset_id/campaign_id, 30d e 90d, ramo legado sem packs, com
+action_type). Depois da troca, o wrapper vivo também bate com a v093.
+
+Capacidade nova verificada: pack sem grant → `Forbidden`; pack compartilhado legível;
+dois silos numa agregação só; sem dupla contagem.
+
+
+#### Achados de segurança e corretude desta rodada
+
+**Vazamento de dados (migration 106).** `fetch_ad_metrics_for_analytics` era
+`SECURITY DEFINER`, recebia `p_user_id` e estava concedida a `authenticated`
+**sem guard de `auth.uid()`**. Explorado antes de corrigir: um usuário leu 58.001
+linhas de métricas de outro. Corrigido com guard **e** `REVOKE` (defesa em
+profundidade), e a função depois dropada (migration 109) por ser código morto —
+o único caller era um helper Python sem chamadores.
+
+**Costura P2↔P3 quebrada (migration 108).** `resolve_pack_mql_leadscore_min`
+filtrava `p.user_id = p_user_id`. Num pack **compartilhado**, `packs.user_id` é o
+dono — então o convidado nunca encontrava o pack e caía no próprio default.
+Verificado: pack com override 40, dono via 40, convidado via 80. Os dois julgavam
+o mesmo pack por critérios diferentes, que é exatamente o que a P2 existia para
+impedir. Regra corrigida: **override do pack, senão o default do DONO**. Se fosse
+o default do ator, o furo apenas mudaria de lugar.
+
+**Sinal de conflito olha o dono, não a duplicidade (migration 105).** Dois packs
+do mesmo usuário podem compartilhar anúncios — existe no banco um par com 5.639
+linhas em comum. Se o sinal fosse "linha duplicada → avisa", o alerta dispararia
+para quem nunca compartilhou nada e nasceria como ruído.
+
+**O que NÃO foi dropado:** `core_v2_base_v093` e `_v104` seguem no banco. São o
+caminho de rollback de mudanças aplicadas nesta mesma rodada, e trocar o wrapper
+de volta é uma linha. Limpeza depois da v105 rodar em produção.
+
+#### Falta na P3.2
+
+Os 8 endpoints de drill em `analytics.py`, que ainda filtram `user_id = me` no
+Python. `series_v2` e `retention_v2` foram convertidas (migration 107, 11 casos
+diferenciais idênticos). `fetch_ad_metrics_for_analytics` não foi convertida de
+propósito — era código morto e saiu.
+
 ### Sub-fases
 
 | # | Escopo | Status |
 |---|---|---|
 | P3.1 | Tabela de grants (`pack_shares`) + resolvedor de dono | `Concluído` — 2026-08-18 |
-| P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Não iniciado` |
+| P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Concluído` — 2026-08-18 (migrations 104–109); faltam os 8 endpoints de drill em `analytics.py` |
 | P3.3 | Credencial por pack (FB e Google do dono) + ator em `meta_api_usage` | `Não iniciado` |
 | P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Não iniciado` |
 | P3.5 | Log de ações (ator, alvo, ação) + retenção de 365 dias | `Não iniciado` |

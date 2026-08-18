@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict KRf2BAcd3oCl76aR9FL6Y6EShZ6cvkTgeHFmO2O1RkGN13OKIxqCvMxRN0dXzgd
+\restrict F0aGGfyK0WSCEyTAfWDKZ8qHIz38k9BdxThkjdhWVjhvMRVDZF5IonjHHkxpXNq
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -332,75 +332,6 @@ ALTER FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owne
 
 COMMENT ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) IS 'Adquire lease de processamento do job de forma atômica. Permite claim inicial e self-healing apenas quando o lease expirou.';
 
-
---
--- Name: fetch_ad_metrics_for_analytics(uuid, date, date, uuid[], text[]); Type: FUNCTION; Schema: public; Owner: postgres
---
-
-CREATE FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[]) RETURNS SETOF jsonb
-    LANGUAGE plpgsql SECURITY DEFINER
-    SET search_path TO 'public'
-    SET plan_cache_mode TO 'force_custom_plan'
-    AS $$
-BEGIN
-  -- Guard que faltava. Sem ele esta funcao era um vazamento de dados: SECURITY
-  -- DEFINER, concedida a `authenticated`, recebendo p_user_id sem validacao —
-  -- qualquer usuario logado lia as metricas de qualquer outro passando o uuid
-  -- alheio. Verificado explorando: 58.001 linhas de outro usuario.
-  IF auth.uid() IS DISTINCT FROM p_user_id THEN
-    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()'
-      USING ERRCODE = '42501';
-  END IF;
-
-  RETURN QUERY
-  SELECT jsonb_build_object(
-    'ad_id',                     am.ad_id,
-    'ad_name',                   am.ad_name,
-    'account_id',                am.account_id,
-    'campaign_id',               am.campaign_id,
-    'campaign_name',             am.campaign_name,
-    'adset_id',                  am.adset_id,
-    'adset_name',                am.adset_name,
-    'date',                      am.date,
-    'clicks',                    am.clicks,
-    'impressions',               am.impressions,
-    'inline_link_clicks',        am.inline_link_clicks,
-    'spend',                     am.spend,
-    'video_total_plays',         am.video_total_plays,
-    'video_total_thruplays',     am.video_total_thruplays,
-    'video_watched_p50',         am.video_watched_p50,
-    'conversions',               am.conversions,
-    'actions',                   am.actions,
-    'video_play_curve_actions',  am.video_play_curve_actions,
-    'hook_rate',                 am.hook_rate,
-    'scroll_stop_rate',          am.scroll_stop_rate,
-    'hold_rate',                 am.hold_rate,
-    'reach',                     am.reach,
-    'frequency',                 am.frequency,
-    'leadscore_values',          am.leadscore_values,
-    'lpv',                       am.lpv
-  )
-  FROM public.ad_metrics am
-  WHERE am.user_id = p_user_id
-    AND am.date >= p_date_start
-    AND am.date <= p_date_stop
-    AND (
-      p_pack_ids IS NULL
-      OR EXISTS (
-        SELECT 1
-        FROM public.ad_metric_pack_map apm
-        WHERE apm.user_id = am.user_id
-          AND apm.ad_id = am.ad_id
-          AND apm.metric_date = am.date
-          AND apm.pack_id = ANY(p_pack_ids)
-      )
-    )
-    AND (p_account_ids IS NULL OR am.account_id = ANY(p_account_ids));
-END;
-$$;
-
-
-ALTER FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) OWNER TO postgres;
 
 --
 -- Name: fetch_manager_rankings_core_v2(uuid, date, date, text, uuid[], text[], text, text, text, text, boolean, boolean, integer, integer, text, text); Type: FUNCTION; Schema: public; Owner: postgres
@@ -2759,10 +2690,34 @@ declare
   v_date_stop date := greatest(p_date_start, p_date_stop);
   v_group_key text := trim(coalesce(p_group_key, ''));
   v_result jsonb;
+  v_owners uuid[];
+  v_requested integer;
 begin
+  -- p_user_id identifica o ATOR. Assinatura preservada: mudar a lista de
+  -- parametros cria ambiguidade de overload no PostgREST (ver migration 095).
   if auth.uid() is distinct from p_user_id then
     raise exception 'Forbidden: p_user_id must match auth.uid()'
       using errcode = '42501';
+  end if;
+
+  -- Os donos do dado saem dos packs pedidos. Pack inacessivel nao volta do
+  -- resolvedor, e a contagem denuncia: falhar alto e melhor que devolver
+  -- agregado silenciosamente incompleto.
+  if p_pack_ids is null then
+    v_owners := array[p_user_id];
+  else
+    select array_agg(distinct a.owner_id), count(distinct a.pack_id)
+      into v_owners, v_requested
+    from public.resolve_pack_access(p_pack_ids, p_user_id) a;
+
+    if coalesce(v_requested, 0) < (select count(distinct x) from unnest(p_pack_ids) x) then
+      raise exception 'Forbidden: pack inacessivel na selecao'
+        using errcode = '42501';
+    end if;
+
+    if v_owners is null or array_length(v_owners, 1) is null then
+      v_owners := array[p_user_id];
+    end if;
   end if;
 
   if v_group_by not in ('ad_id', 'ad_name', 'adset_id', 'campaign_id') then
@@ -2774,23 +2729,48 @@ begin
     return jsonb_build_object('group_key', v_group_key, 'video_play_curve_actions', '[]'::jsonb);
   end if;
 
+  -- P3.2: dirigido pelos DONOS resolvidos, nao filtrado por um user_id escalar.
+  -- Medido na RPC principal: `am.user_id = any(v_owners)` faz o planner perder
+  -- ad_metric_pack_map_user_pack_date_ad_idx e cair no PK varrendo todos os
+  -- user_ids (67ms -> 4010ms). Dirigindo a partir dos donos, o nested loop liga
+  -- as 4 colunas do indice composto. O ramo legado (p_pack_ids nulo, sem map
+  -- para dirigir) fica no UNION ALL e o planner poda o ramo morto.
   with base_candidates as (
     select am.*
     from public.ad_metrics am
-    where am.user_id = p_user_id
+    where p_pack_ids is null
+      and am.user_id = p_user_id
       and am.date >= v_date_start
       and am.date <= v_date_stop
+      and (p_account_ids is null or am.account_id = any(p_account_ids))
       and (
-        p_pack_ids is null
-        or exists (
-          select 1
-          from public.ad_metric_pack_map apm
-          where apm.user_id = am.user_id
-            and apm.ad_id = am.ad_id
-            and apm.metric_date = am.date
-            and apm.pack_id = any(p_pack_ids)
-        )
+        p_campaign_name_contains is null
+        or p_campaign_name_contains = ''
+        or coalesce(am.campaign_name, '') ilike '%' || p_campaign_name_contains || '%'
       )
+      and (
+        p_adset_name_contains is null
+        or p_adset_name_contains = ''
+        or coalesce(am.adset_name, '') ilike '%' || p_adset_name_contains || '%'
+      )
+      and (
+        p_ad_name_contains is null
+        or p_ad_name_contains = ''
+        or coalesce(am.ad_name, '') ilike '%' || p_ad_name_contains || '%'
+      )
+    union all
+    select am.*
+    from unnest(v_owners) as o(owner_id)
+    join public.ad_metric_pack_map apm
+      on apm.user_id = o.owner_id
+     and apm.pack_id = any(p_pack_ids)
+     and apm.metric_date >= v_date_start
+     and apm.metric_date <= v_date_stop
+    join public.ad_metrics am
+      on am.user_id = apm.user_id
+     and am.ad_id = apm.ad_id
+     and am.date = apm.metric_date
+    where p_pack_ids is not null
       and (p_account_ids is null or am.account_id = any(p_account_ids))
       and (
         p_campaign_name_contains is null
@@ -2808,14 +2788,18 @@ begin
         or coalesce(am.ad_name, '') ilike '%' || p_ad_name_contains || '%'
       )
   ),
+  -- P3.2: dedup CROSS-SILO. Vence o silo do DONO do pack compartilhado (o ator
+  -- perde), desempate por uuid — estavel entre refreshes. Custo zero: o Postgres
+  -- ja eliminava user_id da chave de ordenacao por ser constante.
   base as (
-    select distinct on (am.user_id, am.ad_id, am.date)
+    select distinct on (am.ad_id, am.date)
       am.*
     from base_candidates am
     order by
-      am.user_id,
       am.ad_id,
       am.date,
+      (am.user_id = p_user_id),
+      am.user_id,
       am.updated_at desc nulls last,
       am.created_at desc nulls last,
       am.id desc
@@ -2907,10 +2891,34 @@ declare
   v_action_name text := null;
   v_mql_min numeric := 0;
   v_result jsonb;
+  v_owners uuid[];
+  v_requested integer;
 begin
+  -- p_user_id identifica o ATOR. Assinatura preservada: mudar a lista de
+  -- parametros cria ambiguidade de overload no PostgREST (ver migration 095).
   if auth.uid() is distinct from p_user_id then
     raise exception 'Forbidden: p_user_id must match auth.uid()'
       using errcode = '42501';
+  end if;
+
+  -- Os donos do dado saem dos packs pedidos. Pack inacessivel nao volta do
+  -- resolvedor, e a contagem denuncia: falhar alto e melhor que devolver
+  -- agregado silenciosamente incompleto.
+  if p_pack_ids is null then
+    v_owners := array[p_user_id];
+  else
+    select array_agg(distinct a.owner_id), count(distinct a.pack_id)
+      into v_owners, v_requested
+    from public.resolve_pack_access(p_pack_ids, p_user_id) a;
+
+    if coalesce(v_requested, 0) < (select count(distinct x) from unnest(p_pack_ids) x) then
+      raise exception 'Forbidden: pack inacessivel na selecao'
+        using errcode = '42501';
+    end if;
+
+    if v_owners is null or array_length(v_owners, 1) is null then
+      v_owners := array[p_user_id];
+    end if;
   end if;
 
   if v_group_by not in ('ad_id', 'ad_name', 'adset_id', 'campaign_id') then
@@ -2944,23 +2952,48 @@ begin
   axis as (
     select generate_series(v_axis_start, v_date_stop, interval '1 day')::date as d
   ),
+  -- P3.2: dirigido pelos DONOS resolvidos, nao filtrado por um user_id escalar.
+  -- Medido na RPC principal: `am.user_id = any(v_owners)` faz o planner perder
+  -- ad_metric_pack_map_user_pack_date_ad_idx e cair no PK varrendo todos os
+  -- user_ids (67ms -> 4010ms). Dirigindo a partir dos donos, o nested loop liga
+  -- as 4 colunas do indice composto. O ramo legado (p_pack_ids nulo, sem map
+  -- para dirigir) fica no UNION ALL e o planner poda o ramo morto.
   base_candidates as (
     select am.*
     from public.ad_metrics am
-    where am.user_id = p_user_id
+    where p_pack_ids is null
+      and am.user_id = p_user_id
       and am.date >= v_date_start
       and am.date <= v_date_stop
+      and (p_account_ids is null or am.account_id = any(p_account_ids))
       and (
-        p_pack_ids is null
-        or exists (
-          select 1
-          from public.ad_metric_pack_map apm
-          where apm.user_id = am.user_id
-            and apm.ad_id = am.ad_id
-            and apm.metric_date = am.date
-            and apm.pack_id = any(p_pack_ids)
-        )
+        p_campaign_name_contains is null
+        or p_campaign_name_contains = ''
+        or coalesce(am.campaign_name, '') ilike '%' || p_campaign_name_contains || '%'
       )
+      and (
+        p_adset_name_contains is null
+        or p_adset_name_contains = ''
+        or coalesce(am.adset_name, '') ilike '%' || p_adset_name_contains || '%'
+      )
+      and (
+        p_ad_name_contains is null
+        or p_ad_name_contains = ''
+        or coalesce(am.ad_name, '') ilike '%' || p_ad_name_contains || '%'
+      )
+    union all
+    select am.*
+    from unnest(v_owners) as o(owner_id)
+    join public.ad_metric_pack_map apm
+      on apm.user_id = o.owner_id
+     and apm.pack_id = any(p_pack_ids)
+     and apm.metric_date >= v_date_start
+     and apm.metric_date <= v_date_stop
+    join public.ad_metrics am
+      on am.user_id = apm.user_id
+     and am.ad_id = apm.ad_id
+     and am.date = apm.metric_date
+    where p_pack_ids is not null
       and (p_account_ids is null or am.account_id = any(p_account_ids))
       and (
         p_campaign_name_contains is null
@@ -2978,14 +3011,18 @@ begin
         or coalesce(am.ad_name, '') ilike '%' || p_ad_name_contains || '%'
       )
   ),
+  -- P3.2: dedup CROSS-SILO. Vence o silo do DONO do pack compartilhado (o ator
+  -- perde), desempate por uuid — estavel entre refreshes. Custo zero: o Postgres
+  -- ja eliminava user_id da chave de ordenacao por ser constante.
   base as (
-    select distinct on (am.user_id, am.ad_id, am.date)
+    select distinct on (am.ad_id, am.date)
       am.*
     from base_candidates am
     order by
-      am.user_id,
       am.ad_id,
       am.date,
+      (am.user_id = p_user_id),
+      am.user_id,
       am.updated_at desc nulls last,
       am.created_at desc nulls last,
       am.id desc
@@ -3491,37 +3528,45 @@ CREATE FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids
     SET search_path TO 'public'
     AS $$
 declare
-  v_default numeric;
+  v_actor_default numeric;
   v_distinct_count integer := 0;
   v_value numeric;
 begin
   select coalesce(up.mql_leadscore_min, 0)
-    into v_default
+    into v_actor_default
   from public.user_preferences up
   where up.user_id = p_user_id
   limit 1;
 
-  v_default := greatest(coalesce(v_default, 0), 0);
+  v_actor_default := greatest(coalesce(v_actor_default, 0), 0);
 
   if p_pack_ids is null or array_length(p_pack_ids, 1) is null then
-    return v_default;
+    return v_actor_default;
   end if;
 
+  -- Um valor efetivo por pack ACESSIVEL: override do pack, senao o default do
+  -- DONO daquele pack. Pack sem acesso nao aparece em resolve_pack_access.
   select count(*), min(s.v)
     into v_distinct_count, v_value
   from (
-    select distinct coalesce(p.mql_leadscore_min, v_default) as v
-    from public.packs p
-    where p.user_id = p_user_id
-      and p.id = any(p_pack_ids)
+    select distinct greatest(
+             coalesce(
+               p.mql_leadscore_min,
+               (select coalesce(owner_prefs.mql_leadscore_min, 0)
+                  from public.user_preferences owner_prefs
+                 where owner_prefs.user_id = a.owner_id),
+               0
+             ), 0) as v
+    from public.resolve_pack_access(p_pack_ids, p_user_id) a
+    join public.packs p on p.id = a.pack_id
   ) s;
 
-  -- 1 valor efetivo -> usa. 0 packs encontrados ou divergencia -> padrao do usuario.
   if v_distinct_count = 1 then
-    return greatest(coalesce(v_value, v_default), 0);
+    return greatest(coalesce(v_value, v_actor_default), 0);
   end if;
 
-  return v_default;
+  -- 0 packs acessiveis, ou divergencia: terreno neutro e o default do ator.
+  return v_actor_default;
 end;
 $$;
 
@@ -3532,7 +3577,7 @@ ALTER FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids 
 -- Name: FUNCTION resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids uuid[]); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids uuid[]) IS 'Resolve o leadscore minimo de MQL efetivo para um conjunto de packs. Pack sobrescreve o padrao do usuario; packs divergentes caem no padrao. Helper interno — nao exposto ao PostgREST.';
+COMMENT ON FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids uuid[]) IS 'Leadscore minimo de MQL efetivo para um conjunto de packs. Por pack: override do pack, senao o default do DONO do pack (o criterio acompanha o pack compartilhado). Packs divergentes caem no default do ator. Acesso via resolve_pack_access. Helper interno — nao exposto ao PostgREST.';
 
 
 --
@@ -5461,13 +5506,6 @@ GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid,
 
 
 --
--- Name: FUNCTION fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]); Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO service_role;
-
-
---
 -- Name: FUNCTION fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -5825,5 +5863,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict KRf2BAcd3oCl76aR9FL6Y6EShZ6cvkTgeHFmO2O1RkGN13OKIxqCvMxRN0dXzgd
+\unrestrict F0aGGfyK0WSCEyTAfWDKZ8qHIz38k9BdxThkjdhWVjhvMRVDZF5IonjHHkxpXNq
 
