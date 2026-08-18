@@ -1,0 +1,398 @@
+# Roadmap — O pack como unidade de configuração e colaboração
+
+> **Documento vivo.** Atualize o status dos projetos conforme forem concluídos.
+> Serve para reconstruir contexto entre sessões/chats diferentes sem reler o histórico.
+>
+> Última atualização: 2026-08-17 · Nada iniciado ainda (fase de desenho)
+>
+> **Próximo passo:** P2 (configuração de julgamento por pack). Nenhuma decisão em
+> aberto bloqueia P2 ou P3 — as pendências são todas do P1, que está adiado.
+
+---
+
+## Tese
+
+Hoje o Hookify trata `user_id` como dono de **tudo**: do dado, da configuração de
+julgamento e da identidade de quem pede. Isso gera três problemas encadeados:
+
+1. Times inteiros carregam o mesmo pack, multiplicando linhas no banco e obrigando
+   cada pessoa a atualizar por conta própria.
+2. O critério de julgamento (validação, MQL, CPR alvo) é global do usuário, mas na
+   prática varia por campanha/funil — que é o que o pack representa.
+3. Dados que só existem em planilha (etapas do funil comercial) não têm como entrar
+   no app, porque a integração atual só sabe importar leadscore.
+
+Este super-projeto move a unidade de **configuração** e de **colaboração** do
+usuário para o **pack**.
+
+---
+
+## Ordem e dependências
+
+```
+P2 — Configuração de julgamento por pack
+      │  sem isso, dois membros veem vereditos diferentes no mesmo pack
+      ▼
+P3 — Compartilhamento de packs entre usuários
+      ·
+P1 — Planilha flexível (multi-coluna)   ← ADIADO, ver abaixo
+```
+
+**Por que P2 antes de P3:** critério por usuário + pack compartilhado = o gestor e o
+copywriter abrem o mesmo pack e veem vereditos diferentes. O pack deixa de ser
+linguagem comum do time, que é o objetivo inteiro do P3.
+
+**P2 se sustenta sozinho:** `mql_leadscore_min` é vinculado à planilha, que é do pack.
+Cada pack tem escala de leadscore diferente. Útil hoje, com ou sem compartilhamento.
+
+**Por que P1 saiu da frente (revisão de 2026-08-17):** a primeira versão deste
+documento afirmava que P1.1 era pré-requisito de P2 porque "os dois escrevem no mesmo
+container de config do pack". **Isso estava errado.** P2 move *limiares e alvos*
+(escalares); P1 mapeia *colunas de planilha para métricas*. São ambos config do pack,
+mas um não depende do outro — o acoplamento é fraco. O único cuidado é deixar o
+container do P2 extensível para acomodar mapeamento de colunas depois, evitando
+migração quando o P1 voltar.
+
+---
+
+## P1 — Integração de planilhas flexível
+
+**Status:** `ADIADO` — retomar depois de P3, com conversa própria sobre atribuição de data
+
+### Por que foi adiado
+
+Eventos de funil comercial (reunião agendada, executada, fechada) acontecem **dias
+depois** da captura do lead. Leadscore não tem esse problema: é calculado no cadastro,
+então a data da planilha é a data de captura e a atribuição é trivial.
+
+A parte **mecânica** da retroatividade já está resolvida: o sync lê a planilha inteira
+toda vez, sem range incremental, e grava por `{date}-{ad_id}`
+(`ad_metrics_sheet_importer.py:440`). Uma reunião marcada hoje atualiza a linha de três
+semanas atrás no próximo sync, sem estrutura nova.
+
+O que falta é **semântica**, e é decisão de produto, não de banco:
+
+> Ao filtrar um período, o usuário quer os eventos **daquele período** ou os eventos
+> **dos leads capturados naquele período**?
+
+Guardar só a contagem em `ad_metrics(ad_id, date)` **não escapa dessa decisão — ela a
+faz por omissão**, pendurando a contagem na data de captura (coorte). Esse modelo é o
+correto para julgar anúncio, mas traz duas consequências visíveis no primeiro dia:
+
+- Dias recentes ficam estruturalmente ruins e melhoram sozinhos (os leads de ontem
+  ainda não tiveram tempo de agendar). "Custo por reunião" dos últimos dias não
+  significa nada.
+- Fica impossível responder "quantas reuniões aconteceram esta semana" — só "quantas
+  reuniões vieram dos leads capturados esta semana".
+
+Ambas defensáveis; o risco é a escolha ser implícita e a UI não dizer qual está
+mostrando. Número com significado errado é pior que número ausente, porque as pessoas
+criam hábito em cima dele.
+
+Permitir que o usuário vincule **múltiplas colunas** da planilha, não só leadscore.
+Caso de uso: um lead que veio de um anúncio do Meta e avançou no funil comercial
+(reunião agendada / no-show / fechada). São etapas que o Meta não conhece e que hoje
+ficam fora do Hookify.
+
+### Sub-fases
+
+| # | Escopo | Status |
+|---|---|---|
+| P1.1 | Container de configuração por pack (onde vive o mapeamento de colunas) | `Não iniciado` |
+| P1.2 | Armazenamento + importação de colunas arbitrárias | `Não iniciado` |
+| P1.3 | Exposição como métrica (Manager, analytics, registry de colunas) | `Não iniciado` |
+
+Só **P1.1 e P1.2** são pré-requisito de P3. P1.3 é independente do compartilhamento —
+dá para intercalar P1.1 → P1.2 → P2 → P3 → P1.3 se o compartilhamento for prioridade.
+
+### Armazenamento decidido (simplificado)
+
+Decisão: **só contagens**, sem detalhe por lead. Custo por reunião marcada/executada
+sai de contagem + spend, o que cobre ~90% dos casos.
+
+1. **`ad_metrics.custom_metrics jsonb`** — contadores agregados por `(ad_id, date)`.
+   É o que o read path quente lê: extração por linha, sem join, sem unnest.
+   jsonb (e não colunas reais) porque as colunas são nomeadas pelo usuário.
+2. **`leadscore_values` fica como está.** Funciona, é o caminho mais sensível do app,
+   e reescrevê-lo não compra nada.
+
+**Descartado por ora — mas é o caminho conhecido se voltar a ser necessário:** uma
+tabela lateral `ad_lead_events` (uma linha por lead) seria obrigatória para cruzar
+limiar dinâmico com atributo por lead — ex.: "MQL que agendou reunião". Sem ela, esse
+cruzamento não existe. Se um dia for preciso, é essa a estrutura.
+
+### Pontos de atenção
+
+- `ad_metrics.leadscore_values numeric[]` guarda **um valor por linha da planilha**,
+  sem identidade do lead (`ad_metrics_sheet_importer.py:288`). O array existe porque o
+  limiar de MQL é aplicado **na leitura**, dentro da RPC
+  (`schema.sql:553`, `1234`, `1926`, `3599`) — guardar só a contagem faria mudar o
+  limiar reescrever o passado.
+- Além das 4 RPCs, o leadscore aparece em ~10 pontos de `backend/app/routes/analytics.py`.
+- Nova métrica-coluna no Manager tem checklist próprio — ver memória
+  `manager_metric_column_pipeline`.
+- P1.1 é pré-requisito de P2: os dois escrevem no mesmo container de config por pack.
+- **Sem chave estável de lead**, a lateral conta bem mas não acompanha um lead ao
+  longo do tempo. E no dia em que alguém mapear uma coluna de e-mail, entra PII no
+  banco — decisão para quando chegar lá.
+
+---
+
+## P2 — Configuração de julgamento por pack
+
+**Status:** `Concluído` — 2026-08-17 (migration `101_pack_judgment_config.sql` aplicada no banco remoto)
+
+Mover a configuração de julgamento de `user_preferences` para o pack, com
+**herança e override**: o `user_preferences` continua sendo o padrão, o pack pode
+sobrescrever. Quem nunca sobrescrever não percebe mudança — regressão zero no dia
+da migração.
+
+### O que foi entregue
+
+**Banco** — `packs` ganhou `mql_leadscore_min numeric`, `target_cpr jsonb` e
+`diagnostic_cost_metric text`, todas nulas (NULL = herda), com CHECK constraints.
+Nova função `public.resolve_pack_mql_leadscore_min(uuid, uuid[])`, revogada de
+`anon`/`authenticated` (helper interno, não exposto ao PostgREST).
+
+**A mesma regra existe em três lugares** e os três foram testados com os mesmos
+casos até baterem:
+
+| Implementação | Onde | Serve |
+|---|---|---|
+| SQL | `resolve_pack_mql_leadscore_min` | `fetch_manager_rankings_series_v2` |
+| Python | `_resolve_mql_leadscore_min` (`routes/analytics.py`) | 8 endpoints de drill/detalhe |
+| TypeScript | `resolveJudgment` (`lib/judgment/`) | contagem de MQL, G.O.L.D., plano, diagnóstico |
+
+Se divergirem, o número da tabela passa a diferir do número do gráfico — qualquer
+mexida na regra tem que passar pelos três.
+
+**Descoberta que reduziu o escopo:** só `fetch_manager_rankings_series_v2` lia
+`mql_leadscore_min` em SQL no caminho vivo. As três
+`fetch_manager_analytics_aggregated_base_v047/48/49` também liam, mas a entrada
+`fetch_manager_analytics_aggregated` não era chamada por nenhum lugar do backend
+nem do frontend — cadeia inteiramente órfã. Verificado contra o banco remoto, não
+contra `schema.sql`.
+
+**Limpeza (migration `102_drop_dead_manager_analytics_aggregated_rpcs.sql`):** a
+cadeia foi dropada. Código morto carregando a regra de MQL *anterior* à 101 é pior
+que código morto neutro — some antes que alguém ressuscite por engano. A migration
+segue a forma da 095: guarda de pré-condição (nenhuma função/view cita o nome —
+corpo de plpgsql não é rastreado como dependência pelo Postgres, então a checagem
+é a única rede), drops, e pós-condição verificando que as 6 funções vivas do
+read-path continuam de pé. Saíram junto os ramos de desempacotamento já
+inalcançáveis em `_normalize_rankings_rpc_response`.
+
+**Frontend** — ponto único de resolução em `usePackJudgment()`. `useMqlLeadscore()`
+passou a devolver o valor **efetivo**, então os ~10 consumidores de julgamento
+(Manager, Insights, G.O.L.D., Plano, AdDetails) foram corrigidos sem serem tocados.
+
+**Onde a edição vai parar** (`useJudgmentEditor`): edita-se **o que está em vigor**.
+Se o valor efetivo veio do override de um pack e há exatamente um pack selecionado,
+grava no pack; se veio do padrão da conta, grava na conta; se vários packs
+compartilham o mesmo override, a edição é travada e aponta para a configuração do
+pack. Sem isso, o usuário mexeria num controle mostrando o valor do pack e gravaria
+silenciosamente na conta — o número na tela não mudaria e o padrão global seria
+corrompido de quebra.
+
+**UI** — `PackJudgmentDialog` (Packs → menu do pack → "Critérios de julgamento"),
+com toggle de herança por campo. O painel de MQL no Topbar passou a editar
+explicitamente o **padrão da conta** e avisa quando os packs selecionados usam
+critério próprio ou divergem entre si.
+
+### Pendência conhecida
+
+`validation_criteria` continua em `user_preferences` por decisão — mas ele ainda é
+persistido **em localStorage** além do banco (`hookify-validation-criteria`), o que
+é anterior a este projeto e não foi mexido.
+
+### Campos e dependência do pack
+
+| Campo | Hoje | Dependência do pack |
+|---|---|---|
+| `mql_leadscore_min` | `user_preferences` | **Forte** — vem da planilha, que é do pack |
+| `target_cpr` | `user_preferences` (jsonb `Record<action_type, number>`) | **Forte** — indexado por action_type, que vem de `packs.conversion_types` |
+| `diagnostic_cost_metric` | `user_preferences` (`'cpr'` \| `'cpmql'`) | **Média** — se `cpmql`, depende de `mql_leadscore_min` |
+| `validation_criteria` | `user_preferences` (jsonb) | **Fraca** — é mais preferência do analista ("o que considero validado") |
+
+### Regra de conflito em seleção múltipla
+
+Se os packs selecionados resolvem para o mesmo critério efetivo → usa.
+Se divergem → avisa explicitamente e cai no padrão do usuário.
+
+Precedente parcial: `packs.conversion_types` já é metadado materializado por pack.
+A diferença é que aquilo é *lista de opções* (união natural), enquanto critério é
+*veredito* (conflito real). Por isso a regra acima precisa existir.
+
+### Distribuição do esforço
+
+- `validation_criteria`: ~30 arquivos de frontend consumindo (G.O.L.D., insights,
+  plano, manager, export, onboarding) — mas todos derivam de **um** ponto de
+  resolução (`useUserPreferences` / store). O trabalho é mover o ponto, não os 30.
+- `mql_leadscore_min`: backend pesado — embutido no SQL de 4 RPCs.
+
+---
+
+## P3 — Compartilhamento de packs entre usuários
+
+**Status:** `Não iniciado`
+
+Um usuário compartilha um pack com outro usuário do Hookify. O dado **não é
+copiado**: permanece no silo do dono e o convidado lê de lá.
+
+### Por que é viável a custo baixo
+
+1. Toda RPC já recebe `p_user_id` como **parâmetro explícito** e é `SECURITY DEFINER`.
+   A partição já é variável, não implícito.
+2. Existe **um único checkpoint de autorização** por RPC:
+   `if auth.uid() is distinct from p_user_id then raise 'Forbidden'`.
+3. Toda linha já é fisicamente particionada por `user_id`
+   (`ads` PK `(ad_id,user_id)`, `ad_metrics` PK `(id,user_id)`,
+   `ad_metric_pack_map` PK `(user_id,pack_id,ad_id,metric_date)`,
+   `parent_entities`, Storage em `thumbs/{user_id}/...`). Nada precisa se mover.
+
+### Desenho decidido: RPC deriva o dono dos pack_ids
+
+A RPC **para de receber `p_user_id`** e passa a derivar o conjunto de donos a partir
+de `p_pack_ids`. Como pack id é UUID globalmente único, a função:
+
+1. resolve quais packs pedidos o chamador acessa (próprio **ou** com grant ativo);
+2. se algum pack pedido não for acessível → `Forbidden`;
+3. filtra `am.user_id = ANY(donos)`, com o join no map carregando `m.user_id = am.user_id`.
+
+**Uma query, uma agregação, uma média.** Packs de donos diferentes podem conviver na
+mesma seleção — o pack compartilhado aparece como um pack normal na conta do convidado.
+
+Índices aguentam: os relevantes começam por `user_id`
+(`ad_metrics_user_date_idx`, `ad_metrics_user_name_date_ad_idx`,
+`ad_metric_pack_map_user_pack_date_ad_idx`). `= ANY(array)` com poucos valores vira
+N index scans, não varredura.
+
+Efeito colateral positivo: fica **mais seguro que hoje** — o cliente para de enviar
+um `user_id`, então não há id para forjar.
+
+### Sub-fases
+
+| # | Escopo | Status |
+|---|---|---|
+| P3.1 | Tabela de grants (`pack_shares`) + resolvedor de dono | `Não iniciado` |
+| P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Não iniciado` |
+| P3.3 | Credencial por pack (FB e Google do dono) + ator em `meta_api_usage` | `Não iniciado` |
+| P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Não iniciado` |
+| P3.5 | Log de ações (ator, alvo, ação) + retenção de 365 dias | `Não iniciado` |
+| P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Não iniciado` |
+| P3.7 | UI: convite, badge de pack compartilhado, aviso de refresh em andamento | `Não iniciado` |
+| P3.8 | *(pós-MVP)* Token do convidado quando ele tem acesso próprio à conta | `Não iniciado` |
+
+Correção de 2026-08-17: `viewer` **entra no MVP** (decisão travada), então os cargos
+saíram do pós-MVP e viraram P3.6. Só o token do convidado ficou para depois.
+
+---
+
+## Decisões travadas
+
+| Data | Decisão | Razão |
+|---|---|---|
+| 2026-08-17 | Dado **não é copiado** no compartilhamento; fica no silo do dono | É a dor original: duplicação e refreshes independentes |
+| 2026-08-17 | Grant **pack a pack** | Mais simples; granularidade certa para o caso de uso |
+| 2026-08-17 | RPC deriva dono de `p_pack_ids`, não recebe `p_user_id` | Uma média só; e elimina id forjável |
+| 2026-08-17 | **Sem trava de tier** — compartilhar é livre | Decisão de produto; cobrança não é preocupação agora |
+| 2026-08-17 | MVP **sem cargos**: membro faz tudo (ler, atualizar, pausar, budget) | Risco de editor é organizacional, não do app |
+| 2026-08-17 | Coluna `role` criada **desde já** (default `editor`), sem uso na UI | Custo zero hoje; evita backfill ambíguo depois |
+| 2026-08-17 | Credencial **sempre do dono** (Facebook e Google Sheets) | Permite convidar copywriter/editor sem conta Meta |
+| 2026-08-17 | Registrar **ator** em toda escrita | Único rastro possível: na Meta o log mostra o dono |
+| 2026-08-17 | Critérios de julgamento: **herança com override** (user default → pack) | Regressão zero para quem não sobrescreve |
+| 2026-08-17 | Ordem P1 → P2 → P3 | P1 define o vocabulário; P2 é pré-requisito semântico de P3 |
+| 2026-08-17 | Convidado enxerga **apenas o conteúdo do pack** — inclusive adsets e campanhas | Compartilhou o pack, não a conta |
+| 2026-08-17 | MVP: convite **só para quem já tem conta** no Hookify | Projeto não tem nenhuma infraestrutura de e-mail hoje; convite a não-cadastrado é camada aditiva |
+| 2026-08-17 | Busca de convidado por **e-mail exato**, com rate limit e payload mínimo | Evita que o app vire oráculo de "esse e-mail tem conta aqui?" |
+| 2026-08-17 | P1: colunas de **vocabulário livre**, sem conjunto fixo de etapas | Cada nicho tem um funil |
+| 2026-08-17 | P1: armazenamento **detalhe + rollup** (`ad_lead_events` + `custom_metrics jsonb`), `leadscore_values` intocado | Cada requisito servido pelo mecanismo mais barato que o serve |
+| 2026-08-17 | P2: migram `mql_leadscore_min`, `target_cpr`, `diagnostic_cost_metric`; `validation_criteria` fica no usuário | Os três primeiros têm dependência estrutural do pack |
+| 2026-08-17 | Dedup cross-silo: vence o silo do **dono do pack compartilhado**, desempate por uuid | Estável entre refreshes; "mais recente" faria o número oscilar |
+| 2026-08-17 | Detectar duplicata e **oferecer limpeza** do pack próprio redundante | Dedup é rede de segurança; apagar a cópia é a resolução real |
+| 2026-08-17 | Budget de campanha: **mostrar igual ao dono** | Descasamento budget-vs-spend já existe hoje em qualquer pack parcial; não é vazamento novo |
+| 2026-08-17 | Cargos `dono` / `editor` / `viewer`; **só o dono compartilha** (sem repasse) | — |
+| 2026-08-17 | Dono apaga → some para todos, com aviso de que há membros. Convidado tem "sair do pack" | "Sair" é o convidado se auto-remover, não pré-requisito de nada |
+| 2026-08-17 | Retenção do log de ações: **365 dias** | Só um time usa o app hoje; reduz depois se virar problema |
+| 2026-08-17 | P1: **só contagens**, sem detalhe por lead | Custo por reunião sai de contagem + spend; cobre ~90% dos casos |
+| 2026-08-17 | `viewer` **vale de verdade no MVP** | ~6-8 endpoints checando cargo; barato o bastante |
+| 2026-08-17 | P1: mapear coluna nova **reimporta o histórico**, com aviso | É o que o usuário espera |
+| 2026-08-17 | Métricas de planilha **entram no julgamento** (validação, G.O.L.D., diagnóstico) | Senão P1 vira só relatório |
+| 2026-08-17 | Membro **pode disparar o sync da planilha** do dono | Mesma lógica do refresh do Meta |
+| 2026-08-17 | **Ordem revisada para P2 → P3 → P1** | P1 não era pré-requisito de P2; e sua pendência é semântica (atribuição de data), não técnica |
+
+---
+
+## Decisões em aberto
+
+> Nenhuma decisão bloqueia P2 ou P3. As abertas são todas do P1, que está adiado.
+
+1. **Atribuição de data (P1) — a que travou o projeto.** Ao filtrar um período, o
+   usuário quer os eventos **daquele período** ou os eventos **dos leads capturados
+   naquele período**? Provavelmente os dois, com a UI dizendo claramente qual está
+   sendo mostrado. Decisão de produto; merece conversa própria.
+
+2. **Onde a escolha de atribuição aparece na UI (P1).** Um seletor? Duas colunas
+   distintas? Um rótulo fixo? Depende da nº 1.
+
+---
+
+## Armadilhas conhecidas
+
+- **Não afrouxar a RLS com subquery de grants.** A regra é avaliada em toda leitura
+  de todo usuário, inclusive dos que nunca compartilharam nada. Com a segunda
+  condição o Postgres frequentemente abandona o índice. Duas pistas separadas
+  (pack próprio = caminho atual intocado; pack compartilhado = caminho explícito)
+  é o desenho correto.
+
+- **~86 leituras diretas de tabela** fora das RPCs (`.eq("user_id", ...)`):
+  24 em `routes/analytics.py`, 62 em `services/supabase_repo.py`. Esse é o grosso do
+  trabalho de P3, e é proporcional a quantas telas devem suportar pack compartilhado.
+
+- **Duplicata cross-silo conta spend em dobro** se o convidado já tinha carregado os
+  mesmos anúncios — que é justamente o cenário atual. Dedup por `(ad_id, date)` na
+  CTE base.
+
+- **Rate limit concentra no dono.** `packs.refresh_lock_until` já existe e serializa
+  o refresh; falta expor na UI. `meta_api_usage` precisa registrar ator **e** dono.
+
+- **Conexão do dono degradada bloqueia o time inteiro.** Precisa de mensagem
+  específica para o convidado ("o dono precisa reconectar"), não 403 genérico.
+
+- **`get_graph_api` depende do usuário requisitante** (`routes/facebook.py:453`) e
+  levanta 403 `facebook_connection_missing`. Precisa de variante que resolve
+  credencial por dono do pack.
+
+- **Onboarding assume conexão com o Facebook.** O backend é tolerante
+  (`has_completed_onboarding` é a fonte da verdade; `facebook_connected` é só UX —
+  `services/onboarding_service.py:44`), mas o fluxo de frontend tem passo de conexão
+  e vários pontos assumem conta selecionada. **Provavelmente o maior item de P3.**
+
+- **Nunca aceitar `owner_id` vindo do cliente.** Sempre derivar de `pack_id`.
+
+- **`parent_entities` não tem vínculo com pack.** Como o convidado só enxerga o
+  conteúdo do pack, campanhas e adsets em escopo precisam ser derivados dos anúncios
+  do pack — join a mais em todo lugar que lê budget e status. `ad_metric_pack_map` e
+  `ads.pack_ids` (índice GIN) resolvem bem o escopo no nível de anúncio; o nível
+  pai é que não é de graça.
+
+- **Não existe infraestrutura de e-mail no projeto** (nenhum SMTP, Resend, SendGrid
+  ou `inviteUserByEmail`). O serviço embutido do Supabase é só para teste; produção
+  exige SMTP externo configurado no painel — que **não fica no repositório**, então
+  confira em Auth → SMTP Settings antes de assumir que não existe.
+
+- **Ler `auth.users` já tem precedente**: `get_admin_users_list()` (`schema.sql:3929`)
+  lê `auth.users` e `raw_user_meta_data->>'name'` de dentro de uma função
+  `SECURITY DEFINER`. A busca de convidado por e-mail segue o mesmo padrão.
+
+- **Não confundir com o share público existente** (`ad_shares` + `lib/ads/sharedAdDetail.ts`):
+  aquilo é link read-only com snapshot em jsonb, outra feature. Os dois nomes precisam
+  ser distintos na UI.
+
+---
+
+## Referências
+
+- `documentation/decisoes-tecnicas.md` — decisões de arquitetura do projeto
+- `supabase/schema_map.md` — colunas e tipos
+- `supabase/schema.sql` — corpo das RPCs, RLS, índices
