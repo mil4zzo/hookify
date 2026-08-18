@@ -29,7 +29,7 @@ export interface ShareCreateDialogProps {
   dateStart: string;
   dateStop: string;
   actionType: string;
-  mqlLeadscoreMin: number;
+  mqlLeadscoreMin: number | null;
   /** Médias do conjunto — congeladas no snapshot para colorir o viewer público. */
   averages?: ManagerAverages | null;
 }

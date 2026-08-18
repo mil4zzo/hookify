@@ -458,7 +458,7 @@ const RankingsSeriesSchema = z.object({
   cpm: z.array(z.number().nullable()),
   cpc: z.array(z.number().nullable()).optional(),
   cplc: z.array(z.number().nullable()).optional(),
-  // CPMQL diário (calculado no backend usando leadscore_values por dia + mql_leadscore_min do usuário)
+  // CPMQL diário (calculado no backend usando leadscore_values por dia + o corte de MQL do PACK; null quando não há corte definido)
   // Opcional para manter compatibilidade com backends antigos.
   cpmql: z.array(z.number().nullable()).optional(),
   // Leadscore médio diário (calculado no backend usando leadscore_values por dia). Opcional

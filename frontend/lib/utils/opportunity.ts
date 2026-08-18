@@ -6,7 +6,7 @@ export type OpportunityInputs = {
   averages?: RankingsResponse["averages"];
   actionType: string;
   spendTotal?: number; // opcional: se não vier, calculamos dos anúncios elegíveis
-  mqlLeadscoreMin?: number; // Leadscore mínimo para considerar MQL
+  mqlLeadscoreMin?: number | null; // Leadscore mínimo para considerar MQL
   limit?: number;
 };
 
@@ -217,8 +217,8 @@ export function computeOpportunityScores({
       reach,
       leadscore_values: leadscoreValues.length > 0 ? leadscoreValues : undefined,
       leadscore_avg: leadscoreAvg > 0 && Number.isFinite(leadscoreAvg) ? leadscoreAvg : undefined,
-      mql_count: mqlCount,
-      cpmql: Number.isFinite(cpmql) && cpmql > 0 ? cpmql : undefined,
+      mql_count: mqlCount ?? undefined,
+      cpmql: cpmql !== null && Number.isFinite(cpmql) && cpmql > 0 ? cpmql : undefined,
 
       cpr_actual: isFinite(cprActual) ? cprActual : 0,
       cpr_potential: isFinite(cprPotential) ? cprPotential : 0,

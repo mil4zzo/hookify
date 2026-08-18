@@ -13,6 +13,7 @@ import { openAuthPopup, AuthPopupError } from "@/lib/utils/authPopup";
 import { guessColumnMappings } from "@/lib/utils/guessSheetColumns";
 import { useQueryClient } from "@tanstack/react-query";
 import { logger } from "@/lib/utils/logger";
+import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { useGoogleConnections } from "./googleSheetsDialog/hooks/useGoogleConnections";
 import { useGoogleSyncJob } from "./googleSheetsDialog/hooks/useGoogleSyncJob";
 import { ConnectStep } from "./googleSheetsDialog/steps/ConnectStep";
@@ -48,12 +49,27 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [dateColumn, setDateColumn] = useState("");
   const [dateFormat, setDateFormat] = useState<"DD/MM/YYYY" | "MM/DD/YYYY">("DD/MM/YYYY");
   const [leadscoreColumn, setLeadscoreColumn] = useState("");
+  // O corte de MQL e definido AQUI, junto da planilha: e ela que da a escala do
+  // leadscore. Definir isso fora deste contexto seria adivinhar.
+  const [mqlLeadscoreMin, setMqlLeadscoreMin] = useState("");
 
   const [integrationId, setIntegrationId] = useState<string | null>(null);
   const [loadedIntegrationData, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
 
   /** Número de efeitos que ainda devem ignorar limpeza (selectedSpreadsheetId + worksheetTitle) ao carregar integração existente */
   const skipClearCountRef = useRef(0);
+
+  const { packs, updatePack } = useClientPacks();
+  // Ref para NAO reagir a mudancas do array de packs: semear so na abertura,
+  // senao qualquer atualizacao do store apagaria o que o usuario acabou de digitar.
+  const packsRef = useRef(packs);
+  packsRef.current = packs;
+
+  useEffect(() => {
+    if (!isOpen || !packId) return;
+    const current = packsRef.current.find((pk) => pk.id === packId)?.mql_leadscore_min;
+    setMqlLeadscoreMin(current !== null && current !== undefined ? String(current) : "");
+  }, [isOpen, packId]);
 
   // Hooks
   const { connections, selectedConnectionId, setSelectedConnectionId, isLoadingConnections, isDeletingConnection, expiredConnections, testingConnections, loadConnections, handleRetestConnection, handleDeleteConnection, clearVerificationCache } = useGoogleConnections(isOpen);
@@ -242,7 +258,19 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
 
   const canLoadColumns = useMemo(() => !!selectedSpreadsheetId && !!worksheetTitle, [selectedSpreadsheetId, worksheetTitle]);
 
-  const canImport = useMemo(() => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!leadscoreColumn, [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, leadscoreColumn]);
+  const parsedMqlLeadscoreMin = useMemo(() => {
+    const trimmed = mqlLeadscoreMin.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }, [mqlLeadscoreMin]);
+
+  // Integrar planilha sem definir o corte deixaria o pack com leadscore e sem
+  // como qualificar — MQL e CPMQL nasceriam indisponiveis. Por isso e exigido.
+  const canImport = useMemo(
+    () => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!leadscoreColumn && parsedMqlLeadscoreMin !== null,
+    [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, leadscoreColumn, parsedMqlLeadscoreMin]
+  );
 
   const handleConnectGoogle = async () => {
     try {
@@ -426,6 +454,18 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
       const id = saveRes.integration.id;
       setIntegrationId(id);
 
+      // O corte pertence ao pack, nao a integracao — gravado logo apos, para que
+      // o pack ja nasca capaz de qualificar. Falha aqui nao aborta a importacao:
+      // os dados entram e o corte pode ser ajustado na configuracao do pack.
+      if (packId && parsedMqlLeadscoreMin !== null) {
+        try {
+          await api.analytics.updatePackJudgment(packId, { mql_leadscore_min: parsedMqlLeadscoreMin });
+          updatePack(packId, { mql_leadscore_min: parsedMqlLeadscoreMin });
+        } catch (e) {
+          logger.warn("Falha ao salvar o leadscore mínimo do pack:", e);
+        }
+      }
+
       onClose();
       startSyncWithToast({
         integrationId: id,
@@ -534,7 +574,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

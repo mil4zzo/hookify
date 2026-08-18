@@ -8,7 +8,7 @@ interface UseManagerAveragesOptions {
   ads: RankingsItem[];
   actionType?: string;
   hasSheetIntegration?: boolean;
-  mqlLeadscoreMin: number;
+  mqlLeadscoreMin: number | null;
 }
 
 /**

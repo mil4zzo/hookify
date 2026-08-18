@@ -57,18 +57,13 @@ export default function Topbar() {
   const { isOpen: isSettingsOpen, activeTab: activeSettingsTab, openSettings, closeSettings, setActiveTab: setActiveSettingsTab } = useSettingsModalStore();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
-  // Este painel edita o PADRÃO DA CONTA. `mqlLeadscoreMin` (efetivo) pode vir do
-  // override de um pack — usá-lo no input faria "Salvar" copiar o valor do pack
-  // para a conta sem o usuário pedir.
+  // Painel somente-leitura: o corte de leadscore e inerente ao PACK (migration
+  // 110) e nao existe mais como padrao de conta. Aqui so se mostra o que esta em
+  // vigor para a selecao atual, com o caminho para editar.
   const {
-    userMqlLeadscoreMin,
     mqlLeadscoreMin: effectiveMqlLeadscoreMin,
-    source: mqlSource,
     divergent: mqlDivergent,
     isLoading: isLoadingMql,
-    isSaving: isSavingMql,
-    updateMqlLeadscoreMin,
-    saveMqlLeadscoreMin,
   } = useMqlLeadscore();
   const { currency: userCurrency, isSaving: isSavingCurrency, saveCurrency } = useCurrency();
   const { currency: detectedCurrency, isMixed: isMixedCurrency, isLoading: isDetectingCurrency } = useDetectedAccountCurrency();
@@ -728,24 +723,18 @@ export default function Topbar() {
       <div>
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-lg font-semibold text-text">Configuração de Leadscore</h3>
-          {(isLoadingMql || isSavingMql) && (
+          {isLoadingMql && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {isLoadingMql && (
-                <>
-                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                  <span>Carregando...</span>
-                </>
-              )}
-              {isSavingMql && !isLoadingMql && (
-                <>
-                  <IconLoader2 className="h-4 w-4 animate-spin" />
-                  <span>Salvando...</span>
-                </>
-              )}
+              <IconLoader2 className="h-4 w-4 animate-spin" />
+              <span>Carregando...</span>
             </div>
           )}
         </div>
-        <p className="text-sm text-muted-foreground mb-4">Defina o leadscore mínimo para considerar um lead como MQL (Marketing Qualified Lead). Leads com leadscore maior ou igual a este valor serão contabilizados como MQLs e utilizados para calcular métricas como quantidade de MQLs e custo por MQL.</p>
+        <p className="text-sm text-muted-foreground mb-4">
+          O leadscore mínimo para considerar um lead como MQL é definido em cada pack, junto da
+          planilha que produz o leadscore — é ela que dá a escala do número. Não existe mais um
+          padrão de conta: o critério acompanha o pack, inclusive quando ele é compartilhado.
+        </p>
       </div>
 
       <div className="space-y-4">
@@ -754,60 +743,28 @@ export default function Topbar() {
             <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-text">Leadscore mínimo para MQL (padrão da conta)</label>
-              <Input
-                type="number"
-                min="0"
-                step="0.1"
-                value={userMqlLeadscoreMin}
-                onChange={(e) => {
-                  const value = parseFloat(e.target.value);
-                  if (!isNaN(value) && value >= 0) {
-                    updateMqlLeadscoreMin(value);
-                  }
-                }}
-                disabled={isLoadingMql || isSavingMql}
-                className="w-full [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                placeholder="0"
-              />
-              <p className="text-xs text-muted-foreground">Leads com leadscore &gt;= {userMqlLeadscoreMin.toFixed(1)} serão considerados MQLs nos packs que herdam este padrão</p>
-              {mqlDivergent ? (
-                <p className="text-2xs text-warning">
-                  Os packs selecionados usam leadscores mínimos diferentes entre si. Enquanto isso, as telas
-                  julgam pelo padrão da conta. Ajuste em Packs → Critérios de julgamento.
-                </p>
-              ) : mqlSource === "pack" ? (
-                <p className="text-2xs text-muted-foreground">
-                  Os packs selecionados usam {effectiveMqlLeadscoreMin.toFixed(1)} (critério próprio do pack).
-                  Este campo altera apenas o padrão da conta.
-                </p>
-              ) : null}
-            </div>
-
-            <Button
-              onClick={async () => {
-                try {
-                  await saveMqlLeadscoreMin(userMqlLeadscoreMin);
-                  showSuccess("Configuração de leadscore salva com sucesso!");
-                } catch (err) {
-                  showError(err as any);
-                }
-              }}
-              disabled={isLoadingMql || isSavingMql}
-              className="w-full sm:w-auto"
-            >
-              {isSavingMql ? (
-                <>
-                  <IconLoader2 className="h-4 w-4 animate-spin mr-2" />
-                  Salvando...
-                </>
-              ) : (
-                "Salvar configuração"
-              )}
-            </Button>
-          </>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-text">Em vigor na seleção atual</label>
+            <p className="text-2xl font-semibold text-text tabular-nums">
+              {effectiveMqlLeadscoreMin != null ? effectiveMqlLeadscoreMin.toFixed(1) : "—"}
+            </p>
+            {mqlDivergent ? (
+              <p className="text-2xs text-warning">
+                Os packs selecionados usam cortes diferentes entre si, então MQL e CPMQL ficam
+                indisponíveis. Selecione um pack por vez ou alinhe o corte em Packs → configuração.
+              </p>
+            ) : effectiveMqlLeadscoreMin == null ? (
+              <p className="text-2xs text-warning">
+                Nenhum corte definido para os packs selecionados — MQL e CPMQL ficam indisponíveis.
+                Defina em Packs → configuração.
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Leads com leadscore &gt;= {effectiveMqlLeadscoreMin.toFixed(1)} contam como MQL.
+                Para alterar, use Packs → configuração.
+              </p>
+            )}
+          </div>
         )}
       </div>
     </div>

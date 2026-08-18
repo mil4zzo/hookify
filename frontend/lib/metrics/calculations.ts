@@ -5,7 +5,7 @@ type MetricKeyLike = MetricKey | string;
 
 export interface MetricValueContext {
   actionType?: string;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
 }
 
 export type MetricValueSource = {
@@ -193,7 +193,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       const { mqlCount } = computeMqlMetricsFromLeadscore({
         spend: toFiniteNumber(source.spend) ?? 0,
         leadscoreRaw: source.leadscore_values,
-        mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+        mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
       });
 
       return Number.isFinite(mqlCount) ? mqlCount : null;
@@ -211,7 +211,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       const { leadscoreValues, leadscoreAvg } = computeMqlMetricsFromLeadscore({
         spend: toFiniteNumber(source.spend) ?? 0,
         leadscoreRaw: source.leadscore_values,
-        mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+        mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
       });
       return leadscoreValues.length > 0 ? leadscoreAvg : null;
     }
@@ -223,9 +223,10 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       const { leadscoreValues, mqlCount } = computeMqlMetricsFromLeadscore({
         spend: toFiniteNumber(source.spend) ?? 0,
         leadscoreRaw: source.leadscore_values,
-        mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+        mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
       });
-      if (leadscoreValues.length === 0) return null;
+      // Corte indefinido -> nao ha taxa de qualificacao para afirmar.
+      if (mqlCount === null || leadscoreValues.length === 0) return null;
       return mqlCount / leadscoreValues.length;
     }
     default:
@@ -344,7 +345,7 @@ export function buildMetricSeriesFromSourceSeries(seriesData: Record<string, unk
         const { mqlCount } = computeMqlMetricsFromLeadscore({
           spend: spendSeries[index] ?? 0,
           leadscoreRaw,
-          mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+          mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
         });
 
         return Number.isFinite(mqlCount) ? mqlCount : null;
@@ -366,7 +367,7 @@ export function buildMetricSeriesFromSourceSeries(seriesData: Record<string, unk
         const { leadscoreValues, leadscoreAvg } = computeMqlMetricsFromLeadscore({
           spend: 0,
           leadscoreRaw,
-          mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+          mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
         });
         return leadscoreValues.length > 0 ? leadscoreAvg : null;
       });
@@ -381,9 +382,11 @@ export function buildMetricSeriesFromSourceSeries(seriesData: Record<string, unk
         const { leadscoreValues, mqlCount } = computeMqlMetricsFromLeadscore({
           spend: 0,
           leadscoreRaw,
-          mqlLeadscoreMin: context.mqlLeadscoreMin ?? 0,
+          mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
         });
-        return leadscoreValues.length > 0 ? mqlCount / leadscoreValues.length : null;
+        return mqlCount !== null && leadscoreValues.length > 0
+          ? mqlCount / leadscoreValues.length
+          : null;
       });
     }
     default:

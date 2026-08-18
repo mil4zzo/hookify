@@ -171,7 +171,10 @@ export function buildExplorerFlowSections(
       averageValue: averages?.cpmql,
       detail,
       currencyFormatter,
-      subtitle: `${detail.mqlCount.toLocaleString("pt-BR")} MQLs`,
+      subtitle:
+        detail.mqlCount != null
+          ? `${detail.mqlCount.toLocaleString("pt-BR")} MQLs`
+          : "sem critério de MQL",
       subtitleInLabelRow: true,
     }),
   ];

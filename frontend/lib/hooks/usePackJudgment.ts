@@ -3,10 +3,9 @@
 import { useMemo } from "react";
 import { useFiltersStore } from "@/lib/store/filters";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
-import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
 import {
   resolveJudgment,
-  type PackJudgmentOverride,
+  type PackJudgmentConfig,
   type ResolvedJudgment,
 } from "@/lib/judgment/resolveJudgment";
 import type { AdsPack } from "@/lib/types";
@@ -22,9 +21,9 @@ export interface UsePackJudgmentReturn extends ResolvedJudgment {
 /**
  * Configuração de julgamento efetiva para a seleção atual de packs.
  *
- * Ponto único de resolução: quem precisa do valor efetivo consome daqui, nunca
- * de `useUserPreferences` direto — senão metade da tela julga pelo padrão do
- * usuário e a outra metade pelo override do pack.
+ * Ponto único de resolução: quem precisa do valor efetivo consome daqui. O
+ * critério vem SÓ dos packs selecionados — `user_preferences` não participa
+ * mais desta resolução (migration 110).
  *
  * Assina o store de filtros de forma estreita (só `packPreferences`) em vez de
  * usar `useFilters()`, que carrega efeitos de sincronização de data e faria
@@ -32,13 +31,10 @@ export interface UsePackJudgmentReturn extends ResolvedJudgment {
  */
 export function usePackJudgment(): UsePackJudgmentReturn {
   const packPreferences = useFiltersStore((s) => s.packPreferences);
-  const { packs } = useClientPacks();
-  const {
-    mqlLeadscoreMin,
-    targetCprByActionType,
-    diagnosticCostMetric,
-    isLoading,
-  } = useUserPreferences();
+  // useClientPacks nao expoe loading: `isClient` false = ainda hidratando o
+  // store persistido, que e exatamente o momento em que a selecao nao e confiavel.
+  const { packs, isClient } = useClientPacks();
+  const isLoading = !isClient;
 
   const selectedPacks = useMemo(() => {
     const enabled = new Set(
@@ -50,13 +46,8 @@ export function usePackJudgment(): UsePackJudgmentReturn {
   }, [packs, packPreferences]);
 
   const resolved = useMemo(
-    () =>
-      resolveJudgment(selectedPacks as unknown as PackJudgmentOverride[], {
-        mqlLeadscoreMin,
-        targetCprByActionType,
-        diagnosticCostMetric,
-      }),
-    [selectedPacks, mqlLeadscoreMin, targetCprByActionType, diagnosticCostMetric]
+    () => resolveJudgment(selectedPacks as unknown as PackJudgmentConfig[]),
+    [selectedPacks]
   );
 
   const selectedPackNames = useMemo(

@@ -31,7 +31,7 @@ interface MetricCellProps {
   formatCurrency: (n: number) => string;
   actionType?: string;
   hasSheetIntegration?: boolean;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
   minimal?: boolean; // Prop para modo minimal
   lightweight?: boolean; // Quando true, SparklineBars usa title nativo em vez de Radix Tooltip
   colorMetricValue?: boolean; // Quando true, colore o número da métrica pela distância da média (escala de 5 tons, igual aos sparklines)

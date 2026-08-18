@@ -4,8 +4,6 @@ import type { ValidationCondition } from "@/components/common/ValidationCriteria
 export const DEFAULT_LANGUAGE = "pt-BR";
 export const DEFAULT_CURRENCY = "BRL";
 export const DEFAULT_NICHE = "";
-export const DEFAULT_MQL_LEADSCORE_MIN = 0;
-export const DEFAULT_TARGET_CPR_BY_ACTION_TYPE: Record<string, number> = {};
 export type DiagnosticCostMetric = "cpr" | "cpmql";
 export const DEFAULT_DIAGNOSTIC_COST_METRIC: DiagnosticCostMetric = "cpr";
 
@@ -14,8 +12,6 @@ export interface UserPreferencesValues {
   currency: string;
   niche: string;
   validationCriteria: ValidationCondition[];
-  mqlLeadscoreMin: number;
-  targetCprByActionType: Record<string, number>;
   diagnosticCostMetric: DiagnosticCostMetric;
 }
 
@@ -42,8 +38,6 @@ export const useUserPreferencesStore = create<UserPreferencesStore>()((set) => (
   currency: DEFAULT_CURRENCY,
   niche: DEFAULT_NICHE,
   validationCriteria: [],
-  mqlLeadscoreMin: DEFAULT_MQL_LEADSCORE_MIN,
-  targetCprByActionType: DEFAULT_TARGET_CPR_BY_ACTION_TYPE,
   diagnosticCostMetric: DEFAULT_DIAGNOSTIC_COST_METRIC,
   isLoading: false,
   isSaving: false,

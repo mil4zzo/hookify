@@ -19,19 +19,39 @@ export function computeLeadscoreAverage(values: number[]): number {
   return Number.isFinite(avg) && avg > 0 ? avg : 0;
 }
 
-export function computeMqlCount(leadscoreValues: number[], mqlLeadscoreMin: number): number {
+/**
+ * Conta leads acima do corte. Sem corte definido retorna `null` (indisponível).
+ *
+ * `null` e `0` são afirmações diferentes: 0 é "nenhum lead atingiu o corte";
+ * null é "não dá para dizer". Tratar null como 0 contaria todo lead como MQL no
+ * caminho oposto (filtro `>= 0`), derrubando o CPMQL.
+ */
+export function computeMqlCount(
+  leadscoreValues: number[],
+  mqlLeadscoreMin: number | null
+): number | null {
+  if (mqlLeadscoreMin === null || mqlLeadscoreMin === undefined) return null;
   if (!leadscoreValues || leadscoreValues.length === 0) return 0;
   return leadscoreValues.filter((ls) => ls >= mqlLeadscoreMin).length;
 }
 
-export function computeCpmqlFromMqlCount(spend: number, mqlCount: number): number {
+export function computeCpmqlFromMqlCount(spend: number, mqlCount: number | null): number | null {
+  if (mqlCount === null || mqlCount === undefined) return null;
   const s = Number(spend || 0);
   if (!Number.isFinite(s) || s <= 0 || !mqlCount || mqlCount <= 0) return 0;
   const value = s / mqlCount;
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-type MqlResult = { leadscoreValues: number[]; leadscoreAvg: number; mqlCount: number; cpmql: number };
+type MqlResult = {
+  leadscoreValues: number[];
+  /** Média dos leadscores — independe do corte, então nunca fica indisponível. */
+  leadscoreAvg: number;
+  /** null = corte não definido. */
+  mqlCount: number | null;
+  /** null = corte não definido. */
+  cpmql: number | null;
+};
 
 /**
  * Cache por referência do array leadscoreRaw (WeakMap → GC automático quando dados mudam).
@@ -40,7 +60,7 @@ type MqlResult = { leadscoreValues: number[]; leadscoreAvg: number; mqlCount: nu
  */
 const _mqlCache = new WeakMap<object, Map<string, MqlResult>>();
 
-function _computeMqlUncached(spend: number, leadscoreRaw: any, mqlLeadscoreMin: number): MqlResult {
+function _computeMqlUncached(spend: number, leadscoreRaw: any, mqlLeadscoreMin: number | null): MqlResult {
   const leadscoreValues = normalizeLeadscoreValues(leadscoreRaw);
   const leadscoreAvg = computeLeadscoreAverage(leadscoreValues);
   const mqlCount = computeMqlCount(leadscoreValues, mqlLeadscoreMin);
@@ -51,7 +71,7 @@ function _computeMqlUncached(spend: number, leadscoreRaw: any, mqlLeadscoreMin: 
 export function computeMqlMetricsFromLeadscore(params: {
   spend: number;
   leadscoreRaw: any;
-  mqlLeadscoreMin: number;
+  mqlLeadscoreMin: number | null;
 }): MqlResult {
   const { spend, leadscoreRaw, mqlLeadscoreMin } = params;
 

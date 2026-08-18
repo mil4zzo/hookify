@@ -426,10 +426,11 @@ export const api = {
      */
     updatePackJudgment: (
       packId: string,
+      // So os campos inerentes ao pack. diagnostic_cost_metric e controle de
+      // visualizacao e vive em user_preferences — o backend recusa a chave.
       judgment: {
         mql_leadscore_min?: number | null
         target_cpr?: Record<string, number> | null
-        diagnostic_cost_metric?: 'cpr' | 'cpmql' | null
       }
     ): Promise<{ success: boolean; pack_id: string; judgment: Record<string, unknown> }> =>
       apiClient.patch(`/analytics/packs/${packId}/judgment`, judgment),

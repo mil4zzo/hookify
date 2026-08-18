@@ -25,11 +25,11 @@ export interface AdsPack {
   // Lista materializada (union incremental no refresh) dos conversion types do pack.
   // Chaves: 'conversion:<type>' / 'action:<type>'. Fonte do dropdown de eventos no Manager.
   conversion_types?: string[]
-  // ── Configuração de julgamento (herança com override) ──────────────────────
-  // null/undefined = herda de user_preferences. Resolvido por resolveJudgment().
+  // ── Configuração de julgamento (inerente ao pack) ──────────────────────────
+  // Sem herança de user_preferences: null/undefined = NÃO DEFINIDO.
+  // Sem corte de leadscore, MQL e CPMQL ficam indisponíveis — nunca zero.
   mql_leadscore_min?: number | null
   target_cpr?: Record<string, number> | null
-  diagnostic_cost_metric?: 'cpr' | 'cpmql' | null
   created_at: string
   updated_at: string
 }

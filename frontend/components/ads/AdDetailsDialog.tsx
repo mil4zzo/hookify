@@ -523,7 +523,15 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const resolvedCpr = groupByAdName ? (resolvedDetailModel?.cpr ?? 0) : cpr;
   const resolvedHasCpr = groupByAdName ? (resolvedDetailModel?.hasCpr ?? false) : hasCpr;
   const resolvedResultsForActionType = groupByAdName ? Number(resolvedDetailModel?.results ?? 0) : resultsForActionType;
-  const resolvedMqlMetrics = groupByAdName ? { cpmql: Number(resolvedDetailModel?.cpmql ?? 0), mqlCount: Number(resolvedDetailModel?.mqlCount ?? 0) } : mqlMetrics;
+  // Corte indefinido chega como null e precisa CONTINUAR null: `Number(null)` daria
+  // 0, que a UI leria como "CPMQL zero" em vez de "sem critério de MQL".
+  const resolvedMqlMetrics = groupByAdName
+    ? { cpmql: resolvedDetailModel?.cpmql ?? null, mqlCount: resolvedDetailModel?.mqlCount ?? null }
+    : mqlMetrics;
+  const cpmqlValue =
+    resolvedMqlMetrics.cpmql != null && resolvedMqlMetrics.cpmql > 0 ? resolvedMqlMetrics.cpmql : null;
+  const mqlCountSubtitle =
+    resolvedMqlMetrics.mqlCount != null ? `${resolvedMqlMetrics.mqlCount} MQLs` : "sem critério de MQL";
   const resolvedSeries = groupByAdName ? ((resolvedDetailModel?.series as any) ?? null) : series;
   const resolvedSpend = groupByAdName ? Number((resolvedDetailModel?.source?.spend ?? ad?.spend) || 0) : _spend;
   const resolvedClicks = groupByAdName ? Number((resolvedDetailModel?.source?.clicks ?? ad?.clicks) || 0) : _clicks;
@@ -721,7 +729,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
                 <div className={`flex-1 overflow-y-auto min-h-0 flex flex-col gap-4 justify-between transition-opacity duration-200 ${loadingOverridden ? "opacity-50 pointer-events-none" : ""}`}>
                   {/* Resultados */}
                   <MetricSection title="Resultados">
-                    <VideoMetricCell label={getMetricLabel("cpmql")} value={resolvedMqlMetrics.cpmql > 0 ? formatCurrency(resolvedMqlMetrics.cpmql) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedMqlMetrics.cpmql > 0 ? resolvedMqlMetrics.cpmql : null, avgRaw: averages?.cpmql ?? null })} subtitle={`${resolvedMqlMetrics.mqlCount} MQLs`} subtitleInLabelRow averageDisplay={averages?.cpmql != null ? formatCurrency(averages.cpmql) : undefined} averageTooltip={getMetricAverageTooltip("cpmql")} series={resolvedSeries?.cpmql} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedMqlMetrics.cpmql > 0 ? resolvedMqlMetrics.cpmql : null} avgRaw={averages?.cpmql ?? null} better={getMetricBetterDirection("cpmql")} packAverage={averages?.cpmql ?? null} />
+                    <VideoMetricCell label={getMetricLabel("cpmql")} value={cpmqlValue != null ? formatCurrency(cpmqlValue) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: cpmqlValue, avgRaw: averages?.cpmql ?? null })} subtitle={mqlCountSubtitle} subtitleInLabelRow averageDisplay={averages?.cpmql != null ? formatCurrency(averages.cpmql) : undefined} averageTooltip={getMetricAverageTooltip("cpmql")} series={resolvedSeries?.cpmql} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={cpmqlValue} avgRaw={averages?.cpmql ?? null} better={getMetricBetterDirection("cpmql")} packAverage={averages?.cpmql ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpr")} value={resolvedHasCpr ? formatCurrency(resolvedCpr) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpr ? resolvedCpr : null, avgRaw: averages?.cpr ?? null })} subtitle={`${resolvedResultsForActionType} results`} subtitleInLabelRow averageDisplay={averages?.cpr != null ? formatCurrency(averages.cpr) : undefined} averageTooltip={getMetricAverageTooltip("cpr")} series={resolvedSeries?.cpr} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpr ? resolvedCpr : null} avgRaw={averages?.cpr ?? null} better={getMetricBetterDirection("cpr")} packAverage={averages?.cpr ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpc")} value={resolvedHasCpc ? formatCurrency(resolvedCpc) : "—"} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedHasCpc ? resolvedCpc : null, avgRaw: averages?.cpc ?? null })} subtitle={`${resolvedClicks.toLocaleString("pt-BR")} clicks`} subtitleInLabelRow averageDisplay={averages?.cpc != null ? formatCurrency(averages.cpc) : undefined} averageTooltip={getMetricAverageTooltip("cpc")} series={resolvedSeries?.cpc} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedHasCpc ? resolvedCpc : null} avgRaw={averages?.cpc ?? null} better={getMetricBetterDirection("cpc")} packAverage={averages?.cpc ?? null} />
                     <VideoMetricCell label={getMetricLabel("cpm")} value={formatCurrency(resolvedCpm)} deltaDisplay={getDeltaDisplay({ valueRaw: resolvedCpm, avgRaw: averages?.cpm ?? null })} averageDisplay={averages?.cpm != null ? formatCurrency(averages.cpm) : undefined} averageTooltip={getMetricAverageTooltip("cpm")} series={resolvedSeries?.cpm} inverse formatFn={(n: number) => formatCurrency(n)} valueRaw={resolvedCpm} avgRaw={averages?.cpm ?? null} better={getMetricBetterDirection("cpm")} packAverage={averages?.cpm ?? null} />

@@ -67,10 +67,9 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
-  // Qualquer override de julgamento definido — null/undefined significa "herda da conta".
+  // Algum critério de julgamento definido — null/undefined significa NÃO DEFINIDO.
   const hasJudgmentOverride =
-    pack.mql_leadscore_min !== null && pack.mql_leadscore_min !== undefined ||
-    pack.diagnostic_cost_metric !== null && pack.diagnostic_cost_metric !== undefined ||
+    (pack.mql_leadscore_min !== null && pack.mql_leadscore_min !== undefined) ||
     (pack.target_cpr !== null && pack.target_cpr !== undefined);
   const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);

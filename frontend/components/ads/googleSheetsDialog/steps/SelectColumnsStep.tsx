@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
+import { Input } from "@/components/ui/input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { IconChevronLeft, IconLoader2, IconAlertTriangle } from "@tabler/icons-react";
 
@@ -25,6 +26,8 @@ interface SelectColumnsStepProps {
   dateColumn: string;
   dateFormat: "DD/MM/YYYY" | "MM/DD/YYYY";
   leadscoreColumn: string;
+  /** Corte de MQL do pack. String vazia = ainda nao definido. */
+  mqlLeadscoreMin: string;
   isSaving: boolean;
   isImporting: boolean;
   importStep: "idle" | "saving" | "reading" | "processing" | "complete";
@@ -34,6 +37,7 @@ interface SelectColumnsStepProps {
   onDateColumnChange: (value: string) => void;
   onDateFormatChange: (value: "DD/MM/YYYY" | "MM/DD/YYYY") => void;
   onLeadscoreColumnChange: (value: string) => void;
+  onMqlLeadscoreMinChange: (value: string) => void;
   onBack: () => void;
   onImport: () => void;
 }
@@ -123,12 +127,14 @@ export function SelectColumnsStep({
   isImporting,
   importStep,
   importProgress,
+  mqlLeadscoreMin,
   canImport,
   onAdIdColumnChange,
   onDateColumnChange,
   onDateFormatChange,
   onLeadscoreColumnChange,
   onBack,
+  onMqlLeadscoreMinChange,
   onImport,
 }: SelectColumnsStepProps) {
   const columnOptions = buildColumnOptions(columns, columnsWithIndices);
@@ -167,6 +173,22 @@ export function SelectColumnsStep({
           <div className="space-y-2">
             <label className="text-sm font-medium">Leadscore</label>
             <Combobox value={leadscoreColumn} onValueChange={onLeadscoreColumnChange} options={columnOptions} placeholder="Selecione..." searchPlaceholder="Buscar coluna..." />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Leadscore mínimo para MQL</label>
+            <Input
+              type="number"
+              min="0"
+              step="0.1"
+              value={mqlLeadscoreMin}
+              onChange={(e) => onMqlLeadscoreMinChange(e.target.value)}
+              placeholder="ex: 80"
+            />
+            <p className="text-2xs text-muted-foreground">
+              Leads com leadscore maior ou igual contam como MQL. Sem este valor não há como
+              calcular MQL nem CPMQL — a escala é a desta planilha.
+            </p>
           </div>
 
           <div className="space-y-2">

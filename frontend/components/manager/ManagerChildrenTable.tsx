@@ -130,7 +130,7 @@ interface ManagerChildrenTableProps {
   /** Ordem das colunas de métrica escolhida no Manager. Ausente = ordem padrão. */
   columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
   columnFilters?: ColumnFiltersState;
   setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   asContent?: boolean;

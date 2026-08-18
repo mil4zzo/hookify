@@ -11,7 +11,7 @@ import type { ShareItemMetrics } from "./types";
  */
 export function buildShareMetricsFromRow(
   row: RankingsItem,
-  context: { actionType: string; mqlLeadscoreMin: number },
+  context: { actionType: string; mqlLeadscoreMin: number | null },
 ): ShareItemMetrics {
   const value = (key: string): number | null =>
     getMetricNumericValueOrNull(row as any, key, {

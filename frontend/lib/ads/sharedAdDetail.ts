@@ -32,7 +32,8 @@ export interface SharedAdDetailModel {
   hook: number | null;
   holdRate: number | null;
   pageConv: number | null;
-  mqlCount: number;
+  /** null = corte de leadscore nao definido no pack. */
+  mqlCount: number | null;
   cpmql: number | null;
   hasCpr: boolean;
   hasCpc: boolean;
@@ -47,7 +48,7 @@ export interface BuildSharedAdDetailModelParams {
   creativeData?: AdCreativeResponse | null;
   videoData?: FacebookVideoSource | null;
   actionType?: string;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
 }
 
 function toNumberOrNull(value: unknown): number | null {
@@ -151,11 +152,11 @@ export function buildSharedAdDetailModel({
     hook: getMetricNumericValueOrNull(source, "hook"),
     holdRate: getMetricNumericValueOrNull(source, "hold_rate"),
     pageConv,
-    mqlCount: mqlMetrics.mqlCount,
+    mqlCount: mqlMetrics.mqlCount ?? null,
     cpmql: toNumberOrNull(mqlMetrics.cpmql),
     hasCpr: cpr != null,
     hasCpc: cpc != null,
-    hasSheetIntegration: source.leadscore_values != null || mqlMetrics.cpmql > 0,
+    hasSheetIntegration: source.leadscore_values != null || (mqlMetrics.cpmql ?? 0) > 0,
     series,
   };
 }

@@ -13,11 +13,11 @@ function formatMetric(value: number, metric: GemsMetricKey): string {
   return formatMetricValue(metric, value);
 }
 
-export function getMetricValue(ad: any, metric: GemsMetricKey, actionType: string, mqlLeadscoreMin: number = 0): number {
+export function getMetricValue(ad: any, metric: GemsMetricKey, actionType: string, mqlLeadscoreMin: number | null = null): number {
   return getMetricNumericValue(ad, metric, { actionType, mqlLeadscoreMin });
 }
 
-export function computeTopMetric(ads: RankingsItem[], metric: GemsMetricKey, actionType: string, limit: number, mqlLeadscoreMin: number = 0): GemsTopItem[] {
+export function computeTopMetric(ads: RankingsItem[], metric: GemsMetricKey, actionType: string, limit: number, mqlLeadscoreMin: number | null = null): GemsTopItem[] {
   if (!Array.isArray(ads) || ads.length === 0 || limit <= 0) return [];
 
   const withMetric = ads

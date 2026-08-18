@@ -115,7 +115,8 @@ export default function PlanoPage() {
       ads: validatedAds as RankingsItem[],
       averages: serverAverages,
       actionType,
-      mqlLeadscoreMin: mqlLeadscoreMin || 0,
+      // Sem corte definido segue null: `|| 0` contaria todo lead como MQL.
+      mqlLeadscoreMin,
     });
 
     return buildActionPlan({

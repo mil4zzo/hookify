@@ -62,7 +62,7 @@ export type CreateManagerTableColumnsParams = {
    *  ordenação, filtro de texto e CSV. (As células resolvem de novo via hook: ver ProvenanceCell.) */
   provenanceIndex: ProvenanceIndex;
   hasSheetIntegration: boolean;
-  mqlLeadscoreMin: number;
+  mqlLeadscoreMin: number | null;
   actionTypeRef: React.MutableRefObject<string>;
   /** Âncora do último checkbox clicado sem shift — habilita seleção em intervalo (shift+click). */
   selectionAnchorRef: React.MutableRefObject<string | null>;

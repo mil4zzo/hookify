@@ -41,7 +41,7 @@ export interface SharedTableContentProps {
    * mas precisa ser prop explícita: `table` é instância mutável estável e o React.memo não veria o reorder. */
   columnOrder: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
   // Adicionado para comparação confiável no React.memo
   sorting: { id: string; desc: boolean }[];
   /** Seleção de linhas (aba individual). Precisa ser prop explícita: table.getState() não detecta mudança

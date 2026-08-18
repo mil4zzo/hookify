@@ -5,7 +5,7 @@ import type { ExplorerDetailViewModel, ExplorerKanbanMetricKey, ExplorerListItem
 
 interface ExplorerMetricContext {
   actionType?: string;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
 }
 
 export const DEFAULT_EXPLORER_SORT_STATE: ExplorerSortState = {

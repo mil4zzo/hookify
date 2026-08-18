@@ -22,7 +22,7 @@ interface ManagerDrillModalProps {
   /** Ordem das colunas de métrica escolhida no Manager — o drill espelha a tabela de origem. */
   columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
   /** Acionado ao clicar em uma linha terminal (ad). O parent abre o AdDetailsDialog existente. */
   onSelectAd: (ad: RankingsItem) => void;
 }

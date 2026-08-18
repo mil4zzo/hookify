@@ -25,7 +25,7 @@ interface ExpandedChildrenRowProps {
   /** Ordem das colunas de métrica escolhida no Manager. Ausente = ordem padrão. */
   columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
   columnFilters?: ColumnFiltersState;
   setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
   /** Quando true, retorna apenas o conteúdo interno (sem tr/td) para uso dentro de uma célula pai */

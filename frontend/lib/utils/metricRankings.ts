@@ -48,7 +48,7 @@ export interface MetricRankingsOptions {
   /** Se true, inclui apenas anúncios com métricas válidas (> 0 e finitas) */
   filterValidOnly?: boolean;
   /** Leadscore mínimo para calcular MQL/CPMQL */
-  mqlLeadscoreMin?: number;
+  mqlLeadscoreMin?: number | null;
 }
 
 /**
@@ -85,7 +85,7 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
 /**
  * Obtém o valor de uma métrica específica de um RankingsItem
  */
-function getMetricValue(ad: RankingsItem, metric: Extract<MetricKey, "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql">, actionType?: string, mqlLeadscoreMin: number = 0): number {
+function getMetricValue(ad: RankingsItem, metric: Extract<MetricKey, "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate" | "cpr" | "cpmql">, actionType?: string, mqlLeadscoreMin: number | null = null): number {
   return getMetricNumericValue(ad as any, metric, { actionType, mqlLeadscoreMin });
 }
 

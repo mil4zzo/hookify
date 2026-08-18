@@ -13,7 +13,7 @@ interface UseFilteredAveragesOptions {
   globalFilter: string;
   actionType?: string;
   hasSheetIntegration?: boolean;
-  mqlLeadscoreMin: number;
+  mqlLeadscoreMin: number | null;
 }
 
 /**

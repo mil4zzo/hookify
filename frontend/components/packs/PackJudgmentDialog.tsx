@@ -1,19 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { IconLoader2, IconInfoCircle } from "@tabler/icons-react";
+import { IconLoader2, IconInfoCircle, IconAlertTriangle } from "@tabler/icons-react";
 
 import { AppDialog } from "@/components/common/AppDialog";
-import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api } from "@/lib/api/endpoints";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
-import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import type { AdsPack } from "@/lib/types";
-import type { DiagnosticCostMetric } from "@/lib/store/userPreferences";
 
 interface PackJudgmentDialogProps {
   pack: AdsPack | null;
@@ -33,24 +29,19 @@ function toNumberOrNull(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Configuração de julgamento do pack.
+ *
+ * Não há mais herança da conta (migration 110): estes valores existem só aqui.
+ * Campo vazio significa NÃO DEFINIDO — e não zero. Sem corte de leadscore, MQL e
+ * CPMQL ficam indisponíveis nas telas, o que é o comportamento correto: zero
+ * contaria todo lead como qualificado e produziria um CPMQL excelente e falso.
+ */
 export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDialogProps) {
   const { updatePack } = useClientPacks();
-  const {
-    mqlLeadscoreMin: userMql,
-    targetCprByActionType: userTargetCpr,
-    diagnosticCostMetric: userCostMetric,
-  } = useUserPreferences();
 
   const [isSaving, setIsSaving] = useState(false);
-
-  // Cada campo tem um toggle "usar padrão da conta". Desligado = override ativo.
-  const [overrideMql, setOverrideMql] = useState(false);
   const [mqlValue, setMqlValue] = useState("");
-
-  const [overrideCostMetric, setOverrideCostMetric] = useState(false);
-  const [costMetric, setCostMetric] = useState<DiagnosticCostMetric>("cpr");
-
-  const [overrideTarget, setOverrideTarget] = useState(false);
   const [targets, setTargets] = useState<Record<string, string>>({});
 
   const conversionTypes = useMemo(
@@ -58,35 +49,32 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
     [pack]
   );
 
+  const hasSheetIntegration = Boolean(pack?.sheet_integration);
+
   // Reidrata o formulário toda vez que abre — sem isto, reabrir para outro pack
   // mostraria o estado do pack anterior.
   useEffect(() => {
     if (!open || !pack) return;
 
     const hasMql = pack.mql_leadscore_min !== null && pack.mql_leadscore_min !== undefined;
-    setOverrideMql(hasMql);
-    setMqlValue(hasMql ? String(pack.mql_leadscore_min) : String(userMql ?? 0));
-
-    const hasMetric = pack.diagnostic_cost_metric === "cpr" || pack.diagnostic_cost_metric === "cpmql";
-    setOverrideCostMetric(hasMetric);
-    setCostMetric(hasMetric ? (pack.diagnostic_cost_metric as DiagnosticCostMetric) : userCostMetric);
+    setMqlValue(hasMql ? String(pack.mql_leadscore_min) : "");
 
     const packTarget = pack.target_cpr && typeof pack.target_cpr === "object" ? pack.target_cpr : null;
-    setOverrideTarget(Boolean(packTarget));
-    const seed = packTarget ?? userTargetCpr ?? {};
     const asStrings: Record<string, string> = {};
     for (const type of conversionTypes) {
-      const value = (seed as Record<string, number>)[type];
+      const value = (packTarget as Record<string, number> | null)?.[type];
       asStrings[type] = value !== undefined && value !== null ? String(value) : "";
     }
     setTargets(asStrings);
-  }, [open, pack, userMql, userCostMetric, userTargetCpr, conversionTypes]);
+  }, [open, pack, conversionTypes]);
+
+  const parsedMql = toNumberOrNull(mqlValue);
 
   const handleSave = useCallback(async () => {
     if (!pack) return;
 
     let mqlPayload: number | null = null;
-    if (overrideMql) {
+    if (mqlValue.trim()) {
       const parsed = toNumberOrNull(mqlValue);
       if (parsed === null || parsed < 0) {
         showError("Informe um leadscore mínimo válido (número maior ou igual a zero).");
@@ -95,135 +83,96 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
       mqlPayload = parsed;
     }
 
-    let targetPayload: Record<string, number> | null = null;
-    if (overrideTarget) {
-      const built: Record<string, number> = {};
-      for (const [type, raw] of Object.entries(targets)) {
-        const parsed = toNumberOrNull(raw);
-        if (parsed === null) continue; // vazio = sem alvo para esse evento
-        if (parsed <= 0) {
-          showError(`O CPR alvo de "${formatActionTypeLabel(type)}" precisa ser maior que zero.`);
-          return;
-        }
-        built[type] = parsed;
+    const built: Record<string, number> = {};
+    for (const [type, raw] of Object.entries(targets)) {
+      const parsed = toNumberOrNull(raw);
+      if (parsed === null) continue; // vazio = sem meta para esse evento
+      if (parsed <= 0) {
+        showError(`O CPR alvo de "${formatActionTypeLabel(type)}" precisa ser maior que zero.`);
+        return;
       }
-      targetPayload = Object.keys(built).length > 0 ? built : null;
+      built[type] = parsed;
     }
+    const targetPayload = Object.keys(built).length > 0 ? built : null;
 
-    // `null` explícito limpa o override no backend (volta a herdar). Por isso as
-    // três chaves vão sempre no payload, nunca omitidas.
+    // As duas chaves vão sempre no payload: `null` explícito é o que LIMPA o
+    // valor. Omitir a chave significaria "não mexer", que é outra coisa.
     const payload = {
       mql_leadscore_min: mqlPayload,
       target_cpr: targetPayload,
-      diagnostic_cost_metric: overrideCostMetric ? costMetric : null,
     };
 
     setIsSaving(true);
     try {
       await api.analytics.updatePackJudgment(pack.id, payload);
       updatePack(pack.id, payload as Partial<AdsPack>);
-      showSuccess("Critérios do pack salvos.");
+      showSuccess("Configuração do pack salva.");
       onOpenChange(false);
     } catch (err) {
       showError(err as Error);
     } finally {
       setIsSaving(false);
     }
-  }, [pack, overrideMql, mqlValue, overrideTarget, targets, overrideCostMetric, costMetric, updatePack, onOpenChange]);
+  }, [pack, mqlValue, targets, updatePack, onOpenChange]);
 
   if (!pack) return null;
 
   return (
-    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Critérios de julgamento">
+    <AppDialog isOpen={open} onClose={() => onOpenChange(false)} size="lg" title="Configuração do pack">
       <div className="space-y-6">
         <header className="space-y-1">
-          <h2 className="text-lg font-semibold text-text">Critérios de julgamento</h2>
+          <h2 className="text-lg font-semibold text-text">Configuração do pack</h2>
           <p className="text-sm text-muted-foreground">
             Define como o pack <span className="font-medium text-text">{pack.name}</span> julga os
-            anúncios. Cada critério pode herdar o padrão da sua conta ou ter um valor próprio —
-            útil quando o pack tem um funil ou evento de conversão diferente dos demais.
+            anúncios. Estes critérios pertencem ao pack e acompanham quem tiver acesso a ele.
           </p>
         </header>
 
         <div className="space-y-6">
           {/* ── Leadscore mínimo para MQL ── */}
           <section className="space-y-2">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-text">Leadscore mínimo para MQL</p>
-                <p className="text-2xs text-muted-foreground">
-                  Padrão da conta: {Number(userMql ?? 0).toFixed(1)}
-                </p>
-              </div>
-              <ToggleSwitch
-                id="pack-judgment-mql"
-                checked={overrideMql}
-                onCheckedChange={setOverrideMql}
-                ariaLabel="Usar leadscore mínimo próprio neste pack"
-                variant="minimal"
-              />
+            <div>
+              <p className="text-sm font-medium text-text">Leadscore mínimo para MQL</p>
+              <p className="text-2xs text-muted-foreground">
+                Leads com leadscore maior ou igual a este valor contam como MQL. A escala vem da
+                planilha integrada.
+              </p>
             </div>
-            {overrideMql && (
-              <Input
-                type="number"
-                min="0"
-                step="0.1"
-                size="sm"
-                value={mqlValue}
-                onChange={(e) => setMqlValue(e.target.value)}
-                placeholder="0"
-                disabled={isSaving}
-              />
-            )}
-          </section>
 
-          {/* ── Métrica de custo do diagnóstico ── */}
-          <section className="space-y-2">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-text">Métrica de custo do diagnóstico</p>
-                <p className="text-2xs text-muted-foreground">
-                  Padrão da conta: {userCostMetric === "cpmql" ? "CPMQL" : "CPR"}
-                </p>
-              </div>
-              <ToggleSwitch
-                id="pack-judgment-cost-metric"
-                checked={overrideCostMetric}
-                onCheckedChange={setOverrideCostMetric}
-                ariaLabel="Usar métrica de custo própria neste pack"
-                variant="minimal"
-              />
-            </div>
-            {overrideCostMetric && (
-              <Select value={costMetric} onValueChange={(v) => setCostMetric(v as DiagnosticCostMetric)}>
-                <SelectTrigger size="sm" disabled={isSaving}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cpr">CPR — custo por resultado</SelectItem>
-                  <SelectItem value="cpmql">CPMQL — custo por MQL</SelectItem>
-                </SelectContent>
-              </Select>
+            {hasSheetIntegration ? (
+              <>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  size="sm"
+                  value={mqlValue}
+                  onChange={(e) => setMqlValue(e.target.value)}
+                  placeholder="não definido"
+                  disabled={isSaving}
+                />
+                {parsedMql === null ? (
+                  <p className="flex items-start gap-2 text-2xs text-warning">
+                    <IconAlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+                    Sem corte definido, MQL e CPMQL ficam indisponíveis nas telas deste pack.
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="flex items-start gap-2 text-2xs text-muted-foreground">
+                <IconInfoCircle className="mt-0.5 h-3 w-3 shrink-0" />
+                Este pack não tem planilha integrada, então não há leadscore para qualificar.
+              </p>
             )}
           </section>
 
           {/* ── CPR alvo por evento ── */}
           <section className="space-y-2">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm font-medium text-text">CPR alvo por evento</p>
-                <p className="text-2xs text-muted-foreground">
-                  Usado pelo plano de ação para comparar o custo real com a sua meta.
-                </p>
-              </div>
-              <ToggleSwitch
-                id="pack-judgment-target-cpr"
-                checked={overrideTarget}
-                onCheckedChange={setOverrideTarget}
-                ariaLabel="Usar CPR alvo próprio neste pack"
-                variant="minimal"
-                disabled={conversionTypes.length === 0}
-              />
+            <div>
+              <p className="text-sm font-medium text-text">CPR alvo por evento</p>
+              <p className="text-2xs text-muted-foreground">
+                Opcional. Usado pelo plano de ação para comparar o custo real com a sua meta.
+              </p>
             </div>
 
             {conversionTypes.length === 0 ? (
@@ -232,7 +181,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
                 Este pack ainda não tem eventos de conversão registrados. Atualize o pack para
                 que os eventos apareçam aqui.
               </p>
-            ) : overrideTarget ? (
+            ) : (
               <div className="space-y-2">
                 {conversionTypes.map((type) => (
                   <div key={type} className="flex items-center gap-3">
@@ -247,13 +196,13 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
                       className="w-32"
                       value={targets[type] ?? ""}
                       onChange={(e) => setTargets((prev) => ({ ...prev, [type]: e.target.value }))}
-                      placeholder="sem alvo"
+                      placeholder="sem meta"
                       disabled={isSaving}
                     />
                   </div>
                 ))}
               </div>
-            ) : null}
+            )}
           </section>
         </div>
 
@@ -268,7 +217,7 @@ export function PackJudgmentDialog({ pack, open, onOpenChange }: PackJudgmentDia
                 Salvando...
               </>
             ) : (
-              "Salvar critérios"
+              "Salvar configuração"
             )}
           </Button>
         </footer>
