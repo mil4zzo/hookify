@@ -2385,3 +2385,94 @@ vars sem `NEXT_PUBLIC_` não são inlined no bundle, o Node lê na hora — muda
 
 **Regra daqui pra frente:** qualquer código que faça fetch à API no servidor do Next (server
 component, `generateMetadata`, route handler) precisa da mesma precedência de URL interna.
+
+---
+
+## Critério de julgamento é inerente ao pack — a herança do P2 foi revogada (2026-08-18)
+
+O P2 moveu `mql_leadscore_min`, `target_cpr` e `diagnostic_cost_metric` para o pack
+com **herança e override**: `user_preferences` era o padrão, o pack podia
+sobrescrever. Uma semana depois isso foi desfeito. Vale registrar por quê, porque a
+motivação some no git.
+
+### Os quatro campos não são da mesma natureza
+
+Eles foram tratados como iguais porque estavam na mesma tabela. A linha que os
+separa é o que cada um responde:
+
+- `mql_leadscore_min` — **parâmetro do dado**. Descreve a escala da planilha que
+  produziu o leadscore. Um corte sem essa planilha não tem referente: 7 dos 10
+  usuários carregavam o campo com valor `0`, porque não têm planilha nenhuma.
+- `target_cpr` — **meta de negócio**, indexada por `action_type`, que vem de
+  `packs.conversion_types`. A granularidade sempre esteve errada: um mapa global
+  carrega chaves que o pack não tem e não carrega as que ele tem.
+- `diagnostic_cost_metric` e `validation_criteria` — **como eu quero olhar**.
+
+Os dois primeiros responderam *"o que este número significa"*; os dois últimos,
+*"qual meu gosto"*. Só os dois primeiros migraram de vez; os outros dois voltaram a
+ser exclusivamente do usuário. Não existe mais herança em lugar nenhum — cada campo
+existe em exatamente um lugar.
+
+### O que a herança custava
+
+A pergunta *"o default é de quem?"* só existe porque havia herança. Ela produziu o
+bug que a migration 108 corrigiu: num pack compartilhado, o dono via corte 40 e o
+convidado via 80 — os dois julgando o **mesmo pack** por réguas diferentes, que é
+exatamente o que o P2 existia para impedir. Sem herança, a pergunta deixa de ser
+formulável. É a diferença entre corrigir por cuidado e corrigir por construção.
+
+### NULL = não definido, e nunca zero
+
+Corte indefinido (pack legado) ou não-único (packs selecionados discordam) → MQL e
+CPMQL ficam **indisponíveis**. Zero afirmaria "todo lead é MQL", derrubando o CPMQL
+para um número excelente e falso — falha silenciosa na direção que ninguém
+investiga.
+
+Havia **um vazamento real** desse tipo já no banco: em `fetch_manager_rankings_series_v2`,
+`cpmql` e `mqls` escapavam por acaso (o guard `mql_count > 0` os levava a `null`),
+mas `mql_rate` dividia direto — `0/N = 0`, publicado como *"0% dos leads são
+qualificados"*. `leadscore_avg` continua disponível de propósito: a média não
+depende do corte.
+
+No frontend o mesmo padrão apareceu em quatro formas, todas escritas quando
+`undefined` significava apenas "contexto ausente" e nada mais:
+`context.mqlLeadscoreMin ?? 0`, `mqlLeadscoreMin: number = 0` (default de parâmetro),
+`Number(detailModel?.cpmql ?? 0)` e `mqlLeadscoreMin || 0`. **Trocar o tipo para
+`number | null` foi o que os encontrou** — o `tsc` enumerou 51 erros em 12 arquivos.
+Um deles, `null || 0`, compilava perfeitamente antes e depois; esse teve que ser
+caçado por grep, não pelo compilador.
+
+### Backfill: preservar o vigente, mas não gravar o que nunca foi escolhido
+
+20 packs receberam o corte vigente do dono e 6 receberam a meta — sem isso, quem já
+usa perderia MQL de 20 packs de uma vez. Mas os 3 packs do único dono com default
+`0` ficaram **NULL**: zero nunca foi uma escolha dele, e gravá-lo o transformaria em
+decisão deliberada.
+
+### Deploy em duas fases (obrigatório)
+
+A `110` faz backfill e passa a ler só do pack, **sem dropar nada**. Os DROPs ficam na
+`111`, que só pode ser aplicada **depois do deploy** — o código em produção ainda lê
+`user_preferences.mql_leadscore_min`, e dropar antes derruba a produção no ato. A
+`111` tem guarda que aborta se a `110` não tiver rodado.
+
+### Onde se define, e quem pode
+
+No **último passo da integração de planilha**, junto das amostras da coluna de
+leadscore — o único momento em que a escala está à vista. Campo obrigatório para
+importar. Depois, em Packs → configuração, onde escrevem **dono e editor**: é o
+primeiro ponto do projeto em que o papel `editor` vale de verdade (`viewer` → 403).
+A autorização passa por `resolve_pack_access` e o write desce para service role,
+porque a RLS de `packs` só enxerga o próprio silo e recusaria um editor de pack
+alheio antes de a regra de papel ser consultada.
+
+### Ficou em aberto de propósito
+
+`validation_criteria` é chamado de controle de visualização, mas na prática é o
+**portão de amostra que decide quais anúncios entram no julgamento**: dois membros
+com `impressions >= 3000` e `>= 1` olham o mesmo pack e um vê "sem dados
+suficientes" enquanto o outro vê "esse anúncio é ruim" — divergência de veredito,
+o mesmo mecanismo do leadscore. Não foi movido porque não bloqueia nada (seria
+adição, não remoção) e porque o contra-argumento é legítimo: "quanta evidência eu
+exijo" é tolerância a risco pessoal. Decidir depois de ver o compartilhamento
+rodando.

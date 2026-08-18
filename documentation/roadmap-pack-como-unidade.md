@@ -5,10 +5,12 @@
 >
 > Última atualização: 2026-08-18
 >
-> **Concluído:** P2 · P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
-> **Próximo passo:** camadas 1 e 3 do bloqueio de conflito (pré-checagem na
-> seleção + estado bloqueante na UI), e os 8 endpoints de drill em `analytics.py`,
-> que ainda filtram `user_id = me` no Python.
+> **Concluído:** P2 · **P2.1 (julgamento inerente ao pack — revoga a herança do P2)** ·
+> P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
+> **Próximo passo:** **deploy** (o banco está 10 migrations à frente do código em
+> produção, e a 111 — que dropa as colunas — só pode ser aplicada DEPOIS dele);
+> então camadas 1 e 3 do bloqueio de conflito, e os 8 endpoints de drill em
+> `analytics.py`, que ainda filtram `user_id = me` no Python.
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
@@ -235,6 +237,66 @@ A diferença é que aquilo é *lista de opções* (união natural), enquanto cri
 
 ---
 
+## P2.1 — Julgamento inerente ao pack (revoga a herança do P2)
+
+**Status:** `Concluído` — 2026-08-18 (migration `110_pack_owned_judgment.sql` aplicada;
+`111` — os DROPs — **pendente de deploy**)
+
+O P2 tratou os quatro campos de julgamento como iguais porque estavam na mesma
+tabela. Não são. A linha que os separa:
+
+| Campo | Natureza | Onde vive agora |
+|---|---|---|
+| `mql_leadscore_min` | **parâmetro do dado** — descreve a escala da planilha | pack |
+| `target_cpr` | **meta de negócio** — indexado por `conversion_types`, que é do pack | pack |
+| `diagnostic_cost_metric` | preferência de visualização | usuário |
+| `validation_criteria` | tolerância a risco do analista | usuário |
+
+Os dois primeiros respondem *"o que este número significa"*; os dois últimos,
+*"como eu quero olhar"*. **A herança acabou**: cada campo existe em exatamente um
+lugar, e a pergunta "o default é de quem?" — que produziu o bug corrigido pela 108
+— deixa de ser formulável.
+
+### NULL = não definido, e não zero
+
+Corte indefinido (pack legado) ou não-único (packs selecionados discordam) → MQL e
+CPMQL ficam **indisponíveis**. Zero afirmaria "todo lead é MQL", derrubando o CPMQL
+para um número excelente e falso, na direção que ninguém investiga.
+
+Foi encontrado **um vazamento real** desse tipo em `series_v2`: `cpmql` e `mqls`
+escapavam por acaso (o guard `mql_count > 0` os levava a `null`), mas `mql_rate`
+dividia direto — `0/N = 0`, publicado como "0% dos leads são qualificados". A 110
+fecha isso. `leadscore_avg` continua disponível: a média não depende do corte.
+
+O mesmo padrão foi removido do frontend em quatro lugares que só existiam porque
+`undefined` antes significava apenas "contexto ausente": `context.mqlLeadscoreMin ?? 0`
+(6x em `calculations.ts`), `mqlLeadscoreMin: number = 0` (defaults de `gemsTopMetrics`
+e `metricRankings`), `Number(detailModel?.cpmql ?? 0)` e `mqlLeadscoreMin || 0`.
+
+### Backfill
+
+20 packs receberam o valor vigente do dono; 6 receberam a meta. Os 3 packs do único
+dono com default `0` ficaram **NULL** — zero nunca foi escolha dele, e gravá-lo como
+se fosse perpetuaria "todo lead é MQL" com cara de decisão.
+
+### Onde se define
+
+No **último passo da integração de planilha**, junto das amostras da coluna de
+leadscore — o único momento em que a escala é visível. Campo obrigatório para
+importar. Depois, em Packs → configuração, onde escrevem **dono e editor**
+(primeiro ponto em que o papel `editor` vale de verdade; `viewer` recebe 403).
+
+O painel de Leadscore no Topbar virou **somente-leitura**: mostra o que está em
+vigor para a seleção atual e aponta para o pack.
+
+### Pendência bloqueada por deploy
+
+`user_preferences.mql_leadscore_min` e `target_cpr`, mais `packs.diagnostic_cost_metric`,
+**continuam existindo e ignorados**. O código em produção ainda lê os dois primeiros;
+dropar antes do deploy derruba a produção. Os DROPs vão na `111`, depois do deploy.
+
+---
+
 ## P3 — Compartilhamento de packs entre usuários
 
 **Status:** `Não iniciado`
@@ -360,6 +422,7 @@ propósito — era código morto e saiu.
 
 | # | Escopo | Status |
 |---|---|---|
+| P2.1 | Julgamento inerente ao pack (revoga a herança) | `Concluído` — 2026-08-18 (migration 110; DROPs na 111, pós-deploy) |
 | P3.1 | Tabela de grants (`pack_shares`) + resolvedor de dono | `Concluído` — 2026-08-18 |
 | P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Concluído` — 2026-08-18 (migrations 104–109); faltam os 8 endpoints de drill em `analytics.py` |
 | P3.3 | Credencial por pack (FB e Google do dono) + ator em `meta_api_usage` | `Não iniciado` |
@@ -444,7 +507,11 @@ saíram do pós-MVP e viraram P3.6. Só o token do convidado ficou para depois.
 | 2026-08-17 | Coluna `role` criada **desde já** (default `editor`), sem uso na UI | Custo zero hoje; evita backfill ambíguo depois |
 | 2026-08-17 | Credencial **sempre do dono** (Facebook e Google Sheets) | Permite convidar copywriter/editor sem conta Meta |
 | 2026-08-17 | Registrar **ator** em toda escrita | Único rastro possível: na Meta o log mostra o dono |
-| 2026-08-17 | Critérios de julgamento: **herança com override** (user default → pack) | Regressão zero para quem não sobrescreve |
+| 2026-08-17 | ~~Critérios de julgamento: **herança com override** (user default → pack)~~ **REVOGADA em 2026-08-18** | Ver P2.1: a herança era o que tornava possível a pergunta "o default é de quem?" |
+| 2026-08-18 | `mql_leadscore_min` e `target_cpr` vivem **só no pack**; `diagnostic_cost_metric` e `validation_criteria` **só no usuário** | Os dois primeiros descrevem o dado; os dois últimos, o gosto de quem olha |
+| 2026-08-18 | Corte ausente ou divergente → MQL/CPMQL **indisponíveis**, nunca zero | Zero é uma afirmação falsa na direção que não se investiga |
+| 2026-08-18 | Corte é **obrigatório** no último passo da integração de planilha | É o único momento em que a escala do leadscore está à vista |
+| 2026-08-18 | Backfill preserva o valor vigente, mas **default 0 vira NULL** | Zero nunca foi escolha; gravá-lo o transformaria em decisão |
 | 2026-08-17 | Ordem P1 → P2 → P3 | P1 define o vocabulário; P2 é pré-requisito semântico de P3 |
 | 2026-08-17 | Convidado enxerga **apenas o conteúdo do pack** — inclusive adsets e campanhas | Compartilhou o pack, não a conta |
 | 2026-08-17 | MVP: convite **só para quem já tem conta** no Hookify | Projeto não tem nenhuma infraestrutura de e-mail hoje; convite a não-cadastrado é camada aditiva |
@@ -478,6 +545,17 @@ saíram do pós-MVP e viraram P3.6. Só o token do convidado ficou para depois.
 
 2. **Onde a escolha de atribuição aparece na UI (P1).** Um seletor? Duas colunas
    distintas? Um rótulo fixo? Depende da nº 1.
+
+3. **`validation_criteria` deveria ser do pack?** (levantada em 2026-08-18, decisão
+   adiada de propósito). Pela régua do P2.1 ele é controle de visualização, mas na
+   prática é o **portão de amostra que decide quais anúncios entram no julgamento**:
+   dois membros com `impressions >= 3000` e `>= 1` olham o mesmo pack e um vê "sem
+   dados suficientes" enquanto o outro vê "esse anúncio é ruim" — divergência de
+   veredito, o mesmo mecanismo do leadscore. Contra-argumento: "quanta evidência eu
+   exijo antes de confiar" é tolerância a risco pessoal. Não bloqueia nada — não
+   existe coluna em `packs`, então seria **adição**, não remoção. Decidir depois de
+   ver o compartilhamento rodando: se dois membros divergirem na prática, a resposta
+   aparece sozinha.
 
 ---
 
