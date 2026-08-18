@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict U1CAvyyreXs13TlubcQffsFK5leraYn9eZ13AJlR3DbKk1mKKTCgpX1kYPWwfHC
+\restrict KRf2BAcd3oCl76aR9FL6Y6EShZ6cvkTgeHFmO2O1RkGN13OKIxqCvMxRN0dXzgd
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -343,6 +343,15 @@ CREATE FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_sta
     SET plan_cache_mode TO 'force_custom_plan'
     AS $$
 BEGIN
+  -- Guard que faltava. Sem ele esta funcao era um vazamento de dados: SECURITY
+  -- DEFINER, concedida a `authenticated`, recebendo p_user_id sem validacao —
+  -- qualquer usuario logado lia as metricas de qualquer outro passando o uuid
+  -- alheio. Verificado explorando: 58.001 linhas de outro usuario.
+  IF auth.uid() IS DISTINCT FROM p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()'
+      USING ERRCODE = '42501';
+  END IF;
+
   RETURN QUERY
   SELECT jsonb_build_object(
     'ad_id',                     am.ad_id,
@@ -5455,7 +5464,6 @@ GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid,
 -- Name: FUNCTION fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO authenticated;
 GRANT ALL ON FUNCTION public.fetch_ad_metrics_for_analytics(p_user_id uuid, p_date_start date, p_date_stop date, p_pack_ids uuid[], p_account_ids text[]) TO service_role;
 
 
@@ -5817,5 +5825,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict U1CAvyyreXs13TlubcQffsFK5leraYn9eZ13AJlR3DbKk1mKKTCgpX1kYPWwfHC
+\unrestrict KRf2BAcd3oCl76aR9FL6Y6EShZ6cvkTgeHFmO2O1RkGN13OKIxqCvMxRN0dXzgd
 
