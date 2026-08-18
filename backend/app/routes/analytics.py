@@ -83,50 +83,6 @@ def _is_transient_analytics_rpc_error(error: Exception) -> bool:
     return bool(transient_types and isinstance(error, tuple(transient_types)))
 
 
-def _fetch_ad_metrics_via_rpc(
-    sb,
-    user_id: str,
-    date_start: str,
-    date_stop: str,
-    pack_ids: Optional[List[str]] = None,
-    account_ids: Optional[List[str]] = None,
-) -> List[Dict[str, Any]]:
-    """Fetch ad_metrics via RPC with pagination to bypass PostgREST 1000-row limit.
-
-    Uses the && (overlap) operator with GIN index instead of multiple
-    paginated PostgREST queries with OR-chained contains operators.
-    """
-    params: Dict[str, Any] = {
-        "p_user_id": user_id,
-        "p_date_start": date_start,
-        "p_date_stop": date_stop,
-    }
-    if pack_ids:
-        params["p_pack_ids"] = pack_ids
-    if account_ids:
-        params["p_account_ids"] = account_ids
-
-    all_rows: List[Dict[str, Any]] = []
-    page_size = 1000
-    offset = 0
-
-    while True:
-        result = sb.rpc("fetch_ad_metrics_for_analytics", params).range(offset, offset + page_size - 1).execute()
-        page_data = result.data or []
-
-        if not page_data:
-            break
-
-        all_rows.extend(page_data)
-
-        if len(page_data) < page_size:
-            break
-
-        offset += page_size
-
-    return all_rows
-
-
 def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, max_per_page: int = 1000) -> List[Dict[str, Any]]:
     """Busca todos os registros de uma tabela usando paginaÃ§Ã£o para contornar limite de 1000 linhas do Supabase.
     
