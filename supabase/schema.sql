@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 3fET3kQsqPQepWsEdQsB6m4slD1ywAneX1jcONH75EFPWsMUBSGNe2oEl7e5uLX
+\restrict cNf3X9IOhibT8yXdRrlUR2VlTbRSeCTM3dnzvZ97NceTqmBSZeemJnpT9HcLSRD
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -1816,6 +1816,59 @@ $$;
 ALTER FUNCTION public.handle_new_user_subscription() OWNER TO postgres;
 
 --
+-- Name: lookup_user_by_email(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.lookup_user_by_email(p_email text) RETURNS TABLE(user_id uuid, display_name text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select
+    u.id,
+    coalesce(nullif(trim(u.raw_user_meta_data->>'name'), ''), split_part(u.email, '@', 1))
+  from auth.users u
+  where lower(u.email) = lower(trim(p_email))
+    and nullif(trim(p_email), '') is not null
+  limit 1;
+$$;
+
+
+ALTER FUNCTION public.lookup_user_by_email(p_email text) OWNER TO postgres;
+
+--
+-- Name: FUNCTION lookup_user_by_email(p_email text); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.lookup_user_by_email(p_email text) IS 'Resolve e-mail EXATO -> (user_id, nome de exibicao) para o convite de pack. Match exato e payload minimo evitam enumeracao de cadastro. Helper interno: o backend chama com service role, para o rate limit do middleware valer.';
+
+
+--
+-- Name: lookup_users_by_ids(uuid[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.lookup_users_by_ids(p_user_ids uuid[]) RETURNS TABLE(user_id uuid, display_name text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select
+    u.id,
+    coalesce(nullif(trim(u.raw_user_meta_data->>'name'), ''), split_part(u.email, '@', 1))
+  from auth.users u
+  where p_user_ids is not null
+    and u.id = any(p_user_ids);
+$$;
+
+
+ALTER FUNCTION public.lookup_users_by_ids(p_user_ids uuid[]) OWNER TO postgres;
+
+--
+-- Name: FUNCTION lookup_users_by_ids(p_user_ids uuid[]); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.lookup_users_by_ids(p_user_ids uuid[]) IS 'Troca ids conhecidos por nomes de exibicao na lista de membros de um pack. Nao e busca: o chamador ja tem os ids. Helper interno, chamado pelo backend com service role.';
+
+
+--
 -- Name: release_job_processing_lease(text, uuid, text); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1890,6 +1943,46 @@ ALTER FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, 
 --
 
 COMMENT ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) IS 'Renova o lease de processamento do worker atual se ele ainda for o owner do job.';
+
+
+--
+-- Name: resolve_pack_access(uuid[], uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid DEFAULT NULL::uuid) RETURNS TABLE(pack_id uuid, owner_id uuid, role text)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  select
+    p.id                                   as pack_id,
+    p.user_id                              as owner_id,
+    case when p.user_id = coalesce(p_actor_id, auth.uid())
+         then 'dono'
+         else s.role
+    end                                    as role
+  from public.packs p
+  left join public.pack_shares s
+    on s.pack_id = p.id
+   and s.grantee_id = coalesce(p_actor_id, auth.uid())
+    -- Redundante com a FK composta, de proposito: se alguem dropar a constraint,
+    -- o resolvedor ainda recusa grant cujo owner_id nao seja o dono real.
+   and s.owner_id = p.user_id
+  where p_pack_ids is not null
+    and p.id = any(p_pack_ids)
+    and (
+      p.user_id = coalesce(p_actor_id, auth.uid())
+      or s.id is not null
+    );
+$$;
+
+
+ALTER FUNCTION public.resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid) OWNER TO postgres;
+
+--
+-- Name: FUNCTION resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid) IS 'Packs acessiveis pelo ator entre os pedidos, com dono e papel (dono|editor|viewer). Pack inacessivel nao retorna — o chamador compara a contagem. Helper interno, nao exposto ao PostgREST.';
 
 
 --
@@ -2566,6 +2659,46 @@ COMMENT ON TABLE public.meta_api_usage IS 'One row per outgoing Meta Graph API c
 
 
 --
+-- Name: pack_shares; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.pack_shares (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    pack_id uuid NOT NULL,
+    owner_id uuid NOT NULL,
+    grantee_id uuid NOT NULL,
+    role text DEFAULT 'editor'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT pack_shares_not_self CHECK ((owner_id <> grantee_id)),
+    CONSTRAINT pack_shares_role_check CHECK ((role = ANY (ARRAY['editor'::text, 'viewer'::text])))
+);
+
+
+ALTER TABLE public.pack_shares OWNER TO postgres;
+
+--
+-- Name: TABLE pack_shares; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.pack_shares IS 'Acessos concedidos a packs. O dono NAO aparece aqui (vem de packs.user_id); esta tabela guarda so os convidados. ON DELETE CASCADE em pack_id implementa "dono apaga o pack -> some para todos".';
+
+
+--
+-- Name: COLUMN pack_shares.owner_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.pack_shares.owner_id IS 'Denormalizado de packs.user_id, preenchido pelo servidor. Nunca aceitar do cliente.';
+
+
+--
+-- Name: COLUMN pack_shares.role; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.pack_shares.role IS 'editor = le e escreve (refresh, pausar, budget). viewer = somente leitura. O papel "dono" nao e representado aqui.';
+
+
+--
 -- Name: packs; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -2914,6 +3047,30 @@ ALTER TABLE ONLY public.jobs
 
 ALTER TABLE ONLY public.meta_api_usage
     ADD CONSTRAINT meta_api_usage_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pack_shares pack_shares_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pack_shares
+    ADD CONSTRAINT pack_shares_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: pack_shares pack_shares_unique_grant; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pack_shares
+    ADD CONSTRAINT pack_shares_unique_grant UNIQUE (pack_id, grantee_id);
+
+
+--
+-- Name: packs packs_id_user_id_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.packs
+    ADD CONSTRAINT packs_id_user_id_key UNIQUE (id, user_id);
 
 
 --
@@ -3294,6 +3451,27 @@ CREATE INDEX meta_api_usage_user_created_idx ON public.meta_api_usage USING btre
 
 
 --
+-- Name: pack_shares_grantee_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX pack_shares_grantee_idx ON public.pack_shares USING btree (grantee_id);
+
+
+--
+-- Name: pack_shares_owner_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX pack_shares_owner_idx ON public.pack_shares USING btree (owner_id);
+
+
+--
+-- Name: pack_shares_pack_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX pack_shares_pack_idx ON public.pack_shares USING btree (pack_id);
+
+
+--
 -- Name: packs_refresh_lock_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -3354,6 +3532,13 @@ CREATE INDEX subscriptions_stripe_customer_id_idx ON public.subscriptions USING 
 --
 
 CREATE INDEX subscriptions_stripe_subscription_id_idx ON public.subscriptions USING btree (stripe_subscription_id) WHERE (stripe_subscription_id IS NOT NULL);
+
+
+--
+-- Name: pack_shares set_pack_shares_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER set_pack_shares_updated_at BEFORE UPDATE ON public.pack_shares FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 
 --
@@ -3431,6 +3616,30 @@ ALTER TABLE ONLY public.google_accounts
 
 ALTER TABLE ONLY public.meta_api_usage
     ADD CONSTRAINT meta_api_usage_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: pack_shares pack_shares_grantee_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pack_shares
+    ADD CONSTRAINT pack_shares_grantee_id_fkey FOREIGN KEY (grantee_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: pack_shares pack_shares_owner_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pack_shares
+    ADD CONSTRAINT pack_shares_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES auth.users(id) ON DELETE CASCADE;
+
+
+--
+-- Name: pack_shares pack_shares_pack_owner_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.pack_shares
+    ADD CONSTRAINT pack_shares_pack_owner_fkey FOREIGN KEY (pack_id, owner_id) REFERENCES public.packs(id, user_id) ON DELETE CASCADE;
 
 
 --
@@ -3628,6 +3837,33 @@ CREATE POLICY meta_usage_read_own ON public.meta_api_usage FOR SELECT TO authent
 
 
 --
+-- Name: pack_shares; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.pack_shares ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: pack_shares pack_shares_grantee_leave; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY pack_shares_grantee_leave ON public.pack_shares FOR DELETE USING ((grantee_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: pack_shares pack_shares_grantee_select; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY pack_shares_grantee_select ON public.pack_shares FOR SELECT USING ((grantee_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: pack_shares pack_shares_owner_all; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY pack_shares_owner_all ON public.pack_shares USING ((owner_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((owner_id = ( SELECT auth.uid() AS uid)));
+
+
+--
 -- Name: packs; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -3785,6 +4021,22 @@ GRANT ALL ON FUNCTION public.handle_new_user_subscription() TO service_role;
 
 
 --
+-- Name: FUNCTION lookup_user_by_email(p_email text); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.lookup_user_by_email(p_email text) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.lookup_user_by_email(p_email text) TO service_role;
+
+
+--
+-- Name: FUNCTION lookup_users_by_ids(p_user_ids uuid[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.lookup_users_by_ids(p_user_ids uuid[]) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.lookup_users_by_ids(p_user_ids uuid[]) TO service_role;
+
+
+--
 -- Name: FUNCTION release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -3798,6 +4050,14 @@ GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_
 
 GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO authenticated;
 GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO service_role;
+
+
+--
+-- Name: FUNCTION resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.resolve_pack_access(p_pack_ids uuid[], p_actor_id uuid) TO service_role;
 
 
 --
@@ -3934,6 +4194,15 @@ GRANT ALL ON TABLE public.meta_api_usage TO service_role;
 
 
 --
+-- Name: TABLE pack_shares; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.pack_shares TO anon;
+GRANT ALL ON TABLE public.pack_shares TO authenticated;
+GRANT ALL ON TABLE public.pack_shares TO service_role;
+
+
+--
 -- Name: TABLE packs; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -4042,5 +4311,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 3fET3kQsqPQepWsEdQsB6m4slD1ywAneX1jcONH75EFPWsMUBSGNe2oEl7e5uLX
+\unrestrict cNf3X9IOhibT8yXdRrlUR2VlTbRSeCTM3dnzvZ97NceTqmBSZeemJnpT9HcLSRD
 

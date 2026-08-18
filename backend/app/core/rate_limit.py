@@ -83,6 +83,14 @@ _RULES: Tuple[Tuple[str, re.Pattern[str], str, int], ...] = tuple(
         # de entropia (10 chars, Base58) — o default de 300/min por IP seria
         # generoso demais para varredura de token. Um viewer legítimo faz 1 hit
         # por abertura de link; 20/min cobre folgado navegação repetida.
+        # Convite de pack: o lookup por e-mail e o unico ponto do app que
+        # confirma "este endereco tem conta aqui". Match exato ja torna a coleta
+        # inviavel, mas 30/min fecha a porta para verificacao de lista em massa.
+        # Um convite legitimo faz 1 lookup.
+        ("GET", r"^/pack-shares/lookup$", "pack-share-lookup", 30),
+        ("POST", r"^/pack-shares/", "pack-share-write", 60),
+        ("DELETE", r"^/pack-shares/", "pack-share-write", 60),
+        ("PATCH", r"^/pack-shares/", "pack-share-write", 60),
         ("GET", r"^/shares/public/", "share-public-lookup", 20),
     ]
 )

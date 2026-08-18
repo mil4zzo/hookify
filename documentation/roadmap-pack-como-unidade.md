@@ -3,10 +3,12 @@
 > **Documento vivo.** Atualize o status dos projetos conforme forem concluídos.
 > Serve para reconstruir contexto entre sessões/chats diferentes sem reler o histórico.
 >
-> Última atualização: 2026-08-17 · Nada iniciado ainda (fase de desenho)
+> Última atualização: 2026-08-18
 >
-> **Próximo passo:** P2 (configuração de julgamento por pack). Nenhuma decisão em
-> aberto bloqueia P2 ou P3 — as pendências são todas do P1, que está adiado.
+> **Concluído:** P2 (julgamento por pack) · P3.1 (grants + resolvedor de dono).
+> **Próximo passo:** P3.2 — fazer as RPCs derivarem o dono a partir de `p_pack_ids`.
+> É a fase de maior risco do P3: mexe no caminho mais quente do app.
+> Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
 
@@ -274,7 +276,7 @@ um `user_id`, então não há id para forjar.
 
 | # | Escopo | Status |
 |---|---|---|
-| P3.1 | Tabela de grants (`pack_shares`) + resolvedor de dono | `Não iniciado` |
+| P3.1 | Tabela de grants (`pack_shares`) + resolvedor de dono | `Concluído` — 2026-08-18 |
 | P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Não iniciado` |
 | P3.3 | Credencial por pack (FB e Google do dono) + ator em `meta_api_usage` | `Não iniciado` |
 | P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Não iniciado` |
@@ -282,6 +284,64 @@ um `user_id`, então não há id para forjar.
 | P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Não iniciado` |
 | P3.7 | UI: convite, badge de pack compartilhado, aviso de refresh em andamento | `Não iniciado` |
 | P3.8 | *(pós-MVP)* Token do convidado quando ele tem acesso próprio à conta | `Não iniciado` |
+
+### P3.1 — entregue (migration `103_pack_shares.sql`)
+
+Fronteira desta fase, e a razão dela: **modelo de dados e primitivas de
+autorização, sem tocar no read-path**. O pack compartilhado ainda NÃO aparece
+para o convidado — isso depende da P3.2. Expor antes mostraria um pack cujo
+analytics responderia `Forbidden`. O roadmap não dizia quando a visibilidade
+entra; agora diz.
+
+**O dono não é uma linha em `pack_shares`.** A propriedade vem de `packs.user_id`;
+a tabela guarda só os acessos concedidos, e `role` aceita apenas `editor|viewer`.
+Gravar o dono como linha abriria a porta para os dois discordarem.
+
+#### Escalonamento de privilégio encontrado e fechado
+
+A primeira versão protegia a criação de grants só com RLS
+(`WITH CHECK (owner_id = auth.uid())`). Isso prova que o autor **diz** ser dono,
+não que ele **é**: qualquer usuário autenticado conseguia conceder acesso a
+qualquer pack cujo id conhecesse, declarando-se dono — e o resolvedor honrava o
+grant forjado. Confirmado empiricamente antes de corrigir.
+
+A correção não é uma policy melhor, é garantia de armazenamento: FK **composta**
+`(pack_id, owner_id) → packs(id, user_id)` (com `UNIQUE (id, user_id)` em `packs`
+como alvo). O par só existe se o pack for mesmo daquele dono. O resolvedor também
+exige `s.owner_id = p.user_id`, redundante de propósito: se alguém dropar a
+constraint, ele ainda recusa.
+
+**Lição que vale para a P3.2 em diante:** política de RLS sobre coluna
+denormalizada valida a *alegação*, não o *fato*. Onde a integridade importa,
+a constraint é que tem de carregar a garantia.
+
+#### Contrato do resolvedor
+
+`resolve_pack_access(p_pack_ids, p_actor_id)` devolve **uma linha por pack
+acessível**. Pack sem acesso simplesmente não volta, então o chamador compara a
+contagem — se vier menos do que pediu, algum é inacessível → `Forbidden`. Isso
+evita vazar a existência de pack alheio: não há diferença observável entre
+"não existe" e "não é seu".
+
+Verificado que packs de donos diferentes convivem numa mesma chamada (2 donos em
+2 packs) — é o pré-requisito da agregação multi-silo da P3.2.
+
+#### Endpoints (`/pack-shares`, router próprio)
+
+`GET /lookup` (e-mail exato) · `GET|POST /{pack_id}` · `PATCH|DELETE /{pack_id}/{grantee_id}`
+· `DELETE /{pack_id}/me` (sair). Rate limit: 30/min no lookup, 60/min nas escritas.
+
+As RPCs `lookup_user_by_email` e `lookup_users_by_ids` são revogadas de
+`anon`/`authenticated` de propósito: o backend chama com service role para que o
+rate limit do middleware valha. Expostas ao PostgREST, o frontend as chamaria
+direto e passaria por fora do limite.
+
+#### Não verificado
+
+Os handlers HTTP com JWT real não foram exercitados: a validação é por JWKS
+(assimétrica) e não há segredo para forjar token. O que foi testado é a camada
+de banco — onde mora toda a segurança —, o registro das rotas e o caminho real
+de chamada das RPCs via supabase-py.
 
 Correção de 2026-08-17: `viewer` **entra no MVP** (decisão travada), então os cargos
 saíram do pós-MVP e viraram P3.6. Só o token do convidado ficou para depois.

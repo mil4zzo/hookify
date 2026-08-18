@@ -317,6 +317,20 @@ Jobs assíncronos de longa duração (ex: criação em lote de anúncios).
 
 ---
 
+### pack_shares
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| pack_id | uuid | NOT NULL |
+| owner_id | uuid | NOT NULL |
+| grantee_id | uuid | NOT NULL |
+| role | text | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### packs
 Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 
@@ -421,4 +435,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-08-17 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-08-18 — via `supabase/generate_schema_map.py`*
