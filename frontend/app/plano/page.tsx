@@ -17,7 +17,7 @@ import { PlanHero } from "@/components/plano/PlanHero";
 import { PackDiagnosticPanel } from "@/components/plano/PackDiagnosticPanel";
 import { DayComparisonBlock } from "@/components/plano/DayComparisonBlock";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
-import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
+import { useJudgmentEditor } from "@/lib/hooks/useJudgmentEditor";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { Verdict } from "@/lib/utils/actionPlan";
 import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
@@ -38,7 +38,16 @@ export default function PlanoPage() {
   const { isLoading: packsLoading } = usePacksLoading();
 
   const { mqlLeadscoreMin } = useMqlLeadscore();
-  const { targetCprByActionType, diagnosticCostMetric, savePreferences, isSaving } = useUserPreferences();
+  // Julgamento vem resolvido contra os packs selecionados (herança com override).
+  // O editor sabe se a edição vai para o pack ou para o padrão da conta.
+  const {
+    targetCprByActionType,
+    diagnosticCostMetric,
+    isSaving,
+    editTargetFor,
+    saveTargetCpr,
+    saveDiagnosticCostMetric,
+  } = useJudgmentEditor();
 
   const {
     serverData,
@@ -79,23 +88,19 @@ export default function PlanoPage() {
   }, []);
 
   // ─── Target CPR handler ───────────────────────────────────────────────────
+  // O destino da gravação (pack vs conta) é decidido pelo editor, não aqui.
   const handleSaveTarget = useCallback(async (val?: number) => {
     if (!actionType) return;
-    const next = { ...targetCprByActionType };
-    if (val !== undefined && val > 0) {
-      next[actionType] = val;
-    } else {
-      delete next[actionType];
-    }
-    await savePreferences({ targetCprByActionType: next });
-  }, [actionType, targetCprByActionType, savePreferences]);
+    await saveTargetCpr(actionType, val);
+  }, [actionType, saveTargetCpr]);
 
   const currentTarget = actionType ? targetCprByActionType?.[actionType] : undefined;
+  const targetScope = editTargetFor("targetCprByActionType");
 
   // Persisted CPMQL/CPR choice for the day-comparison block (drives all 3 widgets).
   const handleSelectMetric = useCallback((m: DiagnosticTarget) => {
-    void savePreferences({ diagnosticCostMetric: m });
-  }, [savePreferences]);
+    void saveDiagnosticCostMetric(m);
+  }, [saveDiagnosticCostMetric]);
 
   // ─── Action plan ──────────────────────────────────────────────────────────
   // Só existe UMA média: a global ponderada (serverAverages, todos os ads = Meta).
@@ -185,6 +190,7 @@ export default function PlanoPage() {
             currentTarget={currentTarget}
             isSaving={isSaving}
             onSaveTarget={handleSaveTarget}
+            targetScope={targetScope}
             summary={diagnostic.summary}
             minVolumeOk={diagnostic.minVolumeOk}
             showDiagnostic={showDiagnostic}

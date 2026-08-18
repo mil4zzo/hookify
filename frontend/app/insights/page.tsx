@@ -22,7 +22,7 @@ import { AnalyticsWorkspace, TabbedWorkspace } from "@/components/common/layout"
 import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { usePackDiagnostic } from "@/lib/hooks/usePackDiagnostic";
-import { useUserPreferences } from "@/lib/hooks/useUserPreferences";
+import { useJudgmentEditor } from "@/lib/hooks/useJudgmentEditor";
 import { DayComparisonBlock } from "@/components/plano/DayComparisonBlock";
 import { PackDiagnosticPanel } from "@/components/plano/PackDiagnosticPanel";
 import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
@@ -124,7 +124,8 @@ export default function InsightsPage() {
 
   // ── Diagnóstico do dia (aba "Diagnóstico") ──────────────────────────────────
   // Mesmo motor do /plano: serverData (todos os ads = média global) + usePackDiagnostic.
-  const { targetCprByActionType, diagnosticCostMetric, savePreferences } = useUserPreferences();
+  // Julgamento resolvido contra os packs selecionados (herança com override).
+  const { targetCprByActionType, diagnosticCostMetric, saveDiagnosticCostMetric } = useJudgmentEditor();
   const diagnostic = usePackDiagnostic({
     ads: (serverData ?? []) as RankingsItem[],
     actionType: actionType ?? "",
@@ -135,7 +136,7 @@ export default function InsightsPage() {
   const [showFullDiagnostic, setShowFullDiagnostic] = useState(false);
   const currentTargetCpr = actionType ? targetCprByActionType?.[actionType] : undefined;
   const handleSelectDiagnosticMetric = (m: DiagnosticTarget) => {
-    void savePreferences({ diagnosticCostMetric: m });
+    void saveDiagnosticCostMetric(m);
   };
 
   const [activeGemsColumns, setActiveGemsColumns] = useState<Set<GemsColumnType>>(() => loadGemsColumns());

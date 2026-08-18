@@ -116,6 +116,11 @@ export function useLoadPacks() {
                 last_refreshed_at: pack.last_refreshed_at || undefined, // Incluir last_refreshed_at se disponível
                 sheet_integration: pack.sheet_integration || undefined, // Incluir dados de integração se disponível
                 conversion_types: Array.isArray(pack.conversion_types) ? pack.conversion_types : [], // Metadado materializado (dropdown de eventos)
+                // Overrides de julgamento — null preservado de propósito: null = herda,
+                // então normalizar para 0/{} aqui transformaria "herda" em "override zerado".
+                mql_leadscore_min: pack.mql_leadscore_min ?? null,
+                target_cpr: pack.target_cpr ?? null,
+                diagnostic_cost_metric: pack.diagnostic_cost_metric ?? null,
               }
             })
           )
@@ -141,6 +146,17 @@ export function useLoadPacks() {
               }
               if (JSON.stringify(pack.conversion_types || []) !== JSON.stringify((existing as any).conversion_types || [])) {
                 patch.conversion_types = Array.isArray(pack.conversion_types) ? pack.conversion_types : []
+              }
+              // Overrides de julgamento: campos mutáveis — sem isto, o store persistido
+              // reidrata o valor antigo e a tela julga por um critério já alterado.
+              if (pack.mql_leadscore_min !== ((existing as any).mql_leadscore_min ?? null)) {
+                patch.mql_leadscore_min = pack.mql_leadscore_min
+              }
+              if (pack.diagnostic_cost_metric !== ((existing as any).diagnostic_cost_metric ?? null)) {
+                patch.diagnostic_cost_metric = pack.diagnostic_cost_metric
+              }
+              if (JSON.stringify(pack.target_cpr ?? null) !== JSON.stringify((existing as any).target_cpr ?? null)) {
+                patch.target_cpr = pack.target_cpr
               }
               if (Object.keys(patch).length > 0) {
                 updatePack(pack.id, patch as any)

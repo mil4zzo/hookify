@@ -5,7 +5,7 @@ import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone } from "@tabler/icons-react";
+import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -41,6 +41,8 @@ export interface PackCardProps {
   onSetSheetIntegration: (pack: AdsPack) => void;
   onEditSheetIntegration?: (pack: AdsPack) => void;
   onDeleteSheetIntegration?: (pack: AdsPack) => void;
+  /** Abre a configuração de critérios de julgamento (MQL, CPR alvo, métrica de custo) do pack. */
+  onEditJudgment?: (pack: AdsPack) => void;
   /** Inicia apenas a transcrição dos vídeos do pack (sem refresh). Útil para testes. */
   onTranscribeAds?: (packId: string, packName: string) => void;
   /** Selecionado para uma ação em massa — destaca o card inteiro, não só o checkbox. */
@@ -61,10 +63,15 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onTranscribeAds, isSelected = false, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onTranscribeAds, isSelected = false, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
+  // Qualquer override de julgamento definido — null/undefined significa "herda da conta".
+  const hasJudgmentOverride =
+    pack.mql_leadscore_min !== null && pack.mql_leadscore_min !== undefined ||
+    pack.diagnostic_cost_metric !== null && pack.diagnostic_cost_metric !== undefined ||
+    (pack.target_cpr !== null && pack.target_cpr !== undefined);
   const { updatePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(pack.name);
@@ -526,6 +533,17 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
             <DropdownMenuItem onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
               <IconMicrophone className="w-4 h-4 mr-2" />
               Transcrever anúncios
+            </DropdownMenuItem>
+          )}
+          {onEditJudgment && (
+            <DropdownMenuItem onClick={() => onEditJudgment(pack)}>
+              <IconTargetArrow className="w-4 h-4 mr-2" />
+              <div className="flex flex-col items-start">
+                <span>Critérios de julgamento</span>
+                {hasJudgmentOverride && (
+                  <span className="text-2xs text-muted-foreground">Este pack usa critérios próprios</span>
+                )}
+              </div>
             </DropdownMenuItem>
           )}
           {pack.sheet_integration ? (

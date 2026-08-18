@@ -419,6 +419,20 @@ export const api = {
       apiClient.patch(`/analytics/packs/${packId}/auto-refresh`, { auto_refresh: autoRefresh }),
     updatePackName: (packId: string, name: string): Promise<{ success: boolean; pack_id: string; name: string }> =>
       apiClient.patch(`/analytics/packs/${packId}/name`, { name }),
+    /**
+     * Overrides de julgamento do pack. Chave ausente = não mexe; chave com `null`
+     * = limpa o override e volta a herdar de user_preferences. Por isso o payload
+     * é montado pelo chamador, não normalizado aqui.
+     */
+    updatePackJudgment: (
+      packId: string,
+      judgment: {
+        mql_leadscore_min?: number | null
+        target_cpr?: Record<string, number> | null
+        diagnostic_cost_metric?: 'cpr' | 'cpmql' | null
+      }
+    ): Promise<{ success: boolean; pack_id: string; judgment: Record<string, unknown> }> =>
+      apiClient.patch(`/analytics/packs/${packId}/judgment`, judgment),
   },
 
   // Meta API usage (quota monitoring)

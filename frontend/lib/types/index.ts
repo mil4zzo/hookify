@@ -25,6 +25,11 @@ export interface AdsPack {
   // Lista materializada (union incremental no refresh) dos conversion types do pack.
   // Chaves: 'conversion:<type>' / 'action:<type>'. Fonte do dropdown de eventos no Manager.
   conversion_types?: string[]
+  // ── Configuração de julgamento (herança com override) ──────────────────────
+  // null/undefined = herda de user_preferences. Resolvido por resolveJudgment().
+  mql_leadscore_min?: number | null
+  target_cpr?: Record<string, number> | null
+  diagnostic_cost_metric?: 'cpr' | 'cpmql' | null
   created_at: string
   updated_at: string
 }

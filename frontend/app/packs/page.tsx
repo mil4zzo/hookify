@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { PackCard } from "@/components/packs/PackCard";
+import { PackJudgmentDialog } from "@/components/packs/PackJudgmentDialog";
 import { TranscriptionStatusDialog } from "@/components/packs/TranscriptionStatusDialog";
 import { Input } from "@/components/ui/input";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
@@ -196,6 +197,7 @@ export default function PacksPage() {
   });
   const [sheetIntegrationPack, setSheetIntegrationPack] = useState<any | null>(null);
   const [packToRemoveIntegration, setPackToRemoveIntegration] = useState<AdsPack | null>(null);
+  const [judgmentPack, setJudgmentPack] = useState<AdsPack | null>(null);
 
   // Função auxiliar para obter "hoje - 2 dias" no formato YYYY-MM-DD
   const getTwoDaysAgoLocal = (): string => {
@@ -822,7 +824,7 @@ export default function PacksPage() {
                       />
                     </div>
                   )}
-                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
+                <PackCard pack={pack} adAccountName={adAccountNameById.get(pack.adaccount_id)} formatCurrency={formatCurrency} formatDate={formatDate} onRefresh={handleRefreshPack} onRemove={handleRemovePack} onToggleAutoRefresh={handleToggleAutoRefresh} onSetSheetIntegration={setSheetIntegrationPack} onEditSheetIntegration={handleEditSheetIntegration} onDeleteSheetIntegration={handleDeleteSheetIntegration} onEditJudgment={setJudgmentPack} onTranscribeAds={(packId, packName) => setTranscriptionDialogPack({ id: packId, name: packName })} isSelected={isPackSelected(pack.id)} isUpdating={isPackUpdating(pack.id)} isTogglingAutoRefresh={isTogglingAutoRefresh} packToDisableAutoRefresh={packToDisableAutoRefresh} />
                 </div>
               ))}
             </div>
@@ -1227,6 +1229,15 @@ export default function PacksPage() {
           // e já virão com sheet_integration atualizado
         }}
         packId={sheetIntegrationPack?.id ?? null}
+      />
+
+      {/* Critérios de julgamento por pack (herança com override) */}
+      <PackJudgmentDialog
+        pack={judgmentPack}
+        open={!!judgmentPack}
+        onOpenChange={(open) => {
+          if (!open) setJudgmentPack(null);
+        }}
       />
     </>
   );

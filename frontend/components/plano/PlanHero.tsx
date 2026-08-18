@@ -53,6 +53,12 @@ export interface PlanHeroProps {
   currentTarget?: number;
   isSaving: boolean;
   onSaveTarget: (val?: number) => Promise<void>;
+  /**
+   * Onde a edição do custo-alvo vai parar. `locked` = vários packs compartilham
+   * o mesmo override e não dá para escolher um destino aqui; a edição sai da
+   * configuração do pack.
+   */
+  targetScope?: { scope: "user" | "pack" | "locked"; label: string };
   // Diagnostic integration
   summary: DiagnosticSummaryResult | null;
   minVolumeOk: boolean;
@@ -70,6 +76,7 @@ export function PlanHero({
   currentTarget,
   isSaving,
   onSaveTarget,
+  targetScope,
   summary,
   minVolumeOk,
   showDiagnostic,
@@ -304,9 +311,18 @@ export function PlanHero({
             ) : (
               <span className="text-xs text-muted-foreground italic">(modo relativo)</span>
             )}
+            {targetScope && (
+              <span className="text-2xs text-muted-foreground truncate" title={targetScope.label}>
+                · {targetScope.label}
+              </span>
+            )}
           </div>
 
-          {editingTarget ? (
+          {targetScope?.scope === "locked" ? (
+            <span className="text-2xs text-muted-foreground">
+              Editável na configuração do pack
+            </span>
+          ) : editingTarget ? (
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted-foreground">R$</span>
               <input

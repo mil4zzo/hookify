@@ -2786,6 +2786,55 @@ def update_pack_auto_refresh(
         raise
 
 
+def update_pack_judgment(
+    user_jwt: str,
+    pack_id: str,
+    user_id: Optional[str],
+    fields: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Atualiza os overrides de julgamento de um pack (heranca com override).
+
+    `fields` traz apenas as chaves que o cliente enviou explicitamente. Valor
+    None grava NULL na coluna, o que faz o pack voltar a herdar o padrao do
+    usuario — por isso "chave ausente" e "chave com None" NAO sao equivalentes
+    e a distincao precisa ser preservada pelo chamador (exclude_unset).
+
+    Returns:
+        Dict com os valores efetivamente gravados (para o cliente ecoar).
+    """
+    if not user_id or not pack_id:
+        logger.warning("[UPDATE_PACK_JUDGMENT] Skipped: missing user_id or pack_id")
+        return {}
+
+    allowed = {"mql_leadscore_min", "target_cpr", "diagnostic_cost_metric"}
+    update_data = {k: v for k, v in (fields or {}).items() if k in allowed}
+    if not update_data:
+        return {}
+
+    update_data["updated_at"] = _now_iso()
+
+    sb = get_supabase_for_user(user_jwt)
+    try:
+        res = with_postgrest_retry(
+            f"update_pack_judgment[{pack_id}]",
+            lambda: sb.table("packs")
+            .update(update_data)
+            .eq("id", pack_id)
+            .eq("user_id", user_id)
+            .execute(),
+        )
+        logger.info(
+            "[UPDATE_PACK_JUDGMENT] Pack %s atualizado - campos=%s",
+            pack_id,
+            sorted(k for k in update_data if k != "updated_at"),
+        )
+        rows = res.data or []
+        return rows[0] if rows else {}
+    except Exception as e:
+        logger.exception(f"[UPDATE_PACK_JUDGMENT] Erro ao atualizar pack {pack_id}: {e}")
+        raise
+
+
 def check_pack_name_exists(
     user_jwt: str,
     user_id: str,

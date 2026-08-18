@@ -342,6 +342,9 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | ad_ids | text[] | DEFAULT |
 | sheet_integration_id | uuid |  |
 | conversion_types | text[] | NOT NULL, DEFAULT |
+| mql_leadscore_min | numeric |  |
+| target_cpr | jsonb |  |
+| diagnostic_cost_metric | text |  |
 
 ---
 
@@ -418,4 +421,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-07-25 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-08-17 — via `supabase/generate_schema_map.py`*

@@ -260,6 +260,22 @@ class UpdatePackNameRequest(BaseModel):
     name: str = Field(..., description="Novo nome do pack", min_length=1)
 
 
+class UpdatePackJudgmentRequest(BaseModel):
+    """Override de julgamento do pack. Campo ausente = nao mexe; null = volta a herdar."""
+
+    mql_leadscore_min: Optional[float] = Field(
+        default=None, description="Leadscore minimo para MQL neste pack. null = herda do usuario."
+    )
+    target_cpr: Optional[Dict[str, float]] = Field(
+        default=None, description="CPR alvo por action_type neste pack. null = herda do usuario."
+    )
+    diagnostic_cost_metric: Optional[str] = Field(
+        default=None, description="Metrica de custo do diagnostico: 'cpr' | 'cpmql'. null = herda do usuario."
+    )
+
+    model_config = {"extra": "forbid"}
+
+
 def _to_date(s: str) -> datetime:
     return datetime(int(s[0:4]), int(s[5:7]), int(s[8:10]))
 
@@ -314,7 +330,11 @@ def _extract_lpv(row: Dict[str, Any]) -> int:
 
 
 def _get_user_mql_leadscore_min(sb, user_id: str) -> float:
-    """Busca mql_leadscore_min do usuÃ¡rio. Fallback seguro para 0."""
+    """Busca o mql_leadscore_min PADRAO do usuario. Fallback seguro para 0.
+
+    Este e o padrao herdado. Para o valor efetivo de uma consulta, use
+    `_resolve_mql_leadscore_min`, que aplica o override do pack.
+    """
     try:
         res = sb.table("user_preferences").select("mql_leadscore_min").eq("user_id", user_id).limit(1).execute()
         if res and res.data:
@@ -324,6 +344,61 @@ def _get_user_mql_leadscore_min(sb, user_id: str) -> float:
     except Exception:
         pass
     return 0.0
+
+
+def _resolve_mql_leadscore_min(sb, user_id: str, pack_ids: Optional[List[str]] = None) -> float:
+    """Resolve o mql_leadscore_min efetivo para os packs selecionados.
+
+    Heranca com override — mesma regra do resolvedor SQL
+    (`public.resolve_pack_mql_leadscore_min`), que serve a RPC de series:
+
+      - 0 packs (ou nenhum encontrado)  -> padrao do usuario
+      - todos resolvem para o mesmo     -> esse valor
+      - divergem entre si               -> padrao do usuario
+
+    Pack com `mql_leadscore_min` NULL herda o padrao do usuario, entao um
+    conjunto de packs sem override nenhum nunca e considerado divergente.
+
+    A divergencia cai no padrao (e nao em erro) porque julgamento nao pode
+    quebrar a leitura: a UI e quem avisa que os packs discordam.
+    """
+    default = _get_user_mql_leadscore_min(sb, user_id)
+
+    cleaned = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
+    if not cleaned:
+        return default
+
+    try:
+        res = (
+            sb.table("packs")
+            .select("mql_leadscore_min")
+            .eq("user_id", user_id)
+            .in_("id", cleaned)
+            .execute()
+        )
+    except Exception:
+        return default
+
+    rows = (res.data or []) if res else []
+    if not rows:
+        return default
+
+    effective = set()
+    for row in rows:
+        raw = row.get("mql_leadscore_min") if isinstance(row, dict) else None
+        if raw is None:
+            effective.add(default)
+            continue
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            effective.add(default)
+            continue
+        effective.add(v if v >= 0 else 0.0)
+
+    if len(effective) == 1:
+        return next(iter(effective))
+    return default
 
 
 def _count_mql(leadscore_values: Any, mql_leadscore_min: float) -> int:
@@ -614,17 +689,13 @@ def _normalize_rankings_rpc_response(raw_payload: Any) -> Dict[str, Any]:
     """Normaliza payload da RPC para o contrato esperado do endpoint de rankings."""
     payload: Any = raw_payload
 
-    if isinstance(payload, dict) and "fetch_manager_analytics_aggregated" in payload:
-        payload = payload.get("fetch_manager_analytics_aggregated")
-    elif isinstance(payload, dict) and "fetch_manager_rankings_core_v2" in payload:
+    # Os ramos de desempacotamento de `fetch_manager_analytics_aggregated` sairam na
+    # migration 102, junto com a RPC — a chave nao pode mais aparecer no payload.
+    if isinstance(payload, dict) and "fetch_manager_rankings_core_v2" in payload:
         payload = payload.get("fetch_manager_rankings_core_v2")
     elif isinstance(payload, list):
         if len(payload) == 1 and isinstance(payload[0], dict):
-            first = payload[0]
-            if "fetch_manager_analytics_aggregated" in first:
-                payload = first.get("fetch_manager_analytics_aggregated")
-            else:
-                payload = first
+            payload = payload[0]
         else:
             payload = {"data": payload}
 
@@ -1490,7 +1561,7 @@ def get_ad_name_details(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -1764,7 +1835,7 @@ def get_rankings_children(
     entre packs com date_ranges diferentes super-contam.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -2068,7 +2139,7 @@ def get_campaign_children(
         )
     return {"data": items}
 
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -2321,7 +2392,7 @@ def get_adset_children(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -2603,7 +2674,7 @@ def get_adset_details(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -2842,7 +2913,7 @@ def get_ad_details(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     axis = _axis_5_days(date_stop)
 
@@ -3184,7 +3255,7 @@ def get_ad_history(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     # Gerar array de datas do perÃ­odo
     axis = _axis_date_range(date_start, date_stop)
@@ -3384,7 +3455,7 @@ def get_ad_name_history(
     packs especificados via `ad_metric_pack_map`.
     """
     sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _get_user_mql_leadscore_min(sb, user["user_id"])
+    mql_leadscore_min = _resolve_mql_leadscore_min(sb, user["user_id"], pack_ids)
 
     # Gerar array de datas do perÃ­odo (inclusive)
     axis = _axis_date_range(date_start, date_stop)
@@ -3825,6 +3896,57 @@ def update_pack_auto_refresh(
     except Exception as e:
         logger.exception(f"Erro ao atualizar auto_refresh do pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar auto_refresh: {str(e)}")
+
+
+@router.patch("/packs/{pack_id}/judgment")
+def update_pack_judgment(
+    pack_id: str,
+    request: UpdatePackJudgmentRequest = Body(...),
+    user=Depends(get_current_user)
+):
+    """Atualiza os overrides de julgamento de um pack.
+
+    Semantica de heranca:
+      - campo ausente no body -> nao mexe
+      - campo com valor null  -> limpa o override (pack volta a herdar do usuario)
+      - campo com valor       -> define o override
+    """
+    try:
+        pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
+        if not pack:
+            raise HTTPException(status_code=404, detail="Pack nao encontrado")
+
+        # exclude_unset preserva a distincao entre "nao enviado" e "enviado como null".
+        fields = request.model_dump(exclude_unset=True)
+
+        mql = fields.get("mql_leadscore_min")
+        if "mql_leadscore_min" in fields and mql is not None and mql < 0:
+            raise HTTPException(status_code=400, detail="mql_leadscore_min deve ser >= 0")
+
+        metric = fields.get("diagnostic_cost_metric")
+        if "diagnostic_cost_metric" in fields and metric is not None and metric not in ("cpr", "cpmql"):
+            raise HTTPException(status_code=400, detail="diagnostic_cost_metric deve ser 'cpr' ou 'cpmql'")
+
+        target = fields.get("target_cpr")
+        if "target_cpr" in fields and target is not None:
+            for action_type, value in target.items():
+                if value is None or value <= 0:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"target_cpr['{action_type}'] deve ser > 0 (remova a chave para limpar)",
+                    )
+
+        if not fields:
+            raise HTTPException(status_code=400, detail="Nenhum campo de julgamento enviado")
+
+        supabase_repo.update_pack_judgment(user["token"], pack_id, user["user_id"], fields)
+
+        return {"success": True, "pack_id": pack_id, "judgment": fields}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Erro ao atualizar julgamento do pack {pack_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Erro ao atualizar julgamento: {str(e)}")
 
 
 @router.patch("/packs/{pack_id}/name")
