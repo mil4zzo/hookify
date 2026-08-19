@@ -4,13 +4,14 @@ import React, { useState, useRef, useEffect } from "react";
 import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
+import { PackShareDialog } from "@/components/packs/PackShareDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow } from "@tabler/icons-react";
+import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
 import { api } from "@/lib/api/endpoints";
-import { showError } from "@/lib/utils/toast";
+import { showError, showSuccess } from "@/lib/utils/toast";
 import { useClientPacks } from "@/lib/hooks/useClientSession";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
@@ -71,7 +72,27 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const hasJudgmentOverride =
     (pack.mql_leadscore_min !== null && pack.mql_leadscore_min !== undefined) ||
     (pack.target_cpr !== null && pack.target_cpr !== undefined);
-  const { updatePack, packs } = useClientPacks();
+  // ── Compartilhamento (P3.7): a UI gateia por papel; a autorização REAL é do
+  // backend. shared_role presente = pack recebido de outra conta.
+  const isSharedGuest = !!pack.shared_role;
+  const isViewer = pack.shared_role === "viewer";
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
+
+  const handleLeavePack = async () => {
+    if (!confirm(`Sair do pack "${pack.name}"? Você deixará de ver os dados dele.`)) return;
+    setIsLeaving(true);
+    try {
+      await api.packShares.leave(pack.id);
+      removePack(pack.id);
+      showSuccess(`Você saiu do pack "${pack.name}".`);
+    } catch (e: any) {
+      showError(e);
+    } finally {
+      setIsLeaving(false);
+    }
+  };
+  const { updatePack, removePack, packs } = useClientPacks();
   const [isEditingName, setIsEditingName] = useState(false);
   const [editingName, setEditingName] = useState(pack.name);
   const [hasNameError, setHasNameError] = useState(false);
@@ -104,6 +125,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const handleStartEditName = (e: React.MouseEvent | React.PointerEvent) => {
     e.stopPropagation(); // Prevenir que o dropdown abra
     e.preventDefault(); // Prevenir comportamento padrão
+    if (isSharedGuest) return; // nome é identidade — só o dono renomeia
     setIsEditingName(true);
     setEditingName(pack.name);
     setHasNameError(false); // Resetar erro ao iniciar edição
@@ -267,6 +289,12 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
             )}
             <div className="p-6 space-y-6 flex flex-col justify-between h-full relative z-10">
               <div className="flex flex-col items-center gap-2">
+                {isSharedGuest && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-primary-10 px-2 py-0.5 text-2xs font-medium text-primary">
+                    <IconUsers className="h-3 w-3" />
+                    Compartilhado por {pack.shared_owner_name || "outra conta"} · {isViewer ? "leitura" : "editor"}
+                  </span>
+                )}
                 {/* Header: Nome do pack */}
                 <div className="flex items-start justify-center w-full">
                   <div className="flex flex-col items-center justify-center min-w-0 w-full">
@@ -463,7 +491,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                         <UpdatedAtText dateTime={pack.updated_at} className="text-2xs text-muted-foreground" />
                       </div>
                     </div>
-                    <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} variant="minimal" switchClassName="data-[state=checked]:bg-success" />
+                    <ToggleSwitch id={`auto-refresh-${pack.id}`} checked={pack.auto_refresh || false} onCheckedChange={(checked) => onToggleAutoRefresh(pack.id, checked)} disabled={isViewer || isTogglingAutoRefresh === pack.id || packToDisableAutoRefresh?.id === pack.id} variant="minimal" switchClassName="data-[state=checked]:bg-success" />
                   </div>
                 </div>
 
@@ -528,13 +556,13 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
             <IconRotateClockwise className="w-4 h-4 mr-2" />
             Atualizar pack
           </DropdownMenuItem>
-          {onTranscribeAds && (
+          {onTranscribeAds && !isSharedGuest && (
             <DropdownMenuItem onClick={() => onTranscribeAds(pack.id, pack.name)} disabled={isUpdating}>
               <IconMicrophone className="w-4 h-4 mr-2" />
               Transcrever anúncios
             </DropdownMenuItem>
           )}
-          {onEditJudgment && (
+          {onEditJudgment && !isViewer && (
             <DropdownMenuItem onClick={() => onEditJudgment(pack)}>
               <IconTargetArrow className="w-4 h-4 mr-2" />
               <div className="flex flex-col items-start">
@@ -556,13 +584,13 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                   </span>
                 </div>
               </DropdownMenuItem>
-              {onEditSheetIntegration && (
+              {onEditSheetIntegration && !isSharedGuest && (
                 <DropdownMenuItem onClick={() => onEditSheetIntegration(pack)}>
                   <IconPencil className="w-4 h-4 mr-2" />
                   Editar integração
                 </DropdownMenuItem>
               )}
-              {onDeleteSheetIntegration && (
+              {onDeleteSheetIntegration && !isSharedGuest && (
                 <DropdownMenuItem onClick={() => onDeleteSheetIntegration(pack)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
                   <IconTrash className="w-4 h-4 mr-2" />
                   Remover integração
@@ -570,13 +598,30 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
               )}
             </>
           ) : null}
+          {!isSharedGuest && (
+            <DropdownMenuItem onClick={() => setIsShareDialogOpen(true)}>
+              <IconUsers className="w-4 h-4 mr-2" />
+              Compartilhar
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
-            <IconTrash className="w-4 h-4 mr-2" />
-            Remover pack
-          </DropdownMenuItem>
+          {isSharedGuest ? (
+            // Convidado não apaga o pack do dono — ele SAI (remove o próprio grant).
+            <DropdownMenuItem onClick={handleLeavePack} disabled={isLeaving} className="text-destructive focus:text-destructive focus:bg-destructive-10">
+              <IconLogout className="w-4 h-4 mr-2" />
+              Sair do pack
+            </DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem onClick={() => onRemove(pack.id)} className="text-destructive focus:text-destructive focus:bg-destructive-10">
+              <IconTrash className="w-4 h-4 mr-2" />
+              Remover pack
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
+      {!isSharedGuest && (
+        <PackShareDialog pack={pack} open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} />
+      )}
     </div>
   );
 }

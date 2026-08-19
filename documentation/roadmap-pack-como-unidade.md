@@ -9,10 +9,10 @@
 > P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
 > **Próximo passo:** **deploy em andamento** (o banco está 10 migrations à frente
 > do código; a `111` só depois dele e depois de passada a janela de rollback).
-> Na sequência: **P3.7 (UI de convite/badge — o que finalmente expõe tudo)**;
-> P3.3b (status-sync, transcribe, planilha p/ convidado, writes de entidade) e
-> P3.5 (log de ações) podem vir junto ou depois.
-> (Drill, P3.6-banco, bloqueio de conflito, P3.3a-refresh e P3.4-núcleo prontos.)
+> **O compartilhamento está EXPOSTO (P3.7-núcleo, 2026-08-19)**: dono convida
+> pela página de packs, convidado vê/analisa/atualiza. Próximo: **testar com o
+> time real**, depois P3.3b (planilha p/ convidado, status-sync, transcribe,
+> writes de entidade, re-attach de job) e P3.5 (log de ações).
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
@@ -450,7 +450,7 @@ propósito — era código morto e saiu.
 | P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Concluído (núcleo)` — 2026-08-19. A investigação encolheu o item: a superfície de boot JÁ era tolerante (adaccounts/connections são Supabase-backed e voltam vazios; auto-sync engole erro de FB de propósito; nenhum gate de conexão no AppLayout). O único bloqueio duro era o **onboarding**: sem conexão não existia botão de continuar, e o gate devolvia o usuário para lá em loop — FacebookStep ganhou "Pular por enquanto" com microcopy explicando packs compartilhados. `/onboarding/complete` nunca exigiu FB no backend. **Restante (com a P3.7):** polir /upload sem conexão (CTA no lugar de seletores vazios) e revisar o widget de moeda com 0 contas |
 | P3.5 | Log de ações (ator, alvo, ação) + retenção de 365 dias | `Não iniciado` |
 | P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Concluído p/ escritas puras de banco` — 2026-08-19. Guard central em `app/services/pack_access.py` (`assert_pack_role` → `(role, owner_id)`; sem acesso → 404, papel insuficiente → 403). Gateados: judgment e auto-refresh (`dono\|editor`, write via service role); name e DELETE do pack (`dono` apenas — nome é IDENTIDADE, não conteúdo: renomear muda como o time inteiro encontra o pack, mesma classe de compartilhar/apagar). **Regra para o restante:** os endpoints presos a credencial externa (refresh-pack, packs/status-sync, transcribe, sync de planilha, status/budget de ad/adset/campanha, bulk) ganham o gate NA CONVERSÃO da P3.3 — gatear antes criaria endpoints que autorizam e falham no meio; hoje todos falham fechado (RLS não encontra pack/ad alheio) |
-| P3.7 | UI: convite, badge de pack compartilhado, aviso de refresh em andamento | `Não iniciado` |
+| P3.7 | UI: convite, badge de pack compartilhado, aviso de refresh em andamento | `Concluído (núcleo)` — 2026-08-19. **A chave virou**: `list_packs` inclui packs com grant (`shared_role` + `shared_owner_name` via `list_shared_packs`, service role escopado por `grantee_id`); `GET /packs/{id}` lê pack+ads no silo do dono para convidados — sem isso o `usePacksAds` voltava vazio e o /plano descartava os ads no filtro de membership. UI: badge "Compartilhado por X · papel" no PackCard; convidado perde renomear/apagar/integração/transcrever e ganha **"Sair do pack"**; viewer não edita julgamento nem auto-refresh; dono ganha **"Compartilhar"** → `PackShareDialog` (lookup por e-mail exato → papel → convidar; membros com troca de papel e revogação); PackFilter marca "· compartilhado". **Restam** (cosméticos): aviso de refresh em andamento disparado por outro membro (re-attach é P3.3b) e polimento do /upload sem conexão |
 | P3.8 | *(pós-MVP)* Token do convidado quando ele tem acesso próprio à conta | `Não iniciado` |
 
 ### P3.1 — entregue (migration `103_pack_shares.sql`)

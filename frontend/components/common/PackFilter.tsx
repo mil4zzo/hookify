@@ -26,6 +26,8 @@ interface Pack {
     uniqueAdsets?: number;
     totalSpend?: number;
   };
+  /** Presente em packs recebidos de outra conta (P3.7). */
+  shared_role?: "editor" | "viewer" | null;
 }
 
 interface PackFilterProps {
@@ -75,6 +77,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
         // Usar stats.uniqueAds (preferencialmente do backend)
         // Não usar pack.ads porque ads estão no cache IndexedDB
         const adCount = pack.stats?.uniqueAds || 0;
+        const sharedSuffix = pack.shared_role ? " · compartilhado" : "";
 
         // Conflito só desabilita quem está FORA da seleção; quem está dentro
         // precisa continuar clicável para poder ser desmarcado.
@@ -97,7 +100,7 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
         return {
           id: pack.id,
           label: pack.name,
-          meta: `(${adCount} ${adCount === 1 ? "anúncio" : "anúncios"})`,
+          meta: `(${adCount} ${adCount === 1 ? "anúncio" : "anúncios"}${sharedSuffix})`,
           disabled,
           disabledHint,
         };

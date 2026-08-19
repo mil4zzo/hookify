@@ -120,6 +120,9 @@ export function useLoadPacks() {
                 // null = NÃO DEFINIDO (MQL/CPMQL indisponíveis), nunca zero.
                 mql_leadscore_min: pack.mql_leadscore_min ?? null,
                 target_cpr: pack.target_cpr ?? null,
+                // Compartilhamento (P3.7): ausente = pack próprio
+                shared_role: pack.shared_role ?? null,
+                shared_owner_name: pack.shared_owner_name ?? null,
               }
             })
           )
@@ -150,6 +153,11 @@ export function useLoadPacks() {
               // reidrata o valor antigo e a tela julga por um critério já alterado.
               if (pack.mql_leadscore_min !== ((existing as any).mql_leadscore_min ?? null)) {
                 patch.mql_leadscore_min = pack.mql_leadscore_min
+              }
+              // Papel pode mudar (dono promove/demove) — o store persistido não
+              // pode reidratar um papel antigo e liberar/esconder ação errada.
+              if ((pack.shared_role ?? null) !== ((existing as any).shared_role ?? null)) {
+                patch.shared_role = pack.shared_role ?? null
               }
               if (JSON.stringify(pack.target_cpr ?? null) !== JSON.stringify((existing as any).target_cpr ?? null)) {
                 patch.target_cpr = pack.target_cpr

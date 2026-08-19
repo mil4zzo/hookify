@@ -3345,7 +3345,13 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
             pack_id = pack.get("id")
             if not pack_id:
                 continue
-                
+
+            # Packs compartilhados chegam DEPOIS deste loop (list_shared_packs),
+            # mas o guard fica: recompute de stats aqui roda no silo do ATOR e,
+            # para pack alheio, produziria stats vazias.
+            if pack.get("shared_role"):
+                continue
+
             stats = pack.get("stats")
             # Verificar se stats estÃ¡ ausente, None, vazio ou invÃ¡lido
             if not stats or not isinstance(stats, dict) or len(stats) == 0 or stats.get("totalSpend") is None:
@@ -3371,11 +3377,28 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
                         logger.warning(f"[LIST_PACKS] Erro ao salvar stats do pack {pack_id}: {update_error}")
                         # Continuar mesmo se falhar ao salvar - stats jÃ¡ estÃ£o no pack
         
+        # P3.7: packs COMPARTILHADOS com o ator entram na lista, anotados com
+        # shared_role e shared_owner_name. Best-effort: falha aqui nao pode
+        # derrubar a lista dos packs proprios.
+        try:
+            shared = supabase_repo.list_shared_packs(user["user_id"])
+        except Exception as e:
+            logger.warning(f"[LIST_PACKS] Falha ao listar packs compartilhados: {e}")
+            shared = []
+        if shared:
+            packs = packs + shared
+
         # Se solicitado, buscar ads para cada pack
         if include_ads:
             packs_with_ads = []
             for pack in packs:
-                ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
+                if pack.get("shared_role"):
+                    # Silo do DONO, service role — o JWT do ator nao passa na RLS.
+                    ads = supabase_repo.get_ads_for_pack(
+                        None, pack, pack.get("user_id"), sb_client=get_supabase_service()
+                    )
+                else:
+                    ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
                 pack["ads"] = ads
                 packs_with_ads.append(pack)
             return {"success": True, "packs": packs_with_ads}
@@ -3395,18 +3418,32 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
     """
     try:
         pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
+        shared_access = None
         if not pack:
-            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
+            # Nao e do ator: pode ser COMPARTILHADO. Qualquer papel le; sem
+            # acesso, o assert responde 404 (nao confirma existencia).
+            shared_access = assert_pack_role(
+                user["user_id"], pack_id, roles=("dono", "editor", "viewer")
+            )
+            pack = supabase_repo.get_pack(
+                None, pack_id, shared_access.owner_id, sb_client=get_supabase_service()
+            )
+            if not pack:
+                raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
+            pack["shared_role"] = shared_access.role
         
         # Garantir que o pack tenha stats calculados
         # Se stats estiver ausente, vazio ou invÃ¡lido, calcular dinamicamente
         stats = pack.get("stats")
         if not stats or not isinstance(stats, dict) or len(stats) == 0 or stats.get("totalSpend") is None:
             # Calcular stats essenciais dinamicamente (fallback para packs legados)
+            _silo = shared_access.owner_id if shared_access else user["user_id"]
+            _svc = get_supabase_service() if shared_access else None
             calculated_stats = supabase_repo.calculate_pack_stats_essential(
-                user["token"],
+                None if shared_access else user["token"],
                 pack_id,
-                user_id=user["user_id"]
+                user_id=_silo,
+                sb_client=_svc,
             )
             if calculated_stats:
                 # Atualizar pack com stats calculados
@@ -3414,19 +3451,25 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
                 # Salvar stats no banco para prÃ³ximas consultas
                 try:
                     supabase_repo.update_pack_stats(
-                        user["token"],
+                        None if shared_access else user["token"],
                         pack_id,
                         calculated_stats,
-                        user_id=user["user_id"]
+                        user_id=_silo,
+                        sb_client=_svc,
                     )
                     logger.info(f"[GET_PACK] Stats calculados e salvos para pack {pack_id}")
                 except Exception as update_error:
                     logger.warning(f"[GET_PACK] Erro ao salvar stats do pack {pack_id}: {update_error}")
                     # Continuar mesmo se falhar ao salvar - stats jÃ¡ estÃ£o no pack
         
-        # Buscar ads se solicitado
+        # Buscar ads se solicitado (no silo do dono quando compartilhado)
         if include_ads:
-            ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
+            if shared_access:
+                ads = supabase_repo.get_ads_for_pack(
+                    None, pack, shared_access.owner_id, sb_client=get_supabase_service()
+                )
+            else:
+                ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
             pack["ads"] = ads
         
         return {"success": True, "pack": pack}

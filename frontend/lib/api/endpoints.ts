@@ -485,6 +485,21 @@ export const api = {
       })
       return apiClient.get(`/pack-shares/conflicts?${qs.toString()}`, { signal: options?.signal })
     },
+    /** Passo 1 do convite: e-mail EXATO -> (user_id, nome). 404 nunca; found=false. */
+    lookupUser: (email: string): Promise<{ found: boolean; user_id?: string | null; display_name?: string | null }> =>
+      apiClient.get(`/pack-shares/lookup?email=${encodeURIComponent(email)}`),
+    /** Convidados de um pack. Só o dono enxerga (404 para os demais). */
+    listShares: (packId: string): Promise<{ success: boolean; pack_id: string; shares: Array<{ id: string; grantee_id: string; display_name: string | null; role: 'editor' | 'viewer'; created_at: string }> }> =>
+      apiClient.get(`/pack-shares/${packId}`),
+    create: (packId: string, granteeId: string, role: 'editor' | 'viewer'): Promise<{ success: boolean }> =>
+      apiClient.post(`/pack-shares/${packId}`, { grantee_id: granteeId, role }),
+    updateRole: (packId: string, granteeId: string, role: 'editor' | 'viewer'): Promise<{ success: boolean }> =>
+      apiClient.patch(`/pack-shares/${packId}/${granteeId}`, { role }),
+    revoke: (packId: string, granteeId: string): Promise<{ success: boolean }> =>
+      apiClient.delete(`/pack-shares/${packId}/${granteeId}`),
+    /** Convidado sai do pack sem depender do dono. */
+    leave: (packId: string): Promise<{ success: boolean }> =>
+      apiClient.delete(`/pack-shares/${packId}/me`),
   },
 
   // Google Sheets integration (ads enrichment)

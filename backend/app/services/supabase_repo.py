@@ -2845,6 +2845,72 @@ def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
     return packs
 
 
+def list_shared_packs(actor_id: str) -> List[Dict[str, Any]]:
+    """Packs COMPARTILHADOS com o ator, anotados com papel e dono (P3.7).
+
+    Service role por necessidade: os packs vivem no silo dos donos. O escopo e
+    derivado de pack_shares.grantee_id = ator — nunca de parametro do cliente.
+    Cada pack sai com `shared_role` ('editor'|'viewer') e `shared_owner_name`.
+    """
+    if not actor_id:
+        return []
+
+    sb = get_supabase_service()
+    grants = _fetch_all_paginated(
+        sb, "pack_shares", "pack_id, owner_id, role",
+        lambda q: q.eq("grantee_id", str(actor_id)),
+    )
+    if not grants:
+        return []
+
+    role_by_pack = {str(g["pack_id"]): str(g.get("role") or "viewer") for g in grants}
+    owner_by_pack = {str(g["pack_id"]): str(g["owner_id"]) for g in grants}
+    pack_ids = sorted(role_by_pack.keys())
+
+    packs: List[Dict[str, Any]] = []
+    for i in range(0, len(pack_ids), 200):
+        batch = pack_ids[i:i + 200]
+        packs.extend(_fetch_all_paginated(sb, "packs", "*", lambda q, _b=batch: q.in_("id", _b)))
+
+    # Nomes dos donos (auth.users nao e exposta ao PostgREST; RPC dedicada)
+    owner_names: Dict[str, str] = {}
+    try:
+        owner_ids = sorted(set(owner_by_pack.values()))
+        res = sb.rpc("lookup_users_by_ids", {"p_user_ids": owner_ids}).execute()
+        for row in (res.data or []):
+            if isinstance(row, dict) and row.get("user_id"):
+                owner_names[str(row["user_id"])] = row.get("display_name") or ""
+    except Exception as e:
+        logger.warning(f"[LIST_SHARED_PACKS] Falha ao resolver nomes dos donos: {e}")
+
+    # Enriquecimento de integracao (mesmo shape do list_packs proprio)
+    integration_ids = [p["sheet_integration_id"] for p in packs if p.get("sheet_integration_id")]
+    integrations_map: Dict[str, Dict[str, Any]] = {}
+    if integration_ids:
+        try:
+            integrations = _fetch_all_paginated(
+                sb,
+                "ad_sheet_integrations",
+                "id, spreadsheet_id, spreadsheet_name, worksheet_title, connection_id, last_synced_at, last_sync_status, last_successful_sync_at",
+                lambda q: q.in_("id", integration_ids),
+            )
+            integrations_map = {str(i["id"]): i for i in integrations}
+        except Exception as e:
+            logger.warning(f"[LIST_SHARED_PACKS] Erro ao buscar integracoes: {e}")
+
+    for pack in packs:
+        pid = str(pack.get("id"))
+        pack["shared_role"] = role_by_pack.get(pid, "viewer")
+        owner_id = owner_by_pack.get(pid, "")
+        pack["shared_owner_name"] = owner_names.get(owner_id) or None
+        sid = pack.get("sheet_integration_id")
+        if sid and str(sid) in integrations_map:
+            pack["sheet_integration"] = integrations_map[str(sid)]
+
+    packs.sort(key=lambda pk: str(pk.get("created_at") or ""), reverse=True)
+    return packs
+
+
 def get_pack(
     user_jwt: str,
     pack_id: str,
@@ -3125,7 +3191,13 @@ def update_pack_name(
         raise
 
 
-def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]) -> List[Dict[str, Any]]:
+def get_ads_for_pack(
+    user_jwt: Optional[str],
+    pack: Dict[str, Any],
+    user_id: Optional[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> List[Dict[str, Any]]:
     """Busca ads relacionados a um pack via `ad_metric_pack_map` (fonte de verdade).
 
     Nota: Os ads são filtrados por:
@@ -3137,7 +3209,7 @@ def get_ads_for_pack(user_jwt: str, pack: Dict[str, Any], user_id: Optional[str]
 
     pack_id = str(pack.get("id") or "").strip()
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _get_sb(user_jwt, sb_client)
     ads = []
 
     try:

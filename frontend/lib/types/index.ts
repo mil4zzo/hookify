@@ -30,6 +30,11 @@ export interface AdsPack {
   // Sem corte de leadscore, MQL e CPMQL ficam indisponíveis — nunca zero.
   mql_leadscore_min?: number | null
   target_cpr?: Record<string, number> | null
+  // ── Compartilhamento (P3.7) ────────────────────────────────────────────────
+  // Presente APENAS em packs recebidos de outra conta. Ausente = pack próprio.
+  // O papel gateia a UI; a autorização real é do backend (assert_pack_role).
+  shared_role?: 'editor' | 'viewer' | null
+  shared_owner_name?: string | null
   created_at: string
   updated_at: string
 }
