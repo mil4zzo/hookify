@@ -9,8 +9,8 @@
 > P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
 > **Próximo passo:** **deploy em andamento** (o banco está 10 migrations à frente
 > do código; a `111` só depois dele e depois de passada a janela de rollback).
-> Na sequência: P3.6 nos demais endpoints de escrita, os 8 endpoints de drill,
-> e as camadas 1 e 3 do bloqueio de conflito.
+> Na sequência: P3.6 nos demais endpoints de escrita e as camadas 1 e 3 do
+> bloqueio de conflito. (Os 8 endpoints de drill foram concluídos — P3.2b.)
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
@@ -429,7 +429,8 @@ propósito — era código morto e saiu.
 |---|---|---|
 | P2.1 | Julgamento inerente ao pack (revoga a herança) | `Concluído` — 2026-08-18 (migration 110; DROPs na 111, pós-deploy) |
 | P3.1 | Tabela de grants (`pack_shares`) + resolvedor de dono | `Concluído` — 2026-08-18 |
-| P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Concluído` — 2026-08-18 (migrations 104–109). **Pendência com assimetria nova:** os 8 endpoints de drill ainda filtram `user_id = ator` em `ad_metrics`, mas desde a 110 o *corte* deles resolve via `resolve_pack_access`. Num pack compartilhado eles acertariam o critério e não achariam linha nenhuma |
+| P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Concluído` — 2026-08-18 (migrations 104–109) |
+| P3.2b | Drill multi-dono: leitura de `ad_metrics` centralizada em `fetch_pack_metrics_rows` (supabase_repo) | `Concluído` — 2026-08-18. Os donos são derivados de `resolve_pack_access` DENTRO do helper (sem parâmetro injetável); dedup cross-silo com a mesma regra da RPC; fallback de `lpv` num lugar só. Um dos 8 endpoints (campaign-children) já delegava à RPC — o corpo Python morto (~240 linhas) foi removido. Restam atuais-silo-do-ator, por serem cosméticos e presos à P3.7: `/rankings/ad-id/{id}/creative` e `/packs/{id}/thumbnail-cache` |
 | P3.3 | Credencial por pack (FB e Google do dono) + ator em `meta_api_usage` | `Não iniciado` |
 | P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Não iniciado` |
 | P3.5 | Log de ações (ator, alvo, ação) + retenção de 365 dias | `Não iniciado` |

@@ -1568,26 +1568,13 @@ def get_ad_name_details(
 
     data: List[Dict[str, Any]] = []
     if pack_ids_clean:
-        metric_ids = supabase_repo.get_pack_metric_ids(
-            sb, user["user_id"], pack_ids_clean, date_start, date_stop
+        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
+        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
+        data = supabase_repo.fetch_pack_metrics_rows(
+            user["user_id"], pack_ids_clean, date_start, date_stop,
+            select_with_lpv, select_without_lpv,
+            {"ad_name": ad_name}, log_tag="ad_name_details",
         )
-        if metric_ids:
-            IN_BATCH_SIZE = 200
-            for i in range(0, len(metric_ids), IN_BATCH_SIZE):
-                batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
-
-                def metrics_filters(q, _b=batch_ids):
-                    return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).in_("id", _b)
-
-                try:
-                    data.extend(_fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters))
-                except Exception as e:
-                    msg = str(e or "")
-                    if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                        logger.warning("[ad_name_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                        data.extend(_fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters))
-                    else:
-                        raise
     else:
         def metrics_filters(q):
             return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
@@ -1734,16 +1721,20 @@ def get_ad_name_details(
     representative_ad_id = next(iter(sorted(str(ad_id) for ad_id in (agg.get("ad_ids") or set()) if ad_id)), None)
     if representative_ad_id:
         try:
-            ads_res = (
-                sb.table("ads")
-                .select("ad_id,thumb_storage_path,primary_video_id,media_type,creative_video_id")
-                .eq("user_id", user["user_id"])
-                .eq("ad_id", representative_ad_id)
-                .limit(1)
-                .execute()
+            # O ad pode viver no silo do DONO de um pack compartilhado — as linhas
+            # de fetch_pack_metrics_rows carregam o user_id de origem. Sem ele
+            # (ramo legado), o silo e o do proprio ator.
+            thumb_owner = next(
+                (str(r.get("user_id")) for r in data
+                 if str(r.get("ad_id") or "") == representative_ad_id and r.get("user_id")),
+                user["user_id"],
             )
-            if ads_res.data:
-                thumbnail = _get_storage_thumb_if_any(ads_res.data[0])
+            ads_row = supabase_repo.fetch_ads_row_scoped(
+                thumb_owner, representative_ad_id,
+                "ad_id,thumb_storage_path,primary_video_id,media_type,creative_video_id",
+            )
+            if ads_row:
+                thumbnail = _get_storage_thumb_if_any(ads_row)
         except Exception as e:
             logger.warning(f"Erro ao buscar thumbnail (ad_name details): {e}")
 
@@ -1842,34 +1833,17 @@ def get_rankings_children(
 
     data: List[Dict[str, Any]] = []
     if pack_ids_clean:
-        # Filtro per-pack: derivar composite ids ({date}-{ad_id}) do junction table
-        # e buscar ad_metrics por id, em lotes de 200 (URL ~6KB).
-        metric_ids = supabase_repo.get_pack_metric_ids(
-            sb, user["user_id"], pack_ids_clean, date_start, date_stop
+        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
+        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
+        data = supabase_repo.fetch_pack_metrics_rows(
+            user["user_id"], pack_ids_clean, date_start, date_stop,
+            select_with_lpv, select_without_lpv,
+            {"ad_name": ad_name}, log_tag="rankings_children",
         )
-        if not metric_ids:
-            return {"data": []}
-
-        IN_BATCH_SIZE = 200
-        for i in range(0, len(metric_ids), IN_BATCH_SIZE):
-            batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
-
-            def metrics_filters(q, _b=batch_ids):
-                return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).in_("id", _b)
-
-            try:
-                data.extend(_fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters))
-            except Exception as e:
-                msg = str(e or "")
-                if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                    logger.warning("[rankings_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                    data.extend(_fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters))
-                else:
-                    raise
     else:
         # Sem pack_ids: comportamento legado (todos os packs do usuário)
         def metrics_filters(q):
-            return q.eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
+            return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -2127,241 +2101,6 @@ def get_campaign_children(
         )
     return {"data": items}
 
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
-    axis = _axis_5_days(date_stop)
-
-    def metrics_filters(q):
-        return (
-            q.eq("user_id", user["user_id"])
-            .eq("campaign_id", campaign_id)
-            .gte("date", date_start)
-            .lte("date", date_stop)
-        )
-
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
-        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values,lpv"
-    )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
-        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values"
-    )
-    try:
-        data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-    except Exception as e:
-        msg = str(e or "")
-        if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-            logger.warning("[campaign_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-            data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-        else:
-            raise
-
-    from collections import defaultdict
-
-    agg: Dict[str, Dict[str, Any]] = {}
-    series_acc: Dict[str, Dict[str, Any]] = defaultdict(
-        lambda: {
-            "impressions": {d: 0 for d in axis},
-            "clicks": {d: 0 for d in axis},
-            "inline": {d: 0 for d in axis},
-            "spend": {d: 0.0 for d in axis},
-            "plays": {d: 0 for d in axis},
-            "lpv": {d: 0 for d in axis},
-            "hook_wsum": {d: 0.0 for d in axis},
-            "scroll_stop_wsum": {d: 0.0 for d in axis},
-            "hold_rate_wsum": {d: 0.0 for d in axis},
-            "video_watched_p50_wsum": {d: 0.0 for d in axis},
-            "video_watched_p75_wsum": {d: 0.0 for d in axis},
-            "conversions": {d: {} for d in axis},
-            "mql_count": {d: 0 for d in axis},
-        "leadscore_sum": {d: 0.0 for d in axis},
-        "leadscore_count": {d: 0 for d in axis},
-        }
-    )
-
-    for r in data:
-        ad_id = str(r.get("ad_id") or "")
-        adset_id = str(r.get("adset_id") or "")
-        adset_name = str(r.get("adset_name") or "")
-        if not adset_id:
-            continue
-        key = adset_id
-        series_key = key
-
-        date = str(r.get("date"))[:10]
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-        plays = int(r.get("video_total_plays") or 0)
-        thruplays = int(r.get("video_total_thruplays") or 0)
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        hold_rate = float(r.get("hold_rate") or 0)
-        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
-        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
-        reach = int(r.get("reach") or 0)
-
-        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
-        lpv = _extract_lpv(r)
-
-        if key not in agg:
-            agg[key] = {
-                "account_id": r.get("account_id"),
-                "campaign_id": r.get("campaign_id"),
-                "campaign_name": r.get("campaign_name"),
-                "adset_id": adset_id,
-                "adset_name": adset_name,
-                # Manter um ad_id representativo (pelo maior impressions) para thumbnail
-                "rep_ad_id": ad_id,
-                "rep_impr": 0,
-                # Compat: usar ad_name como label principal na tabela
-                "ad_name": adset_name or adset_id,
-                "impressions": 0,
-                "clicks": 0,
-                "inline_link_clicks": 0,
-                "spend": 0.0,
-                "lpv": 0,
-                "plays": 0,
-                "thruplays": 0,
-                "hook_wsum": 0.0,
-                "hold_rate_wsum": 0.0,
-                "video_watched_p50_wsum": 0.0,
-                "leadscore_values": [],
-                "conversions": {},
-                "ad_ids": set(),
-            }
-
-        A = agg[key]
-        A["impressions"] += impressions
-        A["clicks"] += clicks
-        A["inline_link_clicks"] += inline_link_clicks
-        A["spend"] += spend
-        A["lpv"] += lpv
-        A["plays"] += plays
-        A["thruplays"] += thruplays
-        A["hook_wsum"] += hook * plays
-        A["hold_rate_wsum"] += hold_rate * plays
-        A["video_watched_p50_wsum"] += video_watched_p50 * plays
-        A["video_watched_p75_wsum"] += video_watched_p75 * plays
-        A["scroll_stop_wsum"] += scroll_stop * plays
-        A["reach"] += reach
-
-        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
-            try:
-                A["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
-            except Exception:
-                pass
-
-        if ad_id:
-            try:
-                A["ad_ids"].add(ad_id)
-            except Exception:
-                pass
-
-        # Atualizar ad_id representativo pelo maior impressions
-        try:
-            if impressions >= int(A.get("rep_impr") or 0):
-                A["rep_impr"] = impressions
-                if ad_id:
-                    A["rep_ad_id"] = ad_id
-        except Exception:
-            pass
-
-        # Agregar conversions e actions por action_type (com prefixos para diferenciar)
-        _merge_row_conversions_actions(r, A["conversions"])
-
-        # SÃ©rie 5 dias
-        if date in axis:
-            S = series_acc[series_key]
-            S["impressions"][date] += impressions
-            S["clicks"][date] += clicks
-            S["inline"][date] += inline_link_clicks
-            S["spend"][date] += spend
-            S["lpv"][date] += lpv
-            S["plays"][date] += plays
-            S["hook_wsum"][date] += hook * plays
-            S["scroll_stop_wsum"][date] += scroll_stop * plays
-            S["hold_rate_wsum"][date] += hold_rate * plays
-            S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
-            S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
-            try:
-                S["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
-                S["leadscore_sum"][date] += ls_sum
-                S["leadscore_count"][date] += ls_cnt
-            except Exception:
-                pass
-            _merge_row_conversions_actions(r, S["conversions"][date])
-
-    items: List[Dict[str, Any]] = []
-    for key, A in agg.items():
-        S = series_acc.get(key)
-        series = _build_rankings_series(axis, S, include_cpmql=True, mql_available=mql_leadscore_min is not None) if S else None
-
-        hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
-        hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
-        video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
-        ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
-        cpm = (_safe_div(A["spend"], A["impressions"]) * 1000) if A["impressions"] else 0
-        website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
-
-        # Para filhos por adset_id (campanha), nÃ£o temos um mapeamento de thumbnails por adset.
-        # Mantemos None (o frontend pode usar fallback se necessÃ¡rio).
-        thumbnail = None
-
-        ad_count = 0
-        try:
-            ad_count = len(A.get("ad_ids") or [])
-        except Exception:
-            ad_count = 0
-
-        items.append(
-            {
-                "unique_id": None,
-                "account_id": A.get("account_id"),
-                "campaign_id": A.get("campaign_id"),
-                "campaign_name": A.get("campaign_name"),
-                "adset_id": A.get("adset_id"),
-                "adset_name": A.get("adset_name"),
-                "ad_id": A.get("rep_ad_id"),
-                "ad_name": A.get("ad_name"),
-                "effective_status": None,
-                "impressions": A["impressions"],
-                "clicks": A["clicks"],
-                "inline_link_clicks": A["inline_link_clicks"],
-                "spend": A["spend"],
-                "lpv": A["lpv"],
-                "plays": A["plays"],
-                "video_total_thruplays": A["thruplays"],
-                "hook": hook,
-                "hold_rate": hold_rate,
-                "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
-                "ctr": ctr,
-                "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
-                "cpm": cpm,
-                "website_ctr": website_ctr,
-                "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
-                "conversions": A.get("conversions", {}),
-                "ad_count": ad_count,
-                "thumbnail": thumbnail,
-                "series": series,
-            }
-        )
-
-    order = (order_by or "").lower()
-    if order in {"hook", "hold_rate", "spend", "ctr", "connect_rate"}:
-        reverse = True
-        items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
-
-    return {"data": items}
-
 
 @router.get("/rankings/adset-id/{adset_id}/children")
 def get_adset_children(
@@ -2399,28 +2138,13 @@ def get_adset_children(
 
     data: List[Dict[str, Any]] = []
     if pack_ids_clean:
-        metric_ids = supabase_repo.get_pack_metric_ids(
-            sb, user["user_id"], pack_ids_clean, date_start, date_stop
+        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
+        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
+        data = supabase_repo.fetch_pack_metrics_rows(
+            user["user_id"], pack_ids_clean, date_start, date_stop,
+            select_with_lpv, select_without_lpv,
+            {"adset_id": adset_id}, log_tag="adset_children",
         )
-        if not metric_ids:
-            return {"data": []}
-
-        IN_BATCH_SIZE = 200
-        for i in range(0, len(metric_ids), IN_BATCH_SIZE):
-            batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
-
-            def metrics_filters(q, _b=batch_ids):
-                return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).in_("id", _b)
-
-            try:
-                data.extend(_fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters))
-            except Exception as e:
-                msg = str(e or "")
-                if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                    logger.warning("[adset_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                    data.extend(_fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters))
-                else:
-                    raise
     else:
         def metrics_filters(q):
             return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).gte("date", date_start).lte("date", date_stop)
@@ -2681,28 +2405,13 @@ def get_adset_details(
 
     data: List[Dict[str, Any]] = []
     if pack_ids_clean:
-        metric_ids = supabase_repo.get_pack_metric_ids(
-            sb, user["user_id"], pack_ids_clean, date_start, date_stop
+        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
+        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
+        data = supabase_repo.fetch_pack_metrics_rows(
+            user["user_id"], pack_ids_clean, date_start, date_stop,
+            select_with_lpv, select_without_lpv,
+            {"adset_id": adset_id}, log_tag="adset_details",
         )
-        if not metric_ids:
-            raise HTTPException(status_code=404, detail=f"Adset ID {adset_id} nÃ£o encontrado no perÃ­odo especificado")
-
-        IN_BATCH_SIZE = 200
-        for i in range(0, len(metric_ids), IN_BATCH_SIZE):
-            batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
-
-            def metrics_filters(q, _b=batch_ids):
-                return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).in_("id", _b)
-
-            try:
-                data.extend(_fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters))
-            except Exception as e:
-                msg = str(e or "")
-                if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                    logger.warning("[adset_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                    data.extend(_fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters))
-                else:
-                    raise
     else:
         def metrics_filters(q):
             return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).gte("date", date_start).lte("date", date_stop)
@@ -2920,28 +2629,13 @@ def get_ad_details(
 
     data: List[Dict[str, Any]] = []
     if pack_ids_clean:
-        metric_ids = supabase_repo.get_pack_metric_ids(
-            sb, user["user_id"], pack_ids_clean, date_start, date_stop
+        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
+        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
+        data = supabase_repo.fetch_pack_metrics_rows(
+            user["user_id"], pack_ids_clean, date_start, date_stop,
+            select_with_lpv, select_without_lpv,
+            {"ad_id": ad_id}, log_tag="ad_details",
         )
-        if not metric_ids:
-            raise HTTPException(status_code=404, detail=f"Ad ID {ad_id} nÃ£o encontrado no perÃ­odo especificado")
-
-        IN_BATCH_SIZE = 200
-        for i in range(0, len(metric_ids), IN_BATCH_SIZE):
-            batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
-
-            def metrics_filters(q, _b=batch_ids):
-                return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).in_("id", _b)
-
-            try:
-                data.extend(_fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters))
-            except Exception as e:
-                msg = str(e or "")
-                if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                    logger.warning("[ad_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                    data.extend(_fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters))
-                else:
-                    raise
     else:
         def metrics_filters(q):
             return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
@@ -3093,9 +2787,14 @@ def get_ad_details(
     # Buscar thumbnail e informaÃ§Ãµes adicionais da tabela ads
     thumbnail: Optional[str] = None
     try:
-        ads_res = sb.table("ads").select("ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
-        if ads_res.data:
-            thumbnail = _get_storage_thumb_if_any(ads_res.data[0]) or _get_thumbnail_with_fallback(ads_res.data[0])
+        # Silo de origem das linhas (dono do pack compartilhado, se for o caso).
+        thumb_owner = next((str(r.get("user_id")) for r in data if r.get("user_id")), user["user_id"])
+        ads_row = supabase_repo.fetch_ads_row_scoped(
+            thumb_owner, ad_id,
+            "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id",
+        )
+        if ads_row:
+            thumbnail = _get_storage_thumb_if_any(ads_row) or _get_thumbnail_with_fallback(ads_row)
     except Exception as e:
         logger.warning(f"Erro ao buscar thumbnail (ad details): {e}")
 
@@ -3263,29 +2962,16 @@ def get_ad_history(
 
     data: List[Dict[str, Any]] = []
     if pack_ids_clean:
-        metric_ids = supabase_repo.get_pack_metric_ids(
-            sb, user["user_id"], pack_ids_clean, date_start, date_stop
+        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
+        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
+        data = supabase_repo.fetch_pack_metrics_rows(
+            user["user_id"], pack_ids_clean, date_start, date_stop,
+            select_with_lpv, select_without_lpv,
+            {"ad_id": ad_id}, log_tag="ad_history",
         )
-        if metric_ids:
-            IN_BATCH_SIZE = 200
-            for i in range(0, len(metric_ids), IN_BATCH_SIZE):
-                batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
-
-                def metrics_filters(q, _b=batch_ids):
-                    return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).in_("id", _b)
-
-                try:
-                    data.extend(_fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters))
-                except Exception as e:
-                    msg = str(e or "")
-                    if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                        logger.warning("[ad_history] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                        data.extend(_fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters))
-                    else:
-                        raise
     else:
         def metrics_filters(q):
-            return q.eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
+            return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
@@ -3469,29 +3155,16 @@ def get_ad_name_history(
 
     data: List[Dict[str, Any]] = []
     if pack_ids_clean:
-        metric_ids = supabase_repo.get_pack_metric_ids(
-            sb, user["user_id"], pack_ids_clean, date_start, date_stop
+        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
+        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
+        data = supabase_repo.fetch_pack_metrics_rows(
+            user["user_id"], pack_ids_clean, date_start, date_stop,
+            select_with_lpv, select_without_lpv,
+            {"ad_name": ad_name}, log_tag="ad_name_history",
         )
-        if metric_ids:
-            IN_BATCH_SIZE = 200
-            for i in range(0, len(metric_ids), IN_BATCH_SIZE):
-                batch_ids = metric_ids[i:i + IN_BATCH_SIZE]
-
-                def metrics_filters(q, _b=batch_ids):
-                    return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).in_("id", _b)
-
-                try:
-                    data.extend(_fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters))
-                except Exception as e:
-                    msg = str(e or "")
-                    if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                        logger.warning("[ad_name_history] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                        data.extend(_fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters))
-                    else:
-                        raise
     else:
         def metrics_filters(q):
-            return q.eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
+            return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
