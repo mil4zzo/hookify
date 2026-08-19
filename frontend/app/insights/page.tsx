@@ -111,6 +111,7 @@ export default function InsightsPage() {
   // filterToSelectedPacks=false: Insights valida sobre todos os dados do servidor,
   // não filtra por pack client-side (usa pack_ids no request para escopo do servidor).
   const {
+    serverOverlapRows,
     serverData,
     serverAverages: averages,
     validatedAds,
@@ -287,7 +288,7 @@ export default function InsightsPage() {
     >
       <AnalyticsWorkspace>
         {/* Camada 3 do bloqueio de conflito cross-silo */}
-        <PackConflictGuard>
+        <PackConflictGuard serverOverlapRows={serverOverlapRows}>
         <TabbedWorkspace
           value={activeTab}
           onValueChange={handleTabChange}

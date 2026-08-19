@@ -75,7 +75,7 @@ export function buildSharedAdDetailModel({
   creativeData,
   videoData,
   actionType,
-  mqlLeadscoreMin = 0,
+  mqlLeadscoreMin = null,
 }: BuildSharedAdDetailModelParams): SharedAdDetailModel {
   const source = {
     ...baseAd,

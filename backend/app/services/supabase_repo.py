@@ -292,6 +292,44 @@ def fetch_pack_metrics_rows(
     return _dedup_cross_silo(raw, actor_id)
 
 
+def fetch_ads_rows_for_metric_rows(
+    metric_rows: List[Dict[str, Any]],
+    actor_id: str,
+    select_fields: str,
+    batch_size: int = 500,
+) -> List[Dict[str, Any]]:
+    """Linhas de `ads` para os ad_ids das linhas de metricas, no silo de CADA uma.
+
+    As linhas de fetch_pack_metrics_rows carregam `user_id` (o silo de origem);
+    linhas do ramo legado nao carregam e caem no silo do ATOR — mesmo filtro que
+    a RLS aplicava, so que via service role. O escopo nunca vem do cliente: vem
+    do user_id de linhas ja escopadas ou do ator autenticado.
+    """
+    by_owner: Dict[str, set] = {}
+    for r in metric_rows:
+        aid = str(r.get("ad_id") or "").strip()
+        if not aid:
+            continue
+        owner = str(r.get("user_id") or actor_id)
+        by_owner.setdefault(owner, set()).add(aid)
+
+    if not by_owner:
+        return []
+
+    sb = get_supabase_service()
+    out: List[Dict[str, Any]] = []
+    for owner, ids in by_owner.items():
+        id_list = sorted(ids)
+        for i in range(0, len(id_list), batch_size):
+            batch = id_list[i:i + batch_size]
+
+            def _filters(q, _own=owner, _b=batch):
+                return q.eq("user_id", _own).in_("ad_id", _b)
+
+            out.extend(_fetch_all_paginated(sb, "ads", select_fields, _filters))
+    return out
+
+
 def fetch_ads_row_scoped(owner_id: str, ad_id: str, select_fields: str) -> Optional[Dict[str, Any]]:
     """Uma linha de `ads` no silo indicado (service role).
 
@@ -2069,6 +2107,21 @@ def record_job(user_jwt: Optional[str], job_id: str, status: str, user_id: Optio
     # sb_client (service role) permite gravar job no silo do DONO num disparo de
     # convidado (P3.3) — o JWT do ator nao passa na RLS do silo alheio.
     sb = _get_sb(user_jwt, sb_client)
+
+    # Hardening: com service role, o upsert on_conflict="id" sobrescreveria um
+    # job de OUTRO silo se a Meta emitisse report_run_id colidente (a RLS que
+    # barrava isso saiu do caminho). Improvavel, mas o custo do guard e um read.
+    if sb_client is not None:
+        try:
+            existing = sb.table("jobs").select("user_id").eq("id", job_id).limit(1).execute().data or []
+            if existing and str(existing[0].get("user_id")) != str(user_id):
+                logger.error(
+                    "[RECORD_JOB] ABORTADO: job %s ja pertence a outro silo (%s != %s)",
+                    job_id, str(existing[0].get("user_id"))[:8], str(user_id)[:8],
+                )
+                return
+        except Exception:
+            pass  # guard best-effort: falha de leitura nao bloqueia o registro
     
     data = {
         "status": status,

@@ -51,6 +51,7 @@ export default function PlanoPage() {
   } = useJudgmentEditor();
 
   const {
+    serverOverlapRows,
     serverData,
     filteredRankings,
     validatedAds,
@@ -172,7 +173,7 @@ export default function PlanoPage() {
     <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
       <AnalyticsWorkspace className="gap-6 overflow-visible">
         {/* Camada 3 do bloqueio de conflito cross-silo */}
-        <PackConflictGuard>
+        <PackConflictGuard serverOverlapRows={serverOverlapRows}>
 
         {/* Day-comparison block (last day vs previous): headline metric + driver cards + top-impact ads */}
         <DayComparisonBlock

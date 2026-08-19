@@ -83,7 +83,7 @@ export function computeOpportunityScores({
   averages,
   actionType,
   spendTotal,
-  mqlLeadscoreMin = 0,
+  mqlLeadscoreMin = null,
   limit,
 }: OpportunityInputs): OpportunityRow[] {
   if (!Array.isArray(ads) || ads.length === 0) return [];

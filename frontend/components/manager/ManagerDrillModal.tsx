@@ -43,7 +43,7 @@ export function ManagerDrillModal({
   activeColumns,
   columnOrder,
   hasSheetIntegration = false,
-  mqlLeadscoreMin = 0,
+  mqlLeadscoreMin = null,
   onSelectAd,
 }: ManagerDrillModalProps) {
   const { stack, isOpen, current, push, popTo, close } = useDrillState();

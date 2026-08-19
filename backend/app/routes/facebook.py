@@ -3024,8 +3024,10 @@ def get_job_progress(
         if is_guest_poll:
             _job_pack_id = (_job_rows[0].get("payload") or {}).get("pack_id")
             if not _job_pack_id:
-                # Job alheio sem pack associado: invisivel (mesma resposta de inexistente).
-                raise HTTPException(status_code=404, detail="Job não encontrado")
+                # Job alheio sem pack associado: invisivel. MESMA mensagem do
+                # assert_pack_role — dois textos distintos sob o mesmo 404
+                # deixariam sondar a existencia de job alheio pelo texto.
+                raise HTTPException(status_code=404, detail="Pack nao encontrado")
             assert_pack_role(user_id, str(_job_pack_id), roles=("dono", "editor", "viewer"))
 
         def _resolve_job_token():
@@ -3086,6 +3088,7 @@ def get_job_progress(
                         fb_token,
                         job_id,
                         tracker.processing_owner,
+                        not is_guest_poll,  # cadeia de planilha exige o contexto do dono
                     )
             return _progress_with_bg()
         
@@ -3190,6 +3193,7 @@ def get_job_progress(
                     fb_token,
                     job_id,
                     tracker.processing_owner,
+                    not is_guest_poll,  # cadeia de planilha exige o contexto do dono
                 )
                 logger.info(f"[JOB_PROGRESS] Processamento em background iniciado para job {job_id}")
             

@@ -21,6 +21,7 @@ Garantias que NAO estao aqui, e sim no banco (migration 103):
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
@@ -145,6 +146,13 @@ def get_pack_conflicts(
     cleaned = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
     if len(cleaned) < 2:
         return {"success": True, "pairs": []}
+
+    # Id nao-uuid estouraria como erro de cast do Postgres (500 opaco) — 400.
+    for pid in cleaned:
+        try:
+            uuid.UUID(pid)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail=f"pack_id invalido: {pid[:40]}")
 
     try:
         sb = get_supabase_service()

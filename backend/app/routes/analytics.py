@@ -1952,25 +1952,15 @@ def get_rankings_children(
     effective_status_map: Dict[str, Optional[str]] = {}
     if ad_ids_in_results:
         try:
-            # Processar ad_ids em lotes para evitar URLs muito longas
-            # Limite conservador: 500 IDs por lote (ajustado para evitar erro 400 do Supabase)
-            batch_size = 500
-            all_ads_rows = []
-            
-            for i in range(0, len(ad_ids_in_results), batch_size):
-                batch_ad_ids = ad_ids_in_results[i:i + batch_size]
-                
-                def ads_filters(q):
-                    return q.in_("ad_id", batch_ad_ids)
-                
-                batch_ads_rows = _fetch_all_paginated(
-                    sb,
-                    "ads",
-                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
-                    ads_filters
-                )
-                
-                all_ads_rows.extend(batch_ads_rows)
+            # Silo por linha: num pack compartilhado os ads vivem no silo do DONO
+            # — a leitura via JWT do ator voltava vazia e o drill perdia
+            # thumbnails/effective_status. O helper agrupa pelo user_id das
+            # linhas (ja escopadas) e le via service role, em lotes de 500.
+            all_ads_rows = supabase_repo.fetch_ads_rows_for_metric_rows(
+                data,
+                user["user_id"],
+                "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
+            )
             
             for ad_row in all_ads_rows:
                 aid = str(ad_row.get("ad_id") or "")
@@ -2265,24 +2255,15 @@ def get_adset_children(
     effective_status_map: Dict[str, Optional[str]] = {}
     if ad_ids_in_results:
         try:
-            # Processar ad_ids em lotes para evitar URLs muito longas
-            batch_size = 500
-            all_ads_rows = []
-
-            for i in range(0, len(ad_ids_in_results), batch_size):
-                batch_ad_ids = ad_ids_in_results[i:i + batch_size]
-
-                def ads_filters(q):
-                    return q.in_("ad_id", batch_ad_ids)
-
-                batch_ads_rows = _fetch_all_paginated(
-                    sb,
-                    "ads",
-                    "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
-                    ads_filters
-                )
-
-                all_ads_rows.extend(batch_ads_rows)
+            # Silo por linha: num pack compartilhado os ads vivem no silo do DONO
+            # — a leitura via JWT do ator voltava vazia e o drill perdia
+            # thumbnails/effective_status. O helper agrupa pelo user_id das
+            # linhas (ja escopadas) e le via service role, em lotes de 500.
+            all_ads_rows = supabase_repo.fetch_ads_rows_for_metric_rows(
+                data,
+                user["user_id"],
+                "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
+            )
 
             for ad_row in all_ads_rows:
                 aid = str(ad_row.get("ad_id") or "")
@@ -3514,6 +3495,10 @@ def delete_pack(
                 "storage_thumbs_kept": result.get("storage_thumbs_kept", 0),
             }
         }
+    except HTTPException:
+        # 404/403 do assert_pack_role passam intactos — o except generico abaixo
+        # os converteria em 500 e vazaria a distincao no texto do erro.
+        raise
     except Exception as e:
         logger.exception(f"Erro ao deletar pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao deletar pack: {str(e)}")

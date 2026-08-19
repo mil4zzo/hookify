@@ -116,11 +116,10 @@ export function useLoadPacks() {
                 last_refreshed_at: pack.last_refreshed_at || undefined, // Incluir last_refreshed_at se disponível
                 sheet_integration: pack.sheet_integration || undefined, // Incluir dados de integração se disponível
                 conversion_types: Array.isArray(pack.conversion_types) ? pack.conversion_types : [], // Metadado materializado (dropdown de eventos)
-                // Overrides de julgamento — null preservado de propósito: null = herda,
-                // então normalizar para 0/{} aqui transformaria "herda" em "override zerado".
+                // Critério de julgamento do pack (migration 110) — null preservado:
+                // null = NÃO DEFINIDO (MQL/CPMQL indisponíveis), nunca zero.
                 mql_leadscore_min: pack.mql_leadscore_min ?? null,
                 target_cpr: pack.target_cpr ?? null,
-                diagnostic_cost_metric: pack.diagnostic_cost_metric ?? null,
               }
             })
           )
@@ -151,9 +150,6 @@ export function useLoadPacks() {
               // reidrata o valor antigo e a tela julga por um critério já alterado.
               if (pack.mql_leadscore_min !== ((existing as any).mql_leadscore_min ?? null)) {
                 patch.mql_leadscore_min = pack.mql_leadscore_min
-              }
-              if (pack.diagnostic_cost_metric !== ((existing as any).diagnostic_cost_metric ?? null)) {
-                patch.diagnostic_cost_metric = pack.diagnostic_cost_metric
               }
               if (JSON.stringify(pack.target_cpr ?? null) !== JSON.stringify((existing as any).target_cpr ?? null)) {
                 patch.target_cpr = pack.target_cpr

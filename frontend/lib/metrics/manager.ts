@@ -249,7 +249,7 @@ export interface ComputeManagerAveragesOptions extends MetricValueContext {
 }
 
 export function computeManagerAverages(rows: MetricValueSource[], options: ComputeManagerAveragesOptions = {}): ManagerAverages {
-  const { actionType, hasSheetIntegration = false, includeScrollStop = true, mqlLeadscoreMin = 0 } = options;
+  const { actionType, hasSheetIntegration = false, includeScrollStop = true, mqlLeadscoreMin = null } = options;
 
   if (!Array.isArray(rows) || rows.length === 0) {
     return EMPTY_MANAGER_AVERAGES;

@@ -228,7 +228,8 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
   if (shouldShow("mqls")) {
     cols.push(
       columnHelper.accessor(
-        (row) => getMetricValue(row as RankingsItem, "mqls"),
+        // Corte indefinido -> null atravessa (0 afirmaria "nenhum lead qualificou")
+        (row) => getMetricValueOrNull(row as RankingsItem, "mqls"),
         {
           id: "mqls",
           header: ({ column }) => {
@@ -237,11 +238,11 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
           },
           filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
             const ad = row.original as RankingsItem;
-          return applyNumericFilterMaybeArray(getMetricValue(ad, "mqls"), filterValue, applyNumericFilter);
+          return applyNumericFilterMaybeArray(getMetricValueOrNull(ad, "mqls"), filterValue, applyNumericFilter);
           },
           sortingFn: "auto",
           cell: (info) => {
-            const mqls = Number(info.getValue() || 0);
+            const mqls = info.getValue() as number | null;
             return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatMetricCellValue("mqls", mqls)}</span>} metric="mqls" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} colorMetricValue={colorMetricValue} lightweight />;
           },
         },
@@ -344,7 +345,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
             return (
               <div className={`flex flex-col items-center ${isMinimal ? "gap-1" : "gap-0.5"}`}>
                 <div className={`flex items-center ${isMinimal ? "gap-0.5" : "gap-1.5"}`}>
-                  {mqlLeadscoreMin === 0 && (
+                  {mqlLeadscoreMin == null && (
                     <TooltipProvider>
                       <Tooltip>
                         <TooltipTrigger asChild>

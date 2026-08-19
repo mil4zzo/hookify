@@ -42,7 +42,7 @@ function areCampaignChildrenRowPropsEqual(prev: CampaignChildrenRowProps, next: 
 }
 
 /** Filhos (adsets) de uma campanha — wrapper fino: só escolhe a query e delega ao ManagerChildrenTable. */
-export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, packIds = [], actionType, formatCurrency, formatPct, activeColumns, columnOrder, hasSheetIntegration = false, mqlLeadscoreMin = 0, columnFilters = [], setColumnFilters, asContent = false, onRowClick }: CampaignChildrenRowProps) {
+export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, packIds = [], actionType, formatCurrency, formatPct, activeColumns, columnOrder, hasSheetIntegration = false, mqlLeadscoreMin = null, columnFilters = [], setColumnFilters, asContent = false, onRowClick }: CampaignChildrenRowProps) {
   const { data: childrenData, isLoading, isError } = useCampaignChildren(campaignId, dateStart, dateStop, actionType, packIds, true);
 
   return (

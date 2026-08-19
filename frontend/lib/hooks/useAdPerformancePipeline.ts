@@ -159,6 +159,8 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     queryLoading || criteriaLoading || (filterToSelectedPacks && fetchEnabled && packsAdsLoading);
 
   return {
+    // Sinal de conflito cross-silo (camada 2): linhas dedupadas nesta resposta.
+    serverOverlapRows: (queryData as any)?.overlap?.rows ?? null,
     // Dados em cada camada do pipeline
     serverData,
     filteredRankings,

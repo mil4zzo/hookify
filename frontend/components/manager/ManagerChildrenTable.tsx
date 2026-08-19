@@ -150,7 +150,7 @@ export function ManagerChildrenTable({
   activeColumns,
   columnOrder,
   hasSheetIntegration = false,
-  mqlLeadscoreMin = 0,
+  mqlLeadscoreMin = null,
   columnFilters = [],
   setColumnFilters,
   asContent = false,

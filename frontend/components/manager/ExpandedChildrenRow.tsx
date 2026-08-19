@@ -73,7 +73,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
   activeColumns,
   columnOrder,
   hasSheetIntegration = false,
-  mqlLeadscoreMin = 0,
+  mqlLeadscoreMin = null,
   columnFilters = [],
   setColumnFilters,
   asContent = false,

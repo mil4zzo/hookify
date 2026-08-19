@@ -66,11 +66,17 @@ class JobProcessor:
         access_token: str,
         processing_owner: Optional[str] = None,
         use_service_role: bool = False,
+        allow_sheet_chain: bool = True,
     ):
         self.user_jwt = user_jwt
         self.user_id = user_id
         self.access_token = access_token
         self.use_service_role = use_service_role
+        # P3.3a: quando o processamento foi disparado pelo POLL de um CONVIDADO,
+        # self.user_jwt e o JWT do ator e self.user_id o silo do DONO — a cadeia
+        # de planilha (create/process_sync_job) usa esse JWT com RLS e falharia
+        # em silencio. Pular EXPLICITAMENTE e melhor que falhar fundo.
+        self.allow_sheet_chain = allow_sheet_chain
         self._sb = get_supabase_service() if use_service_role else None
         self.tracker = get_job_tracker(
             user_jwt, user_id,
@@ -582,6 +588,18 @@ class JobProcessor:
         if not integration_id:
             return None
 
+        if not self.allow_sheet_chain:
+            # Poll de convidado concluiu o refresh do dono: a cadeia depende do
+            # JWT do dono (P3.3b). Rastro no payload para o frontend/dono verem.
+            logger.info(
+                f"[JobProcessor] Sync encadeado PULADO para job {job_id}: processamento concluido por convidado"
+            )
+            try:
+                self.tracker.merge_payload(job_id, {"sheet_chain_skipped": "guest_poll"})
+            except Exception:
+                pass
+            return None
+
         # Resume pós-crash: run anterior pode ter criado o sync job e caído
         # antes do mark_completed — reusar em vez de duplicar.
         existing = payload.get("chained_sync_job_id")
@@ -915,6 +933,7 @@ def process_job_async(
     access_token: str,
     job_id: str,
     processing_owner: Optional[str] = None,
+    allow_sheet_chain: bool = True,
 ) -> Dict[str, Any]:
     """
     Função para processar job (pode ser chamada em background).
@@ -928,7 +947,12 @@ def process_job_async(
     Returns:
         Dict com resultado do processamento
     """
-    processor = JobProcessor(user_jwt, user_id, access_token, processing_owner=processing_owner, use_service_role=True)
+    processor = JobProcessor(
+        user_jwt, user_id, access_token,
+        processing_owner=processing_owner,
+        use_service_role=True,
+        allow_sheet_chain=allow_sheet_chain,
+    )
     return processor.process(job_id)
 
 

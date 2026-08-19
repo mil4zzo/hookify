@@ -105,7 +105,7 @@ function getMetricValue(ad: RankingsItem, metric: Extract<MetricKey, "hook" | "w
  * @returns Rankings globais por métrica (Map<ad_id, rank>)
  */
 export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricRankingsOptions = {}): MetricRanks {
-  const { validationCriteria, actionType, filterValidOnly = true, mqlLeadscoreMin = 0 } = options;
+  const { validationCriteria, actionType, filterValidOnly = true, mqlLeadscoreMin = null } = options;
 
   // 1. Filtrar anúncios validados se houver critérios definidos
   // Se validationCriteria for undefined, null ou array vazio, todos os anúncios são válidos
