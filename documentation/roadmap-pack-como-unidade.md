@@ -9,8 +9,9 @@
 > P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
 > **Próximo passo:** **deploy em andamento** (o banco está 10 migrations à frente
 > do código; a `111` só depois dele e depois de passada a janela de rollback).
-> Na sequência: P3.6 nos demais endpoints de escrita e as camadas 1 e 3 do
-> bloqueio de conflito. (Os 8 endpoints de drill foram concluídos — P3.2b.)
+> Na sequência: camadas 1 e 3 do bloqueio de conflito; depois P3.3 (credencial
+> do dono), que carrega consigo o gate de papel dos endpoints de escrita presos
+> a token. (Drill multi-dono e P3.6-banco concluídos.)
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
@@ -434,7 +435,7 @@ propósito — era código morto e saiu.
 | P3.3 | Credencial por pack (FB e Google do dono) + ator em `meta_api_usage` | `Não iniciado` |
 | P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Não iniciado` |
 | P3.5 | Log de ações (ator, alvo, ação) + retenção de 365 dias | `Não iniciado` |
-| P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Parcial` — 2026-08-18: `PATCH /packs/{id}/judgment` já exige `dono`\|`editor` via `_assert_pack_writable` (viewer → 403). É o molde para os demais endpoints de escrita |
+| P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Concluído p/ escritas puras de banco` — 2026-08-19. Guard central em `app/services/pack_access.py` (`assert_pack_role` → `(role, owner_id)`; sem acesso → 404, papel insuficiente → 403). Gateados: judgment, auto-refresh e name (`dono\|editor`, write via service role) e DELETE do pack (`dono` apenas). Unicidade de nome agora contra o silo do DONO. **Regra para o restante:** os endpoints presos a credencial externa (refresh-pack, packs/status-sync, transcribe, sync de planilha, status/budget de ad/adset/campanha, bulk) ganham o gate NA CONVERSÃO da P3.3 — gatear antes criaria endpoints que autorizam e falham no meio; hoje todos falham fechado (RLS não encontra pack/ad alheio) |
 | P3.7 | UI: convite, badge de pack compartilhado, aviso de refresh em andamento | `Não iniciado` |
 | P3.8 | *(pós-MVP)* Token do convidado quando ele tem acesso próprio à conta | `Não iniciado` |
 

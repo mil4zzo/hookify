@@ -2892,33 +2892,33 @@ def update_pack_refresh_status(
 
 
 def update_pack_auto_refresh(
-    user_jwt: str,
     pack_id: str,
-    user_id: Optional[str],
     auto_refresh: bool,
+    actor_id: str,
 ) -> None:
-    """Atualiza o campo auto_refresh de um pack no Supabase.
-    
-    Args:
-        user_jwt: JWT do Supabase do usuário
-        pack_id: ID do pack a atualizar
-        user_id: ID do usuário
-        auto_refresh: Valor booleano para auto_refresh
+    """Atualiza o campo auto_refresh de um pack.
+
+    ATENCAO: escreve com SERVICE ROLE e sem filtro de dono — o pack pode ser
+    COMPARTILHADO e o ator um editor de outro silo. A autorizacao NAO acontece
+    aqui: quem chama e obrigado a ter passado por `assert_pack_role` antes
+    (mesmo contrato de update_pack_judgment).
     """
-    if not user_id or not pack_id:
-        logger.warning("[UPDATE_AUTO_REFRESH] Skipped: missing user_id or pack_id")
+    if not actor_id or not pack_id:
+        logger.warning("[UPDATE_AUTO_REFRESH] Skipped: missing actor_id or pack_id")
         return
-    
-    sb = get_supabase_for_user(user_jwt)
-    
+
+    sb = get_supabase_service()
+
     update_data = {
         "auto_refresh": auto_refresh,
         "updated_at": _now_iso(),
     }
-    
+
     try:
-        sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute()
-        logger.info(f"[UPDATE_AUTO_REFRESH] ✓ Pack {pack_id} atualizado - auto_refresh={auto_refresh}")
+        sb.table("packs").update(update_data).eq("id", pack_id).execute()
+        logger.info(
+            f"[UPDATE_AUTO_REFRESH] ✓ Pack {pack_id} atualizado por {actor_id} - auto_refresh={auto_refresh}"
+        )
     except Exception as e:
         logger.exception(f"[UPDATE_AUTO_REFRESH] ✗ Erro ao atualizar pack {pack_id}: {e}")
         raise
@@ -3027,44 +3027,48 @@ def check_pack_name_exists(
 
 
 def update_pack_name(
-    user_jwt: str,
     pack_id: str,
-    user_id: Optional[str],
     name: str,
+    owner_id: str,
+    actor_id: str,
 ) -> None:
-    """Atualiza o campo name de um pack no Supabase.
-    
-    Args:
-        user_jwt: JWT do Supabase do usuário
-        pack_id: ID do pack a atualizar
-        user_id: ID do usuário
-        name: Novo nome do pack
-    
+    """Atualiza o campo name de um pack.
+
+    ATENCAO: escreve com SERVICE ROLE e sem filtro de dono — o ator pode ser um
+    editor de pack compartilhado. A autorizacao NAO acontece aqui: quem chama e
+    obrigado a ter passado por `assert_pack_role` antes, e `owner_id` deve vir
+    do retorno dele (nunca do cliente).
+
+    A unicidade de nome e POR DONO (o pack vive no silo dele): um editor
+    renomeando pack alheio disputa espaco com os packs do DONO, nao com os
+    proprios. Checar contra o silo do ator deixaria criar duplicata no silo do
+    dono — e bloquearia um nome livre la por colidir com um pack do editor.
+
     Raises:
-        ValueError: Se o nome estiver vazio ou se já existir outro pack com o mesmo nome
+        ValueError / PackNameConflictError
     """
-    if not user_id or not pack_id:
-        logger.warning("[UPDATE_PACK_NAME] Skipped: missing user_id or pack_id")
+    if not owner_id or not actor_id or not pack_id:
+        logger.warning("[UPDATE_PACK_NAME] Skipped: missing owner_id, actor_id or pack_id")
         return
-    
+
     normalized_name = normalize_pack_name(name)
     if not normalized_name:
         raise ValueError("Nome do pack não pode ser vazio")
-    
-    # Verificar se já existe outro pack com o mesmo nome
-    if check_pack_name_exists(user_jwt, user_id, normalized_name, exclude_pack_id=pack_id):
+
+    sb = get_supabase_service()
+
+    # Unicidade contra o silo do DONO, com o mesmo client de service role.
+    if check_pack_name_exists(None, owner_id, normalized_name, exclude_pack_id=pack_id, sb_client=sb):
         raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'")
-    
-    sb = get_supabase_for_user(user_jwt)
-    
+
     # Não atualizar updated_at ao renomear - essa data deve ser exclusiva para atualizações de métricas
     update_data = {
         "name": normalized_name,
     }
-    
+
     try:
-        sb.table("packs").update(update_data).eq("id", pack_id).eq("user_id", user_id).execute()
-        logger.info(f"[UPDATE_PACK_NAME] ✓ Pack {pack_id} atualizado - name={normalized_name}")
+        sb.table("packs").update(update_data).eq("id", pack_id).execute()
+        logger.info(f"[UPDATE_PACK_NAME] ✓ Pack {pack_id} renomeado por {actor_id} - name={normalized_name}")
     except Exception as e:
         if _is_pack_name_unique_violation(e):
             raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'") from e

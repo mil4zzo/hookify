@@ -13,6 +13,7 @@ from app.core.supabase_retry import with_postgrest_retry
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
+from app.services.pack_access import assert_pack_role
 from app.services.ad_media import resolve_media_type
 from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
 
@@ -285,39 +286,6 @@ def _extract_lpv(row: Dict[str, Any]) -> int:
     except Exception:
         return 0
     return int(lpv or 0)
-
-
-def _assert_pack_writable(user_id: str, pack_id: str) -> str:
-    """Garante que o ator pode ESCREVER a configuracao do pack. Devolve o papel.
-
-    Dono e editor escrevem; viewer nao. A checagem passa por `resolve_pack_access`
-    e nao pela RLS de `packs`, que so enxerga o proprio silo — por ela, um editor
-    de pack alheio seria recusado antes de a regra de papel ser consultada.
-    """
-    try:
-        sb = get_supabase_service()
-        res = sb.rpc(
-            "resolve_pack_access",
-            {"p_pack_ids": [str(pack_id)], "p_actor_id": str(user_id)},
-        ).execute()
-    except Exception as e:
-        logger.exception("[JUDGMENT] Falha ao resolver acesso ao pack %s: %s", pack_id, e)
-        raise HTTPException(status_code=500, detail="Erro ao verificar acesso ao pack")
-
-    role = None
-    for row in (res.data or []):
-        if isinstance(row, dict) and str(row.get("pack_id")) == str(pack_id):
-            role = row.get("role")
-            break
-
-    if role is None:
-        # 404 e nao 403: nao confirmar a existencia de pack alheio.
-        raise HTTPException(status_code=404, detail="Pack nao encontrado")
-    if role not in ("dono", "editor"):
-        raise HTTPException(
-            status_code=403, detail="Somente dono ou editor podem editar a configuracao do pack"
-        )
-    return role
 
 
 def _resolve_mql_leadscore_min(user_id: str, pack_ids: Optional[List[str]] = None) -> Optional[float]:
@@ -3512,8 +3480,13 @@ def delete_pack(
     request: DeletePackRequest = Body(...),
     user=Depends(get_current_user)
 ):
-    """Deleta um pack e todos os dados relacionados (ads e ad_metrics) em cascata."""
+    """Deleta um pack e todos os dados relacionados (ads e ad_metrics) em cascata.
+
+    So o DONO. Editor/viewer recebem 403 — para sair do pack, o convidado usa
+    DELETE /pack-shares/{pack_id}/me. Os grants somem junto via ON DELETE CASCADE.
+    """
     try:
+        assert_pack_role(user["user_id"], pack_id, roles=("dono",))
         result = supabase_repo.delete_pack(
             user["token"],
             pack_id=pack_id,
@@ -3544,19 +3517,14 @@ def update_pack_auto_refresh(
     request: UpdatePackAutoRefreshRequest = Body(...),
     user=Depends(get_current_user)
 ):
-    """Atualiza o campo auto_refresh de um pack."""
+    """Atualiza o campo auto_refresh de um pack. Escrevem dono e editor."""
     try:
-        # Verificar se o pack existe e pertence ao usuÃ¡rio
-        pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
-        if not pack:
-            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
-        
-        # Atualizar auto_refresh
+        assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
+
         supabase_repo.update_pack_auto_refresh(
-            user["token"],
             pack_id,
-            user["user_id"],
-            request.auto_refresh
+            request.auto_refresh,
+            actor_id=user["user_id"],
         )
         
         return {
@@ -3587,7 +3555,7 @@ def update_pack_judgment(
     Escrevem dono e editor. Viewer recebe 403.
     """
     try:
-        _assert_pack_writable(user["user_id"], pack_id)
+        assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
 
         # exclude_unset preserva a distincao entre "nao enviado" e "enviado como null".
         fields = request.model_dump(exclude_unset=True)
@@ -3624,23 +3592,23 @@ def update_pack_name(
     request: UpdatePackNameRequest = Body(...),
     user=Depends(get_current_user)
 ):
-    """Atualiza o nome de um pack."""
+    """Atualiza o nome de um pack. Escrevem dono e editor.
+
+    A unicidade do nome e verificada contra o silo do DONO (onde o pack vive),
+    nao contra o do ator — um editor renomeando pack compartilhado disputa
+    espaco com os packs do dono.
+    """
     try:
-        # Verificar se o pack existe e pertence ao usuÃ¡rio
-        pack = supabase_repo.get_pack(user["token"], pack_id, user["user_id"])
-        if not pack:
-            raise HTTPException(status_code=404, detail="Pack nÃ£o encontrado")
-        
-        # Validar nome
+        access = assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
+
         if not request.name or not request.name.strip():
             raise HTTPException(status_code=400, detail="Nome do pack nÃ£o pode ser vazio")
-        
-        # Atualizar nome
+
         supabase_repo.update_pack_name(
-            user["token"],
             pack_id,
-            user["user_id"],
-            request.name.strip()
+            request.name.strip(),
+            owner_id=access.owner_id,
+            actor_id=user["user_id"],
         )
         
         return {
