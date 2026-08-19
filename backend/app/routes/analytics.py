@@ -3592,14 +3592,14 @@ def update_pack_name(
     request: UpdatePackNameRequest = Body(...),
     user=Depends(get_current_user)
 ):
-    """Atualiza o nome de um pack. Escrevem dono e editor.
+    """Atualiza o nome de um pack. SO O DONO.
 
-    A unicidade do nome e verificada contra o silo do DONO (onde o pack vive),
-    nao contra o do ator — um editor renomeando pack compartilhado disputa
-    espaco com os packs do dono.
+    Nome e IDENTIDADE, nao conteudo: renomear muda como o time inteiro encontra
+    o pack — mesma classe de acao que compartilhar e apagar, que ja sao do dono.
+    Editor calibra o pack (julgamento, auto-refresh); nao redefine quem ele e.
     """
     try:
-        access = assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
+        assert_pack_role(user["user_id"], pack_id, roles=("dono",))
 
         if not request.name or not request.name.strip():
             raise HTTPException(status_code=400, detail="Nome do pack nÃ£o pode ser vazio")
@@ -3607,7 +3607,6 @@ def update_pack_name(
         supabase_repo.update_pack_name(
             pack_id,
             request.name.strip(),
-            owner_id=access.owner_id,
             actor_id=user["user_id"],
         )
         

@@ -3029,26 +3029,21 @@ def check_pack_name_exists(
 def update_pack_name(
     pack_id: str,
     name: str,
-    owner_id: str,
     actor_id: str,
 ) -> None:
     """Atualiza o campo name de um pack.
 
-    ATENCAO: escreve com SERVICE ROLE e sem filtro de dono — o ator pode ser um
-    editor de pack compartilhado. A autorizacao NAO acontece aqui: quem chama e
-    obrigado a ter passado por `assert_pack_role` antes, e `owner_id` deve vir
-    do retorno dele (nunca do cliente).
-
-    A unicidade de nome e POR DONO (o pack vive no silo dele): um editor
-    renomeando pack alheio disputa espaco com os packs do DONO, nao com os
-    proprios. Checar contra o silo do ator deixaria criar duplicata no silo do
-    dono — e bloquearia um nome livre la por colidir com um pack do editor.
+    ATENCAO: escreve com SERVICE ROLE e sem filtro de dono. A autorizacao NAO
+    acontece aqui: quem chama e obrigado a ter passado por
+    `assert_pack_role(..., roles=("dono",))` antes — renomear e SO do dono
+    (nome e identidade do pack, nao conteudo). Com isso, ator == dono por
+    construcao, e a unicidade de nome e checada contra o silo do proprio ator.
 
     Raises:
         ValueError / PackNameConflictError
     """
-    if not owner_id or not actor_id or not pack_id:
-        logger.warning("[UPDATE_PACK_NAME] Skipped: missing owner_id, actor_id or pack_id")
+    if not actor_id or not pack_id:
+        logger.warning("[UPDATE_PACK_NAME] Skipped: missing actor_id or pack_id")
         return
 
     normalized_name = normalize_pack_name(name)
@@ -3057,8 +3052,7 @@ def update_pack_name(
 
     sb = get_supabase_service()
 
-    # Unicidade contra o silo do DONO, com o mesmo client de service role.
-    if check_pack_name_exists(None, owner_id, normalized_name, exclude_pack_id=pack_id, sb_client=sb):
+    if check_pack_name_exists(None, actor_id, normalized_name, exclude_pack_id=pack_id, sb_client=sb):
         raise PackNameConflictError(f"Já existe um pack com o nome '{normalized_name}'")
 
     # Não atualizar updated_at ao renomear - essa data deve ser exclusiva para atualizações de métricas
