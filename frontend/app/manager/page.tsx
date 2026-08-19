@@ -4,6 +4,7 @@ import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "rea
 import { useSearchParams } from "next/navigation";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
+import { PackConflictGuard } from "@/components/common/PackConflictGuard";
 import { ManagerTableSkeleton } from "@/components/manager/ManagerTableSkeleton";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { useAdPerformance, useAdPerformanceSeries } from "@/lib/api/hooks";
@@ -383,6 +384,9 @@ function ManagerPageContent() {
       className="min-h-0"
     >
       <AnalyticsWorkspace>
+        {/* Camada 3: selecao com packs em conflito cross-silo bloqueia a analise.
+            O sinal do servidor (overlap, camada 2) cobre grafo defasado. */}
+        <PackConflictGuard serverOverlapRows={(managerData as any)?.overlap?.rows ?? null}>
         <ManagerTable
           ads={adsForTable}
           groupByAdName
@@ -425,6 +429,7 @@ function ManagerPageContent() {
             } as any;
           })()}
         />
+        </PackConflictGuard>
       </AnalyticsWorkspace>
     </PageContainer>
   );

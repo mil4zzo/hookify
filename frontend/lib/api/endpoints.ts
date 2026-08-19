@@ -467,6 +467,26 @@ export const api = {
       apiClient.delete('/user/account'),
   },
 
+  // Compartilhamento de packs entre usuarios (P3). NAO confundir com `shares`
+  // (link publico com snapshot congelado) — aqui o dado permanece no silo do dono.
+  packShares: {
+    /**
+     * Grafo de conflito cross-silo: pares de packs acessiveis que compartilham o
+     * mesmo anuncio no mesmo dia entre DONOS diferentes. Alimenta o bloqueio de
+     * selecao (camada 1) e o estado bloqueante (camada 3). Mesmo dono nunca conflita.
+     */
+    getConflicts: (
+      packIds: string[],
+      options?: { signal?: AbortSignal }
+    ): Promise<{ success: boolean; pairs: [string, string][] }> => {
+      const qs = new URLSearchParams()
+      packIds.forEach((packId) => {
+        if (packId) qs.append('pack_ids', packId)
+      })
+      return apiClient.get(`/pack-shares/conflicts?${qs.toString()}`, { signal: options?.signal })
+    },
+  },
+
   // Google Sheets integration (ads enrichment)
   integrations: {
     google: {

@@ -125,6 +125,45 @@ def lookup_user(email: str = Query(..., min_length=3), user=Depends(get_current_
     )
 
 
+@router.get("/conflicts")
+def get_pack_conflicts(
+    pack_ids: List[str] = Query(default=[]),
+    user=Depends(get_current_user),
+):
+    """Grafo de conflito cross-silo entre os packs ACESSIVEIS ao ator.
+
+    Um par conflita quando dois packs de DONOS diferentes contem o mesmo anuncio
+    no mesmo dia — selecionar os dois juntos forca o dedup a escolher uma das
+    linhas e o total deixa de ser exato. Decisao de produto: "impreciso e
+    impreciso" — a UI usa este grafo para DESABILITAR a selecao (camada 1) e
+    para o estado bloqueante (camada 3). Mesmo dono nunca conflita.
+
+    Rota declarada ANTES de /{pack_id}: 'conflicts' casaria com o parametro.
+    A RPC e revogada do PostgREST; o escopo vem de resolve_pack_access dentro
+    dela — pack sem acesso simplesmente nao entra no grafo.
+    """
+    cleaned = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
+    if len(cleaned) < 2:
+        return {"success": True, "pairs": []}
+
+    try:
+        sb = get_supabase_service()
+        res = sb.rpc(
+            "detect_pack_conflicts",
+            {"p_pack_ids": cleaned, "p_actor_id": str(user["user_id"])},
+        ).execute()
+    except Exception as e:
+        logger.exception("[PACK_SHARES] Erro ao detectar conflitos: %s", e)
+        raise HTTPException(status_code=500, detail="Erro ao verificar conflitos entre packs")
+
+    pairs = [
+        [str(r["pack_a"]), str(r["pack_b"])]
+        for r in (res.data or [])
+        if isinstance(r, dict) and r.get("pack_a") and r.get("pack_b")
+    ]
+    return {"success": True, "pairs": pairs}
+
+
 @router.get("/{pack_id}")
 def list_pack_shares(pack_id: str, user=Depends(get_current_user)):
     """Lista os convidados de um pack. So o dono enxerga."""

@@ -684,6 +684,14 @@ def _normalize_rankings_rpc_response(raw_payload: Any) -> Dict[str, Any]:
     if isinstance(pagination, dict):
         out["pagination"] = pagination
 
+    # Sinal de conflito cross-silo (migration 105): linhas dedupadas porque o
+    # mesmo (ad_id, date) existia em mais de um silo na selecao. E a camada 2 do
+    # bloqueio de conflito — sem este passthrough a whitelist acima o engoliria
+    # e o frontend nunca saberia que o total nao e exato.
+    overlap = payload.get("overlap")
+    if isinstance(overlap, dict):
+        out["overlap"] = overlap
+
     return out
 
 

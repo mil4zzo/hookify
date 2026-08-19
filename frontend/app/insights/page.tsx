@@ -20,6 +20,7 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { TabbedContentItem } from "@/components/common/TabbedContent";
 import { AnalyticsWorkspace, TabbedWorkspace } from "@/components/common/layout";
 import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
+import { PackConflictGuard } from "@/components/common/PackConflictGuard";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { usePackDiagnostic } from "@/lib/hooks/usePackDiagnostic";
 import { useJudgmentEditor } from "@/lib/hooks/useJudgmentEditor";
@@ -285,6 +286,8 @@ export default function InsightsPage() {
       }
     >
       <AnalyticsWorkspace>
+        {/* Camada 3 do bloqueio de conflito cross-silo */}
+        <PackConflictGuard>
         <TabbedWorkspace
           value={activeTab}
           onValueChange={handleTabChange}
@@ -388,6 +391,7 @@ export default function InsightsPage() {
           )}
         </TabbedContentItem>
         </TabbedWorkspace>
+        </PackConflictGuard>
       </AnalyticsWorkspace>
 
       {/* Modal com detalhes do anúncio */}

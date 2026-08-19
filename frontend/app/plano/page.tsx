@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useAdPerformancePipeline } from "@/lib/hooks/useAdPerformancePipeline";
+import { PackConflictGuard } from "@/components/common/PackConflictGuard";
 import { usePackDiagnostic } from "@/lib/hooks/usePackDiagnostic";
 import { splitAdsIntoGoldBuckets } from "@/lib/utils/goldClassification";
 import { computeOpportunityScores } from "@/lib/utils/opportunity";
@@ -170,6 +171,8 @@ export default function PlanoPage() {
   return (
     <PageContainer variant="analytics" title="Plano de Ação" description="To-do list de anúncios">
       <AnalyticsWorkspace className="gap-6 overflow-visible">
+        {/* Camada 3 do bloqueio de conflito cross-silo */}
+        <PackConflictGuard>
 
         {/* Day-comparison block (last day vs previous): headline metric + driver cards + top-impact ads */}
         <DayComparisonBlock
@@ -243,6 +246,7 @@ export default function PlanoPage() {
             fill
           />
         )}
+        </PackConflictGuard>
 
       </AnalyticsWorkspace>
     </PageContainer>

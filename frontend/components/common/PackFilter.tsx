@@ -43,9 +43,17 @@ interface PackFilterProps {
   singleSelect?: boolean; // Se true, usa estilo single-select (sem checkboxes, como ActionTypeFilter)
   onSelectAll?: () => void; // Bulk: seleciona todos os packs (mostra atalho "Selecionar todos")
   onDeselectAll?: () => void; // Bulk: limpa a seleção (mostra atalho "Limpar")
+  /**
+   * Grafo de conflito cross-silo (usePackConflicts): packId -> packs com que ele
+   * conflita. Pack NÃO selecionado que conflita com algum selecionado fica
+   * desabilitado, com o motivo no hint — é a camada 1 do bloqueio: melhor não
+   * deixar entrar no estado ruim do que explicá-lo depois. Desmarcar um pack já
+   * selecionado continua sempre possível (canToggle do FilterListPopover).
+   */
+  conflictMap?: Map<string, Set<string>>;
 }
 
-export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false, onSelectAll, onDeselectAll }: PackFilterProps) {
+export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, className, showLabel = true, isLoading = false, packsClient = true, groupByPacks = false, onGroupByPacksChange, showGroupByPacksSwitch = false, singleSelect = false, onSelectAll, onDeselectAll, conflictMap }: PackFilterProps) {
   // Determinar se está carregando (prop explícita ou quando packsClient é false ou quando não há packs ainda)
   const isActuallyLoading = isLoading || !packsClient || packs.length === 0;
 
@@ -59,15 +67,42 @@ export function PackFilter({ packs, selectedPackIds, onTogglePack, onClose, clas
   const sortKey = usePackSortStore((state) => state.sortKey);
   const sortDirection = usePackSortStore((state) => state.direction);
 
+  const nameById = useMemo(() => new Map(packs.map((p) => [p.id, p.name])), [packs]);
+
   const options = useMemo(
     () =>
       sortPacks(packs, sortKey, { direction: sortDirection }).map((pack) => {
         // Usar stats.uniqueAds (preferencialmente do backend)
         // Não usar pack.ads porque ads estão no cache IndexedDB
         const adCount = pack.stats?.uniqueAds || 0;
-        return { id: pack.id, label: pack.name, meta: `(${adCount} ${adCount === 1 ? "anúncio" : "anúncios"})` };
+
+        // Conflito só desabilita quem está FORA da seleção; quem está dentro
+        // precisa continuar clicável para poder ser desmarcado.
+        let disabled = false;
+        let disabledHint: string | undefined;
+        if (conflictMap && !selectedPackIds.has(pack.id)) {
+          const enemies = conflictMap.get(pack.id);
+          if (enemies) {
+            for (const selectedId of selectedPackIds) {
+              if (enemies.has(selectedId)) {
+                const conflictName = nameById.get(selectedId) ?? "um pack selecionado";
+                disabled = true;
+                disabledHint = `Conflita com «${conflictName}»: mesmos anúncios em contas de donos diferentes. Desmarque um para usar o outro.`;
+                break;
+              }
+            }
+          }
+        }
+
+        return {
+          id: pack.id,
+          label: pack.name,
+          meta: `(${adCount} ${adCount === 1 ? "anúncio" : "anúncios"})`,
+          disabled,
+          disabledHint,
+        };
       }),
-    [packs, sortKey, sortDirection],
+    [packs, sortKey, sortDirection, conflictMap, selectedPackIds, nameById],
   );
 
   if (hasNoPacks) {

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useFilters } from "@/lib/hooks/useFilters"
 import { useClientAuth } from "@/lib/hooks/useClientSession"
 import { PackFilter } from "@/components/common/PackFilter"
+import { usePackConflicts } from "@/lib/hooks/usePackConflicts"
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter"
 import { DateRangeFilter } from "@/components/common/DateRangeFilter"
 
@@ -45,6 +46,9 @@ export function TopbarFilters() {
   const pendingPackIdsRef = useRef<Set<string>>(new Set(selectedPackIds))
   const packPreferencesRef = useRef(packPreferences)
   const packsRef = useRef(packs)
+
+  // Camada 1 do bloqueio de conflito: grafo cross-silo p/ desabilitar na selecao.
+  const { conflictMap } = usePackConflicts()
   const isDirtyRef = useRef(false) // tracks whether pending differs from committed
 
   useEffect(() => { packPreferencesRef.current = packPreferences }, [packPreferences])
@@ -108,6 +112,7 @@ export function TopbarFilters() {
     <div className="hidden md:flex items-center gap-2">
       <PackFilter
         packs={packs}
+        conflictMap={conflictMap}
         selectedPackIds={pendingPackIds}
         onTogglePack={handleTogglePack}
         onSelectAll={handleSelectAllPacks}
