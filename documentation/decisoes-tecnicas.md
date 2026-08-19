@@ -2466,13 +2466,14 @@ A autorização passa por `resolve_pack_access` e o write desce para service rol
 porque a RLS de `packs` só enxerga o próprio silo e recusaria um editor de pack
 alheio antes de a regra de papel ser consultada.
 
-### Ficou em aberto de propósito
+### Objeção registrada e vencida
 
-`validation_criteria` é chamado de controle de visualização, mas na prática é o
+`validation_criteria` **fica no usuário** — decisão fechada. O argumento contra,
+para não ser reapresentado como novidade: ele é chamado de controle de visualização, mas na prática é o
 **portão de amostra que decide quais anúncios entram no julgamento**: dois membros
 com `impressions >= 3000` e `>= 1` olham o mesmo pack e um vê "sem dados
 suficientes" enquanto o outro vê "esse anúncio é ruim" — divergência de veredito,
-o mesmo mecanismo do leadscore. Não foi movido porque não bloqueia nada (seria
-adição, não remoção) e porque o contra-argumento é legítimo: "quanta evidência eu
-exijo" é tolerância a risco pessoal. Decidir depois de ver o compartilhamento
-rodando.
+o mesmo mecanismo do leadscore. Não foi movido porque a decisão de produto é que "quanta
+evidência eu exijo antes de confiar" é tolerância a risco pessoal, não propriedade
+da campanha. Se a divergência aparecer na prática entre dois membros, reabre-se
+**com evidência** — não por argumento.

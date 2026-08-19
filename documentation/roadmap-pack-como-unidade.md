@@ -517,6 +517,7 @@ saíram do pós-MVP e viraram P3.6. Só o token do convidado ficou para depois.
 | 2026-08-18 | Corte ausente ou divergente → MQL/CPMQL **indisponíveis**, nunca zero | Zero é uma afirmação falsa na direção que não se investiga |
 | 2026-08-18 | Corte é **obrigatório** no último passo da integração de planilha | É o único momento em que a escala do leadscore está à vista |
 | 2026-08-18 | Backfill preserva o valor vigente, mas **default 0 vira NULL** | Zero nunca foi escolha; gravá-lo o transformaria em decisão |
+| 2026-08-18 | `validation_criteria` **fica no usuário** — decisão fechada, não reabrir | É tolerância a risco do analista ("quanta evidência exijo antes de confiar"), não propriedade da campanha. Objeção registrada e vencida: ele também decide *quais* anúncios entram no julgamento, então dois membros com limiares diferentes podem ver vereditos diferentes. Se isso aparecer na prática, reabre-se com evidência — não por argumento |
 | 2026-08-17 | Ordem P1 → P2 → P3 | P1 define o vocabulário; P2 é pré-requisito semântico de P3 |
 | 2026-08-17 | Convidado enxerga **apenas o conteúdo do pack** — inclusive adsets e campanhas | Compartilhou o pack, não a conta |
 | 2026-08-17 | MVP: convite **só para quem já tem conta** no Hookify | Projeto não tem nenhuma infraestrutura de e-mail hoje; convite a não-cadastrado é camada aditiva |
@@ -551,16 +552,6 @@ saíram do pós-MVP e viraram P3.6. Só o token do convidado ficou para depois.
 2. **Onde a escolha de atribuição aparece na UI (P1).** Um seletor? Duas colunas
    distintas? Um rótulo fixo? Depende da nº 1.
 
-3. **`validation_criteria` deveria ser do pack?** (levantada em 2026-08-18, decisão
-   adiada de propósito). Pela régua do P2.1 ele é controle de visualização, mas na
-   prática é o **portão de amostra que decide quais anúncios entram no julgamento**:
-   dois membros com `impressions >= 3000` e `>= 1` olham o mesmo pack e um vê "sem
-   dados suficientes" enquanto o outro vê "esse anúncio é ruim" — divergência de
-   veredito, o mesmo mecanismo do leadscore. Contra-argumento: "quanta evidência eu
-   exijo antes de confiar" é tolerância a risco pessoal. Não bloqueia nada — não
-   existe coluna em `packs`, então seria **adição**, não remoção. Decidir depois de
-   ver o compartilhamento rodando: se dois membros divergirem na prática, a resposta
-   aparece sozinha.
 
 ---
 
