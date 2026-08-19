@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
-from app.core.supabase_client import get_supabase_for_user
+from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.services.token_encryption import encrypt_token, decrypt_token
 from app.services.thumbnail_cache import build_public_storage_url, storage_thumb_exists, DEFAULT_BUCKET
 from app.services.facebook_scopes import CRITICAL_SCOPES
@@ -253,6 +253,47 @@ def update_connection_status(
         .eq("facebook_user_id", facebook_user_id)\
         .execute()
     logger.info(f"Updated connection status to '{status}' for user {user_id[:8]}... facebook_user_id {facebook_user_id[:8]}...")
+
+
+def get_primary_facebook_token_for_silo(
+    owner_id: str,
+) -> Tuple[Optional[str], Optional[float]]:
+    """Token primario ATIVO do DONO indicado, via SERVICE ROLE.
+
+    Existe para operacoes de pack COMPARTILHADO: quem dispara (o ator) pode nem
+    ter conexao Meta, e a RLS de facebook_connections nunca deixaria o JWT dele
+    ler o token do dono — a credencial e SEMPRE a do dono do pack (decisao
+    travada da P3). A autorizacao NAO acontece aqui: quem chama e obrigado a ter
+    passado por assert_pack_role antes, e owner_id deve vir do resolvedor de
+    acesso (nunca do cliente).
+    """
+    if not owner_id:
+        return None, None
+
+    sb = get_supabase_service()
+    res = sb.table("facebook_connections")        .select("access_token,is_primary,expires_at,status")        .eq("user_id", str(owner_id))        .eq("status", "active")        .order("is_primary", desc=True)        .order("created_at", desc=True)        .limit(1)        .execute()
+
+    if not res.data:
+        return None, None
+
+    connection = res.data[0]
+    encrypted_token = connection.get("access_token")
+    if not encrypted_token:
+        return None, None
+
+    expires_at = None
+    expires_at_str = connection.get("expires_at")
+    if expires_at_str:
+        try:
+            if isinstance(expires_at_str, str):
+                dt = datetime.fromisoformat(expires_at_str.replace('Z', '+00:00'))
+                expires_at = dt.timestamp()
+            elif isinstance(expires_at_str, (int, float)):
+                expires_at = float(expires_at_str)
+        except (ValueError, AttributeError) as e:
+            logger.warning(f"Could not parse expires_at: {expires_at_str}, error: {e}")
+
+    return decrypt_token(encrypted_token), expires_at
 
 
 def get_primary_facebook_token_with_status(

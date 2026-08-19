@@ -2063,10 +2063,12 @@ def upsert_pack(
         raise
 
 
-def record_job(user_jwt: str, job_id: str, status: str, user_id: Optional[str], progress: int = 0, message: Optional[str] = None, payload: Optional[Dict[str, Any]] = None, result_count: Optional[int] = None, details: Optional[Dict[str, Any]] = None) -> None:
+def record_job(user_jwt: Optional[str], job_id: str, status: str, user_id: Optional[str], progress: int = 0, message: Optional[str] = None, payload: Optional[Dict[str, Any]] = None, result_count: Optional[int] = None, details: Optional[Dict[str, Any]] = None, *, sb_client: Optional["Client"] = None) -> None:
     if not user_id:
         return
-    sb = get_supabase_for_user(user_jwt)
+    # sb_client (service role) permite gravar job no silo do DONO num disparo de
+    # convidado (P3.3) — o JWT do ator nao passa na RLS do silo alheio.
+    sb = _get_sb(user_jwt, sb_client)
     
     data = {
         "status": status,

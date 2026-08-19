@@ -168,20 +168,27 @@ _PACK_ROW = {
 
 
 class TestRefreshPackGuard409(unittest.TestCase):
-    def _call_refresh(self, sb: _FakeSb, flag_on: bool):
+    def _call_refresh(self, sb: _FakeSb, flag_on: bool, actor_id: str = "user-1", owner_id: str = "user-1"):
         from app.routes.facebook import refresh_pack
         from app.schemas import RefreshPackRequest
+        from app.services.pack_access import PackAccess
 
         request = RefreshPackRequest(until_date="2026-07-18", skip_sheets_sync=True)
-        user = {"token": "jwt", "user_id": "user-1"}
-        api = mock.Mock()
+        user = {"token": "jwt", "user_id": actor_id}
         # Sentinela: se a execução passar do guard, para aqui (start_ads_job).
+        api = mock.Mock()
         api.start_ads_job.side_effect = RuntimeError("passou-do-guard")
+        role = "dono" if actor_id == owner_id else "editor"
 
-        with mock.patch("app.routes.facebook.get_supabase_for_user", return_value=sb), \
+        # P3.3: o endpoint deriva o dono via assert_pack_role, busca pack e job
+        # com SERVICE ROLE e monta o GraphAPI com o token do DONO.
+        with mock.patch("app.routes.facebook.assert_pack_role", return_value=PackAccess(role=role, owner_id=owner_id)), \
+             mock.patch("app.routes.facebook.get_supabase_service", return_value=sb), \
+             mock.patch("app.routes.facebook.get_facebook_token_for_silo", return_value="tok-do-dono"), \
+             mock.patch("app.routes.facebook.GraphAPI", return_value=api), \
              mock.patch("app.routes.facebook.REFRESH_SERVER_CHAIN_ENABLED", flag_on), \
              mock.patch("app.routes.facebook.supabase_repo.update_pack_refresh_status"):
-            return refresh_pack("pack-1", request, api, user)
+            return refresh_pack("pack-1", request, user)
 
     def test_job_ativo_fresco_retorna_409(self) -> None:
         sb = _FakeSb({
@@ -220,6 +227,31 @@ class TestRefreshPackGuard409(unittest.TestCase):
             self._call_refresh(sb, flag_on=False)
         self.assertEqual(ctx.exception.status_code, 500)
         self.assertNotIn("jobs", sb.tables_queried)
+
+    def test_guest_dispara_e_usa_contexto_do_dono(self) -> None:
+        """P3.3: convidado dispara refresh; passa do gate/guard usando o contexto
+        do DONO (token+silo) e para no sentinela do start_ads_job."""
+        sb = _FakeSb({
+            "packs": lambda: _FakeResp([dict(_PACK_ROW)]),
+            "jobs": lambda: _FakeResp([]),
+        })
+        with self.assertRaises(HTTPException) as ctx:
+            self._call_refresh(sb, flag_on=True, actor_id="guest-9", owner_id="user-1")
+        self.assertEqual(ctx.exception.status_code, 500)
+
+    def test_guest_com_planilha_pula_sync(self) -> None:
+        """P3.3: disparo de convidado em pack com integração de planilha NÃO cria
+        sync job (a cadeia depende do JWT do dono) — o refresh Meta segue."""
+        pack = dict(_PACK_ROW)
+        pack["sheet_integration_id"] = "integ-1"
+        sb = _FakeSb({
+            "packs": lambda: _FakeResp([pack]),
+            "jobs": lambda: _FakeResp([]),
+        })
+        with mock.patch("app.services.google_sheet_sync_job.create_sync_job") as create_sync:
+            with self.assertRaises(HTTPException):
+                self._call_refresh(sb, flag_on=True, actor_id="guest-9", owner_id="user-1")
+            create_sync.assert_not_called()
 
 
 if __name__ == "__main__":

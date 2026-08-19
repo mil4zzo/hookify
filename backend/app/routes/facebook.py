@@ -13,9 +13,11 @@ import tempfile
 import os
 from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
-from app.core.supabase_client import get_supabase_for_user
+from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.services.pack_access import assert_pack_role
 from app.services.facebook_token_service import (
     get_facebook_token_for_user, 
+    get_facebook_token_for_silo,
     TokenFetchError,
     invalidate_token_cache
 )
@@ -2995,7 +2997,6 @@ def get_ads_progress(request: AdsRequestFrontend, api: GraphAPI = Depends(get_gr
 def get_job_progress(
     job_id: str,
     background_tasks: BackgroundTasks,
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
     x_supabase_user_id: str | None = Header(default=None, alias="X-Supabase-User-Id")
 ):
@@ -3010,9 +3011,32 @@ def get_job_progress(
     try:
         user_jwt = user["token"]
         user_id = user["user_id"]
-        
-        # Criar tracker para este job
-        tracker = get_job_tracker(user_jwt, user_id)
+
+        # P3.3: o job de refresh vive no silo do DONO do pack — quem faz polling
+        # pode ser um convidado. Localizar o job sem assumir ator == dono; se o
+        # silo for alheio, exigir acesso ao pack do payload (404 sem acesso).
+        _job_rows = (
+            get_supabase_service().table("jobs").select("user_id,payload").eq("id", job_id).limit(1).execute().data
+            or []
+        )
+        silo_user_id = str(_job_rows[0]["user_id"]) if _job_rows else str(user_id)
+        is_guest_poll = silo_user_id != str(user_id)
+        if is_guest_poll:
+            _job_pack_id = (_job_rows[0].get("payload") or {}).get("pack_id")
+            if not _job_pack_id:
+                # Job alheio sem pack associado: invisivel (mesma resposta de inexistente).
+                raise HTTPException(status_code=404, detail="Job não encontrado")
+            assert_pack_role(user_id, str(_job_pack_id), roles=("dono", "editor", "viewer"))
+
+        def _resolve_job_token():
+            # Token do silo do job: o do proprio ator (caminho de sempre) ou o do
+            # dono do pack (service role) — convidado pode nem ter Meta conectada.
+            if is_guest_poll:
+                return get_facebook_token_for_silo(silo_user_id)
+            return get_facebook_token_for_user(user_jwt, user_id)
+
+        # Criar tracker para este job (no silo dele; service role p/ silo alheio)
+        tracker = get_job_tracker(user_jwt, silo_user_id, use_service_role=is_guest_poll)
 
         def _progress_with_bg():
             p = tracker.get_public_progress(job_id)
@@ -3053,12 +3077,12 @@ def get_job_progress(
 
                 logger.warning(f"[JOB_PROGRESS] Lease expirado para job {job_id}, tentando retomar...")
                 # Buscar token do Facebook para reprocessar
-                fb_token = get_facebook_token_for_user(user_jwt, user_id)
+                fb_token = _resolve_job_token()
                 if fb_token and tracker.try_claim_processing(job_id):
                     background_tasks.add_task(
                         process_job_async,
                         user_jwt,
-                        user_id,
+                        silo_user_id,
                         fb_token,
                         job_id,
                         tracker.processing_owner,
@@ -3066,11 +3090,15 @@ def get_job_progress(
             return _progress_with_bg()
         
         # 2) Consultar status na Meta API (rápido, sem paginação)
-        fb_token = get_facebook_token_for_user(user_jwt, user_id)
+        fb_token = _resolve_job_token()
         if not fb_token:
             raise HTTPException(
                 status_code=403,
-                detail="Token do Facebook não encontrado. Conecte sua conta do Facebook."
+                detail=(
+                    "O dono deste pack está sem conexão ativa com o Facebook."
+                    if is_guest_poll
+                    else "Token do Facebook não encontrado. Conecte sua conta do Facebook."
+                ),
             )
         
         meta_client = get_meta_job_client(fb_token)
@@ -3080,7 +3108,10 @@ def get_job_progress(
         if not meta_status.get("success"):
             error_msg = meta_status.get("error", "Erro desconhecido")
             if check_meta_error_for_token_expiry(error_msg):
-                mark_connection_as_expired(user_jwt, user_id)
+                if not is_guest_poll:
+                    mark_connection_as_expired(user_jwt, user_id)
+                else:
+                    logger.warning(f"[JOB_PROGRESS] Token do dono {silo_user_id[:8]} expirado (polling de convidado)")
                 raise HTTPException(
                     status_code=401,
                     detail={
@@ -3127,7 +3158,10 @@ def get_job_progress(
             tracker.mark_failed(job_id, error_msg, details=fail_details)
 
             if check_meta_error_for_token_expiry(error_msg):
-                mark_connection_as_expired(user_jwt, user_id)
+                if not is_guest_poll:
+                    mark_connection_as_expired(user_jwt, user_id)
+                else:
+                    logger.warning(f"[JOB_PROGRESS] Token do dono {silo_user_id[:8]} expirado (polling de convidado)")
                 raise HTTPException(
                     status_code=401,
                     detail={
@@ -3152,7 +3186,7 @@ def get_job_progress(
                 background_tasks.add_task(
                     process_job_async,
                     user_jwt,
-                    user_id,
+                    silo_user_id,
                     fb_token,
                     job_id,
                     tracker.processing_owner,
@@ -3581,7 +3615,6 @@ def exchange_code_for_token(request: FacebookTokenRequest):
 def refresh_pack(
     pack_id: str,
     request: RefreshPackRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Atualiza um pack existente buscando novos dados do Meta.
@@ -3596,14 +3629,38 @@ def refresh_pack(
     try:
         logger.info(f"[REFRESH_PACK] Iniciando refresh do pack {pack_id}")
 
-        # Buscar pack do Supabase para obter dados necessários
-        sb = get_supabase_for_user(user["token"])
-        pack_res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user["user_id"]).limit(1).execute()
+        # P3.3: QUALQUER membro atualiza os dados (decisao travada: "todo membro
+        # pode ler e atualizar"); viewer inclusive. Sem acesso -> 404.
+        access = assert_pack_role(user["user_id"], pack_id, roles=("dono", "editor", "viewer"))
+        owner_id = access.owner_id
+        is_guest_trigger = str(owner_id) != str(user["user_id"])
+
+        # O pack e os dados vivem no silo do DONO — service role, ja autorizado.
+        sb = get_supabase_service()
+        pack_res = sb.table("packs").select("*").eq("id", pack_id).limit(1).execute()
 
         if not pack_res.data or len(pack_res.data) == 0:
             raise HTTPException(status_code=404, detail=f"Pack {pack_id} não encontrado")
 
         pack = pack_res.data[0]
+
+        # Credencial SEMPRE do dono (decisao travada): convidado dispara com o
+        # token de quem compartilhou — pode nem ter Meta conectada.
+        fb_token = get_facebook_token_for_silo(owner_id)
+        if not fb_token:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "owner_facebook_connection_missing" if is_guest_trigger else "facebook_connection_missing",
+                    "message": (
+                        "O dono deste pack está sem conexão ativa com o Facebook."
+                        if is_guest_trigger
+                        else "Nenhuma conexão do Facebook encontrada. Por favor, conecte sua conta do Facebook primeiro."
+                    ),
+                },
+            )
+        # Uso/rate-limit atribuido ao DONO (a quota e dele); o ator vai no payload.
+        api = GraphAPI(fb_token, user_id=owner_id)
 
         # Validar dados necessários
         if not pack.get("adaccount_id"):
@@ -3667,10 +3724,12 @@ def refresh_pack(
         # Gated pela flag para nunca expor 409 a um frontend que não o trata.
         if REFRESH_SERVER_CHAIN_ENABLED:
             active_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+            # Filtrado pelo DONO: o job de refresh vive no silo dele, entao dois
+            # membros (ou membro + dono) disparando juntos veem o MESMO job ativo.
             existing_refresh = (
                 sb.table("jobs")
                 .select("id,status,updated_at")
-                .eq("user_id", user["user_id"])
+                .eq("user_id", owner_id)
                 .contains("payload", {"pack_id": pack_id, "is_refresh": True})
                 .in_("status", ["pending", "running", "meta_running", "meta_completed", "processing", "persisting"])
                 .gte("updated_at", active_cutoff)
@@ -3691,12 +3750,13 @@ def refresh_pack(
                     },
                 )
 
-        # Atualizar status do pack para "running"
+        # Atualizar status do pack para "running" (silo do dono, service role)
         supabase_repo.update_pack_refresh_status(
-            user["token"],
+            None,
             pack_id,
-            user["user_id"],
-            refresh_status="running"
+            owner_id,
+            refresh_status="running",
+            sb_client=sb,
         )
 
         # Converter filtros para formato do GraphAPI (ignorar filtros com campos vazios)
@@ -3714,13 +3774,20 @@ def refresh_pack(
         except GraphAPIError as e:
             logger.error(f"[REFRESH_PACK] GraphAPI returned error: {e.status} - {e.message}")
             supabase_repo.update_pack_refresh_status(
-                user["token"],
+                None,
                 pack_id,
-                user["user_id"],
-                refresh_status="failed"
+                owner_id,
+                refresh_status="failed",
+                sb_client=sb,
             )
             if check_meta_error_for_token_expiry(e.message):
-                mark_connection_as_expired(user["token"], user["user_id"])
+                # Token expirado e o do DONO. Marcar a conexao dele exige o JWT
+                # dele (RLS) — de um disparo de convidado, apenas logamos; o dono
+                # descobre na proxima operacao propria.
+                if not is_guest_trigger:
+                    mark_connection_as_expired(user["token"], user["user_id"])
+                else:
+                    logger.warning(f"[REFRESH_PACK] Token do dono {owner_id[:8]} expirado (disparo de convidado)")
                 raise HTTPException(
                     status_code=401,
                     detail={
@@ -3744,13 +3811,24 @@ def refresh_pack(
             "type": "pack_refresh",
             "auto_refresh": pack.get("auto_refresh", False),
             "is_refresh": True,
+            # Auditoria (decisao travada: registrar o ATOR em toda escrita).
+            # silo_user_id e redundante com jobs.user_id, mas explicita a intencao.
+            "actor_id": str(user["user_id"]),
+            "silo_user_id": str(owner_id),
         }
 
         # Cadeia server-side: gravar a INTENÇÃO no payload — o trigger real fica
         # no JobProcessor, no caminho de sucesso (Meta failed/cancelled nunca
         # dispara sync). Fonte de verdade da integração é o pack, não o request.
         server_chain = False
-        if REFRESH_SERVER_CHAIN_ENABLED and request.chain_sheets_after_meta:
+        if is_guest_trigger and (pack.get("sheet_integration_id") or request.sheet_integration_id):
+            # A cadeia de planilha depende do JWT do dono (Google creds + jobs) e
+            # nao roda num disparo de convidado — o refresh Meta segue; o sync do
+            # Leadscore fica para o dono/auto-refresh. Conversao completa: P3.3b.
+            logger.info(
+                f"[REFRESH_PACK] Pack {pack_id}: sync de planilha PULADO (disparo de convidado; ator {str(user['user_id'])[:8]})"
+            )
+        if REFRESH_SERVER_CHAIN_ENABLED and request.chain_sheets_after_meta and not is_guest_trigger:
             chain_integration_id = pack.get("sheet_integration_id") or request.sheet_integration_id
             if chain_integration_id:
                 payload_data["chain_sheet_sync"] = True
@@ -3766,7 +3844,7 @@ def refresh_pack(
         sync_job_id = None
         sync_details = None
 
-        if sheet_integration_id and not request.skip_sheets_sync:
+        if sheet_integration_id and not request.skip_sheets_sync and not is_guest_trigger:
             try:
                 from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
 
@@ -3809,14 +3887,15 @@ def refresh_pack(
 
         # Registrar job no Supabase (crítico — se falhar, abortar refresh)
         supabase_repo.record_job(
-            user["token"],
+            None,
             str(job_id),
             status="running",
-            user_id=user["user_id"],
+            user_id=owner_id,
             progress=0,
             message="Refresh de pack iniciado",
             payload=payload_data,
-            details=sync_details
+            details=sync_details,
+            sb_client=sb,
         )
 
         logger.info(f"[REFRESH_PACK] ✓ Job {job_id} iniciado para refresh do pack {pack_id}")
@@ -3840,14 +3919,16 @@ def refresh_pack(
         raise
     except Exception as e:
         logger.exception(f"[REFRESH_PACK] Erro ao iniciar refresh do pack {pack_id}: {e}")
-        # Tentar atualizar status para failed em caso de erro
+        # Tentar atualizar status para failed em caso de erro (se ja sabiamos o dono)
         try:
-            supabase_repo.update_pack_refresh_status(
-                user["token"],
-                pack_id,
-                user["user_id"],
-                refresh_status="failed"
-            )
+            if "owner_id" in locals():
+                supabase_repo.update_pack_refresh_status(
+                    None,
+                    pack_id,
+                    owner_id,
+                    refresh_status="failed",
+                    sb_client=get_supabase_service(),
+                )
         except:
             pass
         raise HTTPException(status_code=500, detail=str(e))
