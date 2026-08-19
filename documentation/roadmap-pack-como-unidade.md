@@ -394,6 +394,17 @@ dois silos numa agregação só; sem dupla contagem.
 
 #### Achados de segurança e corretude desta rodada
 
+**Revisão adversarial independente (2026-08-19, subagent):** varreu `ece89c1..HEAD`
+atrás de fail-open de tenancy nos caminhos service-role — **nenhum encontrado**;
+todos os pontos onde a costura falha, falham fechado. 5 achados médios e 6 baixos
+corrigidos no commit `16b63e5` (destaques: DELETE de pack convertia 404/403 do
+gate em 500; coluna MQLs do Manager ainda mostrava 0 com corte indefinido; poll
+de convidado concluindo refresh do dono pulava a cadeia de planilha em silêncio
+— agora pula explícito com rastro `sheet_chain_skipped` no payload). Adiados com
+registro: circuit breaker de token compartilhado dono/convidado (auto-cura 60s),
+guard 409 atrás da flag, re-attach/cancel de job para convidado (P3.3b/P3.7).
+
+
 **Vazamento de dados (migration 106).** `fetch_ad_metrics_for_analytics` era
 `SECURITY DEFINER`, recebia `p_user_id` e estava concedida a `authenticated`
 **sem guard de `auth.uid()`**. Explorado antes de corrigir: um usuário leu 58.001
