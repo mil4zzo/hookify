@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict A7jFY3wzDPstfy94jlrLfRZEdPDyU02PfbruOneoGKM1gGGPB9jRaTM06jW8E1G
+\restrict Gddg7FtbbTD1gbgDaxCO2PBmdS0ZgXlMN5imEp3Pr5sQ7sSFESAWlR638bqDueF
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -43,51 +43,205 @@ CREATE FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uui
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+
+
+
 DECLARE
+
+
+
   updated_count int := 0;
+
+
+
 BEGIN
-  IF p_table_name NOT IN ('ads', 'ad_metrics') THEN
-    RAISE EXCEPTION 'Tabela inválida: %. Use "ads" ou "ad_metrics"', p_table_name;
+  -- Guard de tenancy (migration 113): caller autenticado so opera o PROPRIO
+  -- silo; service role (auth.uid() nulo) passa - e o caminho do backend para
+  -- operacoes de pack compartilhado (P3.3), que ja derivou o dono via
+  -- resolve_pack_access antes de chegar aqui.
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
   END IF;
+
+
+
+
+
+
+
+
+
+
+
+  IF p_table_name NOT IN ('ads', 'ad_metrics') THEN
+
+
+
+    RAISE EXCEPTION 'Tabela inválida: %. Use "ads" ou "ad_metrics"', p_table_name;
+
+
+
+  END IF;
+
+
+
+
+
+
 
   IF p_table_name = 'ads' THEN
+
+
+
     UPDATE public.ads
+
+
+
     SET
+
+
+
       pack_ids = CASE
+
+
+
         WHEN p_pack_id = ANY(COALESCE(pack_ids, ARRAY[]::uuid[])) THEN COALESCE(pack_ids, ARRAY[]::uuid[])
+
+
+
         ELSE array_append(COALESCE(pack_ids, ARRAY[]::uuid[]), p_pack_id)
+
+
+
       END,
+
+
+
       updated_at = now()
+
+
+
     WHERE user_id = p_user_id
+
+
+
       AND ad_id = ANY(p_ids_to_update);
 
+
+
+
+
+
+
     GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+
+
   ELSE
+
+
+
     UPDATE public.ad_metrics
+
+
+
     SET
+
+
+
       pack_ids = CASE
+
+
+
         WHEN p_pack_id = ANY(COALESCE(pack_ids, ARRAY[]::uuid[])) THEN COALESCE(pack_ids, ARRAY[]::uuid[])
+
+
+
         ELSE array_append(COALESCE(pack_ids, ARRAY[]::uuid[]), p_pack_id)
+
+
+
       END,
+
+
+
       updated_at = now()
+
+
+
     WHERE user_id = p_user_id
+
+
+
       AND id = ANY(p_ids_to_update);
 
+
+
+
+
+
+
     GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+
+
   END IF;
 
+
+
+
+
+
+
   RETURN jsonb_build_object(
+
+
+
     'rows_updated', updated_count,
+
+
+
     'status', 'success'
+
+
+
   );
+
+
+
 EXCEPTION
+
+
+
   WHEN OTHERS THEN
+    IF SQLERRM LIKE 'Forbidden: p_user_id%' THEN RAISE; END IF;
+
+
+
     RETURN jsonb_build_object(
+
+
+
       'status', 'error',
+
+
+
       'error_message', SQLERRM,
+
+
+
       'rows_updated', 0
+
+
+
     );
+
+
+
 END;
+
+
+
 $$;
 
 
@@ -108,54 +262,217 @@ CREATE FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_i
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+
+
+
 DECLARE
+
+
+
   updated_count int;
+
+
+
 BEGIN
+  -- Guard de tenancy (migration 113): caller autenticado so opera o PROPRIO
+  -- silo; service role (auth.uid() nulo) passa - e o caminho do backend para
+  -- operacoes de pack compartilhado (P3.3), que ja derivou o dono via
+  -- resolve_pack_access antes de chegar aqui.
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
+  END IF;
+
+
+
+
+
+
+
+
+
+
+
   -- Validar tabela
+
+
+
   IF p_table_name NOT IN ('ads', 'ad_metrics') THEN
+
+
+
     RAISE EXCEPTION 'Tabela inválida: %. Use "ads" ou "ad_metrics"', p_table_name;
+
+
+
   END IF;
+
+
+
   
+
+
+
   -- Atualizar ads
+
+
+
   IF p_table_name = 'ads' THEN
+
+
+
     UPDATE public.ads
+
+
+
     SET 
+
+
+
       pack_ids = array_remove(pack_ids, p_pack_id),
+
+
+
       updated_at = now()
+
+
+
     WHERE 
+
+
+
       user_id = p_user_id
+
+
+
       AND ad_id = ANY(p_ids_to_update)
+
+
+
       AND p_pack_id = ANY(pack_ids);
+
+
+
     
+
+
+
     GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+
+
     
+
+
+
   -- Atualizar ad_metrics
+
+
+
   ELSIF p_table_name = 'ad_metrics' THEN
+
+
+
     UPDATE public.ad_metrics
+
+
+
     SET 
+
+
+
       pack_ids = array_remove(pack_ids, p_pack_id),
+
+
+
       updated_at = now()
+
+
+
     WHERE 
+
+
+
       user_id = p_user_id
+
+
+
       AND id = ANY(p_ids_to_update)
+
+
+
       AND p_pack_id = ANY(pack_ids);
+
+
+
     
+
+
+
     GET DIAGNOSTICS updated_count = ROW_COUNT;
+
+
+
   END IF;
+
+
+
   
+
+
+
   RETURN jsonb_build_object(
+
+
+
     'rows_updated', updated_count,
+
+
+
     'status', 'success'
+
+
+
   );
+
+
+
 EXCEPTION
+
+
+
   WHEN OTHERS THEN
+    IF SQLERRM LIKE 'Forbidden: p_user_id%' THEN RAISE; END IF;
+
+
+
     -- Retornar erro de forma estruturada
+
+
+
     RETURN jsonb_build_object(
+
+
+
       'status', 'error',
+
+
+
       'error_message', SQLERRM,
+
+
+
       'rows_updated', 0
+
+
+
     );
+
+
+
 END;
+
+
+
 $$;
 
 
@@ -177,98 +494,393 @@ CREATE FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_upda
     SET search_path TO 'public'
     SET plan_cache_mode TO 'force_custom_plan'
     AS $$
+
+
+
 DECLARE
+
+
+
   total_rows_updated int := 0;
+
+
+
   total_ids_sent     int := 0;
+
+
+
   existing_count     int := 0;
+
+
+
   in_pack_count      int := 0;
+
+
+
   all_ids            text[];
+
+
+
 BEGIN
+  -- Guard de tenancy (migration 113): caller autenticado so opera o PROPRIO
+  -- silo; service role (auth.uid() nulo) passa - e o caminho do backend para
+  -- operacoes de pack compartilhado (P3.3), que ja derivou o dono via
+  -- resolve_pack_access antes de chegar aqui.
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
+  END IF;
+
+
+
+
+
+
+
+
+
+
+
   SELECT array_agg(id_val)
+
+
+
   INTO all_ids
+
+
+
   FROM jsonb_array_elements(p_updates) AS item,
+
+
+
   LATERAL jsonb_array_elements_text(item->'ids') AS id_val;
+
+
+
+
+
+
 
   total_ids_sent := coalesce(array_length(all_ids, 1), 0);
 
+
+
+
+
+
+
   WITH expanded AS (
+
+
+
     SELECT
+
+
+
       id_val AS id,
+
+
+
       CASE
+
+
+
         WHEN item ? 'leadscore_values'
+
+
+
           AND item->'leadscore_values' IS NOT NULL
+
+
+
           AND item->'leadscore_values' != 'null'::jsonb
+
+
+
           AND jsonb_array_length(item->'leadscore_values') > 0
+
+
+
         THEN ARRAY(
+
+
+
           SELECT v::numeric
+
+
+
           FROM jsonb_array_elements(item->'leadscore_values') AS v
+
+
+
         )
+
+
+
         ELSE NULL
+
+
+
       END AS leadscore_vals
+
+
+
     FROM jsonb_array_elements(p_updates) AS item,
+
+
+
     LATERAL jsonb_array_elements_text(item->'ids') AS id_val
+
+
+
   )
+
+
+
   UPDATE public.ad_metrics am
+
+
+
   SET
+
+
+
     leadscore_values = CASE
+
+
+
       WHEN e.leadscore_vals IS NOT NULL THEN e.leadscore_vals
+
+
+
       ELSE am.leadscore_values
+
+
+
     END,
+
+
+
     updated_at = now()
+
+
+
   FROM expanded e
+
+
+
   WHERE am.id = e.id
+
+
+
     AND am.user_id = p_user_id
+
+
+
     AND (
+
+
+
       p_pack_id IS NULL
+
+
+
       OR EXISTS (
+
+
+
         SELECT 1 FROM public.ad_metric_pack_map apm
+
+
+
         WHERE apm.user_id = am.user_id
+
+
+
           AND apm.ad_id = am.ad_id
+
+
+
           AND apm.metric_date = am.date
+
+
+
           AND apm.pack_id = p_pack_id
+
+
+
       )
+
+
+
     );
+
+
+
+
+
+
 
   GET DIAGNOSTICS total_rows_updated = ROW_COUNT;
 
+
+
+
+
+
+
   IF total_ids_sent > 0 THEN
+
+
+
     SELECT
+
+
+
       count(*)::int,
+
+
+
       count(*) FILTER (
+
+
+
         WHERE p_pack_id IS NULL
+
+
+
           OR EXISTS (
+
+
+
             SELECT 1 FROM public.ad_metric_pack_map apm2
+
+
+
             WHERE apm2.user_id = p_user_id
+
+
+
               AND apm2.ad_id = am_diag.ad_id
+
+
+
               AND apm2.metric_date = am_diag.date
+
+
+
               AND apm2.pack_id = p_pack_id
+
+
+
           )
+
+
+
       )::int
+
+
+
     INTO existing_count, in_pack_count
+
+
+
     FROM public.ad_metrics am_diag
+
+
+
     WHERE user_id = p_user_id AND id = ANY(all_ids);
+
+
+
   END IF;
 
+
+
+
+
+
+
   RETURN jsonb_build_object(
+
+
+
     'total_groups_processed', jsonb_array_length(p_updates),
+
+
+
     'total_rows_updated',     total_rows_updated,
+
+
+
     'total_ids_sent',         total_ids_sent,
+
+
+
     'ids_not_found_count',    greatest(0, total_ids_sent - existing_count),
+
+
+
     'ids_out_of_pack_count',  greatest(0, existing_count - in_pack_count),
+
+
+
     'status',                 'success'
+
+
+
   );
+
+
+
 EXCEPTION
+
+
+
   WHEN OTHERS THEN
+    IF SQLERRM LIKE 'Forbidden: p_user_id%' THEN RAISE; END IF;
+
+
+
     RETURN jsonb_build_object(
+
+
+
       'status',                 'error',
+
+
+
       'error_message',          SQLERRM,
+
+
+
       'total_groups_processed', jsonb_array_length(p_updates),
+
+
+
       'total_rows_updated',     total_rows_updated,
+
+
+
       'total_ids_sent',         total_ids_sent,
+
+
+
       'ids_not_found_count',    0,
+
+
+
       'ids_out_of_pack_count',  0
+
+
+
     );
+
+
+
 END;
+
+
+
 $$;
 
 
@@ -289,38 +901,152 @@ CREATE FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_own
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+
+
+
 DECLARE
+
+
+
   v_status text;
+
+
+
   v_claimed boolean := false;
+
+
+
 BEGIN
+  -- Guard de tenancy (migration 113): caller autenticado so opera o PROPRIO
+  -- silo; service role (auth.uid() nulo) passa - e o caminho do backend para
+  -- operacoes de pack compartilhado (P3.3), que ja derivou o dono via
+  -- resolve_pack_access antes de chegar aqui.
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
+  END IF;
+
+
+
+
+
+
+
+
+
+
+
   UPDATE public.jobs
+
+
+
   SET
+
+
+
     status = CASE WHEN status = 'meta_completed' THEN 'processing' ELSE status END,
+
+
+
     message = CASE WHEN status = 'meta_completed' THEN 'Iniciando coleta de anúncios...' ELSE message END,
+
+
+
     processing_owner = p_owner,
+
+
+
     processing_claimed_at = now(),
+
+
+
     processing_lease_until = now() + make_interval(secs => GREATEST(p_lease_seconds, 30)),
+
+
+
     processing_attempts = COALESCE(processing_attempts, 0) + 1,
+
+
+
     updated_at = now()
+
+
+
   WHERE id = p_job_id
+
+
+
     AND user_id = p_user_id
+
+
+
     AND status IN ('meta_completed', 'processing', 'persisting')
+
+
+
     AND (
+
+
+
       status = 'meta_completed'
+
+
+
       OR processing_lease_until IS NULL
+
+
+
       OR processing_lease_until <= now()
+
+
+
       OR processing_owner = p_owner
+
+
+
     )
+
+
+
   RETURNING status INTO v_status;
+
+
+
+
+
+
 
   v_claimed := FOUND;
 
+
+
+
+
+
+
   RETURN jsonb_build_object(
+
+
+
     'claimed', v_claimed,
+
+
+
     'status', COALESCE(v_status, ''),
+
+
+
     'owner', CASE WHEN v_claimed THEN p_owner ELSE NULL END
+
+
+
   );
+
+
+
 END;
+
+
+
 $$;
 
 
@@ -331,6 +1057,46 @@ ALTER FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owne
 --
 
 COMMENT ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) IS 'Adquire lease de processamento do job de forma atômica. Permite claim inicial e self-healing apenas quando o lease expirou.';
+
+
+--
+-- Name: detect_pack_conflicts(uuid[], uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) RETURNS TABLE(pack_a uuid, pack_b uuid)
+    LANGUAGE sql STABLE SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+  with acc as (
+    select a.pack_id, a.owner_id
+    from public.resolve_pack_access(p_pack_ids, p_actor_id) a
+  )
+  select a.pack_id as pack_a, b.pack_id as pack_b
+  from acc a
+  join acc b
+    on a.owner_id <> b.owner_id      -- so cross-silo; mesmo dono nunca conflita
+   and a.pack_id < b.pack_id         -- cada par nao-ordenado uma vez
+  where exists (
+    select 1
+    from public.ad_metric_pack_map ma
+    join public.ad_metric_pack_map mb
+      on mb.user_id = b.owner_id
+     and mb.pack_id = b.pack_id
+     and mb.metric_date = ma.metric_date
+     and mb.ad_id = ma.ad_id
+    where ma.user_id = a.owner_id
+      and ma.pack_id = a.pack_id
+  );
+$$;
+
+
+ALTER FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) OWNER TO postgres;
+
+--
+-- Name: FUNCTION detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) IS 'Pares de packs ACESSIVEIS ao ator (proprios ou compartilhados) que compartilham ao menos um (ad_id, metric_date) entre DONOS diferentes. Alimenta o bloqueio de selecao (camada 1). Mesmo dono nunca conflita. Helper interno — nao exposto ao PostgREST.';
 
 
 --
@@ -3414,25 +4180,100 @@ CREATE FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id uui
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+
+
+
 DECLARE
+
+
+
   v_released boolean := false;
+
+
+
 BEGIN
+  -- Guard de tenancy (migration 113): caller autenticado so opera o PROPRIO
+  -- silo; service role (auth.uid() nulo) passa - e o caminho do backend para
+  -- operacoes de pack compartilhado (P3.3), que ja derivou o dono via
+  -- resolve_pack_access antes de chegar aqui.
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
+  END IF;
+
+
+
+
+
+
+
+
+
+
+
   UPDATE public.jobs
+
+
+
   SET
+
+
+
     processing_owner = NULL,
+
+
+
     processing_claimed_at = NULL,
+
+
+
     processing_lease_until = NULL,
+
+
+
     updated_at = now()
+
+
+
   WHERE id = p_job_id
+
+
+
     AND user_id = p_user_id
+
+
+
     AND processing_owner = p_owner;
+
+
+
+
+
+
 
   v_released := FOUND;
 
+
+
+
+
+
+
   RETURN jsonb_build_object(
+
+
+
     'released', v_released
+
+
+
   );
+
+
+
 END;
+
+
+
 $$;
 
 
@@ -3453,24 +4294,96 @@ CREATE FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid,
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
     AS $$
+
+
+
 DECLARE
+
+
+
   v_renewed boolean := false;
+
+
+
 BEGIN
+  -- Guard de tenancy (migration 113): caller autenticado so opera o PROPRIO
+  -- silo; service role (auth.uid() nulo) passa - e o caminho do backend para
+  -- operacoes de pack compartilhado (P3.3), que ja derivou o dono via
+  -- resolve_pack_access antes de chegar aqui.
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
+  END IF;
+
+
+
+
+
+
+
+
+
+
+
   UPDATE public.jobs
+
+
+
   SET
+
+
+
     processing_lease_until = now() + make_interval(secs => GREATEST(p_lease_seconds, 30)),
+
+
+
     updated_at = now()
+
+
+
   WHERE id = p_job_id
+
+
+
     AND user_id = p_user_id
+
+
+
     AND processing_owner = p_owner
+
+
+
     AND status IN ('processing', 'persisting');
+
+
+
+
+
+
 
   v_renewed := FOUND;
 
+
+
+
+
+
+
   RETURN jsonb_build_object(
+
+
+
     'renewed', v_renewed
+
+
+
   );
+
+
+
 END;
+
+
+
 $$;
 
 
@@ -5470,6 +6383,7 @@ GRANT USAGE ON SCHEMA public TO service_role;
 -- Name: FUNCTION batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]); Type: ACL; Schema: public; Owner: postgres
 --
 
+REVOKE ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO authenticated;
 GRANT ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO service_role;
 
@@ -5478,6 +6392,7 @@ GRANT ALL ON FUNCTION public.batch_add_pack_id_to_arrays(p_user_id uuid, p_pack_
 -- Name: FUNCTION batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]); Type: ACL; Schema: public; Owner: postgres
 --
 
+REVOKE ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO authenticated;
 GRANT ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_pack_id uuid, p_table_name text, p_ids_to_update text[]) TO service_role;
 
@@ -5486,6 +6401,7 @@ GRANT ALL ON FUNCTION public.batch_remove_pack_id_from_arrays(p_user_id uuid, p_
 -- Name: FUNCTION batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid); Type: ACL; Schema: public; Owner: postgres
 --
 
+REVOKE ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid) TO authenticated;
 GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_updates jsonb, p_pack_id uuid) TO service_role;
 
@@ -5494,8 +6410,17 @@ GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, 
 -- Name: FUNCTION claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer); Type: ACL; Schema: public; Owner: postgres
 --
 
+REVOKE ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO authenticated;
 GRANT ALL ON FUNCTION public.claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO service_role;
+
+
+--
+-- Name: FUNCTION detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) FROM PUBLIC;
+GRANT ALL ON FUNCTION public.detect_pack_conflicts(p_pack_ids uuid[], p_actor_id uuid) TO service_role;
 
 
 --
@@ -5553,7 +6478,7 @@ GRANT ALL ON FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_
 -- Name: FUNCTION get_admin_users_list(); Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.get_admin_users_list() TO authenticated;
+REVOKE ALL ON FUNCTION public.get_admin_users_list() FROM PUBLIC;
 GRANT ALL ON FUNCTION public.get_admin_users_list() TO service_role;
 
 
@@ -5585,6 +6510,7 @@ GRANT ALL ON FUNCTION public.lookup_users_by_ids(p_user_ids uuid[]) TO service_r
 -- Name: FUNCTION release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text); Type: ACL; Schema: public; Owner: postgres
 --
 
+REVOKE ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text) TO authenticated;
 GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text) TO service_role;
 
@@ -5593,6 +6519,7 @@ GRANT ALL ON FUNCTION public.release_job_processing_lease(p_job_id text, p_user_
 -- Name: FUNCTION renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer); Type: ACL; Schema: public; Owner: postgres
 --
 
+REVOKE ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO authenticated;
 GRANT ALL ON FUNCTION public.renew_job_processing_lease(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer) TO service_role;
 
@@ -5856,5 +6783,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict A7jFY3wzDPstfy94jlrLfRZEdPDyU02PfbruOneoGKM1gGGPB9jRaTM06jW8E1G
+\unrestrict Gddg7FtbbTD1gbgDaxCO2PBmdS0ZgXlMN5imEp3Pr5sQ7sSFESAWlR638bqDueF
 

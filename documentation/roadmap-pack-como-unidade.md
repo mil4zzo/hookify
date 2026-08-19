@@ -396,6 +396,20 @@ dois silos numa agregação só; sem dupla contagem.
 
 #### Achados de segurança e corretude desta rodada
 
+**Revisão manual pós-P3.7/P3.3b (2026-08-19):** achado **ALTO** de tenancy que a
+revisão anterior não cobriu (era escopo de RPC, não dos commits revisados): seis
+funções `SECURITY DEFINER` de **escrita** com `p_user_id` (batch_update_ad_metrics_enrichment,
+batch_add/remove_pack_id_from_arrays, claim/renew/release_job_processing) estavam
+executáveis por `authenticated`/`anon` **sem guard** — um portador da publishable
+key podia, via PostgREST direto, corromper o `leadscore_values` (o MQL) de qualquer
+silo ou roubar leases de jobs alheios. E `get_admin_users_list` vazava e-mail+tier
+de todos. **Migration 113**: guard `auth.uid() IS NULL OR = p_user_id` no corpo
+(service role passa; forja bloqueada), REVOKE de anon, admin-list só service role.
+Sutileza: `batch_update_ad_metrics_enrichment` tem `EXCEPTION WHEN OTHERS` que
+engolia o RAISE do guard e devolvia `status=error` sem barrar — o handler re-lança
+a violação. Verificado 5/5 ao vivo (forja bloqueada nas duas famílias, próprio
+silo e service role passam, admin-list negada a authenticated).
+
 **Revisão adversarial independente (2026-08-19, subagent):** varreu `ece89c1..HEAD`
 atrás de fail-open de tenancy nos caminhos service-role — **nenhum encontrado**;
 todos os pontos onde a costura falha, falham fechado. 5 achados médios e 6 baixos
