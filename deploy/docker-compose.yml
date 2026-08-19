@@ -1,3 +1,7 @@
+# Nome do projeto Compose. Sem isto, o Compose deriva o nome do diretório
+# ("deploy") — é assim que a aplicação aparece no painel Docker da Hostinger.
+name: hookify
+
 services:
   backend:
     build:
