@@ -10,11 +10,20 @@ COMPOSE_PATH="$DEPLOY_DIR/docker-compose.yml"
 SERVICE_BACKEND="backend"
 SERVICE_FRONTEND="frontend"
 
-# Health checks locais
-BACKEND_HEALTH_URL="http://localhost:8000/health"
-FRONTEND_URL="http://localhost:3000"
+# Health checks
+# Os containers NAO publicam portas no host: existem so na hookify-network e sao
+# roteados pelo Traefik. Por isso "http://localhost:8000" no host nunca respondeu
+# — o check antigo era falso negativo garantido. Ver health_checks() abaixo.
+BACKEND_PUBLIC_HEALTH_URL="https://api.hookifyads.com/health"
+FRONTEND_PUBLIC_URL="https://hookifyads.com"
 
-# Requer pelo menos 5GB livres
+# Vira true se qualquer check interno reprovar. Consumido por final_report().
+HEALTH_FAILED=false
+
+# Requer pelo menos 5GB livres.
+# Com o build antes do down, as imagens antigas continuam referenciadas pelos
+# containers em execucao enquanto as novas sao construidas — o pico de disco e
+# mais alto do que era. ~900MB a mais, folgado dentro dos 5GB.
 REQUIRED_SPACE_KB=5242880
 
 # Política de cache do BuildKit
@@ -238,32 +247,156 @@ wait_running() {
   exit 1
 }
 
+http_code() {
+  # Ecoa so o status HTTP. Nunca falha (000 = sem resposta) para nao abortar
+  # o script sob `set -e` enquanto ainda estamos em retry.
+  #
+  # ATENCAO ao `||`: quando o curl nao conecta ele JA imprime "000" via -w e
+  # ainda sai com codigo != 0. Um `|| echo "000"` concatena um segundo "000" e
+  # o resultado vira "000000" — era exatamente isso que aparecia no log antigo
+  # como "❌ Backend falhou (HTTP 000000)". Por isso capturamos primeiro e so
+  # completamos se veio vazio.
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$1" 2>/dev/null)" || true
+  if [ -n "$code" ]; then
+    echo "$code"
+  else
+    echo "000"
+  fi
+}
+
+container_ip() {
+  docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$1" 2>/dev/null || true
+}
+
+# Backend: usa o veredito do HEALTHCHECK nativo (definido no Dockerfile.backend,
+# que faz a chamada de DENTRO do container). E a fonte mais fiel — nao depende
+# de porta publicada, de rede nem de DNS.
+check_backend() {
+  echo "Backend (HEALTHCHECK do Docker):"
+  local cid i=0 max=60
+  local st="" ip="" code=""
+  cid="$(compose ps -q "$SERVICE_BACKEND" 2>/dev/null || true)"
+
+  if [ -z "$cid" ]; then
+    echo "❌ Backend: container nao encontrado."
+    HEALTH_FAILED=true
+    return 0
+  fi
+
+  while [ $i -lt $max ]; do
+    st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo "unknown")"
+    case "$st" in
+      healthy)
+        echo "✅ Backend healthy"
+        return 0
+        ;;
+      unhealthy)
+        echo "❌ Backend unhealthy"
+        compose logs --tail=200 "$SERVICE_BACKEND" || true
+        HEALTH_FAILED=true
+        return 0
+        ;;
+      none|unknown)
+        # Sem HEALTHCHECK na imagem: cai para checagem pelo IP do container.
+        ip="$(container_ip "$cid")"
+        code="$(http_code "http://${ip}:8000/health")"
+        if [ "$code" = "200" ]; then
+          echo "✅ Backend OK (HTTP 200 em http://${ip}:8000/health)"
+        else
+          echo "❌ Backend falhou (HTTP $code em http://${ip}:8000/health)"
+          compose logs --tail=200 "$SERVICE_BACKEND" || true
+          HEALTH_FAILED=true
+        fi
+        return 0
+        ;;
+    esac
+    i=$((i+1))
+    echo "⏳ ($i/$max) backend=$st"
+    sleep 2
+  done
+
+  echo "❌ Backend nao ficou healthy em $((max*2))s (ultimo estado: $st)"
+  compose logs --tail=200 "$SERVICE_BACKEND" || true
+  HEALTH_FAILED=true
+}
+
+# Frontend: nao tem HEALTHCHECK na imagem, entao vamos pelo IP do container na
+# rede — o host alcanca o IP do container direto, mesmo sem porta publicada.
+check_frontend() {
+  echo ""
+  echo "Frontend (IP na rede do compose):"
+  local cid i=0 max=30
+  local ip="" code=""
+  cid="$(compose ps -q "$SERVICE_FRONTEND" 2>/dev/null || true)"
+
+  if [ -z "$cid" ]; then
+    echo "❌ Frontend: container nao encontrado."
+    HEALTH_FAILED=true
+    return 0
+  fi
+
+  ip="$(container_ip "$cid")"
+  if [ -z "$ip" ]; then
+    echo "❌ Frontend: container sem IP na rede."
+    HEALTH_FAILED=true
+    return 0
+  fi
+
+  while [ $i -lt $max ]; do
+    code="$(http_code "http://${ip}:3000")"
+    case "$code" in
+      200|307|308|404)
+        echo "✅ Frontend respondendo (HTTP $code em http://${ip}:3000)"
+        return 0
+        ;;
+    esac
+    i=$((i+1))
+    echo "⏳ ($i/$max) frontend=HTTP $code"
+    sleep 2
+  done
+
+  echo "❌ Frontend falhou (ultimo HTTP $code em http://${ip}:3000)"
+  compose logs --tail=200 "$SERVICE_FRONTEND" || true
+  HEALTH_FAILED=true
+}
+
+# Ponta a ponta, atravessando Traefik + DNS + Cloudflare. E o que o usuario ve,
+# mas depende de infra FORA deste deploy — por isso e AVISO, nunca reprovacao:
+# um soluco de DNS/CF nao deve marcar como falho um deploy que esta de pe.
+# Tem retry porque o Traefik leva alguns segundos para registrar o container novo.
+check_public() {
+  echo ""
+  echo "Publico (Traefik/DNS/Cloudflare) — informativo, nao reprova o deploy:"
+  local i=0 max=15
+  local bc="000" fc="000"
+
+  while [ $i -lt $max ]; do
+    bc="$(http_code "$BACKEND_PUBLIC_HEALTH_URL")"
+    [ "$bc" = "200" ] && break
+    i=$((i+1))
+    sleep 2
+  done
+
+  fc="$(http_code "$FRONTEND_PUBLIC_URL")"
+
+  if [ "$bc" = "200" ]; then
+    echo "✅ $BACKEND_PUBLIC_HEALTH_URL (HTTP $bc)"
+  else
+    echo "⚠️  $BACKEND_PUBLIC_HEALTH_URL (HTTP $bc) — cheque Traefik/DNS"
+  fi
+
+  case "$fc" in
+    200|307|308) echo "✅ $FRONTEND_PUBLIC_URL (HTTP $fc)" ;;
+    *)           echo "⚠️  $FRONTEND_PUBLIC_URL (HTTP $fc) — cheque Traefik/DNS" ;;
+  esac
+}
+
 health_checks() {
   echo "🔍 Health checks..."
-
-  echo "Backend (/health, 8000):"
-  local b_code
-  b_code="$(curl -s -o /dev/null -w "%{http_code}" "$BACKEND_HEALTH_URL" || echo "000")"
-  if [ "$b_code" = "200" ]; then
-    echo "✅ Backend OK (HTTP 200)"
-  else
-    echo "❌ Backend falhou (HTTP $b_code)"
-    echo "📝 Logs backend:"
-    compose logs --tail=200 "$SERVICE_BACKEND" || true
-  fi
-
-  echo ""
-  echo "Frontend (3000):"
-  local f_code
-  f_code="$(curl -s -o /dev/null -w "%{http_code}" "$FRONTEND_URL" || echo "000")"
-  if [ "$f_code" = "200" ] || [ "$f_code" = "404" ]; then
-    echo "✅ Frontend respondendo (HTTP $f_code)"
-  else
-    echo "❌ Frontend falhou (HTTP $f_code)"
-    echo "📝 Logs frontend:"
-    compose logs --tail=200 "$SERVICE_FRONTEND" || true
-  fi
-
+  check_backend
+  check_frontend
+  check_public
   echo ""
 }
 
@@ -277,20 +410,44 @@ final_report() {
   echo "💾 Disco:"
   df -h / || true
   echo ""
+  echo "📌 Commit em producao: $(cd "$PROJECT_DIR" && git log --oneline -1 2>/dev/null || echo "desconhecido")"
+  echo ""
+
+  # Um check que nao tem consequencia nao e um check. Antes daqui o script
+  # imprimia "✅ Deploy finalizado!" mesmo com os health checks reprovando —
+  # um deploy quebrado aparecia como verde.
+  if [ "$HEALTH_FAILED" = true ]; then
+    echo "❌ Deploy CONCLUIDO COM FALHA nos health checks — a aplicacao pode estar fora do ar."
+    echo "   Logs:     cd $DEPLOY_DIR && $COMPOSE_BIN -f docker-compose.yml logs -f"
+    exit 1
+  fi
+
   echo "✅ Deploy finalizado! https://hookifyads.com"
 }
 
 trap unset_sensitive_env EXIT
 
 # Pipeline
+#
+# ORDEM IMPORTA: build ANTES do stop_stack. O `docker compose build` nao toca
+# nos containers em execucao, entao a producao segue no ar durante o build
+# inteiro (que e a parte lenta — o `npm run build` do frontend leva minutos).
+# Se o build falhar, `set -e` aborta AQUI e a versao antiga continua servindo:
+# a indisponibilidade fica restrita ao recreate, e um build quebrado deixa de
+# derrubar o site. Antes era o contrario — o down vinha primeiro e qualquer
+# erro de compilacao virava outage.
+#
+# post_build_cleanup vem DEPOIS do wait_running de proposito: so entao a imagem
+# antiga deixa de ter container apontando para ela e o `image prune` a recolhe —
+# e o prune nao concorre por I/O durante a subida dos containers.
 check_disk_space
 git_pull
 load_env_minimal
 pre_clean_if_requested
-stop_stack
 build_images
-post_build_cleanup
+stop_stack
 start_stack
 wait_running
+post_build_cleanup
 health_checks
 final_report
