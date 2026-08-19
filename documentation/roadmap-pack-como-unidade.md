@@ -9,10 +9,10 @@
 > P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
 > **Próximo passo:** **deploy em andamento** (o banco está 10 migrations à frente
 > do código; a `111` só depois dele e depois de passada a janela de rollback).
-> Na sequência: P3.4 (app utilizável sem Facebook conectado) e P3.7 (UI de
-> convite/badge — o que finalmente expõe tudo); P3.3b (status-sync, transcribe,
-> planilha p/ convidado, writes de entidade) pode vir junto ou depois.
-> (Drill multi-dono, P3.6-banco, bloqueio de conflito e P3.3a-refresh prontos.)
+> Na sequência: **P3.7 (UI de convite/badge — o que finalmente expõe tudo)**;
+> P3.3b (status-sync, transcribe, planilha p/ convidado, writes de entidade) e
+> P3.5 (log de ações) podem vir junto ou depois.
+> (Drill, P3.6-banco, bloqueio de conflito, P3.3a-refresh e P3.4-núcleo prontos.)
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
@@ -436,7 +436,7 @@ propósito — era código morto e saiu.
 | P3.2c | Bloqueio de conflito cross-silo — as 3 camadas | `Concluído` — 2026-08-19. **1 Prevenir:** `detect_pack_conflicts` (migration 112; só cross-silo, acesso via `resolve_pack_access`, EXISTS com dono amarrado — pior caso 41k×40k sem match ~218ms frio) + `GET /pack-shares/conflicts` + `usePackConflicts` (grafo cacheado 5min) + `PackFilter` desabilita com hint. **2 Sinal:** o `overlap` da migration 105 agora atravessa `_normalize_rankings_rpc_response` (a whitelist o engolia — o sinal nunca tinha chegado ao frontend). **3 Explicar:** `PackConflictGuard` embrulha Manager, Insights e Plano; par conflitante na seleção → bloqueio com "Desmarcar «X»" por pack; no Manager o sinal do servidor cobre grafo defasado. Mesmo dono NUNCA conflita (testado contra o par real de 5639 linhas) |
 | P3.3a | Refresh de pack compartilhado fim-a-fim com credencial do DONO | `Concluído` — 2026-08-19. `get_facebook_token_for_silo` (service role + mesmo cache/circuit breaker). Gate: **qualquer membro** atualiza (decisão travada). **O job vive no silo do DONO** — o guard 409 filtrado pelo dono passa a cobrir cross-user de graça, e o polling resolve silo+token PELO JOB (ator pode nem ter Meta; a dependency `get_graph_api` do polling era morta e barrava convidado antes do corpo). Uso Meta atribuído ao dono; `actor_id` no payload. Token do dono expirado num disparo de convidado: loga, não marca (marcar exige o JWT do dono) |
 | P3.3b | Restante da credencial por pack | `Não iniciado`: cadeia/sync de planilha p/ disparo de convidado (hoje PULA com log — Meta refresh roda, Leadscore fica p/ dono/auto), `packs/status-sync`, `transcribe` (dono\|editor — custa AssemblyAI), sync avulso de planilha, e writes de entidade (status/budget/batch — exigem resolução entidade→silo+grant; gate junto, regra da P3.6) |
-| P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Não iniciado` |
+| P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Concluído (núcleo)` — 2026-08-19. A investigação encolheu o item: a superfície de boot JÁ era tolerante (adaccounts/connections são Supabase-backed e voltam vazios; auto-sync engole erro de FB de propósito; nenhum gate de conexão no AppLayout). O único bloqueio duro era o **onboarding**: sem conexão não existia botão de continuar, e o gate devolvia o usuário para lá em loop — FacebookStep ganhou "Pular por enquanto" com microcopy explicando packs compartilhados. `/onboarding/complete` nunca exigiu FB no backend. **Restante (com a P3.7):** polir /upload sem conexão (CTA no lugar de seletores vazios) e revisar o widget de moeda com 0 contas |
 | P3.5 | Log de ações (ator, alvo, ação) + retenção de 365 dias | `Não iniciado` |
 | P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Concluído p/ escritas puras de banco` — 2026-08-19. Guard central em `app/services/pack_access.py` (`assert_pack_role` → `(role, owner_id)`; sem acesso → 404, papel insuficiente → 403). Gateados: judgment e auto-refresh (`dono\|editor`, write via service role); name e DELETE do pack (`dono` apenas — nome é IDENTIDADE, não conteúdo: renomear muda como o time inteiro encontra o pack, mesma classe de compartilhar/apagar). **Regra para o restante:** os endpoints presos a credencial externa (refresh-pack, packs/status-sync, transcribe, sync de planilha, status/budget de ad/adset/campanha, bulk) ganham o gate NA CONVERSÃO da P3.3 — gatear antes criaria endpoints que autorizam e falham no meio; hoje todos falham fechado (RLS não encontra pack/ad alheio) |
 | P3.7 | UI: convite, badge de pack compartilhado, aviso de refresh em andamento | `Não iniciado` |

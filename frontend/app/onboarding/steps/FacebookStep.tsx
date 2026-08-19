@@ -111,14 +111,32 @@ export function FacebookStep(props: { onContinue: () => void; onBack: () => void
           </Button>
         </div>
 
+        {/* P3.4: o Facebook NÃO é obrigatório para usar o app. Um convidado
+            (copywriter/editor de vídeo) recebe packs compartilhados e analisa
+            sem nunca conectar a Meta — este passo era o único ponto do produto
+            sem saída para ele: sem conexão não havia botão de continuar, e o
+            gate de onboarding devolvia o usuário para cá em loop. */}
+        {!hasActiveConnection && (
+          <p className="text-2xs text-muted-foreground">
+            Não anuncia por esta conta? Você pode pular: dá para receber packs
+            compartilhados por outras contas e conectar o Facebook depois, em
+            Configurações.
+          </p>
+        )}
+
         <div className="flex justify-between">
           <Button variant="outline" onClick={props.onBack}>
             <IconChevronLeft className="w-4 h-4 mr-1" />
             Voltar
           </Button>
-          {hasActiveConnection && (
+          {hasActiveConnection ? (
             <Button variant="default" className="flex items-center gap-1" onClick={props.onContinue}>
               <span>Continuar</span>
+              <IconChevronRight className="w-4 h-4" />
+            </Button>
+          ) : (
+            <Button variant="ghost" className="flex items-center gap-1 text-muted-foreground" onClick={props.onContinue}>
+              <span>Pular por enquanto</span>
               <IconChevronRight className="w-4 h-4" />
             </Button>
           )}
