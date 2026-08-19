@@ -37,7 +37,7 @@ Usage: ./deploy.sh [--no-cache] [--skip-pull] [--pre-clean]
 EOF
 }
 
-for arg in "${@:-}"; do
+for arg in "$@"; do
   case "$arg" in
     --no-cache) USE_CACHE=false ;;
     --skip-pull) DO_PULL=false ;;

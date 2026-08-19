@@ -15,7 +15,7 @@ Usage: ./cleanup.sh [--safe] [--aggressive] [--dangerous-volumes]
 EOF
 }
 
-for arg in "${@:-}"; do
+for arg in "$@"; do
   case "$arg" in
     --safe) MODE_SAFE=true ;;
     --aggressive) MODE_AGGRESSIVE=true ;;
