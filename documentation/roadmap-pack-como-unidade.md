@@ -7,10 +7,10 @@
 >
 > **Concluído:** P2 · **P2.1 (julgamento inerente ao pack — revoga a herança do P2)** ·
 > P3.1 · P3.2 (RPCs multi-dono + sinal de conflito).
-> **Próximo passo:** **deploy** (o banco está 10 migrations à frente do código em
-> produção, e a 111 — que dropa as colunas — só pode ser aplicada DEPOIS dele);
-> então camadas 1 e 3 do bloqueio de conflito, e os 8 endpoints de drill em
-> `analytics.py`, que ainda filtram `user_id = me` no Python.
+> **Próximo passo:** **deploy em andamento** (o banco está 10 migrations à frente
+> do código; a `111` só depois dele e depois de passada a janela de rollback).
+> Na sequência: P3.6 nos demais endpoints de escrita, os 8 endpoints de drill,
+> e as camadas 1 e 3 do bloqueio de conflito.
 > Nenhuma decisão em aberto bloqueia o P3 — as pendências são todas do P1, adiado.
 
 ---
@@ -145,7 +145,12 @@ cruzamento não existe. Se um dia for preciso, é essa a estrutura.
 
 ## P2 — Configuração de julgamento por pack
 
-**Status:** `Concluído` — 2026-08-17 (migration `101_pack_judgment_config.sql` aplicada no banco remoto)
+**Status:** `Concluído` — 2026-08-17 (migration `101_pack_judgment_config.sql`)
+> **⚠ Leia o P2.1 antes desta seção.** A herança descrita abaixo foi **revogada**
+> em 2026-08-18. O que continua valendo: os campos existirem no pack, a regra de
+> conflito em seleção múltipla e a limpeza da cadeia morta. O que **não** vale
+> mais: `user_preferences` como padrão, os toggles de herança no dialog, e o
+> "onde a edição vai parar" — hoje a edição vai sempre para o pack.
 
 Mover a configuração de julgamento de `user_preferences` para o pack, com
 **herança e override**: o `user_preferences` continua sendo o padrão, o pack pode
@@ -424,11 +429,11 @@ propósito — era código morto e saiu.
 |---|---|---|
 | P2.1 | Julgamento inerente ao pack (revoga a herança) | `Concluído` — 2026-08-18 (migration 110; DROPs na 111, pós-deploy) |
 | P3.1 | Tabela de grants (`pack_shares`) + resolvedor de dono | `Concluído` — 2026-08-18 |
-| P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Concluído` — 2026-08-18 (migrations 104–109); faltam os 8 endpoints de drill em `analytics.py` |
+| P3.2 | Guard das RPCs derivando dono de `p_pack_ids` + dedup cross-silo | `Concluído` — 2026-08-18 (migrations 104–109). **Pendência com assimetria nova:** os 8 endpoints de drill ainda filtram `user_id = ator` em `ad_metrics`, mas desde a 110 o *corte* deles resolve via `resolve_pack_access`. Num pack compartilhado eles acertariam o critério e não achariam linha nenhuma |
 | P3.3 | Credencial por pack (FB e Google do dono) + ator em `meta_api_usage` | `Não iniciado` |
 | P3.4 | Usuário convidado: app utilizável sem Facebook conectado | `Não iniciado` |
 | P3.5 | Log de ações (ator, alvo, ação) + retenção de 365 dias | `Não iniciado` |
-| P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Não iniciado` |
+| P3.6 | Cargos `dono`/`editor`/`viewer` aplicados: só o dono compartilha, `viewer` não escreve | `Parcial` — 2026-08-18: `PATCH /packs/{id}/judgment` já exige `dono`\|`editor` via `_assert_pack_writable` (viewer → 403). É o molde para os demais endpoints de escrita |
 | P3.7 | UI: convite, badge de pack compartilhado, aviso de refresh em andamento | `Não iniciado` |
 | P3.8 | *(pós-MVP)* Token do convidado quando ele tem acesso próprio à conta | `Não iniciado` |
 
