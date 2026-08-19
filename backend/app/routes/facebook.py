@@ -3088,7 +3088,6 @@ def get_job_progress(
                         fb_token,
                         job_id,
                         tracker.processing_owner,
-                        not is_guest_poll,  # cadeia de planilha exige o contexto do dono
                     )
             return _progress_with_bg()
         
@@ -3193,7 +3192,6 @@ def get_job_progress(
                     fb_token,
                     job_id,
                     tracker.processing_owner,
-                    not is_guest_poll,  # cadeia de planilha exige o contexto do dono
                 )
                 logger.info(f"[JOB_PROGRESS] Processamento em background iniciado para job {job_id}")
             
@@ -3825,14 +3823,7 @@ def refresh_pack(
         # no JobProcessor, no caminho de sucesso (Meta failed/cancelled nunca
         # dispara sync). Fonte de verdade da integração é o pack, não o request.
         server_chain = False
-        if is_guest_trigger and (pack.get("sheet_integration_id") or request.sheet_integration_id):
-            # A cadeia de planilha depende do JWT do dono (Google creds + jobs) e
-            # nao roda num disparo de convidado — o refresh Meta segue; o sync do
-            # Leadscore fica para o dono/auto-refresh. Conversao completa: P3.3b.
-            logger.info(
-                f"[REFRESH_PACK] Pack {pack_id}: sync de planilha PULADO (disparo de convidado; ator {str(user['user_id'])[:8]})"
-            )
-        if REFRESH_SERVER_CHAIN_ENABLED and request.chain_sheets_after_meta and not is_guest_trigger:
+        if REFRESH_SERVER_CHAIN_ENABLED and request.chain_sheets_after_meta:
             chain_integration_id = pack.get("sheet_integration_id") or request.sheet_integration_id
             if chain_integration_id:
                 payload_data["chain_sheet_sync"] = True
@@ -3848,15 +3839,18 @@ def refresh_pack(
         sync_job_id = None
         sync_details = None
 
-        if sheet_integration_id and not request.skip_sheets_sync and not is_guest_trigger:
+        if sheet_integration_id and not request.skip_sheets_sync:
             try:
                 from app.services.google_sheet_sync_job import create_sync_job, process_sync_job
 
                 logger.info(f"[REFRESH_PACK] Pack {pack_id} tem integração Sheets ({sheet_integration_id}). Criando job paralelo...")
 
+                # Contexto do DONO: silo dele; jwt None (service role) quando o
+                # disparo e de convidado — a credencial Google e SEMPRE a do dono.
+                sync_jwt = None if is_guest_trigger else user["token"]
                 sync_job_id = create_sync_job(
-                    user_jwt=user["token"],
-                    user_id=user["user_id"],
+                    user_jwt=sync_jwt,
+                    user_id=owner_id,
                     integration_id=sheet_integration_id,
                 )
 
@@ -3872,8 +3866,8 @@ def refresh_pack(
                     try:
                         logger.info(f"[REFRESH_PACK] Iniciando processamento do sync job {sync_job_id} em thread separada")
                         process_sync_job(
-                            user_jwt=user["token"],
-                            user_id=user["user_id"],
+                            user_jwt=sync_jwt,
+                            user_id=owner_id,
                             job_id=sync_job_id,
                             integration_id=sheet_integration_id,
                         )

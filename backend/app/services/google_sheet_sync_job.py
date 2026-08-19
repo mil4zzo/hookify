@@ -44,12 +44,12 @@ def _check_if_cancelled(tracker: JobTracker, job_id: str) -> bool:
         return False
 
 
-def _mark_integration_failed(user_jwt: str, user_id: str, integration_id: str) -> None:
-    """Atualiza status da integracao para 'failed' (best-effort)."""
+def _mark_integration_failed(user_jwt, user_id: str, integration_id: str) -> None:
+    """Atualiza status da integracao para 'failed' (best-effort). jwt None => service role."""
     try:
-        from app.core.supabase_client import get_supabase_for_user
+        from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 
-        sb = get_supabase_for_user(user_jwt)
+        sb = get_supabase_service() if user_jwt is None else get_supabase_for_user(user_jwt)
         now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")
         sb.table("ad_sheet_integrations").update(
             {
@@ -67,7 +67,7 @@ def _mark_integration_failed(user_jwt: str, user_id: str, integration_id: str) -
 
 
 def process_sync_job(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     job_id: str,
     integration_id: str,
@@ -84,7 +84,9 @@ def process_sync_job(
     Returns:
         Dict com resultado do processamento
     """
-    tracker = get_job_tracker(user_jwt, user_id)
+    # jwt None => disparo de convidado: o job e os writes vivem no silo do
+    # DONO (user_id) e o tracker precisa de service role (RLS nao alcanca).
+    tracker = get_job_tracker(user_jwt, user_id, use_service_role=user_jwt is None)
 
     try:
         logger.info(f"[GoogleSheetSyncJob] Iniciando sync do job {job_id} para integracao {integration_id}")
@@ -153,13 +155,13 @@ def process_sync_job(
 
 
 def create_sync_job(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     integration_id: str,
 ) -> str:
-    """Cria um novo job de sincronizacao. Retorna job_id."""
+    """Cria um novo job de sincronizacao. Retorna job_id. jwt None => service role (silo de dono)."""
     job_id = str(uuid.uuid4())
-    tracker = get_job_tracker(user_jwt, user_id)
+    tracker = get_job_tracker(user_jwt, user_id, use_service_role=user_jwt is None)
 
     payload = {
         "integration_id": integration_id,

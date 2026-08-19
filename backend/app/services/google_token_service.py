@@ -26,7 +26,7 @@ PRE_REFRESH_BUFFER = 300  # 5 minutos
 
 
 def get_google_access_token_for_user(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     connection_id: Optional[str] = None,
     force_refresh: bool = False,
@@ -90,8 +90,9 @@ def get_google_access_token_for_user(
 
                     # Preservar connection_id ao fazer refresh
                     # Buscar dados da conexão atual para preservar google_user_id, google_email, etc.
-                    from app.core.supabase_client import get_supabase_for_user
-                    sb = get_supabase_for_user(user_jwt)
+                    from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+                    # jwt None => contexto de dono via service role (P3.3b)
+                    sb = get_supabase_service() if user_jwt is None else get_supabase_for_user(user_jwt)
                     account_query = sb.table("google_accounts").select("google_user_id,google_email,google_name,scopes").eq("user_id", user_id)
                     if connection_id:
                         account_query = account_query.eq("id", connection_id)

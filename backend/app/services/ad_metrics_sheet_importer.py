@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from app.core.supabase_client import get_supabase_for_user
+from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
 from app.services.google_sheets_service import fetch_all_rows, GoogleSheetsError
 from app.services.google_errors import (
@@ -426,7 +426,7 @@ def _execute_batch_update(
     return aggregated
 
 def run_ad_metrics_sheet_import(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     integration_id: str,
     check_cancelled: Optional[Callable[[], bool]] = None,
@@ -442,7 +442,9 @@ def run_ad_metrics_sheet_import(
     4. Agrupar por valores similares e enviar tudo ao RPC batch_update_ad_metrics_enrichment
        O filtro de pack (quando aplicável) é aplicado diretamente no WHERE do UPDATE.
     """
-    sb = get_supabase_for_user(user_jwt)
+    # jwt None => sync disparado por convidado: roda no silo do DONO via
+    # service role (P3.3b). _load_sheet_config escopa por owner_id=user_id.
+    sb = get_supabase_service() if user_jwt is None else get_supabase_for_user(user_jwt)
 
     cfg = _load_sheet_config(sb, integration_id, user_id)
     spreadsheet_id = cfg.get("spreadsheet_id")

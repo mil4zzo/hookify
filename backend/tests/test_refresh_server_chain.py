@@ -20,23 +20,27 @@ from app.services.job_processor import JobProcessor
 from app.services.job_tracker import STATUS_CANCELLED, STATUS_PROCESSING
 
 
-class TestGuestPollSkipsSheetChain(unittest.TestCase):
-    def test_allow_sheet_chain_false_pula_com_rastro(self) -> None:
-        """P3.3a/M4: processamento concluido pelo poll de um CONVIDADO nao cria o
-        sync encadeado (o JWT em maos e do ator; a cadeia falharia fundo na RLS).
-        Pular explicito + rastro no payload > falha silenciosa."""
+class TestSheetChainOwnerContext(unittest.TestCase):
+    def test_service_role_encadeia_com_contexto_do_dono(self) -> None:
+        """P3.3b: com use_service_role (todo processamento assincrono, inclusive o
+        concluido pelo poll de um CONVIDADO), a cadeia de planilha RODA — em
+        contexto de dono: user_jwt=None (=> service role) + silo do dono. O JWT
+        em maos pode ser o do ator e nunca deve chegar a cadeia."""
         with mock.patch("app.services.job_processor.get_job_tracker") as get_tracker:
             get_tracker.return_value = mock.Mock()
-            processor = JobProcessor("jwt-do-convidado", "owner-1", "token", allow_sheet_chain=False)
+            processor = JobProcessor(
+                "jwt-do-convidado", "owner-1", "token", use_service_role=True
+            )
 
-        with mock.patch("app.services.google_sheet_sync_job.create_sync_job") as create_sync:
+        with mock.patch(
+            "app.services.google_sheet_sync_job.create_sync_job", return_value="sync-9"
+        ) as create_sync:
             result = processor._prepare_chained_sheet_sync(
                 "job-1", {"chain_sheet_sync": True, "sheet_integration_id": "integ-1"}
             )
-        self.assertIsNone(result)
-        create_sync.assert_not_called()
-        processor.tracker.merge_payload.assert_called_once_with(
-            "job-1", {"sheet_chain_skipped": "guest_poll"}
+        self.assertEqual(result, "sync-9")
+        create_sync.assert_called_once_with(
+            user_jwt=None, user_id="owner-1", integration_id="integ-1"
         )
 
 

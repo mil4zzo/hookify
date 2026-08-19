@@ -72,11 +72,10 @@ class JobProcessor:
         self.user_id = user_id
         self.access_token = access_token
         self.use_service_role = use_service_role
-        # P3.3a: quando o processamento foi disparado pelo POLL de um CONVIDADO,
-        # self.user_jwt e o JWT do ator e self.user_id o silo do DONO — a cadeia
-        # de planilha (create/process_sync_job) usa esse JWT com RLS e falharia
-        # em silencio. Pular EXPLICITAMENTE e melhor que falhar fundo.
-        self.allow_sheet_chain = allow_sheet_chain
+        # (P3.3b) A cadeia de planilha roda em contexto de DONO: com
+        # use_service_role, create/process_sync_job recebem user_jwt=None
+        # (=> service role) e self.user_id como silo — independe de quem polou.
+        self.allow_sheet_chain = allow_sheet_chain  # mantido p/ compat de assinatura; sempre True
         self._sb = get_supabase_service() if use_service_role else None
         self.tracker = get_job_tracker(
             user_jwt, user_id,
@@ -588,18 +587,6 @@ class JobProcessor:
         if not integration_id:
             return None
 
-        if not self.allow_sheet_chain:
-            # Poll de convidado concluiu o refresh do dono: a cadeia depende do
-            # JWT do dono (P3.3b). Rastro no payload para o frontend/dono verem.
-            logger.info(
-                f"[JobProcessor] Sync encadeado PULADO para job {job_id}: processamento concluido por convidado"
-            )
-            try:
-                self.tracker.merge_payload(job_id, {"sheet_chain_skipped": "guest_poll"})
-            except Exception:
-                pass
-            return None
-
         # Resume pós-crash: run anterior pode ter criado o sync job e caído
         # antes do mark_completed — reusar em vez de duplicar.
         existing = payload.get("chained_sync_job_id")
@@ -610,8 +597,10 @@ class JobProcessor:
         try:
             from app.services.google_sheet_sync_job import create_sync_job
 
+            # Contexto de dono: sob service role o JWT em maos pode ser o de um
+            # convidado que polou — None forca o caminho service role (P3.3b).
             sync_job_id = create_sync_job(
-                user_jwt=self.user_jwt,
+                user_jwt=None if self.use_service_role else self.user_jwt,
                 user_id=self.user_id,
                 integration_id=integration_id,
             )
@@ -647,7 +636,7 @@ class JobProcessor:
             try:
                 logger.info(f"[JobProcessor] Iniciando sync encadeado {sync_job_id} (pós-Meta)")
                 process_sync_job(
-                    user_jwt=self.user_jwt,
+                    user_jwt=None if self.use_service_role else self.user_jwt,
                     user_id=self.user_id,
                     job_id=sync_job_id,
                     integration_id=integration_id,

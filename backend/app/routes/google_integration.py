@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body, BackgroundTa
 from pydantic import BaseModel
 
 from app.core.auth import get_current_user
+from app.core.supabase_client import get_supabase_service
+from app.services.pack_access import assert_pack_role
 from app.core.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
@@ -603,7 +605,7 @@ def start_sync_job(
     Retorna job_id para polling de progresso.
     """
     try:
-        # Verificar se a integração existe
+        # Caminho proprio: a integracao e do ator (RLS resolve)
         sb = get_supabase_for_user(user["token"])
         integration = (
             sb.table("ad_sheet_integrations")
@@ -613,25 +615,44 @@ def start_sync_job(
             .limit(1)
             .execute()
         )
-        
+
+        sync_jwt: Optional[str] = user["token"]
+        silo_user_id = str(user["user_id"])
+
         if not integration.data or len(integration.data) == 0:
-            raise HTTPException(
-                status_code=404,
-                detail="Integração não encontrada.",
+            # P3.3b: pode ser a integracao de um pack COMPARTILHADO — membro pode
+            # disparar o sync do dono (decisao travada). Escopo derivado da
+            # PROPRIA integracao (pack_id + owner_id), nunca do cliente.
+            svc_rows = (
+                get_supabase_service()
+                .table("ad_sheet_integrations")
+                .select("id, owner_id, pack_id")
+                .eq("id", integration_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
             )
-        
-        # Criar job
+            if not svc_rows or not svc_rows[0].get("pack_id"):
+                raise HTTPException(status_code=404, detail="Integração não encontrada.")
+            assert_pack_role(
+                user["user_id"], str(svc_rows[0]["pack_id"]), roles=("dono", "editor", "viewer")
+            )
+            sync_jwt = None  # contexto do dono via service role
+            silo_user_id = str(svc_rows[0]["owner_id"])
+
+        # Criar job (no silo do dono da integracao)
         job_id = create_sync_job(
-            user_jwt=user["token"],
-            user_id=user["user_id"],
+            user_jwt=sync_jwt,
+            user_id=silo_user_id,
             integration_id=integration_id,
         )
         
         # Iniciar processamento em background
         background_tasks.add_task(
             process_sync_job,
-            user_jwt=user["token"],
-            user_id=user["user_id"],
+            user_jwt=sync_jwt,
+            user_id=silo_user_id,
             job_id=job_id,
             integration_id=integration_id,
         )
@@ -656,7 +677,35 @@ def get_sync_job_progress(
     Retorna o progresso de um job de sincronização.
     """
     try:
-        tracker = get_job_tracker(user["token"], user["user_id"])
+        # P3.3b: o job de sync pode viver no silo do DONO (disparo de membro em
+        # pack compartilhado). Mesmo padrao do polling de refresh: localizar o
+        # job, e se o silo for alheio exigir acesso ao pack da integracao.
+        _rows = (
+            get_supabase_service().table("jobs").select("user_id,payload").eq("id", job_id).limit(1).execute().data
+            or []
+        )
+        silo_user_id = str(_rows[0]["user_id"]) if _rows else str(user["user_id"])
+        is_guest_poll = silo_user_id != str(user["user_id"])
+        if is_guest_poll:
+            _integration_id = (_rows[0].get("payload") or {}).get("integration_id")
+            _pack_id = None
+            if _integration_id:
+                _integ = (
+                    get_supabase_service()
+                    .table("ad_sheet_integrations")
+                    .select("pack_id")
+                    .eq("id", str(_integration_id))
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
+                _pack_id = _integ[0].get("pack_id") if _integ else None
+            if not _pack_id:
+                raise HTTPException(status_code=404, detail="Job não encontrado.")
+            assert_pack_role(user["user_id"], str(_pack_id), roles=("dono", "editor", "viewer"))
+
+        tracker = get_job_tracker(user["token"], silo_user_id, use_service_role=is_guest_poll)
         progress = tracker.get_public_progress(job_id)
         
         if not progress or progress.get("status") == "error":

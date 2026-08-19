@@ -9,8 +9,18 @@ from app.services.token_encryption import encrypt_token, decrypt_token
 logger = logging.getLogger(__name__)
 
 
+def _sb_for(user_jwt):
+    """jwt None => SERVICE ROLE: operacao em silo de DONO disparada por convidado
+    (P3.3b). Toda query destas funcoes escopa por user_id explicito — a RLS era
+    redundante com o filtro; o filtro fica, o guarda muda de lugar."""
+    if user_jwt is None:
+        from app.core.supabase_client import get_supabase_service
+        return get_supabase_service()
+    return get_supabase_for_user(user_jwt)
+
+
 def upsert_google_account(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     access_token: str,
     refresh_token: Optional[str] = None,
@@ -26,7 +36,7 @@ def upsert_google_account(
     Se google_user_id for fornecido, atualiza a conexão existente com esse ID.
     Caso contrário, cria uma nova conexão.
     """
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
 
     payload: Dict[str, Any] = {
         "user_id": user_id,
@@ -181,7 +191,7 @@ def delete_google_account(
 
 
 def get_google_account_tokens(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     connection_id: Optional[str] = None,
 ) -> Tuple[Optional[str], Optional[str], Optional[float]]:
@@ -199,7 +209,7 @@ def get_google_account_tokens(
     import logging
     logger = logging.getLogger(__name__)
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     query = (
         sb.table("google_accounts")
         .select("access_token,refresh_token,expires_at,id")
