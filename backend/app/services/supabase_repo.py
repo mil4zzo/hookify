@@ -254,7 +254,6 @@ def fetch_pack_metrics_rows(
         return []
 
     sb = get_supabase_service()
-    ids_by_owner = _pack_metric_ids_by_owner(sb, owner_map, date_start, date_stop)
 
     select_eff = select_fields if "user_id" in select_fields else f"{select_fields},user_id"
     fallback_eff = (
@@ -263,21 +262,82 @@ def fetch_pack_metrics_rows(
         else f"{fallback_select_fields},user_id"
     )
 
-    def _run(select_str: str) -> List[Dict[str, Any]]:
-        rows: List[Dict[str, Any]] = []
-        for owner_id, ids in ids_by_owner.items():
-            id_list = sorted(ids)
-            for i in range(0, len(id_list), _PACK_METRICS_IN_BATCH):
-                batch = id_list[i:i + _PACK_METRICS_IN_BATCH]
+    if attr_filters:
+        # CAMINHO ATRIBUTO-PRIMEIRO (drill). O atributo do drill (adset_id/ad_name/
+        # ad_id) e seletivo e coberto por indice em ad_metrics. Em vez de resolver
+        # TODOS os ids compostos do pack e lotear por id (fan-out de ~Npack/200
+        # round-trips — o gargalo do drill em pack grande), busca-se ad_metrics por
+        # atributo (1 round-trip/dono, via indice) e checa-se a pertinencia ao pack
+        # com a lista CURTA de ad_ids resultante. Resultado final identico ao caminho
+        # por-id (validado por diff contra a implementacao antiga).
+        packs_by_owner: Dict[str, List[str]] = {}
+        for pack_id, owner_id in owner_map.items():
+            packs_by_owner.setdefault(owner_id, []).append(pack_id)
 
-                def _filters(q, _own=owner_id, _b=batch):
-                    q = q.eq("user_id", _own).in_("id", _b)
+        def _run(select_str: str) -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            for owner_id, owner_packs in packs_by_owner.items():
+
+                def _attr_q(q, _own=owner_id):
+                    q = q.eq("user_id", _own).gte("date", date_start).lte("date", date_stop)
                     for k, v in (attr_filters or {}).items():
                         q = q.eq(k, v)
                     return q
 
-                rows.extend(_fetch_all_paginated(sb, "ad_metrics", select_str, _filters))
-        return rows
+                cand = _fetch_all_paginated(sb, "ad_metrics", select_str, _attr_q)
+                if not cand:
+                    continue
+
+                # Pertinencia ao pack: composto {date}-{ad_id} presente em
+                # ad_metric_pack_map para algum pack do dono. A lista de ad_ids do
+                # drill e curta, entao isto e 1 (raramente +) round-trip por dono.
+                ad_ids = sorted({str(r.get("ad_id") or "").strip() for r in cand if r.get("ad_id")})
+                member: set = set()
+                for i in range(0, len(ad_ids), _PACK_METRICS_IN_BATCH):
+                    batch = ad_ids[i:i + _PACK_METRICS_IN_BATCH]
+
+                    def _mem_q(q, _own=owner_id, _packs=owner_packs, _b=batch):
+                        return (
+                            q.eq("user_id", _own)
+                            .in_("pack_id", _packs)
+                            .gte("metric_date", date_start)
+                            .lte("metric_date", date_stop)
+                            .in_("ad_id", _b)
+                        )
+
+                    for m in _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _mem_q):
+                        aid = str(m.get("ad_id") or "").strip()
+                        d = str(m.get("metric_date") or "")[:10]
+                        if aid and d:
+                            member.add(f"{d}-{aid}")
+
+                for r in cand:
+                    aid = str(r.get("ad_id") or "").strip()
+                    d = str(r.get("date") or "")[:10]
+                    if aid and d and f"{d}-{aid}" in member:
+                        rows.append(r)
+            return rows
+    else:
+        # CAMINHO POR-ID (sem atributo seletivo): resolve os ids do pack e loteia.
+        # Sem um atributo para restringir ad_metrics nao ha como evitar varrer o
+        # pack inteiro — mantido para chamadores futuros sem attr_filters.
+        ids_by_owner = _pack_metric_ids_by_owner(sb, owner_map, date_start, date_stop)
+
+        def _run(select_str: str) -> List[Dict[str, Any]]:
+            rows: List[Dict[str, Any]] = []
+            for owner_id, ids in ids_by_owner.items():
+                id_list = sorted(ids)
+                for i in range(0, len(id_list), _PACK_METRICS_IN_BATCH):
+                    batch = id_list[i:i + _PACK_METRICS_IN_BATCH]
+
+                    def _filters(q, _own=owner_id, _b=batch):
+                        q = q.eq("user_id", _own).in_("id", _b)
+                        for k, v in (attr_filters or {}).items():
+                            q = q.eq(k, v)
+                        return q
+
+                    rows.extend(_fetch_all_paginated(sb, "ad_metrics", select_str, _filters))
+            return rows
 
     try:
         raw = _run(select_eff)
