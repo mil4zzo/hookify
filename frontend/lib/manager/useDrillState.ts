@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 export type DrillKind = "campaign" | "adset" | "adname";
@@ -82,6 +82,30 @@ function writeNameCache(cache: Record<string, string>): void {
   }
 }
 
+// ── Overlay otimista (compartilhado entre a tabela e o modal) ─────────────────
+// Abrir o drill dependia do commit de router.push; com a tabela pesada essa
+// navegacao fica presa atras de renders nao-urgentes e o modal so aparecia apos
+// varios cliques. Este store externo abre o modal de forma SINCRONA no clique,
+// mantendo a URL como fonte de verdade (sincronizada logo em seguida).
+let optimisticStack: DrillStep[] | null = null;
+const overlayListeners = new Set<() => void>();
+
+function setOptimisticStack(next: DrillStep[] | null): void {
+  optimisticStack = next;
+  overlayListeners.forEach((listener) => listener());
+}
+
+function subscribeOverlay(listener: () => void): () => void {
+  overlayListeners.add(listener);
+  return () => {
+    overlayListeners.delete(listener);
+  };
+}
+
+function getOptimisticSnapshot(): DrillStep[] | null {
+  return optimisticStack;
+}
+
 export interface UseDrillStateResult {
   stack: ResolvedDrillStep[];
   isOpen: boolean;
@@ -109,15 +133,29 @@ export function useDrillState(): UseDrillStateResult {
 
   const rawStack = useMemo(() => decodeStack(searchParams.get(DRILL_PARAM)), [searchParams]);
 
+  // O clique grava aqui de forma sincrona; effectiveRaw abre o modal na hora. Quando
+  // o searchParams alcanca o valor otimista, descartamos o overlay (convergencia sem
+  // flicker) e a URL volta a ser a unica fonte.
+  const optimistic = useSyncExternalStore(subscribeOverlay, getOptimisticSnapshot, () => null);
+  const effectiveRaw = optimistic ?? rawStack;
+
+  useEffect(() => {
+    if (optimistic !== null && encodeStack(rawStack) === encodeStack(optimistic)) {
+      setOptimisticStack(null);
+    }
+  }, [optimistic, rawStack]);
+
   const stack = useMemo<ResolvedDrillStep[]>(() => {
     const cache = readNameCache();
-    return rawStack.map((step) => ({ ...step, name: cache[nameCacheKey(step)] ?? null }));
-  }, [rawStack]);
+    return effectiveRaw.map((step) => ({ ...step, name: cache[nameCacheKey(step)] ?? null }));
+  }, [effectiveRaw]);
 
   const current = stack.length > 0 ? stack[stack.length - 1] : null;
 
   const writeStack = useCallback(
     (next: DrillStep[]) => {
+      // Abre/fecha o modal imediatamente; a navegacao abaixo so sincroniza a URL.
+      setOptimisticStack(next);
       const params = new URLSearchParams(searchParams.toString());
       if (next.length === 0) {
         params.delete(DRILL_PARAM);
@@ -139,9 +177,9 @@ export function useDrillState(): UseDrillStateResult {
         writeNameCache(cache);
       }
       const baseStep: DrillStep = { kind: step.kind, id: step.id };
-      writeStack([...rawStack, baseStep]);
+      writeStack([...effectiveRaw, baseStep]);
     },
-    [rawStack, writeStack],
+    [effectiveRaw, writeStack],
   );
 
   const openChain = useCallback(
@@ -164,10 +202,10 @@ export function useDrillState(): UseDrillStateResult {
 
   const popTo = useCallback(
     (index: number) => {
-      const safeIndex = Math.max(0, Math.min(index, rawStack.length - 1));
-      writeStack(rawStack.slice(0, safeIndex + 1));
+      const safeIndex = Math.max(0, Math.min(index, effectiveRaw.length - 1));
+      writeStack(effectiveRaw.slice(0, safeIndex + 1));
     },
-    [rawStack, writeStack],
+    [effectiveRaw, writeStack],
   );
 
   const close = useCallback(() => {

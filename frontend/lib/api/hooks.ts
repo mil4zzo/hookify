@@ -275,7 +275,7 @@ export const useAdVariations = (
     },
     enabled: enabled && !!adName && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000, // Cache de 5 minutos
-    retry: 2,
+    retry: retryOnlyNetworkErrors,
   });
 }
 
@@ -305,7 +305,7 @@ export const useCampaignChildren = (
     },
     enabled: enabled && !!campaignId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000,
-    retry: 2,
+    retry: retryOnlyNetworkErrors,
   })
 }
 
@@ -332,7 +332,7 @@ export const useAdsetChildren = (
     },
     enabled: enabled && !!adsetId && !!dateStart && !!dateStop,
     staleTime: 5 * 60 * 1000,
-    retry: 2,
+    retry: retryOnlyNetworkErrors,
   })
 }
 
