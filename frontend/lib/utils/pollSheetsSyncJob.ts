@@ -50,6 +50,9 @@ export interface PollSheetsSyncJobConfig {
   }) => void;
   clearJob: (packId: string) => void;
   connectGoogle: (opts?: { silent?: boolean; packId?: string }) => Promise<unknown>;
+  /** false => viewer: mostra o toast pausado sem botao de reconectar (ele nao pode). */
+  canReconnect?: boolean;
+  ownerName?: string | null;
   /** Chamado ao concluir com sucesso (para atualizar lastSyncStats etc.) */
   onCompleted?: (stats: { rows_updated?: number; rows_processed?: number }) => void;
   /** Chamado ao concluir para disparar evento pack-integration-updated */
@@ -87,6 +90,8 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
     onCompleted,
     onPackIntegrationUpdated,
     onSuccessInvalidate,
+    canReconnect = true,
+    ownerName = null,
   } = config;
 
   const pauseJobAndShowToast = (errorMessage: string) => {
@@ -111,7 +116,9 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
       () => {
         clearJob(packId);
         dismissToast(toastId);
-      }
+      },
+      canReconnect,
+      ownerName,
     );
 
     handleGoogleAuthError({ code: GOOGLE_TOKEN_EXPIRED, message: errorMessage } as AppError);

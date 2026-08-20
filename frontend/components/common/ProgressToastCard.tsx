@@ -60,6 +60,9 @@ export type PausedToastCardProps = {
   onReconnect: () => void;
   onCancel: () => void;
   animated?: boolean;
+  /** false => usuario sem permissao (viewer): sem botao de reconectar, mensagem aponta o dono. */
+  canReconnect?: boolean;
+  ownerName?: string | null;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -593,7 +596,8 @@ export function StatusToastCard({ variant, message, eyebrow, icon, onDismiss, co
   );
 }
 
-export function PausedToastCard({ packName, onReconnect, onCancel, animated = true }: PausedToastCardProps) {
+export function PausedToastCard({ packName, onReconnect, onCancel, animated = true, canReconnect = true, ownerName = null }: PausedToastCardProps) {
+  const ownerLabel = (ownerName ?? "").trim() || "o dono do pack";
   return (
     <ToastCardFrame variant="initializing" progress={0} animated={animated}>
       <div className="flex flex-col gap-4 px-4 pb-4 pt-3 text-primary-foreground" role="alert" aria-live="assertive">
@@ -604,16 +608,22 @@ export function PausedToastCard({ packName, onReconnect, onCancel, animated = tr
           <div className="min-w-0 flex-1 space-y-1">
             <p className="text-2xs font-medium leading-tight text-primary-foreground-75">{packName}: Leadscore</p>
             <p className="text-sm font-semibold leading-snug tracking-tight text-attention">Sincronização pausada</p>
-            <p className="pt-0.5 text-sm leading-snug text-primary-foreground-82">Aguardando reconexão do Google para continuar a importação.</p>
+            <p className="pt-0.5 text-sm leading-snug text-primary-foreground-82">
+              {canReconnect
+                ? "Aguardando reconexão do Google para continuar a importação."
+                : `A planilha é do dono. Peça a ${ownerLabel} para reconectar o Google.`}
+            </p>
           </div>
         </div>
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" size="sm" onClick={onReconnect}>
-            Reconectar Google
-          </Button>
+          {canReconnect && (
+            <Button type="button" size="sm" onClick={onReconnect}>
+              Reconectar Google
+            </Button>
+          )}
           <Button type="button" size="sm" variant="ghost" onClick={onCancel}>
-            Cancelar
+            {canReconnect ? "Cancelar" : "Fechar"}
           </Button>
         </div>
       </div>

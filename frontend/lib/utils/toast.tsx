@@ -607,9 +607,9 @@ export function finishProgressToast(
  * Mostra toast de job pausado aguardando reconexão do Google
  * Não pode ser fechado - usuário deve usar os botões
  */
-export function showPausedJobToast(toastId: string, packName: string, onReconnect: () => void, onCancel: () => void) {
+export function showPausedJobToast(toastId: string, packName: string, onReconnect: () => void, onCancel: () => void, canReconnect: boolean = true, ownerName?: string | null) {
   toast.warning(
-    <PausedToastCard packName={packName} onReconnect={onReconnect} onCancel={onCancel} animated />,
+    <PausedToastCard packName={packName} onReconnect={onReconnect} onCancel={onCancel} canReconnect={canReconnect} ownerName={ownerName} animated />,
     getToastCardOptions(toastId, Infinity, false),
   );
 }

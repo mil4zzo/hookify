@@ -19,6 +19,7 @@ import { useUpdatingPacksStore } from "@/lib/store/updatingPacks";
 import { useActiveJobsStore } from "@/lib/store/activeJobs";
 import { usePausedSheetJobsStore } from "@/lib/store/pausedSheetJobs";
 import { useGoogleOAuthConnect } from "@/lib/hooks/useGoogleOAuthConnect";
+import { useSessionStore } from "@/lib/store/session";
 import { getTodayLocal } from "@/lib/utils/dateFilters";
 import {
   showProgressToast,
@@ -277,8 +278,12 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
       integrationId: string,
       getCancelled: () => boolean,
       onCancel?: () => void
-    ) =>
-      pollSheetsSyncJob({
+    ) => {
+      const pack = useSessionStore.getState().packs.find((p) => p.id === packId);
+      // shared_role null (dono) ou 'editor' => pode reconectar; 'viewer' => nao (403 no backend)
+      const canReconnect = pack?.shared_role !== "viewer";
+      const ownerName = pack?.shared_owner_name ?? null;
+      return pollSheetsSyncJob({
         syncJobId,
         toastId,
         packName,
@@ -299,7 +304,10 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         onPackIntegrationUpdated: (pId) => {
           window.dispatchEvent(new CustomEvent("pack-integration-updated", { detail: { packId: pId } }));
         },
-      }),
+        canReconnect,
+        ownerName,
+      });
+    },
     [pauseJob, clearJob, connectGoogle, invalidatePackAds, invalidateAdPerformance]
   );
 
