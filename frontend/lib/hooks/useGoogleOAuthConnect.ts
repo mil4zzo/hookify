@@ -23,6 +23,7 @@ export function useGoogleOAuthConnect() {
 
   const connect = useCallback(async (options?: {
     silent?: boolean; // Se true, não mostra toast de sucesso
+    packId?: string; // Pack compartilhado: reconecta a credencial no silo do dono (Opcao B)
   }): Promise<GoogleOAuthConnectResult> => {
     if (isConnecting) {
       return { success: false, error: "Conexão já em andamento" };
@@ -70,7 +71,7 @@ export function useGoogleOAuthConnect() {
       // Trocar código por token
       let connectionData: any;
       try {
-        connectionData = await api.integrations.google.exchangeCode(messageData.code, redirectUri);
+        connectionData = await api.integrations.google.exchangeCode(messageData.code, redirectUri, options?.packId);
       } catch (e: any) {
         logger.error("[useGoogleOAuthConnect] Erro ao trocar código por token:", e);
         let errorMessage = "Erro ao finalizar autenticação.";

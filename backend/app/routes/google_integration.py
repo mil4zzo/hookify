@@ -75,6 +75,10 @@ def get_google_auth_url(
 class GoogleCallbackRequest(BaseModel):
     code: str
     redirect_uri: str
+    # Opcao B (pack compartilhado): quando a reconexao foi disparada para um pack
+    # de OUTRO usuario, a credencial vai para o silo do DONO. O gate valida que o
+    # ator e dono|editor do pack — viewer nao reconecta credencial de terceiro.
+    pack_id: Optional[str] = None
 
 
 @router.post("/callback")
@@ -173,9 +177,24 @@ def google_oauth_callback(
     except Exception as e:
         logger.warning(f"[GOOGLE_OAUTH] Erro ao buscar informações do usuário Google: {e}", exc_info=True)
 
+    # Silo de escrita: por padrao o proprio ator; para pack compartilhado (Opcao B),
+    # o DONO do pack, via service role. assert_pack_role bloqueia viewer e quem nao
+    # tem grant (403/404) — pack_id vindo do cliente e seguro por causa do gate.
+    write_jwt = user["token"]
+    silo_user_id = user["user_id"]
+    if request.pack_id:
+        access = assert_pack_role(user["user_id"], request.pack_id, roles=("dono", "editor"))
+        if access.owner_id and access.owner_id != user["user_id"]:
+            write_jwt = None
+            silo_user_id = access.owner_id
+            logger.info(
+                "[GOOGLE_OAUTH] Reconexao de pack compartilhado %s: credencial no silo do dono %s (ator %s)",
+                request.pack_id, str(silo_user_id)[:8], str(user["user_id"])[:8],
+            )
+
     rec = upsert_google_account(
-        user_jwt=user["token"],
-        user_id=user["user_id"],
+        user_jwt=write_jwt,
+        user_id=silo_user_id,
         access_token=access_token,
         refresh_token=refresh_token,
         expires_at=expires_at_str,
@@ -197,14 +216,14 @@ def google_oauth_callback(
     if new_connection_id:
         try:
             from app.core.supabase_client import get_supabase_for_user
-            sb = get_supabase_for_user(user["token"])
+            link_sb = get_supabase_service() if write_jwt is None else get_supabase_for_user(write_jwt)
 
-            # Buscar todas as integrações do usuário
-            integrations = sb.table("ad_sheet_integrations").select("id,connection_id").eq("owner_id", user["user_id"]).execute()
+            # Buscar todas as integrações do silo de destino (ator ou dono)
+            integrations = link_sb.table("ad_sheet_integrations").select("id,connection_id").eq("owner_id", silo_user_id).execute()
 
             if integrations.data:
                 # Buscar todas as conexões ativas com seus google_user_ids
-                active_connections = sb.table("google_accounts").select("id,google_user_id").eq("user_id", user["user_id"]).execute()
+                active_connections = link_sb.table("google_accounts").select("id,google_user_id").eq("user_id", silo_user_id).execute()
                 active_connection_map = {conn["id"]: conn.get("google_user_id") for conn in (active_connections.data or [])}
 
                 # Atualizar integrações que referenciam conexões revogadas ou da mesma conta Google
@@ -228,10 +247,10 @@ def google_oauth_callback(
                         update_reason = "mesma conta reconectada"
 
                     if should_update:
-                        sb.table("ad_sheet_integrations").update({
+                        link_sb.table("ad_sheet_integrations").update({
                             "connection_id": new_connection_id,
                             "updated_at": datetime.now(timezone.utc).isoformat()
-                        }).eq("id", integration["id"]).eq("owner_id", user["user_id"]).execute()
+                        }).eq("id", integration["id"]).eq("owner_id", silo_user_id).execute()
 
                         updated_count += 1
                         logger.info(

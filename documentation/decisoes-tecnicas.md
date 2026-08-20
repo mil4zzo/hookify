@@ -2477,3 +2477,23 @@ o mesmo mecanismo do leadscore. Não foi movido porque a decisão de produto é 
 evidência eu exijo antes de confiar" é tolerância a risco pessoal, não propriedade
 da campanha. Se a divergência aparecer na prática entre dois membros, reabre-se
 **com evidência** — não por argumento.
+
+## Reconexão do Google em pack compartilhado grava no silo do dono (Opção B)
+
+Pack compartilhado: o sync de Leadscore **sempre lê** a `google_accounts` do **dono**
+(a planilha vive no Drive dele). Quando o token do dono expira, o convidado via o
+prompt "reconectar Google", autenticava, e o token caía **no silo do convidado** —
+inútil para a integração do dono. Sintoma: "falha como se não tivesse autenticado".
+
+Decisão (Opção B, sobre a Opção A de só esconder o prompt): o `POST /callback` passou
+a aceitar `pack_id`; se o pack é de outro dono, a credencial é gravada no **silo do
+dono** via service role, gateado por `assert_pack_role(dono|editor)` — **viewer leva
+403**. O `pack_id` do cliente é seguro porque o gate valida o grant.
+
+**Por quê aceitar a escrita cross-silo** (que contraria a direção da migration 113):
+a planilha é da **equipe**; o convidado-editor provavelmente já a acessa; e o token do
+dono está expirado de qualquer jeito — o pior caso (convidado conecta conta sem acesso)
+não é pior que o estado atual, em que o dono teria que reconectar do mesmo jeito. É
+escolha de produto, contida pelo gate de papel. Não tratar como vulnerabilidade a
+"endurecer". Edge deixado como polish: o prompt ainda aparece para viewer (que recebe
+403); esconder exigiria threadar o papel até o poll de sync.

@@ -49,7 +49,7 @@ export interface PollSheetsSyncJobConfig {
     reason: "google_token_expired";
   }) => void;
   clearJob: (packId: string) => void;
-  connectGoogle: (opts?: { silent?: boolean }) => Promise<unknown>;
+  connectGoogle: (opts?: { silent?: boolean; packId?: string }) => Promise<unknown>;
   /** Chamado ao concluir com sucesso (para atualizar lastSyncStats etc.) */
   onCompleted?: (stats: { rows_updated?: number; rows_processed?: number }) => void;
   /** Chamado ao concluir para disparar evento pack-integration-updated */
@@ -104,7 +104,9 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
       toastId,
       packName,
       async () => {
-        await connectGoogle({ silent: true });
+        // packId em escopo: se o pack for compartilhado, o backend grava a
+        // credencial no silo do dono (Opcao B). Para pack proprio e no-op.
+        await connectGoogle({ silent: true, packId });
       },
       () => {
         clearJob(packId);

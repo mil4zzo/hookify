@@ -511,10 +511,13 @@ export const api = {
           state,
         }),
 
-      exchangeCode: (code: string, redirectUri: string): Promise<{ connection: { id: string; scopes?: string[] } }> =>
+      exchangeCode: (code: string, redirectUri: string, packId?: string): Promise<{ connection: { id: string; scopes?: string[] } }> =>
         apiClient.post('/integrations/google/callback', {
           code,
           redirect_uri: redirectUri,
+          // Pack compartilhado (Opcao B): direciona a credencial ao silo do dono; o
+          // backend valida dono|editor via assert_pack_role antes de gravar.
+          ...(packId ? { pack_id: packId } : {}),
         }),
 
       listConnections: (): Promise<ListGoogleConnectionsResponse> =>
