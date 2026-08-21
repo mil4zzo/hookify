@@ -2497,3 +2497,24 @@ não é pior que o estado atual, em que o dono teria que reconectar do mesmo jei
 escolha de produto, contida pelo gate de papel. Não tratar como vulnerabilidade a
 "endurecer". Edge deixado como polish: o prompt ainda aparece para viewer (que recebe
 403); esconder exigiria threadar o papel até o poll de sync.
+
+## `Depends(get_graph_api)` exclui o convidado antes do corpo da rota
+
+Ela resolve o token Meta **do ator** e levanta 403 **antes** de o handler rodar.
+Num pack compartilhado isso barra justamente o convidado, que por desenho pode não
+ter Facebook conectado (P3.4). Já mordeu três vezes: polling (P3.3a), escritas de
+entidade e rotas de mídia. **Regra:** rota que toca Meta e pode servir pack
+compartilhado monta o `GraphAPI` DENTRO do handler, via `_resolve_entity_write_context`
+(escrita) ou `_resolve_media_read_context` (leitura).
+
+O modo de falha é o que torna isso perigoso: não quebra nada visivelmente — só
+torna a feature invisível para exatamente o usuário que ela existe para servir.
+
+**A credencial é sempre a do dono, mesmo quando o convidado TEM Facebook.** O token
+dele não tem permissão na conta de anúncios do dono; a Meta negaria. O caso legítimo
+de usar o token do convidado (quando ele genuinamente tem acesso à conta) é a P3.8.
+
+**Entidade→silo** é `resolve_entity_pack_scope`: o `pack_ids` vem do cliente e **não
+é escopo** — só propõe candidatos; autorizam o papel MAIS a entidade existir naquele
+pack dentro do silo do dono. `roles` separa escrita (`dono|editor`) de leitura de
+mídia (inclui `viewer`).
