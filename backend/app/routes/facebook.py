@@ -4649,8 +4649,10 @@ def get_pack_transcription_status(
 
         ad_names = list(seen.keys())
 
-        # Busca status existentes (completed, processing, pending, failed-no-audio)
-        existing = supabase_repo.get_existing_transcriptions(user["token"], user["user_id"], ad_names)
+        # Busca status existentes (completed, processing, pending, failed-no-audio).
+        # SILO DO DONO: os ads vieram de la; procurar a transcricao no silo do ATOR
+        # devolvia "nao transcrito" para tudo que o dono ja transcreveu.
+        existing = supabase_repo.get_existing_transcriptions(read_jwt, owner_id, ad_names)
 
         # Busca metadata dos failed para classificar no_voice
         no_voice_names: set = set()
@@ -4659,7 +4661,7 @@ def get_pack_transcription_status(
             failed_rows = (
                 sb.table("ad_transcriptions")
                 .select("ad_name,metadata")
-                .eq("user_id", user["user_id"])
+                .eq("user_id", owner_id)
                 .eq("status", "failed")
                 .in_("ad_name", failed_names)
                 .execute()

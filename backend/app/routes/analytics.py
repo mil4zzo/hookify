@@ -972,7 +972,7 @@ def _hydrate_storage_thumbnails_for_rankings_rows(
             res = (
                 sb.table("ads")
                 .select("ad_id,thumb_storage_path")
-                .eq("user_id", user_id)
+                .in_("user_id", _silos(user_id))
                 .in_("ad_id", batch)
                 .execute()
             )
@@ -1033,7 +1033,7 @@ def _hydrate_media_type_for_rankings_rows(
                 sb,
                 "ads",
                 "ad_name, media_type",
-                lambda q, b=batch: q.eq("user_id", user_id).in_("ad_name", b).order("ad_id"),
+                lambda q, b=batch: q.in_("user_id", _silos(user_id)).in_("ad_name", b).order("ad_id"),
             )
             for ad_row in ads_rows:
                 name = str(ad_row.get("ad_name") or "").strip()
@@ -1055,6 +1055,19 @@ def _hydrate_media_type_for_rankings_rows(
             hydrated += 1
 
     return hydrated
+
+
+def _silos(user_id) -> List[str]:
+    """Normaliza o parametro de silo dos hidratadores para lista.
+
+    As linhas de rankings vem da RPC multi-dono e podem misturar silos (pack
+    compartilhado). Hidratar miniatura/transcricao/media_type filtrando so pelo
+    silo do ATOR devolvia vazio para tudo que pertence ao DONO — e o sintoma
+    (sem thumb, sem icone de transcricao) parece "dado faltando", nao bug.
+    """
+    if isinstance(user_id, (list, tuple, set)):
+        return [str(u) for u in user_id if u]
+    return [str(user_id)] if user_id else []
 
 
 def _hydrate_transcription_flags_for_rankings_rows(
@@ -1084,7 +1097,7 @@ def _hydrate_transcription_flags_for_rankings_rows(
             res = (
                 sb.table("ad_transcriptions")
                 .select("ad_name")
-                .eq("user_id", user_id)
+                .in_("user_id", _silos(user_id))
                 .eq("status", "completed")
                 .in_("ad_name", batch)
                 .execute()
@@ -1360,19 +1373,28 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Erro ao consultar analytics agregados.")
 
     elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+    # Silos das linhas: dono de cada pack selecionado + o proprio ator.
+    _owner_map = {}
+    try:
+        if req.pack_ids:
+            _owner_map = supabase_repo.resolve_pack_owner_map(str(user["user_id"]), list(req.pack_ids))
+    except Exception as _e:
+        logger.warning("[RANKINGS] Falha ao resolver donos p/ hidratacao (best-effort): %s", _e)
+    _hydrate_silos = sorted({str(user["user_id"]), *(str(v) for v in _owner_map.values())})
+
     hydration_stats = _hydrate_storage_thumbnails_for_rankings_rows(
         sb=sb,
-        user_id=str(user["user_id"]),
+        user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
     transcription_flagged = _hydrate_transcription_flags_for_rankings_rows(
         sb=sb,
-        user_id=str(user["user_id"]),
+        user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
     media_type_hydrated = _hydrate_media_type_for_rankings_rows(
         sb=sb,
-        user_id=str(user["user_id"]),
+        user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
     # status_resolved: permite à UI distinguir "status desconhecido" (mostra "—") de um status
