@@ -153,11 +153,14 @@ export async function exportManagerToCsv({
   rowsSnapshot,
   metricContext,
   provenanceIndex,
+  packIds,
 }: {
   table: Table<RankingsItem>
   activeColumns: Set<ManagerColumnType>
   /** Índice id→nome de packs/contas — as colunas Pack/Conta saem com nome, não com UUID. */
   provenanceIndex: ProvenanceIndex
+  /** Packs do contexto — transcrições de pack COMPARTILHADO vivem no silo do dono. */
+  packIds?: string[]
   /** Ordem das colunas escolhida no Manager — o CSV sai na mesma ordem da tabela. */
   columnOrder?: readonly ManagerColumnType[]
   hasSheetIntegration: boolean
@@ -199,7 +202,7 @@ export async function exportManagerToCsv({
       )
     )
     if (adNamesWithTranscription.length > 0) {
-      transcriptionMap = await api.analytics.getTranscriptionsBatch(adNamesWithTranscription)
+      transcriptionMap = await api.analytics.getTranscriptionsBatch(adNamesWithTranscription, packIds)
     }
   }
 

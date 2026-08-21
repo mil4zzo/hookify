@@ -3686,6 +3686,13 @@ def get_transcriptions_batch(
     ad_names = [str(n).strip() for n in ad_names if n]
     if not ad_names:
         return {}
+    # Pack COMPARTILHADO: a transcricao vive no silo do DONO. Leitura => viewer passa.
+    _packs = [str(p).strip() for p in (body.get("pack_ids") or []) if str(p or "").strip()] or None
+    _scope = resolve_entity_pack_scope(
+        user["user_id"], "adname", ad_names, _packs, roles=("dono", "editor", "viewer"),
+    )
+    if _scope and _scope.is_guest:
+        return supabase_repo.get_transcriptions_batch(None, _scope.owner_id, ad_names)
     return supabase_repo.get_transcriptions_batch(user["token"], user["user_id"], ad_names)
 
 

@@ -34,9 +34,11 @@ interface ManagerExportDialogProps {
   dateStop?: string;
   /** Contexto das métricas (actionType, mqlLeadscoreMin) — permite exportar colunas inativas na tabela. */
   metricContext?: MetricValueContext;
+  /** Packs do contexto — transcrições de pack COMPARTILHADO vivem no silo do dono. */
+  packIds?: string[];
 }
 
-export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop, metricContext }: ManagerExportDialogProps) {
+export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop, metricContext, packIds }: ManagerExportDialogProps) {
   const provenanceIndex = useProvenanceIndex();
 
   // Colunas exportáveis, na ordem da tabela (exclui as métricas de planilha — cpmql/mqls/leadscore_avg/mql_rate — quando não há integração; o export as descarta de qualquer forma)
@@ -127,6 +129,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
       mediaUrlMap,
       rowsSnapshot: exportRowsRef.current ?? undefined,
       metricContext,
+      packIds,
     });
     onClose();
   };

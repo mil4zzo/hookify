@@ -4277,21 +4277,28 @@ def cancel_jobs_batch(
 
 class TranscriptionStartRequest(BaseModel):
     ad_name: str
+    # Contexto de pack: habilita transcrever anuncio de pack COMPARTILHADO. Exige
+    # dono|editor — transcricao custa AssemblyAI, viewer nao gasta o saldo do dono.
+    pack_ids: Optional[List[str]] = None
 
 
 @router.post("/transcription/start", status_code=202)
 def start_transcription(
     request: TranscriptionStartRequest,
     user: Dict[str, Any] = Depends(get_current_user),
-    api: GraphAPI = Depends(get_graph_api),
 ):
     """Inicia ou reinicia a transcrição de um ad_name. Recusa apenas se já estiver em andamento."""
-    user_id = user["user_id"]
-    user_jwt = user["token"]
     ad_name = request.ad_name.strip()
 
     if not ad_name:
         raise HTTPException(status_code=400, detail="ad_name é obrigatório")
+
+    # Silo + credencial do DONO quando o anuncio e de pack compartilhado. O GraphAPI
+    # sai do Depends pelo motivo de sempre: exigiria Meta DO ATOR antes do corpo.
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type="adname", entity_ids=[ad_name], pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
     existing = supabase_repo.get_transcription(user_jwt, user_id, ad_name)
     if existing and existing.get("status") == "processing":
@@ -4353,7 +4360,6 @@ class TranscribePackRequest(BaseModel):
 def start_pack_transcription(
     pack_id: str,
     body: Optional[TranscribePackRequest] = None,
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Inicia apenas o processo de transcrição dos vídeos dos anúncios do pack (sem refresh de dados).
@@ -4363,15 +4369,40 @@ def start_pack_transcription(
     from app.services.transcription_worker import count_pending_transcriptions, run_transcription_batch
 
     try:
-        sb = get_supabase_for_user(user["token"])
-        pack_res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", user["user_id"]).limit(1).execute()
+        # dono|editor: transcricao custa AssemblyAI — viewer nao gasta o saldo do dono.
+        access = assert_pack_role(user["user_id"], pack_id, roles=("dono", "editor"))
+        owner_id = access.owner_id
+        is_guest = owner_id != user["user_id"]
+        # Convenção P3.3b: jwt None => service role + silo explícito (o do DONO).
+        write_jwt = None if is_guest else user["token"]
+
+        sb = _sb_for(write_jwt)
+        pack_res = sb.table("packs").select("*").eq("id", pack_id).eq("user_id", owner_id).limit(1).execute()
         if not pack_res.data or len(pack_res.data) == 0:
             raise HTTPException(status_code=404, detail="Pack não encontrado")
+
+        # Credencial de vídeo é SEMPRE a do dono (a conta de anúncios é dele).
+        fb_token = (
+            get_facebook_token_for_silo(owner_id) if is_guest
+            else get_facebook_token_for_user(user["token"], user["user_id"])
+        )
+        if not fb_token:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "owner_facebook_connection_missing" if is_guest else "facebook_connection_missing",
+                    "message": (
+                        "O dono do pack precisa reconectar a conta do Facebook." if is_guest
+                        else "Nenhuma conexao do Facebook encontrada. Conecte sua conta do Facebook primeiro."
+                    ),
+                },
+            )
+        api = GraphAPI(fb_token, user_id=owner_id)
 
         pack = pack_res.data[0]
         pack_name = pack.get("name") or pack_id
 
-        ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
+        ads = supabase_repo.get_ads_for_pack(write_jwt, pack, owner_id, sb_client=sb)
         if not ads:
             return JSONResponse(
                 status_code=202,
@@ -4400,8 +4431,8 @@ def start_pack_transcription(
 
         force_no_audio = bool(body and body.force_no_audio)
         pending = count_pending_transcriptions(
-            user_jwt=user["token"],
-            user_id=user["user_id"],
+            user_jwt=write_jwt,
+            user_id=owner_id,
             formatted_ads=formatted_ads,
             force_no_audio=force_no_audio,
         )
@@ -4417,7 +4448,7 @@ def start_pack_transcription(
             )
 
         transcription_job_id = str(uuid.uuid4())
-        tracker = get_job_tracker(user["token"], user["user_id"])
+        tracker = get_job_tracker(write_jwt, owner_id, use_service_role=is_guest)
         tracker.create_job(
             job_id=transcription_job_id,
             payload={
@@ -4446,8 +4477,8 @@ def start_pack_transcription(
         def _run():
             try:
                 run_transcription_batch(
-                    user["token"],
-                    user["user_id"],
+                    write_jwt,
+                    owner_id,
                     api.access_token,
                     formatted_ads,
                     transcription_job_id=transcription_job_id,
@@ -4484,12 +4515,17 @@ def get_pack_transcription_status(
     from app.services.supabase_repo import _is_no_audio_failure
 
     try:
-        sb = get_supabase_for_user(user["token"])
+        # Leitura: qualquer membro (viewer inclusive) ve o estado da transcricao.
+        access = assert_pack_role(user["user_id"], pack_id, roles=("dono", "editor", "viewer"))
+        owner_id = access.owner_id
+        read_jwt = None if owner_id != user["user_id"] else user["token"]
+
+        sb = _sb_for(read_jwt)
         pack_res = (
             sb.table("packs")
             .select("*")
             .eq("id", pack_id)
-            .eq("user_id", user["user_id"])
+            .eq("user_id", owner_id)
             .limit(1)
             .execute()
         )
@@ -4497,7 +4533,7 @@ def get_pack_transcription_status(
             raise HTTPException(status_code=404, detail="Pack não encontrado")
 
         pack = pack_res.data[0]
-        ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
+        ads = supabase_repo.get_ads_for_pack(read_jwt, pack, owner_id, sb_client=sb)
 
         # Filtrar ads de vídeo e deduplicar por ad_name, mantendo melhor thumbnail
         all_ad_names: set = set()
@@ -4596,7 +4632,24 @@ def get_transcription_progress(
 ):
     """Retorna progresso de um job de transcrição."""
     try:
-        tracker = get_job_tracker(user["token"], user["user_id"])
+        # O silo sai do JOB, nunca do ator: um convidado polando um job do dono
+        # nao acha nada no proprio silo. Mesmo padrao do polling de refresh/sync.
+        job_row = (
+            get_supabase_service()
+            .table("jobs").select("user_id,payload").eq("id", job_id).limit(1).execute().data
+        )
+        if not job_row:
+            raise HTTPException(status_code=404, detail="Job não encontrado.")
+        silo_user_id = str(job_row[0].get("user_id") or "")
+        is_guest_poll = silo_user_id != user["user_id"]
+        if is_guest_poll:
+            # Acesso pelo PACK do job — sem grant, o job e indistinguivel de inexistente.
+            job_pack_id = str(((job_row[0].get("payload") or {}).get("pack_id")) or "").strip()
+            if not job_pack_id:
+                raise HTTPException(status_code=404, detail="Job não encontrado.")
+            assert_pack_role(user["user_id"], job_pack_id, roles=("dono", "editor", "viewer"))
+
+        tracker = get_job_tracker(user["token"], silo_user_id, use_service_role=is_guest_poll)
         progress = tracker.get_public_progress(job_id)
 
         if not progress or progress.get("status") == "error":

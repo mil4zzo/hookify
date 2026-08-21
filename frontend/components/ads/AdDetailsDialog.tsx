@@ -569,7 +569,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const resolvedCreativeImageUrl = imageSourceData?.image_url ?? null;
 
   const { data: transcriptionData, isLoading: loadingTranscription, isError: transcriptionError } = useAdTranscription(adName, shouldLoadTranscription, transcriptionPending);
-  const { mutate: transcribeAdMutation, isPending: isTranscribing } = useTranscribeAd();
+  const { mutate: transcribeAdMutation, isPending: isTranscribing } = useTranscribeAd(packIds);
 
   // Handler para quando um ponto do gráfico de retenção é clicado
   const handleRetentionPointClick = (second: number) => {

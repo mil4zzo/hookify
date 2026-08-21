@@ -155,8 +155,8 @@ export const api = {
       }),
 
     /** Inicia ou reinicia a transcrição de um anúncio por ad_name. */
-    transcribeAd: (adName: string): Promise<{ message: string; ad_name: string }> =>
-      apiClient.post('/facebook/transcription/start', { ad_name: adName }),
+    transcribeAd: (adName: string, packIds?: string[]): Promise<{ message: string; ad_name: string }> =>
+      apiClient.post('/facebook/transcription/start', { ad_name: adName, pack_ids: packIds }),
     
     /** Jobs ativos (heartbeat recente) do usuário — usado para re-attach de progresso após reload/login. */
     getActiveJobs: (): Promise<{ jobs: Array<{ job_id: string; status: string; progress: number; message: string | null; type: string | null; pack_id: string | null; pack_name: string | null; integration_id: string | null; updated_at: string }> }> =>
@@ -363,9 +363,10 @@ export const api = {
         throw err;
       }
     },
-    getTranscriptionsBatch: async (adNames: string[]): Promise<Record<string, string>> => {
+    getTranscriptionsBatch: async (adNames: string[], packIds?: string[]): Promise<Record<string, string>> => {
       if (!adNames.length) return {};
-      return apiClient.post('/analytics/transcriptions/batch', { ad_names: adNames }) as Promise<Record<string, string>>;
+      // Pack compartilhado: a transcricao vive no silo do dono.
+      return apiClient.post('/analytics/transcriptions/batch', { ad_names: adNames, pack_ids: packIds }) as Promise<Record<string, string>>;
     },
     getAdsetDetails: (
       adsetId: string,

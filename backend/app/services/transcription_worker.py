@@ -70,7 +70,7 @@ def _extract_video_info(
 
 def count_pending_transcriptions(
     *,
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     formatted_ads: List[Dict[str, Any]],
     force_no_audio: bool = False,
@@ -90,7 +90,7 @@ def count_pending_transcriptions(
 
 def _resolve_video_url(
     api: GraphAPI,
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     video_id: str,
     actor_id: str,
@@ -124,7 +124,7 @@ def _resolve_video_url(
 
 
 def _build_video_source_cache_map(
-    user_jwt: str, user_id: str, ad_names: List[str], video_map: Dict[str, Dict[str, str]]
+    user_jwt: Optional[str], user_id: str, ad_names: List[str], video_map: Dict[str, Dict[str, str]]
 ) -> Dict[str, Dict[str, Any]]:
     """Mapa ad_name -> {url, expires_at} do cache em ads (migration 097).
 
@@ -151,7 +151,7 @@ def _build_video_source_cache_map(
 
 
 def _transcribe_single(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_name: str,
     video_url: str,
@@ -206,7 +206,7 @@ def _transcribe_single(
 
 
 def run_transcription_batch(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     access_token: str,
     formatted_ads: List[Dict[str, Any]],
@@ -218,7 +218,12 @@ def run_transcription_batch(
     force_no_audio=True retenta também ads com falha permanente de sem-áudio
     (escape para falsos positivos — ex.: Meta serviu rendition ruim do vídeo).
     """
-    tracker = get_job_tracker(user_jwt, user_id) if transcription_job_id else None
+    # jwt None => disparo de convidado: o job vive no silo do DONO e a RLS do ator
+    # nao alcanca (P3.3b).
+    tracker = (
+        get_job_tracker(user_jwt, user_id, use_service_role=user_jwt is None)
+        if transcription_job_id else None
+    )
 
     def _heartbeat(
         *,
@@ -534,7 +539,7 @@ def run_transcription_batch(
 
 
 def retry_single_transcription(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     access_token: str,
     ad_name: str,

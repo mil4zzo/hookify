@@ -88,7 +88,7 @@ def _parse_iso(value: Any) -> Optional[datetime]:
 def resolve_video_source_cached(
     api: GraphAPI,
     *,
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_id: str = "",
     video_id: str = "",

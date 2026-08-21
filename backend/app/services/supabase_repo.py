@@ -35,6 +35,20 @@ def _attach_storage_thumbnail(ad: Dict[str, Any]) -> Dict[str, Any]:
     return row
 
 
+def _sb_or_service(user_jwt: Optional[str]) -> "Client":
+    """CONVENCAO (P3.3b): `user_jwt=None` => SERVICE ROLE + silo explicito.
+
+    Restrito as funcoes do caminho de TRANSCRICAO, que rodam no silo do DONO quando
+    um convidado dispara. Todas filtram `user_id` explicitamente — o filtro fica, o
+    guarda muda de lugar (assert_pack_role / resolve_entity_pack_scope ANTES).
+    Deliberadamente NAO e o `_get_sb` abaixo: aquele levanta quando falta auth, e
+    transformar o default em service role seria fail-open silencioso no repo inteiro.
+    """
+    if user_jwt is None:
+        return get_supabase_service()
+    return get_supabase_for_user(user_jwt)
+
+
 def _get_sb(user_jwt: Optional[str] = None, sb_client: Optional["Client"] = None) -> "Client":
     """Retorna cliente Supabase: sb_client se fornecido, senão get_supabase_for_user(user_jwt)."""
     if sb_client is not None:
@@ -1315,7 +1329,7 @@ def update_ad_video_owner(
 
 
 def update_ad_video_source(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     *,
     ad_id: str,
@@ -1336,7 +1350,7 @@ def update_ad_video_source(
     if video_owner_page_id:
         payload["video_owner_page_id"] = video_owner_page_id
     try:
-        sb = get_supabase_for_user(user_jwt)
+        sb = _sb_or_service(user_jwt)
         query = sb.table("ads").update(payload).eq("user_id", user_id)
         if primary_video_id:
             query = query.eq("primary_video_id", primary_video_id)
@@ -1403,7 +1417,7 @@ def get_ad_video_source_cache(
 
 
 def get_ads_video_fields_by_names(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_names: List[str],
 ) -> List[Dict[str, Any]]:
@@ -1415,7 +1429,7 @@ def get_ads_video_fields_by_names(
     if not names:
         return []
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     select_fields = (
         "ad_id,ad_name,account_id,primary_video_id,media_type,video_owner_page_id,"
         "video_source_url,video_source_expires_at,image_source_url,image_source_expires_at,creative"
@@ -3427,7 +3441,7 @@ def _is_no_audio_failure(metadata: Any) -> bool:
 
 
 def get_existing_transcriptions(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_names: List[str],
     *,
@@ -3443,7 +3457,7 @@ def get_existing_transcriptions(
     if not user_id or not ad_names:
         return {}
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     result: Dict[str, str] = {}
     batch_size = 200  # Reduzido de 400 para alinhar a outros selects em lote
 
@@ -3529,14 +3543,14 @@ def _sync_ads_transcription_links(
 
 
 def _sync_transcription_links_after_upsert(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_name: str,
 ) -> None:
     """Atualiza ads.transcription_id e ad_transcriptions.ad_ids após upsert de transcrição."""
     if not user_id or not ad_name:
         return
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     try:
         tr = (
             sb.table("ad_transcriptions")
@@ -3579,7 +3593,7 @@ def _sync_transcription_links_after_upsert(
 
 
 def upsert_transcription(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_name: str,
     status: str,
@@ -3591,7 +3605,7 @@ def upsert_transcription(
     if not user_id or not ad_name:
         return
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     row: Dict[str, Any] = {
         "user_id": user_id,
         "ad_name": ad_name,
@@ -3616,14 +3630,14 @@ def upsert_transcription(
 
 
 def get_transcription_by_id(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     transcription_id: str,
 ) -> Optional[Dict[str, Any]]:
     """Busca transcrição por user_id + transcription_id. Retorna None se não existir."""
     if not user_id or not transcription_id:
         return None
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     try:
         res = (
             sb.table("ad_transcriptions")
@@ -3642,7 +3656,7 @@ def get_transcription_by_id(
 
 
 def get_transcriptions_batch(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_names: List[str],
 ) -> Dict[str, Optional[str]]:
@@ -3650,7 +3664,7 @@ def get_transcriptions_batch(
     if not user_id or not ad_names:
         return {}
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     result: Dict[str, Optional[str]] = {}
     try:
         res = (
@@ -3669,7 +3683,7 @@ def get_transcriptions_batch(
 
 
 def get_transcription(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_name: str,
 ) -> Optional[Dict[str, Any]]:
@@ -3677,7 +3691,7 @@ def get_transcription(
     if not user_id or not ad_name:
         return None
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     try:
         res = (
             sb.table("ad_transcriptions")

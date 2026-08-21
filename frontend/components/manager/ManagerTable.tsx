@@ -1337,6 +1337,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         dateStart={dateStart}
         dateStop={dateStop}
         metricContext={{ actionType, mqlLeadscoreMin }}
+        packIds={packCtxIds}
       />
 
       {/* Share Dialog — link público de criativos em stories (aba Criativos) */}

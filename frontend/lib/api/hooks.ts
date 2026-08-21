@@ -626,10 +626,11 @@ export const useAdTranscription = (adName: string, enabled: boolean = false, for
   })
 }
 
-export const useTranscribeAd = () => {
+export const useTranscribeAd = (packIds?: string[]) => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (adName: string) => api.facebook.transcribeAd(adName),
+    // packIds: transcrever anuncio de pack COMPARTILHADO (silo/credencial do dono).
+    mutationFn: (adName: string) => api.facebook.transcribeAd(adName, packIds),
     onSuccess: (_data, adName) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.adTranscription(adName) })
     },
