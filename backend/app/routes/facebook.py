@@ -1126,6 +1126,7 @@ def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: Optional[str], use
             if read.get("status") == "success" and statuses:
                 supabase_repo.write_parent_statuses(
                     user_jwt, user_id, {"adsets": statuses}, skip_present_check=True,
+                    sb_client=_sb_for(user_jwt),
                 )
                 return
         if children_synced:
@@ -1749,11 +1750,13 @@ def sync_packs_status(
             if act_id not in parent_synced_accounts:
                 parent_entities = enricher.fetch_parent_entities(act_id)
                 supabase_repo.write_parent_statuses(
-                    user_jwt, user_id, enricher.project_parent_statuses(parent_entities)
+                    user_jwt, user_id, enricher.project_parent_statuses(parent_entities),
+                    sb_client=_sb_for(user_jwt),
                 )
                 try:
                     supabase_repo.upsert_parent_entities(
-                        user_jwt, user_id, enricher.project_parent_entities(act_id, parent_entities)
+                        user_jwt, user_id, enricher.project_parent_entities(act_id, parent_entities),
+                        sb_client=_sb_for(user_jwt),
                     )
                 except Exception as exc:
                     logger.warning("[STATUS_SYNC] upsert_parent_entities falhou (best-effort): %s", exc)
@@ -1949,6 +1952,7 @@ def _finalize_budget_update(
             supabase_repo.update_parent_entity_budget(
                 user_jwt,
                 user_id,
+                sb_client=_sb_for(user_jwt),
                 entity_id=entity_id,
                 level=entity_type,
                 daily_budget=daily,

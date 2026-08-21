@@ -1392,16 +1392,19 @@ def update_ads_image_source(
 
 
 def get_ad_video_source_cache(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_id: str,
 ) -> Optional[Dict[str, Any]]:
-    """Lê o cache de video_source de um ad (best-effort; None se ausente/falha)."""
+    """Lê o cache de video_source de um ad (best-effort; None se ausente/falha).
+
+    jwt None => silo de DONO via service role: sem isto o convidado nunca aproveita
+    o cache do dono e paga uma chamada a Meta por play."""
     ad_id = str(ad_id or "").strip()
     if not ad_id:
         return None
     try:
-        sb = get_supabase_for_user(user_jwt)
+        sb = _sb_or_service(user_jwt)
         res = (
             sb.table("ads")
             .select("primary_video_id,video_source_url,video_source_expires_at")

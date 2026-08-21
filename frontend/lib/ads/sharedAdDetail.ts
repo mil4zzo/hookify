@@ -186,7 +186,9 @@ export function useSharedAdNameDetail({
 
   const detailsEnabled = enabled && !!ad && !!adName && !!dateStart && !!dateStop;
   const detailQuery = useAdNameDetails(adName, dateStart || "", dateStop || "", packIds, detailsEnabled);
-  const creativeQuery = useAdCreative(adId, enabled && !!ad && !!adId);
+  // packIds tambem aqui: sem o contexto, criativo e video caem no silo do ATOR —
+  // num pack compartilhado o anuncio pode nao existir la e o player fica sem fonte.
+  const creativeQuery = useAdCreative(adId, enabled && !!ad && !!adId, packIds);
 
   const creative = creativeQuery.data?.creative || {};
   const videoId = resolvePrimaryVideoId(creativeQuery.data as any, creative, creativeQuery.data?.adcreatives_videos_ids);
@@ -220,6 +222,7 @@ export function useSharedAdNameDetail({
       actor_id: actorId || undefined,
       ad_id: adId || undefined,
       video_owner_page_id: videoOwnerPageId || undefined,
+      pack_ids: packIds.length > 0 ? packIds.join(",") : undefined,
     },
     enabled && !!ad && mediaType !== "image" && (!!videoId || !!igMediaId),
   );
