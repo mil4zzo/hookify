@@ -40,7 +40,7 @@ class TestSheetChainOwnerContext(unittest.TestCase):
             )
         self.assertEqual(result, "sync-9")
         create_sync.assert_called_once_with(
-            user_jwt=None, user_id="owner-1", integration_id="integ-1"
+            user_jwt=None, user_id="owner-1", integration_id="integ-1", actor_id="owner-1"
         )
 
 
@@ -68,7 +68,7 @@ class TestPrepareChainedSheetSync(unittest.TestCase):
 
         self.assertEqual(result, "sync-1")
         create_sync_job.assert_called_once_with(
-            user_jwt="jwt", user_id="user-1", integration_id="integ-1"
+            user_jwt="jwt", user_id="user-1", integration_id="integ-1", actor_id="user-1"
         )
         processor.tracker.merge_payload.assert_called_once_with(
             "job-1", {"chained_sync_job_id": "sync-1"}

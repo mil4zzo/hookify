@@ -158,14 +158,22 @@ def create_sync_job(
     user_jwt: Optional[str],
     user_id: str,
     integration_id: str,
+    actor_id: Optional[str] = None,
 ) -> str:
-    """Cria um novo job de sincronizacao. Retorna job_id. jwt None => service role (silo de dono)."""
+    """Cria um novo job de sincronizacao. Retorna job_id. jwt None => service role (silo de dono).
+
+    `actor_id`: QUEM disparou (pode diferir de `user_id`, que e o silo do dono num
+    pack compartilhado). E o que permite ao convidado re-anexar/cancelar o proprio
+    job depois de um reload — sem isso o job fica invisivel para ele.
+    """
     job_id = str(uuid.uuid4())
     tracker = get_job_tracker(user_jwt, user_id, use_service_role=user_jwt is None)
 
     payload = {
         "integration_id": integration_id,
         "type": "google_sheet_sync",
+        "actor_id": str(actor_id or user_id),
+        "silo_user_id": str(user_id),
     }
 
     tracker.create_job(

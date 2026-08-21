@@ -603,6 +603,8 @@ class JobProcessor:
                 user_jwt=None if self.use_service_role else self.user_jwt,
                 user_id=self.user_id,
                 integration_id=integration_id,
+                # Cadeia server-side: o "ator" e o dono do job encadeado, nao quem polou.
+                actor_id=self.user_id,
             )
             # Persistir no payload do pai para o resume não criar duplicado.
             self.tracker.merge_payload(job_id, {"chained_sync_job_id": sync_job_id})

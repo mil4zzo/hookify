@@ -4086,6 +4086,7 @@ def refresh_pack(
                     user_jwt=sync_jwt,
                     user_id=owner_id,
                     integration_id=sheet_integration_id,
+                    actor_id=user["user_id"],
                 )
 
                 # Details separado do payload — passado via parâmetro details de record_job
@@ -4175,21 +4176,53 @@ def list_active_jobs(user: Dict[str, Any] = Depends(get_current_user)):
     e o toast de progresso. Jobs sem heartbeat há mais de 10 min são
     considerados mortos e omitidos — re-anexar neles só geraria stall.
     """
-    from app.core.supabase_client import get_supabase_for_user
-
+    # (import local removido: `get_supabase_for_user` ja vem do topo do modulo —
+    # o shadow local so atrapalhava o patch em teste)
     try:
         sb = get_supabase_for_user(user["token"])
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        _ACTIVE = ["pending", "running", "processing", "persisting", "meta_running", "meta_completed"]
         rows = (
             sb.table("jobs")
             .select("id,status,progress,message,payload,updated_at")
             .eq("user_id", user["user_id"])
-            .in_("status", ["pending", "running", "processing", "persisting", "meta_running", "meta_completed"])
+            .in_("status", _ACTIVE)
             .gte("updated_at", cutoff)
             .order("updated_at", desc=True)
             .limit(20)
             .execute()
         ).data or []
+
+        # Pack COMPARTILHADO: um job disparado pelo ator vive no silo do DONO — a
+        # query acima (RLS/silo do ator) nao o enxerga e, apos um reload, o toast de
+        # progresso sumia. `payload.actor_id` diz QUEM disparou; o grant no pack do
+        # job confirma que ele ainda pode ve-lo (grant revogado no meio => some).
+        try:
+            foreign = (
+                get_supabase_service()
+                .table("jobs")
+                .select("id,status,progress,message,payload,updated_at,user_id")
+                .eq("payload->>actor_id", str(user["user_id"]))
+                .neq("user_id", str(user["user_id"]))
+                .in_("status", _ACTIVE)
+                .gte("updated_at", cutoff)
+                .order("updated_at", desc=True)
+                .limit(20)
+                .execute()
+            ).data or []
+        except Exception as e:
+            logger.warning("[ACTIVE_JOBS] Falha ao listar jobs em silo alheio (best-effort): %s", e)
+            foreign = []
+
+        for row in foreign:
+            fpack = str(((row.get("payload") or {}).get("pack_id")) or "").strip()
+            if not fpack:
+                continue  # sem pack nao ha como autorizar
+            try:
+                assert_pack_role(user["user_id"], fpack, roles=("dono", "editor", "viewer"))
+            except HTTPException:
+                continue  # grant revogado desde o disparo
+            rows.append(row)
 
         jobs = []
         for row in rows:
@@ -4257,10 +4290,54 @@ def cancel_jobs_batch(
         
         if not isinstance(job_ids, list):
             raise HTTPException(status_code=400, detail="job_ids deve ser uma lista")
-        
-        tracker = get_job_tracker(user["token"], user["user_id"])
-        cancelled_count = tracker.cancel_jobs_batch(job_ids, reason)
-        
+
+        job_ids = [str(j).strip() for j in job_ids if str(j or "").strip()]
+        if not job_ids:
+            return {"cancelled_count": 0, "total_requested": 0, "message": "Nenhum job para cancelar"}
+
+        # Cada job pode viver num silo diferente (pack compartilhado). Agrupa por silo
+        # e cancela cada grupo com o cliente certo. O silo sai do JOB, nunca do cliente.
+        actor_id = str(user["user_id"])
+        by_silo: Dict[str, List[str]] = {}
+        try:
+            rows = (
+                get_supabase_service()
+                .table("jobs").select("id,user_id,payload").in_("id", job_ids[:200]).execute()
+            ).data or []
+        except Exception as e:
+            logger.warning("[CANCEL_JOBS_BATCH] Falha ao resolver silo dos jobs: %s", e)
+            rows = []
+
+        for row in rows:
+            jid = str(row.get("id") or "")
+            silo = str(row.get("user_id") or "")
+            if not jid or not silo:
+                continue
+            if silo == actor_id:
+                by_silo.setdefault(actor_id, []).append(jid)
+                continue
+            # Silo alheio: cancela se DISPAROU o job, ou se manda no pack (dono|editor).
+            payload = row.get("payload") or {}
+            if str(payload.get("actor_id") or "") == actor_id:
+                by_silo.setdefault(silo, []).append(jid)
+                continue
+            job_pack_id = str(payload.get("pack_id") or "").strip()
+            if not job_pack_id:
+                continue
+            try:
+                assert_pack_role(actor_id, job_pack_id, roles=("dono", "editor"))
+            except HTTPException:
+                continue  # viewer ou sem grant: nao cancela trabalho alheio
+            by_silo.setdefault(silo, []).append(jid)
+
+        cancelled_count = 0
+        for silo, ids in by_silo.items():
+            is_guest = silo != actor_id
+            tracker = get_job_tracker(
+                None if is_guest else user["token"], silo, use_service_role=is_guest,
+            )
+            cancelled_count += tracker.cancel_jobs_batch(ids, reason)
+
         logger.info(f"[CANCEL_JOBS_BATCH] Cancelados {cancelled_count}/{len(job_ids)} jobs para usuário {user['user_id']}")
         
         return {
@@ -4456,6 +4533,9 @@ def start_pack_transcription(
                 "pack_id": pack_id,
                 "pack_name": pack_name,
                 "total": pending,
+                # Auditoria + re-attach/cancel do convidado: QUEM disparou vs onde vive.
+                "actor_id": str(user["user_id"]),
+                "silo_user_id": str(owner_id),
             },
             status=STATUS_PROCESSING,
             message="Transcrevendo vídeos...",

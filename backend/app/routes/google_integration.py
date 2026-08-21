@@ -665,6 +665,7 @@ def start_sync_job(
             user_jwt=sync_jwt,
             user_id=silo_user_id,
             integration_id=integration_id,
+            actor_id=user["user_id"],
         )
         
         # Iniciar processamento em background

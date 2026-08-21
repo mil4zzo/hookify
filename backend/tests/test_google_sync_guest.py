@@ -66,7 +66,9 @@ class TestStartSyncJobGuest(unittest.TestCase):
         )
         self.assertEqual(result["job_id"], "job-1")
         gate.assert_not_called()
-        create_sync.assert_called_once_with(user_jwt="jwt", user_id="guest-9", integration_id="integ-1")
+        create_sync.assert_called_once_with(
+            user_jwt="jwt", user_id="guest-9", integration_id="integ-1", actor_id="guest-9",
+        )
 
     def test_membro_dispara_sync_do_dono(self) -> None:
         """Integracao alheia de pack com grant: gate consultado; job criado no
@@ -77,7 +79,11 @@ class TestStartSyncJobGuest(unittest.TestCase):
         )
         self.assertEqual(result["job_id"], "job-1")
         gate.assert_called_once_with("guest-9", "pack-1", roles=("dono", "editor", "viewer"))
-        create_sync.assert_called_once_with(user_jwt=None, user_id="owner-1", integration_id="integ-1")
+        # actor_id = quem DISPAROU (o convidado); user_id = silo do dono. E o par que
+        # permite ao convidado re-anexar/cancelar o proprio job depois de um reload.
+        create_sync.assert_called_once_with(
+            user_jwt=None, user_id="owner-1", integration_id="integ-1", actor_id="guest-9",
+        )
         # o background task recebe o MESMO contexto de dono
         _, kwargs = bg.add_task.call_args
         self.assertIsNone(kwargs["user_jwt"])
