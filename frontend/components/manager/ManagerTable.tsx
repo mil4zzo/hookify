@@ -382,6 +382,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isFullscreen]);
 
+  // Contexto de pack para ESCRITAS (status/budget em pack compartilhado). Estabilizado
+  // por chave: `selectedPackIds` tem default `[]` (identidade nova a cada render) e as
+  // colunas o consomem dentro de um useMemo pesado.
+  const packCtxKey = useMemo(() => [...selectedPackIds].sort().join("|"), [selectedPackIds]);
+  const packCtxIds = useMemo(() => (packCtxKey ? packCtxKey.split("|") : []), [packCtxKey]);
+
   // Drill state (URL-backed). Substitui a expansão inline por um modal único com breadcrumb.
   const drill = useDrillState();
   const drillOpenChainRef = useRef(drill.openChain);
@@ -797,7 +803,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // A entidade alvo do bulk é derivada da aba; as chaves de rowSelection são o id dessa entidade.
   const bulkEntityType: AdEntityType =
     currentTab === "por-conjunto" ? "adset" : currentTab === "por-campanha" ? "campaign" : "ad";
-  const { bulkPause, bulkActivate, isLoading: isBulkLoading } = useBulkEntityStatusControl(bulkEntityType);
+  const { bulkPause, bulkActivate, isLoading: isBulkLoading } = useBulkEntityStatusControl(bulkEntityType, packCtxIds);
 
   const selectedIds = useMemo(() => Object.keys(rowSelection), [rowSelection]);
   const selectedCount = selectedIds.length;
@@ -817,6 +823,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       groupByAdNameEffective,
       byKey,
       onOpenDrill: handleOpenDrill,
+      selectedPackIds: packCtxIds,
       currentTab,
       getRowKey,
       endDate,
@@ -839,7 +846,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFiltersRef,
       globalFilterRef,
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {

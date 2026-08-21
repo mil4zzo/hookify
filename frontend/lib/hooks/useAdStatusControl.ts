@@ -108,6 +108,8 @@ function patchAdStatusInCaches(qc: QueryClient, adId: string, nextStatus: string
 export interface UseAdStatusControlOptions {
   entityType: AdEntityType;
   entityId: string;
+  /** Packs do contexto — habilita a escrita em pack COMPARTILHADO (silo do dono). */
+  packIds?: string[];
   currentStatus?: string | null;
   onSuccess?: (nextStatus: AdEntityStatus) => void;
 }
@@ -186,16 +188,16 @@ function failStatusToast(toastId: string, message: string): void {
  * - adset/campaign: 1 invalidação ampla de rankings (o backend releu/reconciliou o cache local;
  *   1 mutação = 1 invalidação, sem amplificação — mesma via do toggle individual).
  */
-export function useBulkEntityStatusControl(entityType: AdEntityType = "ad"): UseBulkEntityStatusControlReturn {
+export function useBulkEntityStatusControl(entityType: AdEntityType = "ad", packIds?: string[]): UseBulkEntityStatusControlReturn {
   const qc = useQueryClient();
   const noun = BULK_ENTITY_NOUN[entityType];
   const toastId = `bulk-status-${entityType}`;
 
   const mutation = useMutation({
     mutationFn: ({ ids, status }: { ids: string[]; status: "PAUSED" | "ACTIVE" }) => {
-      if (entityType === "adset") return api.facebook.batchUpdateAdsetStatus(ids, status);
-      if (entityType === "campaign") return api.facebook.batchUpdateCampaignStatus(ids, status);
-      return api.facebook.batchUpdateAdStatus(ids, status);
+      if (entityType === "adset") return api.facebook.batchUpdateAdsetStatus(ids, status, packIds);
+      if (entityType === "campaign") return api.facebook.batchUpdateCampaignStatus(ids, status, packIds);
+      return api.facebook.batchUpdateAdStatus(ids, status, packIds);
     },
     onMutate: ({ ids, status }) => {
       showStatusLoadingToast(toastId, status, `${ids.length} ${ids.length === 1 ? noun.singular : noun.plural}`);
@@ -281,7 +283,7 @@ export function useBulkAdStatusControl(): UseBulkEntityStatusControlReturn {
 }
 
 export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdStatusControlReturn {
-  const { entityType, entityId, currentStatus, onSuccess } = options;
+  const { entityType, entityId, currentStatus, onSuccess, packIds } = options;
   const qc = useQueryClient();
   const [statusOverride, setStatusOverride] = useState<string | null>(null);
 
@@ -301,9 +303,9 @@ export function useAdStatusControl(options: UseAdStatusControlOptions): UseAdSta
       if (!entityId || !entityId.trim()) {
         throw new Error("entityId é obrigatório");
       }
-      if (entityType === "ad") return api.facebook.updateAdStatus(entityId, nextStatus);
-      if (entityType === "adset") return api.facebook.updateAdsetStatus(entityId, nextStatus);
-      return api.facebook.updateCampaignStatus(entityId, nextStatus);
+      if (entityType === "ad") return api.facebook.updateAdStatus(entityId, nextStatus, packIds);
+      if (entityType === "adset") return api.facebook.updateAdsetStatus(entityId, nextStatus, packIds);
+      return api.facebook.updateCampaignStatus(entityId, nextStatus, packIds);
     },
     onMutate: (nextStatus) => {
       showStatusLoadingToast(toastId, nextStatus, BULK_ENTITY_NOUN[entityType].singular);

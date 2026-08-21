@@ -136,6 +136,8 @@ interface ManagerChildrenTableProps {
   asContent?: boolean;
   /** Quando definido, cada linha vira clicável e dispara este callback. */
   onRowClick?: (child: RankingsChildrenItem) => void;
+  /** Packs do contexto — habilita escrita (status) em pack COMPARTILHADO. */
+  packIds?: string[];
 }
 
 export function ManagerChildrenTable({
@@ -155,6 +157,7 @@ export function ManagerChildrenTable({
   setColumnFilters,
   asContent = false,
   onRowClick,
+  packIds,
 }: ManagerChildrenTableProps) {
   const resolvedEntity: ChildrenEntity = entity ?? (adsetId ? "ads" : "variations");
   const config = ENTITY_CONFIG[resolvedEntity];
@@ -164,7 +167,7 @@ export function ManagerChildrenTable({
   });
   const [searchTerm, setSearchTerm] = useState("");
 
-  const bulk = useBulkEntityStatusControl(config.bulkEntityType);
+  const bulk = useBulkEntityStatusControl(config.bulkEntityType, packIds);
 
   // Só métricas: as dimensões de procedência (Pack/Conta) são descartadas aqui. Os filhos vêm de
   // outro endpoint (RankingsChildrenItem), que não carrega pack_ids/account_ids — a coluna sairia
@@ -457,7 +460,7 @@ export function ManagerChildrenTable({
                     ) : null}
                   </td>
                   <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
-                    <StatusCell original={child} currentTab={config.statusTab} />
+                    <StatusCell original={child} currentTab={config.statusTab} packIds={packIds} />
                   </td>
                   <td className="px-4 py-3 text-left">
                     {config.richNameCell ? (

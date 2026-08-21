@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Header, Body, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import JSONResponse, StreamingResponse
-from typing import Dict, Any, List, Optional, Set, Tuple
+from typing import Dict, Any, List, NamedTuple, Optional, Set, Tuple
 from datetime import datetime, timezone, timedelta, date
 import logging
 import requests
@@ -14,7 +14,7 @@ import os
 from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
-from app.services.pack_access import assert_pack_role
+from app.services.pack_access import assert_pack_role, resolve_entity_write_scope
 from app.services.facebook_token_service import (
     get_facebook_token_for_user, 
     get_facebook_token_for_silo,
@@ -374,14 +374,25 @@ def get_auth_url(redirect_uri: str = Query(..., description="Frontend OAuth redi
         logger.exception("Error generating auth URL")
         raise HTTPException(status_code=500, detail=str(e))
 
-def mark_connection_as_expired(user_jwt: str, user_id: str) -> None:
+def mark_connection_as_expired(user_jwt: Optional[str], user_id: str) -> None:
     """
     Marca todas as conexões ativas do usuário como expiradas.
-    
+
     Args:
-        user_jwt: JWT do Supabase
+        user_jwt: JWT do Supabase. None => escrita em silo de DONO disparada por
+            convidado (P3.3b): NAO marca. Marcar a conexao do dono como expirada
+            exige o JWT dele; fazer isso via service role a partir da acao de um
+            terceiro derrubaria a conexao do dono com base em sinal indireto.
+            Regra travada na P3.3a: loga, nao marca.
         user_id: ID do usuário
     """
+    if user_jwt is None:
+        logger.warning(
+            "[FB_TOKEN] Token do dono %s expirado numa acao de convidado — nao marcado (exige JWT do dono)",
+            str(user_id)[:8],
+        )
+        return
+
     try:
         from app.core.supabase_client import get_supabase_for_user
         sb = get_supabase_for_user(user_jwt)
@@ -450,6 +461,91 @@ def check_meta_error_for_token_expiry(error_message: str) -> bool:
         return True
     
     return False
+
+
+def _sb_for(user_jwt: Optional[str]):
+    """Cliente Supabase do caminho de escrita local.
+
+    CONVENCAO DO PROJETO (P3.3b): `user_jwt=None` => SERVICE ROLE + silo explicito.
+    E o caminho de pack COMPARTILHADO: a escrita acontece no silo do DONO, onde a
+    RLS do ator nao alcanca. Toda query destes helpers ja filtra `user_id`
+    explicitamente — o filtro fica, o guarda muda de lugar (assert_pack_role /
+    resolve_entity_write_scope ANTES de chegar aqui).
+    """
+    from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+
+    return get_supabase_service() if user_jwt is None else get_supabase_for_user(user_jwt)
+
+
+class _WriteCtx(NamedTuple):
+    api: GraphAPI
+    user_jwt: Optional[str]   # None => service role (silo do dono)
+    user_id: str              # silo de destino do write
+    allowed_ids: Optional[List[str]]  # ids validados no pack; None => caminho legado
+    is_guest: bool
+
+
+def _resolve_entity_write_context(
+    *,
+    user: Dict[str, Any],
+    entity_type: str,
+    entity_ids: List[str],
+    pack_ids: Optional[List[str]],
+) -> _WriteCtx:
+    """Credencial + silo para escrever numa entidade (P3.3b-resto).
+
+    Por que o GraphAPI e montado AQUI e nao via `Depends(get_graph_api)`: aquela
+    dependency exige conexao Meta DO ATOR e levanta 403 ANTES do corpo da rota —
+    barraria justamente o convidado, que por desenho pode nao ter Facebook
+    conectado. Mesmo motivo que a P3.3a encontrou no polling.
+
+    Convidado autorizado => credencial e silo do DONO (uso Meta atribuido a ele,
+    que e de quem e a conta de anuncios). Caso contrario, caminho do ator, igual
+    a antes.
+    """
+    actor_id = user["user_id"]
+    actor_jwt = user["token"]
+
+    scope = resolve_entity_write_scope(actor_id, entity_type, entity_ids, pack_ids)
+
+    if scope is not None and scope.is_guest:
+        fb_token = get_facebook_token_for_silo(scope.owner_id)
+        if not fb_token:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "owner_facebook_connection_missing",
+                    "message": "O dono do pack precisa reconectar a conta do Facebook.",
+                },
+            )
+        logger.info(
+            "[WRITE_CTX] %s em pack compartilhado: silo do dono %s (ator %s, papel %s)",
+            entity_type, str(scope.owner_id)[:8], str(actor_id)[:8], scope.role,
+        )
+        return _WriteCtx(
+            api=GraphAPI(fb_token, user_id=scope.owner_id),
+            user_jwt=None,
+            user_id=scope.owner_id,
+            allowed_ids=list(scope.allowed_ids),
+            is_guest=True,
+        )
+
+    fb_token = get_facebook_token_for_user(actor_jwt, actor_id)
+    if not fb_token:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "facebook_connection_missing",
+                "message": "Nenhuma conexao do Facebook encontrada. Por favor, conecte sua conta do Facebook primeiro.",
+            },
+        )
+    return _WriteCtx(
+        api=GraphAPI(fb_token, user_id=actor_id),
+        user_jwt=actor_jwt,
+        user_id=actor_id,
+        allowed_ids=(list(scope.allowed_ids) if scope else None),
+        is_guest=False,
+    )
 
 
 def get_graph_api(user: Dict[str, Any] = Depends(get_current_user)) -> GraphAPI:
@@ -709,7 +805,7 @@ def sync_ad_accounts(user: Dict[str, Any] = Depends(get_current_user)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _assert_entity_belongs_to_user(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str) -> None:
+def _assert_entity_belongs_to_user(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str) -> None:
     """
     Valida que a entidade está associada ao usuário.
 
@@ -720,7 +816,7 @@ def _assert_entity_belongs_to_user(*, user_jwt: str, user_id: str, entity_type: 
     """
     from app.core.supabase_client import get_supabase_for_user
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     if entity_type == "ad":
         res = sb.table("ads").select("ad_id").eq("user_id", user_id).eq("ad_id", entity_id).limit(1).execute()
     elif entity_type == "adset":
@@ -742,7 +838,7 @@ _STATUS_SYNC_MAX_ADS = 600
 _CHILD_SYNC_TIME_BUDGET_S = 25
 
 
-def _fetch_entity_ad_ids(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str, limit: int = 1000) -> List[str]:
+def _fetch_entity_ad_ids(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str, limit: int = 1000) -> List[str]:
     """
     Lista os ad_ids do usuário para um adset/campaign — no máximo `limit` linhas em UMA chamada.
     O caller usa limit = teto+1 só para DETECTAR estouro do teto; paginar o inventário inteiro
@@ -753,7 +849,7 @@ def _fetch_entity_ad_ids(*, user_jwt: str, user_id: str, entity_type: str, entit
     column = {"ad": "ad_id", "adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
     if not column:
         return []
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     res = (
         sb.table("ads")
         .select("ad_id")
@@ -765,7 +861,7 @@ def _fetch_entity_ad_ids(*, user_jwt: str, user_id: str, entity_type: str, entit
     return [str(r["ad_id"]) for r in (res.data or []) if r.get("ad_id")]
 
 
-def _write_local_statuses(*, user_jwt: str, user_id: str, statuses: Dict[str, Any]) -> None:
+def _write_local_statuses(*, user_jwt: Optional[str], user_id: str, statuses: Dict[str, Any]) -> None:
     """
     Grava effective_status por ad no cache local (Supabase `ads`), agrupando por valor
     (1 UPDATE por status distinto, em chunks de 200 para não estourar a URL do PostgREST).
@@ -789,21 +885,21 @@ def _write_local_statuses(*, user_jwt: str, user_id: str, statuses: Dict[str, An
     if not by_status:
         return
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     for status_value, ids in by_status.items():
         for i in range(0, len(ids), 200):
             chunk = ids[i : i + 200]
             sb.table("ads").update({"effective_status": status_value}).eq("user_id", user_id).in_("ad_id", chunk).execute()
 
 
-def _fetch_entity_account_id(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str) -> Optional[str]:
+def _fetch_entity_account_id(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str) -> Optional[str]:
     """act_id (com prefixo act_) da conta a que o adset/campaign pertence, via tabela ads."""
     from app.core.supabase_client import get_supabase_for_user
 
     column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
     if not column:
         return None
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     res = (
         sb.table("ads")
         .select("account_id")
@@ -820,7 +916,7 @@ def _fetch_entity_account_id(*, user_jwt: str, user_id: str, entity_type: str, e
     return account_id if account_id.startswith("act_") else f"act_{account_id}"
 
 
-def _sync_children_statuses_from_meta(*, api: GraphAPI, user_jwt: str, user_id: str, entity_type: str, entity_id: str) -> bool:
+def _sync_children_statuses_from_meta(*, api: GraphAPI, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str) -> bool:
     """
     Relê do Meta o effective_status REAL dos ads de um adset/campaign e grava no cache local.
 
@@ -880,7 +976,7 @@ def _sync_children_statuses_from_meta(*, api: GraphAPI, user_jwt: str, user_id: 
         return False
 
 
-def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str, new_status: str) -> None:
+def _update_local_effective_status(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str, new_status: str) -> None:
     """
     Fallback HEURÍSTICO do cache local (`ads.effective_status`) — usado apenas quando o sync
     com o Meta (`_sync_children_statuses_from_meta`) não pôde rodar.
@@ -892,7 +988,7 @@ def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: 
     """
     from app.core.supabase_client import get_supabase_for_user
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     _only_active_or_null = "effective_status.eq.ACTIVE,effective_status.is.null"
 
     try:
@@ -918,7 +1014,7 @@ def _update_local_effective_status(*, user_jwt: str, user_id: str, entity_type: 
         logger.exception("[UPDATE_STATUS] Falha ao atualizar effective_status local (cache) no Supabase")
 
 
-def _write_parent_status_column(*, user_jwt: str, user_id: str, entity_type: str, entity_id: str, status: Optional[str]) -> None:
+def _write_parent_status_column(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str, status: Optional[str]) -> None:
     """
     Grava o status oficial do PAI (adset/campaign) na coluna denormalizada correspondente
     (`ads.adset_status`/`ads.campaign_status`) em todas as linhas de ad daquele pai.
@@ -932,14 +1028,14 @@ def _write_parent_status_column(*, user_jwt: str, user_id: str, entity_type: str
     if not column or not id_column or not status:
         return
     try:
-        sb = get_supabase_for_user(user_jwt)
+        sb = _sb_for(user_jwt)
         now_iso = datetime.now(timezone.utc).isoformat()
         sb.table("ads").update({column: str(status).upper(), "updated_at": now_iso}).eq("user_id", user_id).eq(id_column, entity_id).execute()
     except Exception:
         logger.exception("[UPDATE_STATUS] Falha ao gravar %s local para %s %s", column, entity_type, entity_id)
 
 
-def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: str, user_id: str, campaign_id: str, children_synced: bool) -> None:
+def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: Optional[str], user_id: str, campaign_id: str, children_synced: bool) -> None:
     """
     Toggle/self-heal de CAMPANHA também precisa refletir nos CONJUNTOS dela: sem isso a coluna
     adset_status fica stale (ex.: 'ACTIVE' logo após pausar a campanha) e o wrapper RPC — que
@@ -966,13 +1062,13 @@ def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: str, user_id: str,
         if children_synced:
             # Marcadores dos filhos acabaram de ser gravados: NULL na coluna reativa o
             # fallback por marcadores (migration 088), que está correto neste instante.
-            sb = get_supabase_for_user(user_jwt)
+            sb = _sb_for(user_jwt)
             sb.table("ads").update({"adset_status": None}).eq("user_id", user_id).eq("campaign_id", campaign_id).execute()
     except Exception:
         logger.exception("[UPDATE_STATUS] Falha ao sincronizar adset_status dos conjuntos da campanha %s", campaign_id)
 
 
-def _self_heal_local_status(*, api: GraphAPI, user_jwt: str, user_id: str, entity_type: str, entity_id: str, effective_status: Optional[str]) -> None:
+def _self_heal_local_status(*, api: GraphAPI, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str, effective_status: Optional[str]) -> None:
     """
     Auto-correção do cache local quando o pre-check descobre que ele está DEFASADO (409
     parent_paused/already_active): persiste o estado real recém-lido do Meta. Sem isso o
@@ -1005,7 +1101,7 @@ def _finalize_status_update(
     *,
     result: Dict[str, Any],
     api: GraphAPI,
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     entity_type: str,
     entity_id: str,
@@ -1128,14 +1224,14 @@ def _finalize_status_update(
     }
 
 
-def _filter_ads_belonging_to_user(*, user_jwt: str, user_id: str, ad_ids: List[str]) -> Tuple[List[str], Dict[str, List[str]]]:
+def _filter_ads_belonging_to_user(*, user_jwt: Optional[str], user_id: str, ad_ids: List[str]) -> Tuple[List[str], Dict[str, List[str]]]:
     """
     Retorna (ad_ids do usuário, agrupamento act_id → ad_ids) — mesmo SELECT.
     O agrupamento habilita a leitura filtrada de status por conta (1 chamada/conta em vez
     de 1 sub-request por ad no Batch API). Chunks de 200 (limite de URL do PostgREST).
     """
     from app.core.supabase_client import get_supabase_for_user
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     valid: set = set()
     account_groups: Dict[str, List[str]] = {}
     for i in range(0, len(ad_ids), 200):
@@ -1152,7 +1248,7 @@ def _filter_ads_belonging_to_user(*, user_jwt: str, user_id: str, ad_ids: List[s
     return [aid for aid in ad_ids if aid in valid], account_groups
 
 
-def _filter_entities_belonging_to_user(*, user_jwt: str, user_id: str, entity_type: str, ids: List[str]) -> List[str]:
+def _filter_entities_belonging_to_user(*, user_jwt: Optional[str], user_id: str, entity_type: str, ids: List[str]) -> List[str]:
     """
     Retorna apenas os ids (adset_id/campaign_id) da lista que pertencem ao usuário — via tabela ads.
     Preserva a ordem de entrada e deduplica. Chunks de 200 (limite de URL do PostgREST).
@@ -1162,7 +1258,7 @@ def _filter_entities_belonging_to_user(*, user_jwt: str, user_id: str, entity_ty
     column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
     if not column:
         return []
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     valid: set = set()
     unique_ids = [i for i in dict.fromkeys(ids)]
     for i in range(0, len(unique_ids), 200):
@@ -1176,7 +1272,7 @@ def _filter_entities_belonging_to_user(*, user_jwt: str, user_id: str, entity_ty
 
 def _batch_reconcile_parent_status_local(
     *,
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     entity_type: str,
     verified_statuses: Dict[str, Any],
@@ -1214,7 +1310,7 @@ def _batch_reconcile_parent_status_local(
     if not resolved:
         return
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     now_iso = datetime.now(timezone.utc).isoformat()
     _only_active_or_null = "effective_status.eq.ACTIVE,effective_status.is.null"
 
@@ -1250,13 +1346,13 @@ def _batch_reconcile_parent_status_local(
         logger.exception("[BATCH_ENTITY_STATUS] Falha na reconciliação local de status (%s)", entity_type)
 
 
-def _update_bulk_local_effective_status(*, user_jwt: str, user_id: str, ad_ids: List[str], new_status: str) -> None:
+def _update_bulk_local_effective_status(*, user_jwt: Optional[str], user_id: str, ad_ids: List[str], new_status: str) -> None:
     """
     Atualiza effective_status local (Supabase) para múltiplos ads em lote.
     Chunks de 200 para não estourar o limite de URL do PostgREST.
     """
     from app.core.supabase_client import get_supabase_for_user
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     effective = "PAUSED" if new_status == "PAUSED" else "ACTIVE"
     try:
         for i in range(0, len(ad_ids), 200):
@@ -1273,19 +1369,23 @@ def _update_bulk_local_effective_status(*, user_jwt: str, user_id: str, ad_ids: 
 @router.post("/ads/batch-status", response_model=BatchStatusResult)
 def update_ads_batch_status(
     request: BatchStatusRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
     Atualiza status (PAUSED/ACTIVE) de múltiplos anúncios em lote via Meta Batch API.
     Máximo de 1000 ad_ids por requisição (internamente processa em chunks de 50 para a Meta).
     """
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type="ad", entity_ids=request.ad_ids, pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
-    # Filtrar apenas ads que pertencem ao usuário (segurança). O agrupamento por conta
-    # habilita pre-check/verify via leitura filtrada (1 chamada/conta) no serviço.
-    owned_ids, account_groups = _filter_ads_belonging_to_user(user_jwt=user_jwt, user_id=user_id, ad_ids=request.ad_ids)
+    # Filtrar apenas ads que pertencem ao SILO de destino (segurança). O agrupamento por
+    # conta habilita pre-check/verify via leitura filtrada (1 chamada/conta) no serviço.
+    # No caminho de convidado o silo e o do dono e os ids ja vieram validados no pack.
+    owned_ids, account_groups = _filter_ads_belonging_to_user(
+        user_jwt=user_jwt, user_id=user_id, ad_ids=(ctx.allowed_ids if ctx.is_guest else request.ad_ids),
+    )
     if not owned_ids:
         raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": "Nenhum dos anúncios encontrado para este usuário"})
 
@@ -1345,7 +1445,6 @@ def _update_entities_batch_status(
     *,
     entity_type: str,
     request: BatchEntityStatusRequest,
-    api: GraphAPI,
     user: Dict[str, Any],
 ) -> BatchStatusResult:
     """
@@ -1353,11 +1452,14 @@ def _update_entities_batch_status(
     (mesmo motor do batch de anúncios, `entity_type` só muda o mapa de pausa herdada). Escreve na
     Meta em 1 req/50 (write) + 1 req/50 (verify) e reconcilia o cache local heuristicamente.
     """
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type=entity_type, entity_ids=request.ids, pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
     owned_ids = _filter_entities_belonging_to_user(
-        user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, ids=request.ids,
+        user_jwt=user_jwt, user_id=user_id, entity_type=entity_type,
+        ids=(ctx.allowed_ids if ctx.is_guest else request.ids),
     )
     if not owned_ids:
         kind_pt = _ENTITY_KIND_PT.get(entity_type, "item")
@@ -1414,21 +1516,19 @@ def _update_entities_batch_status(
 @router.post("/adsets/batch-status", response_model=BatchStatusResult)
 def update_adsets_batch_status(
     request: BatchEntityStatusRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Atualiza status (PAUSED/ACTIVE) de múltiplos conjuntos em lote via Meta Batch API."""
-    return _update_entities_batch_status(entity_type="adset", request=request, api=api, user=user)
+    return _update_entities_batch_status(entity_type="adset", request=request, user=user)
 
 
 @router.post("/campaigns/batch-status", response_model=BatchStatusResult)
 def update_campaigns_batch_status(
     request: BatchEntityStatusRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Atualiza status (PAUSED/ACTIVE) de múltiplas campanhas em lote via Meta Batch API."""
-    return _update_entities_batch_status(entity_type="campaign", request=request, api=api, user=user)
+    return _update_entities_batch_status(entity_type="campaign", request=request, user=user)
 
 
 def _clean_pack_filters(filters: Any) -> List[Dict[str, Any]]:
@@ -1459,7 +1559,6 @@ class StatusSyncRequest(BaseModel):
 @router.post("/packs/status-sync")
 def sync_packs_status(
     request: StatusSyncRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
@@ -1468,16 +1567,47 @@ def sync_packs_status(
     no cache local. Cobre mudanças feitas FORA do Hookify entre refreshes de pack. Best-effort,
     gateado por TTL de 5 min por pack.
     """
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    actor_id = user["user_id"]
 
     pack_ids = [str(p).strip() for p in (request.pack_ids or []) if str(p).strip()]
     if not pack_ids:
         raise HTTPException(status_code=400, detail={"error": "invalid_request", "message": "pack_ids é obrigatório"})
 
-    sb = get_supabase_for_user(user_jwt)
-    res = sb.table("packs").select("id,adaccount_id,filters").eq("user_id", user_id).in_("id", pack_ids[:200]).execute()
-    packs = res.data or []
+    # Multi-dono (P3.3b-resto): cada pack pode viver num silo diferente. O escopo vem
+    # de resolve_pack_access — pack sem grant simplesmente nao entra. Qualquer membro
+    # sincroniza (mesma decisao do refresh_pack): e reconciliacao de cache com a
+    # verdade da Meta, nao mudanca autoral.
+    owner_by_pack: Dict[str, str] = supabase_repo.resolve_pack_owner_map(actor_id, pack_ids[:200])
+    if not owner_by_pack:
+        return {"synced": [], "skipped": [], "failed": [], "ads_covered": 0}
+
+    packs_by_owner: Dict[str, List[str]] = {}
+    for _pid, _own in owner_by_pack.items():
+        packs_by_owner.setdefault(_own, []).append(_pid)
+
+    sb_svc = get_supabase_service()
+    packs: List[Dict[str, Any]] = []
+    for _own, _pids in packs_by_owner.items():
+        _res = (
+            sb_svc.table("packs")
+            .select("id,adaccount_id,filters")
+            .eq("user_id", _own)
+            .in_("id", _pids)
+            .execute()
+        )
+        packs.extend(_res.data or [])
+
+    # Credencial por SILO, resolvida sob demanda: o convidado pode nem ter Meta.
+    _api_cache: Dict[str, Optional[GraphAPI]] = {}
+
+    def _api_for(owner_id: str) -> Optional[GraphAPI]:
+        if owner_id not in _api_cache:
+            if owner_id == actor_id:
+                tok = get_facebook_token_for_user(user["token"], actor_id)
+            else:
+                tok = get_facebook_token_for_silo(owner_id)
+            _api_cache[owner_id] = GraphAPI(tok, user_id=owner_id) if tok else None
+        return _api_cache[owner_id]
 
     from app.services.ads_enricher import get_ads_enricher
 
@@ -1497,6 +1627,13 @@ def sync_packs_status(
 
     for pack in packs:
         pack_id = str(pack.get("id"))
+        # Silo do pack: dono. jwt None => service role (o ator pode ser convidado).
+        user_id = owner_by_pack.get(pack_id) or actor_id
+        user_jwt = user["token"] if user_id == actor_id else None
+        api = _api_for(user_id)
+        if api is None:
+            failed.append(pack_id)
+            continue
         if syncs_done >= max_syncs_per_request:
             skipped.append(pack_id)
             continue
@@ -1569,7 +1706,6 @@ def sync_packs_status(
 def update_ad_status(
     ad_id: str,
     request: UpdateStatusRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """
@@ -1579,10 +1715,15 @@ def update_ad_status(
       POST https://graph.facebook.com/v24.0/{ad_id}
       Body {"status": "PAUSED" | "ACTIVE"}
     """
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type="ad", entity_ids=[ad_id], pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
-    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="ad", entity_id=ad_id)
+    # Convidado ja teve a entidade validada dentro do pack (resolve_entity_write_scope);
+    # o caminho do ator mantem o guard historico de propriedade.
+    if not ctx.is_guest:
+        _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="ad", entity_id=ad_id)
 
     result = api.update_ad_status(ad_id, request.status)
     return _finalize_status_update(
@@ -1595,14 +1736,16 @@ def update_ad_status(
 def update_adset_status(
     adset_id: str,
     request: UpdateStatusRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Atualiza status de um conjunto de anúncios (PAUSED/ACTIVE)."""
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type="adset", entity_ids=[adset_id], pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
-    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
+    if not ctx.is_guest:
+        _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
 
     result = api.update_adset_status(adset_id, request.status)
     return _finalize_status_update(
@@ -1615,14 +1758,16 @@ def update_adset_status(
 def update_campaign_status(
     campaign_id: str,
     request: UpdateStatusRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Atualiza status de uma campanha (PAUSED/ACTIVE)."""
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type="campaign", entity_ids=[campaign_id], pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
-    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
+    if not ctx.is_guest:
+        _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
 
     result = api.update_campaign_status(campaign_id, request.status)
     return _finalize_status_update(
@@ -1634,7 +1779,7 @@ def update_campaign_status(
 def _finalize_budget_update(
     *,
     result: Dict[str, Any],
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     entity_type: str,
     entity_id: str,
@@ -1761,14 +1906,16 @@ def _finalize_budget_update(
 def update_adset_budget(
     adset_id: str,
     request: UpdateBudgetRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Atualiza o orçamento de um conjunto (ABO). Valor em subunidade da moeda da conta."""
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type="adset", entity_ids=[adset_id], pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
-    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
+    if not ctx.is_guest:
+        _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
 
     result = api.update_entity_budget(
         adset_id, "adset",
@@ -1784,14 +1931,16 @@ def update_adset_budget(
 def update_campaign_budget(
     campaign_id: str,
     request: UpdateBudgetRequest = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Atualiza o orçamento de uma campanha (CBO). Valor em subunidade da moeda da conta."""
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    ctx = _resolve_entity_write_context(
+        user=user, entity_type="campaign", entity_ids=[campaign_id], pack_ids=request.pack_ids,
+    )
+    api, user_jwt, user_id = ctx.api, ctx.user_jwt, ctx.user_id
 
-    _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
+    if not ctx.is_guest:
+        _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
 
     result = api.update_entity_budget(
         campaign_id, "campaign",
@@ -4063,7 +4212,7 @@ def start_transcription(
     if existing and existing.get("status") == "processing":
         raise HTTPException(status_code=409, detail="Transcrição já está em andamento para este anúncio")
 
-    sb = supabase_repo.get_supabase_for_user(user_jwt)
+    sb = _sb_for(user_jwt)
     try:
         ads_res = (
             sb.table("ads")

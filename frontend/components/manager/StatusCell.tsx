@@ -9,6 +9,8 @@ import { RankingsItem } from "@/lib/api/schemas";
 interface StatusCellProps {
   original: RankingsItem;
   currentTab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
+  /** Packs do contexto — habilita escrita em pack COMPARTILHADO (silo do dono). */
+  packIds?: string[];
 }
 
 function isPausedStatus(status?: string | null): boolean {
@@ -17,7 +19,7 @@ function isPausedStatus(status?: string | null): boolean {
   return s === "PAUSED" || s === "ADSET_PAUSED" || s === "CAMPAIGN_PAUSED";
 }
 
-export function StatusCell({ original, currentTab }: StatusCellProps) {
+export function StatusCell({ original, currentTab, packIds }: StatusCellProps) {
   const effectiveStatus = (original as any)?.effective_status;
   const statusResolved = (original as any)?.status_resolved;
 
@@ -43,6 +45,7 @@ export function StatusCell({ original, currentTab }: StatusCellProps) {
     entityType,
     entityId,
     currentStatus: effectiveStatus,
+    packIds,
   });
 
   // Hooks sempre ANTES dos early returns: status_resolved muda false→true na refetch e,

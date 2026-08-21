@@ -61,6 +61,7 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
       columnFilters={columnFilters}
       setColumnFilters={setColumnFilters}
       asContent={asContent}
+      packIds={packIds}
       onRowClick={onRowClick ? (child) => onRowClick(child as unknown as RankingsItem) : undefined}
     />
   );

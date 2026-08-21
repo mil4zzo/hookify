@@ -99,6 +99,7 @@ export const ExpandedChildrenRow = React.memo(function ExpandedChildrenRow({
       columnFilters={columnFilters}
       setColumnFilters={setColumnFilters}
       asContent={asContent}
+      packIds={packIds}
       onRowClick={onRowClick}
     />
   );

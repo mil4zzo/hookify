@@ -60,6 +60,8 @@ function patchBudgetInCaches(qc: QueryClient, entityId: string, verified: Update
 export interface UseBudgetControlOptions {
   entityType: BudgetEntityType;
   entityId: string;
+  /** Packs do contexto — habilita a escrita em pack COMPARTILHADO (silo do dono). */
+  packIds?: string[];
 }
 
 export interface UseBudgetControlReturn {
@@ -73,7 +75,7 @@ export interface UseBudgetControlReturn {
  * useAdStatusControl: o backend faz pre-check de modo → write → verify read-back, e a
  * resposta carrega a verdade RELIDA do Meta — é ela que entra no cache, nunca o pedido.
  */
-export function useBudgetControl({ entityType, entityId }: UseBudgetControlOptions): UseBudgetControlReturn {
+export function useBudgetControl({ entityType, entityId, packIds }: UseBudgetControlOptions): UseBudgetControlReturn {
   const qc = useQueryClient();
 
   const mutation = useMutation({
@@ -81,8 +83,8 @@ export function useBudgetControl({ entityType, entityId }: UseBudgetControlOptio
       if (!entityId || !entityId.trim()) {
         throw new Error("entityId é obrigatório");
       }
-      if (entityType === "campaign") return api.facebook.updateCampaignBudget(entityId, budget);
-      return api.facebook.updateAdsetBudget(entityId, budget);
+      if (entityType === "campaign") return api.facebook.updateCampaignBudget(entityId, budget, packIds);
+      return api.facebook.updateAdsetBudget(entityId, budget, packIds);
     },
     onSuccess: (data) => {
       if (data.noop) {

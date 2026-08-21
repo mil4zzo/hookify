@@ -35,6 +35,8 @@ export function getRowBudgetMinor(row: RankingsItem): number | null {
 interface BudgetCellProps {
   original: RankingsItem;
   currentTab: "por-conjunto" | "por-campanha";
+  /** Packs do contexto — habilita escrita em pack COMPARTILHADO (silo do dono). */
+  packIds?: string[];
 }
 
 /**
@@ -54,6 +56,7 @@ function parseBudgetInput(raw: string): number | null {
 interface BudgetEditorProps {
   entityType: BudgetEntityType;
   entityId: string;
+  packIds?: string[];
   currentMinor: number;
   isDaily: boolean;
   currency: string | null;
@@ -65,8 +68,8 @@ interface BudgetEditorProps {
  * Valor clicável + popover de edição. O backend valida modo (CBO/ABO) e tipo
  * (daily/lifetime), escreve e RELÊ do Meta — o cache recebe só a verdade verificada.
  */
-function BudgetEditor({ entityType, entityId, currentMinor, isDaily, currency, formatted, titleHint }: BudgetEditorProps) {
-  const { updateBudget, isLoading } = useBudgetControl({ entityType, entityId });
+function BudgetEditor({ entityType, entityId, packIds, currentMinor, isDaily, currency, formatted, titleHint }: BudgetEditorProps) {
+  const { updateBudget, isLoading } = useBudgetControl({ entityType, entityId, packIds });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -157,7 +160,7 @@ function BudgetEditor({ entityType, entityId, currentMinor, isDaily, currency, f
  * EDITÁVEL (popover); sem budget próprio mostra ONDE ele vive (CBO → campanha; ABO →
  * conjuntos); tudo NULL (pré-backfill da migration 091) mostra "—".
  */
-export function BudgetCell({ original, currentTab }: BudgetCellProps) {
+export function BudgetCell({ original, currentTab, packIds }: BudgetCellProps) {
   const formatCurrency = useFormatCurrency();
   const daily = original.budget_daily ?? null;
   const lifetime = original.budget_lifetime ?? null;
@@ -201,6 +204,7 @@ export function BudgetCell({ original, currentTab }: BudgetCellProps) {
         <BudgetEditor
           entityType={entityType}
           entityId={entityId}
+          packIds={packIds}
           currentMinor={minor}
           isDaily={daily !== null}
           currency={currency}

@@ -41,6 +41,8 @@ export type CreateManagerTableColumnsParams = {
   byKey: GroupedMetricSeriesByKey;
   /** Acionado ao clicar no chevron de uma linha — abre o modal de drill. */
   onOpenDrill?: (original: RankingsItem) => void;
+  /** Packs do contexto — habilita escrita (status/budget) em pack COMPARTILHADO. */
+  selectedPackIds?: string[];
 
   currentTab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   getRowKey: (row: { original?: RankingsItem } | RankingsItem) => string;
@@ -152,7 +154,7 @@ function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: Ra
 }
 
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
-  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex } = params;
+  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex, selectedPackIds } = params;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
@@ -258,7 +260,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         },
         cell: (info) => {
           const original = info.row.original as RankingsItem;
-          return <StatusCell original={original} currentTab={currentTab} />;
+          return <StatusCell original={original} currentTab={currentTab} packIds={selectedPackIds} />;
         },
       }),
     );
@@ -342,7 +344,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         enableSorting: true,
         enableColumnFilter: false,
         sortingFn: budgetSortingFn,
-        cell: (info) => <BudgetCell original={info.row.original as RankingsItem} currentTab={budgetTab} />,
+        cell: (info) => <BudgetCell original={info.row.original as RankingsItem} currentTab={budgetTab} packIds={selectedPackIds} />,
       }),
     );
   }

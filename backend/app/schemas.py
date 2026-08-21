@@ -40,6 +40,11 @@ class UpdateStatusRequest(BaseModel):
     - ACTIVE: ativa a entidade
     """
     status: Literal["PAUSED", "ACTIVE"]
+    # Contexto de pack (P3.3b-resto). NAO e escopo e nao autoriza sozinho: o
+    # backend so o usa para PROPOR candidatos, e exige papel dono|editor no pack
+    # MAIS a entidade pertencer aquele pack no silo do dono. Ausente => caminho
+    # legado (silo do ator).
+    pack_ids: Optional[List[str]] = None
 
 
 class UpdateBudgetRequest(BaseModel):
@@ -52,6 +57,11 @@ class UpdateBudgetRequest(BaseModel):
     """
     daily_budget: Optional[int] = None
     lifetime_budget: Optional[int] = None
+    # Contexto de pack (P3.3b-resto). NAO e escopo e nao autoriza sozinho: o
+    # backend so o usa para PROPOR candidatos, e exige papel dono|editor no pack
+    # MAIS a entidade pertencer aquele pack no silo do dono. Ausente => caminho
+    # legado (silo do ator).
+    pack_ids: Optional[List[str]] = None
 
     @model_validator(mode="after")
     def _exactly_one_positive(self):
@@ -67,6 +77,11 @@ class BatchStatusRequest(BaseModel):
     """Request para atualizar status de múltiplos anúncios em lote via Meta Batch API."""
     ad_ids: List[str]
     status: Literal["PAUSED", "ACTIVE"]
+    # Contexto de pack (P3.3b-resto). NAO e escopo e nao autoriza sozinho: o
+    # backend so o usa para PROPOR candidatos, e exige papel dono|editor no pack
+    # MAIS a entidade pertencer aquele pack no silo do dono. Ausente => caminho
+    # legado (silo do ator).
+    pack_ids: Optional[List[str]] = None
 
     @field_validator("ad_ids")
     @classmethod
@@ -82,6 +97,11 @@ class BatchEntityStatusRequest(BaseModel):
     """Request para atualizar status de múltiplos conjuntos/campanhas em lote via Meta Batch API."""
     ids: List[str]
     status: Literal["PAUSED", "ACTIVE"]
+    # Contexto de pack (P3.3b-resto). NAO e escopo e nao autoriza sozinho: o
+    # backend so o usa para PROPOR candidatos, e exige papel dono|editor no pack
+    # MAIS a entidade pertencer aquele pack no silo do dono. Ausente => caminho
+    # legado (silo do ator).
+    pack_ids: Optional[List[str]] = None
 
     @field_validator("ids")
     @classmethod

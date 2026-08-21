@@ -692,7 +692,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       >
         {groupByAdName && (
           <TabbedContentItem value="variations" variant="simple" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationColumnPreferences.active} columnOrder={variationColumnPreferences.order} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={variationColumnFilters} setColumnFilters={setVariationColumnFilters} asContent />
+            <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationColumnPreferences.active} columnOrder={variationColumnPreferences.order} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={variationColumnFilters} setColumnFilters={setVariationColumnFilters} packIds={packIds} asContent />
           </TabbedContentItem>
         )}
 

@@ -165,31 +165,32 @@ export const api = {
     cancelJobsBatch: (jobIds: string[], reason?: string): Promise<{ cancelled_count: number; total_requested: number; message: string }> =>
       apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout' }),
 
-    updateAdStatus: (adId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
-      apiClient.post(`/facebook/ads/${encodeURIComponent(adId)}/status`, { status }),
+    updateAdStatus: (adId: string, status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<UpdateEntityStatusResponse> =>
+      // Contexto de pack: o backend so o usa p/ PROPOR silo (exige papel + entidade no pack).
+      apiClient.post(`/facebook/ads/${encodeURIComponent(adId)}/status`, { status, pack_ids: packIds }),
 
-    updateAdsetStatus: (adsetId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
-      apiClient.post(`/facebook/adsets/${encodeURIComponent(adsetId)}/status`, { status }),
+    updateAdsetStatus: (adsetId: string, status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<UpdateEntityStatusResponse> =>
+      apiClient.post(`/facebook/adsets/${encodeURIComponent(adsetId)}/status`, { status, pack_ids: packIds }),
 
-    updateCampaignStatus: (campaignId: string, status: "PAUSED" | "ACTIVE"): Promise<UpdateEntityStatusResponse> =>
-      apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/status`, { status }),
+    updateCampaignStatus: (campaignId: string, status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<UpdateEntityStatusResponse> =>
+      apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/status`, { status, pack_ids: packIds }),
 
     /** Edita o orçamento de um conjunto (ABO). Valores em SUBUNIDADE da moeda da conta; exatamente um dos campos. */
-    updateAdsetBudget: (adsetId: string, budget: { daily_budget?: number; lifetime_budget?: number }): Promise<UpdateEntityBudgetResponse> =>
-      apiClient.post(`/facebook/adsets/${encodeURIComponent(adsetId)}/budget`, budget),
+    updateAdsetBudget: (adsetId: string, budget: { daily_budget?: number; lifetime_budget?: number }, packIds?: string[]): Promise<UpdateEntityBudgetResponse> =>
+      apiClient.post(`/facebook/adsets/${encodeURIComponent(adsetId)}/budget`, { ...budget, pack_ids: packIds }),
 
     /** Edita o orçamento de uma campanha (CBO). Valores em SUBUNIDADE da moeda da conta; exatamente um dos campos. */
-    updateCampaignBudget: (campaignId: string, budget: { daily_budget?: number; lifetime_budget?: number }): Promise<UpdateEntityBudgetResponse> =>
-      apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/budget`, budget),
+    updateCampaignBudget: (campaignId: string, budget: { daily_budget?: number; lifetime_budget?: number }, packIds?: string[]): Promise<UpdateEntityBudgetResponse> =>
+      apiClient.post(`/facebook/campaigns/${encodeURIComponent(campaignId)}/budget`, { ...budget, pack_ids: packIds }),
 
-    batchUpdateAdStatus: (adIds: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
-      apiClient.post("/facebook/ads/batch-status", { ad_ids: adIds, status }),
+    batchUpdateAdStatus: (adIds: string[], status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<BatchStatusResponse> =>
+      apiClient.post("/facebook/ads/batch-status", { ad_ids: adIds, status, pack_ids: packIds }),
 
-    batchUpdateAdsetStatus: (ids: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
-      apiClient.post("/facebook/adsets/batch-status", { ids, status }),
+    batchUpdateAdsetStatus: (ids: string[], status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<BatchStatusResponse> =>
+      apiClient.post("/facebook/adsets/batch-status", { ids, status, pack_ids: packIds }),
 
-    batchUpdateCampaignStatus: (ids: string[], status: "PAUSED" | "ACTIVE"): Promise<BatchStatusResponse> =>
-      apiClient.post("/facebook/campaigns/batch-status", { ids, status }),
+    batchUpdateCampaignStatus: (ids: string[], status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<BatchStatusResponse> =>
+      apiClient.post("/facebook/campaigns/batch-status", { ids, status, pack_ids: packIds }),
 
     /** Sync leve on-focus: relê do Meta o effective_status dos ads e pais dos packs (TTL 5 min server-side). */
     syncPacksStatus: (packIds: string[]): Promise<StatusSyncResponse> =>
