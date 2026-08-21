@@ -14,7 +14,7 @@ import os
 from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
-from app.services.pack_access import assert_pack_role, resolve_entity_write_scope
+from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
 from app.services.facebook_token_service import (
     get_facebook_token_for_user, 
     get_facebook_token_for_silo,
@@ -477,6 +477,14 @@ def _sb_for(user_jwt: Optional[str]):
     return get_supabase_service() if user_jwt is None else get_supabase_for_user(user_jwt)
 
 
+def _split_pack_ids(raw: Optional[str]) -> Optional[List[str]]:
+    """`pack_ids` em query string: CSV. Ausente/vazio => None (caminho legado)."""
+    if not raw:
+        return None
+    out = [p.strip() for p in str(raw).split(",") if p.strip()]
+    return out or None
+
+
 class _WriteCtx(NamedTuple):
     api: GraphAPI
     user_jwt: Optional[str]   # None => service role (silo do dono)
@@ -506,7 +514,7 @@ def _resolve_entity_write_context(
     actor_id = user["user_id"]
     actor_jwt = user["token"]
 
-    scope = resolve_entity_write_scope(actor_id, entity_type, entity_ids, pack_ids)
+    scope = resolve_entity_pack_scope(actor_id, entity_type, entity_ids, pack_ids)
 
     if scope is not None and scope.is_guest:
         fb_token = get_facebook_token_for_silo(scope.owner_id)
@@ -522,6 +530,67 @@ def _resolve_entity_write_context(
             "[WRITE_CTX] %s em pack compartilhado: silo do dono %s (ator %s, papel %s)",
             entity_type, str(scope.owner_id)[:8], str(actor_id)[:8], scope.role,
         )
+        return _WriteCtx(
+            api=GraphAPI(fb_token, user_id=scope.owner_id),
+            user_jwt=None,
+            user_id=scope.owner_id,
+            allowed_ids=list(scope.allowed_ids),
+            is_guest=True,
+        )
+
+    fb_token = get_facebook_token_for_user(actor_jwt, actor_id)
+    if not fb_token:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "facebook_connection_missing",
+                "message": "Nenhuma conexao do Facebook encontrada. Por favor, conecte sua conta do Facebook primeiro.",
+            },
+        )
+    return _WriteCtx(
+        api=GraphAPI(fb_token, user_id=actor_id),
+        user_jwt=actor_jwt,
+        user_id=actor_id,
+        allowed_ids=(list(scope.allowed_ids) if scope else None),
+        is_guest=False,
+    )
+
+
+def _resolve_media_read_context(
+    *,
+    user: Dict[str, Any],
+    entity_type: str,
+    entity_ids: List[str],
+    pack_ids: Optional[List[str]],
+) -> _WriteCtx:
+    """Credencial + silo para LER midia (criativo, video, imagem) de uma entidade.
+
+    Igual ao contexto de escrita, com duas diferencas:
+    - `viewer` passa: ver o criativo do pack e o que um viewer recebeu permissao
+      para fazer;
+    - o convidado pode nao ter Meta, e mesmo quando tem, o token DELE nao serve —
+      nao tem permissao na conta de anuncios do dono. Por isso a credencial e
+      SEMPRE a do dono no pack compartilhado, e o GraphAPI e montado aqui (o
+      Depends levantaria 403 antes do corpo para quem nao conectou Facebook).
+    """
+    actor_id = user["user_id"]
+    actor_jwt = user["token"]
+
+    scope = resolve_entity_pack_scope(
+        actor_id, entity_type, entity_ids, pack_ids,
+        roles=("dono", "editor", "viewer"),
+    )
+
+    if scope is not None and scope.is_guest:
+        fb_token = get_facebook_token_for_silo(scope.owner_id)
+        if not fb_token:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "owner_facebook_connection_missing",
+                    "message": "O dono do pack precisa reconectar a conta do Facebook.",
+                },
+            )
         return _WriteCtx(
             api=GraphAPI(fb_token, user_id=scope.owner_id),
             user_jwt=None,
@@ -2070,15 +2139,20 @@ def search_ads(
 @router.get("/ads/{ad_id}/creative")
 def get_ad_creative(
     ad_id: str,
-    api: GraphAPI = Depends(get_graph_api),
+    pack_ids: Optional[str] = None,
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    _assert_entity_belongs_to_user(
-        user_jwt=user["token"],
-        user_id=user["user_id"],
-        entity_type="ad",
-        entity_id=ad_id,
+    ctx = _resolve_media_read_context(
+        user=user, entity_type="ad", entity_ids=[ad_id], pack_ids=_split_pack_ids(pack_ids),
     )
+    api = ctx.api
+    if not ctx.is_guest:
+        _assert_entity_belongs_to_user(
+            user_jwt=ctx.user_jwt,
+            user_id=ctx.user_id,
+            entity_type="ad",
+            entity_id=ad_id,
+        )
     data, template = _load_creative_template_or_raise(
         api=api,
         user=user,
@@ -3384,7 +3458,7 @@ def get_video_source(
     actor_id: str = "",
     ad_id: str = "",
     video_owner_page_id: str = "",
-    api: GraphAPI = Depends(get_graph_api),
+    pack_ids: Optional[str] = None,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Get Facebook video source URL, resolving video owner page when needed.
@@ -3395,10 +3469,18 @@ def get_video_source(
         if not video_id and not ig_media_id:
             raise HTTPException(status_code=422, detail="video_id or ig_media_id is required")
 
+        # Silo/credencial pelo PACK: num pack compartilhado o cache e a conta de
+        # anuncios sao do DONO — ler com o token do ator daria miss e permissao negada.
+        ctx = _resolve_media_read_context(
+            user=user, entity_type="ad", entity_ids=([ad_id] if ad_id else []),
+            pack_ids=_split_pack_ids(pack_ids),
+        )
+        api = ctx.api
+
         cached_url = None
         cached_expires_at = None
         if ad_id:
-            cache_row = supabase_repo.get_ad_video_source_cache(user["token"], user["user_id"], ad_id)
+            cache_row = supabase_repo.get_ad_video_source_cache(ctx.user_jwt, ctx.user_id, ad_id)
             if cache_row and (not video_id or str(cache_row.get("primary_video_id") or "").strip() == video_id):
                 cached_url = cache_row.get("video_source_url")
                 cached_expires_at = cache_row.get("video_source_expires_at")
@@ -3641,17 +3723,20 @@ def get_media_source_urls_batch(
 def get_image_source(
     ad_id: str,
     actor_id: str,
-    api: GraphAPI = Depends(get_graph_api),
+    pack_ids: Optional[str] = None,
     user: Dict[str, Any] = Depends(get_current_user)
 ):
     """Get fresh image URL for an image ad."""
     try:
-        result = api.get_image_source_url(ad_id, actor_id)
+        ctx = _resolve_media_read_context(
+            user=user, entity_type="ad", entity_ids=[ad_id], pack_ids=_split_pack_ids(pack_ids),
+        )
+        result = ctx.api.get_image_source_url(ad_id, actor_id)
 
         if isinstance(result, dict) and "status" in result:
             error_msg = result.get("message", "")
             if check_meta_error_for_token_expiry(error_msg):
-                mark_connection_as_expired(user["token"], user["user_id"])
+                mark_connection_as_expired(ctx.user_jwt, ctx.user_id)
                 raise HTTPException(
                     status_code=401,
                     detail={

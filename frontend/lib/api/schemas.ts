@@ -134,11 +134,15 @@ export const GetVideoSourceRequestSchema = z.object({
   actor_id: z.string().optional(),
   ad_id: z.string().optional(),
   video_owner_page_id: z.string().optional(),
+  // Pack compartilhado: CSV. O backend resolve silo+credencial do DONO a partir daqui.
+  pack_ids: z.string().optional(),
 })
 
 export const GetImageSourceRequestSchema = z.object({
   ad_id: z.string(),
   actor_id: z.string(),
+  /** Pack compartilhado: CSV. */
+  pack_ids: z.string().optional(),
 })
 
 export const GetImageSourceResponseSchema = z.object({

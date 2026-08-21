@@ -192,7 +192,10 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   }, [isDateRangeOverridden, overriddenDetails]);
 
   // Buscar creative e video_ids quando a tab de vídeo estiver ativa
-  const { data: creativeData, isLoading: loadingCreative } = useAdCreative(adId, shouldLoadCreative);
+  // Pack compartilhado: criativo, video e imagem vivem no silo do DONO — sem este
+  // contexto o player fica sem fonte para quem nao e dono.
+  const packIdsCsv = packIds.length ? packIds.join(",") : undefined;
+  const { data: creativeData, isLoading: loadingCreative } = useAdCreative(adId, shouldLoadCreative, packIds);
 
   // Extrair video_id e actor_id do creative buscado
   const creative = creativeData?.creative || {};
@@ -203,7 +206,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const videoOwnerPageId = (creativeData as any)?.video_owner_page_id;
   const shouldLoadVideo = (activeTab === "video" || activeTab === "copy") && mediaType !== "image" && (!!videoId || !!igMediaId) && !loadingCreative;
 
-  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", ig_media_id: igMediaId || undefined, actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined }, shouldLoadVideo);
+  const { data: videoData, isLoading: loadingVideo, error: videoError } = useVideoSource({ video_id: videoId || "", ig_media_id: igMediaId || undefined, actor_id: actorId || undefined, ad_id: adId, video_owner_page_id: videoOwnerPageId || undefined, pack_ids: packIdsCsv }, shouldLoadVideo);
 
   const { data: historyDataById, isLoading: loadingHistoryById } = useAdHistory(adId, dateStart || "", dateStop || "", packIds, shouldLoadHistoryById);
   const { data: historyDataByName, isLoading: loadingHistoryByName } = useAdNameHistory(adName, dateStart || "", dateStop || "", packIds, shouldLoadHistoryByName);
@@ -562,7 +565,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const isImageAd = !isCreativeLoading && hasCreativeMediaData && resolvedMediaType === "image";
   const imageActorId = groupByAdName ? (groupedSharedDetail.creativeData as any)?.creative?.actor_id || null : actorId || null;
   const shouldLoadImageSource = isImageAd && !!adId && !!imageActorId;
-  const { data: imageSourceData, isLoading: loadingImageSource } = useImageSource({ ad_id: adId, actor_id: imageActorId || "" }, shouldLoadImageSource);
+  const { data: imageSourceData, isLoading: loadingImageSource } = useImageSource({ ad_id: adId, actor_id: imageActorId || "", pack_ids: packIdsCsv }, shouldLoadImageSource);
   const resolvedCreativeImageUrl = imageSourceData?.image_url ?? null;
 
   const { data: transcriptionData, isLoading: loadingTranscription, isError: transcriptionError } = useAdTranscription(adName, shouldLoadTranscription, transcriptionPending);

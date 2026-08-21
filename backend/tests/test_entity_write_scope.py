@@ -70,7 +70,7 @@ class TestResolveEntityWriteScope(unittest.TestCase):
 
     def _call(self, access_rows, rows_by_owner, *, entity_type="ad", ids=("AD1",), packs=("pack-1",), column="ad_id"):
         with mock.patch.object(PA, "get_supabase_service", return_value=_sb(access_rows, rows_by_owner, column)):
-            return PA.resolve_entity_write_scope(self.ACTOR, entity_type, list(ids), list(packs))
+            return PA.resolve_entity_pack_scope(self.ACTOR, entity_type, list(ids), list(packs))
 
     def test_sem_pack_ids_e_caminho_legado(self):
         self.assertIsNone(self._call([], {}, packs=()))
@@ -147,7 +147,7 @@ class TestWriteContext(unittest.TestCase):
     def _ctx(self, scope, *, silo_token="owner-tok", actor_token="actor-tok"):
         from app.routes import facebook as FB
 
-        with mock.patch.object(FB, "resolve_entity_write_scope", return_value=scope), \
+        with mock.patch.object(FB, "resolve_entity_pack_scope", return_value=scope), \
              mock.patch.object(FB, "get_facebook_token_for_silo", return_value=silo_token), \
              mock.patch.object(FB, "get_facebook_token_for_user", return_value=actor_token), \
              mock.patch.object(FB, "GraphAPI", lambda tok, user_id=None: mock.Mock(token=tok, uid=user_id)):
@@ -184,6 +184,39 @@ class TestWriteContext(unittest.TestCase):
         self.assertEqual(ctx.user_jwt, "jwt")
         self.assertEqual(ctx.user_id, "actor-1")
         self.assertIsNone(ctx.allowed_ids)
+
+
+class TestReadVsWriteRoles(unittest.TestCase):
+    """A MESMA funcao serve leitura e escrita — o que separa e `roles`. Ver o
+    criativo do pack e o que um viewer recebeu permissao para fazer; pausar nao."""
+
+    ACTOR = "actor-1"
+    OWNER = "owner-2"
+
+    def _call(self, roles):
+        rows = [{"pack_id": "pack-1", "owner_id": self.OWNER, "role": "viewer"}]
+        sb = _sb(rows, {self.OWNER: [("AD1", ["pack-1"])]}, "ad_id")
+        with mock.patch.object(PA, "get_supabase_service", return_value=sb):
+            return PA.resolve_entity_pack_scope(self.ACTOR, "ad", ["AD1"], ["pack-1"], roles=roles)
+
+    def test_viewer_le_midia(self):
+        scope = self._call(("dono", "editor", "viewer"))
+        self.assertIsNotNone(scope)
+        self.assertEqual(scope.owner_id, self.OWNER)
+        self.assertTrue(scope.is_guest)
+
+    def test_viewer_nao_escreve(self):
+        self.assertIsNone(self._call(("dono", "editor")))
+
+    def test_midia_por_ad_name(self):
+        rows = [{"pack_id": "pack-1", "owner_id": self.OWNER, "role": "viewer"}]
+        sb = _sb(rows, {self.OWNER: [("Meu Anuncio", ["pack-1"])]}, "ad_name")
+        with mock.patch.object(PA, "get_supabase_service", return_value=sb):
+            scope = PA.resolve_entity_pack_scope(
+                self.ACTOR, "adname", ["Meu Anuncio"], ["pack-1"],
+                roles=("dono", "editor", "viewer"),
+            )
+        self.assertEqual(scope.owner_id, self.OWNER)
 
 
 if __name__ == "__main__":

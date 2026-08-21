@@ -310,8 +310,12 @@ export const api = {
       })
       return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}?${qs.toString()}`, { signal: options?.signal })
     },
-    getAdCreative: (adId: string, options?: { signal?: AbortSignal }): Promise<AdCreativeResponse> =>
-      apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/creative`, { signal: options?.signal }),
+    getAdCreative: (adId: string, options?: { signal?: AbortSignal; packIds?: string[] }): Promise<AdCreativeResponse> =>
+      apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}/creative`, {
+        signal: options?.signal,
+        // Pack compartilhado: o criativo vive no silo do dono.
+        params: options?.packIds?.length ? { pack_ids: options.packIds.join(",") } : undefined,
+      }),
     getAdHistory: (
       adId: string,
       params: { date_start: string; date_stop: string; pack_ids?: string[] },

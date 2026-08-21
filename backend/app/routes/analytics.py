@@ -13,7 +13,7 @@ from app.core.supabase_retry import with_postgrest_retry
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
-from app.services.pack_access import assert_pack_role
+from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
 from app.services.ad_media import resolve_media_type
 from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
 
@@ -2814,17 +2814,27 @@ def get_ad_details(
 
 
 @router.get("/rankings/ad-id/{ad_id}/creative")
-def get_ad_creative(ad_id: str, user=Depends(get_current_user)):
-    """Retorna apenas creative e video_ids de um anÃºncio (leve, para uso em player de vÃ­deo)."""
-    sb = get_supabase_for_user(user["token"])
+def get_ad_creative(ad_id: str, pack_ids: Optional[str] = None, user=Depends(get_current_user)):
+    """Retorna apenas creative e video_ids de um anÃºncio (leve, para uso em player de vÃ­deo).
+
+    Pack COMPARTILHADO: o criativo vive no silo do DONO — ler com o silo do ator
+    devolveria vazio e o player nao teria video. So o SILO muda; nao ha credencial
+    externa aqui. `viewer` passa: ver o criativo e o que o papel concede.
+    """
+    _packs = [p.strip() for p in str(pack_ids or "").split(",") if p.strip()] or None
+    _scope = resolve_entity_pack_scope(
+        user["user_id"], "ad", [ad_id], _packs, roles=("dono", "editor", "viewer"),
+    )
+    silo_user_id = _scope.owner_id if _scope else user["user_id"]
+    sb = get_supabase_service() if (_scope and _scope.is_guest) else get_supabase_for_user(user["token"])
     try:
         select_fields = "creative,adcreatives_videos_ids,creative_video_id,primary_video_id,media_type,thumbnail_url,video_owner_page_id"
         try:
-            ads_res = sb.table("ads").select(select_fields).eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
+            ads_res = sb.table("ads").select(select_fields).eq("user_id", silo_user_id).eq("ad_id", ad_id).limit(1).execute()
         except Exception as select_error:
             if "primary_video_id" not in str(select_error) and "media_type" not in str(select_error):
                 raise
-            ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id,thumbnail_url,video_owner_page_id").eq("user_id", user["user_id"]).eq("ad_id", ad_id).limit(1).execute()
+            ads_res = sb.table("ads").select("creative,adcreatives_videos_ids,creative_video_id,thumbnail_url,video_owner_page_id").eq("user_id", silo_user_id).eq("ad_id", ad_id).limit(1).execute()
         if ads_res.data and len(ads_res.data) > 0:
             ad_row = ads_res.data[0]
             creative = ad_row.get("creative") or {}

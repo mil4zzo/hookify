@@ -102,7 +102,12 @@ def assert_pack_role(
 # DENTRO do silo do dono. Um pack_id forjado nao passa em (a); um ad_id alheio
 # nao passa em (b).
 
-_ENTITY_COLUMN = {"ad": "ad_id", "adset": "adset_id", "campaign": "campaign_id"}
+_ENTITY_COLUMN = {
+    "ad": "ad_id",
+    "adset": "adset_id",
+    "campaign": "campaign_id",
+    "adname": "ad_name",  # midia/transcricao resolvem por NOME, nao por id
+}
 _ENTITY_IN_BATCH = 200  # limite de URL do PostgREST
 
 
@@ -114,13 +119,18 @@ class EntityWriteScope(NamedTuple):
     allowed_ids: tuple     # ids que realmente pertencem ao silo/pack (ordem preservada)
 
 
-def resolve_entity_write_scope(
+def resolve_entity_pack_scope(
     actor_id: str,
     entity_type: str,
     entity_ids: Sequence[str],
     pack_ids: Optional[Sequence[str]],
+    roles: Sequence[str] = ("dono", "editor"),
 ) -> Optional[EntityWriteScope]:
-    """Silo e autorizacao para escrever numa entidade, a partir do contexto de pack.
+    """Silo e autorizacao para operar numa entidade, a partir do contexto de pack.
+
+    `roles` separa ESCRITA de LEITURA: escrita exige dono|editor (default); leitura
+    de midia inclui viewer — ver o criativo do pack e exatamente o que um viewer
+    recebeu permissao para fazer.
 
     Devolve None quando o contexto nao resolve (sem pack_ids, nenhum pack com
     papel de escrita, ou a entidade nao pertence a nenhum deles). None NAO e erro:
@@ -148,8 +158,8 @@ def resolve_entity_write_scope(
         logger.exception("[PACK_ACCESS] Falha ao resolver contexto de pack: %s", e)
         raise HTTPException(status_code=500, detail="Erro ao verificar acesso ao pack")
 
-    # Só papeis de ESCRITA propoem silo. Viewer no contexto e simplesmente ignorado
-    # aqui — ele cai no caminho legado e recebe o 404/erro de sempre.
+    # Só os papeis pedidos propoem silo. Papel de fora e simplesmente ignorado aqui —
+    # cai no caminho legado e recebe o 404/erro de sempre.
     packs_by_owner: Dict[str, List[str]] = {}
     role_by_owner: Dict[str, str] = {}
     for row in (res.data or []):
@@ -158,7 +168,7 @@ def resolve_entity_write_scope(
         role = str(row.get("role") or "")
         owner = str(row.get("owner_id") or "")
         pack_id = str(row.get("pack_id") or "")
-        if role in ("dono", "editor") and owner and pack_id:
+        if role in tuple(roles) and owner and pack_id:
             packs_by_owner.setdefault(owner, []).append(pack_id)
             role_by_owner[owner] = role
     if not packs_by_owner:

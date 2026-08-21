@@ -389,10 +389,12 @@ export const useAdDetails = (
  * if (needsData) refetch();
  * ```
  */
-export const useAdCreative = (adId: string, enabled: boolean = false) => {
+export const useAdCreative = (adId: string, enabled: boolean = false, packIds: string[] = []) => {
+  const packIdsKey = [...packIds].sort().join("|");
   return useQuery({
-    queryKey: queryKeys.adCreative(adId),
-    queryFn: ({ signal }) => api.analytics.getAdCreative(adId, { signal }),
+    // packIdsKey entra na chave: o mesmo ad_id resolve para silos diferentes.
+    queryKey: [...queryKeys.adCreative(adId), packIdsKey],
+    queryFn: ({ signal }) => api.analytics.getAdCreative(adId, { signal, packIds }),
     enabled: enabled && !!adId,
     staleTime: 30 * 60 * 1000, // Cache de 30 minutos (dados raramente mudam)
     retry: 2,
