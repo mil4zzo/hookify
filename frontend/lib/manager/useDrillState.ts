@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
 export type DrillKind = "campaign" | "adset" | "adname";
@@ -139,11 +139,24 @@ export function useDrillState(): UseDrillStateResult {
   const optimistic = useSyncExternalStore(subscribeOverlay, getOptimisticSnapshot, () => null);
   const effectiveRaw = optimistic ?? rawStack;
 
+  // O overlay vale ate a URL SE MOVER — nao ate ela bater com o overlay. Descartar
+  // so no match deixava um estado preso: se a navegacao commitasse num valor
+  // diferente (Voltar do navegador antes do push, ou dois drills em sequencia
+  // rapida), o overlay nunca era limpo e o modal parava de responder a URL,
+  // inclusive ao Voltar. A URL e a fonte de verdade: assim que ela anda, o
+  // overlay ja cumpriu o papel (cobrir a latencia do commit) e sai.
+  const lastRawKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (optimistic !== null && encodeStack(rawStack) === encodeStack(optimistic)) {
+    const rawKey = encodeStack(rawStack);
+    if (lastRawKeyRef.current === null) {
+      lastRawKeyRef.current = rawKey;
+      return;
+    }
+    if (lastRawKeyRef.current !== rawKey) {
+      lastRawKeyRef.current = rawKey;
       setOptimisticStack(null);
     }
-  }, [optimistic, rawStack]);
+  }, [rawStack]);
 
   const stack = useMemo<ResolvedDrillStep[]>(() => {
     const cache = readNameCache();
