@@ -33,10 +33,14 @@ function OnboardingSkeleton() {
 }
 
 /** Calcula o step inicial com base no progresso salvo no backend. */
-function computeInitialStep(data: { initial_settings_configured?: boolean; facebook_connected?: boolean; validation_criteria_configured?: boolean } | undefined): Step {
+function computeInitialStep(data: { initial_settings_configured?: boolean; facebook_connected?: boolean; validation_criteria_configured?: boolean; has_completed_onboarding?: boolean } | undefined): Step {
   if (!data) return 1;
-  if (data.validation_criteria_configured) return 4;
-  if (data.facebook_connected) return 3;
+  // Só o passo 4 (tela final) exige onboarding REALMENTE concluído. `validation_criteria_configured`
+  // não serve para isso: o passo 3 grava o critério recomendado só por ter sido ABERTO, então
+  // quem apenas passou os olhos nele voltava direto para o 4 sem nunca ter concluído — e ficava
+  // presa, porque a conclusão é gravada pelo botão de salvar do passo 3.
+  if (data.has_completed_onboarding) return 4;
+  if (data.validation_criteria_configured || data.facebook_connected) return 3;
   if (data.initial_settings_configured) return 2;
   return 1;
 }
