@@ -176,10 +176,18 @@ export const useAdAccountsDb = (options: UseAdAccountsDbOptions = {}) => {
     if (!session || !sessionReady || !Array.isArray(result.data)) return
     const userId = session.user.id
     const isEmpty = result.data.length === 0
-    if (isEmpty || shouldAutoSync(userId)) {
+    // `isEmpty` NAO pode disparar o sync: ele curto-circuitava o TTL e criava um
+    // laco infinito em toda conta sem Facebook (o caso do convidado, P3.4) —
+    // lista vazia -> sync -> invalidate -> refetch -> lista vazia de novo. Medido:
+    // 9 chamadas a /adaccounts/sync e 11 a /adaccounts numa unica sessao de pagina.
+    // `markSynced` vai ANTES de disparar: dentro do .then ele nunca rodava quando o
+    // sync nao tinha o que fazer, e o laco se realimentava. Uma tentativa por janela
+    // de TTL, deu ou nao deu. Quem acabou de conectar sincroniza pelo caminho
+    // explicito (useFacebookConnections / Topbar), nao por este efeito.
+    if (shouldAutoSync(userId)) {
+      markSynced(userId)
       api.facebook.syncAdAccounts()
         .then(() => {
-          markSynced(userId)
           qc.invalidateQueries({ queryKey: queryKeys.adAccounts })
         })
         .catch(() => {/* sem conexão Facebook ou token expirado — silencioso */})
