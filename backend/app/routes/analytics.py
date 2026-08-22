@@ -1381,19 +1381,24 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
     except Exception as _e:
         logger.warning("[RANKINGS] Falha ao resolver donos p/ hidratacao (best-effort): %s", _e)
     _hydrate_silos = sorted({str(user["user_id"]), *(str(v) for v in _owner_map.values())})
+    # Cliente: ampliar o filtro de user_id NAO basta — o cliente do ator carrega RLS,
+    # que descarta as linhas do dono antes de qualquer filtro nosso. Com silo alheio
+    # no conjunto, a leitura desce para service role. O escopo continua derivado aqui
+    # dentro (resolve_pack_owner_map), nunca de parametro do cliente.
+    _hydrate_sb = sb if len(_hydrate_silos) <= 1 else get_supabase_service()
 
     hydration_stats = _hydrate_storage_thumbnails_for_rankings_rows(
-        sb=sb,
+        sb=_hydrate_sb,
         user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
     transcription_flagged = _hydrate_transcription_flags_for_rankings_rows(
-        sb=sb,
+        sb=_hydrate_sb,
         user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
     media_type_hydrated = _hydrate_media_type_for_rankings_rows(
-        sb=sb,
+        sb=_hydrate_sb,
         user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
