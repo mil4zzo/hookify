@@ -2518,3 +2518,24 @@ de usar o token do convidado (quando ele genuinamente tem acesso à conta) é a 
 é escopo** — só propõe candidatos; autorizam o papel MAIS a entidade existir naquele
 pack dentro do silo do dono. `roles` separa escrita (`dono|editor`) de leitura de
 mídia (inclui `viewer`).
+
+## Testar compartilhamento exige uma conta convidada realmente disjunta
+
+Testar pack compartilhado entre duas contas que gerenciam as **mesmas contas de
+anúncio** não valida nada: o mesmo `ad_id` existe nos dois silos (PK de `ads` é
+`(ad_id, user_id)`), então todo caminho que erra o silo ainda encontra os dados na
+cópia do ator — e a tela fica correta pelo motivo errado. O par usado em 2026-08-22
+não tinha **nenhum** anúncio exclusivo do dono.
+
+O ambiente que prova é uma conta nova, **sem Facebook conectado** e **sem anúncios
+próprios**, com um único pack recebido por grant (`test@hookify.com`). Sem cópia
+própria não há fallback; sem token não há credencial do ator.
+
+**Sinal de teste inválido:** um controle negativo que passa. Se a chamada *sem*
+`pack_ids` devolve dado, o teste não está exercitando o caminho multi-dono.
+
+Esta classe de bug não aparece nos testes automatizados porque eles mockam **acima**
+da camada onde o cliente Supabase é resolvido — que é exatamente onde a costura
+quebra. Nesta rodada, 337 testes passavam com 11 bugs vivos. Quando a tela parece
+certa, olhar o log do backend (`hydrated={... storage_found: 0}`) e a aba Network
+(a chamada levou `pack_ids`?): o sintoma típico é "dado faltando", não erro.
