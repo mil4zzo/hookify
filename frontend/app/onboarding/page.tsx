@@ -33,15 +33,22 @@ function OnboardingSkeleton() {
 }
 
 /** Calcula o step inicial com base no progresso salvo no backend. */
-function computeInitialStep(data: { initial_settings_configured?: boolean; facebook_connected?: boolean; validation_criteria_configured?: boolean; has_completed_onboarding?: boolean } | undefined): Step {
+function computeInitialStep(data: { has_completed_onboarding?: boolean } | undefined): Step {
   if (!data) return 1;
-  // Só o passo 4 (tela final) exige onboarding REALMENTE concluído. `validation_criteria_configured`
-  // não serve para isso: o passo 3 grava o critério recomendado só por ter sido ABERTO, então
-  // quem apenas passou os olhos nele voltava direto para o 4 sem nunca ter concluído — e ficava
-  // presa, porque a conclusão é gravada pelo botão de salvar do passo 3.
+  // Quem já concluiu vê a tela final; quem não concluiu COMEÇA DO INÍCIO.
+  //
+  // Antes o passo inicial era inferido de `initial_settings_configured` (locale) e
+  // `validation_criteria_configured` — e os dois MENTEM numa conta nova: o hook
+  // useUserPreferences cria a linha de preferências já preenchida com locale, moeda
+  // e critério recomendado no primeiro carregamento autenticado (medido: 245 ms
+  // entre created_at e updated_at). O onboarding então "resumia" passos que o
+  // usuário nunca fez e caía na tela final sem nunca ter concluído.
+  //
+  // Retomar de onde parou só vale com sinal confiável de que o usuário DECIDIU
+  // aquele passo. Como não há esse sinal hoje, começar do início é o correto: são
+  // 3 passos curtos, os valores já salvos aparecem preenchidos, e o Facebook usa
+  // popup (não recarrega a página, então nada se perde no meio do fluxo).
   if (data.has_completed_onboarding) return 4;
-  if (data.validation_criteria_configured || data.facebook_connected) return 3;
-  if (data.initial_settings_configured) return 2;
   return 1;
 }
 
