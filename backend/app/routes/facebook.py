@@ -514,7 +514,21 @@ def _resolve_entity_write_context(
     actor_id = user["user_id"]
     actor_jwt = user["token"]
 
-    scope = resolve_entity_pack_scope(actor_id, entity_type, entity_ids, pack_ids)
+    # Resolve com os TRES papeis para poder distinguir "sem acesso" de "papel
+    # insuficiente". Pedindo so dono|editor, o viewer voltava escopo vazio e caia no
+    # caminho do ator, morrendo com "conecte sua conta do Facebook" — mensagem que
+    # manda o usuario fazer algo que nao resolve o problema dele.
+    scope = resolve_entity_pack_scope(
+        actor_id, entity_type, entity_ids, pack_ids, roles=("dono", "editor", "viewer"),
+    )
+    if scope is not None and scope.role == "viewer":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error": "insufficient_pack_role",
+                "message": "Somente dono ou editor podem alterar itens deste pack.",
+            },
+        )
 
     if scope is not None and scope.is_guest:
         fb_token = get_facebook_token_for_silo(scope.owner_id)
