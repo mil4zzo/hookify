@@ -9,6 +9,13 @@ services:
       dockerfile: ../deploy/Dockerfile.backend
     container_name: hookify-backend
     restart: unless-stopped
+    # O default do Docker e 10s entre o SIGTERM e o SIGKILL. Requisicao mais longa
+    # que isso — upload chunked de video, operacao em lote na Meta — era morta no
+    # meio EM TODO DEPLOY. O uvicorn 0.32 encerra graciosamente no SIGTERM (para de
+    # aceitar conexao e espera as em voo), entao a janela maior e aproveitada de
+    # fato. Ver tambem --timeout-graceful-shutdown no Dockerfile.backend, menor que
+    # este valor para o processo sair por conta propria antes do SIGKILL.
+    stop_grace_period: 60s
     # Vars de runtime do backend vêm 100% de ../backend/.env (env_file abaixo).
     # Não duplicar com "- VAR=${VAR}" no environment: lá o ${VAR} é resolvido
     # pelo docker-compose contra deploy/.env (ou shell), e quando vazio sobrescreve
@@ -68,6 +75,11 @@ services:
         - sentry_auth_token
     container_name: hookify-frontend
     restart: unless-stopped
+    # Mesmo motivo do backend. Verificado no runtime do Next 15 desta imagem
+    # (start-server.js): o handler de SIGTERM chama server.close(), para de aceitar
+    # conexao nova, espera as em voo e so entao sai — ou seja, a janela maior nao e
+    # decorativa aqui. 30s bastam: as respostas do front sao curtas.
+    stop_grace_period: 30s
     environment:
       - NODE_ENV=production
       # Fetches SERVER-SIDE do Next (ex.: página pública /s/[token]) não conseguem
