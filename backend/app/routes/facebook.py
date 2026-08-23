@@ -15,6 +15,7 @@ from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
+from app.services import pack_action_log
 from app.services.facebook_token_service import (
     get_facebook_token_for_user, 
     get_facebook_token_for_silo,
@@ -491,6 +492,79 @@ class _WriteCtx(NamedTuple):
     user_id: str              # silo de destino do write
     allowed_ids: Optional[List[str]]  # ids validados no pack; None => caminho legado
     is_guest: bool
+    # Autoria (P3.5): quem pediu e sob que papel. `user_id` acima e o SILO, que
+    # no caminho de convidado nao e o ator — sem estes campos o log registraria
+    # o dono como autor, que e exatamente o erro que a tabela existe para evitar.
+    actor_id: str = ""
+    actor_role: str = "dono"
+    pack_ids: Tuple[str, ...] = ()
+
+
+def _record_entity_action(
+    ctx: "_WriteCtx",
+    action: str,
+    target_type: str,
+    target_ids: List[str],
+    *,
+    detail: Optional[Dict[str, Any]] = None,
+    target_count: Optional[int] = None,
+):
+    """Context manager de autoria (P3.5) a partir do contexto de escrita.
+
+    O ATOR sai de `ctx.actor_id`, nunca de `ctx.user_id`: no caminho de convidado
+    aquele e o silo do dono, e registrar o dono como autor seria repetir dentro
+    do Hookify a mesma cegueira que a Meta tem.
+    """
+    return pack_action_log.record_action(
+        action=action,
+        actor_id=(ctx.actor_id or ctx.user_id),
+        actor_role=ctx.actor_role,
+        owner_id=ctx.user_id,
+        pack_ids=ctx.pack_ids,
+        target_type=target_type,
+        target_ids=list(target_ids),
+        target_count=target_count,
+        detail=detail,
+    )
+
+
+_BATCH_ACTION_BY_ENTITY = {
+    "ad": pack_action_log.ACTION_AD_STATUS,
+    "adset": pack_action_log.ACTION_ADSET_STATUS,
+    "campaign": pack_action_log.ACTION_CAMPAIGN_STATUS,
+}
+
+
+def _mark_batch_outcome(
+    entry: Dict[str, Any],
+    *,
+    updated_ids: List[str],
+    failed_ids: List[str],
+    blocked: Dict[str, str],
+) -> None:
+    """Desfecho de um lote: 'ok' so quando TUDO passou.
+
+    A Meta aceita lote parcial — 47 de 50 pausados e uma resposta de sucesso. Um
+    log que registrasse isso como 'ok' com target_count=50 estaria mentindo sobre
+    o que aconteceu; por isso o registro guarda os ids que de fato mudaram.
+    """
+    stalled = list(failed_ids) + list(blocked.keys())
+    entry["target_ids"] = updated_ids
+    entry["target_count"] = len(updated_ids)
+    if stalled:
+        entry["status"] = "partial" if updated_ids else "error"
+        entry["error"] = f"{len(stalled)} de {len(updated_ids) + len(stalled)} nao mudaram"
+
+
+def _budget_detail(request: Any) -> Dict[str, Any]:
+    """Valor pedido, para o log. daily e lifetime sao mutuamente exclusivos (XOR
+    da Meta), entao so um dos dois aparece."""
+    out: Dict[str, Any] = {}
+    if getattr(request, "daily_budget", None) is not None:
+        out["daily_budget"] = request.daily_budget
+    if getattr(request, "lifetime_budget", None) is not None:
+        out["lifetime_budget"] = request.lifetime_budget
+    return out
 
 
 def _resolve_entity_write_context(
@@ -550,6 +624,9 @@ def _resolve_entity_write_context(
             user_id=scope.owner_id,
             allowed_ids=list(scope.allowed_ids),
             is_guest=True,
+            actor_id=actor_id,
+            actor_role=scope.role,
+            pack_ids=tuple(scope.pack_ids),
         )
 
     fb_token = get_facebook_token_for_user(actor_jwt, actor_id)
@@ -567,6 +644,11 @@ def _resolve_entity_write_context(
         user_id=actor_id,
         allowed_ids=(list(scope.allowed_ids) if scope else None),
         is_guest=False,
+        actor_id=actor_id,
+        actor_role=(scope.role if scope else "dono"),
+        # Sem escopo resolvido nao ha pack confiavel: o log prefere nao registrar
+        # a registrar um contexto que o cliente mandou e ninguem validou.
+        pack_ids=(tuple(scope.pack_ids) if scope else ()),
     )
 
 
@@ -611,6 +693,9 @@ def _resolve_media_read_context(
             user_id=scope.owner_id,
             allowed_ids=list(scope.allowed_ids),
             is_guest=True,
+            actor_id=actor_id,
+            actor_role=scope.role,
+            pack_ids=tuple(scope.pack_ids),
         )
 
     fb_token = get_facebook_token_for_user(actor_jwt, actor_id)
@@ -628,6 +713,9 @@ def _resolve_media_read_context(
         user_id=actor_id,
         allowed_ids=(list(scope.allowed_ids) if scope else None),
         is_guest=False,
+        actor_id=actor_id,
+        actor_role=(scope.role if scope else "dono"),
+        pack_ids=(tuple(scope.pack_ids) if scope else ()),
     )
 
 
@@ -1473,56 +1561,61 @@ def update_ads_batch_status(
     if not owned_ids:
         raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": "Nenhum dos anúncios encontrado para este usuário"})
 
-    result = api.batch_update_ad_status(owned_ids, request.status, account_groups=account_groups)
+    with _record_entity_action(
+        ctx, pack_action_log.ACTION_AD_STATUS, "ad", owned_ids,
+        detail={"to": request.status}, target_count=len(owned_ids),
+    ) as _entry:
+        result = api.batch_update_ad_status(owned_ids, request.status, account_groups=account_groups)
 
-    if result.get("status") == "auth_error":
-        mark_connection_as_expired(user_jwt, user_id)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": "facebook_token_expired",
-                "code": "TOKEN_EXPIRED",
-                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
-            },
+        if result.get("status") == "auth_error":
+            mark_connection_as_expired(user_jwt, user_id)
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "facebook_token_expired",
+                    "code": "TOKEN_EXPIRED",
+                    "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+                },
+            )
+
+        if result.get("status") not in ("success",):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "meta_api_error",
+                    "message": result.get("message") or "Falha ao atualizar status em lote no Meta",
+                    "details": result.get("error"),
+                },
+            )
+
+        updated_ids: List[str] = result.get("updated_ids", [])
+        failed_ids: List[str] = result.get("failed_ids", [])
+        blocked: Dict[str, str] = result.get("blocked", {}) or {}
+        # Verdade relida do Meta após o write (inclui ads reclassificados como blocked no verify).
+        verified_statuses: Dict[str, Any] = {
+            k: v for k, v in (result.get("verified_statuses", {}) or {}).items() if v
+        }
+
+        try:
+            if verified_statuses:
+                _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=verified_statuses)
+        except Exception:
+            logger.exception("[BATCH_UPDATE_STATUS] Falha ao gravar effective_status verificado no Supabase")
+
+        # Ads escritos mas sem leitura de verify (fail-open): heurística conservadora antiga.
+        unverified_updated = [aid for aid in updated_ids if not verified_statuses.get(aid)]
+        if unverified_updated:
+            _update_bulk_local_effective_status(user_jwt=user_jwt, user_id=user_id, ad_ids=unverified_updated, new_status=request.status)
+
+        _mark_batch_outcome(_entry, updated_ids=updated_ids, failed_ids=failed_ids, blocked=blocked)
+        return BatchStatusResult(
+            success=len(updated_ids) > 0,
+            updated_ids=updated_ids,
+            failed_ids=failed_ids,
+            total=len(owned_ids),
+            blocked=blocked,
+            statuses={k: str(v) for k, v in verified_statuses.items()},
         )
-
-    if result.get("status") not in ("success",):
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": "meta_api_error",
-                "message": result.get("message") or "Falha ao atualizar status em lote no Meta",
-                "details": result.get("error"),
-            },
-        )
-
-    updated_ids: List[str] = result.get("updated_ids", [])
-    failed_ids: List[str] = result.get("failed_ids", [])
-    blocked: Dict[str, str] = result.get("blocked", {}) or {}
-    # Verdade relida do Meta após o write (inclui ads reclassificados como blocked no verify).
-    verified_statuses: Dict[str, Any] = {
-        k: v for k, v in (result.get("verified_statuses", {}) or {}).items() if v
-    }
-
-    try:
-        if verified_statuses:
-            _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=verified_statuses)
-    except Exception:
-        logger.exception("[BATCH_UPDATE_STATUS] Falha ao gravar effective_status verificado no Supabase")
-
-    # Ads escritos mas sem leitura de verify (fail-open): heurística conservadora antiga.
-    unverified_updated = [aid for aid in updated_ids if not verified_statuses.get(aid)]
-    if unverified_updated:
-        _update_bulk_local_effective_status(user_jwt=user_jwt, user_id=user_id, ad_ids=unverified_updated, new_status=request.status)
-
-    return BatchStatusResult(
-        success=len(updated_ids) > 0,
-        updated_ids=updated_ids,
-        failed_ids=failed_ids,
-        total=len(owned_ids),
-        blocked=blocked,
-        statuses={k: str(v) for k, v in verified_statuses.items()},
-    )
 
 
 def _update_entities_batch_status(
@@ -1549,52 +1642,57 @@ def _update_entities_batch_status(
         kind_pt = _ENTITY_KIND_PT.get(entity_type, "item")
         raise HTTPException(status_code=404, detail={"error": "entity_not_found", "message": f"Nenhum {kind_pt} encontrado para este usuário"})
 
-    result = api.batch_update_ad_status(owned_ids, request.status, entity_type=entity_type)
+    with _record_entity_action(
+        ctx, _BATCH_ACTION_BY_ENTITY[entity_type], entity_type, owned_ids,
+        detail={"to": request.status}, target_count=len(owned_ids),
+    ) as _entry:
+        result = api.batch_update_ad_status(owned_ids, request.status, entity_type=entity_type)
 
-    if result.get("status") == "auth_error":
-        mark_connection_as_expired(user_jwt, user_id)
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": "facebook_token_expired",
-                "code": "TOKEN_EXPIRED",
-                "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
-            },
+        if result.get("status") == "auth_error":
+            mark_connection_as_expired(user_jwt, user_id)
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error": "facebook_token_expired",
+                    "code": "TOKEN_EXPIRED",
+                    "message": "Token do Facebook expirado. Por favor, reconecte sua conta do Facebook.",
+                },
+            )
+
+        if result.get("status") not in ("success",):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "meta_api_error",
+                    "message": result.get("message") or "Falha ao atualizar status em lote no Meta",
+                    "details": result.get("error"),
+                },
+            )
+
+        updated_ids: List[str] = result.get("updated_ids", [])
+        failed_ids: List[str] = result.get("failed_ids", [])
+        blocked: Dict[str, str] = result.get("blocked", {}) or {}
+        verified_statuses: Dict[str, Any] = {
+            k: v for k, v in (result.get("verified_statuses", {}) or {}).items() if v
+        }
+
+        try:
+            _batch_reconcile_parent_status_local(
+                user_jwt=user_jwt, user_id=user_id, entity_type=entity_type,
+                verified_statuses=verified_statuses, updated_ids=updated_ids, target_status=request.status,
+            )
+        except Exception:
+            logger.exception("[BATCH_ENTITY_STATUS] Falha ao reconciliar status local em lote (%s)", entity_type)
+
+        _mark_batch_outcome(_entry, updated_ids=updated_ids, failed_ids=failed_ids, blocked=blocked)
+        return BatchStatusResult(
+            success=len(updated_ids) > 0,
+            updated_ids=updated_ids,
+            failed_ids=failed_ids,
+            total=len(owned_ids),
+            blocked=blocked,
+            statuses={k: str(v) for k, v in verified_statuses.items()},
         )
-
-    if result.get("status") not in ("success",):
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": "meta_api_error",
-                "message": result.get("message") or "Falha ao atualizar status em lote no Meta",
-                "details": result.get("error"),
-            },
-        )
-
-    updated_ids: List[str] = result.get("updated_ids", [])
-    failed_ids: List[str] = result.get("failed_ids", [])
-    blocked: Dict[str, str] = result.get("blocked", {}) or {}
-    verified_statuses: Dict[str, Any] = {
-        k: v for k, v in (result.get("verified_statuses", {}) or {}).items() if v
-    }
-
-    try:
-        _batch_reconcile_parent_status_local(
-            user_jwt=user_jwt, user_id=user_id, entity_type=entity_type,
-            verified_statuses=verified_statuses, updated_ids=updated_ids, target_status=request.status,
-        )
-    except Exception:
-        logger.exception("[BATCH_ENTITY_STATUS] Falha ao reconciliar status local em lote (%s)", entity_type)
-
-    return BatchStatusResult(
-        success=len(updated_ids) > 0,
-        updated_ids=updated_ids,
-        failed_ids=failed_ids,
-        total=len(owned_ids),
-        blocked=blocked,
-        statuses={k: str(v) for k, v in verified_statuses.items()},
-    )
 
 
 @router.post("/adsets/batch-status", response_model=BatchStatusResult)
@@ -1811,11 +1909,13 @@ def update_ad_status(
     if not ctx.is_guest:
         _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="ad", entity_id=ad_id)
 
-    result = api.update_ad_status(ad_id, request.status)
-    return _finalize_status_update(
-        result=result, api=api, user_jwt=user_jwt, user_id=user_id,
-        entity_type="ad", entity_id=ad_id, new_status=request.status,
-    )
+    with _record_entity_action(ctx, pack_action_log.ACTION_AD_STATUS, "ad", [ad_id],
+                              detail={"to": request.status}):
+        result = api.update_ad_status(ad_id, request.status)
+        return _finalize_status_update(
+            result=result, api=api, user_jwt=user_jwt, user_id=user_id,
+            entity_type="ad", entity_id=ad_id, new_status=request.status,
+        )
 
 
 @router.post("/adsets/{adset_id}/status")
@@ -1833,11 +1933,13 @@ def update_adset_status(
     if not ctx.is_guest:
         _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
 
-    result = api.update_adset_status(adset_id, request.status)
-    return _finalize_status_update(
-        result=result, api=api, user_jwt=user_jwt, user_id=user_id,
-        entity_type="adset", entity_id=adset_id, new_status=request.status,
-    )
+    with _record_entity_action(ctx, pack_action_log.ACTION_ADSET_STATUS, "adset", [adset_id],
+                              detail={"to": request.status}):
+        result = api.update_adset_status(adset_id, request.status)
+        return _finalize_status_update(
+            result=result, api=api, user_jwt=user_jwt, user_id=user_id,
+            entity_type="adset", entity_id=adset_id, new_status=request.status,
+        )
 
 
 @router.post("/campaigns/{campaign_id}/status")
@@ -1855,11 +1957,13 @@ def update_campaign_status(
     if not ctx.is_guest:
         _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
 
-    result = api.update_campaign_status(campaign_id, request.status)
-    return _finalize_status_update(
-        result=result, api=api, user_jwt=user_jwt, user_id=user_id,
-        entity_type="campaign", entity_id=campaign_id, new_status=request.status,
-    )
+    with _record_entity_action(ctx, pack_action_log.ACTION_CAMPAIGN_STATUS, "campaign", [campaign_id],
+                              detail={"to": request.status}):
+        result = api.update_campaign_status(campaign_id, request.status)
+        return _finalize_status_update(
+            result=result, api=api, user_jwt=user_jwt, user_id=user_id,
+            entity_type="campaign", entity_id=campaign_id, new_status=request.status,
+        )
 
 
 def _finalize_budget_update(
@@ -2004,14 +2108,18 @@ def update_adset_budget(
     if not ctx.is_guest:
         _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="adset", entity_id=adset_id)
 
-    result = api.update_entity_budget(
-        adset_id, "adset",
-        daily_budget=request.daily_budget, lifetime_budget=request.lifetime_budget,
-    )
-    return _finalize_budget_update(
-        result=result, user_jwt=user_jwt, user_id=user_id,
-        entity_type="adset", entity_id=adset_id,
-    )
+    with _record_entity_action(
+        ctx, pack_action_log.ACTION_ADSET_BUDGET, "adset", [adset_id],
+        detail=_budget_detail(request),
+    ):
+        result = api.update_entity_budget(
+            adset_id, "adset",
+            daily_budget=request.daily_budget, lifetime_budget=request.lifetime_budget,
+        )
+        return _finalize_budget_update(
+            result=result, user_jwt=user_jwt, user_id=user_id,
+            entity_type="adset", entity_id=adset_id,
+        )
 
 
 @router.post("/campaigns/{campaign_id}/budget")
@@ -2029,14 +2137,18 @@ def update_campaign_budget(
     if not ctx.is_guest:
         _assert_entity_belongs_to_user(user_jwt=user_jwt, user_id=user_id, entity_type="campaign", entity_id=campaign_id)
 
-    result = api.update_entity_budget(
-        campaign_id, "campaign",
-        daily_budget=request.daily_budget, lifetime_budget=request.lifetime_budget,
-    )
-    return _finalize_budget_update(
-        result=result, user_jwt=user_jwt, user_id=user_id,
-        entity_type="campaign", entity_id=campaign_id,
-    )
+    with _record_entity_action(
+        ctx, pack_action_log.ACTION_CAMPAIGN_BUDGET, "campaign", [campaign_id],
+        detail=_budget_detail(request),
+    ):
+        result = api.update_entity_budget(
+            campaign_id, "campaign",
+            daily_budget=request.daily_budget, lifetime_budget=request.lifetime_budget,
+        )
+        return _finalize_budget_update(
+            result=result, user_jwt=user_jwt, user_id=user_id,
+            entity_type="campaign", entity_id=campaign_id,
+        )
 
 
 @router.get("/ads/tree")
@@ -4151,6 +4263,27 @@ def refresh_pack(
 
         logger.info(f"[REFRESH_PACK] ✓ Job {job_id} iniciado para refresh do pack {pack_id}")
 
+        # Autoria (P3.5). Registrado no SUCESSO: o que interessa a quem le o feed
+        # e que o dado do pack mudou e por quem. As recusas daqui (409 de refresh
+        # ja em curso, 403 de token do dono) nao mudaram nada e virariam ruido.
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_REFRESH,
+            actor_id=str(user["user_id"]),
+            actor_role=access.role,
+            owner_id=str(owner_id),
+            pack_ids=[pack_id],
+            pack_name=pack.get("name"),
+            target_type="pack",
+            target_ids=[pack_id],
+            detail={
+                "job_id": str(job_id),
+                "refresh_type": refresh_type,
+                "since": since_str,
+                "until": until_str,
+                "sheet_sync": bool(sync_job_id or server_chain),
+            },
+        )
+
         return {
             "job_id": str(job_id),
             "status": "started",
@@ -4317,6 +4450,8 @@ def cancel_jobs_batch(
         # e cancela cada grupo com o cliente certo. O silo sai do JOB, nunca do cliente.
         actor_id = str(user["user_id"])
         by_silo: Dict[str, List[str]] = {}
+        pack_by_job: Dict[str, str] = {}   # job -> pack, para o registro de autoria
+        role_by_silo: Dict[str, str] = {}
         try:
             rows = (
                 get_supabase_service()
@@ -4336,17 +4471,21 @@ def cancel_jobs_batch(
                 continue
             # Silo alheio: cancela se DISPAROU o job, ou se manda no pack (dono|editor).
             payload = row.get("payload") or {}
+            job_pack_id = str(payload.get("pack_id") or "").strip()
             if str(payload.get("actor_id") or "") == actor_id:
                 by_silo.setdefault(silo, []).append(jid)
+                if job_pack_id:
+                    pack_by_job[jid] = job_pack_id
                 continue
-            job_pack_id = str(payload.get("pack_id") or "").strip()
             if not job_pack_id:
                 continue
             try:
-                assert_pack_role(actor_id, job_pack_id, roles=("dono", "editor"))
+                _cancel_access = assert_pack_role(actor_id, job_pack_id, roles=("dono", "editor"))
             except HTTPException:
                 continue  # viewer ou sem grant: nao cancela trabalho alheio
             by_silo.setdefault(silo, []).append(jid)
+            pack_by_job[jid] = job_pack_id
+            role_by_silo[silo] = _cancel_access.role
 
         cancelled_count = 0
         for silo, ids in by_silo.items():
@@ -4354,7 +4493,26 @@ def cancel_jobs_batch(
             tracker = get_job_tracker(
                 None if is_guest else user["token"], silo, use_service_role=is_guest,
             )
-            cancelled_count += tracker.cancel_jobs_batch(ids, reason)
+            cancelled = tracker.cancel_jobs_batch(ids, reason)
+            cancelled_count += cancelled
+
+            # Autoria (P3.5) SO em silo alheio. O caso comum aqui e o logout
+            # cancelando os proprios jobs — registrar isso encheria o feed de
+            # linhas que ninguem quer ler. O que importa e "alguem cancelou um
+            # trabalho que estava rodando na MINHA conta".
+            if is_guest and cancelled:
+                packs = sorted({pack_by_job[j] for j in ids if j in pack_by_job})
+                pack_action_log.log_pack_action(
+                    action=pack_action_log.ACTION_JOB_CANCEL,
+                    actor_id=actor_id,
+                    actor_role=role_by_silo.get(silo, "editor"),
+                    owner_id=silo,
+                    pack_ids=packs,
+                    target_type="job",
+                    target_ids=ids,
+                    target_count=cancelled,
+                    detail={"reason": reason},
+                )
 
         logger.info(f"[CANCEL_JOBS_BATCH] Cancelados {cancelled_count}/{len(job_ids)} jobs para usuário {user['user_id']}")
         
@@ -4587,6 +4745,20 @@ def start_pack_transcription(
 
         threading.Thread(target=_run, daemon=True).start()
         logger.info(f"[TRANSCRIBE_PACK] Pack {pack_id}: job {transcription_job_id} iniciado ({pending} pendentes)")
+
+        # Autoria (P3.5). Transcricao gasta o saldo AssemblyAI DO DONO — saber
+        # quem disparou e quantos videos entraram nao e curiosidade, e conta.
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_TRANSCRIBE,
+            actor_id=str(user["user_id"]),
+            actor_role=access.role,
+            owner_id=str(owner_id),
+            pack_ids=[pack_id],
+            pack_name=pack_name,
+            target_type="pack",
+            target_ids=[pack_id],
+            detail={"job_id": transcription_job_id, "pending": pending, "force_no_audio": force_no_audio},
+        )
 
         return JSONResponse(
             status_code=202,

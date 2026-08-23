@@ -47,6 +47,7 @@ import {
   MetaUsageCallsParams,
   MetaUsageCallsResponse,
   MetaUsageDistinctResponse,
+  PackActivityResponse,
 } from './schemas'
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
@@ -440,6 +441,28 @@ export const api = {
       }
     ): Promise<{ success: boolean; pack_id: string; judgment: Record<string, unknown> }> =>
       apiClient.patch(`/analytics/packs/${packId}/judgment`, judgment),
+    /**
+     * Histórico de ações do pack (P3.5). Qualquer membro lê — todos já veem os
+     * efeitos das ações; esconder o autor não protegeria nada.
+     *
+     * Paginação por cursor (`before`), não por offset: o feed cresce pelo topo e
+     * um offset passaria a apontar para a linha errada assim que entrasse ação nova.
+     */
+    getPackActivity: (
+      packId: string,
+      params: { limit?: number; before?: string; actorId?: string; signal?: AbortSignal } = {}
+    ): Promise<PackActivityResponse> => {
+      const qs = new URLSearchParams()
+      if (params.limit !== undefined) qs.set('limit', String(params.limit))
+      if (params.before) qs.set('before', params.before)
+      if (params.actorId) qs.set('actor_id', params.actorId)
+      const query = qs.toString()
+      // `signal` threadado até o Axios: sem ele, sair da tela (ou deslogar) deixa
+      // a request viva e o cancelamento do TanStack não chega ao backend.
+      return apiClient.get(`/analytics/packs/${packId}/activity${query ? `?${query}` : ''}`, {
+        signal: params.signal,
+      })
+    },
   },
 
   // Meta API usage (quota monitoring)

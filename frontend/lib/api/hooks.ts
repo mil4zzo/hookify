@@ -47,6 +47,7 @@ export const queryKeys = {
   campaignChildren: (campaignId: string, dateStart: string, dateStop: string, actionType: string, packIdsKey: string) => ['analytics', 'rankings', 'campaign-children', campaignId, dateStart, dateStop, actionType, packIdsKey] as const,
   adsetChildren: (adsetId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop, packIdsKey] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
+  packActivity: (packId: string, actorId: string = '') => ['analytics', 'pack-activity', packId, actorId] as const,
   rankings: (params: RankingsRequest) => [
     'analytics',
     'rankings',

@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.services import pack_action_log
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +249,16 @@ def create_pack_share(
         "[PACK_SHARES] Pack %s compartilhado por %s com %s (role=%s)",
         pack_id, user["user_id"], grantee_id, request.role,
     )
+    # Autoria (P3.5): quem entrou no pack, quando e com que papel. E o evento que
+    # explica todas as linhas seguintes do feed — sem ele, um nome novo aparece
+    # agindo no pack sem que nada diga como ele chegou ali.
+    pack_action_log.log_pack_action(
+        action=pack_action_log.ACTION_SHARE_GRANT,
+        actor_id=str(user["user_id"]), actor_role="dono", owner_id=str(pack["user_id"]),
+        pack_ids=[pack_id], pack_name=pack.get("name"),
+        target_type="share", target_ids=[grantee_id],
+        detail={"role": request.role},
+    )
     return {"success": True, "pack_id": pack_id, "share": rows[0] if rows else None}
 
 
@@ -259,7 +270,7 @@ def update_pack_share_role(
     user=Depends(get_current_user),
 ):
     """Troca o papel de um convidado. So o dono."""
-    _assert_owner(user, pack_id)
+    pack = _assert_owner(user, pack_id)
 
     if request.role not in VALID_ROLES:
         raise HTTPException(status_code=400, detail="role deve ser 'editor' ou 'viewer'")
@@ -275,6 +286,13 @@ def update_pack_share_role(
     if not (res.data or []):
         raise HTTPException(status_code=404, detail="Compartilhamento nao encontrado")
 
+    pack_action_log.log_pack_action(
+        action=pack_action_log.ACTION_SHARE_ROLE,
+        actor_id=str(user["user_id"]), actor_role="dono", owner_id=str(pack["user_id"]),
+        pack_ids=[pack_id], pack_name=pack.get("name"),
+        target_type="share", target_ids=[grantee_id],
+        detail={"role": request.role},
+    )
     return {"success": True, "pack_id": pack_id, "grantee_id": grantee_id, "role": request.role}
 
 
@@ -297,13 +315,23 @@ def leave_pack(pack_id: str, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Voce nao tem acesso compartilhado a este pack")
 
     logger.info("[PACK_SHARES] Usuario %s saiu do pack %s", user["user_id"], pack_id)
+    # O papel sai de `res`, nao de uma nova consulta: o grant acabou de ser
+    # apagado e uma leitura agora nao acharia mais nada.
+    left_role = str((res.data or [{}])[0].get("role") or "editor")
+    left_owner = str((res.data or [{}])[0].get("owner_id") or "")
+    pack_action_log.log_pack_action(
+        action=pack_action_log.ACTION_SHARE_LEAVE,
+        actor_id=str(user["user_id"]), actor_role=left_role, owner_id=left_owner,
+        pack_ids=[pack_id],
+        target_type="share", target_ids=[str(user["user_id"])],
+    )
     return {"success": True, "pack_id": pack_id, "left": True}
 
 
 @router.delete("/{pack_id}/{grantee_id}")
 def revoke_pack_share(pack_id: str, grantee_id: str, user=Depends(get_current_user)):
     """Revoga o acesso de um convidado. So o dono."""
-    _assert_owner(user, pack_id)
+    pack = _assert_owner(user, pack_id)
 
     sb = get_supabase_for_user(user["token"])
     res = (
@@ -317,4 +345,10 @@ def revoke_pack_share(pack_id: str, grantee_id: str, user=Depends(get_current_us
         raise HTTPException(status_code=404, detail="Compartilhamento nao encontrado")
 
     logger.info("[PACK_SHARES] Acesso de %s ao pack %s revogado por %s", grantee_id, pack_id, user["user_id"])
+    pack_action_log.log_pack_action(
+        action=pack_action_log.ACTION_SHARE_REVOKE,
+        actor_id=str(user["user_id"]), actor_role="dono", owner_id=str(pack["user_id"]),
+        pack_ids=[pack_id], pack_name=pack.get("name"),
+        target_type="share", target_ids=[grantee_id],
+    )
     return {"success": True, "pack_id": pack_id, "grantee_id": grantee_id, "revoked": True}

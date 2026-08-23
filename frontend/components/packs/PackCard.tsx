@@ -4,9 +4,10 @@ import React, { useState, useRef, useEffect } from "react";
 import { StandardCard } from "@/components/common/StandardCard";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
+import { PackActivityDialog } from "@/components/packs/PackActivityDialog";
 import { PackShareDialog } from "@/components/packs/PackShareDialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow } from "@tabler/icons-react";
+import { IconLogout, IconUsers, IconFilter, IconTrash, IconLoader2, IconRotateClockwise, IconPencil, IconTableExport, IconAlertTriangle, IconAlertCircle, IconMicrophone, IconTargetArrow, IconHistory } from "@tabler/icons-react";
 import { MetaIcon, GoogleSheetsIcon } from "@/components/icons";
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";
@@ -77,6 +78,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
   const isSharedGuest = !!pack.shared_role;
   const isViewer = pack.shared_role === "viewer";
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [isActivityDialogOpen, setIsActivityDialogOpen] = useState(false);
   const [isLeaving, setIsLeaving] = useState(false);
 
   const handleLeavePack = async () => {
@@ -604,6 +606,12 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
               Compartilhar
             </DropdownMenuItem>
           )}
+          {/* Qualquer membro lê o histórico, viewer inclusive: todos já veem os
+              EFEITOS das ações, esconder o autor não protegeria nada. */}
+          <DropdownMenuItem onClick={() => setIsActivityDialogOpen(true)}>
+            <IconHistory className="w-4 h-4 mr-2" />
+            Histórico
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           {isSharedGuest ? (
             // Convidado não apaga o pack do dono — ele SAI (remove o próprio grant).
@@ -621,6 +629,11 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
       </DropdownMenu>
       {!isSharedGuest && (
         <PackShareDialog pack={pack} open={isShareDialogOpen} onOpenChange={setIsShareDialogOpen} />
+      )}
+      {/* Montado só depois do primeiro clique: o feed é uma tela rara e o card
+          é renderizado dezenas de vezes na página de packs. */}
+      {isActivityDialogOpen && (
+        <PackActivityDialog pack={pack} open={isActivityDialogOpen} onOpenChange={setIsActivityDialogOpen} />
       )}
     </div>
   );

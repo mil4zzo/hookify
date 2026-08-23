@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_service
 from app.services.pack_access import assert_pack_role
+from app.services import pack_action_log
 from app.core.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
@@ -182,8 +183,10 @@ def google_oauth_callback(
     # tem grant (403/404) — pack_id vindo do cliente e seguro por causa do gate.
     write_jwt = user["token"]
     silo_user_id = user["user_id"]
+    relink_access = None
     if request.pack_id:
         access = assert_pack_role(user["user_id"], request.pack_id, roles=("dono", "editor"))
+        relink_access = access
         if access.owner_id and access.owner_id != user["user_id"]:
             write_jwt = None
             silo_user_id = access.owner_id
@@ -264,6 +267,21 @@ def google_oauth_callback(
         except Exception as e:
             # Não falhar o OAuth se atualização de integrações falhar
             logger.warning(f"[GOOGLE_OAUTH] Erro ao atualizar integrações: {e}", exc_info=True)
+
+    # Autoria (P3.5). A Opcao B deixa o convidado gravar uma credencial Google
+    # DENTRO do silo do dono — a acao de maior alcance que um nao-dono executa em
+    # todo o app. O dono precisa poder ver que aconteceu, e com que conta.
+    if request.pack_id and relink_access is not None:
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_SHEET_RELINK,
+            actor_id=str(user["user_id"]),
+            actor_role=relink_access.role,
+            owner_id=str(silo_user_id),
+            pack_ids=[str(request.pack_id)],
+            target_type="integration",
+            target_ids=[str(rec.get("id") or "")],
+            detail={"google_email": rec.get("google_email")},
+        )
 
     return {
         "connection": {
@@ -637,6 +655,8 @@ def start_sync_job(
 
         sync_jwt: Optional[str] = user["token"]
         silo_user_id = str(user["user_id"])
+        sync_pack_id = str((integration.data or [{}])[0].get("pack_id") or "")
+        sync_role = "dono"
 
         if not integration.data or len(integration.data) == 0:
             # P3.3b: pode ser a integracao de um pack COMPARTILHADO — membro pode
@@ -654,11 +674,13 @@ def start_sync_job(
             )
             if not svc_rows or not svc_rows[0].get("pack_id"):
                 raise HTTPException(status_code=404, detail="Integração não encontrada.")
-            assert_pack_role(
+            sync_access = assert_pack_role(
                 user["user_id"], str(svc_rows[0]["pack_id"]), roles=("dono", "editor", "viewer")
             )
             sync_jwt = None  # contexto do dono via service role
             silo_user_id = str(svc_rows[0]["owner_id"])
+            sync_pack_id = str(svc_rows[0]["pack_id"])
+            sync_role = sync_access.role
 
         # Criar job (no silo do dono da integracao)
         job_id = create_sync_job(
@@ -678,7 +700,20 @@ def start_sync_job(
         )
         
         logger.info(f"[GOOGLE_SYNC] Job {job_id} iniciado para integração {integration_id}")
-        
+
+        # Autoria (P3.5): o sync roda com a credencial Google DO DONO e reescreve
+        # o leadscore do pack — muda MQL e CPMQL para todo mundo que olha.
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_SHEET_SYNC,
+            actor_id=str(user["user_id"]),
+            actor_role=sync_role,
+            owner_id=silo_user_id,
+            pack_ids=[sync_pack_id] if sync_pack_id else [],
+            target_type="integration",
+            target_ids=[str(integration_id)],
+            detail={"job_id": str(job_id)},
+        )
+
         return {"job_id": job_id}
         
     except HTTPException:

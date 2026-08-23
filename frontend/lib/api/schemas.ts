@@ -1091,3 +1091,51 @@ export interface MetaUsageDistinctResponse {
   services: string[]
   ad_accounts: string[]
 }
+
+// ── Histórico de ações do pack (P3.5) ───────────────────────────────────────
+// `action` é vocabulário fechado no backend (app/services/pack_action_log.py).
+// A união literal aqui é o que garante que a tradução para português na UI
+// cubra todos os casos — um verbo novo no backend quebra o build, em vez de
+// aparecer cru na tela.
+export type PackActionVerb =
+  | 'ad.status'
+  | 'adset.status'
+  | 'campaign.status'
+  | 'adset.budget'
+  | 'campaign.budget'
+  | 'pack.refresh'
+  | 'pack.transcribe'
+  | 'pack.sheet_sync'
+  | 'pack.sheet_relink'
+  | 'job.cancel'
+  | 'pack.judgment'
+  | 'pack.auto_refresh'
+  | 'pack.rename'
+  | 'pack.delete'
+  | 'share.grant'
+  | 'share.role'
+  | 'share.revoke'
+  | 'share.leave'
+
+export interface PackActivityEntry {
+  id: string
+  created_at: string
+  actor_id: string
+  actor_name: string | null
+  actor_role: 'dono' | 'editor' | 'viewer'
+  action: PackActionVerb
+  target_type: string | null
+  target_ids: string[]
+  target_count: number
+  detail: Record<string, unknown> | null
+  status: 'ok' | 'error' | 'partial'
+  error: string | null
+  pack_name: string | null
+}
+
+export interface PackActivityResponse {
+  pack_id: string
+  entries: PackActivityEntry[]
+  /** Cursor para a página seguinte; null quando acabou. */
+  next_before: string | null
+}

@@ -14,6 +14,7 @@ from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
 from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
+from app.services import pack_action_log
 from app.services.ad_media import resolve_media_type
 from app.services.thumbnail_cache import build_public_storage_url, DEFAULT_BUCKET
 
@@ -1068,6 +1069,25 @@ def _silos(user_id) -> List[str]:
     if isinstance(user_id, (list, tuple, set)):
         return [str(u) for u in user_id if u]
     return [str(user_id)] if user_id else []
+
+
+def _pack_name_snapshot(pack_id: str) -> Optional[str]:
+    """Nome do pack ANTES da acao, para o log de autoria (P3.5).
+
+    Vale a leitura extra porque as duas acoes que a usam — renomear e apagar —
+    sao raras e destroem justamente a informacao que se quer registrar: depois
+    do write nao existe mais de onde tirar "de que nome para qual" nem "qual
+    pack era esse que sumiu".
+    """
+    try:
+        res = (
+            get_supabase_service()
+            .table("packs").select("name").eq("id", str(pack_id)).limit(1).execute()
+        )
+        rows = res.data or []
+        return (rows[0].get("name") if rows else None)
+    except Exception:
+        return None  # nome e enfeite; nunca derrubar a acao por causa dele
 
 
 def _hydrate_transcription_flags_for_rankings_rows(
@@ -3555,14 +3575,26 @@ def delete_pack(
     DELETE /pack-shares/{pack_id}/me. Os grants somem junto via ON DELETE CASCADE.
     """
     try:
-        assert_pack_role(user["user_id"], pack_id, roles=("dono",))
+        access = assert_pack_role(user["user_id"], pack_id, roles=("dono",))
+        deleted_name = _pack_name_snapshot(pack_id)
         result = supabase_repo.delete_pack(
             user["token"],
             pack_id=pack_id,
             ad_ids=request.ad_ids or [],  # Opcional, backend busca do pack se nÃ£o fornecido
             user_id=user["user_id"]
         )
-        
+
+        # Autoria (P3.5). O pack acabou de sumir para todos os membros — esta e a
+        # unica linha que sobra explicando por que. Por isso pack_action_log NAO
+        # tem foreign key: um ON DELETE CASCADE apagaria a resposta junto.
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_DELETE,
+            actor_id=str(user["user_id"]), actor_role=access.role, owner_id=access.owner_id,
+            pack_ids=[pack_id], pack_name=deleted_name,
+            target_type="pack", target_ids=[pack_id],
+            detail={"ads_deleted": result.get("ads_deleted", 0)},
+        )
+
         return {
             "success": True,
             "pack_id": pack_id,
@@ -3592,14 +3624,20 @@ def update_pack_auto_refresh(
 ):
     """Atualiza o campo auto_refresh de um pack. Escrevem dono e editor."""
     try:
-        assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
+        access = assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
 
         supabase_repo.update_pack_auto_refresh(
             pack_id,
             request.auto_refresh,
             actor_id=user["user_id"],
         )
-        
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_AUTO_REFRESH,
+            actor_id=str(user["user_id"]), actor_role=access.role, owner_id=access.owner_id,
+            pack_ids=[pack_id], target_type="pack", target_ids=[pack_id],
+            detail={"to": bool(request.auto_refresh)},
+        )
+
         return {
             "success": True,
             "pack_id": pack_id,
@@ -3628,7 +3666,7 @@ def update_pack_judgment(
     Escrevem dono e editor. Viewer recebe 403.
     """
     try:
-        assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
+        access = assert_pack_role(user["user_id"], pack_id)  # dono|editor; viewer -> 403
 
         # exclude_unset preserva a distincao entre "nao enviado" e "enviado como null".
         fields = request.model_dump(exclude_unset=True)
@@ -3651,12 +3689,88 @@ def update_pack_judgment(
 
         supabase_repo.update_pack_judgment(pack_id, fields, user["user_id"])
 
+        # Autoria (P3.5). Julgamento muda o VEREDITO que o time inteiro le — o
+        # mesmo anuncio passa de bom a ruim sem que nenhum numero da Meta mude.
+        # Quem mexeu no corte e a primeira pergunta quando isso acontece.
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_JUDGMENT,
+            actor_id=str(user["user_id"]), actor_role=access.role, owner_id=access.owner_id,
+            pack_ids=[pack_id], target_type="pack", target_ids=[pack_id],
+            detail=fields,
+        )
+
         return {"success": True, "pack_id": pack_id, "judgment": fields}
     except HTTPException:
         raise
     except Exception as e:
         logger.exception(f"Erro ao atualizar julgamento do pack {pack_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Erro ao atualizar julgamento: {str(e)}")
+
+
+@router.get("/packs/{pack_id}/activity")
+def get_pack_activity(
+    pack_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    before: Optional[str] = Query(default=None, description="created_at ISO — pagina para tras"),
+    actor_id: Optional[str] = Query(default=None),
+    user=Depends(get_current_user),
+):
+    """Historico de acoes de um pack — quem fez o que (P3.5).
+
+    QUALQUER membro le, viewer inclusive. Todos ja veem os EFEITOS das acoes (o
+    anuncio pausado, o corte de MQL novo); esconder o AUTOR nao protegeria nada
+    e so transformaria "quem mexeu nisso?" numa pergunta para o suporte.
+
+    Leitura por service role porque a tabela nao tem policy — o guarda e o
+    assert_pack_role acima, na aplicacao, como todo o resto da P3.6.
+    """
+    try:
+        assert_pack_role(user["user_id"], pack_id, roles=("dono", "editor", "viewer"))
+
+        sb = get_supabase_service()
+        query = (
+            sb.table("pack_action_log")
+            .select("id,created_at,actor_id,actor_role,action,target_type,target_ids,"
+                    "target_count,detail,status,error,pack_name")
+            .overlaps("pack_ids", [pack_id])
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
+        if before:
+            query = query.lt("created_at", before)
+        if actor_id:
+            query = query.eq("actor_id", actor_id)
+
+        rows = query.execute().data or []
+
+        # Nome de quem agiu: auth.users nao e exposta ao PostgREST, mesma RPC que
+        # a lista de membros usa. Nome e enfeite — falha nao derruba o feed.
+        names: Dict[str, str] = {}
+        actor_ids = sorted({str(r.get("actor_id")) for r in rows if r.get("actor_id")})
+        if actor_ids:
+            try:
+                res = sb.rpc("lookup_users_by_ids", {"p_user_ids": actor_ids}).execute()
+                for row in (res.data or []):
+                    if isinstance(row, dict) and row.get("user_id"):
+                        names[str(row["user_id"])] = row.get("display_name") or ""
+            except Exception as e:
+                logger.warning("[PACK_ACTIVITY] Falha ao resolver nomes: %s", e)
+
+        for r in rows:
+            r["actor_name"] = names.get(str(r.get("actor_id")), "") or None
+
+        return {
+            "pack_id": pack_id,
+            "entries": rows,
+            # Cursor explicito em vez de offset: o feed cresce pelo topo, e um
+            # offset paginaria errado assim que uma acao nova entrasse.
+            "next_before": (rows[-1].get("created_at") if len(rows) == limit else None),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f"Erro ao listar atividade do pack {pack_id}: {e}")
+        raise HTTPException(status_code=500, detail="Erro ao listar atividade do pack")
 
 
 @router.patch("/packs/{pack_id}/name")
@@ -3672,17 +3786,25 @@ def update_pack_name(
     Editor calibra o pack (julgamento, auto-refresh); nao redefine quem ele e.
     """
     try:
-        assert_pack_role(user["user_id"], pack_id, roles=("dono",))
+        access = assert_pack_role(user["user_id"], pack_id, roles=("dono",))
 
         if not request.name or not request.name.strip():
             raise HTTPException(status_code=400, detail="Nome do pack nÃ£o pode ser vazio")
 
+        previous_name = _pack_name_snapshot(pack_id)
         supabase_repo.update_pack_name(
             pack_id,
             request.name.strip(),
             actor_id=user["user_id"],
         )
-        
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_RENAME,
+            actor_id=str(user["user_id"]), actor_role=access.role, owner_id=access.owner_id,
+            pack_ids=[pack_id], pack_name=previous_name,
+            target_type="pack", target_ids=[pack_id],
+            detail={"from": previous_name, "to": request.name.strip()},
+        )
+
         return {
             "success": True,
             "pack_id": pack_id,
