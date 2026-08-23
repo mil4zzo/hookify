@@ -91,4 +91,12 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# Health check
+# A imagem e node:20-alpine: nao ha curl nem wget, entao a sonda usa o proprio
+# node. Qualquer status < 500 conta como saudavel — a raiz responde 307 para
+# /login quando nao ha sessao, e isso e o app funcionando, nao uma falha.
+# start-period generoso porque o server.js do Next leva alguns segundos ate
+# aceitar conexao, e sondas falhas nesse intervalo nao contam como retry.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 CMD node -e "require('http').get({host:'127.0.0.1',port:3000,path:'/'},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+
 CMD ["node", "server.js"]

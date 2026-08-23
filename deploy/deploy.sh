@@ -20,6 +20,15 @@ FRONTEND_PUBLIC_URL="https://hookifyads.com"
 # Vira true se qualquer check interno reprovar. Consumido por final_report().
 HEALTH_FAILED=false
 
+# Prefixo das imagens. O compose nomeia as imagens como "<projeto>-<servico>",
+# e o projeto e "hookify" (top-level `name:` no docker-compose.yml). Se aquele
+# nome mudar, este tem que mudar junto.
+IMAGE_PREFIX="hookify"
+
+# Preenchido por git_pull() quando o pull traz migrations novas. So avisa —
+# este script nao toca no banco.
+PENDING_MIGRATIONS=""
+
 # Requer pelo menos 5GB livres.
 # Com o build antes do down, as imagens antigas continuam referenciadas pelos
 # containers em execucao enquanto as novas sao construidas — o pico de disco e
@@ -35,14 +44,23 @@ BUILDKIT_PRUNE_UNTIL_HOURS=168 # 7 dias (fallback se keep-storage não existir)
 USE_CACHE=true
 DO_PULL=true
 RUN_PRE_CLEAN=false
+HEALTH_ONLY=false
+DO_ROLLBACK=false
 
 usage() {
   cat <<EOF
 Usage: ./deploy.sh [--no-cache] [--skip-pull] [--pre-clean]
+       ./deploy.sh --health-only
+       ./deploy.sh --rollback
 
-  --no-cache   build sem cache (mais lento, 100% determinístico)
-  --skip-pull  não faz git pull
-  --pre-clean  roda cleanup SAFE antes do build (útil se o disco estiver apertado)
+  --no-cache     build sem cache (mais lento, 100% determinístico)
+  --skip-pull    não faz git pull
+  --pre-clean    roda cleanup SAFE antes do build (útil se o disco estiver apertado)
+
+  --health-only  só roda os health checks contra o que já está no ar.
+                 Não builda, não derruba nada, não pega o lock de deploy.
+  --rollback     volta as imagens :prev (a versão anterior) e recria os
+                 containers. NÃO mexe no código nem no banco — veja do_rollback().
 EOF
 }
 
@@ -51,17 +69,28 @@ for arg in "$@"; do
     --no-cache) USE_CACHE=false ;;
     --skip-pull) DO_PULL=false ;;
     --pre-clean) RUN_PRE_CLEAN=true ;;
+    --health-only) HEALTH_ONLY=true ;;
+    --rollback) DO_ROLLBACK=true ;;
     -h|--help) usage; exit 0 ;;
     *) echo "❌ Argumento desconhecido: $arg"; usage; exit 1 ;;
   esac
 done
 
-# Lock: evita 2 deploys ao mesmo tempo
-LOCK_FILE="/tmp/hookify_deploy.lock"
-exec 9>"$LOCK_FILE"
-if ! flock -n 9; then
-  echo "❌ Já existe um deploy rodando (lock: $LOCK_FILE)."
+if [ "$HEALTH_ONLY" = true ] && [ "$DO_ROLLBACK" = true ]; then
+  echo "❌ --health-only e --rollback são mutuamente exclusivos."
   exit 1
+fi
+
+# Lock: evita 2 deploys ao mesmo tempo.
+# --health-only é read-only, então não disputa o lock: dá para checar a saúde
+# da produção mesmo com um deploy em andamento (que é justo quando mais se quer).
+LOCK_FILE="/tmp/hookify_deploy.lock"
+if [ "$HEALTH_ONLY" = false ]; then
+  exec 9>"$LOCK_FILE"
+  if ! flock -n 9; then
+    echo "❌ Já existe um deploy rodando (lock: $LOCK_FILE)."
+    exit 1
+  fi
 fi
 
 detect_compose() {
@@ -151,16 +180,56 @@ check_disk_space() {
 }
 
 git_pull() {
-  if [ "$DO_PULL" = true ]; then
-    echo "📦 Fazendo pull do código..."
-    cd "$PROJECT_DIR"
-    git fetch origin main || true
-    git pull origin main || echo "⚠️  Git pull falhou, continuando com código local..."
+  if [ "$DO_PULL" = false ]; then
+    echo "⏭️  Skip git pull (--skip-pull). Deployando o código local:"
+    echo "   $(cd "$PROJECT_DIR" && git log --oneline -1)"
     echo ""
-  else
-    echo "⏭️  Skip git pull (--skip-pull)."
-    echo ""
+    return 0
   fi
+
+  echo "📦 Fazendo pull do código..."
+  cd "$PROJECT_DIR"
+
+  local before after
+  before="$(git rev-parse HEAD)"
+
+  # Antes isto era `git pull ... || echo "continuando com código local..."`.
+  # Engolir a falha é pior do que parece: o deploy segue e publica um commit
+  # DIFERENTE do que se pensa que está sendo publicado — árvore suja, conflito,
+  # rede caída, todos viravam "deploy silenciosamente errado". Agora aborta.
+  # Para deployar o código local de propósito existe --skip-pull.
+  git fetch origin main || true
+  if ! git pull origin main; then
+    echo ""
+    echo "❌ git pull falhou. Abortando ANTES de tocar em qualquer container."
+    echo "   Resolva no servidor (git status) ou use --skip-pull para deployar"
+    echo "   o código local deliberadamente."
+    exit 1
+  fi
+
+  after="$(git rev-parse HEAD)"
+  echo ""
+  echo "📌 Código a deployar: $(git log --oneline -1)"
+
+  detect_new_migrations "$before" "$after"
+  echo ""
+}
+
+# Este script nunca toca no banco — mas o pull pode trazer migrations que ainda
+# não foram aplicadas, e descobrir isso depois de um erro em produção é caro.
+# Só avisa: não dá para saber daqui o que já foi aplicado no Supabase.
+detect_new_migrations() {
+  local before=$1 after=$2
+  [ "$before" = "$after" ] && return 0
+
+  local migs
+  migs="$(git diff --name-only --diff-filter=AM "$before" "$after" -- supabase/migrations/ 2>/dev/null || true)"
+  [ -z "$migs" ] && return 0
+
+  PENDING_MIGRATIONS="$migs"
+  echo ""
+  echo "⚠️  MIGRATIONS no intervalo puxado — confira se já foram aplicadas no banco:"
+  echo "$migs" | sed 's|^supabase/migrations/|   • |'
 }
 
 pre_clean_if_requested() {
@@ -169,6 +238,100 @@ pre_clean_if_requested() {
     bash "$DEPLOY_DIR/cleanup.sh" --safe --aggressive || true
     echo ""
   fi
+}
+
+# Pega erro de YAML, chave desconhecida ou interpolacao quebrada em segundos —
+# antes de buildar, de derrubar, de qualquer coisa.
+validate_compose() {
+  echo "🧪 Validando docker-compose.yml..."
+  cd "$DEPLOY_DIR"
+  if ! compose config -q; then
+    echo "❌ docker-compose.yml inválido. Abortando antes de tocar em qualquer container."
+    exit 1
+  fi
+  echo "✅ Compose válido."
+  echo ""
+}
+
+# Referencia de imagem que um servico esta usando AGORA (ex: "hookify-backend").
+image_ref_of() {
+  local svc=$1 cid img
+  cid="$(compose ps -q "$svc" 2>/dev/null || true)"
+  if [ -n "$cid" ]; then
+    img="$(docker inspect -f '{{.Config.Image}}' "$cid" 2>/dev/null || true)"
+    if [ -n "$img" ]; then
+      echo "$img"
+      return 0
+    fi
+  fi
+  echo "${IMAGE_PREFIX}-${svc}"
+}
+
+# Rede de seguranca: marca as imagens em producao como :prev ANTES do build.
+# Sem isto, se o build passa mas o app quebra em runtime, o unico caminho de
+# volta e rebuildar do commit anterior — minutos. Com a tag, --rollback resolve
+# em segundos porque a imagem antiga ainda esta no disco.
+tag_prev_images() {
+  echo "🏷️  Marcando as imagens atuais como :prev (rede de segurança p/ --rollback)..."
+  local svc ref base
+  for svc in "$SERVICE_BACKEND" "$SERVICE_FRONTEND"; do
+    ref="$(image_ref_of "$svc")"
+    base="${ref%%:*}"
+    if docker image inspect "$ref" >/dev/null 2>&1; then
+      docker tag "$ref" "${base}:prev"
+      echo "   ✅ $ref → ${base}:prev"
+    else
+      echo "   ⏭️  $ref ainda não existe (primeiro deploy?) — sem :prev para este serviço."
+    fi
+  done
+  echo ""
+}
+
+# ATENCAO ao escopo: rollback troca a IMAGEM, e so isso.
+#   - NAO mexe no codigo em $PROJECT_DIR (o git segue no commit novo, entao um
+#     ./deploy.sh depois disto republica a versao quebrada);
+#   - NAO desfaz migration nenhuma.
+# Serve para parar a sangria rapido; o conserto de verdade e reverter o commit.
+do_rollback() {
+  echo "⏪ ROLLBACK: voltando para as imagens :prev..."
+  cd "$DEPLOY_DIR"
+
+  local svc ref base missing=false
+  for svc in "$SERVICE_BACKEND" "$SERVICE_FRONTEND"; do
+    ref="$(image_ref_of "$svc")"
+    base="${ref%%:*}"
+    if ! docker image inspect "${base}:prev" >/dev/null 2>&1; then
+      echo "   ❌ ${base}:prev não existe."
+      missing=true
+    fi
+  done
+
+  if [ "$missing" = true ]; then
+    echo ""
+    echo "❌ Sem imagens :prev para voltar. A tag só passa a existir a partir do"
+    echo "   primeiro deploy feito com esta versão do script."
+    exit 1
+  fi
+
+  for svc in "$SERVICE_BACKEND" "$SERVICE_FRONTEND"; do
+    ref="$(image_ref_of "$svc")"
+    base="${ref%%:*}"
+    docker tag "${base}:prev" "${base}:latest"
+    echo "   ✅ ${base}:prev → ${base}:latest"
+  done
+  echo ""
+
+  start_stack
+  wait_running
+  health_checks
+
+  echo "⚠️  O código em $PROJECT_DIR continua no commit novo:"
+  echo "   $(cd "$PROJECT_DIR" && git log --oneline -1)"
+  echo "   Um ./deploy.sh agora republica a versão que você acabou de tirar do ar."
+  echo "   Para consertar de verdade: reverta o commit e faça deploy."
+  echo ""
+
+  final_report
 }
 
 stop_stack() {
@@ -272,14 +435,21 @@ container_ip() {
 # Backend: usa o veredito do HEALTHCHECK nativo (definido no Dockerfile.backend,
 # que faz a chamada de DENTRO do container). E a fonte mais fiel — nao depende
 # de porta publicada, de rede nem de DNS.
-check_backend() {
-  echo "Backend (HEALTHCHECK do Docker):"
-  local cid i=0 max=60
-  local st="" ip="" code=""
-  cid="$(compose ps -q "$SERVICE_BACKEND" 2>/dev/null || true)"
+# Um unico check parametrizado para os dois servicos: eles so diferem em porta,
+# path e codigos aceitos. Prefere o veredito do HEALTHCHECK nativo da imagem
+# (a chamada sai de DENTRO do container — nao depende de rede nem de DNS) e cai
+# para curl no IP do container quando a imagem nao define HEALTHCHECK.
+#
+# O fallback nao e teorico: o Dockerfile.frontend so ganhou HEALTHCHECK agora,
+# entao um container criado de uma imagem antiga ainda cai por aqui.
+check_service() {
+  local label=$1 svc=$2 port=$3 path=$4 accept=$5
+  local cid st="" ip="" code="" i=0 max=60
 
+  echo "${label}:"
+  cid="$(compose ps -q "$svc" 2>/dev/null || true)"
   if [ -z "$cid" ]; then
-    echo "❌ Backend: container nao encontrado."
+    echo "❌ ${label}: container não encontrado."
     HEALTH_FAILED=true
     return 0
   fi
@@ -288,76 +458,59 @@ check_backend() {
     st="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$cid" 2>/dev/null || echo "unknown")"
     case "$st" in
       healthy)
-        echo "✅ Backend healthy"
+        echo "✅ ${label} healthy (HEALTHCHECK da imagem)"
         return 0
         ;;
       unhealthy)
-        echo "❌ Backend unhealthy"
-        compose logs --tail=200 "$SERVICE_BACKEND" || true
+        echo "❌ ${label} unhealthy (HEALTHCHECK da imagem)"
+        compose logs --tail=200 "$svc" || true
         HEALTH_FAILED=true
         return 0
         ;;
       none|unknown)
-        # Sem HEALTHCHECK na imagem: cai para checagem pelo IP do container.
-        ip="$(container_ip "$cid")"
-        code="$(http_code "http://${ip}:8000/health")"
-        if [ "$code" = "200" ]; then
-          echo "✅ Backend OK (HTTP 200 em http://${ip}:8000/health)"
-        else
-          echo "❌ Backend falhou (HTTP $code em http://${ip}:8000/health)"
-          compose logs --tail=200 "$SERVICE_BACKEND" || true
-          HEALTH_FAILED=true
-        fi
+        check_service_by_ip "$label" "$svc" "$cid" "$port" "$path" "$accept"
         return 0
         ;;
     esac
     i=$((i+1))
-    echo "⏳ ($i/$max) backend=$st"
+    echo "⏳ ($i/$max) ${svc}=$st"
     sleep 2
   done
 
-  echo "❌ Backend nao ficou healthy em $((max*2))s (ultimo estado: $st)"
-  compose logs --tail=200 "$SERVICE_BACKEND" || true
+  echo "❌ ${label} não ficou healthy em $((max*2))s (último estado: $st)"
+  compose logs --tail=200 "$svc" || true
   HEALTH_FAILED=true
 }
 
-# Frontend: nao tem HEALTHCHECK na imagem, entao vamos pelo IP do container na
-# rede — o host alcanca o IP do container direto, mesmo sem porta publicada.
-check_frontend() {
-  echo ""
-  echo "Frontend (IP na rede do compose):"
-  local cid i=0 max=30
-  local ip="" code=""
-  cid="$(compose ps -q "$SERVICE_FRONTEND" 2>/dev/null || true)"
-
-  if [ -z "$cid" ]; then
-    echo "❌ Frontend: container nao encontrado."
-    HEALTH_FAILED=true
-    return 0
-  fi
+# Fallback: o host alcanca o IP do container direto na bridge, mesmo sem porta
+# publicada — que e exatamente o que o check antigo (localhost:8000) nao fazia.
+check_service_by_ip() {
+  local label=$1 svc=$2 cid=$3 port=$4 path=$5 accept=$6
+  local ip code="" i=0 max=30 url
 
   ip="$(container_ip "$cid")"
   if [ -z "$ip" ]; then
-    echo "❌ Frontend: container sem IP na rede."
+    echo "❌ ${label}: container sem IP na rede."
     HEALTH_FAILED=true
     return 0
   fi
 
+  url="http://${ip}:${port}${path}"
+  echo "   (imagem sem HEALTHCHECK — checando ${url})"
+
   while [ $i -lt $max ]; do
-    code="$(http_code "http://${ip}:3000")"
-    case "$code" in
-      200|307|308|404)
-        echo "✅ Frontend respondendo (HTTP $code em http://${ip}:3000)"
-        return 0
-        ;;
-    esac
+    code="$(http_code "$url")"
+    if echo " $accept " | grep -q " $code "; then
+      echo "✅ ${label} respondendo (HTTP $code em $url)"
+      return 0
+    fi
     i=$((i+1))
-    echo "⏳ ($i/$max) frontend=HTTP $code"
+    echo "⏳ ($i/$max) ${svc}=HTTP $code"
     sleep 2
   done
 
-  echo "❌ Frontend falhou (ultimo HTTP $code em http://${ip}:3000)"
-  compose logs --tail=200 "$SERVICE_FRONTEND" || true
+  echo "❌ ${label} falhou (último HTTP $code em $url)"
+  compose logs --tail=200 "$svc" || true
   HEALTH_FAILED=true
 }
 
@@ -394,8 +547,9 @@ check_public() {
 
 health_checks() {
   echo "🔍 Health checks..."
-  check_backend
-  check_frontend
+  check_service "Backend"  "$SERVICE_BACKEND"  8000 "/health" "200"
+  echo ""
+  check_service "Frontend" "$SERVICE_FRONTEND" 3000 ""        "200 307 308 404"
   check_public
   echo ""
 }
@@ -413,12 +567,21 @@ final_report() {
   echo "📌 Commit em producao: $(cd "$PROJECT_DIR" && git log --oneline -1 2>/dev/null || echo "desconhecido")"
   echo ""
 
+  # Repetido aqui de proposito: o aviso do git_pull rolou centenas de linhas de
+  # build atras e ninguem ia ve-lo.
+  if [ -n "$PENDING_MIGRATIONS" ]; then
+    echo "⚠️  MIGRATIONS vieram neste pull — confirme se já estão aplicadas no banco:"
+    echo "$PENDING_MIGRATIONS" | sed 's|^supabase/migrations/|   • |'
+    echo ""
+  fi
+
   # Um check que nao tem consequencia nao e um check. Antes daqui o script
   # imprimia "✅ Deploy finalizado!" mesmo com os health checks reprovando —
   # um deploy quebrado aparecia como verde.
   if [ "$HEALTH_FAILED" = true ]; then
-    echo "❌ Deploy CONCLUIDO COM FALHA nos health checks — a aplicacao pode estar fora do ar."
-    echo "   Logs:     cd $DEPLOY_DIR && $COMPOSE_BIN -f docker-compose.yml logs -f"
+    echo "❌ Deploy CONCLUÍDO COM FALHA nos health checks — a aplicação pode estar fora do ar."
+    echo "   Logs:      cd $DEPLOY_DIR && $COMPOSE_BIN -f docker-compose.yml logs -f"
+    echo "   Rollback:  cd $DEPLOY_DIR && ./deploy.sh --rollback"
     exit 1
   fi
 
@@ -440,10 +603,30 @@ trap unset_sensitive_env EXIT
 # post_build_cleanup vem DEPOIS do wait_running de proposito: so entao a imagem
 # antiga deixa de ter container apontando para ela e o `image prune` a recolhe —
 # e o prune nao concorre por I/O durante a subida dos containers.
+
+# Modos curtos, antes do pipeline normal.
+if [ "$HEALTH_ONLY" = true ]; then
+  cd "$DEPLOY_DIR"
+  health_checks
+  if [ "$HEALTH_FAILED" = true ]; then
+    echo "❌ Health checks reprovaram."
+    exit 1
+  fi
+  echo "✅ Tudo saudável."
+  exit 0
+fi
+
+if [ "$DO_ROLLBACK" = true ]; then
+  do_rollback
+  exit 0
+fi
+
 check_disk_space
 git_pull
 load_env_minimal
+validate_compose
 pre_clean_if_requested
+tag_prev_images
 build_images
 stop_stack
 start_stack
