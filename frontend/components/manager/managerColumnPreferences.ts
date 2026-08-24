@@ -111,6 +111,10 @@ export interface FilterableManagerColumn {
   isPercentage?: boolean;
   isText?: boolean;
   isStatus?: boolean;
+  isDate?: boolean;
+  /** Filtro de tags: operador próprio + valor multi-tag. Ver FilterBar. */
+  isTags?: boolean;
+  options?: { value: string; label: string }[];
 }
 
 export interface ManagerColumnVisibilityOptions {
@@ -137,10 +141,13 @@ export function getManagerFilterableColumns({
   visibleColumns,
   includeStatus = false,
   textColumns = [],
+  tagOptions = [],
 }: {
   visibleColumns: ManagerColumnOption[];
   includeStatus?: boolean;
   textColumns?: FilterableManagerColumn[];
+  /** Vocabulário de tags do usuário. Vem do chamador porque é dado remoto. */
+  tagOptions?: { value: string; label: string }[];
 }): FilterableManagerColumn[] {
   const columns: FilterableManagerColumn[] = [];
 
@@ -151,9 +158,26 @@ export function getManagerFilterableColumns({
   columns.push(...textColumns);
 
   for (const column of visibleColumns) {
-    // Dimensões (Pack, Conta) filtram por texto — o valor da célula é um nome, não um número.
+    // Dimensões não filtram por número. Data (Criado em) tem editor de calendário; as demais
+    // (Pack, Conta) filtram por texto — o valor da célula é um nome.
     if (column.isDimension) {
-      columns.push({ id: column.id, label: column.name, isText: true });
+      // Tags não filtram por texto: casar por nome quebraria assim que a tag fosse
+      // renomeada, e a pergunta real não é uma busca e sim como a linha se relaciona
+      // com um conjunto de tags (ver TAG_FILTER_OPERATORS).
+      // Sem vocabulário, o filtro não existe: quem não passa `tagOptions` é a tabela
+      // de filhos, cujas linhas não carregam tags — oferecê-lo ali seria um filtro
+      // que o usuário monta e que não filtra nada.
+      if (column.id === "tags") {
+        if (tagOptions.length > 0) {
+          columns.push({ id: column.id, label: column.name, isTags: true, options: tagOptions });
+        }
+        continue;
+      }
+      columns.push(
+        column.isDate
+          ? { id: column.id, label: column.name, isDate: true }
+          : { id: column.id, label: column.name, isText: true },
+      );
       continue;
     }
 

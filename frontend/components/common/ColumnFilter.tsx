@@ -22,6 +22,22 @@ export interface TextFilterValue {
 
 export interface StatusFilterValue {
   selectedStatuses: string[];
+  /**
+   * Total de opções deste multi-select. Só o status tem total fixo (4); o filtro
+   * de tags varia com o vocabulário do usuário, e sem esse número
+   * `isRestrictiveFilterValue` não sabe distinguir "tudo marcado" de "restringindo".
+   */
+  totalOptions?: number;
+}
+
+/**
+ * Filtro de data: mesmos operadores de comparação do numérico, mas o valor é uma data
+ * ISO `YYYY-MM-DD` (o que o `<input type="date">` produz e o que compara corretamente
+ * como string). Um intervalo se monta com dois filtros na mesma coluna (>= e <=).
+ */
+export interface DateFilterValue {
+  operator: FilterOperator;
+  value: string | null;
 }
 
 interface ColumnFilterProps {

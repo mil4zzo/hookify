@@ -4,7 +4,7 @@ import React from "react";
 import type { ColumnDef, ColumnHelper } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import type { FilterValue, TextFilterValue, StatusFilterValue } from "@/components/common/ColumnFilter";
+import type { FilterValue, TextFilterValue, StatusFilterValue, DateFilterValue } from "@/components/common/ColumnFilter";
 import type { GroupedMetricSeriesByKey, ManagerAverages } from "@/lib/metrics";
 import type { SettingsTab } from "@/lib/store/settingsModal";
 import type { ColumnFiltersState } from "@tanstack/react-table";
@@ -14,9 +14,12 @@ import { AdNameCell } from "@/components/manager/AdNameCell";
 import { StatusCell } from "@/components/manager/StatusCell";
 import { BudgetCell, getRowBudgetMinor } from "@/components/manager/BudgetCell";
 import { ProvenanceCell } from "@/components/manager/ProvenanceCell";
+import { TagsCell } from "@/components/manager/TagsCell";
+import { rowMatchesTagFilter } from "@/lib/tags/filter";
 import { Checkbox } from "@/components/ui/checkbox";
 import { isRestrictiveFilterValue } from "@/lib/utils/columnFilters";
 import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance";
+import { metaCreatedLocalDate } from "@/lib/utils/dateFilters";
 
 export type ViewMode = "detailed" | "minimal";
 
@@ -122,6 +125,43 @@ function textFilterFnOnValue(row: any, columnId: string, filterValue: TextFilter
   }
   return matchesTextFilter(value, filterValue);
 }
+
+/** Compara YYYY-MM-DD como string: a ordem lexicográfica desse formato é a cronológica. */
+function matchesDateFilter(rowDate: string | null, filterValue: DateFilterValue | undefined): boolean {
+  if (!filterValue || !filterValue.value) return true;
+  // Linha sem data (ad ainda não ressincronizado desde a migration 115) não pode satisfazer
+  // um recorte temporal — sai do resultado em vez de fingir que é do período.
+  if (!rowDate) return false;
+  const target = filterValue.value;
+  switch (filterValue.operator) {
+    case ">":
+      return rowDate > target;
+    case "<":
+      return rowDate < target;
+    case ">=":
+      return rowDate >= target;
+    case "<=":
+      return rowDate <= target;
+    case "=":
+      return rowDate === target;
+    case "!=":
+      return rowDate !== target;
+    default:
+      return true;
+  }
+}
+
+/** Um intervalo é a conjunção de dois filtros (>= início e <= fim) na mesma coluna. */
+function dateFilterFnOnValue(row: any, columnId: string, filterValue: DateFilterValue | DateFilterValue[] | undefined): boolean {
+  if (!filterValue) return true;
+  const value = (row.getValue(columnId) as string | null) ?? null;
+  if (Array.isArray(filterValue)) {
+    return filterValue.every((fv) => matchesDateFilter(value, fv));
+  }
+  return matchesDateFilter(value, filterValue);
+}
+
+const CREATED_DATE_FORMATTER = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
 function numericFilterFnMaybeArray(rowValue: number | null | undefined, filterValue: FilterValue | FilterValue[] | undefined, applyNumericFilter: (rowValue: number | null | undefined, filterValue: FilterValue | undefined) => boolean): boolean {
   if (!filterValue) return true;
@@ -294,6 +334,41 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
     }),
   );
 
+  // Tags do criativo (migration 116). O accessor devolve os nomes concatenados —
+  // é o que alimenta ordenação e CSV; o filtro, porém, casa por ID (o nome muda
+  // quando a tag é renomeada, o id não).
+  if (activeColumns.has("tags")) {
+    cols.push(
+      columnHelper.accessor((row) => ((row as RankingsItem).tags ?? []).map((t) => t.name).join(", "), {
+        id: "tags",
+        sortDescFirst: false,
+        header: ({ column }) => (
+          <div className="flex items-center gap-1">
+            <SortIcon column={column} invertDirection />
+            <span>Tags</span>
+            {hasRestrictiveFilter(column.getFilterValue()) && <ActiveFilterIcon />}
+          </div>
+        ),
+        size: 180,
+        minSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        sortingFn: "auto",
+        // O valor cru vai inteiro: rowMatchesTagFilter conhece o operador e ainda
+        // normaliza o shape antigo que possa ter sobrado no sessionStorage.
+        filterFn: (row, _columnId, filterValue: unknown) => rowMatchesTagFilter((row.original as RankingsItem).tags, filterValue),
+        cell: (info) => {
+          const original = info.row.original as RankingsItem;
+          // group_key é o próprio ad_name na aba Criativos; na aba Por anúncio o
+          // nome do criativo vem em ad_name. Sem nome não há o que marcar.
+          const adName = String(original.ad_name ?? original.group_key ?? "");
+          if (!adName) return null;
+          return <TagsCell adName={adName} tags={original.tags ?? []} />;
+        },
+      }),
+    );
+  }
+
   // Procedência (Pack / Conta) — dimensões opcionais, ligadas pelo seletor de colunas.
   // O accessor devolve os nomes já resolvidos: é o que alimenta ordenação, filtro de texto e CSV.
   const provenanceDimensions = [
@@ -322,6 +397,53 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         sortingFn: "auto",
         filterFn: (row, columnId, filterValue: TextFilterValue | TextFilterValue[] | undefined) => textFilterFnOnValue(row, columnId, filterValue),
         cell: (info) => <ProvenanceCell original={info.row.original as RankingsItem} dimension={dimension.id} />,
+      }),
+    );
+  }
+
+  // Criado em — data de CRIAÇÃO do anúncio no Meta (migration 115). Não é início de veiculação
+  // (o Meta não expõe esse campo) nem a data em que o pack foi sincronizado.
+  // O accessor devolve YYYY-MM-DD no fuso local: é o que ordena, filtra e vai para o CSV;
+  // a formatação br fica só na célula.
+  if (activeColumns.has("created_date")) {
+    cols.push(
+      columnHelper.accessor((row) => metaCreatedLocalDate((row as RankingsItem).meta_created_time), {
+        id: "created_date",
+        sortDescFirst: true, // primeiro clique = mais recentes primeiro
+        header: ({ column }) => (
+          <div className="flex items-center gap-1">
+            <SortIcon column={column} />
+            <span>Criado em</span>
+            {hasRestrictiveFilter(column.getFilterValue()) && <ActiveFilterIcon />}
+          </div>
+        ),
+        size: 120,
+        minSize: 100,
+        enableResizing: true,
+        enableSorting: true,
+        // Linhas sem data vão para o fim em qualquer direção — "não sei" nunca disputa o topo.
+        sortingFn: (rowA, rowB, columnId) => {
+          const a = (rowA.getValue(columnId) as string | null) ?? "";
+          const b = (rowB.getValue(columnId) as string | null) ?? "";
+          if (!a && !b) return 0;
+          if (!a) return 1;
+          if (!b) return -1;
+          return a < b ? -1 : a > b ? 1 : 0;
+        },
+        sortUndefined: "last",
+        filterFn: (row, columnId, filterValue: DateFilterValue | DateFilterValue[] | undefined) => dateFilterFnOnValue(row, columnId, filterValue),
+        cell: (info) => {
+          const isoDate = info.getValue() as string | null;
+          if (!isoDate) {
+            return (
+              <span className="text-muted-foreground" title="Anúncio ainda não ressincronizado desde que passamos a guardar a data de criação">
+                —
+              </span>
+            );
+          }
+          const [year, month, day] = isoDate.split("-").map(Number);
+          return <span className="tabular-nums">{CREATED_DATE_FORMATTER.format(new Date(year, month - 1, day))}</span>;
+        },
       }),
     );
   }

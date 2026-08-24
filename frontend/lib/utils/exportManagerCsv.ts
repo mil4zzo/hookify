@@ -3,6 +3,7 @@ import type { RankingsItem } from "@/lib/api/schemas"
 import { getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences"
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
 import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance"
+import { metaCreatedLocalDate } from "@/lib/utils/dateFilters"
 import { getMetricNumericValueOrNull, type MetricValueContext } from "@/lib/metrics/calculations"
 import { api } from "@/lib/api/endpoints"
 import type { MediaSourceUrlsBatchResponse } from "@/lib/api/schemas"
@@ -135,6 +136,11 @@ const MEDIA_TYPE_LABEL: Record<string, string> = {
  * (a coluna nem foi construída) — a coluna sairia vazia no CSV.
  */
 function dimensionValue(colId: ManagerColumnType, original: RankingsItem, provenanceIndex: ProvenanceIndex): string {
+  // Data sai em YYYY-MM-DD: ordena certo em qualquer planilha e não depende de locale.
+  if (colId === "created_date") return metaCreatedLocalDate(original.meta_created_time) ?? ""
+  // Tags precisa de ramo próprio: o fallback abaixo é `getRowAccountNames`, então sem este
+  // `if` a coluna Tags sairia no CSV preenchida com nomes de CONTA, sem erro nenhum.
+  if (colId === "tags") return (original.tags ?? []).map((t) => t.name).join(" | ")
   const names = colId === "pack" ? getRowPackNames(original, provenanceIndex) : getRowAccountNames(original, provenanceIndex)
   return names.join(" | ")
 }

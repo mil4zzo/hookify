@@ -48,6 +48,8 @@ import {
   MetaUsageCallsResponse,
   MetaUsageDistinctResponse,
   PackActivityResponse,
+  TagItem,
+  TagAssignResult,
 } from './schemas'
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
@@ -529,6 +531,27 @@ export const api = {
     /** Convidado sai do pack sem depender do dono. */
     leave: (packId: string): Promise<{ success: boolean }> =>
       apiClient.delete(`/pack-shares/${packId}/me`),
+  },
+
+  /**
+   * Tags de criativo. A marcacao e por `ad_name` (criativo), nunca por ad_id —
+   * o mesmo criativo roda em dezenas de anuncios e a tag descreve o criativo.
+   * As tags sao pessoais: num pack compartilhado cada um ve as suas.
+   */
+  tags: {
+    list: (options?: { signal?: AbortSignal }): Promise<{ data: TagItem[] }> =>
+      apiClient.get('/tags', { signal: options?.signal }),
+    create: (name: string, color: string): Promise<{ data: TagItem }> =>
+      apiClient.post('/tags', { name, color }),
+    update: (tagId: string, patch: { name?: string; color?: string }): Promise<{ data: TagItem }> =>
+      apiClient.patch(`/tags/${tagId}`, patch),
+    remove: (tagId: string): Promise<{ deleted: boolean; id: string }> =>
+      apiClient.delete(`/tags/${tagId}`),
+    /** Idempotente: reaplicar a mesma tag no mesmo criativo nao duplica nem falha. */
+    assign: (tagIds: string[], adNames: string[]): Promise<TagAssignResult> =>
+      apiClient.post('/tags/assign', { tag_ids: tagIds, ad_names: adNames }),
+    unassign: (tagIds: string[], adNames: string[]): Promise<TagAssignResult> =>
+      apiClient.post('/tags/unassign', { tag_ids: tagIds, ad_names: adNames }),
   },
 
   // Google Sheets integration (ads enrichment)

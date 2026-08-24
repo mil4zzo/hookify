@@ -168,6 +168,10 @@ class AdsEnricher:
                 ad["media_type"] = existing_ad.get("media_type")
             if existing_ad.get("video_owner_page_id"):
                 ad["video_owner_page_id"] = existing_ad.get("video_owner_page_id")
+            # Ads fora do inventario (ARCHIVED/DELETED) nao recebem created_time fresco;
+            # sem esta hidratacao o upsert reescreveria a data de criacao como NULL.
+            if existing_ad.get("meta_created_time"):
+                ad["meta_created_time"] = existing_ad.get("meta_created_time")
             ad["adcreatives_videos_ids"] = list(existing_ad.get("adcreatives_videos_ids") or [])
             ad["adcreatives_videos_thumbs"] = list(existing_ad.get("adcreatives_videos_thumbs") or [])
 
@@ -901,10 +905,24 @@ class AdsEnricher:
                             ad["ig_media_type"] = ig_type
 
             status_map = {d.get("id"): d.get("effective_status") for d in status_details}
+            # created_time = quando o ad foi criado NO META (imutavel). Nao confundir com
+            # ads.created_at, que e quando a linha entrou no nosso banco (data do 1o sync).
+            # So o inventario carrega o campo; nos fallbacks de status (fetch_status_only/
+            # fetch_status_by_filter, que pedem so id+effective_status) o mapa fica vazio e o
+            # valor ja persistido e preservado (hidratacao no refresh + trigger no banco).
+            created_map = {
+                d.get("id"): d.get("created_time")
+                for d in status_details
+                if d.get("created_time")
+            }
             for ad in enriched:
                 ad_id = str(ad.get("ad_id") or "")
-                if ad_id and ad_id in status_map:
+                if not ad_id:
+                    continue
+                if ad_id in status_map:
                     ad["effective_status"] = status_map[ad_id]
+                if created_map.get(ad_id):
+                    ad["meta_created_time"] = created_map[ad_id]
 
             # Ads presentes no insights mas AUSENTES do inventário: o edge /ads omite
             # ARCHIVED e DELETED, então o gasto histórico deles chega (via filtering de

@@ -137,6 +137,17 @@ Integrações com Google Sheets para importar leadscores via planilha.
 
 ---
 
+### ad_tags
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| user_id | uuid | NOT NULL |
+| tag_id | uuid | NOT NULL |
+| ad_name | text | NOT NULL |
+| created_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### ad_transcriptions
 Transcrições de áudio/vídeo dos criativos de anúncios via AssemblyAI.
 
@@ -192,6 +203,7 @@ Anúncios importados da Meta API com metadados do criativo.
 | video_source_expires_at | timestamp |  |
 | image_source_url | text |  |
 | image_source_expires_at | timestamp |  |
+| meta_created_time | timestamp |  |
 
 ---
 
@@ -317,6 +329,28 @@ Jobs assíncronos de longa duração (ex: criação em lote de anúncios).
 
 ---
 
+### pack_action_log
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| pack_ids | uuid[] | NOT NULL |
+| pack_name | text |  |
+| owner_id | uuid | NOT NULL |
+| actor_id | uuid | NOT NULL |
+| actor_role | text | NOT NULL |
+| action | text | NOT NULL |
+| target_type | text |  |
+| target_ids | text[] | NOT NULL, DEFAULT |
+| target_count | integer | NOT NULL, DEFAULT |
+| detail | jsonb |  |
+| status | text | NOT NULL, DEFAULT |
+| error | text |  |
+| route | text |  |
+
+---
+
 ### pack_shares
 
 | Coluna | Tipo | Flags |
@@ -413,6 +447,20 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 
 ---
 
+### tags
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| user_id | uuid | NOT NULL |
+| name | text | NOT NULL |
+| slug | text |  |
+| color | text | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### user_preferences
 Preferências e configurações personalizadas por usuário.
 
@@ -435,4 +483,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-08-18 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-08-23 — via `supabase/generate_schema_map.py`*

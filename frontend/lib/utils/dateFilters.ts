@@ -30,6 +30,22 @@ export function getTodayLocal(): string {
 }
 
 /**
+ * Dia-calendário da criação do anúncio no Meta (`ads.meta_created_time`), em YYYY-MM-DD.
+ *
+ * O Meta devolve `created_time` no fuso da CONTA de anúncios; o Postgres guarda como
+ * timestamptz (instante correto, offset normalizado para UTC). Reconvertendo para o fuso
+ * local do navegador recupera-se o dia que o Gerenciador de Anúncios mostra — desde que
+ * navegador e conta estejam no mesmo fuso, que é a mesma premissa que o resto do app já
+ * faz com datas. Por isso NÃO fatiar a string ISO: `...T02:00Z` é dia anterior em BRT.
+ */
+export function metaCreatedLocalDate(isoTimestamp: string | null | undefined): string | null {
+  if (!isoTimestamp) return null;
+  const parsed = new Date(isoTimestamp);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return formatDateLocal(parsed);
+}
+
+/**
  * Returns true if date string (YYYY-MM-DD) is within [start, end] inclusive.
  * Empty bounds are treated as open interval.
  */

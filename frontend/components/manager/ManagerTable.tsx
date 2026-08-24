@@ -18,7 +18,7 @@ import { ShareCreateDialog } from "@/components/manager/ShareCreateDialog";
 import { toast } from "sonner";
 import { SparklineBars } from "@/components/common/SparklineBars";
 import { api } from "@/lib/api/endpoints";
-import { RankingsItem } from "@/lib/api/schemas";
+import { RankingsItem, type RankingsRowTag } from "@/lib/api/schemas";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
 import { useManagerAverages } from "@/lib/hooks/useManagerAverages";
@@ -37,6 +37,8 @@ import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { BulkActionsBar } from "@/components/common/BulkActionsBar";
 import { buildManagerBulkActions } from "@/components/manager/managerBulkActions";
+import { BulkTagDialog } from "@/components/manager/BulkTagDialog";
+import { useTags } from "@/lib/api/hooks";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
@@ -106,6 +108,12 @@ interface ManagerTableProps {
   isError?: boolean;
   /** Filtros iniciais a serem aplicados (ex: vindos de query params da URL) */
   initialFilters?: Array<{ id: string; value: any }>;
+  /**
+   * `pagination.total` da RPC: quantos grupos existem de fato no período. Quando
+   * maior que o que chegou, a FilterBar avisa que a tabela está truncada — filtro
+   * e seleção em massa só enxergam o que foi carregado.
+   */
+  serverTotal?: number | null;
   /** Callback para informar chaves de grupo visiveis no viewport da tabela atual. */
   onVisibleGroupKeysChange?: (tab: "individual" | "por-anuncio" | "por-conjunto" | "por-campanha", keys: string[]) => void;
 }
@@ -132,7 +140,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, onShowTrendsChange, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, onShowTrendsChange, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -982,6 +990,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const [isExportOpen, setIsExportOpen] = useState(false);
 
   // Mapeamento de colunas disponíveis para filtro
+  // Opções do filtro de tags: só o vocabulário do usuário. "Sem tag" deixou de ser
+  // uma opção-sentinela na lista e virou operador próprio (ver TAG_FILTER_OPERATORS).
+  const { data: tagsData } = useTags();
+  const tagOptions = useMemo(() => (tagsData?.data ?? []).map((tag) => ({ value: tag.id, label: tag.name })), [tagsData]);
+
   const filterableColumns = useMemo(() => {
     const visibleColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration });
     const nameColumn =
@@ -1008,8 +1021,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       visibleColumns,
       includeStatus: currentTab !== "por-anuncio",
       textColumns,
+      tagOptions,
     });
-  }, [hasSheetIntegration, currentTab, activeColumns, columnOrder]);
+  }, [hasSheetIntegration, currentTab, activeColumns, columnOrder, tagOptions]);
 
   const searchBar = useMemo(() => {
     const placeholder =
@@ -1203,14 +1217,37 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Na aba Criativos a seleção existe para compartilhar, não para mexer em status — daí o
   // conjunto de ações (e o substantivo) mudarem conforme a aba.
   const isCreativesTab = currentTab === "por-anuncio";
+
+  // A tag é do criativo: existe nas abas cuja linha tem um ad_name (Criativos e
+  // Por anúncio), não nas de conjunto/campanha.
+  const canBulkTag = currentTab === "por-anuncio" || currentTab === "individual";
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+
+  // Deriva da seleção, não de rowSelection direto: a chave da linha nem sempre é
+  // o ad_name, e a marcação precisa do nome do criativo.
+  const bulkTagSelection = useMemo(() => {
+    if (!canBulkTag) return [];
+    const seen = new Set<string>();
+    const out: { adName: string; tags: RankingsRowTag[] }[] = [];
+    for (const row of table.getSelectedRowModel().rows) {
+      const original = row.original as RankingsItem;
+      const adName = String(original?.ad_name ?? original?.group_key ?? "").trim();
+      if (!adName || seen.has(adName)) continue;
+      seen.add(adName);
+      out.push({ adName, tags: original.tags ?? [] });
+    }
+    return out;
+  }, [canBulkTag, table, rowSelection, data]);
+
   const bulkActions = useMemo(
     () =>
       buildManagerBulkActions({
         onPause: isCreativesTab ? undefined : () => { bulkPause(selectedIds); setRowSelection({}); },
         onActivate: isCreativesTab ? undefined : () => { bulkActivate(selectedIds); setRowSelection({}); },
         onShare: isCreativesTab ? openShareFromSelection : undefined,
+        onTags: canBulkTag ? () => setBulkTagOpen(true) : undefined,
       }),
-    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds],
+    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds, canBulkTag],
   );
 
   // Toolbar única compartilhada pelas 4 abas: busca (leadingSlot) + contagem + botão Filtros.
@@ -1220,6 +1257,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       columnFilters={columnFilters}
       setColumnFilters={setColumnFilters}
       filterableColumns={filterableColumns}
+      serverTotal={serverTotal}
       filteredCount={filterBarFilteredCount}
       totalCount={adsEffectiveRaw.length}
       itemLabel={filterBarItemLabel}
@@ -1297,6 +1335,13 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         actions={bulkActions}
         onToggleAll={(checked) => table.toggleAllPageRowsSelected(checked)}
         onClear={() => setRowSelection({})}
+      />
+
+      <BulkTagDialog
+        open={bulkTagOpen}
+        onOpenChange={setBulkTagOpen}
+        selection={bulkTagSelection}
+        onApplied={() => setRowSelection({})}
       />
       </div>
 

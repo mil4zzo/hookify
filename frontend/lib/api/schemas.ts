@@ -474,6 +474,32 @@ const RankingsSeriesSchema = z.object({
   conversions: z.array(z.record(z.string(), z.number())), // conversions por dia para calcular results/cpr/page_conv dinamicamente
 }).passthrough();
 
+/** Tag como ela viaja dentro de uma linha do Manager (subconjunto de TagItem). */
+export const RankingsRowTagSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  color: z.string().nullable().optional(),
+})
+export type RankingsRowTag = z.infer<typeof RankingsRowTagSchema>
+
+/** Tag no CRUD: inclui slug e uso, que a linha do Manager não carrega. */
+export const TagItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string().nullable().optional(),
+  color: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
+  usage_count: z.number().optional(),
+})
+export type TagItem = z.infer<typeof TagItemSchema>
+
+export interface TagAssignResult {
+  tag_ids: string[]
+  ad_names: number
+  pairs?: number
+  removed?: number
+}
+
 export const RankingsItemSchema = z.object({
   group_key: z.string().nullable().optional(),
   unique_id: z.string().nullable().optional(),
@@ -486,6 +512,11 @@ export const RankingsItemSchema = z.object({
   // por natureza (~17% das linhas da aba "Por anúncio" reúnem ads de packs diferentes), ainda que
   // um ad individual, nos dados atuais, pertença sempre a um único pack.
   pack_ids: z.array(z.string()).nullable().optional(),
+  // Data de CRIACAO do anuncio no Meta (migration 115), ISO8601. Numa linha agregada e o MIN
+  // do grupo ("quando este anuncio estreou"). NAO e inicio de veiculacao — o Meta nao expoe
+  // esse campo — nem ads.created_at, que e a data do primeiro sync neste banco.
+  // null = ad ainda nao ressincronizado desde a 115.
+  meta_created_time: z.string().nullable().optional(),
   campaign_id: z.string().nullable().optional(),
   campaign_name: z.string().nullable().optional(),
   adset_id: z.string().nullable().optional(),
@@ -528,6 +559,12 @@ export const RankingsItemSchema = z.object({
   thumb_storage_path: z.string().nullable().optional(),
   adcreatives_videos_thumbs: z.array(z.string()).nullable().optional(), // Array de thumbnails dos vídeos do adcreative
   video_play_curve_actions: z.array(z.number()).nullable().optional(), // Curva de retenção agregada (ponderada por plays)
+  // Tags do CRIATIVO (migration 116/117). Vem preenchida nos agrupamentos por
+  // criativo e por anúncio; nas abas por-conjunto/por-campanha vem sempre [],
+  // porque a tag do representante descreveria o grupo errado.
+  // Atenção: RankingsItemSchema não tem .passthrough() — chave que não estiver
+  // declarada aqui é silenciosamente removida no parse.
+  tags: z.array(RankingsRowTagSchema).optional(),
   has_transcription: z.boolean().optional(),
   media_type: z.enum(["video", "image", "unknown"]).nullable().optional(),
   series: z

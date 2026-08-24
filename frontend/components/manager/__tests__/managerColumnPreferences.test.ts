@@ -86,3 +86,20 @@ test("builds filterable columns preserving status, text columns and metric order
     { id: "impressions", label: "Impressions", isPercentage: false },
   ]);
 });
+
+test("created_date filters as date, not as text", () => {
+  const visibleColumns = getVisibleManagerColumns({
+    activeColumns: new Set(["spend", "pack", "created_date"] as const) as Set<any>,
+    hasSheetIntegration: true,
+  });
+
+  const filterableColumns = getManagerFilterableColumns({ visibleColumns });
+
+  // Pack e Conta sao dimensoes de TEXTO; "Criado em" e dimensao de DATA — o FilterBar
+  // escolhe o editor (calendario vs input livre) por essa flag.
+  assert.deepEqual(filterableColumns, [
+    { id: "spend", label: "Spend", isPercentage: false },
+    { id: "pack", label: "Pack", isText: true },
+    { id: "created_date", label: "Criado em", isDate: true },
+  ]);
+});

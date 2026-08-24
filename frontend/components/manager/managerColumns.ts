@@ -7,11 +7,17 @@ export type ManagerColumnOption = {
   /** Se true, a coluna é visível por padrão (sem preferência salva do usuário) */
   defaultVisible?: boolean;
   /**
-   * Dimensão (texto), não métrica. Muda o tratamento em toda a cadeia: não tem média no header,
-   * filtra por texto (não por número), sai do CSV como texto livre (exige anti formula-injection)
+   * Dimensão, não métrica. Muda o tratamento em toda a cadeia: não tem média no header,
+   * não filtra por número, sai do CSV resolvida a partir de `row.original`
    * e é ignorada onde só métricas fazem sentido (tabela de variações, cálculo de médias).
    */
   isDimension?: boolean;
+  /**
+   * Dimensão de DATA (implica isDimension). Filtra por data (operadores numéricos sobre um
+   * seletor de calendário), não por texto — "contém 08" não é uma pergunta que alguém faça
+   * sobre uma data, e um range se monta com dois filtros (>= início, <= fim).
+   */
+  isDate?: boolean;
 };
 
 /**
@@ -63,8 +69,18 @@ export const MANAGER_COLUMNS: readonly ManagerColumnOption[] = [
   // onde vêm os dados — a coluna seria uma coluna inteira de valor repetido. Quem precisa
   // comparar packs lado a lado (ou exportar) liga aqui; para o caso visual, o badge na célula de
   // nome aparece sozinho quando a dimensão varia.
+  // Tags do criativo (migration 116). Dimensão, e ligada por padrão: diferente de
+  // pack/conta, ela só tem conteúdo se o usuário marcou algo — quem não usa tags vê
+  // uma coluna vazia e a desliga; quem usa não precisa descobrir um seletor para ver
+  // a marcação que acabou de fazer.
+  // Só existe nos agrupamentos por criativo/anúncio: a RPC devolve [] nos demais.
+  { id: "tags", name: "Tags", isDimension: true, defaultVisible: true },
   { id: "pack", name: "Pack", isDimension: true },
   { id: "account", name: "Conta", isDimension: true },
+  // 8) Data de criação no Meta (migration 115). Desligada por padrão: é uma coluna de
+  // recorte ("o que subiu nesta semana"), não de leitura contínua — quem precisa dela liga,
+  // filtra e volta. Numa linha agregada mostra o MAIS ANTIGO do grupo.
+  { id: "created_date", name: "Criado em", isDimension: true, isDate: true },
 ] as const;
 
 /** Coluna de métrica: o id é garantidamente uma métrica conhecida (nunca "pack"/"account"). */

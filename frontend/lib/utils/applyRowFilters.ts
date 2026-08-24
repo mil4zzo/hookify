@@ -107,6 +107,11 @@ export function applyRowFilters(row: Record<string, unknown>, columnFilters: Col
     for (const v of values) {
       if (!v || typeof v !== "object") continue;
 
+      // Tags não se aplicam aqui: as linhas de filho não carregam tags. Sem este
+      // desvio, um filtro de tags cairia no ramo de status (os dois já usaram o mesmo
+      // shape de valor) e compararia effective_status com id de tag — nenhum filho passaria.
+      if (colId === "tags") continue;
+
       if ("selectedStatuses" in v) {
         if (!applyStatusFilter(row, v as StatusFilterValue)) return false;
         continue;

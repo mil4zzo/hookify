@@ -404,6 +404,7 @@ function ManagerPageContent() {
           hasSheetIntegration={hasSheetIntegration}
           isLoading={loading || packsLoading}
           isError={!!managerError && !loading && packsReady}
+          serverTotal={(managerData as any)?.pagination?.total ?? null}
           initialFilters={initialFilters}
           averagesOverride={(() => {
             // "Média do conjunto" (headers + dialog de detalhe) = média PONDERADA de TODOS

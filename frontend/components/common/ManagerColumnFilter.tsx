@@ -7,9 +7,11 @@ import { FilterListPopover } from "@/components/common/FilterListPopover";
 import { MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 
 export type ManagerColumnType =
-  // Dimensões de procedência (texto) — ver isDimension em MANAGER_COLUMNS
+  // Dimensões (não-métricas) — ver isDimension em MANAGER_COLUMNS
+  | "tags"
   | "pack"
   | "account"
+  | "created_date"
   | "hook"
   | "cpr"
   | "cpc"

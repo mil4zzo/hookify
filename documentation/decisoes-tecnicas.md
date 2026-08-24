@@ -2539,3 +2539,99 @@ da camada onde o cliente Supabase é resolvido — que é exatamente onde a cost
 quebra. Nesta rodada, 337 testes passavam com 11 bugs vivos. Quando a tela parece
 certa, olhar o log do backend (`hydrated={... storage_found: 0}`) e a aba Network
 (a chamada levou `pack_ids`?): o sintoma típico é "dado faltando", não erro.
+
+## Data de criação do anúncio: o dado já chegava e era descartado
+
+`ads.created_at` é a data em que a **linha entrou no nosso Postgres** (primeiro sync do
+pack), não a data em que o anúncio nasceu no Meta. Um anúncio de março importado ontem
+tinha `created_at` = ontem, então nenhuma pergunta do tipo "o que subiu na primeira
+semana de agosto" era respondível.
+
+O `created_time` do nó Ad **já vinha em toda sincronização**: `_INVENTORY_FIELDS`
+(`ads_enricher.py`) o pede desde a implementação das linhas-zero, e ele era usado só em
+memória, para clampar a síntese de dias zerados à vida real do anúncio
+(`ad_inventory.py`), morrendo ali. Persistir custou **zero chamada nova** à Graph API —
+migration 115 (`ads.meta_created_time`, RPC v105 → v115, coluna "Criado em" no Manager
+com filtro por data).
+
+**Criação ≠ início de veiculação.** O Meta **não expõe** "quando começou a entregar" no
+nó Ad. O mais próximo é `adset.start_time` (agendamento do *conjunto*) e, empiricamente,
+a primeira data com impressão em `ad_metrics` — que fica presa ao range do pack e exige
+filtrar `impressions > 0` para não contar as linhas-zero sintetizadas. Anúncio que ficou
+em review ou nasceu pausado tem as duas datas divergentes. A coluna entregue é a de
+**criação**, e só ela; não prometer "início de veiculação" em cima dela.
+
+**Por que um trigger e não só código.** O edge `/ads` omite ARCHIVED e DELETED — esses
+anúncios chegam pelo `/insights` sem linha de inventário, então o upsert manda
+`meta_created_time = NULL` para eles. Sem guarda, **todo sync apagaria a data justamente
+dos anúncios mais antigos**. A hidratação em `_apply_existing_fixed_fields` cobre só o
+caminho de *refresh* (onde `existing_ads_map` é carregado); o sync completo vem com o
+mapa vazio. Por isso o `coalesce` vive no banco
+(`trg_ads_preserve_meta_created_time`): a data de criação nunca "desliga", só preenche.
+
+**Sem backfill.** Linhas antigas ficam NULL até o próximo sync do pack que as contém —
+não há de onde ler a data retroativamente sem consultar a Meta anúncio a anúncio. A
+célula mostra "—" e o filtro de data **exclui** essas linhas (um recorte temporal não
+pode incluir "não sei").
+
+**Fuso.** `timestamptz` guarda o instante certo mas perde o offset da conta que a Meta
+devolve. O dia-calendário é recuperado convertendo de volta para o fuso do navegador
+(`metaCreatedLocalDate`) — correto enquanto navegador e conta de anúncios estiverem no
+mesmo fuso, a mesma premissa que o resto do app já faz. Não fatiar a string ISO:
+`...T02:00Z` é o dia anterior em BRT.
+
+---
+
+## Tags de criativo (2026-08-23, migrations 116–118)
+
+**A tag gruda em `ad_name`, não em `ad_id`.** O Manager agrupa por nome e o fan-out medido
+é de ~34 anúncios por criativo (12.787 `ad_id` para 371 `ad_name` numa janela de 20 dias).
+Marcar por `ad_id` faria a tag aparecer em uma linha e faltar nas outras 33 do mesmo
+criativo. Mesmo precedente de `ad_transcriptions`. Efeito colateral desejado: sem FK para
+`ads`, a tag sobrevive ao anúncio sumir da Meta.
+
+**Tag plana, sem namespace `chave:valor`.** Namespace daria facetas e agrupamento por
+chave, mas custa UX no MVP. O slug gerado no banco (`translate` + `lower`, sem `unaccent`
+— a extensão não está instalada) é o que barra a degeneração provável: a mesma tag criada
+três vezes com caixa/espaço/acento diferentes.
+
+**Sem regras automáticas no MVP.** Foram desenhadas e adiadas. A consequência é boa: sem
+regra, "por que o anúncio novo não pegou a tag?" tem uma resposta única e verdadeira —
+ninguém o marcou. A marcação em massa é um **snapshot** da seleção, não uma regra viva.
+
+**A tag é pessoal, e o join na RPC é por `p_user_id`.** Desde a v104 a RPC é dirigida por
+`v_owners`: num pack compartilhado as linhas de `ad_metrics` são do DONO, enquanto
+`p_user_id` é o ATOR. Juntar `ad_tags` pelo dono faria o convidado ver o vocabulário
+interno de quem compartilhou (`cliente-acme`, `testar-antes-de-cancelar`).
+
+**O enriquecimento entra depois de `rep`, não em `ad_metrics`.** `ad_metrics` tem 250k
+linhas; os grupos são centenas. Ancorado em `rep` (um registro por `group_key`), o join
+é contra um punhado de linhas. Medido com TODOS os 371 criativos marcados: 2.254 ms contra
+2.240 ms da base anterior (+0,6%, dentro do ruído) — e o payload **caiu** 13,6%, porque a
+poda da thumbnail do CDN da Meta economiza mais do que as tags somam.
+
+**Filtro no cliente, não no servidor — e por quê isso foi decidido com medição.** Chegou-se
+a aprovar filtro server-side (`p_filters jsonb`) + resolução do bulk pelo filtro. As
+medições derrubaram o plano: a aba Criativos tem 371–564 grupos e ~1 MB, cabe inteira, e o
+filtro no cliente é o que faz a **linha azul do header** (média do conjunto filtrado)
+funcionar de graça — filtrar por tag passa a mostrar a média daquela tag sem RPC nova.
+Server-side filtering quebraria isso e viraria round-trip por tecla. Fica como saída de
+emergência, com gatilho objetivo: quando `pagination.total` encostar no limite com
+frequência. Ver a memória `manager_rpc_cost_model` para os números.
+
+**Cores da paleta são tokens `--chart-*`, não famílias cruas do Tailwind.** A paleta de
+gráficos já é categórica, já responde a tema claro/escuro e já passa no
+`check:design-system`. São 5 cores de propósito; ampliar exige token novo no
+`tailwind.config`, não classe crua.
+
+**Sentinela "Sem tag" no filtro.** Diferente do status, nem toda linha tem tag. Sem uma
+opção explícita para "sem tag", o estado inicial do multi-select (tudo marcado) esconderia
+justamente os criativos ainda não marcados. `isRestrictiveFilterValue` também deixou de
+assumir 4 opções fixas: o valor do filtro passou a carregar `totalOptions`.
+
+**Aviso de truncamento (dívida antiga, paga junto).** A RPC sempre devolveu
+`pagination.total`/`has_more` e o zod sempre os validou — o front descartava. Na aba Por
+anúncio isso significava exibir 1.000 de 12.787 em silêncio, com filtro e seleção em massa
+operando sobre a fatia de maior gasto. A FilterBar agora avisa. `header_aggregates`
+continua sendo descartado: acima de 1.000 grupos, as somas do header vêm de um universo
+menor que as taxas. Dívida ainda aberta.

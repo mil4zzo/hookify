@@ -1,3 +1,5 @@
+import { isRestrictiveTagFilterValue } from "@/lib/tags/filter";
+
 /**
  * Extrai o id da coluna a partir do id do filtro.
  * Filtros podem ter id único por instância (ex: "spend__1730123456789") ou id legado (ex: "spend").
@@ -19,9 +21,16 @@ const STATUS_OPTION_COUNT = 4;
  */
 export function isRestrictiveFilterValue(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
+  // Tags têm operador próprio: "Sem tag" restringe mesmo sem nenhuma tag escolhida.
+  // Precisa vir antes do ramo genérico de `operator`, que espera um `.value`.
+  if ("tagIds" in value) return isRestrictiveTagFilterValue(value);
   if ("selectedStatuses" in value) {
     const selected = (value as { selectedStatuses?: string[] }).selectedStatuses;
-    return Array.isArray(selected) && selected.length > 0 && selected.length < STATUS_OPTION_COUNT;
+    // O multi-select deixou de ser só status: o filtro de tags usa o mesmo formato
+    // com um número variável de opções. Quem tem total próprio informa em
+    // `totalOptions`; sem isso, cai no total fixo do status.
+    const total = (value as { totalOptions?: number }).totalOptions ?? STATUS_OPTION_COUNT;
+    return Array.isArray(selected) && selected.length > 0 && selected.length < total;
   }
   if ("operator" in value) {
     const inner = (value as { value?: unknown }).value;

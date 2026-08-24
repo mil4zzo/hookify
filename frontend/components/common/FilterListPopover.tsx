@@ -61,6 +61,12 @@ export interface FilterListPopoverProps {
   align?: "start" | "center" | "end";
   /** Sobrescreve classes do PopoverContent (default: w-[300px]) */
   contentClassName?: string;
+  /**
+   * Renderiza a lista sem Portal — obrigatório quando este popover vive DENTRO de
+   * outro (ex.: linha do popover de filtros): portalado no body, o clique na lista
+   * conta como clique fora e fecha o de cima.
+   */
+  disablePortal?: boolean;
   onOpenChange?: (open: boolean) => void;
   disabled?: boolean;
 }
@@ -90,7 +96,7 @@ function SortableFilterListRow({ id, children }: { id: string; children: (state:
  * Base de GemsColumnFilter, ManagerColumnFilter, PackFilter e ActionTypeFilter — criar
  * novos filtros de lista SEMPRE por aqui, nunca reimplementando popover+lista+checkbox.
  */
-export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", onSelectAll, onDeselectAll, reorderable = false, onReorder, align = "start", contentClassName, onOpenChange, disabled = false }: FilterListPopoverProps) {
+export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", onSelectAll, onDeselectAll, reorderable = false, onReorder, align = "start", contentClassName, disablePortal = false, onOpenChange, disabled = false }: FilterListPopoverProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -260,7 +266,7 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       {triggerWrap ? triggerWrap(triggerNode) : triggerNode}
-      <PopoverContent className={cn("w-[300px] p-0", contentClassName)} align={align} sideOffset={4}>
+      <PopoverContent disablePortal={disablePortal} className={cn("w-[300px] p-0", contentClassName)} align={align} sideOffset={4}>
         {header}
         {searchable && (
           <div className="border-b border-border p-2">

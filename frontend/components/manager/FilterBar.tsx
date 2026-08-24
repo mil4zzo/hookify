@@ -2,14 +2,17 @@
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Combobox } from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { IconChevronDown, IconFilter, IconPlus, IconTrash } from "@tabler/icons-react";
+import { IconAlertTriangle, IconChevronDown, IconFilter, IconPlus, IconTrash } from "@tabler/icons-react";
 import type { ColumnFiltersState } from "@tanstack/react-table";
-import type { FilterValue, FilterOperator, TextFilterValue, TextFilterOperator, StatusFilterValue } from "@/components/common/ColumnFilter";
+import type { FilterValue, FilterOperator, TextFilterValue, TextFilterOperator, StatusFilterValue, DateFilterValue } from "@/components/common/ColumnFilter";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { CheckSquare } from "@/components/common/CheckSquare";
 import { getColumnId } from "@/lib/utils/columnFilters";
+import { MultiSelectChipsField } from "@/components/common/MultiSelectChipsField";
+import { defaultTagFilterValue, normalizeTagFilterValue, TAG_FILTER_OPERATORS, tagOperatorNeedsValue, type TagFilterOperator, type TagFilterValue } from "@/lib/tags/filter";
 
 interface FilterableColumn {
   id: string;
@@ -17,6 +20,14 @@ interface FilterableColumn {
   isPercentage?: boolean;
   isText?: boolean;
   isStatus?: boolean;
+  isDate?: boolean;
+  /**
+   * Filtro de tags: operador próprio (contém alguma / todas / nenhuma / exatamente /
+   * sem tag / tem alguma) + valor multi-tag em chips. Ver TAG_FILTER_OPERATORS.
+   */
+  isTags?: boolean;
+  /** Vocabulário de tags do usuário — dado remoto, vem do chamador. */
+  options?: { value: string; label: string }[];
 }
 
 const STATUS_OPTIONS: { value: string; label: string }[] = [
@@ -37,6 +48,15 @@ interface FilterBarProps {
   leadingSlot?: React.ReactNode;
   /** Renderizado no fim da linha de controles (ex.: barra de ações em massa). */
   trailingSlot?: React.ReactNode;
+  /**
+   * Total REAL de grupos no servidor (`pagination.total` da RPC). A RPC agrega o
+   * conjunto inteiro e só depois corta pelo limite, então esse número é exato
+   * mesmo com as linhas truncadas.
+   *
+   * Sem ele o rodapé afirmava "de 1000" onde existiam 12.787 — e filtro e seleção
+   * em massa operavam sobre a fatia de maior gasto sem avisar ninguém.
+   */
+  serverTotal?: number | null;
 }
 
 const filterOperators: { value: FilterOperator; label: string }[] = [
@@ -45,6 +65,15 @@ const filterOperators: { value: FilterOperator; label: string }[] = [
   { value: ">=", label: "Maior ou igual" },
   { value: "<=", label: "Menor ou igual" },
   { value: "=", label: "Igual a" },
+];
+
+/** Mesmos operadores do numérico, ditos como se fala de data. Intervalo = dois filtros. */
+const dateFilterOperators: { value: FilterOperator; label: string }[] = [
+  { value: ">=", label: "A partir de" },
+  { value: "<=", label: "Até" },
+  { value: "=", label: "Exatamente em" },
+  { value: ">", label: "Depois de" },
+  { value: "<", label: "Antes de" },
 ];
 
 const textFilterOperators: { value: TextFilterOperator; label: string }[] = [
@@ -57,8 +86,17 @@ const textFilterOperators: { value: TextFilterOperator; label: string }[] = [
 ];
 
 /** Valor default de um filtro recém-criado, conforme o tipo da coluna. */
-function defaultFilterValue(column: FilterableColumn): FilterValue | TextFilterValue | StatusFilterValue {
-  if (column.isStatus) return { selectedStatuses: STATUS_OPTIONS.map((o) => o.value) } as StatusFilterValue;
+function defaultFilterValue(column: FilterableColumn): FilterValue | TextFilterValue | StatusFilterValue | DateFilterValue | TagFilterValue {
+  // Tags nascem em "contém alguma" sem nenhuma escolhida — não restringe até o
+  // usuário responder qual.
+  if (column.isTags) return defaultTagFilterValue();
+  // Status nasce com TUDO marcado: um filtro recém-adicionado não pode esvaziar a
+  // tabela antes de o usuário escolher qualquer coisa.
+  if (column.isStatus) {
+    const options = STATUS_OPTIONS;
+    return { selectedStatuses: options.map((o) => o.value), totalOptions: options.length } as StatusFilterValue;
+  }
+  if (column.isDate) return { operator: ">=", value: null } as DateFilterValue;
   if (column.isText) return { operator: "contains", value: null } as TextFilterValue;
   return { operator: ">", value: null } as FilterValue;
 }
@@ -75,6 +113,7 @@ function arePropsEqual(prev: FilterBarProps, next: FilterBarProps): boolean {
   if (prev.setColumnFilters !== next.setColumnFilters) return false;
 
   if (prev.filteredCount !== next.filteredCount) return false;
+  if (prev.serverTotal !== next.serverTotal) return false;
   if (prev.totalCount !== next.totalCount) return false;
   if (prev.itemLabel !== next.itemLabel) return false;
 
@@ -91,7 +130,15 @@ function arePropsEqual(prev: FilterBarProps, next: FilterBarProps): boolean {
  * verticais [coluna | operador | valor | remover] — mesmo estilo dos filtros do modal de
  * criar packs. O "onde" cada filtro atua é sinalizado pelo funil no header da coluna.
  */
-export const FilterBar = React.memo(function FilterBar({ columnFilters, setColumnFilters, filterableColumns, filteredCount, totalCount, itemLabel, leadingSlot, trailingSlot }: FilterBarProps) {
+export const FilterBar = React.memo(function FilterBar({ columnFilters, setColumnFilters, filterableColumns, filteredCount, totalCount, itemLabel, leadingSlot, trailingSlot, serverTotal }: FilterBarProps) {
+  // Truncado = o servidor tem mais grupos do que os que chegaram ao browser.
+  const isTruncated = typeof serverTotal === "number" && typeof totalCount === "number" && serverTotal > totalCount;
+  // InlineNotice e um banner de bloco (role="alert", px-3 py-2, text-sm); aqui o aviso
+  // divide uma linha unica de toolbar com a contagem e o botao de filtros, onde um
+  // banner quebraria o layout. Mesma paleta de warning, forma de chip.
+  // design-system-exception: inline-notice-pattern - aviso inline na toolbar, nao banner de bloco
+  const truncatedChipClass =
+    "inline-flex items-center gap-1 whitespace-nowrap rounded border border-warning-30 bg-warning-10 px-1.5 py-0.5 text-2xs text-warning";
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   // Estado local para valores dos inputs (para não aplicar imediatamente a cada tecla)
   const [localInputValues, setLocalInputValues] = useState<Record<string, string>>({});
@@ -167,8 +214,9 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     clearFilterLocalState(filterInstanceId);
   };
 
-  // Colunas únicas para o Select de coluna (permite múltiplos filtros por coluna)
+  // Colunas únicas para o seletor de coluna (permite múltiplos filtros por coluna)
   const availableColumns = useMemo(() => filterableColumns, [filterableColumns]);
+  const columnComboboxOptions = useMemo(() => availableColumns.map((col) => ({ value: col.id, label: col.label })), [availableColumns]);
 
   // Focar no input quando um novo filtro é criado (value === null)
   useEffect(() => {
@@ -195,19 +243,23 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     });
   }, [activeFilters]);
 
+  // Combobox (com busca) em vez de Select: a lista de campos filtraveis passou de
+  // trinta opcoes e rolar ate "Leadscore" ficou mais lento do que digitar. Mesma
+  // mecanica de busca do seletor de colunas ativas.
+  // `disablePortal`: este dropdown vive DENTRO do popover de filtros — portalado no
+  // body, o clique na lista contaria como clique fora e fecharia o popover de cima.
   const renderColumnSelect = (filter: { id: string }) => (
-    <Select value={getColumnId(filter.id)} onValueChange={(value) => handleChangeFilterColumn(filter.id, value)}>
-      <SelectTrigger size="sm" className="w-full">
-        <SelectValue placeholder="Coluna" />
-      </SelectTrigger>
-      <SelectContent disablePortal={true}>
-        {availableColumns.map((col) => (
-          <SelectItem key={col.id} value={col.id}>
-            {col.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+    <Combobox
+      size="sm"
+      value={getColumnId(filter.id)}
+      onValueChange={(value) => handleChangeFilterColumn(filter.id, value)}
+      options={columnComboboxOptions}
+      placeholder="Coluna"
+      searchPlaceholder="Buscar campo..."
+      emptyMessage="Nenhum campo encontrado."
+      contentClassName="min-w-[200px]"
+      disablePortal
+    />
   );
 
   const renderRemoveButton = (filterInstanceId: string) => (
@@ -220,22 +272,80 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
     const column = filterableColumns.find((c) => c.id === getColumnId(filter.id));
     if (!column) return null;
 
-    // LINHA DE FILTRO DE STATUS (multi-select inline — evita popover aninhado)
+    // LINHA DE TAGS — [coluna | operador | tags em chips]. Diferente do status, a
+    // pergunta não é "quais destas?" e sim como a linha se relaciona com o conjunto
+    // escolhido (contém alguma/todas/nenhuma/exatamente), daí o operador no meio.
+    if (column.isTags) {
+      const tagValue = normalizeTagFilterValue(filter.value) ?? defaultTagFilterValue();
+      const tagOptions = column.options ?? [];
+      const needsValue = tagOperatorNeedsValue(tagValue.operator);
+
+      const applyTagValue = (next: TagFilterValue) => {
+        setColumnFilters((prev) => prev.map((f) => (f.id === filter.id ? { id: filter.id, value: next } : f)));
+      };
+
+      return (
+        <div key={filter.id} className="grid grid-cols-12 items-start gap-2">
+          <div className="col-span-4">{renderColumnSelect(filter)}</div>
+          <div className={needsValue ? "col-span-3" : "col-span-7"}>
+            <Select
+              value={tagValue.operator}
+              onValueChange={(operator) => applyTagValue({ operator: operator as TagFilterOperator, tagIds: tagValue.tagIds })}
+            >
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent disablePortal={true}>
+                {TAG_FILTER_OPERATORS.map((op) => (
+                  <SelectItem key={op.value} value={op.value}>
+                    {op.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {needsValue && (
+            <div className="col-span-4">
+              <MultiSelectChipsField
+                options={tagOptions}
+                selectedIds={tagValue.tagIds}
+                onChange={(tagIds) => applyTagValue({ operator: tagValue.operator, tagIds })}
+                placeholder="Escolher tags..."
+                searchPlaceholder="Buscar tag..."
+                emptyMessage="Nenhuma tag encontrada."
+                itemLabel={{ one: "tag", many: "tags" }}
+                disablePortal
+              />
+            </div>
+          )}
+          <div className="col-span-1">{renderRemoveButton(filter.id)}</div>
+        </div>
+      );
+    }
+
+    // LINHA DE STATUS — checkboxes inline, evita popover aninhado
     if (column.isStatus) {
       const statusFilterValue = filter.value as StatusFilterValue;
       if (!statusFilterValue) return null;
+      const multiOptions = STATUS_OPTIONS;
 
       const handleToggleStatus = (statusValue: string) => {
         const currentSelected = statusFilterValue.selectedStatuses || [];
         const newSelected = currentSelected.includes(statusValue) ? currentSelected.filter((s) => s !== statusValue) : [...currentSelected, statusValue];
-        setColumnFilters((prev) => prev.map((f) => (f.id === filter.id ? { id: filter.id, value: { selectedStatuses: newSelected } as StatusFilterValue } : f)));
+        setColumnFilters((prev) =>
+          prev.map((f) =>
+            f.id === filter.id
+              ? { id: filter.id, value: { selectedStatuses: newSelected, totalOptions: multiOptions.length } as StatusFilterValue }
+              : f,
+          ),
+        );
       };
 
       return (
         <div key={filter.id} className="grid grid-cols-12 items-start gap-2">
           <div className="col-span-4">{renderColumnSelect(filter)}</div>
           <div className="col-span-7 flex flex-wrap items-center gap-x-3 gap-y-1 pt-1.5">
-            {STATUS_OPTIONS.map((option) => {
+            {multiOptions.map((option) => {
               const isChecked = statusFilterValue.selectedStatuses?.includes(option.value) ?? false;
               return (
                 <button key={option.value} type="button" onClick={() => handleToggleStatus(option.value)} className="flex items-center gap-1.5 text-xs hover:text-foreground-80 transition-colors">
@@ -244,6 +354,45 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
                 </button>
               );
             })}
+          </div>
+          <div className="col-span-1">{renderRemoveButton(filter.id)}</div>
+        </div>
+      );
+    }
+
+    // LINHA DE FILTRO DE DATA (o calendário nativo já entrega valor completo — aplica direto,
+    // sem o buffer local que texto/número precisam para não filtrar a cada tecla).
+    if (column.isDate) {
+      const dateFilterValue = filter.value as DateFilterValue;
+      const applyDateValue = (isoDate: string) => {
+        const value = isoDate.trim() !== "" ? isoDate : null;
+        setColumnFilters((prev) => prev.map((f) => (f.id === filter.id ? { id: filter.id, value: { operator: dateFilterValue.operator, value } as DateFilterValue } : f)));
+      };
+
+      return (
+        <div key={filter.id} className="grid grid-cols-12 items-center gap-2">
+          <div className="col-span-4">{renderColumnSelect(filter)}</div>
+          <div className="col-span-3">
+            <Select
+              value={dateFilterValue.operator}
+              onValueChange={(newOperator) => setColumnFilters((prev) => prev.map((f) => (f.id === filter.id ? { id: f.id, value: { operator: newOperator as FilterOperator, value: (f.value as DateFilterValue).value } as DateFilterValue } : f)))}
+            >
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent disablePortal={true}>
+                {dateFilterOperators.map((op) => (
+                  <SelectItem key={op.value} value={op.value}>
+                    {op.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-4">
+            {/* Sem ref de auto-foco: o efeito de foco chama select(), que não faz sentido num
+                campo de data, e focar o input não abre o calendário de qualquer forma. */}
+            <Input size="sm" type="date" value={dateFilterValue.value ?? ""} onChange={(e) => applyDateValue(e.target.value)} />
           </div>
           <div className="col-span-1">{renderRemoveButton(filter.id)}</div>
         </div>
@@ -439,6 +588,15 @@ export const FilterBar = React.memo(function FilterBar({ columnFilters, setColum
         {filteredCount !== undefined && totalCount !== undefined && itemLabel && (
           <span className="text-xs text-muted-foreground whitespace-nowrap">
             Exibindo {filteredCount} de {totalCount} {itemLabel}
+          </span>
+        )}
+        {isTruncated && (
+          <span
+            className={truncatedChipClass}
+            title={`O período tem ${serverTotal} ${itemLabel ?? "itens"}, mas só ${totalCount} foram carregados (os de maior investimento). Filtros e seleção em massa atuam apenas sobre esses.`}
+          >
+            <IconAlertTriangle className="h-3 w-3" />
+            {serverTotal} no total
           </span>
         )}
         {availableColumns.length > 0 && (

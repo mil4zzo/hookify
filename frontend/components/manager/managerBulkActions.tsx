@@ -1,4 +1,4 @@
-import { IconPlayerPause, IconPlayerPlay, IconShare2 } from "@tabler/icons-react";
+import { IconPlayerPause, IconPlayerPlay, IconShare2, IconTag } from "@tabler/icons-react";
 import type { BulkAction } from "@/components/common/BulkActionsBar";
 
 interface BuildManagerBulkActionsParams {
@@ -7,6 +7,12 @@ interface BuildManagerBulkActionsParams {
   onActivate?: () => void;
   /** Abre o compartilhamento da seleção (link público em stories). Sem confirmação — não é destrutivo. */
   onShare?: () => void;
+  /**
+   * Abre a marcação em massa. Só existe onde a linha é um criativo (abas Criativos
+   * e Por anúncio) — a tag é do criativo, e aplicá-la numa linha de conjunto ou
+   * campanha seria uma expansão implícita para os N criativos daquele grupo.
+   */
+  onTags?: () => void;
 }
 
 /**
@@ -14,8 +20,18 @@ interface BuildManagerBulkActionsParams {
  * ManagerChildrenTable renderizam a mesma barra: a copy dos dialogs precisa
  * existir em um lugar só, senão as duas superfícies divergem com o tempo.
  */
-export function buildManagerBulkActions({ onPause, onActivate, onShare }: BuildManagerBulkActionsParams): BulkAction[] {
+export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags }: BuildManagerBulkActionsParams): BulkAction[] {
   const actions: BulkAction[] = [];
+
+  if (onTags) {
+    actions.push({
+      id: "tags",
+      label: "Tags",
+      icon: <IconTag className="h-3.5 w-3.5" />,
+      // Sem confirm: o diálogo já é a confirmação, e marcar é reversível num clique.
+      onSelect: onTags,
+    });
+  }
 
   if (onPause && onActivate) {
     actions.push({

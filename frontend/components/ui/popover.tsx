@@ -9,11 +9,20 @@ const Popover = PopoverPrimitive.Root
 
 const PopoverTrigger = PopoverPrimitive.Trigger
 
+interface PopoverContentProps extends React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content> {
+  /**
+   * Renderiza o conteúdo sem Portal — necessário quando este popover vive dentro
+   * de outro popover: portalado no body ele conta como "clique fora" para a
+   * camada de cima. Mesmo motivo do `disablePortal` do SelectContent.
+   */
+  disablePortal?: boolean
+}
+
 const PopoverContent = React.forwardRef<
   React.ElementRef<typeof PopoverPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof PopoverPrimitive.Content>
->(({ className, align = "center", sideOffset = 4, ...props }, ref) => (
-  <PopoverPrimitive.Portal>
+  PopoverContentProps
+>(({ className, align = "center", sideOffset = 4, disablePortal = false, ...props }, ref) => {
+  const content = (
     <PopoverPrimitive.Content
       ref={ref}
       align={align}
@@ -24,9 +33,12 @@ const PopoverContent = React.forwardRef<
       )}
       {...props}
     />
-  </PopoverPrimitive.Portal>
-))
+  )
+
+  if (disablePortal) return content
+
+  return <PopoverPrimitive.Portal>{content}</PopoverPrimitive.Portal>
+})
 PopoverContent.displayName = PopoverPrimitive.Content.displayName
 
 export { Popover, PopoverTrigger, PopoverContent }
-

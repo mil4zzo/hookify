@@ -406,6 +406,10 @@ class FormattedAdModel(BaseModel):
     adcreatives_videos_ids: Optional[List[str]] = None
     adcreatives_videos_thumbs: Optional[List[str]] = None
 
+    # Data de criacao do ad no Meta (created_time do no Ad). Distinta de ads.created_at,
+    # que e quando a linha entrou no nosso banco. Opcional: registros antigos nao tem.
+    meta_created_time: Optional[str] = None
+
     # Derivadas
     connect_rate: Optional[float] = None
     profile_ctr: Optional[float] = None

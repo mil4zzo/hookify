@@ -17,9 +17,16 @@ interface ComboboxProps {
   className?: string;
   /** Altura do trigger — contrato de controles: "default" 40px | "sm" 32px. */
   size?: "default" | "sm";
+  /** Classes extras do dropdown (ex.: `min-w-[220px]` num trigger estreito). */
+  contentClassName?: string;
+  /**
+   * Renderiza o dropdown sem Portal — use quando o combobox vive dentro de outro
+   * popover, senão o clique na lista conta como "clique fora" e fecha o de cima.
+   */
+  disablePortal?: boolean;
 }
 
-export function Combobox({ value, onValueChange, options, placeholder = "Selecione...", searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", className, size = "default" }: ComboboxProps) {
+export function Combobox({ value, onValueChange, options, placeholder = "Selecione...", searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", className, size = "default", contentClassName, disablePortal = false }: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
 
@@ -47,7 +54,7 @@ export function Combobox({ value, onValueChange, options, placeholder = "Selecio
           <IconChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 z-dropdown rounded-md border border-border bg-secondary text-text shadow-elevation-overlay" align="start" sideOffset={4}>
+      <PopoverContent disablePortal={disablePortal} className={cn("w-[var(--radix-popover-trigger-width)] p-0 z-dropdown rounded-md border border-border bg-secondary text-text shadow-elevation-overlay", contentClassName)} align="start" sideOffset={4}>
         <div className="flex flex-col">
           <div className="border-b border-border p-2">
             <Input

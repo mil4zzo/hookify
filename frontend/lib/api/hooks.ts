@@ -24,6 +24,8 @@ import {
   MetaUsageCallsResponse,
   MetaUsageSummaryResponse,
   MetaUsageDistinctResponse,
+  TagItem,
+  RankingsRowTag,
 } from './schemas'
 import { useSessionStore } from '@/lib/store/session'
 import { useSupabaseAuth } from '@/lib/hooks/useSupabaseAuth'
@@ -760,3 +762,162 @@ export const usePrefetchUserData = () => {
     }),
   }
 }
+
+// ========== Tags de criativo ==========
+//
+// A marcacao e por `ad_name`. Todas as mutations abaixo atualizam o cache de
+// rankings IN PLACE em vez de invalidar: `['analytics','rankings']` dispara uma
+// RPC medida em ~2,6s quente, e invalidar em massa apos cada clique de tag
+// reproduziria a amplificacao que ja estourou statement_timeout no toggle de
+// status. So a lista de tags (barata) e invalidada de fato.
+
+export const tagQueryKeys = {
+  list: ['tags', 'list'] as const,
+}
+
+/** Aplica `mutate` nas tags de toda linha de rankings ja cacheada. */
+function patchCachedRankingTags(
+  queryClient: ReturnType<typeof useQueryClient>,
+  mutate: (tags: RankingsRowTag[], adName: string) => RankingsRowTag[],
+) {
+  queryClient.setQueriesData<unknown>({ queryKey: ['analytics', 'rankings'] }, (cached: unknown) => {
+    const payload = cached as { data?: unknown } | undefined
+    if (!payload || !Array.isArray(payload.data)) return cached
+
+    let touched = false
+    const nextRows = (payload.data as Array<Record<string, unknown>>).map((row) => {
+      // group_key e o proprio ad_name no agrupamento por criativo; na aba por
+      // anuncio o nome vem em `ad_name`. Sem nome nao ha como casar a tag.
+      const adName = String(row?.ad_name ?? row?.group_key ?? '')
+      if (!adName) return row
+
+      const current = Array.isArray(row.tags) ? (row.tags as RankingsRowTag[]) : []
+      const next = mutate(current, adName)
+      if (next === current) return row
+
+      touched = true
+      return { ...row, tags: next }
+    })
+
+    return touched ? { ...payload, data: nextRows } : cached
+  })
+}
+
+/** Aplica `mutate` na lista de tags cacheada, sem ida ao servidor. */
+function patchCachedTagList(
+  queryClient: ReturnType<typeof useQueryClient>,
+  mutate: (tags: TagItem[]) => TagItem[],
+) {
+  queryClient.setQueryData<{ data: TagItem[] }>(tagQueryKeys.list, (cached) => {
+    if (!cached?.data) return cached
+    return { ...cached, data: mutate(cached.data) }
+  })
+}
+
+/** Insere mantendo a ordem por nome que o servidor usa (`.order("name")`). */
+function insertTagSorted(tags: TagItem[], created: TagItem): TagItem[] {
+  if (tags.some((t) => t.id === created.id)) return tags
+  return [...tags, created].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+export const useTags = (enabled: boolean = true) => {
+  return useQuery<{ data: TagItem[] }>({
+    queryKey: tagQueryKeys.list,
+    queryFn: ({ signal }) => api.tags.list({ signal }),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  })
+}
+
+export const useCreateTag = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ name, color }: { name: string; color: string }) => api.tags.create(name, color),
+    onSuccess: (result) => {
+      // Escreve a tag criada direto no cache em vez de invalidar. Invalidar deixava a
+      // lista exibindo a versão ANTIGA (sem a tag nova) até o refetch chegar — o usuário
+      // via a opção "Criar" sumir e a tag não aparecer, parecendo que falhou.
+      // O POST já devolve a linha autoritativa, então não há o que buscar.
+      const created = result?.data
+      if (created) patchCachedTagList(queryClient, (tags) => insertTagSorted(tags, { ...created, usage_count: created.usage_count ?? 0 }))
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useUpdateTag = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ tagId, patch }: { tagId: string; patch: { name?: string; color?: string } }) =>
+      api.tags.update(tagId, patch),
+    onSuccess: (result, { tagId }) => {
+      const updated = result?.data
+      if (updated) {
+        // Renomear preserva o id, entao a linha cacheada so precisa do rotulo novo.
+        patchCachedRankingTags(queryClient, (tags) =>
+          tags.some((t) => t.id === tagId)
+            ? tags.map((t) => (t.id === tagId ? { ...t, name: updated.name, color: updated.color } : t))
+            : tags,
+        )
+      }
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useDeleteTag = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (tagId: string) => api.tags.remove(tagId),
+    onSuccess: (_result, tagId) => {
+      // O ON DELETE CASCADE ja removeu as marcacoes no banco; o cache acompanha.
+      patchCachedRankingTags(queryClient, (tags) =>
+        tags.some((t) => t.id === tagId) ? tags.filter((t) => t.id !== tagId) : tags,
+      )
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useAssignTags = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ tags, adNames }: { tags: TagItem[]; adNames: string[] }) =>
+      api.tags.assign(tags.map((t) => t.id), adNames),
+    onSuccess: (_result, { tags, adNames }) => {
+      const targets = new Set(adNames)
+      patchCachedRankingTags(queryClient, (current, adName) => {
+        if (!targets.has(adName)) return current
+        const missing = tags.filter((t) => !current.some((c) => c.id === t.id))
+        if (missing.length === 0) return current
+        const merged = [...current, ...missing.map((t) => ({ id: t.id, name: t.name, color: t.color }))]
+        return merged.sort((a, b) => a.name.localeCompare(b.name))
+      })
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useUnassignTags = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ tags, adNames }: { tags: TagItem[]; adNames: string[] }) =>
+      api.tags.unassign(tags.map((t) => t.id), adNames),
+    onSuccess: (_result, { tags, adNames }) => {
+      const targets = new Set(adNames)
+      const removing = new Set(tags.map((t) => t.id))
+      patchCachedRankingTags(queryClient, (current, adName) => {
+        if (!targets.has(adName)) return current
+        const next = current.filter((t) => !removing.has(t.id))
+        return next.length === current.length ? current : next
+      })
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+

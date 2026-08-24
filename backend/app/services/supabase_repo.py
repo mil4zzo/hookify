@@ -721,6 +721,9 @@ def upsert_ads(
             "adcreatives_videos_ids": videos_ids_list if videos_ids_list else None,
             "adcreatives_videos_thumbs": videos_thumbs_list if videos_thumbs_list else None,
             "video_owner_page_id": ad.get("video_owner_page_id") or None,
+            # Data de criacao no Meta. NULL aqui nunca apaga o valor ja gravado:
+            # trigger trg_ads_preserve_meta_created_time (migration 115) faz o coalesce.
+            "meta_created_time": ad.get("meta_created_time") or None,
             "updated_at": _now_iso(),
         }
         # Mantém apenas uma ocorrência por ad_id (sobrescreve se houver duplicata),
@@ -786,6 +789,7 @@ def upsert_ads(
                 or "thumb_source_url" in msg
                 or "primary_video_id" in msg
                 or "media_type" in msg
+                or "meta_created_time" in msg
             ):
                 logger.warning(
                     f"[UPSERT_ADS] Colunas novas parecem ausentes no DB; "
@@ -799,6 +803,7 @@ def upsert_ads(
                     rr.pop("thumb_source_url", None)
                     rr.pop("primary_video_id", None)
                     rr.pop("media_type", None)
+                    rr.pop("meta_created_time", None)
                     cleaned.append(rr)
                 with_postgrest_retry(
                     f"upsert_ads_cleaned[{len(cleaned)}]",
@@ -1884,7 +1889,7 @@ def get_existing_ads_map(
         "effective_status,creative,creative_video_id,thumbnail_url,"
         "instagram_permalink_url,primary_video_id,media_type,"
         "adcreatives_videos_ids,adcreatives_videos_thumbs,"
-        "video_owner_page_id"
+        "video_owner_page_id,meta_created_time"
     )
     batch_size = 200  # Reduzido de 400 para evitar timeout/URL longa
     existing_ads: Dict[str, Dict[str, Any]] = {}
