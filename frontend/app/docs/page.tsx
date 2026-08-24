@@ -9,7 +9,7 @@ import { PageBodyStack } from "@/components/common/layout";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { IconBook2, IconCardsFilled, IconSitemapFilled, IconSunFilled, IconDiamond, IconArrowRight, IconBulb, IconCode, IconBrandMeta, IconDatabase, IconCopy } from "@tabler/icons-react";
+import { IconBook2, IconCardsFilled, IconLayoutBoard, IconSitemapFilled, IconSunFilled, IconDiamond, IconArrowRight, IconBulb, IconCode, IconBrandMeta, IconDatabase, IconCopy } from "@tabler/icons-react";
 import { buildFullDocsMarkdown } from "@/lib/docs/buildDocsMarkdown";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { META_BASE_URL_TEMPLATE, META_CURRENT_VERSION, META_PERMISSIONS, META_ENDPOINTS, META_METRICS, META_PARAMS, META_OAUTH_FLOW, META_APP_REVIEW_CHECKLIST, META_SECURITY_AND_DATA } from "@/lib/docs/metaDevReference";
@@ -56,6 +56,21 @@ const PAGE_DOCS: PageDoc[] = [
     icon: IconSitemapFilled,
     summary: "Visualize e analise a performance dos seus anúncios em detalhe, com múltiplas formas de agrupamento e comparação.",
     features: ["Agrupar dados por anúncio individual, nome de anúncio, conjunto ou campanha", "Filtrar por período de datas e tipo de conversão (ex: landing page view, purchase)", "Comparar métricas individuais com médias gerais para identificar tendências", "Expandir agrupamentos para ver os anúncios individuais dentro de cada grupo", "Tabela ordenável com métricas como CPR, CPM, CTR, taxa de conversão e mais", "Selecionar múltiplos packs para análise cruzada"],
+  },
+  {
+    id: "boards",
+    title: "Boards",
+    path: "/boards",
+    icon: IconLayoutBoard,
+    summary: "Agrupe seus criativos por regra e compare os grupos entre si. Um board é uma lente: os packs e o período continuam vindo do filtro do topo, então o mesmo board serve qualquer recorte.",
+    features: [
+      "Criar grupos com condições sobre tags, métricas, status, data de criação, pack e conta",
+      "Combinar condições com E / OU e subgrupos, como no critério de validação",
+      "Grupos não são exclusivos: o mesmo criativo pode aparecer em vários",
+      "Cabeçalho de cada grupo com criativos, spend (e fatia do recorte), resultados e CPR",
+      "Ordenar os criativos dentro de cada grupo pela métrica que você escolher",
+      "Linha de cobertura mostrando quantos criativos do recorte ficaram fora de todos os grupos",
+    ],
   },
   {
     id: "insights",

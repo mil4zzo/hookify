@@ -50,6 +50,8 @@ import {
   PackActivityResponse,
   TagItem,
   TagAssignResult,
+  BoardItem,
+  BoardGroupItem,
 } from './schemas'
 import { env } from '@/lib/config/env'
 import type { CreateSharePayload, CreateShareResponse, ShareSummary } from '@/lib/share/types'
@@ -552,6 +554,41 @@ export const api = {
       apiClient.post('/tags/assign', { tag_ids: tagIds, ad_names: adNames }),
     unassign: (tagIds: string[], adNames: string[]): Promise<TagAssignResult> =>
       apiClient.post('/tags/unassign', { tag_ids: tagIds, ad_names: adNames }),
+  },
+
+  /**
+   * Boards — views de agrupamento de criativos por regra.
+   *
+   * O board nao guarda quais criativos estao em cada grupo: guarda a REGRA. A
+   * lista de criativos e derivada no cliente sobre o recorte (packs + periodo)
+   * ativo no seletor global, entao nao ha nada aqui para "recalcular".
+   */
+  boards: {
+    /** Uma chamada so: os grupos vem embutidos (teto de 30 boards x 20 grupos). */
+    list: (options?: { signal?: AbortSignal }): Promise<{ data: BoardItem[] }> =>
+      apiClient.get('/boards', { signal: options?.signal }),
+    create: (name: string): Promise<{ data: BoardItem }> =>
+      apiClient.post('/boards', { name }),
+    update: (boardId: string, patch: { name?: string; position?: number }): Promise<{ data: BoardItem }> =>
+      apiClient.patch(`/boards/${boardId}`, patch),
+    /** Apaga board e grupos (cascade). Nenhum criativo e afetado. */
+    remove: (boardId: string): Promise<{ deleted: boolean; id: string }> =>
+      apiClient.delete(`/boards/${boardId}`),
+    createGroup: (
+      boardId: string,
+      payload: { name: string; color?: string; rules?: unknown; sort_metric?: string; sort_direction?: string },
+    ): Promise<{ data: BoardGroupItem }> =>
+      apiClient.post(`/boards/${boardId}/groups`, payload),
+    updateGroup: (
+      boardId: string,
+      groupId: string,
+      patch: { name?: string; color?: string; rules?: unknown; position?: number; sort_metric?: string; sort_direction?: string },
+    ): Promise<{ data: BoardGroupItem }> =>
+      apiClient.patch(`/boards/${boardId}/groups/${groupId}`, patch),
+    removeGroup: (boardId: string, groupId: string): Promise<{ deleted: boolean; id: string }> =>
+      apiClient.delete(`/boards/${boardId}/groups/${groupId}`),
+    reorderGroups: (boardId: string, groupIds: string[]): Promise<{ board_id: string; group_ids: string[] }> =>
+      apiClient.post(`/boards/${boardId}/groups/reorder`, { group_ids: groupIds }),
   },
 
   // Google Sheets integration (ads enrichment)

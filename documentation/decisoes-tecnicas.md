@@ -2635,3 +2635,86 @@ anúncio isso significava exibir 1.000 de 12.787 em silêncio, com filtro e sele
 operando sobre a fatia de maior gasto. A FilterBar agora avisa. `header_aggregates`
 continua sendo descartado: acima de 1.000 grupos, as somas do header vêm de um universo
 menor que as taxas. Dívida ainda aberta.
+
+---
+
+## Boards: agrupamento de criativos por regra (2026-08-23, migration 119)
+
+Uma tela nova (`/boards`) onde o usuário cria **grupos**, cada grupo tem uma **regra**, e
+todo criativo do recorte que atender à regra aparece nele. O que segue são as alternativas
+que foram desenhadas e **rejeitadas** — é isso que o git não preserva.
+
+**O board é uma LENTE, não uma pasta — não amarra pack nem período.** A tentação era
+guardar o recorte junto com o board. Amarrar produz a explosão clássica: "Análise de Hooks
+— Cliente A", "— Cliente B", "— Cliente C", que em três meses são quarenta boards sendo o
+mesmo board. Os packs e o período continuam vindo do seletor global, então o mesmo board
+serve qualquer recorte. Consequência a aceitar: uma regra que cita pack ou conta específica
+só funciona naquele recorte. Regras sobre tag e métrica são portáveis; as de procedência,
+não.
+
+**Não existe pertencimento manual — e por isso não existe tabela de membership.** A
+proposta original era um Kanban onde arrastar o card entre colunas aplicava/removia a tag
+que faz a regra casar. Foi rejeitada por ser sensível e confusa: uma tela de leitura que
+edita marcação em massa por gesto de arrastar erra caro e erra em silêncio. Se o usuário
+quer "jogar estes três aqui", a ferramenta é uma tag — que já existe, já é do criativo e já
+sobrevive ao anúncio sumir da Meta. O ganho colateral é grande: sem membership persistido
+não há estado que envelhece, e apagar um board não pode afetar criativo nenhum.
+
+**Grupos NÃO são exclusivos, e não se enxergam.** A alternativa era Kanban de verdade:
+regras avaliadas em ordem, primeiro match vence, mais uma coluna "Sem classificação". Foi
+rejeitada porque transformaria a **ordem** dos grupos numa regra escondida — mover um grupo
+para cima mudaria silenciosamente o conteúdo dos de baixo — e mataria a interseção, que é
+justamente o que permite olhar o mesmo acervo por dois ângulos na mesma tela. O preço é que
+um board pode mentir por omissão: regra errada = grupo vazio, que se lê como "não tenho
+isso" em vez de "minha condição está errada". A **linha de cobertura** no rodapé ("371
+criativos no recorte · 187 aparecem em algum grupo") existe só para pagar esse preço.
+
+**Sem compartilhamento, e isso não é dívida.** Chegou-se a desenhar snapshot publicável
+para reunião. Desnecessário: apresentação é feita por compartilhamento de tela, com uma
+pessoa conduzindo. E seria pior que inútil — as regras referenciam `tag_id`, e tag é
+privada por usuário (migration 116), então um board compartilhado mostraria grupos vazios
+para o convidado.
+
+**Sem presets no lançamento.** Decisão explícita, contra a recomendação inicial. A tela é
+flexível demais para adivinhar: o preset útil depende de quais tags o usuário tem e de qual
+é o funil dele. Sem dado de uso, preset é chute sobre o negócio dos outros. A tela em
+branco traz um texto explicando o que é um board. Revisitar quando houver uso real.
+
+**O vocabulário de regra é o do Manager, não o de `adMetricsFields`.** O registry de
+`lib/config/adMetricsFields` existe para o CRITÉRIO DE VALIDAÇÃO (/gold, /plano): rótulos
+em inglês, campos crus de `ad_metrics`, ids. Estendê-lo para caber aqui mudaria a
+classificação de quem já salvou critérios. O Board fala a língua do popover "Filtros" do
+Manager — mesmas métricas, mesmos operadores, mesmo `rowMatchesTagFilter`. Custou um
+registry novo (`lib/boards/fields.ts`) e um avaliador novo; comprou zero risco de regressão
+no julgamento.
+
+**Campanha e conjunto ficaram de fora das regras.** A linha é agregada por criativo, e um
+criativo roda em várias campanhas — `campaign_name` na linha é o do REPRESENTANTE (o ad de
+maior impressões). Uma regra sobre ele acertaria a maioria e mentiria no resto, sem aviso.
+Pack e conta entram porque a linha carrega o array completo (`pack_ids` / `account_ids`), e
+aí a semântica **"tem alguma veiculação em"** é literalmente verdadeira. Status segue a
+mesma lógica: lê `active_count > 0`, não `effective_status`.
+
+**"Criado em" é regra; período não é.** São coisas diferentes com nome parecido.
+`meta_created_time` é atributo durável do criativo ("quando estreou") — sem ele não dá para
+montar "Novos desta semana". O período é o recorte da tela e já está resolvido no topo.
+
+**Criativo sem entrega no período não aparece.** Decisão de produto: se o board mostrasse o
+acervo completo, o recorte de data perderia o sentido. Quem quiser ver um criativo de volta
+amplia o período.
+
+**Valor percentual é gravado na escala digitada (30 = 30%), não em razão.** Gravar 0.3
+amarraria o conteúdo do banco a um registry do frontend: se a métrica trocasse de
+`formatKind`, toda regra salva passaria a significar outra coisa em silêncio. A divisão por
+100 acontece na avaliação, e é **incondicional** — a heurística `valor > 1 ? /100 : valor`
+que `applyRowFilters` usa nas linhas-filhas erra em `hook > 0,5%`.
+
+**Custo: zero query por grupo.** As regras rodam no cliente sobre as mesmas linhas que a
+página já buscou (`group_by=ad_name`, o mesmo fetch do Manager). N grupos custam N passadas
+num array em memória — é por isso que sobreposição é gratuita e não há motivo para limitar
+grupos por medo de custo (o teto de 20 é de legibilidade, não de banco).
+
+**Sempre agrupado por criativo, e o seletor de agrupamento nem é exposto.** As tags só
+existem nesse nível — a RPC devolve `[]` nos demais. Herdar o seletor do Manager faria
+metade das regras sumir quando o usuário trocasse para "campanha".
+

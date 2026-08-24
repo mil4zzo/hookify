@@ -5,6 +5,7 @@ import {
   IconDiamond,
   IconFlask,
   IconGauge,
+  IconLayoutBoard,
   IconPalette,
   IconShieldLock,
   IconSitemapFilled,
@@ -49,6 +50,14 @@ export const pageConfigs: PageConfig[] = [
     label: "Insights",
     icon: IconSunFilled,
     description: "Analises e insights sobre seus anuncios",
+    showInMenu: true,
+  },
+  {
+    path: "/boards",
+    title: "Boards",
+    label: "Boards",
+    icon: IconLayoutBoard,
+    description: "Agrupe seus criativos por regra e compare os grupos entre si",
     showInMenu: true,
   },
   {

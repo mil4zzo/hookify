@@ -26,6 +26,8 @@ import {
   MetaUsageDistinctResponse,
   TagItem,
   RankingsRowTag,
+  BoardItem,
+  BoardGroupItem,
 } from './schemas'
 import { useSessionStore } from '@/lib/store/session'
 import { useSupabaseAuth } from '@/lib/hooks/useSupabaseAuth'
@@ -921,3 +923,106 @@ export const useUnassignTags = () => {
   })
 }
 
+
+// ========== Boards ==========
+//
+// Barato de propria natureza: uma lista pequena (teto de 30 boards x 20 grupos)
+// que nao toca em `['analytics','rankings']`. Editar uma regra NAO refaz fetch
+// nenhum — os criativos do grupo sao derivados no cliente das linhas que o
+// Manager ja trouxe. Por isso aqui e invalidacao simples, sem patch in-place:
+// nao existe query cara para proteger.
+
+export const boardQueryKeys = {
+  list: ['boards', 'list'] as const,
+}
+
+export const useBoards = (enabled: boolean = true) => {
+  return useQuery<{ data: BoardItem[] }>({
+    queryKey: boardQueryKeys.list,
+    queryFn: ({ signal }) => api.boards.list({ signal }),
+    enabled,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
+export const useCreateBoard = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (name: string) => api.boards.create(name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useUpdateBoard = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ boardId, patch }: { boardId: string; patch: { name?: string; position?: number } }) =>
+      api.boards.update(boardId, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useDeleteBoard = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (boardId: string) => api.boards.remove(boardId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useCreateBoardGroup = () => {
+  const queryClient = useQueryClient()
+  return useMutation<{ data: BoardGroupItem }, unknown, { boardId: string; payload: { name: string; color?: string; rules?: unknown; sort_metric?: string; sort_direction?: string } }>({
+    mutationFn: ({ boardId, payload }) => api.boards.createGroup(boardId, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useUpdateBoardGroup = () => {
+  const queryClient = useQueryClient()
+  return useMutation<
+    { data: BoardGroupItem },
+    unknown,
+    { boardId: string; groupId: string; patch: { name?: string; color?: string; rules?: unknown; position?: number; sort_metric?: string; sort_direction?: string } }
+  >({
+    mutationFn: ({ boardId, groupId, patch }) => api.boards.updateGroup(boardId, groupId, patch),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useDeleteBoardGroup = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ boardId, groupId }: { boardId: string; groupId: string }) => api.boards.removeGroup(boardId, groupId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}
+
+export const useReorderBoardGroups = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ boardId, groupIds }: { boardId: string; groupIds: string[] }) => api.boards.reorderGroups(boardId, groupIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: boardQueryKeys.list })
+    },
+    onError: (error) => showError(error),
+  })
+}

@@ -493,6 +493,31 @@ export const TagItemSchema = z.object({
 })
 export type TagItem = z.infer<typeof TagItemSchema>
 
+/** Grupo de um Board. `rules` é a árvore avaliada no cliente (lib/boards). */
+export const BoardGroupSchema = z.object({
+  id: z.string(),
+  board_id: z.string(),
+  name: z.string(),
+  color: z.string(),
+  position: z.number(),
+  // jsonb livre do ponto de vista do banco — normalizeBoardRules dá forma antes de avaliar.
+  rules: z.any(),
+  sort_metric: z.string(),
+  sort_direction: z.enum(["asc", "desc"]),
+})
+export type BoardGroupItem = z.infer<typeof BoardGroupSchema>
+
+/** Board = lente de agrupamento. Não guarda pack nem período: o recorte é o global. */
+export const BoardSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  position: z.number(),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+  groups: z.array(BoardGroupSchema).default([]),
+})
+export type BoardItem = z.infer<typeof BoardSchema>
+
 export interface TagAssignResult {
   tag_ids: string[]
   ad_names: number
