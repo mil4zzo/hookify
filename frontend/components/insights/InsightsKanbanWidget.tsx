@@ -125,7 +125,7 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
 
     return ads.filter((ad) => {
       const metrics = mapRankingToMetrics(ad, actionType);
-      return evaluateValidationCriteria(validationCriteria, metrics, "AND");
+      return evaluateValidationCriteria(validationCriteria, metrics);
     });
   }, [ads, validationCriteria, actionType]);
 

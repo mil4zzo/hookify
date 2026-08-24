@@ -79,7 +79,7 @@ export function GoldKanbanWidget({ ads, averages, actionType, validationCriteria
 
     return ads.filter((ad) => {
       const metrics = mapRankingToMetrics(ad, actionType);
-      return evaluateValidationCriteria(validationCriteria, metrics, "AND");
+      return evaluateValidationCriteria(validationCriteria, metrics);
     });
   }, [ads, validationCriteria, actionType]);
 

@@ -8,11 +8,16 @@ import { Combobox } from "@/components/ui/combobox";
 import { InlineNotice } from "@/components/common/States";
 import { IconPlus, IconTrash, IconCheck, IconLoader2 } from "@tabler/icons-react";
 import { getAdMetricsFieldsForSelect, getFieldInfo, getOperatorsForFieldType, isOperatorValidForFieldType } from "@/lib/config/adMetricsFields";
+import { applyGlobalLogic, resolveGlobalLogic } from "@/lib/utils/validateAdCriteria";
 
 export type ValidationCondition = {
   id: string;
   type: "condition" | "group";
-  logic?: "AND" | "OR"; // Operador lógico com a condição anterior (apenas para grupos, para saber como se conectam com outros critérios/grupos)
+  // Operador que liga este nó de TOPO ao anterior (índice 1 em diante; o nó 0 não
+  // tem antecessor e não carrega). É onde o "E/OU" global é persistido — não há
+  // coluna separada porque `validation_criteria` tem de continuar sendo um array.
+  // Só `applyGlobalLogic` escreve aqui; só `resolveGlobalLogic` lê.
+  logic?: "AND" | "OR";
   groupLogic?: "AND" | "OR"; // Operador lógico do grupo (aplica-se a todos os critérios dentro do grupo)
   field?: string;
   operator?: string;
@@ -249,7 +254,9 @@ function ConditionRow({ condition, index, operatorLogic, onFieldChange, onOperat
 
 export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = false, hideSaveButton = false }: ValidationCriteriaBuilderProps) {
   const [conditions, setConditions] = useState<ValidationCondition[]>(value || []);
-  const [globalLogic, setGlobalLogic] = useState<"AND" | "OR">("AND");
+  // Derivado dos próprios critérios, não um default fixo: antes era `useState("AND")`
+  // e a escolha do usuário morria no remount sem nunca chegar ao banco.
+  const [globalLogic, setGlobalLogicState] = useState<"AND" | "OR">(() => resolveGlobalLogic(value));
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   // Referência do estado original (o que foi carregado do Supabase/localStorage)
   const originalConditionsRef = useRef<ValidationCondition[]>([]);
@@ -259,15 +266,28 @@ export function ValidationCriteriaBuilder({ value, onChange, onSave, isSaving = 
     // Sempre sincronizar, mesmo se for array vazio
     if (Array.isArray(value)) {
       setConditions(value);
+      setGlobalLogicState(resolveGlobalLogic(value));
       // Atualizar referência do estado original quando o valor muda (carregamento inicial ou após salvar)
       originalConditionsRef.current = JSON.parse(JSON.stringify(value));
     }
   }, [value]);
 
   const updateConditions = (newConditions: ValidationCondition[]) => {
-    setConditions(newConditions);
-    onChange(newConditions);
+    // Carimba o operador de topo em toda mutação: sem isso, uma condição adicionada
+    // depois de escolher "OU" entraria sem `logic` e o critério voltaria a AND.
+    const stamped = applyGlobalLogic(newConditions, globalLogic);
+    setConditions(stamped);
+    onChange(stamped);
     // Limpar erros quando o usuário edita
+    setValidationErrors([]);
+  };
+
+  /** Troca o operador de topo E o persiste — é o `onChange` que faltava no bug. */
+  const setGlobalLogic = (nextLogic: "AND" | "OR") => {
+    setGlobalLogicState(nextLogic);
+    const stamped = applyGlobalLogic(conditions, nextLogic);
+    setConditions(stamped);
+    onChange(stamped);
     setValidationErrors([]);
   };
 

@@ -141,7 +141,7 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
 
     for (const ad of filteredRankings) {
       const metrics = buildAdMetricsData(ad, actionType);
-      if (evaluateValidationCriteria(validationCriteria, metrics, "AND")) {
+      if (evaluateValidationCriteria(validationCriteria, metrics)) {
         validated.push(ad);
       } else {
         notValidated.push(ad);

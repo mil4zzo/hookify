@@ -99,7 +99,7 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
 
     return ads.filter((ad) => {
       const metrics = mapRankingToMetrics(ad, actionType);
-      return evaluateValidationCriteria(validationCriteria, metrics, "AND");
+      return evaluateValidationCriteria(validationCriteria, metrics);
     });
   }, [ads, validationCriteria, actionType]);
 

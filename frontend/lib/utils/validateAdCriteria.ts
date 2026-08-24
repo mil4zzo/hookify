@@ -6,7 +6,9 @@
  * para evitar uma migração parcial implícita do pipeline de validação.
  */
 
-import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
+// `import type` é obrigatório aqui: o builder agora importa `resolveGlobalLogic` /
+// `applyGlobalLogic` deste módulo, e um import de valor fecharia um ciclo em runtime.
+import type { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { getFieldInfo, getOperatorsForFieldType } from "@/lib/config/adMetricsFields";
 import { computeConversionMetrics } from "./conversionMetrics";
 
@@ -109,13 +111,12 @@ function evaluateCondition(condition: ValidationCondition, metrics: AdMetricsDat
 }
 
 /**
- * Avalia um grupo de condições contra as métricas do anúncio
+ * Avalia um grupo de condições contra as métricas do anúncio.
+ *
+ * O grupo usa o PRÓPRIO `groupLogic`; a lógica global não desce para dentro dele
+ * (por isso não é parâmetro aqui — antes era, e nunca foi usada).
  */
-function evaluateGroup(
-  group: ValidationCondition,
-  metrics: AdMetricsData,
-  globalLogic: "AND" | "OR" = "AND"
-): boolean {
+function evaluateGroup(group: ValidationCondition, metrics: AdMetricsData): boolean {
   if (group.type !== "group" || !group.conditions || group.conditions.length === 0) {
     return false;
   }
@@ -125,7 +126,7 @@ function evaluateGroup(
     if (condition.type === "condition") {
       return evaluateCondition(condition, metrics);
     } else if (condition.type === "group") {
-      return evaluateGroup(condition, metrics, globalLogic);
+      return evaluateGroup(condition, metrics);
     }
     return false;
   });
@@ -139,33 +140,79 @@ function evaluateGroup(
 }
 
 /**
- * Avalia se um anúncio atende a todos os critérios de validação
+ * Lê o operador que conecta os critérios de TOPO a partir da própria lista.
+ *
+ * O operador vive no campo `logic` dos nós de topo (índice 1 em diante) — "como
+ * este nó se conecta ao anterior". Não há coluna separada no banco: o
+ * `validation_criteria` é um ARRAY e precisa continuar sendo, porque
+ * `onboarding_service.py` decide se o onboarding está completo com
+ * `isinstance(criteria, list) and len(criteria) > 0`. Trocar por
+ * `{logic, conditions}` reabriria o onboarding de todo mundo que salvasse.
+ *
+ * Nenhuma versão anterior do builder chegou a gravar este campo (o seletor "E/OU"
+ * era estado local que morria no remount — este é justamente o bug corrigido),
+ * então todo critério já salvo cai no default "AND" e nada muda para quem já usava.
+ */
+export function resolveGlobalLogic(conditions: ValidationCondition[] | null | undefined): "AND" | "OR" {
+  if (!Array.isArray(conditions)) return "AND";
+  // O nó 0 não tem antecessor, logo não carrega operador. Basta o primeiro que carregar:
+  // o builder grava o mesmo valor em todos os nós de topo.
+  for (let i = 1; i < conditions.length; i += 1) {
+    const logic = conditions[i]?.logic;
+    if (logic === "AND" || logic === "OR") return logic;
+  }
+  return "AND";
+}
+
+/**
+ * Reescreve o operador de topo em toda a lista, mantendo o nó 0 sem `logic`.
+ *
+ * É o único ponto que grava esse campo — usar em qualquer mutação de topo, senão
+ * uma condição nova entra sem operador e "E/OU" volta para AND sozinho.
+ */
+export function applyGlobalLogic(conditions: ValidationCondition[], globalLogic: "AND" | "OR"): ValidationCondition[] {
+  return conditions.map((condition, index) => {
+    if (index === 0) {
+      if (condition.logic === undefined) return condition;
+      const { logic: _unused, ...rest } = condition;
+      return rest as ValidationCondition;
+    }
+    return condition.logic === globalLogic ? condition : { ...condition, logic: globalLogic };
+  });
+}
+
+/**
+ * Avalia se um anúncio atende aos critérios de validação
  * @param conditions - Array de condições de validação
  * @param metrics - Métricas do anúncio
- * @param globalLogic - Operador lógico global (AND ou OR) para conectar condições/grupos
+ * @param globalLogic - Operador de topo. OMITA para usar o que está gravado nos
+ *   próprios critérios (`resolveGlobalLogic`) — é o que os consumidores fazem.
+ *   Passar um valor explícito ignora a escolha do usuário.
  * @returns true se o anúncio atende aos critérios, false caso contrário
  */
 export function evaluateValidationCriteria(
   conditions: ValidationCondition[],
   metrics: AdMetricsData,
-  globalLogic: "AND" | "OR" = "AND"
+  globalLogic?: "AND" | "OR"
 ): boolean {
   if (!conditions || conditions.length === 0) {
     // Se não há critérios, considera válido (não filtra)
     return true;
   }
 
+  const effectiveLogic = globalLogic ?? resolveGlobalLogic(conditions);
+
   const results = conditions.map((condition) => {
     if (condition.type === "condition") {
       return evaluateCondition(condition, metrics);
     } else if (condition.type === "group") {
-      return evaluateGroup(condition, metrics, globalLogic);
+      return evaluateGroup(condition, metrics);
     }
     return false;
   });
 
   // Aplicar lógica global (AND ou OR)
-  if (globalLogic === "AND") {
+  if (effectiveLogic === "AND") {
     return results.every((r) => r === true);
   } else {
     return results.some((r) => r === true);

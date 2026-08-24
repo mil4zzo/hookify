@@ -113,7 +113,7 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
   if (validationCriteria && Array.isArray(validationCriteria) && validationCriteria.length > 0) {
     validatedAds = ads.filter((ad) => {
       const metrics = mapRankingToMetrics(ad, actionType || "");
-      return evaluateValidationCriteria(validationCriteria, metrics, "AND");
+      return evaluateValidationCriteria(validationCriteria, metrics);
     });
   }
 
