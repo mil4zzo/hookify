@@ -610,22 +610,45 @@ class GraphAPI:
         if not act_id or not hashes:
             return {"images": {}}
         act = act_id if str(act_id).startswith("act_") else f"act_{act_id}"
+        hashes = list(hashes)
         try:
-            resp = requests.get(
-                self.base_url + act + "/adimages" + self.user_token,
-                params={
-                    "hashes": json.dumps(list(hashes)),
-                    "fields": "hash,permalink_url,url",
-                },
-                timeout=20,
-            )
-            resp.raise_for_status()
-            log_meta_usage(resp, "GraphAPI.get_ad_images_by_hashes")
+            # A edge /adimages pagina (default 25): sem limit + paging.next, um lote de
+            # N>25 hashes volta truncado e os ausentes viram "imagem nao encontrada"
+            # (falha permanente) mesmo existindo na conta.
+            url = self.base_url + act + "/adimages" + self.user_token
+            params: Dict[str, Any] = {
+                "hashes": json.dumps(hashes),
+                "fields": "hash,permalink_url,url",
+                "limit": len(hashes),
+            }
             images: Dict[str, Dict[str, Any]] = {}
-            for item in (resp.json() or {}).get("data", []):
-                h = item.get("hash")
-                if h:
-                    images[h] = {"permalink_url": item.get("permalink_url"), "url": item.get("url")}
+            max_pages = 20
+            page = 0
+            while True:
+                page += 1
+                resp = requests.get(url, params=params, timeout=20)
+                resp.raise_for_status()
+                log_meta_usage(resp, "GraphAPI.get_ad_images_by_hashes")
+                body = resp.json() or {}
+                for item in body.get("data") or []:
+                    h = item.get("hash")
+                    if h:
+                        images[h] = {"permalink_url": item.get("permalink_url"), "url": item.get("url")}
+                next_url = str((body.get("paging") or {}).get("next") or "").strip()
+                if not next_url or page >= max_pages or len(images) >= len(hashes):
+                    if next_url and page >= max_pages:
+                        logger.warning(
+                            "get_ad_images_by_hashes: max_pages=%d atingido act_id=%s (%d/%d hashes)",
+                            max_pages, act, len(images), len(hashes),
+                        )
+                    break
+                url = next_url
+                params = {}
+            if len(images) < len(hashes):
+                logger.info(
+                    "get_ad_images_by_hashes: %d/%d hashes resolvidos act_id=%s (ausentes na biblioteca da conta)",
+                    len(images), len(hashes), act,
+                )
             return {"images": images}
         except requests.exceptions.HTTPError as http_err:
             decoded_text = urllib.parse.unquote(http_err.response.text)

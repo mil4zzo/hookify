@@ -1617,6 +1617,14 @@ A UI (`ActionPlanRow.tsx`) lista todas as alavancas separadas por vírgula; sing
 
 **Regra geral:** todo edge de lista da Meta (`/me/adaccounts`, `/me/businesses`, `owned_ad_accounts`, `client_ad_accounts`, `/ads`, `/insights`) tem cap de página — **sempre** seguir `paging.next`. Mesma classe de bug do cap silencioso de 1000 linhas do PostgREST.
 
+**Reincidência (2026-08-24) — `/act_{id}/adimages?hashes=[...]`:** o cap de 25 vale **mesmo quando o request já filtra por uma lista explícita de hashes/ids**. `get_ad_images_by_hashes` mandava lotes de até 50 hashes sem `limit` e lia só a primeira página; do 26º hash em diante a imagem simplesmente não vinha no `data`, e `resolve_image_sources_batch` interpretava a ausência como `"Imagem não encontrada na Meta"` com `transient: False` — ou seja, sem retry automático, o export de CSV mostrava N falhas permanentes que não eram falhas.
+
+O sintoma diagnóstico é característico: o botão **"Tentar novamente"** resolve. Os 25 que passaram na primeira tentativa já foram gravados no cache (`ads.image_source_url`), então o segundo lote só carrega os que faltaram e cabe numa página.
+
+**Correção:** `limit=len(hashes)` + loop de `paging.next` (teto de 20 páginas) em `get_ad_images_by_hashes`, com log quando `len(images) < len(hashes)` — aí sim é ausência real na biblioteca da conta.
+
+**Regra que fica:** nunca traduzir *"o id que pedi não voltou na resposta"* em *"não existe"* sem ter esgotado `paging.next` antes.
+
 ## Bug CPR=R$0 em todo lugar — RPC de rankings é single-key por action_type (2026-06-22)
 
 **Sintoma:** Plano de Ação (e GOLD, e o "vs média" do modal) mostravam CPR "—" em todas as linhas e média de CPR = R$ 0,00. O modal mostrava o CPR do próprio anúncio correto (R$ 9,68 / 3269 results) porque ele busca de outro endpoint.
