@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict DaYGegvnrefiB4jon9zE0pNFAReNs40jG6YfFTThjNJ0du6NsHTv8XHJdnsRm5L
+\restrict 4m1FgHScZa8nZ4zgLQDwoJvT6QqxbUi3iJpAocvNEKLG5Anc23yY3jH85y0Mhzg
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -6589,6 +6589,70 @@ COMMENT ON COLUMN public.ads.meta_created_time IS 'created_time do no Ad da Grap
 
 
 --
+-- Name: board_groups; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.board_groups (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    board_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    color text DEFAULT 'chart1'::text NOT NULL,
+    "position" integer DEFAULT 0 NOT NULL,
+    rules jsonb DEFAULT '{"logic": "AND", "conditions": []}'::jsonb NOT NULL,
+    sort_metric text DEFAULT 'spend'::text NOT NULL,
+    sort_direction text DEFAULT 'desc'::text NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT board_groups_name_max_len CHECK ((char_length(name) <= 60)),
+    CONSTRAINT board_groups_name_not_blank CHECK ((btrim(name) <> ''::text)),
+    CONSTRAINT board_groups_rules_object CHECK ((jsonb_typeof(rules) = 'object'::text)),
+    CONSTRAINT board_groups_sort_direction CHECK ((sort_direction = ANY (ARRAY['asc'::text, 'desc'::text])))
+);
+
+
+ALTER TABLE public.board_groups OWNER TO postgres;
+
+--
+-- Name: TABLE board_groups; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.board_groups IS 'Grupo de um board. Pertencimento e DERIVADO de rules (jsonb), nunca manual — nao existe tabela de membership.';
+
+
+--
+-- Name: COLUMN board_groups.rules; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.board_groups.rules IS 'Arvore {logic, conditions} avaliada no cliente. Valor de condicao percentual fica na escala digitada (30 = 30%).';
+
+
+--
+-- Name: boards; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.boards (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    "position" integer DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT boards_name_max_len CHECK ((char_length(name) <= 60)),
+    CONSTRAINT boards_name_not_blank CHECK ((btrim(name) <> ''::text))
+);
+
+
+ALTER TABLE public.boards OWNER TO postgres;
+
+--
+-- Name: TABLE boards; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.boards IS 'Board = lente de agrupamento de criativos. Nao guarda pack nem periodo: o recorte vem do seletor global.';
+
+
+--
 -- Name: bulk_ad_items; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -7177,6 +7241,22 @@ ALTER TABLE ONLY public.ads
 
 
 --
+-- Name: board_groups board_groups_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.board_groups
+    ADD CONSTRAINT board_groups_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: boards boards_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.boards
+    ADD CONSTRAINT boards_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: bulk_ad_items bulk_ad_items_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -7558,6 +7638,20 @@ CREATE INDEX ads_videos_ids_idx ON public.ads USING gin (adcreatives_videos_ids)
 
 
 --
+-- Name: board_groups_board_position_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX board_groups_board_position_idx ON public.board_groups USING btree (board_id, "position", created_at);
+
+
+--
+-- Name: boards_user_position_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX boards_user_position_idx ON public.boards USING btree (user_id, "position", created_at);
+
+
+--
 -- Name: bulk_ad_items_bundle_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -7775,6 +7869,20 @@ CREATE TRIGGER trg_ads_preserve_meta_created_time BEFORE UPDATE ON public.ads FO
 
 
 --
+-- Name: board_groups trg_board_groups_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_board_groups_set_updated_at BEFORE UPDATE ON public.board_groups FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
+-- Name: boards trg_boards_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER trg_boards_set_updated_at BEFORE UPDATE ON public.boards FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+
+--
 -- Name: facebook_connections trg_facebook_connections_set_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -7833,6 +7941,14 @@ ALTER TABLE ONLY public.ad_tags
 
 ALTER TABLE ONLY public.ads
     ADD CONSTRAINT ads_transcription_id_fkey FOREIGN KEY (transcription_id) REFERENCES public.ad_transcriptions(id) ON DELETE SET NULL;
+
+
+--
+-- Name: board_groups board_groups_board_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.board_groups
+    ADD CONSTRAINT board_groups_board_id_fkey FOREIGN KEY (board_id) REFERENCES public.boards(id) ON DELETE CASCADE;
 
 
 --
@@ -8030,6 +8146,32 @@ ALTER TABLE public.ads ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY ads_modify_own ON public.ads USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: board_groups; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.board_groups ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: board_groups board_groups_modify_own; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY board_groups_modify_own ON public.board_groups USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
+
+
+--
+-- Name: boards; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.boards ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: boards boards_modify_own; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY boards_modify_own ON public.boards USING ((user_id = ( SELECT auth.uid() AS uid))) WITH CHECK ((user_id = ( SELECT auth.uid() AS uid)));
 
 
 --
@@ -8489,6 +8631,24 @@ GRANT ALL ON TABLE public.ads TO service_role;
 
 
 --
+-- Name: TABLE board_groups; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.board_groups TO anon;
+GRANT ALL ON TABLE public.board_groups TO authenticated;
+GRANT ALL ON TABLE public.board_groups TO service_role;
+
+
+--
+-- Name: TABLE boards; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.boards TO anon;
+GRANT ALL ON TABLE public.boards TO authenticated;
+GRANT ALL ON TABLE public.boards TO service_role;
+
+
+--
 -- Name: TABLE bulk_ad_items; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8667,5 +8827,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict DaYGegvnrefiB4jon9zE0pNFAReNs40jG6YfFTThjNJ0du6NsHTv8XHJdnsRm5L
+\unrestrict 4m1FgHScZa8nZ4zgLQDwoJvT6QqxbUi3iJpAocvNEKLG5Anc23yY3jH85y0Mhzg
 

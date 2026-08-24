@@ -207,6 +207,37 @@ Anúncios importados da Meta API com metadados do criativo.
 
 ---
 
+### board_groups
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| board_id | uuid | NOT NULL |
+| user_id | uuid | NOT NULL |
+| name | text | NOT NULL |
+| color | text | NOT NULL, DEFAULT |
+| "position" | integer | NOT NULL, DEFAULT |
+| rules | jsonb | NOT NULL, DEFAULT |
+| sort_metric | text | NOT NULL, DEFAULT |
+| sort_direction | text | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
+### boards
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| user_id | uuid | NOT NULL |
+| name | text | NOT NULL |
+| "position" | integer | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
+
+---
+
 ### bulk_ad_items
 Itens individuais de um job de criação em lote de anúncios no Meta.
 
