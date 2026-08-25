@@ -565,19 +565,6 @@ class AdsEnricher:
         }
 
     @staticmethod
-    def project_parent_statuses(
-        entities: Dict[str, Dict[str, Dict[str, Any]]],
-    ) -> Dict[str, Dict[str, Optional[str]]]:
-        """Projeção do snapshot no shape de supabase_repo.write_parent_statuses."""
-        return {
-            level: {
-                entity_id: (str(row.get("effective_status") or "").upper() or None)
-                for entity_id, row in (entities.get(level) or {}).items()
-            }
-            for level in ("campaigns", "adsets")
-        }
-
-    @staticmethod
     def project_parent_entities(
         act_id: str,
         entities: Dict[str, Dict[str, Dict[str, Any]]],
@@ -630,16 +617,6 @@ class AdsEnricher:
             }
 
         return {"campaigns": campaigns, "adsets": adsets}
-
-    def fetch_parent_statuses(self, act_id: str) -> Dict[str, Dict[str, Optional[str]]]:
-        """
-        effective_status oficial de TODAS as campanhas e adsets da conta. Mantido como
-        conveniência para callers que só precisam de status; quem também grava budget deve
-        usar fetch_parent_entities + as projeções (um único passe nos edges).
-
-        Retorna {"campaigns": {campaign_id: status}, "adsets": {adset_id: status}}.
-        """
-        return self.project_parent_statuses(self.fetch_parent_entities(act_id))
 
     def merge_details(
         self,
@@ -971,15 +948,14 @@ class AdsEnricher:
                     elif batch_ok:
                         ad["effective_status"] = "DELETED"
 
-            # Snapshot oficial dos PAIS (campanha/adset): status — devolvido para o caller
-            # gravar POR parent_id (nunca por linha de ad; ver supabase_repo.write_parent_statuses)
-            # — e orçamento+status (tabela parent_entities), lidos num único passe nos edges.
+            # Snapshot oficial dos PAIS (campanha/adset): status + orçamento, num único
+            # passe nos edges, gravados em parent_entities (UMA linha por pai). Ate a
+            # migration 122 o status tambem saia daqui como mapa separado, para ser escrito
+            # por linha de ad em `ads.campaign_status`/`adset_status` -- caminho eliminado.
             # Best-effort: falha aqui não derruba o enrich (valores anteriores são mantidos).
-            parent_statuses: Dict[str, Dict[str, Optional[str]]] = {}
             parent_entity_rows: Dict[str, Dict[str, Dict[str, Any]]] = {}
             try:
                 parent_entities = self.fetch_parent_entities(act_id)
-                parent_statuses = self.project_parent_statuses(parent_entities)
                 parent_entity_rows = self.project_parent_entities(act_id, parent_entities)
             except Exception as exc:
                 logger.warning("[AdsEnricher] fetch_parent_entities falhou (%s); status/budget de pai mantêm valor anterior", exc)
@@ -989,7 +965,6 @@ class AdsEnricher:
                 "data": enriched,
                 "unique_count": len(unique_ads),
                 "enriched_count": len(media_details),
-                "parent_statuses": parent_statuses,
                 "parent_entities": parent_entity_rows,
             }
         except MetaRateLimitError as e:

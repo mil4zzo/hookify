@@ -936,99 +936,15 @@ def _fetch_present_parent_ids(sb: "Client", user_id: str) -> Tuple[set, set]:
     return present_campaigns, present_adsets
 
 
-def write_parent_statuses(
-    user_jwt: Optional[str],
-    user_id: str,
-    parents: Dict[str, Dict[str, Any]],
-    *,
-    sb_client: Optional["Client"] = None,
-    skip_present_check: bool = False,
-    also_parent_entities: bool = True,
-) -> None:
-    """
-    Grava o status OFICIAL dos pais (campanhas/adsets, lido do Meta) nas colunas denormalizadas
-    ads.campaign_status/ads.adset_status, sempre POR parent_id em TODAS as linhas do usuário.
-
-    Invariante: status de pai nunca é gravado por linha de ad (o upsert por pack deixava
-    linhas do MESMO pai divergentes entre packs, e o wrapper RPC resolvia com LIMIT 1 uma
-    linha arbitrária). Só status truthy é gravado — pai ausente do edge (deletado/arquivado)
-    preserva o valor anterior.
-
-    `parents` = {"campaigns": {campaign_id: status}, "adsets": {adset_id: status}}.
-
-    `also_parent_entities` espelha o MESMO status em `parent_entities` (double-write).
-    Passar False so onde o caller ja grava aquela tabela com o mesmo snapshot logo em
-    seguida (via `upsert_parent_entities`) — ali o espelho seria reescrever as mesmas
-    milhares de linhas duas vezes por sync.
-    """
-    if not user_id or not parents:
-        return
-    sb = _get_sb(user_jwt, sb_client)
-
-    # Restringir aos pais que TÊM linhas na tabela: contas grandes têm milhares de
-    # campanhas/adsets sem ads importados, e cada chunk de 200 viraria um UPDATE 0-row.
-    # `skip_present_check=True` para mapas pequenos e já escopados (ex.: adsets de UMA
-    # campanha após toggle), onde o scan do inventário custaria mais que os UPDATEs.
-    present_campaigns: Optional[set] = None
-    present_adsets: Optional[set] = None
-    if not skip_present_check:
-        present_campaigns, present_adsets = _fetch_present_parent_ids(sb, user_id)
-
-    now_iso = _now_iso()
-
-    # Espelho para parent_entities: preenchido DENTRO do laco, com exatamente os
-    # pares (id, status) que sobrevivem ao filtro de escopo abaixo. Espelhar
-    # `parents` cru gravaria os milhares de pais SEM ads importados que o snapshot
-    # de conta inteira traz — inchando a tabela com entidades que nenhuma tela le.
-    # Invariante desta funcao: `parent_entities` recebe o mesmo conjunto que `ads`.
-    espelho: Dict[str, Dict[str, Any]] = {"campaigns": {}, "adsets": {}}
-
-    for column, id_column, mapping, present, espelho_key in (
-        ("campaign_status", "campaign_id", parents.get("campaigns", {}) or {}, present_campaigns, "campaigns"),
-        ("adset_status", "adset_id", parents.get("adsets", {}) or {}, present_adsets, "adsets"),
-    ):
-        by_status: Dict[str, List[str]] = {}
-        for parent_id, status in mapping.items():
-            pid = str(parent_id)
-            if status and (present is None or pid in present):
-                by_status.setdefault(str(status).upper(), []).append(pid)
-                espelho[espelho_key][pid] = str(status).upper()
-        # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01).
-        # Dois syncs concorrentes (packs distintos da mesma conta, ou toggle + sync
-        # on-focus) tocam as MESMAS linhas de `ads`. Se cada um percorre os parent_ids
-        # numa ordem diferente, eles pegam os locks em ordens opostas e se abracam:
-        # o Postgres detecta o ciclo e mata uma das transacoes (visto em producao em
-        # 2026-08-24 21:12:00, junto de UPDATEs de 16-18 s).
-        # Ordenar status e ids faz TODO caminho concorrente pedir os locks na MESMA
-        # sequencia -- com ordem total consistente, deadlock e aritmeticamente
-        # impossivel (some o ciclo de espera; no maximo um espera o outro).
-        # NAO trocar por iteracao de dict sem sort: a ordem de insercao vem do edge
-        # do Meta e varia entre chamadas.
-        for status_value in sorted(by_status):
-            ids = sorted(by_status[status_value])
-            for i in range(0, len(ids), 200):
-                chunk = ids[i : i + 200]
-                # updated_at fresco: o wrapper RPC desempata linhas divergentes por recência
-                with_postgrest_retry(
-                    f"write_parent_statuses[{column}:{len(chunk)}]",
-                    lambda col=column, sv=status_value, idc=id_column, c=chunk: sb.table("ads")
-                    .update({col: sv, "updated_at": now_iso})
-                    .eq("user_id", user_id)
-                    .in_(idc, c)
-                    .execute(),
-                )
-
-    # DOUBLE-WRITE: mesma verdade em parent_entities (fonte do read-path apos a
-    # migracao). Por ultimo e best-effort — falhar aqui nao pode desfazer os
-    # UPDATEs de `ads`, que continuam sendo a fonte lida hoje.
-    if also_parent_entities:
-        try:
-            write_parent_entity_statuses(user_jwt, user_id, espelho, sb_client=sb)
-        except Exception:
-            logger.warning(
-                "[write_parent_statuses] espelho em parent_entities falhou (best-effort)",
-                exc_info=True,
-            )
+# `write_parent_statuses` foi REMOVIDA na migracao do read-path de status (passo 3).
+# Ela existia para gravar `ads.campaign_status`/`ads.adset_status` por parent_id em
+# TODAS as linhas de ad do pai -- 59,7x de amplificacao por campanha, 19,4x por
+# conjunto, ~11 MB de WAL por UPDATE. Desde a migration 122 ninguem le essas
+# colunas; a verdade vive em `parent_entities` (uma linha por pai), escrita por
+# `write_parent_entity_statuses` e `upsert_parent_entities`.
+#
+# Nao recriar: gravar status por linha de ad e justamente o padrao que esta
+# migracao eliminou.
 
 
 def upsert_parent_entities(
@@ -1062,7 +978,7 @@ def upsert_parent_entities(
         return
     sb = _get_sb(user_jwt, sb_client)
 
-    # Mesmo racional do write_parent_statuses: só pais com ads importados — contas grandes
+    # FILTRO DE ESCOPO (unico guardiao desde o passo 3): só pais com ads importados — contas grandes
     # têm milhares de campanhas/adsets fora do escopo do Hookify.
     present_campaigns, present_adsets = _fetch_present_parent_ids(sb, user_id)
 
@@ -1188,7 +1104,7 @@ def write_parent_entity_statuses(
     status registrada.
 
     `statuses_by_level` = {"campaigns": {id: status}, "adsets": {id: status}}
-    (mesmo shape de `write_parent_statuses`). Status vazio/None e ignorado:
+    (shape {campaigns|adsets: {id: status}}). Status vazio/None e ignorado:
     apagar verdade conhecida seria pior que nao escrever.
 
     Best-effort no caller: como o resto do caminho de toggle, nunca deve
@@ -1218,7 +1134,7 @@ def write_parent_entity_statuses(
         return
 
     # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01) — mesmo motivo de
-    # `write_parent_statuses`: toggle e sync on-focus tocam as MESMAS linhas de
+    # `_write_local_statuses`: toggle e sync on-focus tocam as MESMAS linhas de
     # `parent_entities` e podem correr em paralelo. Ordenar por (level, entity_id)
     # faz todo caminho concorrente pedir os locks na MESMA sequencia.
     rows.sort(key=lambda r: (r["level"], r["entity_id"]))
@@ -1274,7 +1190,7 @@ def clear_parent_entity_adset_statuses(
     if not user_id or not ids:
         return
     sb = _get_sb(user_jwt, sb_client)
-    # Ordem deterministica de lock (anti-deadlock 40P01) — ver write_parent_statuses.
+    # Ordem deterministica de lock (anti-deadlock 40P01) — ver write_parent_entity_statuses.
     for i in range(0, len(ids), 200):
         chunk = ids[i : i + 200]
         with_postgrest_retry(

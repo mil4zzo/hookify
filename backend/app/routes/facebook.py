@@ -1059,7 +1059,7 @@ def _write_local_statuses(*, user_jwt: Optional[str], user_id: str, statuses: Di
 
     sb = _sb_for(user_jwt)
     # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01) — mesma correcao que
-    # supabase_repo.write_parent_statuses recebeu. Sao funcoes irmas: gravam status
+    # supabase_repo.write_parent_entity_statuses recebeu. Sao funcoes irmas: gravam status
     # nas MESMAS linhas de `ads`, e o sync on-focus dispara as duas em paralelo para
     # ate 20 packs. Percorrendo os ids em ordens diferentes, duas transacoes pegam os
     # locks em ordem oposta e se abracam. Com ordem total consistente o ciclo de
@@ -1218,37 +1218,27 @@ def _update_local_effective_status(*, user_jwt: Optional[str], user_id: str, ent
         logger.exception("[UPDATE_STATUS] Falha ao atualizar effective_status local (cache) no Supabase")
 
 
-def _write_parent_status_column(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str, status: Optional[str]) -> None:
+def _write_parent_status(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str, status: Optional[str]) -> None:
     """
-    Grava o status oficial do PAI (adset/campaign) na coluna denormalizada correspondente
-    (`ads.adset_status`/`ads.campaign_status`) em todas as linhas de ad daquele pai.
-    1 UPDATE, com updated_at fresco (o wrapper RPC desempata divergências por recência).
+    Grava o status oficial do PAI (adset/campaign) em `parent_entities` — UMA linha.
+
+    Antes gravava tambem a coluna denormalizada `ads.adset_status`/`campaign_status`
+    em TODAS as linhas de ad daquele pai (ate ~60 linhas por campanha). Desde a
+    migration 122 ninguem le essas colunas, e o passo 3 parou de escreve-las.
+
     Best-effort: nunca falha a operação.
     """
-    from app.core.supabase_client import get_supabase_for_user
-
-    column = {"adset": "adset_status", "campaign": "campaign_status"}.get(entity_type)
-    id_column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
-    if not column or not id_column or not status:
+    if entity_type not in ("adset", "campaign") or not status:
         return
     try:
-        sb = _sb_for(user_jwt)
-        now_iso = datetime.now(timezone.utc).isoformat()
-        with_postgrest_retry(
-            f"write_parent_status_column[{column}]",
-            lambda: sb.table("ads").update({column: str(status).upper(), "updated_at": now_iso}).eq("user_id", user_id).eq(id_column, entity_id).execute(),
-        )
-        # DOUBLE-WRITE: mesma verdade em parent_entities (fonte do read-path apos a
-        # migracao). Sem isto, pausar/ativar deixaria a parent_entities stale ate o
-        # proximo sync completo — o bloqueador que impede trocar a fonte de leitura.
         supabase_repo.write_parent_entity_statuses(
             user_jwt,
             user_id,
             {"campaigns" if entity_type == "campaign" else "adsets": {entity_id: status}},
-            sb_client=sb,
+            sb_client=_sb_for(user_jwt),
         )
     except Exception:
-        logger.exception("[UPDATE_STATUS] Falha ao gravar %s local para %s %s", column, entity_type, entity_id)
+        logger.exception("[UPDATE_STATUS] Falha ao gravar status local de %s %s", entity_type, entity_id)
 
 
 def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: Optional[str], user_id: str, campaign_id: str, children_synced: bool) -> None:
@@ -1258,8 +1248,9 @@ def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: Optional[str], use
     PREFERE a coluna sobre os marcadores — faz a aba "por conjunto" contradizer a "por campanha".
 
     Lê o effective_status real dos adsets via edge filtrado (1 chamada); se a leitura falhar e
-    os filhos tiverem sido sincronizados (marcadores frescos), ANULA a coluna para reativar o
-    fallback por marcadores. Best-effort: nunca falha a resposta.
+    os filhos tiverem sido sincronizados (marcadores frescos), ANULA o status em
+    `parent_entities` para reativar o fallback por marcadores. Best-effort: nunca falha a
+    resposta.
     """
     from app.core.supabase_client import get_supabase_for_user
 
@@ -1271,24 +1262,17 @@ def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: Optional[str], use
             read = api.get_ad_statuses_by_parent(act_id, "campaign.id", campaign_id, edge="adsets")
             statuses = read.get("statuses", {}) or {}
             if read.get("status") == "success" and statuses:
-                supabase_repo.write_parent_statuses(
-                    user_jwt, user_id, {"adsets": statuses}, skip_present_check=True,
+                # Mapa ja escopado (conjuntos de UMA campanha): grava direto na fonte.
+                supabase_repo.write_parent_entity_statuses(
+                    user_jwt, user_id, {"adsets": statuses},
                     sb_client=_sb_for(user_jwt),
                 )
                 return
         if children_synced:
-            # Marcadores dos filhos acabaram de ser gravados: NULL na coluna reativa o
+            # Marcadores dos filhos acabaram de ser gravados: NULL no status reativa o
             # fallback por marcadores (migration 088), que está correto neste instante.
-            sb = _sb_for(user_jwt)
-            with_postgrest_retry(
-                "clear_adset_status_for_campaign",
-                lambda: sb.table("ads").update({"adset_status": None}).eq("user_id", user_id).eq("campaign_id", campaign_id).execute(),
-            )
-            # Desde a 122 a fonte LIDA e parent_entities: anular so em `ads` virou
-            # no-op e deixaria os conjuntos exibindo o status antigo sob a campanha
-            # recem-pausada. Anular aqui reativa o fallback por marcadores.
             supabase_repo.clear_parent_entity_adset_statuses(
-                user_jwt, user_id, [campaign_id], sb_client=sb,
+                user_jwt, user_id, [campaign_id], sb_client=_sb_for(user_jwt),
             )
     except Exception:
         logger.exception("[UPDATE_STATUS] Falha ao sincronizar adset_status dos conjuntos da campanha %s", campaign_id)
@@ -1306,7 +1290,7 @@ def _self_heal_local_status(*, api: GraphAPI, user_jwt: Optional[str], user_id: 
             if effective_status:
                 _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses={entity_id: effective_status})
             return
-        _write_parent_status_column(
+        _write_parent_status(
             user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id, status=effective_status,
         )
         synced = _sync_children_statuses_from_meta(
@@ -1421,7 +1405,7 @@ def _finalize_status_update(
             logger.exception("[UPDATE_STATUS] Falha ao gravar effective_status verificado no cache local")
     else:
         # Status oficial do pai (verify) → coluna denormalizada (fonte da linha de grupo no Manager)
-        _write_parent_status_column(
+        _write_parent_status(
             user_jwt=user_jwt, user_id=user_id, entity_type=entity_type, entity_id=entity_id, status=verified_status,
         )
         # O status do pai mudou; o effective_status dos FILHOS só o Meta sabe (estado composto:
@@ -1529,9 +1513,8 @@ def _batch_reconcile_parent_status_local(
     from app.core.supabase_client import get_supabase_for_user
 
     id_column = {"adset": "adset_id", "campaign": "campaign_id"}.get(entity_type)
-    status_column = {"adset": "adset_status", "campaign": "campaign_status"}.get(entity_type)
     child_paused_marker = {"adset": "ADSET_PAUSED", "campaign": "CAMPAIGN_PAUSED"}.get(entity_type)
-    if not id_column or not status_column or not child_paused_marker:
+    if not id_column or not child_paused_marker:
         return
 
     # Só reconcilia entidades efetivamente escritas (exclui blocked/failed). Fallback para o
@@ -1567,21 +1550,16 @@ def _batch_reconcile_parent_status_local(
 
     try:
         # Ordem deterministica de lock (anti-deadlock 40P01): mesmas linhas de `ads`
-        # que _write_local_statuses e write_parent_statuses tocam, e os tres podem
+        # que _write_local_statuses toca, e os dois podem
         # rodar em paralelo. Ver comentario em _write_local_statuses.
         for status_value in sorted(by_status):
             ids = sorted(by_status[status_value])
             paused = status_value != "ACTIVE"  # ACTIVE = ativo; qualquer outro = alguma forma de pausa
             for i in range(0, len(ids), 200):
                 chunk = ids[i : i + 200]
-                # 1. Coluna do pai
-                with_postgrest_retry(
-                    f"batch_entity_status[{status_column}:{len(chunk)}]",
-                    lambda sv=status_value, c=chunk: sb.table("ads").update(
-                        {status_column: sv, "updated_at": now_iso}
-                    ).eq("user_id", user_id).in_(id_column, c).execute(),
-                )
-                # 2. Cascata nos filhos (heurística não-destrutiva)
+                # 1. Cascata nos filhos (heurística não-destrutiva). O status do PAI
+                #    ja foi gravado em parent_entities acima; a coluna denormalizada de
+                #    `ads` deixou de ser escrita no passo 3 (sem leitor desde a 122).
                 if paused:
                     with_postgrest_retry(
                         f"batch_entity_children_paused[{len(chunk)}]",
@@ -1596,16 +1574,11 @@ def _batch_reconcile_parent_status_local(
                             {"effective_status": "ACTIVE"}
                         ).eq("user_id", user_id).in_(id_column, c).eq("effective_status", child_paused_marker).execute(),
                     )
-                # 3. Campanha: NULL no adset_status dos filhos reativa o fallback por marcadores
+                # 2. Campanha: NULL no status dos CONJUNTOS filhos reativa o fallback
+                #    por marcadores. Pausar campanha nao muda o status proprio do
+                #    conjunto no Meta, so o effective_status dele — manter o valor
+                #    antigo faria a aba "por conjunto" contradizer a "por campanha".
                 if entity_type == "campaign":
-                    with_postgrest_retry(
-                        f"batch_entity_clear_adset_status[{len(chunk)}]",
-                        lambda c=chunk: sb.table("ads").update(
-                            {"adset_status": None}
-                        ).eq("user_id", user_id).in_("campaign_id", c).execute(),
-                    )
-                    # Idem ponto 1: sem isto, desde a 122, o toggle em lote de
-                    # campanha deixaria os conjuntos filhos com status defasado.
                     supabase_repo.clear_parent_entity_adset_statuses(
                         user_jwt, user_id, chunk, sb_client=sb,
                     )
@@ -1963,14 +1936,10 @@ def sync_packs_status(
             # (mudança feita no Ads Manager aparece aqui em até 5 min).
             if act_id not in parent_synced_accounts:
                 parent_entities = enricher.fetch_parent_entities(act_id)
-                supabase_repo.write_parent_statuses(
-                    user_jwt, user_id, enricher.project_parent_statuses(parent_entities),
-                    sb_client=_sb_for(user_jwt),
-                    # `upsert_parent_entities` logo abaixo grava o MESMO status (mesmo
-                    # snapshot, mesmo filtro de escopo) junto do orcamento. Espelhar aqui
-                    # reescreveria as ~13k linhas de pai duas vezes por sync de conta.
-                    also_parent_entities=False,
-                )
+                # `upsert_parent_entities` grava status E orcamento do mesmo snapshot, ja
+                # filtrado ao escopo. Antes havia aqui um write de status por linha de ad que
+                # reescrevia as colunas denormalizadas de `ads`; sem leitor desde a
+                # migration 122, virou so custo.
                 try:
                     supabase_repo.upsert_parent_entities(
                         user_jwt, user_id, enricher.project_parent_entities(act_id, parent_entities),

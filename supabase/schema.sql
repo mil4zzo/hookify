@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 0w0dvxuLfJ3X7bXrI8xTpXl5CAI9PTcDZt9FpuSDhdTOEVs2n24wiOQNNjTHVNX
+\restrict HLGSCmYHgUw2Hi88qjUVQwRxtKGatxJncKP2O88dc2tVRm8KDNOvBsRaSFMDbEr
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -6516,6 +6516,13 @@ CREATE TABLE public.ads (
 ALTER TABLE public.ads OWNER TO postgres;
 
 --
+-- Name: COLUMN ads.effective_status; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ads.effective_status IS 'effective_status do PROPRIO anuncio (nao confundir com o status do pai, que vive em parent_entities). Continua escrito e lido: alimenta a cascata de marcadores ADSET_PAUSED/CAMPAIGN_PAUSED usada como fallback pelo wrapper do Manager.';
+
+
+--
 -- Name: COLUMN ads.adcreatives_videos_ids; Type: COMMENT; Schema: public; Owner: postgres
 --
 
@@ -6561,14 +6568,14 @@ COMMENT ON COLUMN public.ads.transcription_id IS 'Referência à transcrição d
 -- Name: COLUMN ads.adset_status; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.ads.adset_status IS 'DEPRECADO como fonte de leitura desde a migration 122 (o read-path do Manager le parent_entities.effective_status). Ainda escrito, como rede de rollback; a remocao da escrita e a queda da coluna vem em migration separada.';
+COMMENT ON COLUMN public.ads.adset_status IS 'MORTA desde a migration 123: sem leitor (desde a 122) e sem escritor. Os valores estao congelados no estado de 2026-08-25 e envelhecem — NAO usar. Verdade do status do conjunto: parent_entities.effective_status. Mantida apenas para viabilizar rollback da 122; DROP em migration futura.';
 
 
 --
 -- Name: COLUMN ads.campaign_status; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.ads.campaign_status IS 'DEPRECADO como fonte de leitura desde a migration 122 (o read-path do Manager le parent_entities.effective_status). Ainda escrito, como rede de rollback; a remocao da escrita e a queda da coluna vem em migration separada.';
+COMMENT ON COLUMN public.ads.campaign_status IS 'MORTA desde a migration 123: sem leitor (desde a 122) e sem escritor. Os valores estao congelados no estado de 2026-08-25 e envelhecem — NAO usar. Verdade do status da campanha: parent_entities.effective_status. Mantida apenas para viabilizar rollback da 122; DROP em migration futura.';
 
 
 --
@@ -8854,5 +8861,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 0w0dvxuLfJ3X7bXrI8xTpXl5CAI9PTcDZt9FpuSDhdTOEVs2n24wiOQNNjTHVNX
+\unrestrict HLGSCmYHgUw2Hi88qjUVQwRxtKGatxJncKP2O88dc2tVRm8KDNOvBsRaSFMDbEr
 

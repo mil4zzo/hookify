@@ -93,7 +93,7 @@ class TestDbSlot:
 
 
 class _FakeQuery:
-    """Grava a sequencia de ids pedida em cada UPDATE."""
+    """Grava a sequencia de ids pedida em cada UPDATE/UPSERT."""
 
     def __init__(self, registro):
         self._registro = registro
@@ -101,6 +101,11 @@ class _FakeQuery:
 
     def update(self, payload):
         self._payload = payload
+        return self
+
+    def upsert(self, linhas, on_conflict=None):
+        # Numa escrita em lote a ordem das LINHAS e a ordem de aquisicao de lock.
+        self._registro.append(("upsert", [l["entity_id"] for l in linhas]))
         return self
 
     def eq(self, *_args, **_kwargs):
@@ -123,16 +128,22 @@ class _FakeClient:
 
 
 class TestWriteParentStatusesOrdering:
-    """Ordem determinista de lock (anti-deadlock 40P01)."""
+    """Ordem determinista de lock (anti-deadlock 40P01).
+
+    Antes cobria `write_parent_statuses`, que gravava as colunas denormalizadas
+    de `ads`. Essa funcao foi removida no passo 3 da migracao do read-path (sem
+    leitor desde a migration 122). A INVARIANTE nao mudou, so a tabela: agora as
+    escritas concorrentes disputam linhas de `parent_entities`, e o sync
+    on-focus continua disparando varios caminhos em paralelo.
+    """
 
     def _run(self, mapping):
         fake = _FakeClient()
-        supabase_repo.write_parent_statuses(
+        supabase_repo.write_parent_entity_statuses(
             None,
             "user-1",
             {"campaigns": mapping, "adsets": {}},
             sb_client=fake,
-            skip_present_check=True,
         )
         return fake.updates
 
@@ -155,12 +166,12 @@ class TestWriteParentStatusesOrdering:
 
 
 class TestWriteLocalStatusesOrdering:
-    """Irma de write_parent_statuses: grava nas MESMAS linhas de `ads`.
+    """Escrita de effective_status por AD (nao de pai): segue em `ads`.
 
-    O sync on-focus dispara as duas em paralelo para ate 20 packs. Sem ordem
-    total consistente entre elas, duas transacoes pegam os locks em ordem oposta
-    e se abracam (40P01). A correcao original cobriu so a irma em supabase_repo;
-    esta ficou meses sem ela.
+    O sync on-focus dispara varios caminhos em paralelo para ate 20 packs. Sem
+    ordem total consistente entre eles, duas transacoes pegam os locks em ordem
+    oposta e se abracam (40P01). A correcao original cobriu so a irma em
+    supabase_repo; esta ficou meses sem ela.
     """
 
     def _run(self, statuses, monkeypatch):

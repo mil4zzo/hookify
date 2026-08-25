@@ -3454,3 +3454,75 @@ Uma delas expos um teste inutil: a checagem de ordem deterministica de lock pass
 mesmo com a ordem invertida, porque a entrada escolhida era simetrica (invertida ==
 ordenada). Corrigido com entrada assimetrica. **Sabotagem e o que separa teste que
 verifica de teste que decora.**
+
+---
+
+## 2026-08-25 — Passo 3: `ads` para de receber status de pai (migration 123)
+
+Fecha a migracao iniciada na 122. O read-path ja vinha de `parent_entities`; agora
+as colunas denormalizadas tambem deixam de ser escritas.
+
+### Correcao de dois numeros que eu tinha dado errados
+
+Antes de implementar, revisei a atribuicao e ela estava inflada:
+
+- **Eu disse "43%"; a soma correta e 38%** (12+10+9+7). Erro de aritmetica.
+- **Pior: eu atribui demais ao passo 3.** Dois enganos concretos:
+  - `SELECT campaign_id, adset_id FROM ads` (9%) tem **dois** chamadores.
+    `write_parent_statuses` sumiu, mas `upsert_parent_entities` continua
+    precisando do filtro de escopo. Some ~metade, nao tudo.
+  - `UPDATE ads SET effective_status` (7%) e o status do **proprio anuncio**,
+    nao do pai. Continua sendo escrito e lido. Eu o agrupei junto so por ser um
+    `UPDATE ads` — descuido de leitura.
+
+**Passo 3 vale ~26%, nao 43%.** Registrado porque a conta errada quase virou base
+de decisao de roadmap.
+
+### O que saiu
+
+- `supabase_repo.write_parent_statuses` — **removida**. Era a fonte da
+  amplificacao: UPDATE por parent_id em TODAS as linhas de ad do pai.
+- O UPDATE da coluna do pai no toggle unico (`_write_parent_status_column`, agora
+  `_write_parent_status`) e no toggle em lote.
+- A anulacao de `ads.adset_status` apos toggle de campanha — o equivalente em
+  `parent_entities` (`clear_parent_entity_adset_statuses`) continua.
+- Encanamento morto que restou: `parent_statuses` do enricher ate o
+  `job_processor` (parametro recebido e nunca usado), `project_parent_statuses`,
+  e `fetch_parent_statuses` — esta ultima ja estava sem nenhum caller antes.
+
+Os dois chamadores de conta inteira (sync on-focus e refresh de pack) perderam a
+chamada: `upsert_parent_entities` ja gravava status **e** orcamento do mesmo
+snapshot, com o mesmo filtro. Verificado no enricher que `parent_statuses` e
+`parent_entities` vem da MESMA leitura e falham juntos — o ramo condicional que
+eu tinha criado no passo 1 (`also_parent_entities=not bool(parent_entities)`) era
+codigo morto.
+
+### O que continua
+
+`ads.effective_status` — status do PROPRIO anuncio. Alimenta a cascata de
+marcadores ADSET_PAUSED/CAMPAIGN_PAUSED que o wrapper usa como fallback quando um
+pai nao tem linha em `parent_entities`. **Nao confundir com status de pai.**
+
+### O rollback mudou de forma
+
+Ate a 122 era trivial: as colunas seguiam frescas, bastava reverter a funcao.
+Agora nao ha escritor, entao elas congelam e envelhecem. Reverter exige **tres**
+passos, nesta ordem: (1) reverter o commit do backend, (2) rodar um refresh/sync
+por conta para repovoar as colunas, (3) so entao reverter a 122. Pular o (2) faz
+a tela exibir status congelado.
+
+Por isso as colunas **nao** foram dropadas: enquanto existirem, esse caminho e
+possivel. O DROP fica para uma terceira migration, depois de uso real sem
+incidente.
+
+### Verificacao
+
+Testes repontados em vez de descartados: `TestWriteParentStatusesOrdering`
+(anti-deadlock 40P01) passou a exercer `write_parent_entity_statuses` — a
+invariante nao mudou, so a tabela que sofre a disputa de lock. A invariante de
+escopo perdeu um dos dois guardioes e o teste passou a cobrir o que sobrou
+(`upsert_parent_entities`).
+
+Guardas novas contra regressao da amplificacao, incluindo uma que falha se
+`write_parent_statuses` for recriada. **9 sabotagens deliberadas** no total
+(7 nos passos 1-2, 2 no passo 3), todas capturadas.

@@ -501,7 +501,6 @@ class JobProcessor:
             # vão atualizar o status com mensagens detalhadas por etapa
             pack_id = self._persist_data(
                 job_id, payload, formatted_data, is_refresh, pack_id_from_payload,
-                parent_statuses=enrich_result.get("parent_statuses") or {},
                 parent_entities=enrich_result.get("parent_entities") or {},
                 adset_ads_counts=count_ads_by_adset(inventory_rows) if inventory_rows else None,
             )
@@ -659,7 +658,6 @@ class JobProcessor:
         is_refresh: bool,
         pack_id_from_payload: Optional[str],
         *,
-        parent_statuses: Optional[Dict[str, Any]] = None,
         parent_entities: Optional[Dict[str, Any]] = None,
         adset_ads_counts: Optional[Dict[str, int]] = None,
     ) -> Optional[str]:
@@ -778,23 +776,6 @@ class JobProcessor:
                 # Status oficial dos PAIS por parent_id, conta inteira — cura divergência entre
                 # packs (linhas do mesmo adset em packs distintos). Best-effort: não falha o job
                 # (colunas podem nem existir antes da migration 089).
-                if parent_statuses:
-                    try:
-                        hb("Sincronizando status de campanhas/conjuntos...", force=True)
-                        supabase_repo.write_parent_statuses(
-                            self.user_jwt,
-                            self.user_id,
-                            parent_statuses,
-                            sb_client=self._sb,
-                            # O `upsert_parent_entities` abaixo grava o mesmo status junto
-                            # do orcamento — mas so roda `if parent_entities`. Quando esse
-                            # payload nao veio (falha ao ler os edges de budget), o espelho
-                            # aqui e a UNICA escrita de status em parent_entities.
-                            also_parent_entities=not bool(parent_entities),
-                        )
-                    except Exception as e:
-                        logger.warning(f"[JobProcessor] write_parent_statuses falhou (best-effort): {e}")
-
                 # Orçamento + status dos pais (mesmo snapshot dos edges) na parent_entities.
                 # Best-effort: não falha o job (tabela pode nem existir antes da migration 091).
                 if parent_entities:

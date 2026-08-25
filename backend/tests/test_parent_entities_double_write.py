@@ -12,10 +12,10 @@ Enquanto o read-path mora em `ads`, isso e invisivel. Mas impede a migracao: log
 um toggle a `parent_entities` estaria stale e a entidade apareceria com o status ANTIGO
 ate o proximo sync completo. Estes testes travam o fechamento desse furo.
 
-INVARIANTE CENTRAL (test_espelho_respeita_filtro_de_escopo): `parent_entities` recebe
-EXATAMENTE o mesmo conjunto (id, status) que `ads` recebe — nem mais, nem menos. Espelhar
-o payload cru gravaria os milhares de pais SEM ads importados que o snapshot de conta
-inteira traz; espelhar de menos reabre o furo que o passo 1 fecha.
+INVARIANTE DE ESCOPO (TestEscopoDoSnapshotDeContaInteira): o snapshot de conta inteira
+traz milhares de pais SEM ads importados no Hookify; eles nao podem entrar em
+`parent_entities`. No passo 3 as escritas de status em `ads` foram removidas e o filtro
+de `upsert_parent_entities` virou o unico guardiao dessa regra.
 """
 
 import unittest
@@ -176,71 +176,50 @@ class TestWriteParentEntityStatuses(unittest.TestCase):
         self.assertEqual(len(sb.linhas_espelhadas()), 1)
 
 
-class TestWriteParentStatusesEspelho(unittest.TestCase):
-    """O espelho embutido no caminho de sync (`write_parent_statuses`)."""
+class TestEscopoDoSnapshotDeContaInteira(unittest.TestCase):
+    """A invariante de escopo, apos a remocao de `write_parent_statuses` (passo 3).
 
-    def test_espelho_respeita_filtro_de_escopo(self):
-        """INVARIANTE: parent_entities recebe o MESMO conjunto que `ads`.
+    O snapshot de conta inteira traz TODOS os pais da conta Meta, inclusive os
+    milhares sem nenhum anuncio importado no Hookify. Grava-los em
+    `parent_entities` incharia a tabela com entidades que nenhuma tela le.
 
-        O snapshot de conta inteira traz todos os pais da conta Meta, inclusive os
-        que nao tem nenhum anuncio importado no Hookify. `write_parent_statuses`
-        filtra esses antes de escrever em `ads`; o espelho tem de filtrar tambem.
-        """
-        # So c1 e a1 tem linhas em `ads`; c_fora/a_fora vem do edge mas nao sao do escopo.
+    Ate o passo 3 havia dois guardioes desse filtro (`write_parent_statuses` e
+    `upsert_parent_entities`). O primeiro sumiu junto com as escritas em `ads`;
+    este teste trava o que restou, que passou a ser o unico.
+    """
+
+    def test_upsert_de_conta_inteira_ignora_pais_sem_ads(self):
+        # So c1/a1 tem linhas em `ads`; c_fora/a_fora vem do edge mas nao sao do escopo.
         sb = _FakeSB(ads_presentes=[{"campaign_id": "c1", "adset_id": "a1"}])
-        supabase_repo.write_parent_statuses(
+        supabase_repo.upsert_parent_entities(
             None, "u1",
             {
-                "campaigns": {"c1": "ACTIVE", "c_fora": "PAUSED"},
-                "adsets": {"a1": "PAUSED", "a_fora": "ACTIVE"},
+                "campaigns": {
+                    "c1": {"effective_status": "ACTIVE", "daily_budget": 1000},
+                    "c_fora": {"effective_status": "PAUSED", "daily_budget": 5000},
+                },
+                "adsets": {
+                    "a1": {"effective_status": "PAUSED", "campaign_id": "c1"},
+                    "a_fora": {"effective_status": "ACTIVE", "campaign_id": "c_fora"},
+                },
             },
             sb_client=sb,
         )
-        espelhados = {l["entity_id"] for l in sb.linhas_espelhadas()}
-        self.assertEqual(espelhados, {"c1", "a1"})
+        gravados = {l["entity_id"] for l in sb.linhas_espelhadas()}
+        self.assertEqual(gravados, {"c1", "a1"})
 
-        # E o conjunto tem de bater exatamente com o que foi para `ads`.
-        ids_em_ads = set()
-        for upd in sb.updates_ads():
-            for coluna in ("campaign_id", "adset_id"):
-                ids_em_ads.update(upd["filtros"].get(coluna, []))
-        self.assertEqual(espelhados, ids_em_ads)
-
-    def test_flag_desliga_o_espelho(self):
-        # Usado onde `upsert_parent_entities` grava o mesmo status logo em seguida.
+    def test_upsert_de_conta_inteira_carrega_status_e_budget(self):
+        # Este e o caminho que substituiu o `write_parent_statuses` no sync de conta:
+        # um upsert so leva status E orcamento do mesmo snapshot.
         sb = _FakeSB(ads_presentes=[{"campaign_id": "c1", "adset_id": "a1"}])
-        supabase_repo.write_parent_statuses(
-            None, "u1", {"campaigns": {"c1": "ACTIVE"}},
-            sb_client=sb, also_parent_entities=False,
+        supabase_repo.upsert_parent_entities(
+            None, "u1",
+            {"campaigns": {"c1": {"effective_status": "ACTIVE", "daily_budget": 1000}}, "adsets": {}},
+            sb_client=sb,
         )
-        self.assertEqual(sb.upserts_parent_entities(), [])
-        self.assertTrue(sb.updates_ads(), "o write em `ads` deve continuar acontecendo")
-
-    def test_falha_do_espelho_nao_derruba_o_write_em_ads(self):
-        # `ads` ainda e a fonte LIDA no passo 1: o espelho e best-effort e nao pode
-        # transformar uma degradacao em erro de toggle.
-        sb = _FakeSB(ads_presentes=[{"campaign_id": "c1", "adset_id": "a1"}])
-        with patch.object(
-            supabase_repo, "write_parent_entity_statuses", side_effect=RuntimeError("boom")
-        ):
-            supabase_repo.write_parent_statuses(
-                None, "u1", {"campaigns": {"c1": "ACTIVE"}}, sb_client=sb
-            )
-        self.assertTrue(sb.updates_ads())
-
-    def test_skip_present_check_espelha_tudo(self):
-        # Mapa ja escopado (ex.: adsets de UMA campanha apos toggle): sem filtro,
-        # o espelho acompanha o mesmo conjunto.
-        sb = _FakeSB()
-        supabase_repo.write_parent_statuses(
-            None, "u1", {"adsets": {"a1": "PAUSED", "a2": "ACTIVE"}},
-            sb_client=sb, skip_present_check=True,
-        )
-        self.assertEqual({l["entity_id"] for l in sb.linhas_espelhadas()}, {"a1", "a2"})
-
-
-if __name__ == "__main__":
-    unittest.main()
+        linha = sb.linhas_espelhadas()[0]
+        self.assertEqual(linha["effective_status"], "ACTIVE")
+        self.assertEqual(linha["daily_budget"], 1000)
 
 
 class TestToggleEspelhaParentEntities(unittest.TestCase):
@@ -255,11 +234,11 @@ class TestToggleEspelhaParentEntities(unittest.TestCase):
         from app.routes import facebook
         return facebook
 
-    def test_toggle_de_entidade_unica_espelha(self):
+    def test_toggle_de_entidade_unica_grava_status(self):
         facebook = self._fb()
         sb = _FakeSB()
         with patch.object(facebook, "_sb_for", return_value=sb):
-            facebook._write_parent_status_column(
+            facebook._write_parent_status(
                 user_jwt=None, user_id="u1", entity_type="campaign",
                 entity_id="c1", status="PAUSED",
             )
@@ -268,13 +247,24 @@ class TestToggleEspelhaParentEntities(unittest.TestCase):
         self.assertEqual(linhas[0]["entity_id"], "c1")
         self.assertEqual(linhas[0]["level"], "campaign")
         self.assertEqual(linhas[0]["effective_status"], "PAUSED")
-        self.assertTrue(sb.updates_ads(), "a coluna em `ads` continua sendo escrita")
+
+    def test_toggle_de_entidade_unica_nao_toca_mais_em_ads(self):
+        # Passo 3: UMA linha em parent_entities no lugar de ate ~60 linhas de `ads`.
+        # Se isto voltar a escrever em `ads`, a amplificacao voltou junto.
+        facebook = self._fb()
+        sb = _FakeSB()
+        with patch.object(facebook, "_sb_for", return_value=sb):
+            facebook._write_parent_status(
+                user_jwt=None, user_id="u1", entity_type="campaign",
+                entity_id="c1", status="PAUSED",
+            )
+        self.assertEqual(sb.updates_ads(), [])
 
     def test_toggle_de_adset_usa_nivel_adset(self):
         facebook = self._fb()
         sb = _FakeSB()
         with patch.object(facebook, "_sb_for", return_value=sb):
-            facebook._write_parent_status_column(
+            facebook._write_parent_status(
                 user_jwt=None, user_id="u1", entity_type="adset",
                 entity_id="a1", status="ACTIVE",
             )
@@ -382,3 +372,56 @@ class TestClearAposToggleDeCampanha(unittest.TestCase):
             )
         anulacoes = [u for u in self._updates_pe(sb) if u["payload"].get("effective_status") is None]
         self.assertEqual(anulacoes, [])
+
+
+class TestPasso3SemEscritaDeStatusDePaiEmAds(unittest.TestCase):
+    """A amplificacao nao pode voltar.
+
+    Registrar o status de 1.188 campanhas reescrevia 70.982 linhas de `ads`
+    (59,7x), ~11 MB de WAL por UPDATE. Desde a migration 122 ninguem le essas
+    colunas e o passo 3 parou de escreve-las. Estes testes falham se alguem
+    reintroduzir a escrita por linha de ad.
+
+    ATENCAO ao que NAO esta proibido: `ads.effective_status` (status do PROPRIO
+    anuncio) continua sendo escrito e lido — inclusive na cascata de marcadores
+    que alimenta o fallback do wrapper. O alvo aqui e so o status do PAI.
+    """
+
+    _COLUNAS_DE_PAI = ("campaign_status", "adset_status")
+
+    def _paga_status_de_pai(self, sb):
+        return [
+            u for u in sb.updates_ads()
+            if any(c in (u["payload"] or {}) for c in self._COLUNAS_DE_PAI)
+        ]
+
+    def test_toggle_em_lote_de_conjunto(self):
+        from app.routes import facebook
+        sb = _FakeSB()
+        with patch.object(facebook, "_sb_for", return_value=sb):
+            facebook._batch_reconcile_parent_status_local(
+                user_jwt=None, user_id="u1", entity_type="adset",
+                verified_statuses={"a1": "PAUSED"}, updated_ids=["a1"],
+                target_status="PAUSED",
+            )
+        self.assertEqual(self._paga_status_de_pai(sb), [])
+        # ...mas a cascata no status dos ADS filhos continua (fallback do wrapper).
+        self.assertTrue([u for u in sb.updates_ads() if "effective_status" in (u["payload"] or {})])
+
+    def test_toggle_em_lote_de_campanha(self):
+        from app.routes import facebook
+        sb = _FakeSB()
+        with patch.object(facebook, "_sb_for", return_value=sb):
+            facebook._batch_reconcile_parent_status_local(
+                user_jwt=None, user_id="u1", entity_type="campaign",
+                verified_statuses={"c1": "PAUSED"}, updated_ids=["c1"],
+                target_status="PAUSED",
+            )
+        self.assertEqual(self._paga_status_de_pai(sb), [])
+
+    def test_write_parent_statuses_nao_existe_mais(self):
+        # Guarda explicita: recriar a funcao e recriar a amplificacao.
+        self.assertFalse(
+            hasattr(supabase_repo, "write_parent_statuses"),
+            "write_parent_statuses foi removida no passo 3; use write_parent_entity_statuses",
+        )
