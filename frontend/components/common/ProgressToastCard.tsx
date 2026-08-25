@@ -354,7 +354,7 @@ function ProgressBar({ progress, variant, animated = true }: ProgressBarProps) {
                 }}
               />
               <div
-                className={cn("absolute inset-y-0 flex items-center text-2xl font-semibold tabular-nums leading-none tracking-tight", percentLabelClass)}
+                className={cn("absolute inset-y-0 flex w-max items-center whitespace-nowrap text-2xl font-semibold tabular-nums leading-none tracking-tight", percentLabelClass)}
                 style={
                   labelInsideFill
                     ? {
