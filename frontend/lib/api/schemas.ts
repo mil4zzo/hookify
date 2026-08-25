@@ -689,21 +689,6 @@ export const RankingsRetentionResponseSchema = z.object({
 })
 
 // ===== Global Search (Sidebar) =====
-export const GlobalSearchResultTypeSchema = z.enum(["ad_id", "ad_name", "adset_name", "campaign_name"])
-
-export const GlobalSearchResultSchema = z.object({
-  type: GlobalSearchResultTypeSchema,
-  value: z.string(),
-  label: z.string(),
-  ad_id: z.string().nullable().optional(),
-  ad_name: z.string().nullable().optional(),
-  adset_name: z.string().nullable().optional(),
-  campaign_name: z.string().nullable().optional(),
-})
-
-export const GlobalSearchResponseSchema = z.object({
-  results: z.array(GlobalSearchResultSchema),
-})
 
 // Children (detalhe por ad_id)
 // Reutilizado tanto para /rankings/ad-name/{ad_name}/children quanto para /rankings/ad-id/{ad_id}
@@ -776,9 +761,6 @@ export type RankingsSeriesRequest = z.infer<typeof RankingsSeriesRequestSchema>
 export type RankingsSeriesResponse = z.infer<typeof RankingsSeriesResponseSchema>
 export type RankingsRetentionRequest = z.infer<typeof RankingsRetentionRequestSchema>
 export type RankingsRetentionResponse = z.infer<typeof RankingsRetentionResponseSchema>
-export type GlobalSearchResultType = z.infer<typeof GlobalSearchResultTypeSchema>
-export type GlobalSearchResult = z.infer<typeof GlobalSearchResultSchema>
-export type GlobalSearchResponse = z.infer<typeof GlobalSearchResponseSchema>
 
 // Aliases semânticos para futuras evoluções, mantendo compatibilidade com o nome antigo "Rankings"
 export type AdPerformanceRequest = RankingsRequest;

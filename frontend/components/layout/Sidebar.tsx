@@ -11,7 +11,6 @@ import { env } from "@/lib/config/env";
 import { Button } from "@/components/ui/button";
 import { useSidebar } from "./SidebarContext";
 import { getMenuItems, getDevelopmentItems } from "@/lib/config/pageConfig";
-import { GlobalSearch } from "@/components/common/GlobalSearch";
 
 const SIDEBAR_ANIMATION_DURATION = 300; // ms
 
@@ -42,16 +41,6 @@ export default function Sidebar() {
         <Button variant="ghost" size="sm" onClick={toggleCollapse} className={cn("w-8 p-0 hover:bg-border transition-all duration-300", isCollapsed && "mx-auto")}>
           {isCollapsed ? <IconChevronRight className="h-4 w-4" /> : <IconChevronLeft className="h-4 w-4" />}
         </Button>
-      </div>
-
-      {/* Spacing */}
-      <div className="h-6" />
-
-      {/* Search Bar */}
-      <div className={cn("px-4 transition-all duration-300", isCollapsed ? "px-2 ease-in" : "ease-out")}>
-        <div className={cn("transition-all duration-300", isCollapsed ? "opacity-0 absolute w-0 pointer-events-none overflow-hidden invisible ease-in" : "opacity-100 relative w-full visible ease-out")} style={isCollapsed ? undefined : { transitionDelay: "50ms" }}>
-          <GlobalSearch isCollapsed={isCollapsed} />
-        </div>
       </div>
 
       {/* Spacing */}

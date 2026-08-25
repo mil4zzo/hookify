@@ -21,7 +21,6 @@ import {
   RankingsRetentionResponse,
   RankingsChildrenItem,
   AdCreativeResponse,
-  GlobalSearchResponse,
   ListSpreadsheetsResponse,
   ListWorksheetsResponse,
   ListGoogleConnectionsResponse,
@@ -400,8 +399,6 @@ export const api = {
       })
       return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children?${qs.toString()}`, { signal: options?.signal })
     },
-    searchGlobal: (query: string, limit: number = 20): Promise<GlobalSearchResponse> =>
-      apiClient.get('/analytics/search', { params: { query, limit } }),
     getCampaignChildren: (
       campaignId: string,
       params: { date_start: string; date_stop: string; order_by?: string; action_type?: string; pack_ids?: string[] },
