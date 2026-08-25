@@ -105,6 +105,12 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
     offset = 0
     
     while True:
+        # Corta a cauda da paginacao quando o navegador ja desligou. Uma unica
+        # linha aqui cobre TODAS as telas de detalhe (elas desembocam neste laco),
+        # em vez de um checkpoint por endpoint.
+        # Seguro por construcao: `analytics.py` nao faz nenhuma escrita no banco
+        # (verificado), entao nao ha sequencia de escrita para interromper no meio.
+        abort_if_client_gone(f"paginacao:{table_name}")
         q = sb.table(table_name).select(select_fields)
         q = filters_func(q)
         q = q.range(offset, offset + page_size - 1)
@@ -1463,6 +1469,7 @@ def get_ad_name_details(
             user["user_id"], pack_ids_clean, date_start, date_stop,
             select_with_lpv, select_without_lpv,
             {"ad_name": ad_name}, log_tag="ad_name_details",
+            cancellable=True,
         )
     else:
         def metrics_filters(q):
@@ -1470,6 +1477,12 @@ def get_ad_name_details(
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+        except ClientGone:
+            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
+            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
+            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
+            # explicita torna isso contrato em vez de coincidencia.
+            raise
         except Exception as e:
             msg = str(e or "")
             if "lpv" in msg and ("column" in msg or "does not exist" in msg):
@@ -1728,6 +1741,7 @@ def get_rankings_children(
             user["user_id"], pack_ids_clean, date_start, date_stop,
             select_with_lpv, select_without_lpv,
             {"ad_name": ad_name}, log_tag="rankings_children",
+            cancellable=True,
         )
     else:
         # Sem pack_ids: comportamento legado (todos os packs do usuário)
@@ -1736,6 +1750,12 @@ def get_rankings_children(
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+        except ClientGone:
+            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
+            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
+            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
+            # explicita torna isso contrato em vez de coincidencia.
+            raise
         except Exception as e:
             msg = str(e or "")
             if "lpv" in msg and ("column" in msg or "does not exist" in msg):
@@ -2023,6 +2043,7 @@ def get_adset_children(
             user["user_id"], pack_ids_clean, date_start, date_stop,
             select_with_lpv, select_without_lpv,
             {"adset_id": adset_id}, log_tag="adset_children",
+            cancellable=True,
         )
     else:
         def metrics_filters(q):
@@ -2030,6 +2051,12 @@ def get_adset_children(
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+        except ClientGone:
+            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
+            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
+            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
+            # explicita torna isso contrato em vez de coincidencia.
+            raise
         except Exception as e:
             msg = str(e or "")
             if "lpv" in msg and ("column" in msg or "does not exist" in msg):
@@ -2281,6 +2308,7 @@ def get_adset_details(
             user["user_id"], pack_ids_clean, date_start, date_stop,
             select_with_lpv, select_without_lpv,
             {"adset_id": adset_id}, log_tag="adset_details",
+            cancellable=True,
         )
     else:
         def metrics_filters(q):
@@ -2288,6 +2316,12 @@ def get_adset_details(
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+        except ClientGone:
+            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
+            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
+            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
+            # explicita torna isso contrato em vez de coincidencia.
+            raise
         except Exception as e:
             msg = str(e or "")
             if "lpv" in msg and ("column" in msg or "does not exist" in msg):
@@ -2505,6 +2539,7 @@ def get_ad_details(
             user["user_id"], pack_ids_clean, date_start, date_stop,
             select_with_lpv, select_without_lpv,
             {"ad_id": ad_id}, log_tag="ad_details",
+            cancellable=True,
         )
     else:
         def metrics_filters(q):
@@ -2512,6 +2547,12 @@ def get_ad_details(
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+        except ClientGone:
+            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
+            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
+            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
+            # explicita torna isso contrato em vez de coincidencia.
+            raise
         except Exception as e:
             msg = str(e or "")
             if "lpv" in msg and ("column" in msg or "does not exist" in msg):
@@ -2848,6 +2889,7 @@ def get_ad_history(
             user["user_id"], pack_ids_clean, date_start, date_stop,
             select_with_lpv, select_without_lpv,
             {"ad_id": ad_id}, log_tag="ad_history",
+            cancellable=True,
         )
     else:
         def metrics_filters(q):
@@ -2855,6 +2897,12 @@ def get_ad_history(
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+        except ClientGone:
+            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
+            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
+            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
+            # explicita torna isso contrato em vez de coincidencia.
+            raise
         except Exception as e:
             msg = str(e or "")
             if "lpv" in msg and ("column" in msg or "does not exist" in msg):
@@ -3041,6 +3089,7 @@ def get_ad_name_history(
             user["user_id"], pack_ids_clean, date_start, date_stop,
             select_with_lpv, select_without_lpv,
             {"ad_name": ad_name}, log_tag="ad_name_history",
+            cancellable=True,
         )
     else:
         def metrics_filters(q):
@@ -3048,6 +3097,12 @@ def get_ad_name_history(
 
         try:
             data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
+        except ClientGone:
+            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
+            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
+            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
+            # explicita torna isso contrato em vez de coincidencia.
+            raise
         except Exception as e:
             msg = str(e or "")
             if "lpv" in msg and ("column" in msg or "does not exist" in msg):

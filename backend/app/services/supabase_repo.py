@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta, date, timezone
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.core.client_disconnect import ClientGone, abort_if_client_gone
 from app.core.supabase_retry import with_postgrest_retry
 from app.services.ad_media import resolve_media_type, resolve_primary_video_id
 from app.services.thumbnail_cache import CachedThumb, DEFAULT_BUCKET, build_public_storage_url, normalize_ad_name
@@ -108,7 +109,15 @@ def _safe_div(a: float, b: float) -> float:
     return (a / b) if b else 0.0
 
 
-def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, max_per_page: int = 1000) -> List[Dict[str, Any]]:
+def _fetch_all_paginated(
+    sb,
+    table_name: str,
+    select_fields: str,
+    filters_func,
+    max_per_page: int = 1000,
+    *,
+    cancellable: bool = False,
+) -> List[Dict[str, Any]]:
     """Busca todos os registros de uma tabela usando paginação para contornar limite de 1000 linhas do Supabase.
     
     Args:
@@ -126,6 +135,15 @@ def _fetch_all_paginated(sb, table_name: str, select_fields: str, filters_func, 
     offset = 0
     
     while True:
+        # `cancellable` e OPT-IN (default False) de proposito. Este helper e
+        # compartilhado por ~38 chamadores, e alguns rodam DENTRO de fluxos de
+        # escrita -- abortar uma leitura no meio de "grava -> le -> grava"
+        # deixaria estado parcial no banco. So quem sabe que esta num caminho de
+        # leitura pura liga isto. Auditar 38 call sites seria menos confiavel que
+        # exigir a decisao explicita de quem chama.
+        if cancellable:
+            abort_if_client_gone(f"paginacao:{table_name}")
+
         def _run(_offset=offset):
             q = sb.table(table_name).select(select_fields)
             q = filters_func(q)
@@ -190,7 +208,12 @@ def resolve_pack_owner_map(actor_id: str, pack_ids: List[str]) -> Dict[str, str]
 
 
 def _pack_metric_ids_by_owner(
-    sb, owner_map: Dict[str, str], date_start: str, date_stop: str
+    sb,
+    owner_map: Dict[str, str],
+    date_start: str,
+    date_stop: str,
+    *,
+    cancellable: bool = False,
 ) -> Dict[str, set]:
     """`{owner_id: {composite ids}}` a partir de `ad_metric_pack_map`.
 
@@ -210,7 +233,7 @@ def _pack_metric_ids_by_owner(
                 .lte("metric_date", date_stop)
             )
 
-        rows = _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _filters)
+        rows = _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _filters, cancellable=cancellable)
         bucket = ids_by_owner.setdefault(owner_id, set())
         for r in rows:
             aid = str(r.get("ad_id") or "").strip()
@@ -249,6 +272,7 @@ def fetch_pack_metrics_rows(
     fallback_select_fields: Optional[str] = None,
     attr_filters: Optional[Dict[str, str]] = None,
     log_tag: str = "pack_metrics",
+    cancellable: bool = False,
 ) -> List[Dict[str, Any]]:
     """Linhas de `ad_metrics` dos packs selecionados, lidas do silo de cada dono.
 
@@ -298,7 +322,7 @@ def fetch_pack_metrics_rows(
                         q = q.eq(k, v)
                     return q
 
-                cand = _fetch_all_paginated(sb, "ad_metrics", select_str, _attr_q)
+                cand = _fetch_all_paginated(sb, "ad_metrics", select_str, _attr_q, cancellable=cancellable)
                 if not cand:
                     continue
 
@@ -319,7 +343,7 @@ def fetch_pack_metrics_rows(
                             .in_("ad_id", _b)
                         )
 
-                    for m in _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _mem_q):
+                    for m in _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _mem_q, cancellable=cancellable):
                         aid = str(m.get("ad_id") or "").strip()
                         d = str(m.get("metric_date") or "")[:10]
                         if aid and d:
@@ -335,7 +359,7 @@ def fetch_pack_metrics_rows(
         # CAMINHO POR-ID (sem atributo seletivo): resolve os ids do pack e loteia.
         # Sem um atributo para restringir ad_metrics nao ha como evitar varrer o
         # pack inteiro — mantido para chamadores futuros sem attr_filters.
-        ids_by_owner = _pack_metric_ids_by_owner(sb, owner_map, date_start, date_stop)
+        ids_by_owner = _pack_metric_ids_by_owner(sb, owner_map, date_start, date_stop, cancellable=cancellable)
 
         def _run(select_str: str) -> List[Dict[str, Any]]:
             rows: List[Dict[str, Any]] = []
@@ -350,11 +374,16 @@ def fetch_pack_metrics_rows(
                             q = q.eq(k, v)
                         return q
 
-                    rows.extend(_fetch_all_paginated(sb, "ad_metrics", select_str, _filters))
+                    rows.extend(_fetch_all_paginated(sb, "ad_metrics", select_str, _filters, cancellable=cancellable))
             return rows
 
     try:
         raw = _run(select_eff)
+    except ClientGone:
+        # Cancelamento nao e "coluna ausente": sem esta guarda, dependeriamos de a
+        # mensagem do ClientGone nunca conter "lpv" para nao cair no fallback e
+        # re-executar a consulta inteira que acabamos de cancelar.
+        raise
     except Exception as e:
         msg = str(e or "")
         if fallback_eff and "lpv" in msg and ("column" in msg or "does not exist" in msg):

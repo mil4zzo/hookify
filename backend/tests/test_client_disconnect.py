@@ -14,6 +14,7 @@ simular `http.disconnect`. `TestClient` nao consegue desconectar no meio.
 """
 import asyncio
 import logging
+from unittest import mock
 
 import pytest
 from fastapi import FastAPI, Request
@@ -299,3 +300,178 @@ class TestGuardasNaRotaDeAnalytics:
             assert "except ClientGone" in antes[-900:], (
                 f"handler de '{detalhe}' perdeu a guarda except ClientGone"
             )
+
+
+class _FakePaginacao:
+    """Cliente falso que devolve N paginas cheias e conta quantas foram pedidas."""
+
+    def __init__(self, paginas: int, page_size: int = 1000):
+        self.paginas = paginas
+        self.page_size = page_size
+        self.pedidas = 0
+
+    # --- API minima do query builder do Supabase ---
+    def table(self, _t):
+        return self
+
+    def select(self, _s):
+        return self
+
+    def range(self, _a, _b):
+        return self
+
+    def execute(self):
+        self.pedidas += 1
+        cheia = self.pedidas <= self.paginas
+        linhas = [{"i": n} for n in range(self.page_size if cheia else 0)]
+        return type("Res", (), {"data": linhas})()
+
+
+class TestCorteNaPaginacaoDosDrills:
+    """As 8 telas de detalhe desembocam nos lacos de paginacao.
+
+    Um checkpoint no topo do laco cobre todas de uma vez -- o ganho e cortar a
+    CAUDA: parar na pagina 2 em vez de varrer as 10 restantes para o lixo.
+    """
+
+    def _paginar(self, fake):
+        from app.routes.analytics import _fetch_all_paginated
+
+        return _fetch_all_paginated(fake, "ad_metrics", "i", lambda q: q)
+
+    def test_cliente_presente_varre_todas_as_paginas(self):
+        fake = _FakePaginacao(paginas=3)
+        linhas = self._paginar(fake)
+        assert fake.pedidas == 4, "3 cheias + 1 vazia que encerra"
+        assert len(linhas) == 3000
+
+    def test_desconexao_corta_no_meio_da_paginacao(self):
+        from app.core.client_disconnect import _Liveness
+
+        estado = _Liveness()
+        token = current_liveness.set(estado)
+        try:
+            fake = _FakePaginacao(paginas=10)
+            # Desliga depois da 1a pagina: o laco nao pode pedir a 3a.
+            original = fake.execute
+
+            def execute_e_desliga():
+                res = original()
+                if fake.pedidas >= 1:
+                    estado.disconnected = True
+                return res
+
+            fake.execute = execute_e_desliga
+            with pytest.raises(ClientGone):
+                self._paginar(fake)
+            assert fake.pedidas == 1, f"parou tarde: {fake.pedidas} paginas varridas"
+        finally:
+            current_liveness.reset(token)
+
+    def test_background_nao_e_cortado(self):
+        """Job de background (sem request no contexto) varre tudo, mesmo teto ligado."""
+        assert current_liveness.get() is None
+        fake = _FakePaginacao(paginas=3)
+        linhas = self._paginar(fake)
+        assert len(linhas) == 3000
+
+
+class TestOptInDoHelperCompartilhado:
+    """O helper de `supabase_repo` e usado por ~38 chamadores, alguns em ESCRITA.
+
+    Por isso o cancelamento la e opt-in: abortar uma leitura no meio de
+    "grava -> le -> grava" deixaria estado parcial no banco.
+    """
+
+    def _paginar(self, fake, **kw):
+        from app.services.supabase_repo import _fetch_all_paginated
+
+        return _fetch_all_paginated(fake, "ad_metrics", "i", lambda q: q, **kw)
+
+    def test_por_padrao_nao_cancela_mesmo_desconectado(self):
+        from app.core.client_disconnect import _Liveness
+
+        estado = _Liveness()
+        estado.disconnected = True
+        token = current_liveness.set(estado)
+        try:
+            fake = _FakePaginacao(paginas=2)
+            linhas = self._paginar(fake)  # sem cancellable -> default False
+            assert len(linhas) == 2000, "default tem de ser NAO cancelavel"
+        finally:
+            current_liveness.reset(token)
+
+    def test_com_opt_in_cancela(self):
+        from app.core.client_disconnect import _Liveness
+
+        estado = _Liveness()
+        estado.disconnected = True
+        token = current_liveness.set(estado)
+        try:
+            with pytest.raises(ClientGone):
+                self._paginar(_FakePaginacao(paginas=2), cancellable=True)
+        finally:
+            current_liveness.reset(token)
+
+    def test_drills_ligam_o_opt_in(self):
+        """Backstop: se alguem remover o cancellable=True, o ganho some calado."""
+        import inspect
+        from app.routes import analytics
+
+        src = inspect.getsource(analytics)
+        assert src.count("cancellable=True") == 7, (
+            "os 7 drills precisam passar cancellable=True para fetch_pack_metrics_rows"
+        )
+
+
+class TestFallbackDeColunaAusente:
+    """O cancelamento nao pode ser confundido com 'coluna lpv ausente'.
+
+    Sem a guarda, o bloco de fallback re-executaria a consulta inteira que
+    acabamos de cancelar -- o dobro do trabalho em vez de zero.
+    """
+
+    def test_fallback_de_lpv_continua_funcionando(self):
+        from app.services import supabase_repo as R
+
+        chamadas = []
+
+        def fake_fetch(sb, table, select, filters, *a, **kw):
+            if table == "ad_metric_pack_map":
+                # Indice de pertinencia: usa `metric_date`, nao `date`.
+                return [{"ad_id": "A", "metric_date": "2026-01-01"}]
+            chamadas.append(select)
+            if "lpv" in select:
+                raise Exception('column "lpv" does not exist')
+            return [{"ad_id": "A", "date": "2026-01-01", "user_id": "o1"}]
+
+        with mock.patch.object(R, "resolve_pack_owner_map", return_value={"p1": "o1"}), \
+             mock.patch.object(R, "get_supabase_service", return_value=object()), \
+             mock.patch.object(R, "_fetch_all_paginated", side_effect=fake_fetch):
+            out = R.fetch_pack_metrics_rows(
+                "o1", ["p1"], "2026-01-01", "2026-01-31",
+                "ad_id,date,lpv", "ad_id,date", None, log_tag="teste",
+            )
+        assert out, "o fallback tinha de devolver linhas"
+        assert any("lpv" in c for c in chamadas) and any("lpv" not in c for c in chamadas)
+
+    def test_cancelamento_nao_dispara_o_fallback(self):
+        from app.services import supabase_repo as R
+
+        chamadas = []
+
+        def fake_fetch(sb, table, select, filters, *a, **kw):
+            if table == "ad_metric_pack_map":
+                return [{"ad_id": "A", "metric_date": "2026-01-01"}]
+            chamadas.append(select)
+            raise ClientGone("paginacao:ad_metrics")
+
+        with mock.patch.object(R, "resolve_pack_owner_map", return_value={"p1": "o1"}), \
+             mock.patch.object(R, "get_supabase_service", return_value=object()), \
+             mock.patch.object(R, "_fetch_all_paginated", side_effect=fake_fetch):
+            with pytest.raises(ClientGone):
+                R.fetch_pack_metrics_rows(
+                    "o1", ["p1"], "2026-01-01", "2026-01-31",
+                    "ad_id,date,lpv", "ad_id,date", None, log_tag="teste",
+                )
+        assert len(chamadas) == 1, "nao pode re-executar a consulta cancelada"

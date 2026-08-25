@@ -3241,3 +3241,65 @@ regressao.
 usuario e aplicado via `client.postgrest.auth(jwt)`. Se esse token acabar nos
 headers do cliente httpx compartilhado, um cliente unico vazaria credencial entre
 usuarios. Precisa ser verificado -- e nao no mesmo commit que mexe em concorrencia.
+
+## Telas de detalhe: corte na paginacao, com opt-in (2026-08-24)
+
+Ultimo item do backlog da revisao. As 8 telas de drill-down (expandir linha,
+abrir gaveta de criativo) ja recebiam o sinal de cancelamento do navegador e
+rodavam ate o fim assim mesmo. Abandono e MAIS provavel nelas que no `/rankings`:
+abrem no expand e o usuario encadeia varias em segundos.
+
+**Um ponto cobre as oito.** Elas parecem independentes mas desembocam nos mesmos
+lacos de paginacao. Um checkpoint no topo do laco cobre todas -- e o ganho e
+cortar a CAUDA: parar na pagina 2 em vez de varrer as 10 restantes para o lixo.
+
+### A auditoria mudou o desenho
+
+Havia 5 lacos de paginacao. Dois sao de EXCLUSAO
+(`_process_pack_deletion_in_batches`, `_classify_ad_metrics_for_pack_deletion`) e
+um serve caminho de escrita (`_fetch_present_parent_ids`, chamado por dentro de
+`write_parent_statuses`). **Ficaram de fora por regra 1** -- abortar ali deixaria
+pack meio deletado.
+
+Sobraram os dois `_fetch_all_paginated`, e eles NAO sao iguais:
+
+| Helper | Decisao | Por que |
+|---|---|---|
+| `analytics.py` (local) | checkpoint **default ON** | `analytics.py` nao faz nenhuma escrita no banco (verificado: o unico match de `.update/.insert/.delete` era o decorador `@router.delete`) |
+| `supabase_repo.py` (compartilhado) | **opt-in** (`cancellable=False`) | ~38 chamadores, alguns dentro de fluxos de escrita |
+
+O opt-in nao e preguica de auditar: **auditar 38 call sites seria menos confiavel
+que exigir a decisao explicita de quem chama.** Quem sabe que esta num caminho de
+leitura pura liga; o resto continua imune por default. Os 7 drills ligam, e ha
+teste estrutural travando isso (se alguem remover o `cancellable=True`, o ganho
+sumiria calado).
+
+### O alarme falso da revisao, verificado
+
+A revisao apontou que os 21 blocos de fallback da coluna `lpv` engoliriam o
+`ClientGone` e **re-executariam a consulta inteira** -- o dobro do trabalho em vez
+de zero. Fui ler: eles inspecionam a mensagem e so caem no fallback se for o erro
+especifico da coluna; qualquer outra coisa vai para `else: raise`. **Funcionava,
+mas por acidente** -- dependia de a mensagem do `ClientGone` nunca conter "lpv".
+Guardas explicitas adicionadas (7 em `analytics.py` + 1 no fallback central de
+`supabase_repo`) para virar contrato em vez de coincidencia. Estimativa caiu de
+~3h para ~1h30 por causa disso.
+
+### Bug proprio no caminho
+
+Ao threadar o parametro, uma das substituicoes caiu em `_pack_metric_ids_by_owner`
+-- funcao vizinha que nao declarava `cancellable` -> `NameError` em runtime. Pego
+pelos testes. O parametro foi declarado e repassado corretamente; a funcao e parte
+do caminho de leitura do drill, entao devia mesmo receber o opt-in.
+
+### Validacao
+
+395 testes. Os novos cobrem: cliente presente varre todas as paginas; desconexao
+corta **na 1a pagina** (assercao no numero de paginas pedidas, nao so na excecao);
+background nao e cortado; default do helper compartilhado nao cancela; opt-in
+cancela; os 7 drills ligam o opt-in; o fallback de `lpv` continua funcionando; e
+cancelamento NAO dispara o fallback.
+
+Tres sabotagens confirmaram que os testes acusam: remover o checkpoint local,
+neutralizar o opt-in, e tirar o `cancellable=True` de um drill -- cada uma
+quebrou exatamente o teste correspondente.

@@ -15,7 +15,9 @@ from app.services import supabase_repo as R
 
 class TestAttrFirstReorder(unittest.TestCase):
     def _run(self, candidates, membership, owner_map):
-        def fake_fetch(sb, table, select, filters):
+        # **kwargs absorve parametros opcionais do helper (ex.: `cancellable`)
+        # sem afrouxar o que este teste verifica: quais linhas voltam.
+        def fake_fetch(sb, table, select, filters, *args, **kwargs):
             if table == "ad_metrics":
                 return list(candidates)
             if table == "ad_metric_pack_map":
