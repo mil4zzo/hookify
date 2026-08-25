@@ -128,3 +128,81 @@ class TestContratoDaExcecao:
         with pytest.raises(ClientGone) as exc:
             raise ClientGone("rankings:transcricao")
         assert exc.value.stage == "rankings:transcricao"
+
+
+class TestGuardasNaRotaDeAnalytics:
+    """ClientGone precisa ATRAVESSAR os `except Exception` do caminho de analytics.
+
+    A rota de rankings tem duas camadas que engoliriam o cancelamento:
+      1. o wrapper de retry (`except Exception` -> decide se re-tenta)
+      2. o handler da rota (`except Exception` -> HTTPException 500)
+    Sem as guardas `except ClientGone: raise`, o cancelamento viraria um 500 e,
+    pior, o wrapper poderia RE-EXECUTAR a query que acabamos de cancelar.
+    """
+
+    def _req(self):
+        from app.routes.analytics import RankingsRequest
+
+        return RankingsRequest(
+            date_start="2026-08-01", date_stop="2026-08-24",
+            group_by="ad_name", pack_ids=["11111111-1111-1111-1111-111111111111"],
+        )
+
+    def test_wrapper_core_nao_re_tenta_e_propaga(self, monkeypatch):
+        from app.routes import analytics
+
+        chamadas = {"n": 0}
+
+        def _fake(req, user, sb):
+            chamadas["n"] += 1
+            raise ClientGone("rankings:rpc_principal")
+
+        monkeypatch.setattr(analytics, "_get_rankings_core_v2_rpc", _fake)
+
+        with pytest.raises(ClientGone):
+            analytics._get_rankings_core_v2_rpc_with_retry(
+                self._req(), {"user_id": "u1", "token": "t"}, object(), max_attempts=3,
+            )
+        assert chamadas["n"] == 1, "cancelamento nao pode ser re-tentado"
+
+    def test_wrapper_series_nao_re_tenta_e_propaga(self, monkeypatch):
+        from app.routes import analytics
+        from app.routes.analytics import RankingsSeriesRequest
+
+        chamadas = {"n": 0}
+
+        def _fake(req, user, sb):
+            chamadas["n"] += 1
+            raise ClientGone("series:rpc")
+
+        monkeypatch.setattr(analytics, "_get_rankings_series_v2_rpc", _fake)
+        req = RankingsSeriesRequest(
+            date_start="2026-08-01", date_stop="2026-08-24", group_by="ad_name",
+            pack_ids=["11111111-1111-1111-1111-111111111111"], group_keys=["x"],
+        )
+        with pytest.raises(ClientGone):
+            analytics._get_rankings_series_v2_rpc_with_retry(
+                req, {"user_id": "u1", "token": "t"}, object(), max_attempts=3,
+            )
+        assert chamadas["n"] == 1
+
+    def test_handlers_das_rotas_tem_guarda(self):
+        """Backstop estrutural: cada handler que vira 500 precisa da guarda acima.
+
+        Se alguem remover um `except ClientGone: raise`, o cancelamento volta a
+        ser reportado como erro de servidor (e a ir para o Sentry).
+        """
+        import inspect
+        from app.routes import analytics
+
+        src = inspect.getsource(analytics)
+        for detalhe in (
+            "Erro ao consultar analytics agregados.",
+            "Erro ao consultar series do Manager.",
+            "Erro ao consultar retencao do Manager.",
+        ):
+            antes = src[: src.index(detalhe)]
+            trecho = antes[-900:]
+            assert "except ClientGone" in trecho, (
+                f"handler de '{detalhe}' perdeu a guarda except ClientGone"
+            )

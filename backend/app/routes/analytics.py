@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
 from app.core.db_concurrency import db_slot
-from app.core.client_disconnect import abort_if_client_gone
+from app.core.client_disconnect import ClientGone, abort_if_client_gone
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
@@ -719,6 +719,10 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
         "p_order_by": (req.order_by or "spend"),
     }
     with db_slot("rankings_core_v2_rpc"):
+        # Checar DEPOIS de conseguir o slot e ANTES de disparar a query: se o
+        # cliente desistiu enquanto esperávamos na fila do semáforo, executar
+        # aqui queimaria segundos de banco por nada. Leitura pura — seguro cortar.
+        abort_if_client_gone("rankings:rpc_principal")
         rpc_result = sb.rpc("fetch_manager_rankings_core_v2", params).execute()
     return _normalize_rankings_rpc_response(rpc_result.data)
 
@@ -735,6 +739,11 @@ def _get_rankings_core_v2_rpc_with_retry(
     for attempt in range(1, attempts + 1):
         try:
             return _get_rankings_core_v2_rpc(req, user, sb)
+        except ClientGone:
+            # Cancelamento não é falha de RPC: não re-tentar, não virar 500.
+            # Guarda obrigatória — ClientGone é Exception comum e este `except
+            # Exception` a engoliria (ver client_disconnect.py).
+            raise
         except Exception as e:
             is_transient = _is_transient_analytics_rpc_error(e)
             is_last = attempt >= attempts
@@ -778,6 +787,7 @@ def _get_rankings_series_v2_rpc(req: RankingsSeriesRequest, user: Dict[str, Any]
     }
 
     with db_slot("rankings_series_v2_rpc"):
+        abort_if_client_gone("series:rpc")
         rpc_result = sb.rpc("fetch_manager_rankings_series_v2", params).execute()
     payload = _extract_rpc_object_payload(rpc_result.data, "fetch_manager_rankings_series_v2")
     raw_map = payload.get("series_by_group") if isinstance(payload.get("series_by_group"), dict) else {}
@@ -809,6 +819,8 @@ def _get_rankings_series_v2_rpc_with_retry(
     for attempt in range(1, attempts + 1):
         try:
             return _get_rankings_series_v2_rpc(req, user, sb)
+        except ClientGone:
+            raise
         except Exception as e:
             is_transient = _is_transient_analytics_rpc_error(e)
             is_last = attempt >= attempts
@@ -846,6 +858,7 @@ def _get_rankings_retention_v2_rpc(req: RankingsRetentionRequest, user: Dict[str
         "p_group_key": req.group_key,
     }
     with db_slot("rankings_retention_v2_rpc"):
+        abort_if_client_gone("retention:rpc")
         rpc_result = sb.rpc("fetch_manager_rankings_retention_v2", params).execute()
     payload = _extract_rpc_object_payload(rpc_result.data, "fetch_manager_rankings_retention_v2")
 
@@ -1385,6 +1398,10 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
             sb,
             max_attempts=max_rpc_attempts,
         )
+    except ClientGone:
+        # Cliente desligou: nao e erro de consulta. Sem esta guarda o
+        # `except Exception` abaixo transformaria o cancelamento num 500.
+        raise
     except Exception as e:
         elapsed_ms = (time.perf_counter() - started_at) * 1000.0
         logger.exception(
@@ -1526,6 +1543,10 @@ def get_rankings_series(req: RankingsSeriesRequest, user=Depends(get_current_use
             non_empty_groups,
         )
         return payload
+    except ClientGone:
+        # Cliente desligou: nao e erro de consulta. Sem esta guarda o
+        # `except Exception` abaixo transformaria o cancelamento num 500.
+        raise
     except Exception as e:
         logger.exception(
             "[rankings_series] failed elapsed_ms=%.2f context=%s error=%s",
@@ -1566,6 +1587,10 @@ def get_rankings_retention(req: RankingsRetentionRequest, user=Depends(get_curre
             len(curve or []),
         )
         return payload
+    except ClientGone:
+        # Cliente desligou: nao e erro de consulta. Sem esta guarda o
+        # `except Exception` abaixo transformaria o cancelamento num 500.
+        raise
     except Exception as e:
         logger.exception(
             "[rankings_retention] failed elapsed_ms=%.2f context=%s error=%s",

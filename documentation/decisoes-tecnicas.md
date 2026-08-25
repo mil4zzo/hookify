@@ -3021,10 +3021,28 @@ o axios ja rejeitou por cancelamento e a resposta nao chega ao JS.
 
 Kill switch `CLIENT_DISCONNECT_ABORT_ENABLED` (default true).
 
-**Oportunidade nao explorada:** as rotas `/rankings/series` e `/rankings/retention` sao
-RPC unica, sem cauda de hidratacao -- o ganho la seria menor e exigiria checkpoint em
-ponto diferente (apos adquirir o slot, antes de disparar a query). Ficou de fora
-deliberadamente para nao inflar o escopo.
+### Cobertura completa das tres rotas (revisao do escopo)
+
+A primeira versao cobriu so `/rankings`, com o argumento de que `/rankings/series` e
+`/rankings/retention` sao RPC unica e o ganho seria menor. **O argumento estava errado:**
+uma troca de filtro no Manager aborta as TRES requisicoes no navegador, entao cobrir uma
+deixava dois pipelines abandonados rodando ate o fim. Meia solucao nao resolve.
+
+As tres RPCs agora tem checkpoint **dentro do `db_slot`, depois de adquirir o slot e antes
+de disparar a query**. Esse e o ponto de maior valor: se o cliente desistiu enquanto a
+request esperava na fila do semaforo, executar 16 s de query ali seria puro desperdicio.
+Seguro pela regra 1 -- as tres funcoes `fetch_*` sao leitura pura.
+
+**Isso exigiu cinco guardas `except ClientGone: raise`**, porque o caminho tem duas camadas
+que engoliriam o cancelamento: os wrappers de retry (`except Exception` -> decide se
+re-tenta) e os handlers das rotas (`except Exception` -> HTTPException 500). Sem elas o
+cancelamento viraria 500 e -- pior -- o wrapper poderia **re-executar a query que acabamos
+de cancelar**.
+
+Cobertura de teste dessa cadeia: os wrappers propagam sem re-tentar (assercao de que a
+funcao interna foi chamada UMA vez) e um backstop estrutural verifica que cada handler que
+vira 500 ainda tem a guarda. O backstop foi validado removendo uma guarda de proposito e
+confirmando que o teste falha -- teste estrutural que nunca falhou nao prova nada.
 
 Testes: 372 passando (7 novos aqui). Boot verificado com CORS ainda como middleware
 mais externo -- invariante que o 500-sem-CORS de 2026-07-06 deixou como regra.
