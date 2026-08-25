@@ -152,3 +152,38 @@ class TestWriteParentStatusesOrdering:
         a = self._run({"c9": "ACTIVE", "c1": "PAUSED", "c5": "ACTIVE", "c3": "PAUSED"})
         b = self._run({"c3": "PAUSED", "c5": "ACTIVE", "c9": "ACTIVE", "c1": "PAUSED"})
         assert a == b
+
+
+class TestWriteLocalStatusesOrdering:
+    """Irma de write_parent_statuses: grava nas MESMAS linhas de `ads`.
+
+    O sync on-focus dispara as duas em paralelo para ate 20 packs. Sem ordem
+    total consistente entre elas, duas transacoes pegam os locks em ordem oposta
+    e se abracam (40P01). A correcao original cobriu so a irma em supabase_repo;
+    esta ficou meses sem ela.
+    """
+
+    def _run(self, statuses, monkeypatch):
+        from app.routes import facebook
+
+        fake = _FakeClient()
+        monkeypatch.setattr(facebook, "_sb_for", lambda _jwt: fake)
+        facebook._write_local_statuses(user_jwt=None, user_id="u1", statuses=statuses)
+        return fake.updates
+
+    def test_ids_saem_ordenados(self, monkeypatch):
+        updates = self._run({"a3": "ACTIVE", "a1": "ACTIVE", "a2": "ACTIVE"}, monkeypatch)
+        assert updates, "deveria ter gerado ao menos um UPDATE"
+        for _col, ids in updates:
+            assert ids == sorted(ids), f"ids fora de ordem: {ids}"
+
+    def test_ordem_independe_da_ordem_de_entrada(self, monkeypatch):
+        a = self._run({"a9": "ACTIVE", "a1": "PAUSED", "a5": "ACTIVE", "a3": "PAUSED"}, monkeypatch)
+        b = self._run({"a3": "PAUSED", "a5": "ACTIVE", "a9": "ACTIVE", "a1": "PAUSED"}, monkeypatch)
+        assert a == b
+
+    def test_in_process_continua_nao_sendo_persistido(self, monkeypatch):
+        """Guarda de regressao: o sort nao pode ter mexido no filtro transitorio."""
+        updates = self._run({"a1": "IN_PROCESS", "a2": "PAUSED"}, monkeypatch)
+        gravados = [i for _col, ids in updates for i in ids]
+        assert gravados == ["a2"], "IN_PROCESS nunca pode ser persistido"

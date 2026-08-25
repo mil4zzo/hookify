@@ -14,6 +14,7 @@ import os
 from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
+from app.core.supabase_retry import with_postgrest_retry
 from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
 from app.services import pack_action_log
 from app.services.facebook_token_service import (
@@ -1057,10 +1058,30 @@ def _write_local_statuses(*, user_jwt: Optional[str], user_id: str, statuses: Di
         return
 
     sb = _sb_for(user_jwt)
-    for status_value, ids in by_status.items():
+    # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01) — mesma correcao que
+    # supabase_repo.write_parent_statuses recebeu. Sao funcoes irmas: gravam status
+    # nas MESMAS linhas de `ads`, e o sync on-focus dispara as duas em paralelo para
+    # ate 20 packs. Percorrendo os ids em ordens diferentes, duas transacoes pegam os
+    # locks em ordem oposta e se abracam. Com ordem total consistente o ciclo de
+    # espera some e o deadlock fica aritmeticamente impossivel.
+    # NAO trocar por iteracao de dict sem sort: a ordem vem do retorno do Meta e varia.
+    for status_value in sorted(by_status):
+        ids = sorted(by_status[status_value])
         for i in range(0, len(ids), 200):
             chunk = ids[i : i + 200]
-            sb.table("ads").update({"effective_status": status_value}).eq("user_id", user_id).in_("ad_id", chunk).execute()
+            # with_postgrest_retry entrega as DUAS protecoes de uma vez: o slot de
+            # concorrencia (db_slot) e o retry de deadlock/queda transitoria. Este
+            # laco chega a 100+ UPDATEs em massa por request de status-sync (ate 20
+            # packs x chunks de 200) e rodava sem nenhuma das duas — foi um dos
+            # caminhos nomeados no crash de 2026-08-24.
+            with_postgrest_retry(
+                f"write_local_statuses[{status_value}:{len(chunk)}]",
+                lambda sv=status_value, c=chunk: sb.table("ads")
+                .update({"effective_status": sv})
+                .eq("user_id", user_id)
+                .in_("ad_id", c)
+                .execute(),
+            )
 
 
 def _fetch_entity_account_id(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str) -> Optional[str]:
@@ -1169,16 +1190,28 @@ def _update_local_effective_status(*, user_jwt: Optional[str], user_id: str, ent
 
         if entity_type == "adset":
             if new_status == "PAUSED":
-                sb.table("ads").update({"effective_status": "ADSET_PAUSED"}).eq("user_id", user_id).eq("adset_id", entity_id).or_(_only_active_or_null).execute()
+                with_postgrest_retry(
+                    "cascade_adset_paused",
+                    lambda: sb.table("ads").update({"effective_status": "ADSET_PAUSED"}).eq("user_id", user_id).eq("adset_id", entity_id).or_(_only_active_or_null).execute(),
+                )
             else:
-                sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("adset_id", entity_id).eq("effective_status", "ADSET_PAUSED").execute()
+                with_postgrest_retry(
+                    "cascade_adset_active",
+                    lambda: sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("adset_id", entity_id).eq("effective_status", "ADSET_PAUSED").execute(),
+                )
             return
 
         if entity_type == "campaign":
             if new_status == "PAUSED":
-                sb.table("ads").update({"effective_status": "CAMPAIGN_PAUSED"}).eq("user_id", user_id).eq("campaign_id", entity_id).or_(_only_active_or_null).execute()
+                with_postgrest_retry(
+                    "cascade_campaign_paused",
+                    lambda: sb.table("ads").update({"effective_status": "CAMPAIGN_PAUSED"}).eq("user_id", user_id).eq("campaign_id", entity_id).or_(_only_active_or_null).execute(),
+                )
             else:
-                sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("campaign_id", entity_id).eq("effective_status", "CAMPAIGN_PAUSED").execute()
+                with_postgrest_retry(
+                    "cascade_campaign_active",
+                    lambda: sb.table("ads").update({"effective_status": "ACTIVE"}).eq("user_id", user_id).eq("campaign_id", entity_id).eq("effective_status", "CAMPAIGN_PAUSED").execute(),
+                )
             return
     except Exception:
         # Nunca falhar a operação por erro ao atualizar cache local; logar e seguir
@@ -1201,7 +1234,10 @@ def _write_parent_status_column(*, user_jwt: Optional[str], user_id: str, entity
     try:
         sb = _sb_for(user_jwt)
         now_iso = datetime.now(timezone.utc).isoformat()
-        sb.table("ads").update({column: str(status).upper(), "updated_at": now_iso}).eq("user_id", user_id).eq(id_column, entity_id).execute()
+        with_postgrest_retry(
+            f"write_parent_status_column[{column}]",
+            lambda: sb.table("ads").update({column: str(status).upper(), "updated_at": now_iso}).eq("user_id", user_id).eq(id_column, entity_id).execute(),
+        )
     except Exception:
         logger.exception("[UPDATE_STATUS] Falha ao gravar %s local para %s %s", column, entity_type, entity_id)
 
@@ -1235,7 +1271,10 @@ def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: Optional[str], use
             # Marcadores dos filhos acabaram de ser gravados: NULL na coluna reativa o
             # fallback por marcadores (migration 088), que está correto neste instante.
             sb = _sb_for(user_jwt)
-            sb.table("ads").update({"adset_status": None}).eq("user_id", user_id).eq("campaign_id", campaign_id).execute()
+            with_postgrest_retry(
+                "clear_adset_status_for_campaign",
+                lambda: sb.table("ads").update({"adset_status": None}).eq("user_id", user_id).eq("campaign_id", campaign_id).execute(),
+            )
     except Exception:
         logger.exception("[UPDATE_STATUS] Falha ao sincronizar adset_status dos conjuntos da campanha %s", campaign_id)
 
@@ -1408,7 +1447,10 @@ def _filter_ads_belonging_to_user(*, user_jwt: Optional[str], user_id: str, ad_i
     account_groups: Dict[str, List[str]] = {}
     for i in range(0, len(ad_ids), 200):
         chunk = ad_ids[i : i + 200]
-        res = sb.table("ads").select("ad_id,account_id").eq("user_id", user_id).in_("ad_id", chunk).execute()
+        res = with_postgrest_retry(
+            f"group_ads_by_account[{len(chunk)}]",
+            lambda c=chunk: sb.table("ads").select("ad_id,account_id").eq("user_id", user_id).in_("ad_id", c).execute(),
+        )
         for row in (res.data or []):
             ad_id = str(row["ad_id"])
             valid.add(ad_id)
@@ -1435,7 +1477,10 @@ def _filter_entities_belonging_to_user(*, user_jwt: Optional[str], user_id: str,
     unique_ids = [i for i in dict.fromkeys(ids)]
     for i in range(0, len(unique_ids), 200):
         chunk = unique_ids[i : i + 200]
-        res = sb.table("ads").select(column).eq("user_id", user_id).in_(column, chunk).execute()
+        res = with_postgrest_retry(
+            f"filter_entities[{column}:{len(chunk)}]",
+            lambda c=chunk: sb.table("ads").select(column).eq("user_id", user_id).in_(column, c).execute(),
+        )
         for row in (res.data or []):
             if row.get(column):
                 valid.add(str(row[column]))
@@ -1492,28 +1537,44 @@ def _batch_reconcile_parent_status_local(
         by_status.setdefault(st, []).append(eid)
 
     try:
-        for status_value, ids in by_status.items():
+        # Ordem deterministica de lock (anti-deadlock 40P01): mesmas linhas de `ads`
+        # que _write_local_statuses e write_parent_statuses tocam, e os tres podem
+        # rodar em paralelo. Ver comentario em _write_local_statuses.
+        for status_value in sorted(by_status):
+            ids = sorted(by_status[status_value])
             paused = status_value != "ACTIVE"  # ACTIVE = ativo; qualquer outro = alguma forma de pausa
             for i in range(0, len(ids), 200):
                 chunk = ids[i : i + 200]
                 # 1. Coluna do pai
-                sb.table("ads").update({status_column: status_value, "updated_at": now_iso}).eq(
-                    "user_id", user_id
-                ).in_(id_column, chunk).execute()
+                with_postgrest_retry(
+                    f"batch_entity_status[{status_column}:{len(chunk)}]",
+                    lambda sv=status_value, c=chunk: sb.table("ads").update(
+                        {status_column: sv, "updated_at": now_iso}
+                    ).eq("user_id", user_id).in_(id_column, c).execute(),
+                )
                 # 2. Cascata nos filhos (heurística não-destrutiva)
                 if paused:
-                    sb.table("ads").update({"effective_status": child_paused_marker}).eq(
-                        "user_id", user_id
-                    ).in_(id_column, chunk).or_(_only_active_or_null).execute()
+                    with_postgrest_retry(
+                        f"batch_entity_children_paused[{len(chunk)}]",
+                        lambda c=chunk: sb.table("ads").update(
+                            {"effective_status": child_paused_marker}
+                        ).eq("user_id", user_id).in_(id_column, c).or_(_only_active_or_null).execute(),
+                    )
                 else:
-                    sb.table("ads").update({"effective_status": "ACTIVE"}).eq(
-                        "user_id", user_id
-                    ).in_(id_column, chunk).eq("effective_status", child_paused_marker).execute()
+                    with_postgrest_retry(
+                        f"batch_entity_children_active[{len(chunk)}]",
+                        lambda c=chunk: sb.table("ads").update(
+                            {"effective_status": "ACTIVE"}
+                        ).eq("user_id", user_id).in_(id_column, c).eq("effective_status", child_paused_marker).execute(),
+                    )
                 # 3. Campanha: NULL no adset_status dos filhos reativa o fallback por marcadores
                 if entity_type == "campaign":
-                    sb.table("ads").update({"adset_status": None}).eq(
-                        "user_id", user_id
-                    ).in_("campaign_id", chunk).execute()
+                    with_postgrest_retry(
+                        f"batch_entity_clear_adset_status[{len(chunk)}]",
+                        lambda c=chunk: sb.table("ads").update(
+                            {"adset_status": None}
+                        ).eq("user_id", user_id).in_("campaign_id", c).execute(),
+                    )
     except Exception:
         logger.exception("[BATCH_ENTITY_STATUS] Falha na reconciliação local de status (%s)", entity_type)
 
@@ -1527,13 +1588,19 @@ def _update_bulk_local_effective_status(*, user_jwt: Optional[str], user_id: str
     sb = _sb_for(user_jwt)
     effective = "PAUSED" if new_status == "PAUSED" else "ACTIVE"
     try:
-        for i in range(0, len(ad_ids), 200):
-            chunk = ad_ids[i : i + 200]
-            query = sb.table("ads").update({"effective_status": effective}).eq("user_id", user_id).in_("ad_id", chunk)
-            if new_status == "ACTIVE":
-                # Só reverter pausas individuais (evita sobrescrever ADSET_PAUSED/CAMPAIGN_PAUSED)
-                query = query.eq("effective_status", "PAUSED")
-            query.execute()
+        # Ordem deterministica de lock (anti-deadlock 40P01) — ver _write_local_statuses.
+        ordered_ids = sorted(ad_ids)
+        for i in range(0, len(ordered_ids), 200):
+            chunk = ordered_ids[i : i + 200]
+
+            def _run(c=chunk):
+                query = sb.table("ads").update({"effective_status": effective}).eq("user_id", user_id).in_("ad_id", c)
+                if new_status == "ACTIVE":
+                    # Só reverter pausas individuais (evita sobrescrever ADSET_PAUSED/CAMPAIGN_PAUSED)
+                    query = query.eq("effective_status", "PAUSED")
+                return query.execute()
+
+            with_postgrest_retry(f"bulk_local_effective_status[{len(chunk)}]", _run)
     except Exception:
         logger.exception("[BATCH_UPDATE_STATUS] Falha ao atualizar effective_status local no Supabase")
 
@@ -1770,12 +1837,13 @@ def sync_packs_status(
     sb_svc = get_supabase_service()
     packs: List[Dict[str, Any]] = []
     for _own, _pids in packs_by_owner.items():
-        _res = (
-            sb_svc.table("packs")
+        _res = with_postgrest_retry(
+            f"status_sync_packs[{len(_pids)}]",
+            lambda o=_own, pids=_pids: sb_svc.table("packs")
             .select("id,adaccount_id,filters")
-            .eq("user_id", _own)
-            .in_("id", _pids)
-            .execute()
+            .eq("user_id", o)
+            .in_("id", pids)
+            .execute(),
         )
         packs.extend(_res.data or [])
 
@@ -3368,10 +3436,10 @@ def get_job_progress(
         # P3.3: o job de refresh vive no silo do DONO do pack — quem faz polling
         # pode ser um convidado. Localizar o job sem assumir ator == dono; se o
         # silo for alheio, exigir acesso ao pack do payload (404 sem acesso).
-        _job_rows = (
-            get_supabase_service().table("jobs").select("user_id,payload").eq("id", job_id).limit(1).execute().data
-            or []
-        )
+        _job_rows = with_postgrest_retry(
+            "poll_job_silo",
+            lambda: get_supabase_service().table("jobs").select("user_id,payload").eq("id", job_id).limit(1).execute(),
+        ).data or []
         silo_user_id = str(_job_rows[0]["user_id"]) if _job_rows else str(user_id)
         is_guest_poll = silo_user_id != str(user_id)
         if is_guest_poll:
@@ -4453,9 +4521,10 @@ def cancel_jobs_batch(
         pack_by_job: Dict[str, str] = {}   # job -> pack, para o registro de autoria
         role_by_silo: Dict[str, str] = {}
         try:
-            rows = (
-                get_supabase_service()
-                .table("jobs").select("id,user_id,payload").in_("id", job_ids[:200]).execute()
+            rows = with_postgrest_retry(
+                f"cancel_jobs_silo[{len(job_ids[:200])}]",
+                lambda: get_supabase_service()
+                .table("jobs").select("id,user_id,payload").in_("id", job_ids[:200]).execute(),
             ).data or []
         except Exception as e:
             logger.warning("[CANCEL_JOBS_BATCH] Falha ao resolver silo dos jobs: %s", e)
@@ -4906,10 +4975,11 @@ def get_transcription_progress(
     try:
         # O silo sai do JOB, nunca do ator: um convidado polando um job do dono
         # nao acha nada no proprio silo. Mesmo padrao do polling de refresh/sync.
-        job_row = (
-            get_supabase_service()
-            .table("jobs").select("user_id,payload").eq("id", job_id).limit(1).execute().data
-        )
+        job_row = with_postgrest_retry(
+            "poll_transcription_job_silo",
+            lambda: get_supabase_service()
+            .table("jobs").select("user_id,payload").eq("id", job_id).limit(1).execute(),
+        ).data
         if not job_row:
             raise HTTPException(status_code=404, detail="Job não encontrado.")
         silo_user_id = str(job_row[0].get("user_id") or "")

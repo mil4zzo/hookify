@@ -3144,3 +3144,43 @@ nada -- foi precisamente esse o erro da primeira versao.
   status-sync sem slot e sem retry de deadlock.
 - **Sem deadline por request.** Pior caso somado: 20 s de fila + 35 s de query,
   x4 tentativas do retry = muito acima do timeout de 120 s do axios.
+
+## facebook.py: 38 chamadas ao banco, zero protecoes (2026-08-24)
+
+Achado da revisao, corrigido. O arquivo que sincroniza status com o Meta -- o
+contribuinte nomeado nos logs do crash -- nao tinha **nem** o teto de concorrencia
+**nem** o retry de deadlock. Contagem antes: 38 `.execute()`, 0 `db_slot`,
+0 `with_postgrest_retry`.
+
+**Por que era grave.** `/facebook/packs/status-sync` sincroniza ate 20 packs por
+request e cada um grava em chunks de 200 -> **100+ UPDATEs em massa por request**,
+todos furando a fila do semaforo. E sem `with_postgrest_retry` eles tambem nao
+tinham o retry de 40P01: um deadlock ali simplesmente perdia a escrita.
+
+**A correcao e uma so:** rotear pelo `with_postgrest_retry`, que entrega as DUAS
+protecoes de uma vez (o `db_slot` por dentro + o retry de deadlock/transitorio).
+20 pontos protegidos, cobrindo todo o cluster de escrita em massa (linhas
+~1030-1600) e os pontos de alta frequencia (polling de job de refresh e de
+transcricao, resolucao de silo no cancelamento em lote, SELECT de packs do
+status-sync).
+
+### Erro meu que a revisao expos
+
+A ordem deterministica de lock foi aplicada em `supabase_repo.write_parent_statuses`
+e **nao** na irma `facebook._write_local_statuses`. Sao funcoes que gravam nas
+MESMAS linhas de `ads`, e o sync on-focus dispara as duas em paralelo para ate 20
+packs -- exatamente a receita do 40P01. Corrigir uma e deixar a outra nao resolve
+nada: o abraco mortal precisa de ordem consistente entre **todos** os caminhos
+concorrentes, nao entre alguns.
+
+Agora tem `sorted()` em `_write_local_statuses`, em `_update_bulk_local_effective_status`
+e no laco de reconciliacao em lote de status de pai. Teste cobrindo as tres, validado
+removendo o `sorted` e confirmando que falha.
+
+### O que ficou descoberto, e por que
+
+~9 `.execute()` continuam sem wrapper: leituras de UMA linha (`limit(1)`) e
+lookups pontuais de pack. Sao rapidas e nao aparecem em laco, entao o ganho de
+embrulhar nao paga a poluicao visual. **Isto e uma escolha, nao um esquecimento:**
+se o `/health` mostrar `acquire_timeouts` subindo sem explicacao, elas sao o
+primeiro lugar a olhar, porque ainda passam por fora do teto.
