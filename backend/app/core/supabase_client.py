@@ -18,6 +18,15 @@ _service_client: Optional[Client] = None
 POSTGREST_TIMEOUT_SECONDS = 15.0
 
 
+def _operation_label(request: "httpx.Request") -> str:
+    """`rpc/fetch_manager_rankings_core_v2` ou `GET ads` — alvo legivel no log."""
+    path = request.url.path
+    alvo = path.split("/rest/v1/", 1)[-1].strip("/") if "/rest/v1/" in path else path
+    if alvo.startswith("rpc/"):
+        return alvo
+    return f"{request.method} {alvo or '?'}"
+
+
 class _SlottedHTTPXClient(httpx.Client):
     """Cliente HTTP do Supabase que respeita o teto de concorrencia de banco.
 
@@ -50,7 +59,10 @@ class _SlottedHTTPXClient(httpx.Client):
         if "/rest/v1/" in request.url.path:
             # `send` com stream=False (o que o postgrest usa) le o corpo aqui
             # dentro, entao o slot cobre a chamada inteira -- nao so o handshake.
-            with db_slot(f"postgrest:{request.method}"):
+            # Rotulo com o alvo real (tabela ou RPC) e nao so o verbo: quando o
+            # log disser "esperou 2.3s por slot", ele precisa dizer ESPERANDO O QUE.
+            # E o que torna os db_slot explicitos por call-site desnecessarios.
+            with db_slot(f"postgrest:{_operation_label(request)}"):
                 return super().send(request, **kwargs)
         return super().send(request, **kwargs)
 

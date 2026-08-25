@@ -720,6 +720,10 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
     }
     # Antes de disputar o slot: quem ja desistiu nao ocupa lugar na fila.
     abort_if_client_gone("rankings:antes_do_slot")
+    # db_slot explicito MANTIDO de proposito (nao e redundancia com o slot do
+    # cliente): so tendo o slot aqui fora da para checar desconexao DEPOIS de
+    # ganhar a vez e ANTES de queimar 16 s de query. Dentro do cliente, adquirir
+    # e executar sao atomicos e nao ha esse espaco. A reentrancia evita contar 2x.
     with db_slot("rankings_core_v2_rpc"):
         # Checar DEPOIS de conseguir o slot e ANTES de disparar a query: se o
         # cliente desistiu enquanto esperávamos na fila do semáforo, executar
@@ -992,14 +996,16 @@ def _hydrate_storage_thumbnails_for_rankings_rows(
     for i in range(0, len(candidate_list), batch_size):
         batch = candidate_list[i : i + batch_size]
         try:
-            with db_slot("hydrate_storage_thumbnails"):
-                res = (
-                    sb.table("ads")
-                    .select("ad_id,thumb_storage_path")
-                    .in_("user_id", _silos(user_id))
-                    .in_("ad_id", batch)
-                    .execute()
-                )
+            # Sem db_slot explicito: o cliente do Supabase ja pega o slot em toda
+            # chamada ao PostgREST (ver _SlottedHTTPXClient). Aqui nao ha checkpoint
+            # pos-aquisicao para justificar o slot externo — seria so redundancia.
+            res = (
+                sb.table("ads")
+                .select("ad_id,thumb_storage_path")
+                .in_("user_id", _silos(user_id))
+                .in_("ad_id", batch)
+                .execute()
+            )
             for ad_row in (res.data or []):
                 ad_id = str(ad_row.get("ad_id") or "").strip()
                 storage_url = _get_storage_thumb_if_any(ad_row)
@@ -1143,15 +1149,15 @@ def _hydrate_transcription_flags_for_rankings_rows(
     for i in range(0, len(unique_names), batch_size):
         batch = unique_names[i : i + batch_size]
         try:
-            with db_slot("hydrate_transcription_flags"):
-                res = (
-                    sb.table("ad_transcriptions")
-                    .select("ad_name")
-                    .in_("user_id", _silos(user_id))
-                    .eq("status", "completed")
-                    .in_("ad_name", batch)
-                    .execute()
-                )
+            # Idem: o slot vem do cliente. Ver _SlottedHTTPXClient.
+            res = (
+                sb.table("ad_transcriptions")
+                .select("ad_name")
+                .in_("user_id", _silos(user_id))
+                .eq("status", "completed")
+                .in_("ad_name", batch)
+                .execute()
+            )
             for tr_row in (res.data or []):
                 name = str(tr_row.get("ad_name") or "").strip()
                 if name:

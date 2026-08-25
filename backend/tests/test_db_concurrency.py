@@ -261,3 +261,108 @@ class TestTetoNoPontoUnico:
         monkeypatch.setattr(sc, "SUPABASE_ANON_KEY", "chave-anon")
         client = sc.get_supabase_for_user("jwt-fake")
         assert isinstance(client.postgrest.session, sc._SlottedHTTPXClient)
+
+
+class TestSubCotaDeBackground:
+    """Trabalho de background nao pode tomar todos os slots das telas.
+
+    Efeito colateral criado quando o teto passou a valer para TODAS as chamadas:
+    o background entrou na mesma fila, e ele e muito mais paralelo (transcricao
+    20 threads, miniaturas ate 16). Sem cota, um refresh ocupa os 8 slots por
+    minutos e a tela do usuario espera ate estourar -- a protecao contra
+    sobrecarga viraria a causa da indisponibilidade.
+    """
+
+    def _configurar(self, monkeypatch, geral, background):
+        monkeypatch.setattr(db_concurrency, "_semaphore", threading.BoundedSemaphore(geral))
+        monkeypatch.setattr(
+            db_concurrency, "_background_semaphore", threading.BoundedSemaphore(background)
+        )
+        monkeypatch.setattr(db_concurrency, "DB_BACKGROUND_MAX_CONCURRENT_CALLS", background)
+        monkeypatch.setattr(db_concurrency, "DB_SLOT_ACQUIRE_TIMEOUT_S", 0.2)
+
+    def test_background_nao_ocupa_alem_da_sub_cota(self, monkeypatch):
+        """Com geral=4 e background=2, o background para em 2 mesmo havendo slot livre."""
+        self._configurar(monkeypatch, geral=4, background=2)
+        prontos = threading.Semaphore(0)
+        liberar = threading.Event()
+
+        def segurador():
+            with db_slot("job_background"):
+                prontos.release()
+                liberar.wait(timeout=5)
+
+        ts = [threading.Thread(target=segurador) for _ in range(2)]
+        for th in ts:
+            th.start()
+        assert prontos.acquire(timeout=2) and prontos.acquire(timeout=2)
+
+        try:
+            # A thread principal do teste tambem conta como background (sem rota
+            # no contexto). Ha 2 slots gerais livres, mas a sub-cota esta cheia.
+            with pytest.raises(DBConcurrencyTimeout):
+                with db_slot("terceiro_background"):
+                    pass
+        finally:
+            liberar.set()
+            for th in ts:
+                th.join()
+
+    def test_tela_alcanca_slot_que_background_nao_alcanca(self, monkeypatch):
+        """A diferenca geral - background fica RESERVADA para requisicao interativa."""
+        from app.core.request_context import current_route
+
+        self._configurar(monkeypatch, geral=2, background=1)
+        segurando = threading.Event()
+        liberar = threading.Event()
+
+        def background():
+            with db_slot("job_background"):
+                segurando.set()
+                liberar.wait(timeout=5)
+
+        t = threading.Thread(target=background)
+        t.start()
+        assert segurando.wait(timeout=2)
+        try:
+            # Simula thread que serve uma request: contexto tem rota.
+            token = current_route.set("/analytics/rankings")
+            try:
+                with db_slot("tela_do_usuario"):
+                    pass  # nao pode levantar: o 2o slot e dela
+            finally:
+                current_route.reset(token)
+        finally:
+            liberar.set()
+            t.join()
+
+    def test_sub_cota_devolvida_quando_o_slot_geral_falha(self, monkeypatch):
+        """Se o geral nega, a sub-cota nao pode ficar retida (vazaria a cota)."""
+        self._configurar(monkeypatch, geral=1, background=2)
+        segurando = threading.Event()
+        liberar = threading.Event()
+
+        def ocupa_o_geral():
+            from app.core.request_context import current_route
+
+            token = current_route.set("/interativa")
+            try:
+                with db_slot("segura_o_geral"):
+                    segurando.set()
+                    liberar.wait(timeout=5)
+            finally:
+                current_route.reset(token)
+
+        t = threading.Thread(target=ocupa_o_geral)
+        t.start()
+        assert segurando.wait(timeout=2)
+        try:
+            with pytest.raises(DBConcurrencyTimeout):
+                with db_slot("background_sem_geral"):
+                    pass
+            livre_antes = db_concurrency._background_semaphore.acquire(timeout=0.5)
+            assert livre_antes, "sub-cota ficou retida apos falha no slot geral"
+            db_concurrency._background_semaphore.release()
+        finally:
+            liberar.set()
+            t.join()

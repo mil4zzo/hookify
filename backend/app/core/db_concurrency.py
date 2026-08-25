@@ -46,7 +46,12 @@ import time
 from contextlib import contextmanager
 from typing import Callable, Iterator, TypeVar
 
-from app.core.config import DB_MAX_CONCURRENT_CALLS, DB_SLOT_ACQUIRE_TIMEOUT_S
+from app.core.config import (
+    DB_BACKGROUND_MAX_CONCURRENT_CALLS,
+    DB_MAX_CONCURRENT_CALLS,
+    DB_SLOT_ACQUIRE_TIMEOUT_S,
+)
+from app.core.request_context import current_route
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,30 @@ class DBConcurrencyTimeout(Exception):
 
 
 _semaphore = threading.BoundedSemaphore(DB_MAX_CONCURRENT_CALLS)
+
+# SUB-COTA PARA TRABALHO DE BACKGROUND.
+# Depois que o teto passou a valer para TODAS as chamadas (interceptacao no
+# cliente do Supabase), o trabalho de background entrou na mesma fila das telas
+# — e ele e MUITO mais paralelo: transcricao (20 threads), miniaturas (ate 16),
+# uso da Meta (4), log de acao (2). Sem cota, um refresh de pack ocupa os 8 slots
+# por minutos e a tela do usuario espera 20 s para tomar 503. A protecao contra
+# sobrecarga viraria a causa da indisponibilidade.
+#
+# Background precisa de DOIS semaforos (este e o geral); tela precisa so do
+# geral. Assim sobram sempre `DB_MAX - DB_BACKGROUND_MAX` slots que background
+# nunca alcanca. Sem risco de deadlock: quem pega dois sempre pega na MESMA
+# ordem (background -> geral) e quem pega um nao segura nada enquanto espera.
+_background_semaphore = threading.BoundedSemaphore(DB_BACKGROUND_MAX_CONCURRENT_CALLS)
+
+
+def _is_background() -> bool:
+    """Sem rota HTTP no contexto = trabalho de background.
+
+    Thread nova (ThreadPoolExecutor, threading.Thread) nasce com contexto limpo,
+    entao `current_route` vem None. Ja a thread do pool que serve uma request
+    recebe o contexto copiado por `anyio.to_thread.run_sync` e enxerga a rota.
+    """
+    return current_route.get() is None
 
 # REENTRANCIA (nao remover).
 # Alguns caminhos ja embrulhados chamam helpers que tambem embrulham -- ex.:
@@ -105,9 +134,28 @@ def db_slot(operation: str = "db") -> Iterator[None]:
         return
 
     t0 = time.monotonic()
-    acquired = _semaphore.acquire(timeout=DB_SLOT_ACQUIRE_TIMEOUT_S)
+
+    # Background passa pela sub-cota ANTES da fila geral (ver _background_semaphore).
+    background = _is_background()
+    if background:
+        if not _background_semaphore.acquire(timeout=DB_SLOT_ACQUIRE_TIMEOUT_S):
+            with _stats_lock:
+                _timeouts += 1
+            logger.warning(
+                "[db_concurrency] %s: sub-cota de background cheia (%d) apos %.1fs",
+                operation, DB_BACKGROUND_MAX_CONCURRENT_CALLS, DB_SLOT_ACQUIRE_TIMEOUT_S,
+            )
+            raise DBConcurrencyTimeout(
+                f"{operation}: sub-cota de background cheia "
+                f"({DB_BACKGROUND_MAX_CONCURRENT_CALLS})"
+            )
+
+    restante = max(0.0, DB_SLOT_ACQUIRE_TIMEOUT_S - (time.monotonic() - t0))
+    acquired = _semaphore.acquire(timeout=restante)
     waited = time.monotonic() - t0
 
+    if not acquired and background:
+        _background_semaphore.release()  # nao segurar a sub-cota sem o slot geral
     if not acquired:
         with _stats_lock:
             _timeouts += 1
@@ -150,6 +198,8 @@ def db_slot(operation: str = "db") -> Iterator[None]:
         with _stats_lock:
             _in_flight -= 1
         _semaphore.release()
+        if background:
+            _background_semaphore.release()
 
 
 def with_db_slot(operation: str, fn: Callable[[], T]) -> T:
@@ -163,6 +213,7 @@ def get_stats() -> dict:
     with _stats_lock:
         return {
             "limit_per_process": DB_MAX_CONCURRENT_CALLS,
+            "background_limit": DB_BACKGROUND_MAX_CONCURRENT_CALLS,
             "in_flight": _in_flight,
             "peak_in_flight": _peak_in_flight,
             "waited_calls": _waited_calls,

@@ -28,6 +28,10 @@ ENCRYPTION_KEY=sua_chave_de_criptografia_aqui
 # esgotamento de pool (53300) que derrubou o banco em 2026-08-24.
 # DB_MAX_CONCURRENT_CALLS=8
 # DB_SLOT_ACQUIRE_TIMEOUT_S=20
+# Sub-cota de background dentro do teto acima. Trabalho de background e muito
+# mais paralelo que tela (transcricao 20 threads, miniaturas ate 16). A diferenca
+# DB_MAX - DB_BACKGROUND_MAX fica sempre reservada para requisicao interativa.
+# DB_BACKGROUND_MAX_CONCURRENT_CALLS=5
 # Rede de segurança: threadpool de rotas síncronas por worker (padrão Starlette
 # é 40; com 4 workers seriam 160 operações bloqueantes simultâneas).
 # BACKEND_THREADPOOL_LIMIT=24

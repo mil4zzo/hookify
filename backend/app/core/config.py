@@ -178,3 +178,14 @@ BACKEND_THREADPOOL_LIMIT = max(4, BACKEND_THREADPOOL_LIMIT)
 CLIENT_DISCONNECT_ABORT_ENABLED = (
     os.getenv("CLIENT_DISCONNECT_ABORT_ENABLED", "true").lower() in ("true", "1", "yes")
 )
+
+# Sub-cota de background dentro do teto de banco (ver app/core/db_concurrency.py).
+# Trabalho de background e MUITO mais paralelo que tela (transcricao 20 threads,
+# miniaturas ate 16, uso da Meta 4). Sem cota ele ocupa todos os slots e a tela
+# do usuario espera ate estourar. Deve ser MENOR que DB_MAX_CONCURRENT_CALLS —
+# a diferenca e o que fica sempre reservado para requisicoes interativas.
+try:
+    DB_BACKGROUND_MAX_CONCURRENT_CALLS = int(os.getenv("DB_BACKGROUND_MAX_CONCURRENT_CALLS") or 5)
+except ValueError:
+    DB_BACKGROUND_MAX_CONCURRENT_CALLS = 5
+DB_BACKGROUND_MAX_CONCURRENT_CALLS = max(1, min(DB_BACKGROUND_MAX_CONCURRENT_CALLS, DB_MAX_CONCURRENT_CALLS))
