@@ -2936,3 +2936,30 @@ sendo migrar o read-path do status para `parent_entities` (migration 091).
 reentrancia, falha-rapida, devolucao do slot sob excecao, e a invariancia da
 ordem de lock a ordem de entrada. 318 testes passando.
 
+### Gate de CI do plan_cache_mode (2026-08-24)
+
+O guarda-chuva da migration 120 agora e executado automaticamente:
+`.github/workflows/db-guardrails.yml` roda `backend/scripts/check_plan_cache_mode.py`
+em todo PR e push na main.
+
+**Workflow separado do `security.yml` de proposito.** A esteira de seguranca opina
+sobre o CODIGO do repositorio; este gate fala com o BANCO REAL e opina sobre o
+estado atual do schema. Misturar os dois faria um achado de schema parecer achado
+de seguranca.
+
+**O gate FALHA quando nao consegue checar** (secrets ausentes => exit 2), em vez de
+passar. Gate que passa em silencio quando esta mal configurado e pior que gate
+nenhum: da a sensacao de protecao sem proteger. Mesmo raciocinio que obrigou a
+funcao a se auto-excluir da propria varredura.
+
+**Nao entrou no pre-commit do husky** — o hook e local e roda offline; um gate que
+depende de rede e de credencial de producao quebraria o commit de quem esta sem
+conexao. CI e o lugar certo.
+
+**Validado de ponta a ponta**, nao so no caminho feliz: criei uma funcao com o
+padrao de risco e sem a config, confirmei que o gate a detecta e sai com codigo 1
+com a instrucao de correcao pronta, e removi a funcao. Sem esse teste, so estaria
+provado que o script imprime "OK" — nao que o alarme dispara.
+
+Pre-requisito: secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no repositorio.
+

@@ -1,0 +1,55 @@
+name: DB guardrails
+
+# Invariantes do banco que precisam valer o tempo todo — e que se perdem em
+# SILÊNCIO se ninguém checar. Diferente da esteira de segurança, aqui os gates
+# falam com o banco REAL: são verdades sobre o estado atual do schema, não
+# sobre o código no repositório.
+#
+# Gate que FALHA o build:
+#   - plan-cache-mode: RPC com parâmetro opcional sem force_custom_plan
+#
+# PRÉ-REQUISITO — sem estes secrets o job FALHA (de propósito):
+#   SUPABASE_URL
+#   SUPABASE_SERVICE_ROLE_KEY
+# Um gate que passa quando não consegue checar é pior que gate nenhum: dá a
+# sensação de proteção sem proteger. Se falhar por falta de secret, configure em
+# Settings > Secrets and variables > Actions.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: db-guardrails-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan-cache-mode:
+    name: plan_cache_mode nas RPCs de parâmetro opcional
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar httpx
+        run: pip install httpx
+
+      # Contrato: public.check_plan_cache_mode_gaps() devolve ZERO linhas.
+      # Qualquer linha = função em risco sem plan_cache_mode=force_custom_plan,
+      # sujeita ao cliff de generic plan (~270x -> statement timeout 57014).
+      #
+      # Isto existe porque a correção JÁ se perdeu uma vez: versionar a base em
+      # _base_vNNN deixou a fetch_manager_rankings_series_v2 meses sem proteção,
+      # o que contribuiu para as queries de 16-18 s que esgotaram o pool de
+      # conexões e precederam o crash do Postgres em 2026-08-24.
+      - name: Checar lacunas de plan_cache_mode
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python backend/scripts/check_plan_cache_mode.py
