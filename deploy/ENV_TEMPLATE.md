@@ -20,6 +20,18 @@ CORS_ORIGINS=https://hookifyads.com,https://www.hookifyads.com
 LOG_LEVEL=info
 ENCRYPTION_KEY=sua_chave_de_criptografia_aqui
 
+# Teto de concorrência de banco (ver backend/app/core/db_concurrency.py).
+# O Postgres aceita 60 conexões (3 p/ superuser, ~10 fixas do Auth) => ~45 para
+# a aplicação. O backend roda `uvicorn --workers 4`, então o teto REAL é
+# DB_MAX_CONCURRENT_CALLS x 4. Default 8 => 32 no total, com folga.
+# ATENÇÃO: subir isto sem subir max_connections do Postgres reabre o
+# esgotamento de pool (53300) que derrubou o banco em 2026-08-24.
+# DB_MAX_CONCURRENT_CALLS=8
+# DB_SLOT_ACQUIRE_TIMEOUT_S=20
+# Rede de segurança: threadpool de rotas síncronas por worker (padrão Starlette
+# é 40; com 4 workers seriam 160 operações bloqueantes simultâneas).
+# BACKEND_THREADPOOL_LIMIT=24
+
 # AssemblyAI (transcrição de vídeos)
 ASSEMBLYAI_API_KEY=sua_chave_assemblyai_aqui
 

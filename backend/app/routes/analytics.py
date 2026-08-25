@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
+from app.core.db_concurrency import db_slot
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
@@ -716,7 +717,8 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
         "p_offset": max(0, int(req.offset or 0)),
         "p_order_by": (req.order_by or "spend"),
     }
-    rpc_result = sb.rpc("fetch_manager_rankings_core_v2", params).execute()
+    with db_slot("rankings_core_v2_rpc"):
+        rpc_result = sb.rpc("fetch_manager_rankings_core_v2", params).execute()
     return _normalize_rankings_rpc_response(rpc_result.data)
 
 
@@ -774,7 +776,8 @@ def _get_rankings_series_v2_rpc(req: RankingsSeriesRequest, user: Dict[str, Any]
         "p_window": req.window,
     }
 
-    rpc_result = sb.rpc("fetch_manager_rankings_series_v2", params).execute()
+    with db_slot("rankings_series_v2_rpc"):
+        rpc_result = sb.rpc("fetch_manager_rankings_series_v2", params).execute()
     payload = _extract_rpc_object_payload(rpc_result.data, "fetch_manager_rankings_series_v2")
     raw_map = payload.get("series_by_group") if isinstance(payload.get("series_by_group"), dict) else {}
 
@@ -841,7 +844,8 @@ def _get_rankings_retention_v2_rpc(req: RankingsRetentionRequest, user: Dict[str
         "p_ad_name_contains": f.ad_name_contains,
         "p_group_key": req.group_key,
     }
-    rpc_result = sb.rpc("fetch_manager_rankings_retention_v2", params).execute()
+    with db_slot("rankings_retention_v2_rpc"):
+        rpc_result = sb.rpc("fetch_manager_rankings_retention_v2", params).execute()
     payload = _extract_rpc_object_payload(rpc_result.data, "fetch_manager_rankings_retention_v2")
 
     group_key = str(payload.get("group_key") or req.group_key or "")
@@ -970,13 +974,14 @@ def _hydrate_storage_thumbnails_for_rankings_rows(
     for i in range(0, len(candidate_list), batch_size):
         batch = candidate_list[i : i + batch_size]
         try:
-            res = (
-                sb.table("ads")
-                .select("ad_id,thumb_storage_path")
-                .in_("user_id", _silos(user_id))
-                .in_("ad_id", batch)
-                .execute()
-            )
+            with db_slot("hydrate_storage_thumbnails"):
+                res = (
+                    sb.table("ads")
+                    .select("ad_id,thumb_storage_path")
+                    .in_("user_id", _silos(user_id))
+                    .in_("ad_id", batch)
+                    .execute()
+                )
             for ad_row in (res.data or []):
                 ad_id = str(ad_row.get("ad_id") or "").strip()
                 storage_url = _get_storage_thumb_if_any(ad_row)
@@ -1030,12 +1035,13 @@ def _hydrate_media_type_for_rankings_rows(
         try:
             # ad_name é duplicado em massa (dezenas de instâncias por nome): 200 nomes
             # passam fácil das 1000 linhas que o PostgREST corta em silêncio → paginar.
-            ads_rows = supabase_repo._fetch_all_paginated(
-                sb,
-                "ads",
-                "ad_name, media_type",
-                lambda q, b=batch: q.in_("user_id", _silos(user_id)).in_("ad_name", b).order("ad_id"),
-            )
+            with db_slot("hydrate_media_type"):
+                ads_rows = supabase_repo._fetch_all_paginated(
+                    sb,
+                    "ads",
+                    "ad_name, media_type",
+                    lambda q, b=batch: q.in_("user_id", _silos(user_id)).in_("ad_name", b).order("ad_id"),
+                )
             for ad_row in ads_rows:
                 name = str(ad_row.get("ad_name") or "").strip()
                 mt = str(ad_row.get("media_type") or "").strip()
@@ -1114,14 +1120,15 @@ def _hydrate_transcription_flags_for_rankings_rows(
     for i in range(0, len(unique_names), batch_size):
         batch = unique_names[i : i + batch_size]
         try:
-            res = (
-                sb.table("ad_transcriptions")
-                .select("ad_name")
-                .in_("user_id", _silos(user_id))
-                .eq("status", "completed")
-                .in_("ad_name", batch)
-                .execute()
-            )
+            with db_slot("hydrate_transcription_flags"):
+                res = (
+                    sb.table("ad_transcriptions")
+                    .select("ad_name")
+                    .in_("user_id", _silos(user_id))
+                    .eq("status", "completed")
+                    .in_("ad_name", batch)
+                    .execute()
+                )
             for tr_row in (res.data or []):
                 name = str(tr_row.get("ad_name") or "").strip()
                 if name:

@@ -17,6 +17,8 @@ import random
 import time
 from typing import Callable, TypeVar
 
+from app.core.db_concurrency import db_slot
+
 try:
     import httpx
 except ImportError:
@@ -78,13 +80,23 @@ def with_postgrest_retry(
     attempts: int = 4,
     base_delay: float = 0.15,
 ) -> T:
-    """Executa fn() repetindo em falhas transitórias de rede/HTTP2 e deadlocks (40P01)."""
+    """Executa fn() repetindo em falhas transitórias de rede/HTTP2 e deadlocks (40P01).
+
+    Cada tentativa roda dentro de um slot de concorrência de banco (`db_slot`).
+    O slot é pego POR TENTATIVA, de propósito: segurá-lo durante o `time.sleep()`
+    do backoff bloquearia um slot escasso sem usar o banco — o retry viraria o
+    gargalo em vez da proteção. Ver `app/core/db_concurrency.py`.
+
+    `DBConcurrencyTimeout` (saturação real) não é transitória: cai no `raise`
+    abaixo e sobe. Re-tentar saturação só alonga a fila.
+    """
     transient = _transient_httpx_exceptions()
 
     last: BaseException | None = None
     for attempt in range(attempts):
         try:
-            return fn()
+            with db_slot(operation):
+                return fn()
         except Exception as exc:
             is_transient = bool(transient) and isinstance(exc, transient)
             is_deadlock = _is_deadlock(exc)

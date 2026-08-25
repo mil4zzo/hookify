@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import * as Sentry from '@sentry/nextjs'
-import { parseError, AppError } from '@/lib/utils/errors'
+import { parseError, AppError, isAuthUnreachableError } from '@/lib/utils/errors'
 import { env } from '@/lib/config/env'
 import { getSupabaseClient } from '@/lib/supabase/client'
 
@@ -20,7 +20,19 @@ let authSessionExpiredNotified = false
 // Refresh em voo compartilhado: vários requests batendo 401/near-expiry ao mesmo
 // tempo (ex.: os polls de um refresh de packs) disparam UM único refreshSession e
 // recebem o mesmo token novo — evita tempestade de refreshes concorrentes.
-let refreshPromise: Promise<string | null> | null = null
+/**
+ * Resultado de um refresh de token. As duas falhas são DIFERENTES e não podem
+ * colapsar em `null`:
+ *  - `invalid`     → o refresh token foi recusado. A sessão realmente acabou → deslogar.
+ *  - `unreachable` → não deu para falar com o servidor de auth. A sessão pode
+ *                    estar perfeitamente válida → NÃO deslogar, só propagar o erro.
+ * Colapsar as duas em `null` foi a causa do logout em massa de 2026-08-24.
+ */
+type RefreshOutcome =
+  | { readonly ok: true; readonly token: string }
+  | { readonly ok: false; readonly reason: 'invalid' | 'unreachable' }
+
+let refreshPromise: Promise<RefreshOutcome> | null = null
 
 export const AUTH_SESSION_EXPIRED_EVENT = 'hookify:auth-session-expired'
 
@@ -65,29 +77,42 @@ function isAppAuthUnauthorized(error: any) {
  * sessionCache com a sessão nova. Retorna null se o refresh falhar (refresh token
  * realmente expirado/revogado) — nesse caso o caller decide o logout.
  */
-async function refreshAccessToken(): Promise<string | null> {
+async function refreshAccessToken(): Promise<RefreshOutcome> {
   if (refreshPromise) return refreshPromise
 
   refreshPromise = (async () => {
     try {
       const supabase = getSupabaseClient()
       const { data, error } = await supabase.auth.refreshSession()
-      if (error || !data.session) {
-        return null
+      if (error) {
+        // A distinção que evita o logout indevido: rede/gateway fora não é
+        // sessão encerrada. Ver isAuthUnreachableError.
+        return { ok: false, reason: isAuthUnreachableError(error) ? 'unreachable' : 'invalid' } as const
+      }
+      if (!data.session?.access_token) {
+        return { ok: false, reason: 'invalid' } as const
       }
       sessionCache = {
         session: data.session,
         expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
       }
-      return data.session.access_token ?? null
-    } catch {
-      return null
+      return { ok: true, token: data.session.access_token } as const
+    } catch (err) {
+      // `refreshSession` lança (em vez de retornar error) quando o fetch morre
+      // antes da resposta — o caso do gateway 5xx sem CORS.
+      return { ok: false, reason: isAuthUnreachableError(err) ? 'unreachable' : 'invalid' } as const
     } finally {
       refreshPromise = null
     }
   })()
 
   return refreshPromise
+}
+
+/** Açúcar para os call sites que só querem o token (ou nada). */
+async function refreshAccessTokenOrNull(): Promise<string | null> {
+  const outcome = await refreshAccessToken()
+  return outcome.ok ? outcome.token : null
 }
 
 /**
@@ -109,7 +134,7 @@ async function getValidAccessToken(): Promise<string | null> {
         console.warn('[API Client] Erro ao buscar sessão:', error.message)
       }
       // Sessão ilegível — tenta refrescar antes de desistir do token.
-      return refreshAccessToken()
+      return refreshAccessTokenOrNull()
     }
     session = data.session ?? null
     sessionCache = {
@@ -128,7 +153,7 @@ async function getValidAccessToken(): Promise<string | null> {
   }
 
   // Ausente ou perto/depois de expirar → refresca proativamente.
-  const refreshed = await refreshAccessToken()
+  const refreshed = await refreshAccessTokenOrNull()
   if (refreshed) return refreshed
 
   // Refresh falhou mas ainda temos um token (mesmo perto de expirar): manda ele —
@@ -229,16 +254,29 @@ class ApiClient {
               | undefined
             if (originalConfig && !originalConfig._authRetry) {
               originalConfig._authRetry = true
-              const newToken = await refreshAccessToken()
-              if (newToken) {
+              const outcome = await refreshAccessToken()
+              if (outcome.ok) {
                 originalConfig.headers = {
                   ...(originalConfig.headers as any),
-                  Authorization: `Bearer ${newToken}`,
+                  Authorization: `Bearer ${outcome.token}`,
                 }
                 return this.client.request(originalConfig)
               }
+              if (outcome.reason === 'unreachable') {
+                // Servidor de auth fora do ar — NÃO deslogar. A sessão pode estar
+                // íntegra; só não deu para renovar o token agora. Deslogar aqui
+                // transformava uma instabilidade de 5 min numa expulsão de todos
+                // os usuários (2026-08-24), ainda por cima com a mensagem errada
+                // ("sua sessão expirou ou foi encerrada em outro dispositivo").
+                // Propaga o erro: a tela mostra indisponibilidade e a próxima
+                // tentativa reaproveita a sessão quando o auth voltar.
+                if (env.NODE_ENV !== 'production') {
+                  console.warn('[API Client] auth inacessível no refresh — sessão preservada')
+                }
+                return Promise.reject(error)
+              }
             }
-            // Refresh falhou (ou já re-tentamos uma vez) → sessão de fato encerrada.
+            // Refresh recusado (ou já re-tentamos uma vez) → sessão de fato encerrada.
             notifyAuthSessionExpired({ source: error?.config?.url })
           }
         }

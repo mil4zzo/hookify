@@ -166,20 +166,42 @@ export function normalizeJobErrorMessage(
  * para uma mensagem acionável e mantemos os erros legítimos (ex.: senha errada)
  * intactos.
  */
+/**
+ * "O servidor de auth está inacessível" — distinto de "as credenciais/o token
+ * foram recusados".
+ *
+ * A distinção decide se o usuário continua logado. Quando o Supabase Auth cai,
+ * o refresh do token falha por REDE; tratar isso como sessão inválida desloga
+ * todo mundo por uma instabilidade de minutos (foi o que aconteceu em
+ * 2026-08-24: o Postgres caiu, o GoTrue não subiu, e cada aba fez logout duro).
+ * Um 400/401 do endpoint de refresh é o oposto: aí a sessão realmente acabou.
+ *
+ * Nota sobre a assinatura de CORS: resposta 5xx do gateway não carrega
+ * `Access-Control-Allow-Origin`, então o browser a entrega ao JS como um
+ * `TypeError: Failed to fetch` genérico — indistinguível de queda de rede.
+ * Por isso a deteção é por nome/mensagem, e não só por status.
+ */
+export function isAuthUnreachableError(error: unknown): boolean {
+  const anyErr = error as any
+  const msg = typeof anyErr?.message === 'string' ? anyErr.message : ''
+  const name = typeof anyErr?.name === 'string' ? anyErr.name : ''
+  const status = typeof anyErr?.status === 'number' ? anyErr.status : undefined
+
+  return (
+    name === 'AuthRetryableFetchError' ||
+    (name === 'TypeError' && /fetch/i.test(msg)) ||
+    /failed to fetch|networkerror|load failed|fetch failed|network request failed/i.test(msg) ||
+    status === 0 || status === 502 || status === 503 || status === 504
+  )
+}
+
 export function normalizeAuthError(error: unknown): AppError {
   const anyErr = error as any
   const msg = typeof anyErr?.message === 'string' ? anyErr.message : ''
   const name = typeof anyErr?.name === 'string' ? anyErr.name : ''
   const status = typeof anyErr?.status === 'number' ? anyErr.status : undefined
 
-  // Assinatura de "servidor de auth inacessível": falha de fetch/rede ou 5xx do gateway.
-  const isUnreachable =
-    name === 'AuthRetryableFetchError' ||
-    (name === 'TypeError' && /fetch/i.test(msg)) ||
-    /failed to fetch|networkerror|load failed|fetch failed|network request failed/i.test(msg) ||
-    status === 0 || status === 502 || status === 503 || status === 504
-
-  if (isUnreachable) {
+  if (isAuthUnreachableError(error)) {
     return {
       code: 'AUTH_UNREACHABLE',
       status,

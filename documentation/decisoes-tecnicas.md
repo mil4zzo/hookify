@@ -2726,3 +2726,213 @@ grupos por medo de custo (o teto de 20 é de legibilidade, não de banco).
 existem nesse nível — a RPC devolve `[]` nos demais. Herdar o seletor do Manager faria
 metade das regras sumir quando o usuário trocasse para "campanha".
 
+## "Blocked by CORS policy" no Supabase era indisponibilidade do Auth (2026-08-24)
+
+**Sintoma.** Console cheio de `Access to fetch at 'https://<proj>.supabase.co/...' from origin
+'https://hookifyads.com' has been blocked by CORS policy: No 'Access-Control-Allow-Origin'
+header is present`, em `/rest/v1/subscriptions`, `/rest/v1/user_preferences`,
+`/auth/v1/token?grant_type=refresh_token` e `/auth/v1/logout`. Junto, 401 em todas as rotas
+do backend e um `503` cru na última linha.
+
+**Não era CORS.** É o mesmo mecanismo já documentado para o nosso 500 (ver a decisão de
+2026-07-06), só que do lado de terceiro: quando o Supabase degrada, a borda dele (Cloudflare)
+devolve página de erro **520/521/503**, e resposta de erro **não carrega**
+`Access-Control-Allow-Origin`. O browser rejeita e reporta como violação de CORS. Os logs do
+backend confirmaram pelo outro lado — `{'message': 'JSON could not be generated', 'code': 521,
+'details': b'<!DOCTYPE html>...'}`, ou seja, HTML de erro do Cloudflare onde deveria vir JSON.
+
+Sondagem com o serviço saudável prova que a config sempre esteve certa:
+
+```
+Access-Control-Allow-Origin: https://hookifyads.com   (GET /auth/v1/settings)
+Access-Control-Allow-Origin: *                        (preflight OPTIONS /auth/v1/token)
+```
+
+**Regra de triagem:** erro de CORS que surge *sem nenhuma mudança de configuração* → presumir
+5xx upstream até provar o contrário. Não mexer em CSP, `CORS_ORIGINS` ou settings do Supabase.
+
+**O sinal que fecha o diagnóstico:** o `signInWithPassword` — login novo, sem token nenhum —
+falhava igual. Isso descarta sessão/refresh e prova que o GoTrue estava inacessível: durante a
+janela **ninguém conseguia entrar**, e era essa a percepção de "o app caiu".
+
+**Cascata observada** (21:12–21:17 UTC): Auth fora → `refresh_token` falha → JWT não renova →
+backend rejeita tudo com 401 → `AuthSessionExpiredHandler` limpa o `queryClient`, zera a sessão,
+tenta `signOut` (que também falha, mas está dentro de `try/catch`) → `/login?expired=true` →
+no login, `signInWithPassword` falha → toast `AUTH_UNREACHABLE`.
+
+**O tratamento funcionou como projetado.** `normalizeAuthError` classificou o
+`TypeError: Failed to fetch` como `AUTH_UNREACHABLE` e mostrou a mensagem certa em vez de um
+"Network Error" opaco. O toast era o sistema acertando, não falhando.
+
+**Dívida que o incidente expôs.** Um blip transitório do Auth produz **logout duro**: os 401
+vieram de um token que não pôde ser renovado, não de uma sessão de fato inválida. Vale
+distinguir "token rejeitado" (expiração real → deslogar) de "não consegui alcançar o Auth para
+renovar" (transitório → segurar a sessão e re-tentar com backoff), senão toda instabilidade do
+Supabase ejeta todo mundo do app.
+
+**Pendência não relacionada, mas na mira:** a CSP está em `Content-Security-Policy-Report-Only`
+e o `next.config.ts` já documenta a intenção de trocar para enforce. Se trocar hoje, o beacon
+`static.cloudflareinsights.com` — injetado pelo proxy da Cloudflare, não pelo nosso código —
+passa a ser **bloqueado** de verdade. Antes de ativar: liberar o host em `script-src` ou
+desligar o Web Analytics na Cloudflare.
+
+## O "outage do Supabase" de 24/08 foi o app derrubando o proprio banco (2026-08-24)
+
+Complementa e **corrige** a secao anterior sobre o erro de CORS. O erro de CORS estava certo no
+mecanismo (5xx nao carrega `Access-Control-Allow-Origin`), mas a atribuicao estava errada: a
+plataforma do Supabase nao falhou. O **Postgres crashou**, e a carga era nossa.
+
+**Linha do tempo, toda com evidencia nos logs do projeto:**
+
+| Hora (UTC) | Evento |
+|---|---|
+| 21:08:16–21:08:31 | ~40 × `FATAL 53300 remaining connection slots are reserved...` no role `authenticator` — pool de conexoes esgotado |
+| 21:08:37 | RPC de analytics com **16.763 ms** (`p_user_id, p_date_start, ..., p_group_by, p_pack_ids, ...`) |
+| 21:08:42.347 | `ERROR 57014 canceling statement due to statement timeout` |
+| 21:08:42.825 | **Sentry HOOKIFY-43** dispara — mesma query, 478 ms depois |
+| 21:11:51–21:12:32 | Pilha de locks: `still waiting for ShareLock`, **`40P01 deadlock detected`**, 2 × `55P03 lock timeout` |
+| 21:12:19 / 21:12:25 | `UPDATE ads SET campaign_status` em **15.993 ms** e `UPDATE ads SET adset_status` em **18.154 ms** |
+| 21:16:50 | `FATAL 57P03 the database system is not accepting connections` — **Postgres cai** |
+| 21:16:50–21:17:00 | GoTrue em crash-loop 4× (`running db migrations: ... SQLSTATE 57P03`) |
+| 21:17:00–21:17:01 | `redo in progress, elapsed time: 10.00 s` → `redo done ... elapsed: 11.50 s` — **crash recovery**, 666 MB de WAL |
+| 21:17:03 | `database system is ready to accept connections` |
+| 21:17:04 | `GoTrue API started on: localhost:9999` — auth volta |
+
+`pg_postmaster_start_time()` = `2026-08-24 21:16:50` confirma que o processo reiniciou ali.
+`redo in progress` + `invalid record length ... expected at least 24, got 0` e assinatura de
+**crash**, nao de shutdown limpo.
+
+**HOOKIFY-43 deixa de ser misterio.** As 66 ocorrencias desde 13/07 de
+`POST /analytics/ad-performance` → 500 `"Erro ao consultar analytics agregados."` sao a RPC de
+analytics batendo no `statement_timeout`. O casamento de timestamp (21:08:42.347 no Postgres,
+21:08:42.825 no Sentry) fecha a atribuicao.
+
+**Numeros do banco (medidos):** `max_connections = 60`, `superuser_reserved_connections = 3` →
+**57 slots uteis**; `shared_buffers` = 256 MB; `work_mem` = 3,5 MB. O advisor aponta que o
+**Auth esta fixado em 10 conexoes absolutas** — ~17% do pool.
+
+**Amplificador nosso:** `deploy/Dockerfile.backend` sobe `uvicorn --workers 4`, e nao ha
+`httpx.Limits` explicito no cliente Supabase. Quatro processos, cada um com o pool default do
+httpx, despejando no PostgREST que divide ~57 conexoes com Auth/Storage/Realtime.
+
+**Auditoria do `plan_cache_mode` (a remediacao ficou pela metade).** Ja tem
+`force_custom_plan`: `fetch_manager_rankings_core_v2_base_v093/104/105/115/116` e
+`fetch_manager_rankings_retention_v2`. **Continua sem: `fetch_manager_rankings_series_v2`**
+(plpgsql de ~16 KB, 12 args, query inline com params opcionais). A entry
+`fetch_manager_rankings_core_v2` tambem nao tem, mas delega o peso ao `_base_v116`; o residuo
+dela e so o pos-processamento de `group_by in ('adset_id','campaign_id')`. **Licao de processo:**
+versionar a base em `_base_vNNN` faz o `ALTER FUNCTION ... SET plan_cache_mode` se perder em
+silencio — herdar explicitamente a cada versao nova.
+
+**Cuidado com o advisor de indices.** Ele lista ~50 "unused index", varios em `ads` e
+`ad_metrics`. Como o Postgres crashou as 21:16:50 e as estatisticas cumulativas sao descartadas
+em shutdown sujo, esses contadores medem **so as horas desde o crash**, nao a vida do indice.
+Nao dropar nada com base nessa leitura — refazer a consulta depois de uma janela longa e limpa.
+
+**Ordem de ataque acordada:** (1) limitar concorrencia de saida com `httpx.Limits` dimensionado
+por `workers x limite`; (2) `force_custom_plan` no `series_v2`; (3) trocar a estrategia de
+conexao do Auth para percentual; (4) atacar os `UPDATE ads SET *_status` de 16-18 s — e para
+isso que a `parent_entities` (migration 091) existe, falta migrar o read-path do status; (5) so
+entao considerar subir a instancia.
+
+### Correcao aplicada (migration 120, 2026-08-24)
+
+`fetch_manager_rankings_series_v2` e `resolve_pack_mql_leadscore_min` receberam
+`plan_cache_mode = force_custom_plan`. Estado apos a migration: **8 funcoes protegidas,
+0 lacunas**.
+
+Alem do fix pontual, a migration adiciona o **guarda-chuva** pedido: a funcao
+`public.check_plan_cache_mode_gaps()` lista toda funcao em `public` que usa o padrao
+`p_x is null or` e esta **sem** a config. **O contrato e que ela retorne zero linhas** —
+plugar no CI / pre-deploy e falhar o build se voltar qualquer linha. E isso que impede a
+regressao silenciosa quando alguem criar um `_base_vNNN` novo e esquecer de herdar o
+`ALTER FUNCTION`.
+
+Detalhe de implementacao: a funcao **se auto-exclui** (`proname <> 'check_plan_cache_mode_gaps'`),
+porque o corpo dela contem literalmente o padrao que ela procura — sem isso o guarda-chuva
+nasce vermelho para sempre e vira alarme ignorado.
+
+## Correcoes do incidente de 24/08: teto de concorrencia, logout e ordem de lock (2026-08-24)
+
+Tres correcoes derivadas do crash. Ordem escolhida por relacao impacto/risco.
+
+### 1) Teto de concorrencia de banco (`app/core/db_concurrency.py`)
+
+**O desequilibrio, em numeros:** o Postgres aceita 60 conexoes (3 reservadas p/
+superuser, ~10 fixas do Auth) => ~45 para a aplicacao. O backend roda
+`uvicorn --workers 4` e cada worker tem o threadpool padrao do Starlette de 40
+threads => **ate 160 operacoes bloqueantes simultaneas**. O backend estava
+dimensionado para exigir ~3x mais do que o outro lado serve.
+
+**Por que cancelar no cliente nao resolvia.** O frontend JA aborta a request
+anterior ao trocar filtro (`signal` do TanStack ligado ao axios em
+`endpoints.ts`). Mas toda rota de analytics e **sincrona** (`def`, nao
+`async def`): FastAPI a roda numa thread do pool, e **thread em execucao nao
+pode ser interrompida**. O navegador desliga e o backend segue ate o fim,
+segurando a conexao. Cancelar no cliente nao devolve o slot — o teto tem de ser
+do lado do servidor. (Evidencia: nos logs do banco aparece UM
+`canceling statement due to user request` contra dezenas que rodaram ate o
+`statement timeout`.)
+
+**Decisao: semaforo por processo na chamada ao PostgREST, nao corte do
+threadpool.** O semaforo e cirurgico — limita so trabalho de banco e deixa
+chamada a Meta (lenta, sem conexao de banco) passar livre. Cortar o threadpool
+estrangularia upload/jobs junto. O corte do threadpool ficou como **rede de
+seguranca** (`BACKEND_THREADPOOL_LIMIT`, default 24), nao como mecanismo
+principal.
+
+**O semaforo e REENTRANTE por thread — nao remover.** Alguns caminhos ja
+embrulhados chamam helpers que tambem embrulham (ex.: hidratacao que por dentro
+usa `with_postgrest_retry`). Sem a guarda, a mesma thread pegaria 2 slots e, com
+varias threads cada uma segurando 1 e esperando o 2o, o backend inteiro travava
+— deadlock classico de semaforo. Com a guarda, o slot e da operacao mais externa.
+
+**O slot e pego POR TENTATIVA dentro do `with_postgrest_retry`**, nunca em volta
+do loop: segura-lo durante o `sleep` do backoff bloquearia recurso escasso sem
+usar o banco, e o retry viraria o gargalo.
+
+`DBConcurrencyTimeout` **nao e falha transitoria**: cai no `raise` do helper e
+sobe. Re-tentar saturacao so alonga a fila.
+
+Teto real = `DB_MAX_CONCURRENT_CALLS x workers` (mesma armadilha do rate limit em
+memoria — estado de processo vale N vezes). Default 8 => 32. `/health` expoe
+`db_concurrency` por worker: `acquire_timeouts > 0` em qualquer um = teto atingido.
+
+### 2) Instabilidade curta do Auth nao desloga mais (Achados 5 e 6)
+
+**Causa raiz:** `refreshAccessToken` colapsava em `null` duas situacoes
+opostas — refresh token recusado (sessao acabou de verdade) e falha de rede
+(servidor de auth fora, sessao possivelmente intacta). O interceptor tratava
+ambas como sessao encerrada e fazia logout duro.
+
+Agora devolve `RefreshOutcome` discriminado (`invalid` | `unreachable`). Só
+`invalid` desloga; `unreachable` preserva a sessao e propaga o erro. A deteccao
+usa `isAuthUnreachableError`, extraida de `normalizeAuthError` para haver **uma
+fonte de verdade** entre o interceptor e a tela de login.
+
+Detalhe que obriga a detectar por nome/mensagem e nao so por status: resposta
+5xx do gateway nao carrega CORS, entao o browser entrega ao JS um
+`TypeError: Failed to fetch` generico, indistinguivel de queda de rede.
+
+**Achado 6 saiu de graca:** a mensagem "sua sessao expirou ou foi encerrada em
+outro dispositivo" agora so aparece no caso em que ela e verdadeira.
+
+### 3) Ordem determinista de lock em `write_parent_statuses` (Achado 4)
+
+Dois syncs concorrentes (packs distintos da mesma conta, ou toggle + sync
+on-focus) tocam as MESMAS linhas de `ads`. Percorrendo os `parent_ids` em ordens
+diferentes, pegavam locks em ordens opostas e se abracavam — `40P01` em
+2026-08-24 21:12:00, junto de UPDATEs de 16-18 s.
+
+Fix: `sorted()` no status e nos ids antes de chunkar. Com **ordem total
+consistente**, deadlock e aritmeticamente impossivel: some o ciclo de espera, no
+maximo um espera o outro. Nao trocar por iteracao de dict sem sort — a ordem de
+insercao vem do edge do Meta e varia entre chamadas.
+
+Isto e o paliativo barato. O fim definitivo dos UPDATEs largos em `ads` continua
+sendo migrar o read-path do status para `parent_entities` (migration 091).
+
+**Cobertura de teste:** `backend/tests/test_db_concurrency.py` — teto,
+reentrancia, falha-rapida, devolucao do slot sob excecao, e a invariancia da
+ordem de lock a ordem de entrada. 318 testes passando.
+

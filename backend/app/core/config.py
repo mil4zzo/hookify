@@ -139,3 +139,34 @@ STRIPE_PIX_ENABLED = (os.getenv("STRIPE_PIX_ENABLED") or "").lower() == "true"
 STRIPE_PIX_ANNUAL_AMOUNT_CENTS = int(os.getenv("STRIPE_PIX_ANNUAL_AMOUNT_CENTS") or 79000)
 FRONTEND_BASE_URL = os.getenv("FRONTEND_BASE_URL", "http://localhost:3000")
  
+
+# --- Teto de concorrencia de banco (ver app/core/db_concurrency.py) -----------
+# O banco aceita 60 conexoes (3 reservadas p/ superuser, ~10 fixas do Auth) =>
+# ~45 para a aplicacao. O backend roda `uvicorn --workers 4`, entao o teto REAL
+# e DB_MAX_CONCURRENT_CALLS x 4 (estado de processo vale N vezes, mesma
+# armadilha do rate limit em memoria). Default 8 => 32 no total, com folga.
+# Subir isto sem subir max_connections do Postgres reabre o 53300 de 2026-08-24.
+try:
+    DB_MAX_CONCURRENT_CALLS = int(os.getenv("DB_MAX_CONCURRENT_CALLS") or 8)
+except ValueError:
+    DB_MAX_CONCURRENT_CALLS = 8
+DB_MAX_CONCURRENT_CALLS = max(1, DB_MAX_CONCURRENT_CALLS)
+
+# Espera maxima por um slot antes de falhar. Esperar e desejado (lento > caido),
+# mas espera infinita so acumula thread parada segurando memoria.
+try:
+    DB_SLOT_ACQUIRE_TIMEOUT_S = float(os.getenv("DB_SLOT_ACQUIRE_TIMEOUT_S") or 20.0)
+except ValueError:
+    DB_SLOT_ACQUIRE_TIMEOUT_S = 20.0
+DB_SLOT_ACQUIRE_TIMEOUT_S = max(1.0, DB_SLOT_ACQUIRE_TIMEOUT_S)
+
+# Rede de seguranca: teto do threadpool de rotas sincronas por worker.
+# Starlette usa 40 por padrao; com 4 workers sao 160 operacoes bloqueantes
+# simultaneas possiveis. Nao substitui o semaforo acima (este corta TODO
+# trabalho, inclusive chamada a Meta que nao usa conexao de banco) -- e so o
+# limite superior do processo.
+try:
+    BACKEND_THREADPOOL_LIMIT = int(os.getenv("BACKEND_THREADPOOL_LIMIT") or 24)
+except ValueError:
+    BACKEND_THREADPOOL_LIMIT = 24
+BACKEND_THREADPOOL_LIMIT = max(4, BACKEND_THREADPOOL_LIMIT)

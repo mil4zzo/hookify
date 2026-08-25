@@ -949,7 +949,19 @@ def write_parent_statuses(
             pid = str(parent_id)
             if status and (present is None or pid in present):
                 by_status.setdefault(str(status).upper(), []).append(pid)
-        for status_value, ids in by_status.items():
+        # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01).
+        # Dois syncs concorrentes (packs distintos da mesma conta, ou toggle + sync
+        # on-focus) tocam as MESMAS linhas de `ads`. Se cada um percorre os parent_ids
+        # numa ordem diferente, eles pegam os locks em ordens opostas e se abracam:
+        # o Postgres detecta o ciclo e mata uma das transacoes (visto em producao em
+        # 2026-08-24 21:12:00, junto de UPDATEs de 16-18 s).
+        # Ordenar status e ids faz TODO caminho concorrente pedir os locks na MESMA
+        # sequencia -- com ordem total consistente, deadlock e aritmeticamente
+        # impossivel (some o ciclo de espera; no maximo um espera o outro).
+        # NAO trocar por iteracao de dict sem sort: a ordem de insercao vem do edge
+        # do Meta e varia entre chamadas.
+        for status_value in sorted(by_status):
+            ids = sorted(by_status[status_value])
             for i in range(0, len(ids), 200):
                 chunk = ids[i : i + 200]
                 # updated_at fresco: o wrapper RPC desempata linhas divergentes por recência

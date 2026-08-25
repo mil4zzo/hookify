@@ -2,7 +2,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
-from app.core.config import CORS_ORIGINS, LOG_AD_ID_TRUNCATED, LOG_LEVEL, LOG_SUPPRESS_HTTPX
+from app.core.config import (
+    BACKEND_THREADPOOL_LIMIT,
+    CORS_ORIGINS,
+    DB_MAX_CONCURRENT_CALLS,
+    LOG_AD_ID_TRUNCATED,
+    LOG_LEVEL,
+    LOG_SUPPRESS_HTTPX,
+)
+from app.core import db_concurrency
 from app.core.logging_config import setup_httpx_logging_filter
 from app.core.rate_limit import rate_limit_middleware
 from app.core.request_context import current_page_route, current_route
@@ -101,6 +109,38 @@ app.include_router(pack_shares_router)
 app.include_router(tags_router)
 app.include_router(boards_router)
 
+@app.on_event("startup")
+async def _cap_threadpool() -> None:
+    """Limita o threadpool das rotas sincronas (rede de seguranca de concorrencia).
+
+    Toda rota `def` (nao `async def`) roda numa thread desse pool. O padrao do
+    Starlette e 40 threads POR PROCESSO; com `uvicorn --workers 4` isso da ate
+    160 operacoes bloqueantes simultaneas contra um banco que serve ~45
+    conexoes. Em 2026-08-24 esse desequilibrio terminou em esgotamento de pool
+    (53300) e crash do Postgres.
+
+    Isto NAO substitui o semaforo de `app/core/db_concurrency.py`: aquele e
+    cirurgico (so trabalho de banco, deixa chamada a Meta passar), este e o
+    teto duro do processo. Os dois juntos evitam tanto o afogamento do banco
+    quanto o crescimento indefinido de threads.
+    """
+    try:
+        import anyio.to_thread
+
+        limiter = anyio.to_thread.current_default_thread_limiter()
+        previous = limiter.total_tokens
+        limiter.total_tokens = BACKEND_THREADPOOL_LIMIT
+        logger.info(
+            "[startup] threadpool de rotas sincronas: %s -> %s por worker "
+            "(teto do processo; concorrencia de banco = %s por worker)",
+            previous,
+            BACKEND_THREADPOOL_LIMIT,
+            DB_MAX_CONCURRENT_CALLS,
+        )
+    except Exception as exc:  # nunca derrubar o boot por causa do limitador
+        logger.warning("[startup] nao foi possivel ajustar o threadpool: %s", exc)
+
+
 @app.get("/")
 def root():
     """Health check endpoint."""
@@ -112,7 +152,10 @@ def health_check():
     return {
         "status": "healthy",
         "service": "hookify-backend",
-        "version": "0.1.0"
+        "version": "0.1.0",
+        # Saturacao de banco por processo. Com --workers 4, cada worker responde
+        # com os SEUS numeros: acquire_timeouts > 0 em qualquer um = teto atingido.
+        "db_concurrency": db_concurrency.get_stats(),
     }
 
 if __name__ == "__main__":
