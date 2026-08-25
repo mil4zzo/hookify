@@ -1238,6 +1238,15 @@ def _write_parent_status_column(*, user_jwt: Optional[str], user_id: str, entity
             f"write_parent_status_column[{column}]",
             lambda: sb.table("ads").update({column: str(status).upper(), "updated_at": now_iso}).eq("user_id", user_id).eq(id_column, entity_id).execute(),
         )
+        # DOUBLE-WRITE: mesma verdade em parent_entities (fonte do read-path apos a
+        # migracao). Sem isto, pausar/ativar deixaria a parent_entities stale ate o
+        # proximo sync completo — o bloqueador que impede trocar a fonte de leitura.
+        supabase_repo.write_parent_entity_statuses(
+            user_jwt,
+            user_id,
+            {"campaigns" if entity_type == "campaign" else "adsets": {entity_id: status}},
+            sb_client=sb,
+        )
     except Exception:
         logger.exception("[UPDATE_STATUS] Falha ao gravar %s local para %s %s", column, entity_type, entity_id)
 
@@ -1274,6 +1283,12 @@ def _sync_campaign_adset_statuses(*, api: GraphAPI, user_jwt: Optional[str], use
             with_postgrest_retry(
                 "clear_adset_status_for_campaign",
                 lambda: sb.table("ads").update({"adset_status": None}).eq("user_id", user_id).eq("campaign_id", campaign_id).execute(),
+            )
+            # Desde a 122 a fonte LIDA e parent_entities: anular so em `ads` virou
+            # no-op e deixaria os conjuntos exibindo o status antigo sob a campanha
+            # recem-pausada. Anular aqui reativa o fallback por marcadores.
+            supabase_repo.clear_parent_entity_adset_statuses(
+                user_jwt, user_id, [campaign_id], sb_client=sb,
             )
     except Exception:
         logger.exception("[UPDATE_STATUS] Falha ao sincronizar adset_status dos conjuntos da campanha %s", campaign_id)
@@ -1536,6 +1551,20 @@ def _batch_reconcile_parent_status_local(
     for eid, st in resolved.items():
         by_status.setdefault(st, []).append(eid)
 
+    # DOUBLE-WRITE em parent_entities, ANTES da cascata em `ads`: `resolved` ja e a
+    # verdade VERIFICADA (relida do Meta) e nao depende de nada abaixo. Se a cascata
+    # falhar no meio, parent_entities fica correta e `ads` e que fica atrasada — o
+    # lado certo de errar, ja que parent_entities passa a ser a fonte lida.
+    try:
+        supabase_repo.write_parent_entity_statuses(
+            user_jwt,
+            user_id,
+            {"campaigns" if entity_type == "campaign" else "adsets": dict(resolved)},
+            sb_client=sb,
+        )
+    except Exception:
+        logger.exception("[BATCH_ENTITY_STATUS] Falha no espelho em parent_entities (%s)", entity_type)
+
     try:
         # Ordem deterministica de lock (anti-deadlock 40P01): mesmas linhas de `ads`
         # que _write_local_statuses e write_parent_statuses tocam, e os tres podem
@@ -1574,6 +1603,11 @@ def _batch_reconcile_parent_status_local(
                         lambda c=chunk: sb.table("ads").update(
                             {"adset_status": None}
                         ).eq("user_id", user_id).in_("campaign_id", c).execute(),
+                    )
+                    # Idem ponto 1: sem isto, desde a 122, o toggle em lote de
+                    # campanha deixaria os conjuntos filhos com status defasado.
+                    supabase_repo.clear_parent_entity_adset_statuses(
+                        user_jwt, user_id, chunk, sb_client=sb,
                     )
     except Exception:
         logger.exception("[BATCH_ENTITY_STATUS] Falha na reconciliação local de status (%s)", entity_type)
@@ -1932,6 +1966,10 @@ def sync_packs_status(
                 supabase_repo.write_parent_statuses(
                     user_jwt, user_id, enricher.project_parent_statuses(parent_entities),
                     sb_client=_sb_for(user_jwt),
+                    # `upsert_parent_entities` logo abaixo grava o MESMO status (mesmo
+                    # snapshot, mesmo filtro de escopo) junto do orcamento. Espelhar aqui
+                    # reescreveria as ~13k linhas de pai duas vezes por sync de conta.
+                    also_parent_entities=False,
                 )
                 try:
                     supabase_repo.upsert_parent_entities(

@@ -3342,3 +3342,115 @@ dois muda nada -- o planner faria seq scan de qualquer jeito, e nao da para
 demonstrar speedup nesse tamanho. Sao preparacao para escala, nao correcao de
 problema atual. Registrado assim de proposito para ninguem depois achar que
 media alguma coisa.
+
+---
+
+## 2026-08-25 — Status de pai migra de `ads` para `parent_entities` (migration 122)
+
+### Como o alvo foi escolhido: medicao, nao palpite
+
+Descoberto que `pg_stat_statements` estava ligado — o banco ja cronometrava cada
+consulta. As 6 consultas mais caras concentram **86% de todo o tempo de banco**:
+
+| Consulta | % do tempo | Media | Lido por chamada |
+|---|---|---|---|
+| RPC `..._series_v2` | 26% | 7,9 s | 939 MB |
+| RPC `..._core_v2` | 22% | 8,8 s | 1.276 MB |
+| `UPDATE ads SET campaign_status` | 12% | 1,7 s | 903 MB (+11 MB WAL) |
+| `UPDATE ads SET adset_status` | 10% | 0,5 s | 333 MB |
+| `SELECT campaign_id, adset_id FROM ads` | 9% | 65 ms | x858 chamadas |
+| `UPDATE ads SET effective_status` | 7% | 116 ms | 33 MB |
+
+**As quatro ultimas sao um subsistema so — escrita de status em `ads` — e somam
+43%.** A causa e amplificacao pura: para registrar o status de **1.188 campanhas**
+o app reescreve **70.982 linhas** (59,7x); nos conjuntos, 19,4x. A `parent_entities`
+(migration 091) guarda UMA linha por pai e ja era escrita ha semanas, sem ninguem
+ler o status dela.
+
+**EXPLAIN nao foi usado aqui de proposito:** ele responde "o planner escolheu mal?".
+Neste caso o plano nao e ruim — o TRABALHO e grande demais. Reescrever 70 mil linhas
+para registrar 1.188 status e caro em qualquer plano.
+
+### O bloqueador que a investigacao achou antes de qualquer codigo
+
+`parent_entities.effective_status` **nao era escrito pelo toggle**. So os syncs de
+conta inteira (enrich/on-focus) gravavam; pausar/ativar pelo app ia so para `ads`.
+Trocar a leitura sem fechar isso faria a entidade recem-pausada continuar aparecendo
+ativa ate o proximo sync completo.
+
+Por isso a ordem: **(1) fechar o double-write → (2) trocar a leitura → (3) parar de
+escrever em `ads`.** Inverter arrisca um bug visivel no toggle.
+
+### Teste diferencial (pre-requisito da troca)
+
+Comparadas as duas fontes sobre dados reais, usando a **expressao completa** do
+wrapper (fonte + fallback por marcadores), nao so as colunas cruas:
+
+| Nivel | Comparacoes | Divergentes | So em `ads` |
+|---|---|---|---|
+| Campanha | 3.183 | **0** | 17 (todos com status NULL) |
+| Conjunto | 9.542 | **0** | 69 (todos com status NULL) |
+
+Zero divergencia em 12.725 linhas; toda lacuna e caso onde `ads` nao tem nada a
+oferecer. `parent_entities` e fonte estritamente melhor.
+
+### Ganho medido no read-path
+
+Sobre 500 conjuntos (pagina real do Manager), isolando a resolucao de status:
+
+| | Antes (`ads`) | Depois (`parent_entities`) |
+|---|---|---|
+| Resolucao | ~150 ms | **7 ms** |
+| Por linha | 0,299 ms | 0,014 ms (**21x**) |
+| Paginas lidas | 10.230 | 5.684 (-45%) |
+
+O plano antigo fazia `Sort` + `Index Scan` sobre ~9 linhas por conjunto, 500 vezes
+(o `ORDER BY updated_at DESC` existia para desempatar linhas do MESMO pai que
+divergissem — impossivel por construcao quando so ha UMA linha por pai). O novo e
+busca por chave primaria. **Custo de join adicional: zero** — o `effective_status`
+entrou na lateral `pb_self` que ja era feita para o budget.
+
+### Duas armadilhas encontradas durante a implementacao
+
+**1. Espelho antes do filtro de escopo (pego antes de rodar).** A primeira versao
+espelhava o payload cru de `write_parent_statuses` para `parent_entities`. Mas o
+snapshot de conta inteira traz TODOS os pais da conta Meta, inclusive milhares sem
+nenhum anuncio importado — `write_parent_statuses` filtra esses antes de escrever em
+`ads`. Espelhar antes do filtro incharia a tabela com entidades que nenhuma tela le.
+Invariante adotada e testada: **`parent_entities` recebe exatamente o mesmo conjunto
+que `ads`**.
+
+**2. A anulacao deliberada apos toggle de CAMPANHA.** Pausar uma campanha nao muda o
+status proprio dos conjuntos filhos no Meta — muda o `effective_status` deles. O
+codigo entao anulava `ads.adset_status` para reativar o fallback por marcadores.
+Com a fonte trocada, anular so em `ads` virou **no-op**: sem o espelho da anulacao,
+o toggle em lote de campanha deixaria os conjuntos exibindo o status antigo. Coberto
+por `clear_parent_entity_adset_statuses` nos dois pontos. Este caso **nao aparece no
+teste diferencial** por ser estado transitorio — foi achado lendo o codigo.
+
+Alternativa considerada e REJEITADA: resolver hierarquicamente no RPC (conjunto sob
+campanha pausada = CAMPAIGN_PAUSED), o que dispensaria a escrita destrutiva. E
+melhor engenharia, mas muda a semantica de resolucao no mesmo passo da troca de
+fonte. Fica como simplificacao futura.
+
+### Por que o passo 3 NAO foi junto
+
+Parar de escrever `ads.adset_status`/`campaign_status` e o que colhe os 43%. Foi
+deixado para migration separada por um motivo concreto, nao por cautela vaga:
+**enquanto as colunas continuam frescas, o rollback e reverter a 122** e a leitura
+volta a uma fonte correta. Parando a escrita, elas ficam obsoletas em horas e o
+rollback deixa de existir.
+
+Pre-verificado: **zero leitores** das colunas em todo o sistema — nenhuma funcao,
+view, policy ou indice no banco (consultado em `pg_proc`/`pg_class`/`pg_policy`/
+`pg_index`), nada no frontend, e no backend so restam os writes. O passo 3 e
+mecanico quando for a hora.
+
+### Verificacao
+
+18 testes novos em `backend/tests/test_parent_entities_double_write.py`, com **7
+sabotagens deliberadas** confirmando que cada um falha quando o mecanismo quebra.
+Uma delas expos um teste inutil: a checagem de ordem deterministica de lock passava
+mesmo com a ordem invertida, porque a entrada escolhida era simetrica (invertida ==
+ordenada). Corrigido com entrada assimetrica. **Sabotagem e o que separa teste que
+verifica de teste que decora.**

@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 4m1FgHScZa8nZ4zgLQDwoJvT6QqxbUi3iJpAocvNEKLG5Anc23yY3jH85y0Mhzg
+\restrict 0w0dvxuLfJ3X7bXrI8xTpXl5CAI9PTcDZt9FpuSDhdTOEVs2n24wiOQNNjTHVNX
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -894,6 +894,39 @@ COMMENT ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, p_
 
 
 --
+-- Name: check_plan_cache_mode_gaps(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.check_plan_cache_mode_gaps() RETURNS TABLE(funcao text, motivo text)
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    AS $$
+  select
+    p.oid::regprocedure::text as funcao,
+    'usa o padrao "p_x is null or" e esta SEM plan_cache_mode=force_custom_plan' as motivo
+  from pg_proc p
+  join pg_namespace ns on ns.oid = p.pronamespace
+  where ns.nspname = 'public'
+    and p.prokind = 'f'
+    -- exclui a si mesma: o corpo desta funcao contem o padrao que ela procura
+    and p.proname <> 'check_plan_cache_mode_gaps'
+    and p.prosrc ~ 'p_\w+ is null or'
+    and coalesce(array_to_string(p.proconfig, ','), '')
+        not like '%plan_cache_mode=force_custom_plan%'
+  order by 1
+$$;
+
+
+ALTER FUNCTION public.check_plan_cache_mode_gaps() OWNER TO postgres;
+
+--
+-- Name: FUNCTION check_plan_cache_mode_gaps(); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.check_plan_cache_mode_gaps() IS 'Guarda-chuva da migration 120. DEVE retornar zero linhas. Qualquer linha = RPC com parametro opcional sem plan_cache_mode=force_custom_plan, sujeita ao cliff de generic plan (~270x, vira 57014). Fix: ALTER FUNCTION <sig> SET plan_cache_mode = force_custom_plan;';
+
+
+--
 -- Name: claim_job_processing(text, uuid, text, integer); Type: FUNCTION; Schema: public; Owner: postgres
 --
 
@@ -1113,22 +1146,10 @@ declare
   v_data jsonb := '[]'::jsonb;
 begin
   select public.fetch_manager_rankings_core_v2_base_v116(
-    p_user_id,
-    p_date_start,
-    p_date_stop,
-    p_group_by,
-    p_pack_ids,
-    p_account_ids,
-    p_campaign_name_contains,
-    p_adset_name_contains,
-    p_ad_name_contains,
-    p_action_type,
-    p_include_leadscore,
-    p_include_available_conversion_types,
-    p_limit,
-    p_offset,
-    p_order_by,
-    p_campaign_id
+    p_user_id, p_date_start, p_date_stop, p_group_by, p_pack_ids, p_account_ids,
+    p_campaign_name_contains, p_adset_name_contains, p_ad_name_contains, p_action_type,
+    p_include_leadscore, p_include_available_conversion_types, p_limit, p_offset,
+    p_order_by, p_campaign_id
   )
   into v_payload;
 
@@ -1161,19 +1182,15 @@ begin
         case
           when v_group_by = 'adset_id' and rr.adset_id is not null then
             coalesce(
-              -- Status OFICIAL do adset (denormalizado). Escrito por parent_id em todas as
-              -- linhas do pai; o ORDER BY por recência é defesa em profundidade caso linhas
-              -- do mesmo pai divirjam (ex.: escrita parcial interrompida).
-              (
-                select nullif(a.adset_status, '')
-                from public.ads a
-                where a.user_id = p_user_id
-                  and a.adset_id = rr.adset_id
-                  and nullif(a.adset_status, '') is not null
-                order by a.updated_at desc nulls last
-                limit 1
-              ),
-              -- Fallback pré-backfill: inferência por marcadores nos filhos (migration 088)
+              -- 122: status OFICIAL do conjunto vindo de parent_entities (uma linha por
+              -- pai, busca por chave primaria). Antes: subconsulta correlacionada em
+              -- `ads` com ORDER BY updated_at DESC sobre ~19 linhas por conjunto. O
+              -- desempate por recencia existia para linhas do MESMO pai divergirem entre
+              -- si -- impossivel por construcao quando so existe UMA linha por pai.
+              nullif(pb_self.effective_status, ''),
+              -- Fallback por marcadores nos filhos (migration 088). Cobre pai sem linha
+              -- em parent_entities e o status deliberadamente anulado apos toggle de
+              -- campanha cujo re-read dos conjuntos falhou.
               case
                 when exists (
                   select 1 from public.ads a
@@ -1194,15 +1211,7 @@ begin
             )
           when v_group_by = 'campaign_id' and rr.campaign_id is not null then
             coalesce(
-              (
-                select nullif(a.campaign_status, '')
-                from public.ads a
-                where a.user_id = p_user_id
-                  and a.campaign_id = rr.campaign_id
-                  and nullif(a.campaign_status, '') is not null
-                order by a.updated_at desc nulls last
-                limit 1
-              ),
+              nullif(pb_self.effective_status, ''),
               case
                 when exists (
                   select 1 from public.ads a
@@ -1217,16 +1226,10 @@ begin
           when v_group_by in ('adset_id', 'campaign_id') then 'ACTIVE'
           else rr.item->>'effective_status'
         end,
-        -- Orçamento (read-only): budget da PRÓPRIA entidade da linha, em subunidade da
-        -- moeda da conta. NULL = sem budget nesse nível (CBO↔ABO) OU ainda não sincronizado
-        -- — budget_mode NULL distingue o segundo caso.
         'budget_daily', pb_self.daily_budget,
         'budget_lifetime', pb_self.lifetime_budget,
         'budget_mode', pb_mode.budget_mode,
         'budget_currency', acct.currency,
-        -- Total de anúncios do CONJUNTO pelo inventário (inclui pausados sem entrega, que não
-        -- existem em ad_metrics). Sem snapshot -> preserva o ad_count do base (ad_metrics).
-        -- group_by='campaign_id' NÃO é tocado: lá ad_count é contagem de CONJUNTOS.
         'ad_count', coalesce(
           case when v_group_by = 'adset_id' then pb_self.ads_count else null end,
           nullif(rr.item->>'ad_count', '')::integer
@@ -1234,15 +1237,15 @@ begin
       ) as item
     from raw_rows rr
     left join lateral (
-      select pb.daily_budget, pb.lifetime_budget, pb.account_id, pb.ads_count
+      -- 122: effective_status entra AQUI, na lateral que ja existia para o budget da
+      -- propria entidade. Custo adicional de leitura: zero -- mesma linha, mesma busca.
+      select pb.daily_budget, pb.lifetime_budget, pb.account_id, pb.ads_count, pb.effective_status
       from public.parent_entities pb
       where pb.user_id = p_user_id
         and pb.entity_id = case when v_group_by = 'adset_id' then rr.adset_id else rr.campaign_id end
       limit 1
     ) pb_self on true
     left join lateral (
-      -- Modo é atributo da CAMPANHA (mesmo na aba por-conjunto: diz se o budget do adset
-      -- existe ou vive na campanha).
       select pb.budget_mode
       from public.parent_entities pb
       where pb.user_id = p_user_id
@@ -1250,7 +1253,6 @@ begin
       limit 1
     ) pb_mode on true
     left join lateral (
-      -- ads.account_id vem sem prefixo act_; ad_accounts.id vem com — normalizar os dois lados.
       select aa.currency
       from public.ad_accounts aa
       where aa.user_id = p_user_id
@@ -1274,7 +1276,7 @@ ALTER FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_star
 -- Name: FUNCTION fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) IS 'Manager core v2 wrapper: resolves campaign/adset effective_status preferring the official denormalized parent status (ads.adset_status/campaign_status), falling back to hierarchical pause markers for pre-backfill rows; enriches adset/campaign rows with budget (parent_entities + ad_accounts.currency). Base: v115 (meta_created_time por linha).';
+COMMENT ON FUNCTION public.fetch_manager_rankings_core_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text, p_pack_ids uuid[], p_account_ids text[], p_campaign_name_contains text, p_adset_name_contains text, p_ad_name_contains text, p_action_type text, p_include_leadscore boolean, p_include_available_conversion_types boolean, p_limit integer, p_offset integer, p_order_by text, p_campaign_id text) IS 'Manager core v2 wrapper: resolve o effective_status de campanha/conjunto a partir de parent_entities (migration 122; antes: colunas denormalizadas ads.adset_status/campaign_status), com fallback por marcadores hierarquicos para pais sem linha; enriquece linhas de adset/campanha com budget (parent_entities + ad_accounts.currency) e ad_count do inventario. Base: v116.';
 
 
 --
@@ -5218,6 +5220,7 @@ COMMENT ON FUNCTION public.fetch_manager_rankings_retention_v2(p_user_id uuid, p
 CREATE FUNCTION public.fetch_manager_rankings_series_v2(p_user_id uuid, p_date_start date, p_date_stop date, p_group_by text DEFAULT 'ad_name'::text, p_pack_ids uuid[] DEFAULT NULL::uuid[], p_account_ids text[] DEFAULT NULL::text[], p_campaign_name_contains text DEFAULT NULL::text, p_adset_name_contains text DEFAULT NULL::text, p_ad_name_contains text DEFAULT NULL::text, p_action_type text DEFAULT NULL::text, p_group_keys text[] DEFAULT NULL::text[], p_window integer DEFAULT 5) RETURNS jsonb
     LANGUAGE plpgsql SECURITY DEFINER
     SET search_path TO 'public'
+    SET plan_cache_mode TO 'force_custom_plan'
     AS $$
 declare
   v_group_by text := lower(coalesce(p_group_by, 'ad_name'));
@@ -6064,6 +6067,7 @@ COMMENT ON FUNCTION public.resolve_pack_access(p_pack_ids uuid[], p_actor_id uui
 CREATE FUNCTION public.resolve_pack_mql_leadscore_min(p_user_id uuid, p_pack_ids uuid[] DEFAULT NULL::uuid[]) RETURNS numeric
     LANGUAGE plpgsql STABLE SECURITY DEFINER
     SET search_path TO 'public'
+    SET plan_cache_mode TO 'force_custom_plan'
     AS $$
 declare
   v_distinct_count integer := 0;
@@ -6557,14 +6561,14 @@ COMMENT ON COLUMN public.ads.transcription_id IS 'Referência à transcrição d
 -- Name: COLUMN ads.adset_status; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.ads.adset_status IS 'effective_status oficial do adset pai (denormalizado; fonte: Meta API — enrich/toggle/sync). NULL = ainda não sincronizado.';
+COMMENT ON COLUMN public.ads.adset_status IS 'DEPRECADO como fonte de leitura desde a migration 122 (o read-path do Manager le parent_entities.effective_status). Ainda escrito, como rede de rollback; a remocao da escrita e a queda da coluna vem em migration separada.';
 
 
 --
 -- Name: COLUMN ads.campaign_status; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.ads.campaign_status IS 'effective_status oficial da campanha pai (denormalizado; fonte: Meta API — enrich/toggle/sync). NULL = ainda não sincronizado.';
+COMMENT ON COLUMN public.ads.campaign_status IS 'DEPRECADO como fonte de leitura desde a migration 122 (o read-path do Manager le parent_entities.effective_status). Ainda escrito, como rede de rollback; a remocao da escrita e a queda da coluna vem em migration separada.';
 
 
 --
@@ -7023,7 +7027,7 @@ COMMENT ON COLUMN public.parent_entities.budget_mode IS 'Só level=campaign: cbo
 -- Name: COLUMN parent_entities.effective_status; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON COLUMN public.parent_entities.effective_status IS 'DOUBLE-WRITE PASSIVO: effective_status oficial do pai. Read-path do status segue em ads.adset_status/campaign_status até a migração deliberada; escrito apenas pelos syncs de conta inteira (enrich/on-focus), não pelos writes pontuais do toggle.';
+COMMENT ON COLUMN public.parent_entities.effective_status IS 'effective_status oficial do pai (campanha/conjunto). FONTE DO READ-PATH desde a migration 122. Escrito pelos syncs de conta inteira (enrich/on-focus) E pelo toggle (double-write fechado em 2026-08-25).';
 
 
 --
@@ -7533,6 +7537,13 @@ CREATE INDEX ad_sheet_integrations_pack_id_idx ON public.ad_sheet_integrations U
 
 
 --
+-- Name: ad_tags_tag_id_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX ad_tags_tag_id_idx ON public.ad_tags USING btree (tag_id);
+
+
+--
 -- Name: ad_tags_user_name_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -7831,6 +7842,13 @@ CREATE UNIQUE INDEX packs_user_normalized_name_unique_idx ON public.packs USING 
 --
 
 COMMENT ON INDEX public.packs_user_normalized_name_unique_idx IS 'Garante unicidade de nome de pack por usuário usando trim + lower.';
+
+
+--
+-- Name: subscriptions_granted_by_idx; Type: INDEX; Schema: public; Owner: postgres
+--
+
+CREATE INDEX subscriptions_granted_by_idx ON public.subscriptions USING btree (granted_by);
 
 
 --
@@ -8374,6 +8392,15 @@ GRANT ALL ON FUNCTION public.batch_update_ad_metrics_enrichment(p_user_id uuid, 
 
 
 --
+-- Name: FUNCTION check_plan_cache_mode_gaps(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.check_plan_cache_mode_gaps() TO anon;
+GRANT ALL ON FUNCTION public.check_plan_cache_mode_gaps() TO authenticated;
+GRANT ALL ON FUNCTION public.check_plan_cache_mode_gaps() TO service_role;
+
+
+--
 -- Name: FUNCTION claim_job_processing(p_job_id text, p_user_id uuid, p_owner text, p_lease_seconds integer); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8827,5 +8854,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 4m1FgHScZa8nZ4zgLQDwoJvT6QqxbUi3iJpAocvNEKLG5Anc23yY3jH85y0Mhzg
+\unrestrict 0w0dvxuLfJ3X7bXrI8xTpXl5CAI9PTcDZt9FpuSDhdTOEVs2n24wiOQNNjTHVNX
 

@@ -514,4 +514,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-08-23 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-08-25 — via `supabase/generate_schema_map.py`*

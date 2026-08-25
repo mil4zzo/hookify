@@ -786,6 +786,11 @@ class JobProcessor:
                             self.user_id,
                             parent_statuses,
                             sb_client=self._sb,
+                            # O `upsert_parent_entities` abaixo grava o mesmo status junto
+                            # do orcamento — mas so roda `if parent_entities`. Quando esse
+                            # payload nao veio (falha ao ler os edges de budget), o espelho
+                            # aqui e a UNICA escrita de status em parent_entities.
+                            also_parent_entities=not bool(parent_entities),
                         )
                     except Exception as e:
                         logger.warning(f"[JobProcessor] write_parent_statuses falhou (best-effort): {e}")

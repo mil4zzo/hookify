@@ -943,6 +943,7 @@ def write_parent_statuses(
     *,
     sb_client: Optional["Client"] = None,
     skip_present_check: bool = False,
+    also_parent_entities: bool = True,
 ) -> None:
     """
     Grava o status OFICIAL dos pais (campanhas/adsets, lido do Meta) nas colunas denormalizadas
@@ -954,6 +955,11 @@ def write_parent_statuses(
     preserva o valor anterior.
 
     `parents` = {"campaigns": {campaign_id: status}, "adsets": {adset_id: status}}.
+
+    `also_parent_entities` espelha o MESMO status em `parent_entities` (double-write).
+    Passar False so onde o caller ja grava aquela tabela com o mesmo snapshot logo em
+    seguida (via `upsert_parent_entities`) — ali o espelho seria reescrever as mesmas
+    milhares de linhas duas vezes por sync.
     """
     if not user_id or not parents:
         return
@@ -969,15 +975,24 @@ def write_parent_statuses(
         present_campaigns, present_adsets = _fetch_present_parent_ids(sb, user_id)
 
     now_iso = _now_iso()
-    for column, id_column, mapping, present in (
-        ("campaign_status", "campaign_id", parents.get("campaigns", {}) or {}, present_campaigns),
-        ("adset_status", "adset_id", parents.get("adsets", {}) or {}, present_adsets),
+
+    # Espelho para parent_entities: preenchido DENTRO do laco, com exatamente os
+    # pares (id, status) que sobrevivem ao filtro de escopo abaixo. Espelhar
+    # `parents` cru gravaria os milhares de pais SEM ads importados que o snapshot
+    # de conta inteira traz — inchando a tabela com entidades que nenhuma tela le.
+    # Invariante desta funcao: `parent_entities` recebe o mesmo conjunto que `ads`.
+    espelho: Dict[str, Dict[str, Any]] = {"campaigns": {}, "adsets": {}}
+
+    for column, id_column, mapping, present, espelho_key in (
+        ("campaign_status", "campaign_id", parents.get("campaigns", {}) or {}, present_campaigns, "campaigns"),
+        ("adset_status", "adset_id", parents.get("adsets", {}) or {}, present_adsets, "adsets"),
     ):
         by_status: Dict[str, List[str]] = {}
         for parent_id, status in mapping.items():
             pid = str(parent_id)
             if status and (present is None or pid in present):
                 by_status.setdefault(str(status).upper(), []).append(pid)
+                espelho[espelho_key][pid] = str(status).upper()
         # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01).
         # Dois syncs concorrentes (packs distintos da mesma conta, ou toggle + sync
         # on-focus) tocam as MESMAS linhas de `ads`. Se cada um percorre os parent_ids
@@ -1002,6 +1017,18 @@ def write_parent_statuses(
                     .in_(idc, c)
                     .execute(),
                 )
+
+    # DOUBLE-WRITE: mesma verdade em parent_entities (fonte do read-path apos a
+    # migracao). Por ultimo e best-effort — falhar aqui nao pode desfazer os
+    # UPDATEs de `ads`, que continuam sendo a fonte lida hoje.
+    if also_parent_entities:
+        try:
+            write_parent_entity_statuses(user_jwt, user_id, espelho, sb_client=sb)
+        except Exception:
+            logger.warning(
+                "[write_parent_statuses] espelho em parent_entities falhou (best-effort)",
+                exc_info=True,
+            )
 
 
 def upsert_parent_entities(
@@ -1118,6 +1145,147 @@ def upsert_parent_ads_counts(
             lambda c=chunk: sb.table("parent_entities").upsert(c, on_conflict="user_id,entity_id").execute(),
         )
     logger.info("upsert_parent_ads_counts: %d conjuntos com total de ads gravado", len(rows))
+
+
+def write_parent_entity_statuses(
+    user_jwt: Optional[str],
+    user_id: str,
+    statuses_by_level: Dict[str, Dict[str, Any]],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """
+    Grava `parent_entities.effective_status` para um conjunto de pais.
+
+    POR QUE EXISTE (fechamento do double-write, 2026-08-25)
+    -------------------------------------------------------
+    Ate aqui a `parent_entities` so recebia status dos syncs de CONTA INTEIRA
+    (enrich/on-focus). O caminho do TOGGLE — pausar/ativar pelo app — gravava
+    exclusivamente nas colunas `ads.adset_status`/`ads.campaign_status`.
+
+    Enquanto o read-path mora em `ads`, isso e invisivel. Mas torna impossivel
+    migrar a leitura: logo apos um toggle a `parent_entities` estaria stale e a
+    entidade apareceria com o status ANTIGO ate o proximo sync completo.
+    Fechar o furo e pre-requisito da troca de fonte, nao um extra.
+
+    Upsert DEDICADO a (level, effective_status) — mesmo racional de
+    `upsert_parent_ads_counts`: o payload amplo de `upsert_parent_entities`
+    cobre budget/account_id/campaign_id, e injetar status ali a partir do toggle
+    gravaria NULL nessas colunas para as entidades tocadas. PostgREST faz
+    ON CONFLICT DO UPDATE apenas das colunas presentes no payload, entao um
+    payload estreito preserva o resto da linha.
+
+    Sem `_fetch_present_parent_ids` de proposito: aquela varredura pagina as
+    ~71k linhas de `ads` (medido: 65 ms x 71 paginas) e existe para filtrar
+    snapshots de conta inteira, que trazem milhares de pais fora do escopo.
+    Aqui os ids vem de uma acao explicita do usuario sobre entidades que ele
+    esta vendo na tela — ja sao, por construcao, do escopo dele. Pagar a
+    varredura aqui seria reintroduzir no toggle o custo que esta migracao quer
+    eliminar.
+
+    Linha ausente e CRIADA com status e sem budget — mesmo resultado visivel
+    que a linha inexistente (join devolve NULL), porem ja com a verdade do
+    status registrada.
+
+    `statuses_by_level` = {"campaigns": {id: status}, "adsets": {id: status}}
+    (mesmo shape de `write_parent_statuses`). Status vazio/None e ignorado:
+    apagar verdade conhecida seria pior que nao escrever.
+
+    Best-effort no caller: como o resto do caminho de toggle, nunca deve
+    derrubar a resposta da API.
+    """
+    if not user_id or not statuses_by_level:
+        return
+
+    rows: List[Dict[str, Any]] = []
+    now_iso = _now_iso()
+    for level, key in (("campaign", "campaigns"), ("adset", "adsets")):
+        for entity_id, status in (statuses_by_level.get(key) or {}).items():
+            eid = str(entity_id or "").strip()
+            if not eid or not status:
+                continue
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "entity_id": eid,
+                    "level": level,
+                    "effective_status": str(status).upper(),
+                    "updated_at": now_iso,
+                }
+            )
+
+    if not rows:
+        return
+
+    # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01) — mesmo motivo de
+    # `write_parent_statuses`: toggle e sync on-focus tocam as MESMAS linhas de
+    # `parent_entities` e podem correr em paralelo. Ordenar por (level, entity_id)
+    # faz todo caminho concorrente pedir os locks na MESMA sequencia.
+    rows.sort(key=lambda r: (r["level"], r["entity_id"]))
+
+    sb = _get_sb(user_jwt, sb_client)
+    for i in range(0, len(rows), 500):
+        chunk = rows[i : i + 500]
+        with_postgrest_retry(
+            f"write_parent_entity_statuses[{len(chunk)}]",
+            lambda c=chunk: sb.table("parent_entities").upsert(c, on_conflict="user_id,entity_id").execute(),
+        )
+
+
+def clear_parent_entity_adset_statuses(
+    user_jwt: Optional[str],
+    user_id: str,
+    campaign_ids: List[str],
+    *,
+    sb_client: Optional["Client"] = None,
+) -> None:
+    """
+    Anula `parent_entities.effective_status` dos CONJUNTOS de dadas campanhas.
+
+    POR QUE ANULAR VERDADE DE PROPOSITO
+    -----------------------------------
+    Apos um toggle de CAMPANHA, o status proprio de cada conjunto filho fica
+    sabidamente defasado: pausar a campanha nao muda o status do conjunto no
+    Meta, muda o `effective_status` dele — e o valor que temos gravado e o
+    anterior. Manter esse valor faria a aba "por conjunto" contradizer a aba
+    "por campanha" (conjuntos ACTIVE sob campanha PAUSED).
+
+    NULL aqui reativa o fallback por marcadores nos filhos (migration 088), que
+    neste instante e a informacao correta: a cascata acabou de gravar
+    CAMPAIGN_PAUSED no `effective_status` dos ads. O valor real volta no proximo
+    sync de conta inteira.
+
+    Espelha o que `ads.adset_status = NULL` sempre fez (migrations 088/089).
+    Desde a 122 a fonte lida e esta tabela, entao anular so em `ads` virou
+    no-op — sem esta funcao, o toggle de campanha deixaria os conjuntos
+    exibindo o status antigo.
+
+    Filtra por `parent_entities.campaign_id`, gravado pelos syncs de conta
+    inteira. Conjunto cuja linha veio SO do espelho pontual do toggle ainda nao
+    tem esse vinculo e escaparia do NULL — o mesmo tipo de defasagem transitoria
+    que o fallback antigo ja tinha, resolvida no proximo sync.
+
+    Medido em 2026-08-25: dos 9.804 conjuntos, 201 estao sem `campaign_id` — e
+    TODOS os 201 sao conjuntos sem nenhuma linha em `ads`, ou seja, que nao
+    aparecem em tela. Entre os visiveis a cobertura e de 100%. A ressalva acima
+    descreve o mecanismo, nao um buraco ativo.
+    """
+    ids = sorted({str(cid).strip() for cid in (campaign_ids or []) if str(cid or "").strip()})
+    if not user_id or not ids:
+        return
+    sb = _get_sb(user_jwt, sb_client)
+    # Ordem deterministica de lock (anti-deadlock 40P01) — ver write_parent_statuses.
+    for i in range(0, len(ids), 200):
+        chunk = ids[i : i + 200]
+        with_postgrest_retry(
+            f"clear_parent_entity_adset_statuses[{len(chunk)}]",
+            lambda c=chunk: sb.table("parent_entities")
+            .update({"effective_status": None, "updated_at": _now_iso()})
+            .eq("user_id", user_id)
+            .eq("level", "adset")
+            .in_("campaign_id", c)
+            .execute(),
+        )
 
 
 def update_parent_entity_budget(
