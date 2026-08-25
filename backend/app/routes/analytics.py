@@ -718,6 +718,8 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
         "p_offset": max(0, int(req.offset or 0)),
         "p_order_by": (req.order_by or "spend"),
     }
+    # Antes de disputar o slot: quem ja desistiu nao ocupa lugar na fila.
+    abort_if_client_gone("rankings:antes_do_slot")
     with db_slot("rankings_core_v2_rpc"):
         # Checar DEPOIS de conseguir o slot e ANTES de disparar a query: se o
         # cliente desistiu enquanto esperávamos na fila do semáforo, executar
@@ -786,6 +788,7 @@ def _get_rankings_series_v2_rpc(req: RankingsSeriesRequest, user: Dict[str, Any]
         "p_window": req.window,
     }
 
+    abort_if_client_gone("series:antes_do_slot")
     with db_slot("rankings_series_v2_rpc"):
         abort_if_client_gone("series:rpc")
         rpc_result = sb.rpc("fetch_manager_rankings_series_v2", params).execute()
@@ -857,6 +860,7 @@ def _get_rankings_retention_v2_rpc(req: RankingsRetentionRequest, user: Dict[str
         "p_ad_name_contains": f.ad_name_contains,
         "p_group_key": req.group_key,
     }
+    abort_if_client_gone("retention:antes_do_slot")
     with db_slot("rankings_retention_v2_rpc"):
         abort_if_client_gone("retention:rpc")
         rpc_result = sb.rpc("fetch_manager_rankings_retention_v2", params).execute()
@@ -1049,13 +1053,18 @@ def _hydrate_media_type_for_rankings_rows(
         try:
             # ad_name é duplicado em massa (dezenas de instâncias por nome): 200 nomes
             # passam fácil das 1000 linhas que o PostgREST corta em silêncio → paginar.
-            with db_slot("hydrate_media_type"):
-                ads_rows = supabase_repo._fetch_all_paginated(
-                    sb,
-                    "ads",
-                    "ad_name, media_type",
-                    lambda q, b=batch: q.in_("user_id", _silos(user_id)).in_("ad_name", b).order("ad_id"),
-                )
+            # SEM db_slot aqui de proposito. `_fetch_all_paginated` ja pega um slot
+            # POR PAGINA (via with_postgrest_retry). Um slot externo, por causa da
+            # reentrancia, tornaria os internos no-op e seguraria UM slot escasso
+            # durante toda a paginacao e todos os sleeps de backoff — que e
+            # exatamente o que db_concurrency.py proibe. Com fan-out de ~27x em
+            # ad_name, 200 nomes viram varias paginas de 1000 linhas.
+            ads_rows = supabase_repo._fetch_all_paginated(
+                sb,
+                "ads",
+                "ad_name, media_type",
+                lambda q, b=batch: q.in_("user_id", _silos(user_id)).in_("ad_name", b).order("ad_id"),
+            )
             for ad_row in ads_rows:
                 name = str(ad_row.get("ad_name") or "").strip()
                 mt = str(ad_row.get("media_type") or "").strip()

@@ -17,6 +17,7 @@ import random
 import time
 from typing import Callable, TypeVar
 
+from app.core.client_disconnect import ClientGone
 from app.core.db_concurrency import db_slot
 
 try:
@@ -97,6 +98,14 @@ def with_postgrest_retry(
         try:
             with db_slot(operation):
                 return fn()
+        except ClientGone:
+            # Guarda defensiva: hoje nenhum checkpoint e alcancavel daqui, mas este
+            # helper embrulha ESCRITAS (upserts, enriquecimento em lote). Se um dia
+            # um checkpoint cair sob ele, sem esta linha o cancelamento seria
+            # classificado por `_is_deadlock` (que faz match de substring na
+            # mensagem) e poderia virar RETRY DE UMA ESCRITA. Barato agora,
+            # caro de descobrir depois.
+            raise
         except Exception as exc:
             is_transient = bool(transient) and isinstance(exc, transient)
             is_deadlock = _is_deadlock(exc)

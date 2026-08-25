@@ -14,7 +14,9 @@ from app.core import db_concurrency
 from app.core.logging_config import setup_httpx_logging_filter
 from app.core.rate_limit import rate_limit_middleware
 from app.core.request_context import current_page_route, current_route
-from app.core.client_disconnect import ClientGone, current_request
+from app.core import client_disconnect
+from app.core.client_disconnect import ClientDisconnectMiddleware, ClientGone
+from app.core.db_concurrency import DBConcurrencyTimeout
 from app.routes.facebook import router as facebook_router
 from app.routes.analytics import router as analytics_router
 from app.routes.connectors_facebook import router as fb_connector_router
@@ -66,12 +68,23 @@ async def _set_request_context(request: Request, call_next):
     """
     t_route = current_route.set(request.url.path)
     t_page = current_page_route.set(request.headers.get("x-page-route") or None)
-    # Expõe o Request para as rotas SÍNCRONAS poderem perguntar "o cliente ainda
-    # está aí?" nos checkpoints (ver app/core/client_disconnect.py). Contextvars
-    # são copiadas para a thread do pool, então o valor chega lá dentro.
-    t_req = current_request.set(request)
     try:
         return await call_next(request)
+    except DBConcurrencyTimeout as saturated:
+        # Banco saturado: não há slot livre. É indisponibilidade temporária, não
+        # bug — 503 + Retry-After, e WARNING sem stacktrace (não é exceção
+        # inesperada). Devolver 500 aqui seria contraproducente: o TanStack
+        # re-tenta 5xx por padrão, então a proteção contra sobrecarga geraria
+        # MAIS carga exatamente quando o banco já está no limite.
+        logger.warning(
+            "Saturação de concorrência de banco em %s %s: %s",
+            request.method, request.url.path, saturated,
+        )
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Serviço temporariamente sobrecarregado. Tente novamente."},
+            headers={"Retry-After": "5"},
+        )
     except ClientGone as gone:
         # Não é erro: o navegador desligou (ex.: troca de filtro no Manager) e a
         # rota cortou o trabalho restante. Ninguém vai ler esta resposta — ela
@@ -87,7 +100,6 @@ async def _set_request_context(request: Request, call_next):
     finally:
         current_route.reset(t_route)
         current_page_route.reset(t_page)
-        current_request.reset(t_req)
 
 
 # Rate limit registrado ANTES do CORSMiddleware (que é adicionado por último e
@@ -107,6 +119,17 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Page-Route"],
 )
+
+# Detector de desconexão do cliente: registrado por ÚLTIMO = o MAIS EXTERNO de
+# todos, por fora até do CORS. Precisa ser o leitor único do canal `receive`
+# original — empilhado por dentro de um BaseHTTPMiddleware ele recebe o
+# `receive_or_disconnect` do middleware de fora e a detecção morre em silêncio
+# (foi exatamente esse o bug da primeira versão; ver client_disconnect.py).
+#
+# Ficar por fora do CORS é seguro: este middleware NÃO gera resposta alguma,
+# só observa e delega. As respostas de erro continuam sendo produzidas por
+# dentro do CORSMiddleware e portanto continuam carregando os headers.
+app.add_middleware(ClientDisconnectMiddleware)
 
 
 # Include routers
@@ -171,6 +194,10 @@ def health_check():
         # Saturacao de banco por processo. Com --workers 4, cada worker responde
         # com os SEUS numeros: acquire_timeouts > 0 em qualquer um = teto atingido.
         "db_concurrency": db_concurrency.get_stats(),
+        # Cancelamento por desconexao. `checks` alto com `aborts` cravado em zero
+        # significa DETECTOR QUEBRADO, nao "ninguem abandona request" — foi assim
+        # que a primeira versao passou como no-op sem ninguem notar.
+        "client_disconnect": client_disconnect.get_stats(),
     }
 
 if __name__ == "__main__":

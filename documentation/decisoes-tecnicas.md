@@ -3047,3 +3047,100 @@ confirmando que o teste falha -- teste estrutural que nunca falhou nao prova nad
 Testes: 372 passando (7 novos aqui). Boot verificado com CORS ainda como middleware
 mais externo -- invariante que o 500-sem-CORS de 2026-07-06 deixou como regra.
 
+## CORRECAO: a deteccao de desconexao era um no-op em producao (2026-08-24)
+
+Revisao adversarial da implementacao anterior encontrou o pior tipo de defeito:
+**a feature nao fazia nada em producao, e os testes passavam.**
+
+### O bug
+
+`Request.is_disconnected()` faz um `receive()` nao-bloqueante -- `CancelScope` ja
+cancelado, no espirito de "se a mensagem nao vier na hora, siga em frente". Com
+**dois** `BaseHTTPMiddleware` empilhados (o `main.py` tem `_set_request_context` +
+`rate_limit_middleware`), o `receive` que chega ao Request de fora e o
+`receive_or_disconnect` do middleware de dentro, que **sempre** suspende num task
+group. A suspensao entrega o cancelamento pendente antes de a mensagem chegar, e
+`is_disconnected()` devolve `False` para sempre.
+
+Medido nesta base (starlette 0.48.0), cliente ja desconectado:
+
+    1 middleware  (a forma dos testes antigos) -> True
+    2 middlewares + CORS (a forma do main.py)  -> False   <-- feature morta
+
+### Por que os testes nao pegaram
+
+Eles montavam um app com **um** middleware -- a unica configuracao em que o
+mecanismo funciona -- e ainda substituiam `is_disconnected()` por um stub. Ou seja,
+testavam a fiacao DEPOIS da deteccao e nada sobre a deteccao em si. **10 testes
+verdes com a feature 100% inerte.**
+
+**Regra que fica:** teste de middleware tem de montar a pilha na MESMA forma da
+producao. Numero e ordem de middlewares sao parte do comportamento, nao detalhe de
+setup. Os testes agora usam `_app_forma_de_producao` e dirigem o app via ASGI cru
+(o `TestClient` nao consegue desconectar no meio).
+
+### A correcao
+
+Middleware **ASGI puro** (`ClientDisconnectMiddleware`), registrado como o mais
+externo de todos -- por fora ate do CORS. Ele vira o **leitor unico** do canal
+`receive`: bombeia as mensagens para uma fila (o app consome dali, sem competicao)
+e marca um flag ao ver `http.disconnect`. Nao depende de ordem nem de quantos
+middlewares existem.
+
+Ficar por fora do CORS e seguro **porque este middleware nao gera resposta
+nenhuma** -- so observa e delega. As respostas de erro continuam sendo produzidas
+por dentro do CORSMiddleware e continuam carregando os headers.
+
+Tentativa intermediaria que NAO funcionou (registrada para nao ser repetida):
+wrapper **passivo** do `receive`, contando que o BaseHTTPMiddleware de dentro
+puxasse a mensagem atraves dele. Medido: `False` nos dois casos. Precisa do leitor
+ativo com fila.
+
+### Ganho colateral: a checagem ficou barata
+
+`client_is_gone()` virou **leitura de um bool**. A versao anterior fazia
+`anyio.from_thread.run` -- um round-trip ao event loop DE DENTRO de um slot de
+banco. Com o loop congestionado (exatamente a situacao que a feature existe para
+aliviar), segurava um dos 8 slots enquanto esperava ser agendada. Sendo barata
+agora, da para checar tambem **antes** de disputar o slot: quem ja desistiu nao
+ocupa lugar na fila nem gasta os ate 20 s de espera.
+
+### Outros achados da revisao, corrigidos junto
+
+- **`hydrate_media_type` segurava um slot durante a paginacao inteira** e durante
+  os sleeps de backoff, porque embrulhava `_fetch_all_paginated` (que ja pega um
+  slot por pagina) e a reentrancia tornava os internos no-op. Violava o contrato
+  escrito no proprio `db_concurrency.py`. Slot externo removido.
+- **`DBConcurrencyTimeout` virava 500** -- e o TanStack re-tenta 5xx por padrao,
+  entao a protecao contra sobrecarga **gerava mais carga** exatamente quando o
+  banco estava no limite. Agora e 503 + `Retry-After`, com WARNING sem stacktrace.
+- **Guarda defensiva `except ClientGone: raise` no `with_postgrest_retry`.** Hoje
+  nenhum checkpoint e alcancavel dali, mas o helper embrulha ESCRITAS e
+  `_is_deadlock` classifica por substring da mensagem -- sem a guarda, um
+  checkpoint futuro sob ele poderia virar **retry de uma escrita cancelada**.
+- **Metricas em `/health`** (`client_disconnect`): `checks`, `aborts`,
+  `aborts_by_stage`. Sem elas, "detector quebrado" e "ninguem abandona request"
+  sao indistinguiveis -- foi assim que o no-op passou. `checks` alto com `aborts`
+  cravado em zero e o sinal de alarme.
+- **Poluicao de event loop nos testes:** `asyncio.run()` deixa a thread sem loop
+  corrente e quebrava `test_tier_dependency.py` (que ainda usa `get_event_loop()`)
+  -- falha longe da causa. Helper `_rodar` restaura um loop utilizavel.
+
+Validacao: sabotei o `pump` para nao marcar o flag e confirmei que os testes de
+deteccao falham; restaurei e voltaram a passar. Teste que nunca falhou nao prova
+nada -- foi precisamente esse o erro da primeira versao.
+
+### Achados da revisao NAO corrigidos (backlog consciente)
+
+- **8 endpoints de drill-down** ja recebem `signal` do frontend e nao tem
+  checkpoint. Abandono e mais provavel neles que no `/rankings` (abrem no expand
+  de linha). Melhor ponto de ataque: checkpoint no topo do `while True:` de
+  `_fetch_all_paginated` -- cobre todos de uma vez, mas exige guardas nos varios
+  `try/except Exception` de fallback.
+- **`/analytics/search`**: 3 `ilike` sobre a tabela `ads` inteira, fora do
+  `db_slot`, e o frontend nem passa `signal`. Pior custo/beneficio do arquivo.
+- **`facebook.py`: 38 `.execute()` e zero `db_slot`.** `_write_local_statuses`
+  (contribuinte nomeado do incidente) faz ~100+ bulk UPDATEs por request de
+  status-sync sem slot e sem retry de deadlock.
+- **Sem deadline por request.** Pior caso somado: 20 s de fila + 35 s de query,
+  x4 tentativas do retry = muito acima do timeout de 120 s do axios.
