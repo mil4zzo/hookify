@@ -3184,3 +3184,60 @@ lookups pontuais de pack. Sao rapidas e nao aparecem em laco, entao o ganho de
 embrulhar nao paga a poluicao visual. **Isto e uma escolha, nao um esquecimento:**
 se o `/health` mostrar `acquire_timeouts` subindo sem explicacao, elas sao o
 primeiro lugar a olhar, porque ainda passam por fora do teto.
+
+## O teto de concorrencia agora vale por construcao (2026-08-24)
+
+**Correcao de rumo.** A protecao vinha sendo aplicada call-site por call-site --
+primeiro nas RPCs de analytics, depois no `facebook.py`. Medicao do backend
+inteiro: **262 `.execute()`, 78 embrulhados**. Ou seja, ~184 chamadas furavam a
+fila, e cada arquivo novo nascia desprotegido.
+
+Aplicar protecao chamada a chamada **sempre deixa cauda**. A pergunta certa nao e
+"quais faltam?", e sim "existe um ponto onde a garantia valha por construcao?".
+
+**Existe:** `ClientOptions.httpx_client` -- ponto de extensao oficial do
+supabase-py. Toda chamada ao PostgREST passa por um unico `httpx.Client`.
+Interceptando o `send()` dele, `.execute()`, `.rpc()` e qualquer codigo futuro
+ficam cobertos sem nenhuma edicao de call-site.
+
+`_SlottedHTTPXClient` em `app/core/supabase_client.py`.
+
+### Dois detalhes que a implementacao exigiu
+
+**So `/rest/v1/`, nunca Storage.** Verificado: o supabase-py compartilha o MESMO
+cliente httpx entre PostgREST e Storage. Sem o filtro por caminho, upload de
+miniatura passaria a disputar um dos 8 slots de banco -- que ele nao usa. O Auth
+(GoTrue) tem cliente proprio e nao passa por aqui.
+
+**Interceptar em `send()`, nao no transport.** `Client.send()` com `stream=False`
+(o que o postgrest usa) le o corpo da resposta ali dentro, entao o slot cobre a
+chamada inteira. No transport, `handle_request` retorna antes do download do
+corpo e o slot seria devolvido cedo demais.
+
+A reentrancia do `db_slot` faz o slot contar UMA vez quando a chamada ja vem de
+dentro de um `with_postgrest_retry` -- que continua existindo, porque ele da o
+que o teto nao da: **retry** de deadlock e de queda transitoria, com o slot solto
+entre as tentativas.
+
+### Teste
+
+`TestTetoNoPontoUnico`: chamada crua (sem nenhum wrapper) ocupa slot; Storage nao
+ocupa; com o semaforo saturado por OUTRA thread a chamada crua falha em vez de
+furar a fila; e a fabrica realmente usa a classe.
+
+O teste de saturacao nasceu errado: eu segurava o slot na mesma thread, e a
+reentrancia -- proposital -- tornava a aquisicao aninhada um no-op. Ele media
+reentrancia, nao saturacao. Corrigido para segurar o slot em outra thread.
+Validado sabotando a interceptacao e confirmando que falha.
+
+### Sobra consciente (com o porque)
+
+`get_supabase_for_user` cria um cliente **por request**, logo um pool de conexoes
+HTTP novo a cada request -- sem reuso de conexao nem de handshake TLS. Ja era
+assim antes desta mudanca (o supabase-py criava o dele internamente), entao nao e
+regressao.
+
+**Nao unifiquei porque ha uma questao de seguranca a responder antes:** o JWT do
+usuario e aplicado via `client.postgrest.auth(jwt)`. Se esse token acabar nos
+headers do cliente httpx compartilhado, um cliente unico vazaria credencial entre
+usuarios. Precisa ser verificado -- e nao no mesmo commit que mexe em concorrencia.

@@ -187,3 +187,77 @@ class TestWriteLocalStatusesOrdering:
         updates = self._run({"a1": "IN_PROCESS", "a2": "PAUSED"}, monkeypatch)
         gravados = [i for _col, ids in updates for i in ids]
         assert gravados == ["a2"], "IN_PROCESS nunca pode ser persistido"
+
+
+class TestTetoNoPontoUnico:
+    """O teto tem de valer POR CONSTRUCAO, nao por lembrar de embrulhar.
+
+    Medido em 2026-08-24: 262 `.execute()` no backend, 78 embrulhados -- ~184
+    furavam a fila. Interceptar no cliente HTTP do Supabase fecha o buraco para
+    todo codigo, inclusive o que ainda nao existe.
+    """
+
+    def _cliente(self, registro):
+        import httpx
+        from app.core.supabase_client import _SlottedHTTPXClient
+
+        def handler(request):
+            registro.append(db_concurrency._in_flight)
+            return httpx.Response(200, json=[])
+
+        return _SlottedHTTPXClient(transport=httpx.MockTransport(handler))
+
+    def test_chamada_crua_ao_postgrest_pega_slot(self, monkeypatch):
+        """Sem with_postgrest_retry, sem db_slot no call site: ainda assim conta."""
+        monkeypatch.setattr(db_concurrency, "_in_flight", 0)
+        registro = []
+        c = self._cliente(registro)
+        c.get("https://x.supabase.co/rest/v1/ads?select=id")
+        assert registro == [1], "a chamada ao PostgREST tinha de estar ocupando um slot"
+        assert db_concurrency._in_flight == 0, "slot devolvido ao fim"
+
+    def test_storage_nao_consome_slot_de_banco(self, monkeypatch):
+        """Upload de miniatura compartilha o mesmo cliente httpx, mas nao e banco."""
+        monkeypatch.setattr(db_concurrency, "_in_flight", 0)
+        registro = []
+        c = self._cliente(registro)
+        c.get("https://x.supabase.co/storage/v1/object/thumbs/a.jpg")
+        assert registro == [0], "Storage nao pode disputar slot de banco"
+
+    def test_saturado_bloqueia_ate_chamada_crua(self, monkeypatch):
+        """Com os slots ocupados, uma chamada crua falha em vez de furar a fila.
+
+        O slot precisa ser segurado por OUTRA thread: na mesma thread a
+        reentrancia (proposital) tornaria a aquisicao aninhada um no-op, e o
+        teste passaria a medir reentrancia em vez de saturacao.
+        """
+        monkeypatch.setattr(db_concurrency, "_semaphore", threading.BoundedSemaphore(1))
+        monkeypatch.setattr(db_concurrency, "DB_SLOT_ACQUIRE_TIMEOUT_S", 0.2)
+
+        segurando = threading.Event()
+        liberar = threading.Event()
+
+        def hog():
+            with db_slot("ocupando_o_unico_slot"):
+                segurando.set()
+                liberar.wait(timeout=5)
+
+        t = threading.Thread(target=hog)
+        t.start()
+        assert segurando.wait(timeout=2)
+        try:
+            c = self._cliente([])
+            with pytest.raises(DBConcurrencyTimeout):
+                c.get("https://x.supabase.co/rest/v1/ads?select=id")
+        finally:
+            liberar.set()
+            t.join()
+
+    def test_fabrica_realmente_usa_o_cliente_com_slot(self, monkeypatch):
+        """Guarda de fiacao: adianta pouco a classe existir se a fabrica nao a usa."""
+        import app.core.supabase_client as sc
+
+        monkeypatch.setattr(sc, "SUPABASE_URL", "https://x.supabase.co")
+        monkeypatch.setattr(sc, "SUPABASE_ANON_KEY", "chave-anon")
+        client = sc.get_supabase_for_user("jwt-fake")
+        assert isinstance(client.postgrest.session, sc._SlottedHTTPXClient)
