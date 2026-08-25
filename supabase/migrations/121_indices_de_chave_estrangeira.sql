@@ -1,0 +1,62 @@
+-- Migration: 121_indices_de_chave_estrangeira.sql
+-- Data: 2026-08-25
+-- Descrição: Índices nas chaves estrangeiras que o linter do Supabase apontou
+--            como sem cobertura. PREPARAÇÃO PARA ESCALA — nos volumes atuais
+--            (8, 2 e 9 linhas) nenhum deles muda nada; o planner faria seq scan
+--            de qualquer jeito. O ganho aparece quando as tabelas crescerem.
+--
+-- POR QUE FK SEM ÍNDICE IMPORTA
+--   Quando a linha REFERENCIADA é apagada, o Postgres precisa achar quem aponta
+--   para ela. Sem índice na coluna que aponta, isso vira varredura da tabela
+--   inteira a cada DELETE do outro lado.
+--
+-- SÃO 2, NÃO 3 — o linter aponta 3, e um deles é falso positivo (ver abaixo).
+
+-- ---------------------------------------------------------------------------
+-- 1) ad_tags.tag_id -> tags(id) ON DELETE CASCADE
+-- ---------------------------------------------------------------------------
+-- Genuinamente descoberto. Os índices existentes são
+--   ad_tags_pkey        (user_id, tag_id, ad_name)
+--   ad_tags_user_name_idx (user_id, ad_name)
+-- e ambos lideram por `user_id`. O cascade busca por `tag_id` SOZINHO, então
+-- nenhum dos dois serve — índice só e usável quando a coluna procurada esta na
+-- FRENTE dele.
+--
+-- É a que mais cresce das três: a cardinalidade é (usuários × tags × ad_names),
+-- e o recurso de tags é novo (migrations 116-118), então o volume de hoje não
+-- diz nada sobre o de daqui a alguns meses. Apagar uma tag varreria a tabela.
+create index if not exists ad_tags_tag_id_idx on public.ad_tags (tag_id);
+
+-- ---------------------------------------------------------------------------
+-- 2) subscriptions.granted_by -> auth.users(id)
+-- ---------------------------------------------------------------------------
+-- Genuinamente descoberto (nenhum índice existente toca `granted_by`).
+-- PRECAUCIONAL, e a justificativa é mais fraca que a de cima: `subscriptions`
+-- tem 1 linha por usuário, então cresce devagar, e a varredura só acontece ao
+-- APAGAR um usuário — evento raro. Entra porque o custo é desprezível (btree
+-- minúsculo, escrita rara nesta tabela) e porque exclusão de usuário é um
+-- caminho que o app realmente exerce.
+--
+-- Índice COMPLETO, não parcial: 7 das 9 linhas têm `granted_by` preenchido, ao
+-- contrário dos índices de Stripe desta mesma tabela (parciais porque a coluna
+-- é quase sempre nula). Copiar o padrão parcial aqui seria copiar a forma sem
+-- o motivo.
+create index if not exists subscriptions_granted_by_idx on public.subscriptions (granted_by);
+
+-- ---------------------------------------------------------------------------
+-- 3) pack_shares(pack_id, owner_id) -> packs(id, user_id) — NÃO CRIADO
+-- ---------------------------------------------------------------------------
+-- O linter aponta esta FK como descoberta, mas é falso positivo: ele procura um
+-- índice que case EXATAMENTE com a lista de colunas da FK, e existe
+--   pack_shares_pack_idx     (pack_id)
+--   pack_shares_unique_grant (pack_id, grantee_id)
+-- ambos liderando por `pack_id`. O cascade roda
+--   WHERE pack_id = $1 AND owner_id = $2
+-- e um índice liderado por `pack_id` atende: reduz ao pack e filtra o owner
+-- entre pouquíssimas linhas (um pack tem poucos compartilhamentos).
+--
+-- Criar um (pack_id, owner_id) seria o QUARTO índice de uma tabela de 96 kB —
+-- custo de escrita real em troca de ganho nulo. Índice desnecessário não é
+-- neutro: pesa em todo INSERT/UPDATE.
+--
+-- Se um dia o linter reclamar de novo, esta é a resposta.

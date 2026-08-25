@@ -3303,3 +3303,42 @@ cancelamento NAO dispara o fallback.
 Tres sabotagens confirmaram que os testes acusam: remover o checkpoint local,
 neutralizar o opt-in, e tirar o `cancellable=True` de um drill -- cada uma
 quebrou exatamente o teste correspondente.
+
+## Indices de chave estrangeira: o linter apontou 3, eram 2 (2026-08-25, migration 121)
+
+Primeiro item da frente de performance. FK sem indice faz o Postgres varrer a
+tabela inteira toda vez que a linha REFERENCIADA e apagada -- ele precisa achar
+quem aponta para ela.
+
+**Criados (2):**
+- `ad_tags(tag_id)` -- os indices que existiam (`ad_tags_pkey` e
+  `ad_tags_user_name_idx`) lideram por `user_id`, e o cascade busca por `tag_id`
+  SOZINHO. Indice so e usavel quando a coluna procurada esta na FRENTE dele.
+  E a que mais cresce das tres: cardinalidade (usuarios x tags x ad_names), num
+  recurso novo (migrations 116-118).
+- `subscriptions(granted_by)` -- precauconal e com justificativa mais fraca: 1
+  linha por usuario, varredura so ao APAGAR usuario (evento raro). Entrou porque
+  o custo e desprezivel e o caminho e exercido pelo app. Indice COMPLETO, nao
+  parcial: 7 das 9 linhas tem a coluna preenchida, ao contrario dos indices de
+  Stripe da mesma tabela (parciais porque a coluna e quase sempre nula) -- copiar
+  o padrao parcial ali seria copiar a forma sem o motivo.
+
+**NAO criado (1) -- falso positivo do linter:**
+`pack_shares(pack_id, owner_id)`. O linter procura indice que case EXATAMENTE com
+a lista de colunas da FK. Existem `pack_shares_pack_idx (pack_id)` e
+`pack_shares_unique_grant (pack_id, grantee_id)`, ambos liderados por `pack_id`;
+o cascade roda `WHERE pack_id = $1 AND owner_id = $2` e um indice liderado por
+`pack_id` atende (reduz ao pack e filtra o owner entre pouquissimas linhas).
+Criar seria o QUARTO indice de uma tabela de 96 kB: custo de escrita real em
+troca de ganho nulo. **Indice desnecessario nao e neutro** -- pesa em todo
+INSERT/UPDATE.
+
+Confirmado por SQL apos aplicar: as duas FKs corrigidas passaram a ter indice
+exato; a do `pack_shares` segue sem indice exato mas COM indice liderado pela
+primeira coluna -- que e exatamente o criterio que a torna dispensavel.
+
+**Honestidade sobre o ganho:** nos volumes atuais (8, 2 e 9 linhas) nenhum dos
+dois muda nada -- o planner faria seq scan de qualquer jeito, e nao da para
+demonstrar speedup nesse tamanho. Sao preparacao para escala, nao correcao de
+problema atual. Registrado assim de proposito para ninguem depois achar que
+media alguma coisa.
