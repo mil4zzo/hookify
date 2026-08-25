@@ -32,6 +32,12 @@ ENCRYPTION_KEY=sua_chave_de_criptografia_aqui
 # é 40; com 4 workers seriam 160 operações bloqueantes simultâneas).
 # BACKEND_THREADPOOL_LIMIT=24
 
+# Abortar trabalho quando o navegador ja desligou (ver app/core/client_disconnect.py).
+# Rota sincrona nao pode ser interrompida pelo framework; a checagem e cooperativa,
+# em pontos seguros ANTES de trabalho somente-leitura. Kill switch: "false" volta ao
+# comportamento antigo (terminar tudo sempre, mesmo sem ninguem para ler).
+# CLIENT_DISCONNECT_ABORT_ENABLED=true
+
 # AssemblyAI (transcrição de vídeos)
 ASSEMBLYAI_API_KEY=sua_chave_assemblyai_aqui
 

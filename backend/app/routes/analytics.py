@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
 from app.core.db_concurrency import db_slot
+from app.core.client_disconnect import abort_if_client_gone
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
@@ -1400,6 +1401,13 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         raise HTTPException(status_code=500, detail="Erro ao consultar analytics agregados.")
 
     elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+
+    # CHECKPOINT — daqui para baixo é só ENRIQUECIMENTO somente-leitura (silos,
+    # miniatura, transcrição, tipo de mídia). Se o navegador já desligou (troca
+    # de filtro no Manager, aba fechada), tudo isso é trabalho para o lixo
+    # segurando conexão de banco. É seguro cortar aqui: nada abaixo escreve.
+    abort_if_client_gone("rankings:hidratacao")
+
     # Silos das linhas: dono de cada pack selecionado + o proprio ator.
     _owner_map = {}
     try:
@@ -1419,11 +1427,16 @@ def get_rankings(req: RankingsRequest, user=Depends(get_current_user)):
         user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
+    # Cada hidratação é uma varredura em lotes sobre o banco. Reconferir entre
+    # elas corta a cauda quando o cliente desiste no meio (as três somadas
+    # chegaram a dominar o tempo da request nos logs de 2026-08-24).
+    abort_if_client_gone("rankings:transcricao")
     transcription_flagged = _hydrate_transcription_flags_for_rankings_rows(
         sb=_hydrate_sb,
         user_id=_hydrate_silos,
         rows=primary.get("data") or [],
     )
+    abort_if_client_gone("rankings:media_type")
     media_type_hydrated = _hydrate_media_type_for_rankings_rows(
         sb=_hydrate_sb,
         user_id=_hydrate_silos,

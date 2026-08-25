@@ -14,6 +14,7 @@ from app.core import db_concurrency
 from app.core.logging_config import setup_httpx_logging_filter
 from app.core.rate_limit import rate_limit_middleware
 from app.core.request_context import current_page_route, current_route
+from app.core.client_disconnect import ClientGone, current_request
 from app.routes.facebook import router as facebook_router
 from app.routes.analytics import router as analytics_router
 from app.routes.connectors_facebook import router as fb_connector_router
@@ -65,14 +66,28 @@ async def _set_request_context(request: Request, call_next):
     """
     t_route = current_route.set(request.url.path)
     t_page = current_page_route.set(request.headers.get("x-page-route") or None)
+    # Expõe o Request para as rotas SÍNCRONAS poderem perguntar "o cliente ainda
+    # está aí?" nos checkpoints (ver app/core/client_disconnect.py). Contextvars
+    # são copiadas para a thread do pool, então o valor chega lá dentro.
+    t_req = current_request.set(request)
     try:
         return await call_next(request)
+    except ClientGone as gone:
+        # Não é erro: o navegador desligou (ex.: troca de filtro no Manager) e a
+        # rota cortou o trabalho restante. Ninguém vai ler esta resposta — ela
+        # existe só para fechar o ciclo. Log em INFO, sem stacktrace e sem Sentry.
+        logger.info(
+            "Cliente desconectou em %s %s (etapa: %s) — trabalho restante abortado",
+            request.method, request.url.path, gone.stage,
+        )
+        return JSONResponse(status_code=499, content={"detail": "Client Closed Request"})
     except Exception:
         logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
         return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
     finally:
         current_route.reset(t_route)
         current_page_route.reset(t_page)
+        current_request.reset(t_req)
 
 
 # Rate limit registrado ANTES do CORSMiddleware (que é adicionado por último e

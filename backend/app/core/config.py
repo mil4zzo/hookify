@@ -170,3 +170,11 @@ try:
 except ValueError:
     BACKEND_THREADPOOL_LIMIT = 24
 BACKEND_THREADPOOL_LIMIT = max(4, BACKEND_THREADPOOL_LIMIT)
+
+# Abortar trabalho quando o navegador ja desligou (ver app/core/client_disconnect.py).
+# Rota sincrona nao pode ser interrompida pelo framework; a checagem e cooperativa,
+# feita em pontos seguros ANTES de trabalho somente-leitura e best-effort.
+# Kill switch: desligar volta ao comportamento antigo (terminar tudo sempre).
+CLIENT_DISCONNECT_ABORT_ENABLED = (
+    os.getenv("CLIENT_DISCONNECT_ABORT_ENABLED", "true").lower() in ("true", "1", "yes")
+)

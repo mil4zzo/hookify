@@ -2963,3 +2963,69 @@ provado que o script imprime "OK" — nao que o alarme dispara.
 
 Pre-requisito: secrets `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no repositorio.
 
+## Parar trabalho quando o navegador desliga (2026-08-24)
+
+Segunda metade do problema de concorrencia. O teto (`db_concurrency.py`) impede o
+afogamento; isto evita **gastar o slot com trabalho que ninguem vai ler**.
+
+**O cancelamento ja existia -- e morria no navegador.** O frontend aborta a request
+anterior a cada troca de filtro (`signal` do TanStack ligado ao axios). Mas as rotas
+de analytics sao sincronas (`def`), rodam em thread do pool e **thread em execucao
+nao pode ser interrompida**. O backend terminava a RPC de 16 s e as tres hidratacoes
+antes de descobrir que ninguem escutava.
+
+**Como a ponte funciona.** `Request.is_disconnected()` e assincrono e o codigo esta
+numa thread. `anyio.from_thread.run` agenda a corrotina no event loop e devolve o
+resultado -- funciona porque o FastAPI roda rota sincrona via `anyio.to_thread.run_sync`,
+thread que a anyio conhece. O corpo da request ja foi parseado antes do handler, entao
+o `receive` nao-bloqueante interno nao rouba pedaco de corpo.
+
+### Duas regras que nao podem ser quebradas
+
+**1. So checar antes de trabalho SOMENTE-LEITURA e best-effort.** Nunca no meio de uma
+sequencia de escrita -- abortar entre dois UPDATEs deixaria estado parcial no banco, o
+que e muito pior que desperdicio de CPU. Por isso o checkpoint **nao** entrou no
+`db_slot` (que seria elegante e cobriria tudo de uma vez): o `db_slot` tambem embrulha
+escrita via `with_postgrest_retry`. Os pontos legitimos hoje sao as tres hidratacoes do
+rankings.
+
+**2. Fail-safe: na duvida, o cliente esta presente.** Sem request no contexto (job de
+background), thread fora do pool da anyio, excecao na ponte -> devolve "conectado" e o
+trabalho segue. Falso positivo cancelaria trabalho legitimo e devolveria resposta
+incompleta; errar para o lado do desperdicio e barato, para o lado do cancelamento nao.
+
+### ClientGone e Exception, NAO BaseException -- testado
+
+A ideia de herdar `BaseException` (como o `asyncio.CancelledError` faz, para nao ser
+engolido por `except Exception` de best-effort) e tentadora e **nao funciona aqui**.
+Verificado com TestClient nas duas variantes:
+
+```
+Exception     -> except ClientGone pega  -> 499 correto
+BaseException -> BaseHTTPMiddleware (Starlette 0.48) perde a excecao
+                 -> "RuntimeError: No response returned." -> 500
+```
+
+**A consequencia e uma regra de uso:** como e Exception comum, qualquer
+`except Exception` no caminho a engole. O checkpoint so pode ficar no nivel de cima da
+rota, **nunca dentro de try/except Exception** (que neste codebase quase sempre
+significa "best-effort, siga em frente"). Precisando de um la dentro, re-lancar
+explicitamente antes do handler generico. Ha teste travando essa decisao
+(`TestContratoDaExcecao`) para a "melhoria" nao voltar.
+
+### Resto
+
+Cancelamento vira **499** com log em INFO -- nao e erro de aplicacao, nao vai para o
+Sentry, nao polui log de erro. O frontend nao precisou mudar: se o cliente desconectou,
+o axios ja rejeitou por cancelamento e a resposta nao chega ao JS.
+
+Kill switch `CLIENT_DISCONNECT_ABORT_ENABLED` (default true).
+
+**Oportunidade nao explorada:** as rotas `/rankings/series` e `/rankings/retention` sao
+RPC unica, sem cauda de hidratacao -- o ganho la seria menor e exigiria checkpoint em
+ponto diferente (apos adquirir o slot, antes de disparar a query). Ficou de fora
+deliberadamente para nao inflar o escopo.
+
+Testes: 372 passando (7 novos aqui). Boot verificado com CORS ainda como middleware
+mais externo -- invariante que o 500-sem-CORS de 2026-07-06 deixou como regra.
+
