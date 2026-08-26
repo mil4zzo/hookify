@@ -106,15 +106,19 @@ export default function Sidebar() {
             <IconBook2 className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/docs" ? "text-text" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Docs</span>
           </Link>
-          <Link href="/termos-de-uso" className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/termos-de-uso" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Termos de Uso" : undefined}>
+          {/* prefetch={false} nos links juridicos: o padrao do Next pre-baixa o esqueleto
+              de TODA rota linkada visivel, em toda pagina. Medido no DevTools do Manager:
+              3 requisicoes ?_rsc de 300-700 ms para paginas que ninguem navega, disputando
+              conexao com o /rankings. Nao tocam no banco -- e custo de frontend/rede. */}
+          <Link href="/termos-de-uso" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/termos-de-uso" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Termos de Uso" : undefined}>
             <IconFileText className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/termos-de-uso" ? "text-text" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Termos de Uso</span>
           </Link>
-          <Link href="/politica-de-privacidade" className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/politica-de-privacidade" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Política de Privacidade" : undefined}>
+          <Link href="/politica-de-privacidade" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/politica-de-privacidade" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Política de Privacidade" : undefined}>
             <IconShieldLock className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/politica-de-privacidade" ? "text-text" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Política de Privacidade</span>
           </Link>
-          <Link href="/exclusao-de-dados" className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/exclusao-de-dados" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Exclusão de Dados" : undefined}>
+          <Link href="/exclusao-de-dados" prefetch={false} className={cn("flex items-center rounded-md text-xs font-normal text-text transition-all duration-300", isCollapsed ? "justify-center px-2 py-2 ease-in" : "gap-2 px-3 py-2 ease-out", pathname === "/exclusao-de-dados" ? "bg-primary text-text" : "text-text hover:bg-input-30 hover:text-text")} title={isCollapsed ? "Exclusão de Dados" : undefined}>
             <IconTrash className={cn("h-4 w-4 flex-shrink-0 transition-colors duration-300", pathname === "/exclusao-de-dados" ? "text-text" : "text-muted-foreground")} />
             <span className={cn("transition-all duration-300 whitespace-nowrap", showLabels ? "opacity-100 max-w-full ease-out" : "opacity-0 max-w-0 overflow-hidden ease-in")}>Exclusão de Dados</span>
           </Link>
