@@ -30,6 +30,8 @@ import { useSessionStore } from '@/lib/store/session'
 import { useSupabaseAuth } from '@/lib/hooks/useSupabaseAuth'
 import { getCachedPackAds, cachePackAds, removeCachedPackAds } from '@/lib/storage/adsCache'
 import { filterVideoAds } from '@/lib/utils/filterVideoAds'
+import { usePacksLoading } from '@/components/layout/PacksLoader'
+import { computePacksFreshnessStamp } from '@/lib/utils/packsFreshness'
 
 // Query Keys
 export const queryKeys = {
@@ -49,7 +51,7 @@ export const queryKeys = {
   adsetChildren: (adsetId: string, dateStart: string, dateStop: string, packIdsKey: string = '') => ['analytics', 'rankings', 'adset-children', adsetId, dateStart, dateStop, packIdsKey] as const,
   packAds: (packId: string) => ['analytics', 'pack-ads', packId] as const,
   packActivity: (packId: string, actorId: string = '') => ['analytics', 'pack-activity', packId, actorId] as const,
-  rankings: (params: RankingsRequest) => [
+  rankings: (params: RankingsRequest, freshness: string = '') => [
     'analytics',
     'rankings',
     params.date_start,
@@ -64,9 +66,10 @@ export const queryKeys = {
     params.offset,
     params.limit,
     params.include_available_conversion_types,
+    freshness,
   ] as const,
   // Alias semântico para consultas de performance agregada de anúncios
-  adPerformance: (params: RankingsRequest) => [
+  adPerformance: (params: RankingsRequest, freshness: string = '') => [
     'analytics',
     'rankings',
     params.date_start,
@@ -81,9 +84,13 @@ export const queryKeys = {
     params.offset,
     params.limit,
     params.include_available_conversion_types,
+    freshness,
   ] as const,
-  adPerformanceSeries: (params: RankingsSeriesRequest, groupKeysHash: string) =>
-    ['analytics', 'rankings-series', params.date_start, params.date_stop, params.group_by, params.action_type, params.pack_ids, params.window, groupKeysHash] as const,
+  // `freshness` = carimbo dos packs selecionados (updated_at do refresh + last_successful_sync_at
+  // da planilha). Vai no FIM da chave: o prefixo ['analytics', 'rankings'] continua batendo em
+  // todas as invalidacoes existentes. Ver lib/utils/packsFreshness.ts para o porque.
+  adPerformanceSeries: (params: RankingsSeriesRequest, groupKeysHash: string, freshness: string = '') =>
+    ['analytics', 'rankings-series', params.date_start, params.date_stop, params.group_by, params.action_type, params.pack_ids, params.window, groupKeysHash, freshness] as const,
   adPerformanceRetention: (params: RankingsRetentionRequest) =>
     ['analytics', 'rankings-retention', params.date_start, params.date_stop, params.group_by, params.group_key, params.pack_ids] as const,
 }
@@ -517,11 +524,29 @@ export const useRankings = (params: RankingsRequest, enabled: boolean = true) =>
  * Hook semântico para buscar performance agregada de anúncios.
  * Usa a mesma estrutura de dados de `useRankings`, mas aponta para o novo alias de rota.
  */
+/**
+ * Carimbo de frescor dos packs selecionados, lido direto do store (zustand, seletor
+ * barato). NAO usar useClientPacks/useClientSession aqui: cada instancia deles abre
+ * uma assinatura onAuthStateChange, e este hook e chamado em varias telas.
+ *
+ * O gate em `packsLoading` e o que impede um fetch com carimbo VELHO: o store
+ * rehidrata packs persistidos (updated_at antigo) antes do /packs fresco chegar;
+ * sem o gate, a chave mudaria quando os packs sincronizassem e a tela pagaria a
+ * consulta pesada DUAS vezes. Fora do PacksLoader o contexto vale isLoading=true
+ * de proposito -- toda tela que usa este hook vive dentro do AppLayout.
+ */
+function usePacksFreshness(packIds: RankingsRequest['pack_ids']) {
+  const packs = useSessionStore((s) => s.packs)
+  const { isLoading: packsLoading } = usePacksLoading()
+  return { freshness: computePacksFreshnessStamp(packs, packIds), packsLoading }
+}
+
 export const useAdPerformance = (params: RankingsRequest, enabled: boolean = true) => {
+  const { freshness, packsLoading } = usePacksFreshness(params.pack_ids)
   return useQuery<RankingsResponse>({
-    queryKey: queryKeys.adPerformance(params),
+    queryKey: queryKeys.adPerformance(params, freshness),
     queryFn: ({ signal }) => api.analytics.getAdPerformance(params, { signal }),
-    enabled: enabled && !!params.date_start && !!params.date_stop,
+    enabled: enabled && !!params.date_start && !!params.date_stop && !packsLoading,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 60 * 1000,
     retry: retryOnlyNetworkErrors,
@@ -533,9 +558,10 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
 export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: boolean = true) => {
   const normalizedKeys = [...(params.group_keys || [])].map(String).sort()
   const groupKeysHash = hashStringArray(normalizedKeys)
+  const { freshness, packsLoading } = usePacksFreshness(params.pack_ids)
 
   return useQuery<RankingsSeriesResponse>({
-    queryKey: queryKeys.adPerformanceSeries(params, groupKeysHash),
+    queryKey: queryKeys.adPerformanceSeries(params, groupKeysHash, freshness),
     queryFn: ({ signal }) =>
       api.analytics.getRankingsSeries({
         ...params,
@@ -545,7 +571,8 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
       enabled &&
       !!params.date_start &&
       !!params.date_stop &&
-      normalizedKeys.length > 0,
+      normalizedKeys.length > 0 &&
+      !packsLoading,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 2 * 60 * 1000,
     retry: retryOnlyNetworkErrors,
