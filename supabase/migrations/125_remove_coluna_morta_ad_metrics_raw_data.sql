@@ -1,0 +1,29 @@
+-- 125: remove `ad_metrics.raw_data` — coluna morta.
+--
+-- ACHADO
+-- ------
+-- Durante o EXPLAIN das RPCs do Manager (2026-08-25) a `raw_data` era a principal
+-- suspeita de peso: `select am.*` no CTE `base_candidates` carrega TODAS as colunas,
+-- e uma jsonb com "os dados brutos da API do Meta" seria o maior TOAST da tabela.
+--
+-- Medido: **NULL nas 256.726 linhas, 0 bytes ocupados**. Nunca foi populada.
+--
+-- SEJAMOS HONESTOS SOBRE O GANHO
+-- ------------------------------
+-- Este DROP **não libera espaço nenhum** e **não acelera nada** — a coluna já não
+-- custava. O ganho é de clareza: enquanto ela existir, toda auditoria futura de
+-- performance vai reencontrá-la, suspeitar dela e gastar tempo medindo até
+-- descobrir de novo que está vazia. Foi exatamente o que aconteceu aqui.
+--
+-- VERIFICADO ANTES DE DROPAR (é irreversível)
+-- -------------------------------------------
+--   * backend: nenhuma escrita nem leitura da COLUNA. As ocorrências de `raw_data`
+--     em `ads_enricher.py` são uma variável local Python de mesmo nome, sem relação.
+--   * frontend: nenhum consumidor (só a tabela da página /docs, atualizada junto).
+--   * banco: nenhuma função, view, índice ou constraint a referencia
+--     (varrido em pg_proc / pg_class / pg_index / pg_constraint).
+--
+-- O upsert de métricas monta o payload por colunas explícitas, então remover não
+-- quebra escrita: nenhum payload cita `raw_data`.
+
+ALTER TABLE public.ad_metrics DROP COLUMN IF EXISTS raw_data;

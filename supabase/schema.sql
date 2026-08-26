@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict v3abb4p4lXTVCvuBe0lpjjHbxhC4ZngqxbBQN0b3azCSi5pBLbb5XAKUr75XigL
+\restrict xC5nmZHMgHbZmCMOulVjgPdT0tJFiiorSmDhnUzsPhMTxDqI5EtaxhH5xCe6pnT
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -6240,7 +6240,6 @@ CREATE TABLE public.ad_metrics (
     video_play_curve_actions jsonb,
     connect_rate numeric,
     profile_ctr numeric,
-    raw_data jsonb,
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     id text NOT NULL,
@@ -8861,5 +8860,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict v3abb4p4lXTVCvuBe0lpjjHbxhC4ZngqxbBQN0b3azCSi5pBLbb5XAKUr75XigL
+\unrestrict xC5nmZHMgHbZmCMOulVjgPdT0tJFiiorSmDhnUzsPhMTxDqI5EtaxhH5xCe6pnT
 

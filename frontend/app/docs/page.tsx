@@ -183,8 +183,6 @@ const SUPABASE_TABLES: TableDoc[] = [
       { name: "hold_rate", type: "NUMERIC", description: "Taxa de retenção do vídeo" },
       { name: "connect_rate", type: "NUMERIC", description: "Taxa de conexão" },
       { name: "profile_ctr", type: "NUMERIC", description: "CTR do perfil" },
-      { name: "pack_ids", type: "UUID[]", description: "Array de packs associados" },
-      { name: "raw_data", type: "JSONB", description: "Dados brutos da API do Meta" },
       { name: "created_at", type: "TIMESTAMPTZ", description: "Data de criação" },
       { name: "updated_at", type: "TIMESTAMPTZ", description: "Data de atualização" },
     ],

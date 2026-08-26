@@ -76,7 +76,6 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | video_play_curve_actions | jsonb |  |
 | connect_rate | numeric |  |
 | profile_ctr | numeric |  |
-| raw_data | jsonb |  |
 | created_at | timestamp | DEFAULT |
 | updated_at | timestamp | DEFAULT |
 | id | text | NOT NULL |
