@@ -3392,7 +3392,17 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
                 pack["ads"] = ads
                 packs_with_ads.append(pack)
             return {"success": True, "packs": packs_with_ads}
-        
+
+        # `ad_ids` fica de fora quando o cliente nao pediu os ads. O `select("*")`
+        # do repo traz o array inteiro, e ele e o peso morto da lista: medido em
+        # 2026-08-26, 6 packs = 504 kB, dos quais ~425 kB eram ad_ids (ate 5.701
+        # ids por pack). O frontend nunca le `pack.ad_ids` desta lista — o store
+        # copia campos explicitos e o contador de anuncios vem de `stats.uniqueAds`.
+        # Esta lista e carregada em TODA pagina do app, nao so no Manager.
+        for pack in packs:
+            if isinstance(pack, dict):
+                pack.pop("ad_ids", None)
+
         return {"success": True, "packs": packs}
     except Exception as e:
         logger.exception(f"Erro ao listar packs: {e}")

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, Request
 import time
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 import logging
 from app.core.config import (
@@ -53,6 +54,25 @@ app = FastAPI(
     description="Backend API for Hookify Facebook Ads Analytics",
     version="0.1.0"
 )
+
+# Compressão das respostas. Registrado ANTES DE QUALQUER OUTRO middleware = o
+# mais INTERNO de todos, colado na rota. A posição não é estética: os
+# `@app.middleware("http")` abaixo são BaseHTTPMiddleware, que reembrulham toda
+# resposta como streaming SEM Content-Length. Se o GZip ficar por fora de um
+# deles, não consegue saber o tamanho do corpo e comprime TUDO — inclusive o
+# /health de 279 bytes (visto no teste ao registrá-lo depois do middleware de
+# contexto). Colado na rota, ele vê o Content-Length real e honra minimum_size.
+#
+# É ASGI puro e só toca `send`; não interfere no leitor único de `receive` do
+# ClientDisconnectMiddleware, que fica por fora de tudo.
+#
+# Medido em 2026-08-26: a API respondia SEM compressão nenhuma (nem aqui, nem no
+# Traefik) — o /openapi.json de 128 kB saía com Content-Length 128175 e sem
+# Content-Encoding. A resposta do Manager (JSON com arrays numéricos, ~1 MB)
+# comprime 4-6x. `minimum_size=1000`: abaixo disso o cabeçalho custa mais que
+# o ganho.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
 
 @app.middleware("http")
 async def _set_request_context(request: Request, call_next):
