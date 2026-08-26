@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict QtEdAkOtj2KPKZ9GPd0g1egxsI4sNU8wXrkaqkDx5NtOATVC38z8TZD9T1k3a22
+\restrict etWNnh7kuKwedZAlzhlnMdWc9VWPCp91Z1x0dmhjcauspHqxTQadx8PHydAJ2Zm
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -47,6 +47,29 @@ CREATE TYPE public.ad_metric_key AS (
 
 
 ALTER TYPE public.ad_metric_key OWNER TO postgres;
+
+--
+-- Name: ad_performance_curve_point(jsonb, integer); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_curve_point(p_curve jsonb, p_idx integer) RETURNS numeric
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    SET search_path TO 'public'
+    AS $$
+  -- Ponto p_idx da curva de retenção como fração (a RPC v116 divide por 100 quando o
+  -- valor vem em percentual). 0 quando não há curva — inclusive curva NULL:
+  -- jsonb_typeof(NULL) é NULL, e um NULL solto num WHERE devolveria zero linhas
+  -- (= NULL na coluna NOT NULL). O teste da 128 pegou exatamente isso.
+  select case
+    when coalesce(jsonb_typeof(p_curve) = 'array' and jsonb_array_length(p_curve) > 0, false) then
+      (select v / (case when v > 1 then 100.0 else 1.0 end)
+       from (select coalesce(nullif(regexp_replace(coalesce(p_curve ->> least(p_idx, jsonb_array_length(p_curve) - 1), '0'), '[^0-9.-]', '', 'g'), ''), '0')::numeric as v) s)
+    else 0::numeric
+  end
+$$;
+
+
+ALTER FUNCTION public.ad_performance_curve_point(p_curve jsonb, p_idx integer) OWNER TO postgres;
 
 --
 -- Name: ad_performance_derive_conversions(jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: postgres
@@ -106,41 +129,127 @@ ALTER FUNCTION public.ad_performance_derive_leads(p_values numeric[]) OWNER TO p
 COMMENT ON FUNCTION public.ad_performance_derive_leads(p_values numeric[]) IS 'Fonte única da derivação do histograma de leadscore (score → quantidade) a partir de leadscore_values (migration 128).';
 
 
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
 --
--- Name: ad_performance_derive_row(jsonb, jsonb, numeric[]); Type: FUNCTION; Schema: public; Owner: postgres
+-- Name: ad_metrics; Type: TABLE; Schema: public; Owner: postgres
 --
 
-CREATE FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) RETURNS TABLE(conv_key_ids integer[], conv_values numeric[], lead_scores numeric[], lead_qtys integer[])
+CREATE TABLE public.ad_metrics (
+    user_id uuid NOT NULL,
+    ad_id text NOT NULL,
+    account_id text,
+    campaign_id text,
+    campaign_name text,
+    adset_id text,
+    adset_name text,
+    ad_name text,
+    date date NOT NULL,
+    clicks integer,
+    impressions integer,
+    inline_link_clicks integer,
+    reach integer,
+    video_total_plays integer,
+    video_total_thruplays integer,
+    video_watched_p50 integer,
+    spend numeric,
+    cpm numeric,
+    ctr numeric,
+    frequency numeric,
+    website_ctr numeric,
+    actions jsonb,
+    conversions jsonb,
+    cost_per_conversion jsonb,
+    video_play_curve_actions jsonb,
+    connect_rate numeric,
+    profile_ctr numeric,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    id text NOT NULL,
+    hold_rate numeric,
+    leadscore_values numeric[],
+    lpv integer DEFAULT 0 NOT NULL,
+    hook_rate numeric,
+    scroll_stop_rate numeric,
+    video_watched_p75 integer
+);
+
+
+ALTER TABLE public.ad_metrics OWNER TO postgres;
+
+--
+-- Name: COLUMN ad_metrics.hold_rate; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_metrics.hold_rate IS 'Taxa de retenção (Hold Rate) calculada como video_thruplay_watched_actions / hook (retention at 3 seconds). 
+Representa quantos usuários que passaram do hook inicial continuaram assistindo até o thruplay.';
+
+
+--
+-- Name: COLUMN ad_metrics.leadscore_values; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_metrics.leadscore_values IS 'Array de leadscores individuais daquele ad_id naquela date. Permite calcular média correta quando há múltiplas datas. Exemplo: [24, 100, 80, 19] representa 4 leads com leadscores 24, 100, 80, 19. Média = SUM(leadscore_values) / array_length(leadscore_values, 1)';
+
+
+--
+-- Name: COLUMN ad_metrics.video_watched_p75; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_metrics.video_watched_p75 IS 'Percentual inteiro (0-100) de plays que atingiram 75% do vídeo (video_p75_watched_actions / video_play_actions). NULL em linhas anteriores à migration 090 ainda não re-sincronizadas.';
+
+
+--
+-- Name: ad_performance_derive_row(public.ad_metrics); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_derive_row(am public.ad_metrics) RETURNS TABLE(account_id text, campaign_id text, adset_id text, ad_name text, impressions bigint, clicks bigint, inline_link_clicks bigint, spend numeric, lpv bigint, plays bigint, thruplays bigint, video_watched_p50 numeric, video_watched_p75 numeric, hold_rate numeric, reach bigint, frequency numeric, hook_value numeric, scroll_stop_value numeric, conv_key_ids integer[], conv_values numeric[], lead_scores numeric[], lead_qtys integer[])
     LANGUAGE sql STABLE PARALLEL SAFE
     SET search_path TO 'public'
     AS $$
+  -- A linha derivada COMPLETA de uma linha de ad_metrics. Números saneados como a RPC
+  -- v116 (coalesce 0, casts). Arrays na ordem canônica (por key_id / por score).
+  -- Pressupõe que as chaves já existem no dicionário (o chamador garante).
   with c as (
     select ck.id, d.value
-    from public.ad_performance_derive_conversions(p_actions, p_conversions) d
+    from public.ad_performance_derive_conversions(am.actions, am.conversions) d
     join public.conversion_keys ck on ck.key = d.key
   ),
   l as (
-    select score, qty from public.ad_performance_derive_leads(p_leadscore_values)
-  ),
-  packed as (
-    select
-      (select coalesce(array_agg(id    order by id), '{}') from c) as conv_key_ids,
-      (select coalesce(array_agg(value order by id), '{}') from c) as conv_values,
-      (select coalesce(array_agg(score order by score), '{}') from l) as lead_scores,
-      (select coalesce(array_agg(qty   order by score), '{}') from l) as lead_qtys
+    select score, qty from public.ad_performance_derive_leads(am.leadscore_values)
   )
-  select * from packed
-  where cardinality(conv_key_ids) > 0 or cardinality(lead_scores) > 0
+  select
+    am.account_id, am.campaign_id, am.adset_id, am.ad_name,
+    coalesce(am.impressions, 0)::bigint,
+    coalesce(am.clicks, 0)::bigint,
+    coalesce(am.inline_link_clicks, 0)::bigint,
+    coalesce(am.spend, 0)::numeric,
+    coalesce(am.lpv, 0)::bigint,
+    coalesce(am.video_total_plays, 0)::bigint,
+    coalesce(am.video_total_thruplays, 0)::bigint,
+    coalesce(am.video_watched_p50, 0)::numeric,
+    coalesce(am.video_watched_p75, 0)::numeric,
+    coalesce(am.hold_rate, 0)::numeric,
+    coalesce(am.reach, 0)::bigint,
+    coalesce(am.frequency, 0)::numeric,
+    coalesce(am.hook_rate, public.ad_performance_curve_point(am.video_play_curve_actions, 3)),
+    coalesce(am.scroll_stop_rate, public.ad_performance_curve_point(am.video_play_curve_actions, 1)),
+    (select coalesce(array_agg(id    order by id), '{}') from c),
+    (select coalesce(array_agg(value order by id), '{}') from c),
+    (select coalesce(array_agg(score order by score), '{}') from l),
+    (select coalesce(array_agg(qty   order by score), '{}') from l)
 $$;
 
 
-ALTER FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) OWNER TO postgres;
+ALTER FUNCTION public.ad_performance_derive_row(am public.ad_metrics) OWNER TO postgres;
 
 --
--- Name: FUNCTION ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]); Type: COMMENT; Schema: public; Owner: postgres
+-- Name: FUNCTION ad_performance_derive_row(am public.ad_metrics); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) IS 'Empacota a derivação de uma linha de ad_metrics nos arrays paralelos de ad_performance_daily, na ordem canônica (migration 128). Zero linhas = nada a guardar.';
+COMMENT ON FUNCTION public.ad_performance_derive_row(am public.ad_metrics) IS 'Fonte única da linha de ad_performance_daily a partir de uma linha de ad_metrics (migration 129): chaves, números saneados como a RPC, arrays de conversões e histograma de leads. Trigger, rebuild e consistency_check usam esta função.';
 
 
 --
@@ -183,12 +292,10 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Apaga-e-reinsere por chave → idempotente por construção.
   DELETE FROM public.ad_performance_daily d
   USING unnest(p_keys) k
   WHERE d.user_id = k.user_id AND d.ad_id = k.ad_id AND d.date = k.date;
 
-  -- Dicionário: garante o id de toda chave nova antes de empacotar.
   INSERT INTO public.conversion_keys (key)
   SELECT DISTINCT c.key
   FROM unnest(p_keys) k
@@ -196,11 +303,17 @@ BEGIN
   CROSS JOIN LATERAL public.ad_performance_derive_conversions(am.actions, am.conversions) c
   ON CONFLICT (key) DO NOTHING;
 
-  INSERT INTO public.ad_performance_daily (user_id, ad_id, date, conv_key_ids, conv_values, lead_scores, lead_qtys)
-  SELECT am.user_id, am.ad_id, am.date, r.conv_key_ids, r.conv_values, r.lead_scores, r.lead_qtys
+  INSERT INTO public.ad_performance_daily (
+    user_id, ad_id, date,
+    account_id, campaign_id, adset_id, ad_name,
+    impressions, clicks, inline_link_clicks, spend, lpv, plays, thruplays,
+    video_watched_p50, video_watched_p75, hold_rate, reach, frequency, hook_value, scroll_stop_value,
+    conv_key_ids, conv_values, lead_scores, lead_qtys
+  )
+  SELECT am.user_id, am.ad_id, am.date, r.*
   FROM unnest(p_keys) k
   JOIN public.ad_metrics am ON am.user_id = k.user_id AND am.ad_id = k.ad_id AND am.date = k.date
-  CROSS JOIN LATERAL public.ad_performance_derive_row(am.actions, am.conversions, am.leadscore_values) r;
+  CROSS JOIN LATERAL public.ad_performance_derive_row(am) r;
 END;
 $$;
 
@@ -223,23 +336,23 @@ CREATE FUNCTION public.ad_performance_rollup_consistency_check(p_user_id uuid DE
     SET search_path TO 'public'
     SET plan_cache_mode TO 'force_custom_plan'
     AS $$
-  -- Compara a derivação COMPLETA (não só contagens) nos dois sentidos, por usuário.
-  -- Cobre trigger e backfill; a semântica da derivação em si é provada pelo teste
-  -- diferencial contra a RPC antiga (fase C do plano). Custo O(linhas do usuário):
-  -- rodar via psql, não via PostgREST.
   with scope as (
     select distinct am.user_id
     from public.ad_metrics am
     where p_user_id is null or am.user_id = p_user_id
   ),
   expected as (
-    select am.user_id, am.ad_id, am.date, r.conv_key_ids, r.conv_values, r.lead_scores, r.lead_qtys
+    select am.user_id, am.ad_id, am.date, r.*
     from public.ad_metrics am
     join scope s on s.user_id = am.user_id
-    cross join lateral public.ad_performance_derive_row(am.actions, am.conversions, am.leadscore_values) r
+    cross join lateral public.ad_performance_derive_row(am) r
   ),
   stored as (
-    select d.user_id, d.ad_id, d.date, d.conv_key_ids, d.conv_values, d.lead_scores, d.lead_qtys
+    select d.user_id, d.ad_id, d.date,
+           d.account_id, d.campaign_id, d.adset_id, d.ad_name,
+           d.impressions, d.clicks, d.inline_link_clicks, d.spend, d.lpv, d.plays, d.thruplays,
+           d.video_watched_p50, d.video_watched_p75, d.hold_rate, d.reach, d.frequency, d.hook_value, d.scroll_stop_value,
+           d.conv_key_ids, d.conv_values, d.lead_scores, d.lead_qtys
     from public.ad_performance_daily d
     join scope s on s.user_id = d.user_id
   ),
@@ -276,8 +389,6 @@ DECLARE
   v_t0   timestamptz := clock_timestamp();
   v_rows bigint;
 BEGIN
-  -- Guard de tenancy (padrão da migration 113): autenticado só reconstrói o próprio
-  -- silo; service role / psql direto (auth.uid() nulo) passam.
   IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
     RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
   END IF;
@@ -291,10 +402,16 @@ BEGIN
   WHERE am.user_id = p_user_id
   ON CONFLICT (key) DO NOTHING;
 
-  INSERT INTO public.ad_performance_daily (user_id, ad_id, date, conv_key_ids, conv_values, lead_scores, lead_qtys)
-  SELECT am.user_id, am.ad_id, am.date, r.conv_key_ids, r.conv_values, r.lead_scores, r.lead_qtys
+  INSERT INTO public.ad_performance_daily (
+    user_id, ad_id, date,
+    account_id, campaign_id, adset_id, ad_name,
+    impressions, clicks, inline_link_clicks, spend, lpv, plays, thruplays,
+    video_watched_p50, video_watched_p75, hold_rate, reach, frequency, hook_value, scroll_stop_value,
+    conv_key_ids, conv_values, lead_scores, lead_qtys
+  )
+  SELECT am.user_id, am.ad_id, am.date, r.*
   FROM public.ad_metrics am
-  CROSS JOIN LATERAL public.ad_performance_derive_row(am.actions, am.conversions, am.leadscore_values) r
+  CROSS JOIN LATERAL public.ad_performance_derive_row(am) r
   WHERE am.user_id = p_user_id;
   GET DIAGNOSTICS v_rows = ROW_COUNT;
 
@@ -355,9 +472,17 @@ BEGIN
     (SELECT array_agg(ROW(n.user_id, n.ad_id, n.date)::public.ad_metric_key)
      FROM new_rows n
      JOIN old_rows o ON o.id = n.id AND o.user_id = n.user_id
-     WHERE n.actions          IS DISTINCT FROM o.actions
-        OR n.conversions      IS DISTINCT FROM o.conversions
-        OR n.leadscore_values IS DISTINCT FROM o.leadscore_values)
+     WHERE ROW(n.actions, n.conversions, n.leadscore_values,
+               n.account_id, n.campaign_id, n.adset_id, n.ad_name,
+               n.impressions, n.clicks, n.inline_link_clicks, n.spend, n.lpv,
+               n.video_total_plays, n.video_total_thruplays, n.video_watched_p50, n.video_watched_p75,
+               n.hold_rate, n.reach, n.frequency, n.hook_rate, n.scroll_stop_rate, n.video_play_curve_actions)
+        IS DISTINCT FROM
+           ROW(o.actions, o.conversions, o.leadscore_values,
+               o.account_id, o.campaign_id, o.adset_id, o.ad_name,
+               o.impressions, o.clicks, o.inline_link_clicks, o.spend, o.lpv,
+               o.video_total_plays, o.video_total_thruplays, o.video_watched_p50, o.video_watched_p75,
+               o.hold_rate, o.reach, o.frequency, o.hook_rate, o.scroll_stop_rate, o.video_play_curve_actions))
   );
   RETURN NULL;
 END;
@@ -370,7 +495,7 @@ ALTER FUNCTION public.ad_performance_rollup_sync_upd() OWNER TO postgres;
 -- Name: FUNCTION ad_performance_rollup_sync_upd(); Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON FUNCTION public.ad_performance_rollup_sync_upd() IS 'Trigger por STATEMENT (AFTER UPDATE, old_rows/new_rows) que recomputa ad_performance_daily só das linhas cujas actions/conversions/leadscore_values mudaram (migration 128).';
+COMMENT ON FUNCTION public.ad_performance_rollup_sync_upd() IS 'Trigger por STATEMENT (AFTER UPDATE, old_rows/new_rows) que recomputa ad_performance_daily só das linhas cuja fonte mudou — qualquer coluna que a derivação lê (migrations 128/129).';
 
 
 --
@@ -6483,10 +6608,6 @@ $$;
 
 ALTER FUNCTION public.set_updated_at() OWNER TO postgres;
 
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
-
 --
 -- Name: ad_accounts; Type: TABLE; Schema: public; Owner: postgres
 --
@@ -6547,74 +6668,6 @@ CREATE TABLE public.ad_metric_pack_map (
 ALTER TABLE public.ad_metric_pack_map OWNER TO postgres;
 
 --
--- Name: ad_metrics; Type: TABLE; Schema: public; Owner: postgres
---
-
-CREATE TABLE public.ad_metrics (
-    user_id uuid NOT NULL,
-    ad_id text NOT NULL,
-    account_id text,
-    campaign_id text,
-    campaign_name text,
-    adset_id text,
-    adset_name text,
-    ad_name text,
-    date date NOT NULL,
-    clicks integer,
-    impressions integer,
-    inline_link_clicks integer,
-    reach integer,
-    video_total_plays integer,
-    video_total_thruplays integer,
-    video_watched_p50 integer,
-    spend numeric,
-    cpm numeric,
-    ctr numeric,
-    frequency numeric,
-    website_ctr numeric,
-    actions jsonb,
-    conversions jsonb,
-    cost_per_conversion jsonb,
-    video_play_curve_actions jsonb,
-    connect_rate numeric,
-    profile_ctr numeric,
-    created_at timestamp with time zone DEFAULT now(),
-    updated_at timestamp with time zone DEFAULT now(),
-    id text NOT NULL,
-    hold_rate numeric,
-    leadscore_values numeric[],
-    lpv integer DEFAULT 0 NOT NULL,
-    hook_rate numeric,
-    scroll_stop_rate numeric,
-    video_watched_p75 integer
-);
-
-
-ALTER TABLE public.ad_metrics OWNER TO postgres;
-
---
--- Name: COLUMN ad_metrics.hold_rate; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ad_metrics.hold_rate IS 'Taxa de retenção (Hold Rate) calculada como video_thruplay_watched_actions / hook (retention at 3 seconds). 
-Representa quantos usuários que passaram do hook inicial continuaram assistindo até o thruplay.';
-
-
---
--- Name: COLUMN ad_metrics.leadscore_values; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ad_metrics.leadscore_values IS 'Array de leadscores individuais daquele ad_id naquela date. Permite calcular média correta quando há múltiplas datas. Exemplo: [24, 100, 80, 19] representa 4 leads com leadscores 24, 100, 80, 19. Média = SUM(leadscore_values) / array_length(leadscore_values, 1)';
-
-
---
--- Name: COLUMN ad_metrics.video_watched_p75; Type: COMMENT; Schema: public; Owner: postgres
---
-
-COMMENT ON COLUMN public.ad_metrics.video_watched_p75 IS 'Percentual inteiro (0-100) de plays que atingiram 75% do vídeo (video_p75_watched_actions / video_play_actions). NULL em linhas anteriores à migration 090 ainda não re-sincronizadas.';
-
-
---
 -- Name: ad_performance_daily; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -6626,7 +6679,25 @@ CREATE TABLE public.ad_performance_daily (
     conv_values numeric[] DEFAULT '{}'::numeric[] NOT NULL,
     lead_scores numeric[] DEFAULT '{}'::numeric[] NOT NULL,
     lead_qtys integer[] DEFAULT '{}'::integer[] NOT NULL,
-    CONSTRAINT ad_performance_daily_pairs_chk CHECK (((cardinality(conv_key_ids) = cardinality(conv_values)) AND (cardinality(lead_scores) = cardinality(lead_qtys)) AND ((cardinality(conv_key_ids) > 0) OR (cardinality(lead_scores) > 0))))
+    account_id text,
+    campaign_id text,
+    adset_id text,
+    ad_name text,
+    impressions bigint DEFAULT 0 NOT NULL,
+    clicks bigint DEFAULT 0 NOT NULL,
+    inline_link_clicks bigint DEFAULT 0 NOT NULL,
+    spend numeric DEFAULT 0 NOT NULL,
+    lpv bigint DEFAULT 0 NOT NULL,
+    plays bigint DEFAULT 0 NOT NULL,
+    thruplays bigint DEFAULT 0 NOT NULL,
+    video_watched_p50 numeric DEFAULT 0 NOT NULL,
+    video_watched_p75 numeric DEFAULT 0 NOT NULL,
+    hold_rate numeric DEFAULT 0 NOT NULL,
+    reach bigint DEFAULT 0 NOT NULL,
+    frequency numeric DEFAULT 0 NOT NULL,
+    hook_value numeric DEFAULT 0 NOT NULL,
+    scroll_stop_value numeric DEFAULT 0 NOT NULL,
+    CONSTRAINT ad_performance_daily_pairs_chk CHECK (((cardinality(conv_key_ids) = cardinality(conv_values)) AND (cardinality(lead_scores) = cardinality(lead_qtys))))
 );
 
 
@@ -6636,7 +6707,21 @@ ALTER TABLE public.ad_performance_daily OWNER TO postgres;
 -- Name: TABLE ad_performance_daily; Type: COMMENT; Schema: public; Owner: postgres
 --
 
-COMMENT ON TABLE public.ad_performance_daily IS 'DERIVADA de ad_metrics (migration 128), uma linha por anúncio-dia que tenha evento ou lead: conversões/ações somadas por chave (arrays paralelos conv_key_ids/conv_values, chave → conversion_keys.id) e histograma de leadscore (lead_scores/lead_qtys). Mantida pelos triggers ad_metrics_rollup_sync_ins/_upd; delete/mudança de chave em ad_metrics propagam por FK. Reconstruível com ad_performance_rollup_rebuild(user_id). NÃO escrever aqui à mão.';
+COMMENT ON TABLE public.ad_performance_daily IS 'READ MODEL do anúncio-dia, DERIVADO de ad_metrics (migrations 128/129): uma linha por (user, anúncio, dia) com chaves de agrupamento, números já saneados como a RPC do Manager consome (hook/scroll com fallback da curva), conversões/ações somadas por chave (arrays paralelos conv_key_ids/conv_values → conversion_keys.id) e histograma de leadscore (lead_scores/lead_qtys). Mantida pelos triggers ad_metrics_rollup_sync_ins/_upd; delete/mudança de chave propagam por FK. Reconstruível com ad_performance_rollup_rebuild(user_id). NÃO escrever aqui à mão.';
+
+
+--
+-- Name: COLUMN ad_performance_daily.hook_value; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_performance_daily.hook_value IS 'coalesce(hook_rate, curva[3]/100 se >1) — a expressão da RPC v116, calculada na escrita (migration 129).';
+
+
+--
+-- Name: COLUMN ad_performance_daily.scroll_stop_value; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.ad_performance_daily.scroll_stop_value IS 'coalesce(scroll_stop_rate, curva[1]/100 se >1) — a expressão da RPC v116, calculada na escrita (migration 129).';
 
 
 --
@@ -8834,6 +8919,15 @@ GRANT USAGE ON SCHEMA public TO service_role;
 
 
 --
+-- Name: FUNCTION ad_performance_curve_point(p_curve jsonb, p_idx integer); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_curve_point(p_curve jsonb, p_idx integer) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_curve_point(p_curve jsonb, p_idx integer) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_curve_point(p_curve jsonb, p_idx integer) TO service_role;
+
+
+--
 -- Name: FUNCTION ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb); Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8852,12 +8946,21 @@ GRANT ALL ON FUNCTION public.ad_performance_derive_leads(p_values numeric[]) TO 
 
 
 --
--- Name: FUNCTION ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]); Type: ACL; Schema: public; Owner: postgres
+-- Name: TABLE ad_metrics; Type: ACL; Schema: public; Owner: postgres
 --
 
-GRANT ALL ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) TO anon;
-GRANT ALL ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) TO authenticated;
-GRANT ALL ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) TO service_role;
+GRANT ALL ON TABLE public.ad_metrics TO anon;
+GRANT ALL ON TABLE public.ad_metrics TO authenticated;
+GRANT ALL ON TABLE public.ad_metrics TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_derive_row(am public.ad_metrics); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_derive_row(am public.ad_metrics) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_derive_row(am public.ad_metrics) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_derive_row(am public.ad_metrics) TO service_role;
 
 
 --
@@ -9154,15 +9257,6 @@ GRANT ALL ON TABLE public.ad_metric_pack_map TO service_role;
 
 
 --
--- Name: TABLE ad_metrics; Type: ACL; Schema: public; Owner: postgres
---
-
-GRANT ALL ON TABLE public.ad_metrics TO anon;
-GRANT ALL ON TABLE public.ad_metrics TO authenticated;
-GRANT ALL ON TABLE public.ad_metrics TO service_role;
-
-
---
 -- Name: TABLE ad_performance_daily; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -9431,5 +9525,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict QtEdAkOtj2KPKZ9GPd0g1egxsI4sNU8wXrkaqkDx5NtOATVC38z8TZD9T1k3a22
+\unrestrict etWNnh7kuKwedZAlzhlnMdWc9VWPCp91Z1x0dmhjcauspHqxTQadx8PHydAJ2Zm
 

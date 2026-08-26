@@ -11,7 +11,7 @@ import { RankingsResponse } from "@/lib/api/schemas";
 import { GenericColumn, GenericColumnColorScheme } from "@/components/common/GenericColumn";
 import { gemsModalMetricColorSchemes } from "@/lib/utils/gemsColorSchemes";
 import { GenericCard } from "@/components/common/GenericCard";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { isMetricBelowAverage } from "@/lib/utils/metricsShared";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -77,7 +77,7 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
     const spend = Number(row.spend || 0);
     return computeMqlMetricsFromLeadscore({
       spend,
-      leadscoreRaw: (row as any).leadscore_values,
+      leadscoreRaw: getLeadscoreRaw(row),
       mqlLeadscoreMin,
     });
   }, [row, mqlLeadscoreMin]);

@@ -1,18 +1,32 @@
 # Plano: rollup + RPC em passada única + leadscore em histograma
 
-Data: 2026-08-26. Estado: **fase A implementada e provada no lab (2026-08-26); aguardando
-aplicação em produção.** Decisões do usuário: histograma de leadscore entra na v1;
-instância continua MICRO até o rollup medir; a nomenclatura nova é **"performance"**
-(artefatos novos nascem `ad_performance_*`; a entry `fetch_manager_rankings_core_v2` e as
-rotas `/rankings` só mudam num passe dedicado depois do cutover — ver §9).
+Data: 2026-08-26. Estado (2026-08-26, fim do dia): **128 aplicada e backfilled em produção
+(zero divergências); 129 (read model completo), 130 (RPC nova) e fase D (frontend) prontas e
+provadas no lab; falta aplicar 129 + backfill em produção e o cutover (130 + deploy).**
+Decisões do usuário: histograma de leadscore entra na v1; instância continua MICRO até o
+rollup medir; a nomenclatura nova é **"performance"** (artefatos novos nascem
+`ad_performance_*`; a entry `fetch_manager_rankings_core_v2` e as rotas `/rankings` só mudam
+num passe dedicado depois do cutover — ver §9).
 
-> **Mudança de desenho na fase A (2026-08-26):** as duas tabelas "altas" (`ad_conversions_daily`
-> com uma linha por chave e `ad_leads_daily` com uma linha por score) viraram **uma tabela
-> `ad_performance_daily` com uma linha por anúncio-dia e arrays paralelos**. Motivo medido no
-> lab: a forma alta custava **352 MB + 38 MB** (1,95 M + 212 mil linhas; o cabeçalho fixo por
-> linha do Postgres pesava mais que o dado) — a forma com arrays carrega a mesma informação em
-> **164.661 linhas / 61 MB**. A seção 2 abaixo descreve a forma final; a RPC (§3) lê
-> `conv_values[array_position(conv_key_ids, id)]` em vez de uma subconsulta agregada.
+> **Duas mudanças de desenho medidas no lab (2026-08-26), nesta ordem:**
+>
+> 1. As duas tabelas "altas" do plano (`ad_conversions_daily` com uma linha por chave e
+>    `ad_leads_daily` com uma linha por score) viraram **uma tabela `ad_performance_daily`
+>    com uma linha por anúncio-dia e arrays paralelos** (migration 128). A forma alta custava
+>    **352 MB + 38 MB** (1,95 M + 212 mil linhas; o cabeçalho fixo por linha do Postgres pesava
+>    mais que o dado); com arrays, 61 MB.
+> 2. Essa tabela virou o **read model completo** do anúncio-dia (migration 129): também os
+>    números e as chaves de agrupamento. Motivo: a RPC nova ainda fazia 42 mil lookups em
+>    `ad_metrics` só para ler 14 números — e selecionar poucas colunas não reduz I/O, a página
+>    de heap é lida inteira (linha de ~1 KB, 8 por página). O plano original acertou sobre CPU
+>    e errou sobre I/O. Custo: 154 MB (260.709 linhas, ~500 B — os `numeric` e os 4 arrays
+>    pesam), 3× mais estreita que `ad_metrics` e sem JSON. A RPC (§3) não lê `ad_metrics`
+>    além das ~77 linhas representantes.
+>
+> **Resultado medido no lab (mesma máquina, quente, work_mem 3,5 MB na sessão):** cenário real
+> (3 packs, 57 dias, `action:purchase`): v116 **1.100 ms → v130 470 ms**, payload 1.052 KB →
+> 569 KB (leads como histograma); cenário pesado (30 packs, 1 ano, tipos disponíveis): v116
+> **3,6 s → 1,8 s**. Saída idêntica (diferencial da fase C).
 
 ## 0. O problema, em uma linha por número
 
@@ -51,7 +65,7 @@ Princípios:
 
 Arquivos: `supabase/migrations/128_rollup_de_performance_conversoes_e_leads.sql` (mecanismo),
 `supabase/scripts/backfill_128_rollup_de_performance.sql` (backfill por usuário via psql),
-`supabase/tests/128_rollup_de_performance.test.sql` (29 asserções; 3 sabotagens provadas),
+`supabase/tests/128_rollup_de_performance.test.sql` (32 asserções; 3 sabotagens provadas),
 `supabase/tests/README.md` + `lab_prep.sql` (como montar o laboratório local).
 
 ### `conversion_keys` — dicionário
@@ -59,26 +73,30 @@ Arquivos: `supabase/migrations/128_rollup_de_performance_conversoes_e_leads.sql`
 `'action:<action_type>'` (**o mesmo** de `p_action_type` e de `packs.conversion_types`).
 Append-only; 81 chaves hoje, 31 bytes em média — no array cabem em 4.
 
-### `ad_performance_daily` — uma linha por anúncio-dia com evento ou lead
+### `ad_performance_daily` — o read model do anúncio-dia (128 + 129)
 | coluna | tipo | nota |
 |---|---|---|
 | user_id, ad_id, date | | PK; FK → `ad_metrics(user_id, ad_id, date)` `ON DELETE CASCADE ON UPDATE CASCADE` |
+| account_id, campaign_id, adset_id, ad_name | text | chaves de agrupamento/filtro (129). Nomes de campanha/conjunto ficam FORA (68/48 B em média; vêm da linha representante) |
+| impressions, clicks, inline_link_clicks, lpv, plays, thruplays, reach | bigint | saneados (`coalesce 0`) como a v116 (129) |
+| spend, video_watched_p50/p75, hold_rate, frequency | numeric | idem |
+| hook_value, scroll_stop_value | numeric | `coalesce(hook_rate, curva[3]/100)` — a expressão da v116 calculada na escrita (129) |
 | conv_key_ids | integer[] | ordenado por id; `conv_values[i]` é o valor de `conv_key_ids[i]` |
 | conv_values | numeric[] | SUM por chave, saneado como a RPC (`[^0-9.-]`); inválido conta 0 em vez de estourar |
 | lead_scores | numeric[] | ordenado; histograma — `lead_qtys[i]` é quantas vezes `lead_scores[i]` aparece |
 | lead_qtys | integer[] | |
 
-- Anúncio-dia sem evento e sem lead **não tem linha** (a RPC faz `left join`).
-- CHECK: cardinalidades pareadas e pelo menos um dos pares não vazio.
-- Medido no lab (dump de 2026-08-26): **164.661 linhas, 48 MB heap + 13 MB PK = 61 MB**.
-  A forma alta (uma linha por chave) custaria 390 MB. Escala linear com anúncio-dias.
+- Uma linha por anúncio-dia, sempre (desde a 129). CHECK: cardinalidades pareadas.
+- Medido no lab (dump de 2026-08-26): **260.709 linhas, 129 MB heap + 13 MB PK = 154 MB**
+  (só eventos+leads, na 128: 164.661 linhas / 61 MB). Escala linear com anúncio-dias.
 - Leitura da chave pedida: `conv_values[array_position(conv_key_ids, :id)]` (~7 inteiros).
 
 ### Derivação — uma fonte de verdade
 `ad_performance_parse_value(text)`, `ad_performance_derive_conversions(actions, conversions)`
 → (chave, valor), `ad_performance_derive_leads(numeric[])` → (score, qty),
-`ad_performance_derive_row(...)` → os 4 arrays. Trigger, rebuild e checagem usam as mesmas
-funções: mudar a semântica num lugar muda em todos.
+`ad_performance_curve_point(curva, i)`, `ad_performance_derive_row(ad_metrics)` → a linha
+completa. Trigger, rebuild e checagem usam as mesmas funções: mudar a semântica num lugar
+muda em todos. O teste da 128 pegou um bug real da 129 (curva NULL → `hook_value` NULL).
 
 ### Triggers `ad_metrics_rollup_sync_ins` / `_upd` (por STATEMENT, tabelas de transição)
 Worker único `ad_performance_rollup_apply(ad_metric_key[])`: apaga e recomputa as chaves
@@ -97,7 +115,7 @@ total; na t4g.micro esperar 3-5× isso — rodar com o app ocioso.
 `ad_performance_rollup_consistency_check([user_id])` compara a derivação **completa** nos
 dois sentidos (`EXCEPT ALL`), não só contagens. **Tem de devolver zero linhas** (lab: zero).
 
-## 3. RPC nova (migration 129): `fetch_manager_performance_base_v129`
+## 3. RPC nova (migration 130): `fetch_manager_performance_base_v130`
 
 (Nome novo já na família "performance". A entry `fetch_manager_rankings_core_v2` continua
 com o nome antigo até o passe de renomeação da §9 — é o contrato com o backend e o ponto
@@ -162,26 +180,32 @@ Backend (`analytics.py`):
   versão para histograma (contar `qty` com `score >= corte`, soma `score*qty`). As 8 telas
   de detalhe continuam lendo o array cru de `ad_metrics` — **fora do escopo** desta v1.
 
-Frontend:
-- `lib/api/schemas.ts`: `leadscore_histogram: z.record(z.string(), z.number()).optional()`.
-- `lib/metrics/calculations.ts` (3 pontos), `lib/ads/sharedAdDetail.ts`,
-  `lib/explorer/*`: trocar `leadscoreRaw` (array) por helpers puros
-  `histCount(h, cut)`, `histSum(h)`, `histMean(h)`. Testes `node:test` provando
-  equivalência com a versão de array em 100 casos gerados.
+Frontend (**feito, 2026-08-26** — mais simples que o desenhado):
+- `lib/api/schemas.ts`: `leadscore_histogram: z.record(z.string(), z.number()).optional()`
+  nos dois schemas de linha (o array continua aceito: telas de detalhe leem ad_metrics cru).
+- `lib/utils/mqlMetrics.ts`: `normalizeLeadscoreValues` aceita o histograma e o EXPANDE
+  para array (ordenado) — todo consumidor (média, corte de MQL ajustável, CPMQL, taxa) fica
+  intocado na lógica. `getLeadscoreRaw(row)` (histograma ?? array) e `hasLeadscoreData(row)`
+  centralizam a leitura; 11 pontos de leitura direta trocados (calculations, manager,
+  opportunity, sharedAdDetail, AdDetailsDialog, GenericCard, InsightsModal, explorer/types).
+- `lib/utils/__tests__/mqlMetrics.test.ts`: equivalência array × histograma em 100 casos
+  gerados (multiconjunto, média, MQL em 5 cortes, CPMQL), grafias de chave, cache por
+  referência. `tsc` limpo.
 - O corte de MQL continua ajustável na tela sem refetch (regra da memória
   `manager_rpc_cost_model`: nunca mandar médias prontas; o histograma é somável).
-- Payload esperado: leads de ~52% para ~1-2% do `ad-performance`.
+- Payload medido (cenário real): 1.052 KB → 569 KB antes de gzip.
 
 ## 6. Ordem de execução e critérios de saída
 
-| # | Entrega | Critério de pronto | Esforço |
+| # | Entrega | Critério de pronto | Estado (2026-08-26) |
 |---|---|---|---|
-| A | Migration 128: tabelas + trigger + backfill + consistency check | check = 0 diferenças; trigger provado por teste (insert/update/delete em `ad_metrics` reflete nas derivadas) | 1 dia |
-| B | Migration 129: `_base_v128` + entry repontada **em branch**, não aplicada | `plan_cache_mode` gate verde; EXPLAIN quente < 0,5 s no cenário dos 3 packs | 2 dias |
-| C | Diferencial | zero divergências no conjunto completo | 1 dia |
-| D | Histograma no backend/frontend | `tsc` + `node:test` verdes; Explorer/Plano/GOLD/Insights abrem com MQL correto | 1 dia |
-| E | Cutover | aplicar 129 + deploy D juntos; `carga.sh` e print do Manager antes/depois; rollback = repontar entry | 0,5 dia |
-| F | Pós | memória + `decisoes-tecnicas.md`; remover `usePackAds`/`useMultiplePackAds` (mortos); refazer teste de `work_mem` com CPU saudável | 0,5 dia |
+| A | Migration 128: tabela + trigger + backfill + consistency check | check = 0 diferenças; trigger provado por teste | **feito em produção** (backfill 3 min, zero divergências) |
+| A' | Migration 129: read model completo (números + chaves) | idem; teste da 128 estendido (32 asserções, 3 sabotagens) | **provado no lab; falta produção** (aplicar 129 + backfill de novo) |
+| B | Migration 130: `fetch_manager_performance_base_v130` + entry repontada | gate verde; medido no lab: 470 ms real / 1,8 s pesado | **pronta; não aplicada** (é o cutover) |
+| C | Diferencial `backend/scripts/diff_rankings_rollup.py` | zero divergências no conjunto completo | **feito: 511/511 idênticos, 0 diferenças** (lab, 2026-08-26) |
+| D | Histograma no frontend | `tsc` + `node:test` verdes | **feito** (backend não muda: `/rankings` repassa a linha) |
+| E | Cutover | aplicar 130 + deploy D juntos; medir antes/depois em produção; rollback = repontar entry | pendente |
+| F | Pós | memória + `decisoes-tecnicas.md`; remover `usePackAds`/`useMultiplePackAds` (mortos); refazer teste de `work_mem` com CPU saudável | pendente |
 
 Regras de processo herdadas desta semana:
 - Toda migration: `SET` explícitos, comentário com o porquê, `pg_dump` + `schema_map` depois.
@@ -221,7 +245,7 @@ contaminaria o diferencial (uma divergência passaria a ter duas causas) e tirar
 trivialidade do rollback (repontar uma entry de nome conhecido).
 
 Regra até lá: **artefatos novos nascem com o nome novo** (`ad_performance_daily`,
-`ad_performance_*`, `fetch_manager_performance_base_v129`); o que existe fica.
+`ad_performance_*`, `fetch_manager_performance_base_v130`); o que existe fica.
 
 Depois, um passe mecânico em 3 commits por camada, cada um verificado (`tsc`, `pytest`,
 testes de contrato): frontend (hooks/tipos/queryKeys) → backend (rotas novas ficam;

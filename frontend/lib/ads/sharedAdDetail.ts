@@ -4,7 +4,7 @@ import type { AdCreativeResponse, FacebookVideoSource, RankingsItem, RankingsRet
 import { buildMetricSeriesFromSourceSeries, getMetricNumericValueOrNull } from "@/lib/metrics";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { computeMqlMetricsFromLeadscore, getLeadscoreRaw, hasLeadscoreData } from "@/lib/utils/mqlMetrics";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { extractActorIdFromCreative, extractInstagramMediaId, normalizeMediaType, resolvePrimaryVideoId } from "@/lib/ads/mediaDetection";
 
@@ -111,7 +111,7 @@ export function buildSharedAdDetailModel({
 
   const mqlMetrics = computeMqlMetricsFromLeadscore({
     spend: Number(source.spend || 0),
-    leadscoreRaw: source.leadscore_values,
+    leadscoreRaw: getLeadscoreRaw(source),
     mqlLeadscoreMin,
   });
 
@@ -156,7 +156,7 @@ export function buildSharedAdDetailModel({
     cpmql: toNumberOrNull(mqlMetrics.cpmql),
     hasCpr: cpr != null,
     hasCpc: cpc != null,
-    hasSheetIntegration: source.leadscore_values != null || (mqlMetrics.cpmql ?? 0) > 0,
+    hasSheetIntegration: hasLeadscoreData(source) || (mqlMetrics.cpmql ?? 0) > 0,
     series,
   };
 }

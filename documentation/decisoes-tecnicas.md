@@ -3611,3 +3611,56 @@ de dado genuíno — nenhum índice resolve. Reduzir exige pré-agregar as conve
 A primeira execução é **fria**. Comparei "antes" frio contra "depois" quente e anunciei
 6 s de ganho que não existiam. Todo A/B daqui em diante: alternar as versões, ou dropar
 o índice **dentro de transação revertida** para manter o mesmo cache.
+
+## 2026-08-26 — Rollup do Manager: read model por anúncio-dia, RPC em passada única, leadscore em histograma
+
+Plano completo e estado em `documentation/plano-rollup-rankings.md`. O que segue é o que
+foi decidido POR MEDIÇÃO e não deve ser reaberto sem número novo.
+
+### Três desenhos, dois descartados no lab
+
+1. **Duas tabelas "altas"** (uma linha por chave de conversão; uma por score de lead), o
+   desenho do plano: **352 MB + 38 MB** para 1,95 M + 212 mil linhas. O cabeçalho fixo por
+   linha do Postgres (23 B na heap + 4 B de line pointer + 8 B por entrada de índice) pesava
+   mais que o dado. Descartado.
+2. **Uma linha por anúncio-dia com arrays paralelos** (`conv_key_ids int[]` ‖
+   `conv_values numeric[]`; `lead_scores` ‖ `lead_qtys`), chave via dicionário
+   `conversion_keys`: 164 mil linhas, **61 MB**. Migration 128 — aplicada.
+3. **A mesma tabela como read model completo** (números saneados + chaves de agrupamento):
+   a RPC ainda fazia 42 mil lookups em `ad_metrics` só para ler 14 números. Selecionar
+   poucas colunas **não reduz I/O** — a página de heap é lida inteira, e a linha de
+   `ad_metrics` tem ~1 KB (JSON inline, 8 por página). 260 mil linhas, **154 MB**, 3× mais
+   estreita e sem JSON. Migration 129 — aplicada. A RPC nova não lê `ad_metrics` além das
+   ~77 linhas representantes.
+
+### Resultado (lab, quente, mesma máquina)
+
+Cenário real (3 packs, 57 dias): **1.100 → 470 ms**, payload 1.052 → 569 KB. Cenário
+pesado (30 packs, 1 ano, tipos disponíveis): **3,6 → 1,8 s**. Diferencial: **511/511
+cenários idênticos** à base v116 (`backend/scripts/diff_rankings_rollup.py`).
+
+### Armadilhas do Postgres que custaram horas
+
+- Tabela de transição não coexiste com `UPDATE OF colunas` nem com trigger multi-evento:
+  dois triggers por statement, e o de UPDATE compara OLD/NEW (melhor: upsert idêntico não
+  recomputa).
+- Agregado custom com SFUNC em SQL = uma chamada de executor por linha (55 mil por carga).
+  Argmax via `max(text)` nativo sobre chave codificada em `COLLATE "C"`; **decodificar com
+  `COLLATE "default"`**, senão o `=` contra a coluna perde o índice (medido: bitmap scan de
+  21 mil linhas por grupo).
+- CTE referenciado uma vez é inlinado e pode virar lado interno de nested loop —
+  recalculado por grupo (397×, 4,4 s). `AS MATERIALIZED`.
+- Juntar o dicionário ANTES de agrupar 826 mil pares: 10,6 s. Agrupar por id primeiro.
+- `nullif(x,'') is not null` sobre expressão: seletividade 0,005 → estimativa de 1 linha →
+  sort + spill. `coalesce(x,'') <> ''` estima certo.
+- `jsonb_typeof(NULL)` é NULL e um NULL solto em WHERE zera a função: o teste da 128 pegou
+  `hook_value` NULL onde a v116 dava 0. Nenhuma linha real tinha o caso — o teste existe
+  para isso.
+- Role `postgres` do Supabase: `statement_timeout` de 2 min. Backfill e checagem por
+  usuário com `SET statement_timeout = 0`.
+
+### Método que funcionou
+
+Laboratório local (Postgres 17 + `pg_restore` do dump, `supabase/tests/README.md`): zero
+custo de burst na produção, EXPLAIN com dados reais, diferencial de 511 pares em minutos.
+Todo mecanismo novo com sabotagem deliberada provando que o teste falha.

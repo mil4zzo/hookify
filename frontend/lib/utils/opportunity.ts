@@ -1,5 +1,5 @@
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
 
 export type OpportunityInputs = {
   ads: RankingsItem[];
@@ -129,7 +129,7 @@ export function computeOpportunityScores({
     // Leadscore, MQLs e CPMQL (centralizados em util)
     const { leadscoreValues, leadscoreAvg, mqlCount, cpmql } = computeMqlMetricsFromLeadscore({
       spend,
-      leadscoreRaw: (ad as any).leadscore_values,
+      leadscoreRaw: getLeadscoreRaw(ad),
       mqlLeadscoreMin,
     });
 

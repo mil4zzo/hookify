@@ -1,4 +1,4 @@
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
 import { type MetricKey, METRIC_DEFINITIONS } from "./definitions";
 
 type MetricKeyLike = MetricKey | string;
@@ -41,6 +41,7 @@ export type MetricValueSource = {
   video_total_thruplays?: number | null;
   conversions?: Record<string, number> | null;
   leadscore_values?: unknown;
+  leadscore_histogram?: unknown;
 };
 
 function toFiniteNumber(value: unknown): number | null {
@@ -192,7 +193,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
 
       const { mqlCount } = computeMqlMetricsFromLeadscore({
         spend: toFiniteNumber(source.spend) ?? 0,
-        leadscoreRaw: source.leadscore_values,
+        leadscoreRaw: getLeadscoreRaw(source),
         mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
       });
 
@@ -210,7 +211,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
     case "leadscore_avg": {
       const { leadscoreValues, leadscoreAvg } = computeMqlMetricsFromLeadscore({
         spend: toFiniteNumber(source.spend) ?? 0,
-        leadscoreRaw: source.leadscore_values,
+        leadscoreRaw: getLeadscoreRaw(source),
         mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
       });
       return leadscoreValues.length > 0 ? leadscoreAvg : null;
@@ -222,7 +223,7 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
       // Taxa de qualificação: MQLs sobre o TOTAL de leads (denominador nunca é "não-MQLs").
       const { leadscoreValues, mqlCount } = computeMqlMetricsFromLeadscore({
         spend: toFiniteNumber(source.spend) ?? 0,
-        leadscoreRaw: source.leadscore_values,
+        leadscoreRaw: getLeadscoreRaw(source),
         mqlLeadscoreMin: context.mqlLeadscoreMin ?? null,
       });
       // Corte indefinido -> nao ha taxa de qualificacao para afirmar.

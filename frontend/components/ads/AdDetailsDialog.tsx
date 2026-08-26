@@ -16,7 +16,7 @@ import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/Metri
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
 import { TabbedContent, TabbedContentItem } from "@/components/common/TabbedContent";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { computeMqlMetricsFromLeadscore, getLeadscoreRaw, hasLeadscoreData } from "@/lib/utils/mqlMetrics";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { buildMetricSeriesFromSourceSeries, getMetricAverageTooltip, getMetricBetterDirection, getMetricDisplayLabel, getMetricNumericValue, getMetricNumericValueOrNull } from "@/lib/metrics";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
@@ -187,6 +187,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       video_play_curve_actions: src.video_play_curve_actions ?? null,
       conversions: src.conversions ?? {},
       leadscore_values: src.leadscore_values ?? null,
+      leadscore_histogram: src.leadscore_histogram ?? null,
       series: src.series ?? null,
     };
   }, [isDateRangeOverridden, overriddenDetails]);
@@ -413,17 +414,17 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const mqlMetrics = useMemo(() => {
     return computeMqlMetricsFromLeadscore({
       spend: _spend,
-      leadscoreRaw: effectiveAd?.leadscore_values ?? (ad as any)?.leadscore_values,
+      leadscoreRaw: getLeadscoreRaw(effectiveAd) ?? getLeadscoreRaw(ad),
       mqlLeadscoreMin,
     });
-  }, [_spend, effectiveAd?.leadscore_values, (ad as any)?.leadscore_values, mqlLeadscoreMin]);
+  }, [_spend, effectiveAd, ad, mqlLeadscoreMin]);
 
   const hasSheetIntegration = useMemo(() => {
-    if ((ad as any)?.leadscore_values != null || averages?.cpmql != null) {
+    if (hasLeadscoreData(ad) || averages?.cpmql != null) {
       return true;
     }
 
-    return Boolean(childrenData?.some((child) => (child as any)?.leadscore_values != null));
+    return Boolean(childrenData?.some((child) => hasLeadscoreData(child)));
   }, [ad, averages?.cpmql, childrenData]);
 
   // Calcular séries dinâmicas (cpr, cpc, cplc e page_conv)

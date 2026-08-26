@@ -99,6 +99,24 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | conv_values | numeric[] | NOT NULL, DEFAULT |
 | lead_scores | numeric[] | NOT NULL, DEFAULT |
 | lead_qtys | integer[] | NOT NULL, DEFAULT |
+| account_id | text |  |
+| campaign_id | text |  |
+| adset_id | text |  |
+| ad_name | text |  |
+| impressions | bigint | NOT NULL, DEFAULT |
+| clicks | bigint | NOT NULL, DEFAULT |
+| inline_link_clicks | bigint | NOT NULL, DEFAULT |
+| spend | numeric | NOT NULL, DEFAULT |
+| lpv | bigint | NOT NULL, DEFAULT |
+| plays | bigint | NOT NULL, DEFAULT |
+| thruplays | bigint | NOT NULL, DEFAULT |
+| video_watched_p50 | numeric | NOT NULL, DEFAULT |
+| video_watched_p75 | numeric | NOT NULL, DEFAULT |
+| hold_rate | numeric | NOT NULL, DEFAULT |
+| reach | bigint | NOT NULL, DEFAULT |
+| frequency | numeric | NOT NULL, DEFAULT |
+| hook_value | numeric | NOT NULL, DEFAULT |
+| scroll_stop_value | numeric | NOT NULL, DEFAULT |
 
 ---
 

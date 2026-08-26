@@ -577,7 +577,8 @@ export const RankingsItemSchema = z.object({
   cplc: z.number().nullable().optional(),
   reach: z.number().optional(),
   frequency: z.number().nullable().optional(),
-  leadscore_values: z.array(z.number()).optional(), // Array agregado de leadscore_values para calcular MQLs
+  leadscore_values: z.array(z.number()).optional(), // Array agregado (telas de detalhe; ad_metrics cru)
+  leadscore_histogram: z.record(z.string(), z.number()).optional(), // {score: quantidade} — RPC do Manager (migration 130); expandido em normalizeLeadscoreValues
   conversions: z.record(z.string(), z.number()), // {action_type: total_value} para calcular results/cpr/page_conv no frontend
   ad_count: z.number(),
   thumbnail: z.string().nullable().optional(),
@@ -719,6 +720,7 @@ export const RankingsChildrenItemSchema = z.object({
   reach: z.number().optional(),
   frequency: z.number().nullable().optional(),
   leadscore_values: z.array(z.number()).optional(), // Array agregado de leadscore_values para calcular MQLs/leadscore médio
+  leadscore_histogram: z.record(z.string(), z.number()).optional(),
   conversions: z.record(z.string(), z.number()),
   thumbnail: z.string().nullable().optional(),
   video_play_curve_actions: z.array(z.number()).nullable().optional(),

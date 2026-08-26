@@ -102,6 +102,7 @@ export interface ExplorerListCardData {
   cpm?: number | null;
   conversions?: Record<string, number>;
   leadscore_values?: number[];
+  leadscore_histogram?: Record<string, number>;
   video_watched_p50?: number | null;
   [key: string]: any;
 }

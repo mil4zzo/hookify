@@ -6,7 +6,7 @@ import { IconArrowBigDownLinesFilled, IconArrowBigUpLinesFilled, IconEye } from 
 import { AdStatusIcon } from "@/components/common/AdStatusIcon";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useFormatCurrency } from "@/lib/utils/currency";
-import { normalizeLeadscoreValues, computeLeadscoreAverage } from "@/lib/utils/mqlMetrics";
+import { normalizeLeadscoreValues, computeLeadscoreAverage, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
 import { getMetricNumericValue, isLowerBetterMetric, type MetricKey } from "@/lib/metrics";
 import { getTopBadgeStyleConfig, getTopBadgeStyles, getTopBadgeVariantFromRank } from "@/lib/utils/topBadgeStyles";
 import { AdPlayArea } from "@/components/common/AdPlayArea";
@@ -171,7 +171,7 @@ export function GenericCard({ ad, metricLabel, rank, metricKey, averageValue, me
   const frequency = frequencyFromBackend > 0 ? frequencyFromBackend : reach > 0 ? impressions / reach : 0;
 
   // Leadscore e MQLs (valores normalizados e média centralizada)
-  const leadscoreValues = normalizeLeadscoreValues((ad as any).leadscore_values);
+  const leadscoreValues = normalizeLeadscoreValues(getLeadscoreRaw(ad));
   const leadscoreAvg = computeLeadscoreAverage(leadscoreValues);
   const mqlCount = Number((ad as any).mql_count || 0);
   const cpmql = getMetricNumericValue(ad as any, "cpmql");

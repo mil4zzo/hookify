@@ -1,7 +1,7 @@
 import { METRIC_DEFINITIONS, type MetricKey } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import { getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
-import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
+import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
 
 export type ManagerMetricKey = Extract<
   MetricKey,
@@ -341,7 +341,7 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
       // não tem relação com reprodução de vídeo, tem com volume de leads recebidos.
       const { leadscoreValues, leadscoreAvg } = computeMqlMetricsFromLeadscore({
         spend,
-        leadscoreRaw: row.leadscore_values,
+        leadscoreRaw: getLeadscoreRaw(row),
         mqlLeadscoreMin,
       });
       if (leadscoreValues.length > 0) {

@@ -50,11 +50,19 @@ LANGUAGE sql AS $$
   WHERE d.user_id = p_user AND d.ad_id = p_ad AND d.date = p_date
 $$;
 
--- Linha existe? (anúncio-dia sem evento e sem lead NÃO deve ter linha)
+-- Linha existe? (desde a 129, TODO anúncio-dia tem linha — é o read model completo)
 CREATE FUNCTION pg_temp.row_exists(p_user uuid, p_ad text, p_date date) RETURNS text
 LANGUAGE sql AS $$
   SELECT (EXISTS (SELECT 1 FROM public.ad_performance_daily d
                   WHERE d.user_id = p_user AND d.ad_id = p_ad AND d.date = p_date))::text
+$$;
+
+-- Números derivados (129): spend/impressões/hook, já saneados como a RPC.
+CREATE FUNCTION pg_temp.nums_of(p_user uuid, p_ad text, p_date date) RETURNS text
+LANGUAGE sql AS $$
+  SELECT coalesce(string_agg(d.spend::text || '/' || d.impressions || '/' || trim_scale(d.hook_value)::text || '/' || coalesce(d.ad_name, '<null>'), ''), '<vazio>')
+  FROM public.ad_performance_daily d
+  WHERE d.user_id = p_user AND d.ad_id = p_ad AND d.date = p_date
 $$;
 
 -- Usuário sintético: nunca colide com dados reais.
@@ -76,6 +84,8 @@ SELECT pg_temp.expect('A conv: soma por chave, dois prefixos',
   'action:lead=1.5, action:link_click=5, conversion:purchase=7');
 SELECT pg_temp.expect('A leads: histograma',
   pg_temp.leads_of(:U, 'T1', '2026-01-01'), '80x2, 90x1');
+SELECT pg_temp.expect('A números (129): spend, impressões null→0, hook sem curva=0, ad_name null',
+  pg_temp.nums_of(:U, 'T1', '2026-01-01'), '10/0/0/<null>');
 
 -- ---------------------------------------------------------------------------
 -- B. UPDATE de coluna-fonte (actions) recomputa; o que sumiu do JSON some da derivada
@@ -87,12 +97,15 @@ SELECT pg_temp.expect('B conv após update de actions',
 SELECT pg_temp.expect('B leads intocados', pg_temp.leads_of(:U, 'T1', '2026-01-01'), '80x2, 90x1');
 
 -- ---------------------------------------------------------------------------
--- C. UPDATE de coluna que NÃO é fonte (spend) não altera nada
+-- C. UPDATE de número (spend) e de coluna que NÃO é fonte (updated_at)
 -- ---------------------------------------------------------------------------
-UPDATE public.ad_metrics SET spend = 99 WHERE user_id = :U AND ad_id = 'T1' AND date = '2026-01-01';
-SELECT pg_temp.expect('C conv após update de spend',
-  pg_temp.conv_of(:U, 'T1', '2026-01-01'), 'action:link_click=10, conversion:purchase=7');
-SELECT pg_temp.expect('C leads após update de spend', pg_temp.leads_of(:U, 'T1', '2026-01-01'), '80x2, 90x1');
+UPDATE public.ad_metrics SET spend = 99, hook_rate = 0.42, ad_name = 'Criativo X'
+WHERE user_id = :U AND ad_id = 'T1' AND date = '2026-01-01';
+SELECT pg_temp.expect('C números seguem a fonte', pg_temp.nums_of(:U, 'T1', '2026-01-01'), '99/0/0.42/Criativo X');
+SELECT pg_temp.expect('C conv intocada', pg_temp.conv_of(:U, 'T1', '2026-01-01'), 'action:link_click=10, conversion:purchase=7');
+SELECT pg_temp.expect('C leads intocados', pg_temp.leads_of(:U, 'T1', '2026-01-01'), '80x2, 90x1');
+UPDATE public.ad_metrics SET updated_at = now() WHERE user_id = :U AND ad_id = 'T1' AND date = '2026-01-01';
+SELECT pg_temp.expect('C updated_at não muda nada', pg_temp.nums_of(:U, 'T1', '2026-01-01'), '99/0/0.42/Criativo X');
 
 -- ---------------------------------------------------------------------------
 -- D. UPDATE só de leadscore_values (o caminho do sync de planilha:
@@ -127,7 +140,7 @@ INSERT INTO public.ad_metrics (id, user_id, ad_id, date, actions, conversions, l
   ('2026-01-02-T4', :U, 'T4', '2026-01-02', '[{"action_type":"video_view","value":"1"}]', '[{"action_type":"lead","value":"1-2"}]', '{50,50,50,261}');
 SELECT pg_temp.expect('F T2: não-array = nada', pg_temp.conv_of(:U, 'T2', '2026-01-02'), '<vazio>');
 SELECT pg_temp.expect('F T2: leads null = nada', pg_temp.leads_of(:U, 'T2', '2026-01-02'), '<vazio>');
-SELECT pg_temp.expect('F T2: sem evento e sem lead = sem linha', pg_temp.row_exists(:U, 'T2', '2026-01-02'), 'false');
+SELECT pg_temp.expect('F T2: sem evento e sem lead ainda tem linha (read model completo, 129)', pg_temp.row_exists(:U, 'T2', '2026-01-02'), 'true');
 SELECT pg_temp.expect('F T3: sem action_type ignorado; "R$ 1.234" → 1.234',
   pg_temp.conv_of(:U, 'T3', '2026-01-02'), 'action:comment=1.234');
 SELECT pg_temp.expect('F T4: valor inválido conta 0 em vez de estourar',
@@ -143,7 +156,7 @@ SELECT pg_temp.expect('F update em lote: T3 intacto', pg_temp.conv_of(:U, 'T3', 
 -- Esvaziar todas as fontes de uma linha apaga a linha derivada
 UPDATE public.ad_metrics SET actions = '[]', conversions = '[]', leadscore_values = NULL
 WHERE user_id = :U AND ad_id = 'T3' AND date = '2026-01-02';
-SELECT pg_temp.expect('F T3 esvaziado: linha derivada some', pg_temp.row_exists(:U, 'T3', '2026-01-02'), 'false');
+SELECT pg_temp.expect('F T3 esvaziado: arrays vazios, linha continua', pg_temp.conv_of(:U, 'T3', '2026-01-02') || '|' || pg_temp.leads_of(:U, 'T3', '2026-01-02') || '|' || pg_temp.row_exists(:U, 'T3', '2026-01-02'), '<vazio>|<vazio>|true');
 
 -- ---------------------------------------------------------------------------
 -- G. Mudança da CHAVE (date) segue pela FK ON UPDATE CASCADE, sem recomputar

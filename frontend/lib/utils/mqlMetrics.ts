@@ -5,11 +5,46 @@
 // - Garantir que o cálculo de MQL e CPMQL seja consistente entre páginas (Rankings, Insights, Gems, etc.)
 // - Manter funções puras e reutilizáveis (sem hooks aqui)
 
+/**
+ * Duas formas do dado bruto convivem:
+ * - array de scores (`leadscore_values`): telas de detalhe/série leem ad_metrics cru;
+ * - histograma `{ "80": 2, "90": 1 }` (`leadscore_histogram`): a RPC do Manager
+ *   (migration 130) agrega por grupo e manda quantidade por score — era 52% do
+ *   payload como array; como histograma, ~1%.
+ * O histograma é EXPANDIDO para array aqui, uma vez por referência (cache abaixo),
+ * e todo o resto (média, corte de MQL ajustável na tela, CPMQL) continua somável e
+ * calculado no cliente — nunca uma média pronta vinda do servidor.
+ */
 export function normalizeLeadscoreValues(raw: any): number[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((v) => Number(v || 0))
-    .filter((v) => Number.isFinite(v));
+  if (Array.isArray(raw)) {
+    return raw
+      .map((v) => Number(v || 0))
+      .filter((v) => Number.isFinite(v));
+  }
+  if (raw && typeof raw === "object") {
+    const out: number[] = [];
+    const entries = Object.entries(raw as Record<string, unknown>)
+      .map(([score, qty]) => [Number(score), Math.trunc(Number(qty))] as const)
+      .filter(([score, qty]) => Number.isFinite(score) && Number.isFinite(qty) && qty > 0)
+      .sort((a, b) => a[0] - b[0]);
+    for (const [score, qty] of entries) {
+      for (let i = 0; i < qty; i++) out.push(score);
+    }
+    return out;
+  }
+  return [];
+}
+
+/** O dado bruto de leadscore de uma linha, seja qual for a forma em que veio. */
+export function getLeadscoreRaw(row: any): unknown {
+  if (!row || typeof row !== "object") return undefined;
+  return row.leadscore_histogram ?? row.leadscore_values;
+}
+
+/** A linha carrega dado de leadscore (planilha integrada)? Independe de estar vazio. */
+export function hasLeadscoreData(row: any): boolean {
+  if (!row || typeof row !== "object") return false;
+  return row.leadscore_histogram != null || row.leadscore_values != null;
 }
 
 export function computeLeadscoreAverage(values: number[]): number {

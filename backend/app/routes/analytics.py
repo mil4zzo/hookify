@@ -164,7 +164,7 @@ class RankingsRequest(BaseModel):
     filters: Optional[RankingsFilters] = None
     pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar mÃ©tricas. Se vazio/None, nÃ£o retorna dados.")
     include_series: bool = Field(default=True, description="Se False, omite series (sparklines) da resposta para economizar memÃ³ria/payload")
-    include_leadscore: bool = Field(default=True, description="Se False, omite leadscore_values da resposta")
+    include_leadscore: bool = Field(default=True, description="Se False, omite leadscore_values/leadscore_histogram da resposta")
     series_window: Optional[int] = Field(default=None, description="Limitar series aos Ãºltimos N dias do range. Se None, usa range completo.")
     offset: int = Field(default=0, ge=0, description="Offset para paginaÃ§Ã£o server-side")
     include_available_conversion_types: bool = Field(

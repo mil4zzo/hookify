@@ -19,8 +19,9 @@ pg_restore -d hookify_lab --no-owner --no-acl --section=pre-data --section=data 
 psql -d hookify_lab -c "insert into auth.users(id) select distinct user_id from public.packs on conflict do nothing"
 pg_restore -d hookify_lab --no-owner --no-acl --section=post-data hookify.dump   # erros de "já existe" são normais
 
-# 3. aplicar a migration sob teste
+# 3. aplicar as migrations sob teste (o teste da 128 cobre a 129: mesma tabela, read model completo)
 psql -d hookify_lab -v ON_ERROR_STOP=1 -f supabase/migrations/128_rollup_de_performance_conversoes_e_leads.sql
+psql -d hookify_lab -v ON_ERROR_STOP=1 -f supabase/migrations/129_read_model_completo_ad_performance_daily.sql
 ```
 
 ## Rodar um teste
