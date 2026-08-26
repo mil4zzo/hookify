@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict fgaOmqzBESBAynOCfxavbvxDVJdMii7LRfiat0zkSVtnYBQrXOjcXs5MUUUPFi2
+\restrict hYmPbPZ5CbcsoQqutalJ3cPQdYMKc1fQEgkXHGmhLEjpewidSTSzr55ct5w3j6N
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -6934,6 +6934,7 @@ CREATE TABLE public.packs (
     mql_leadscore_min numeric,
     target_cpr jsonb,
     diagnostic_cost_metric text,
+    last_status_sync_at timestamp with time zone,
     CONSTRAINT packs_diagnostic_cost_metric_check CHECK (((diagnostic_cost_metric IS NULL) OR (diagnostic_cost_metric = ANY (ARRAY['cpr'::text, 'cpmql'::text])))),
     CONSTRAINT packs_level_check CHECK ((level = ANY (ARRAY['campaign'::text, 'adset'::text, 'ad'::text]))),
     CONSTRAINT packs_mql_leadscore_min_check CHECK (((mql_leadscore_min IS NULL) OR (mql_leadscore_min >= (0)::numeric))),
@@ -6976,6 +6977,13 @@ COMMENT ON COLUMN public.packs.target_cpr IS 'Override do CPR alvo por action_ty
 --
 
 COMMENT ON COLUMN public.packs.diagnostic_cost_metric IS 'Override da metrica de custo do diagnostico neste pack (cpr|cpmql). NULL = herda user_preferences.diagnostic_cost_metric.';
+
+
+--
+-- Name: COLUMN packs.last_status_sync_at; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.packs.last_status_sync_at IS 'Instante do ultimo sync de status on-focus deste pack (TTL de 5 min). Fonte de verdade COMPARTILHADA entre os 4 workers do uvicorn -- antes vivia num dict de processo e o TTL era anulado pela quantidade de workers (migration 127). NULL = nunca sincronizado ou slot liberado apos falha, para permitir retry.';
 
 
 --
@@ -8846,5 +8854,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict fgaOmqzBESBAynOCfxavbvxDVJdMii7LRfiat0zkSVtnYBQrXOjcXs5MUUUPFi2
+\unrestrict hYmPbPZ5CbcsoQqutalJ3cPQdYMKc1fQEgkXHGmhLEjpewidSTSzr55ct5w3j6N
 

@@ -1801,11 +1801,71 @@ def _clean_pack_filters(filters: Any) -> List[Dict[str, Any]]:
     return cleaned
 
 
-# TTL server-side do sync on-focus por (user_id, pack_id) — troca de aba/foco não vira flood
-# de chamadas Meta. Em memória: reinício do processo só permite 1 sync extra por pack.
+# TTL server-side do sync on-focus por pack — troca de aba/foco não vira flood de
+# chamadas Meta.
+#
+# MORA NO BANCO, NÃO EM MEMÓRIA (migration 127). Antes era um dict de processo com
+# um threading.Lock. O backend sobe com `uvicorn --workers 4`: cada worker tinha o
+# próprio dicionário vazio, então cada recarga da página caía num worker diferente e
+# sincronizava DE NOVO. Medido em 3 recargas seguidas do Manager: 414 UPDATEs em
+# `ads` (35,3 s) + 352 SELECTs paginados (11,9 s), disputando slots e locks com a
+# consulta do Manager carregando ao lado — recarregar deixava a página mais LENTA
+# (10 s -> 17 s), porque os syncs se acumulavam.
+#
+# Mesma armadilha do rate limit em memória: estado de processo vale N vezes com N
+# workers. `threading.Lock` só ordena threads DENTRO de um processo; o que ordena
+# workers é o UPDATE condicional, atômico por linha.
 _STATUS_SYNC_TTL_SECONDS = 300
-_status_sync_last_run: Dict[Tuple[str, str], float] = {}
-_status_sync_lock = threading.Lock()
+
+
+def _reservar_slots_de_status_sync(sb, pack_ids: List[str], limite: int) -> set:
+    """Reserva o slot de TTL dos packs elegíveis. Devolve os que GANHARAM o slot.
+
+    Dois passos porque o PostgREST não aceita LIMIT em UPDATE:
+      1. lista até `limite` candidatos elegíveis (nunca sincronizados ou fora do TTL);
+      2. UPDATE condicional neles — quem já foi reservado por outro worker no meio do
+         caminho não casa mais o filtro e simplesmente não volta.
+
+    O passo 2 é o que substitui o lock: a atomicidade é por linha, no banco, e vale
+    entre processos. Uma corrida perdida vira `skipped`, não trabalho duplicado.
+    """
+    if not pack_ids or limite <= 0:
+        return set()
+    corte = (datetime.now(timezone.utc) - timedelta(seconds=_STATUS_SYNC_TTL_SECONDS)).isoformat()
+    elegivel = f"last_status_sync_at.is.null,last_status_sync_at.lt.{corte}"
+
+    candidatos = with_postgrest_retry(
+        f"status_sync_candidatos[{len(pack_ids)}]",
+        lambda: sb.table("packs").select("id").in_("id", pack_ids).or_(elegivel).limit(limite).execute(),
+    )
+    ids = [str(r["id"]) for r in (candidatos.data or []) if r.get("id")]
+    if not ids:
+        return set()
+
+    reservados = with_postgrest_retry(
+        f"status_sync_reserva[{len(ids)}]",
+        lambda: sb.table("packs")
+        .update({"last_status_sync_at": datetime.now(timezone.utc).isoformat()})
+        .in_("id", ids)
+        .or_(elegivel)
+        .execute(),
+    )
+    return {str(r["id"]) for r in (reservados.data or []) if r.get("id")}
+
+
+def _liberar_slot_de_status_sync(sb, pack_id: str) -> None:
+    """Devolve o slot (NULL) para o pack poder tentar de novo no próximo foco.
+
+    Best-effort: falhar aqui só adia o retry até o TTL expirar naturalmente — nunca
+    pode transformar uma falha de sync em erro de resposta.
+    """
+    try:
+        with_postgrest_retry(
+            f"status_sync_libera[{pack_id}]",
+            lambda: sb.table("packs").update({"last_status_sync_at": None}).eq("id", pack_id).execute(),
+        )
+    except Exception:
+        logger.warning("[STATUS_SYNC] falha ao liberar slot do pack %s (retry só após o TTL)", pack_id)
 
 
 class StatusSyncRequest(BaseModel):
@@ -1876,36 +1936,44 @@ def sync_packs_status(
     # escrita de pais e (para packs sem filtro) o scan de ads da conta inteira.
     parent_synced_accounts: set = set()
     account_ads_statuses: Dict[str, Dict[str, Any]] = {}
-    # Teto de trabalho REAL por request (packs que efetivamente sincronizam). Excedentes voltam
-    # como skipped SEM reservar TTL → o próximo focus os pega (rotação, sem starvation).
+    # Teto de trabalho REAL por request. Excedentes voltam como skipped SEM reservar
+    # TTL → o próximo focus os pega (rotação, sem starvation).
     max_syncs_per_request = 20
-    syncs_done = 0
-    now = time.time()
 
+    # 1ª passada: descarta o que não tem como sincronizar ANTES de reservar slot.
+    # (Antes, um pack sem adaccount_id reservava o TTL e só então falhava — ficava
+    # 5 minutos bloqueado sem nunca ter tentado nada.)
+    candidatos: List[Dict[str, Any]] = []
     for pack in packs:
+        pack_id = str(pack.get("id"))
+        user_id = owner_by_pack.get(pack_id) or actor_id
+        if _api_for(user_id) is None:
+            failed.append(pack_id)
+            continue
+        if not str(pack.get("adaccount_id") or "").strip():
+            failed.append(pack_id)
+            continue
+        candidatos.append(pack)
+
+    # 2ª passada: reserva atômica no banco, compartilhada entre os 4 workers.
+    reservados = _reservar_slots_de_status_sync(
+        sb_svc, [str(p.get("id")) for p in candidatos], max_syncs_per_request
+    )
+
+    for pack in candidatos:
         pack_id = str(pack.get("id"))
         # Silo do pack: dono. jwt None => service role (o ator pode ser convidado).
         user_id = owner_by_pack.get(pack_id) or actor_id
         user_jwt = user["token"] if user_id == actor_id else None
         api = _api_for(user_id)
-        if api is None:
-            failed.append(pack_id)
-            continue
-        if syncs_done >= max_syncs_per_request:
+
+        # Dentro do TTL, ou teto do request atingido, ou perdeu a corrida para outro
+        # worker: nada a fazer agora, o próximo foco pega.
+        if pack_id not in reservados:
             skipped.append(pack_id)
             continue
-        with _status_sync_lock:
-            last_run = _status_sync_last_run.get((user_id, pack_id), 0.0)
-            if now - last_run < _STATUS_SYNC_TTL_SECONDS:
-                skipped.append(pack_id)
-                continue
-            # Reserva o slot antes de rodar — evita corrida entre requests simultâneos.
-            _status_sync_last_run[(user_id, pack_id)] = now
 
         act_id = str(pack.get("adaccount_id") or "").strip()
-        if not act_id:
-            failed.append(pack_id)
-            continue
         if not act_id.startswith("act_"):
             act_id = f"act_{act_id}"
 
@@ -1950,12 +2018,10 @@ def sync_packs_status(
                 parent_synced_accounts.add(act_id)
 
             synced.append(pack_id)
-            syncs_done += 1
         except Exception as exc:
             logger.warning("[STATUS_SYNC] pack %s falhou: %s", pack_id, exc)
-            with _status_sync_lock:
-                # Libera o slot para permitir retry no próximo focus
-                _status_sync_last_run.pop((user_id, pack_id), None)
+            # Libera o slot para permitir retry no próximo focus
+            _liberar_slot_de_status_sync(sb_svc, pack_id)
             failed.append(pack_id)
 
     return {"synced": synced, "skipped": skipped, "failed": failed, "ads_covered": ads_covered}

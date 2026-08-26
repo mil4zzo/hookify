@@ -423,6 +423,7 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | mql_leadscore_min | numeric |  |
 | target_cpr | jsonb |  |
 | diagnostic_cost_metric | text |  |
+| last_status_sync_at | timestamp |  |
 
 ---
 
@@ -513,4 +514,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-08-25 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-08-26 — via `supabase/generate_schema_map.py`*
