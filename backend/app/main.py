@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, Request
+import time
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
@@ -198,6 +199,52 @@ def health_check():
         # significa DETECTOR QUEBRADO, nao "ninguem abandona request" — foi assim
         # que a primeira versao passou como no-op sem ninguem notar.
         "client_disconnect": client_disconnect.get_stats(),
+    }
+
+@app.get("/health/ready")
+def readiness_check():
+    """Prova que o app SERVE, nao apenas que o processo subiu.
+
+    POR QUE ESTE ENDPOINT EXISTE
+    ----------------------------
+    Em 2026-08-25 o backend passou horas respondendo 500 em toda rota que toca o
+    banco (o cliente Supabase estourava TypeError na construcao) e os DOIS
+    deploys fecharam verdes: o `/health` nao consulta o banco, entao o
+    HEALTHCHECK do container atestava apenas que o uvicorn estava de pe.
+    Aqui a construcao do cliente e uma consulta real acontecem de verdade -- e o
+    que o deploy.sh usa para reprovar um deploy.
+
+    POR QUE SEPARADO DO /health, E NAO DENTRO DELE
+    ---------------------------------------------
+    O HEALTHCHECK do Docker continua apontando para o `/health` raso de
+    proposito: se ele consultasse o banco, uma indisponibilidade do Supabase
+    marcaria os containers como unhealthy e o Traefik os tiraria da rotacao --
+    um solucao de banco viraria queda total do app, e a protecao seria a causa
+    do outage. Liveness (processo vivo) e readiness (consegue servir) sao
+    perguntas diferentes e nao podem ter a mesma consequencia.
+    """
+    from app.core.supabase_client import get_supabase_service
+
+    inicio = time.perf_counter()
+    try:
+        # Consulta minima de proposito: o valor esta em atravessar o caminho
+        # inteiro (construir o cliente, falar PostgREST, voltar), nao no dado.
+        get_supabase_service().table("packs").select("id").limit(1).execute()
+    except Exception as exc:
+        logger.error("[readiness] banco inacessivel: %s", exc, exc_info=True)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "db": "erro",
+                "detail": f"{type(exc).__name__}: {exc}",
+            },
+        )
+
+    return {
+        "status": "ready",
+        "db": "ok",
+        "db_latency_ms": round((time.perf_counter() - inicio) * 1000, 1),
     }
 
 if __name__ == "__main__":

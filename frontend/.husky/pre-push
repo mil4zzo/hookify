@@ -1,0 +1,26 @@
+set -e
+
+# Suite do backend antes de qualquer push.
+#
+# POR QUE: em 2026-08-25 um commit foi para producao com o teste de fiacao do
+# cliente Supabase JA vermelho na maquina local -- o backend inteiro respondeu
+# 500 por horas. O pre-commit cobre so o frontend (design system + tsc); o
+# Python nao tinha porteiro nenhum. O custo aqui e de segundos.
+
+ROOT="$(pwd)"
+
+if [ -x "$ROOT/backend/venv/Scripts/python.exe" ]; then
+  PY="$ROOT/backend/venv/Scripts/python.exe"   # Windows
+elif [ -x "$ROOT/backend/venv/bin/python" ]; then
+  PY="$ROOT/backend/venv/bin/python"           # Linux/macOS
+else
+  echo "❌ pre-push: venv do backend não encontrado em backend/venv."
+  echo "   Crie com: cd backend && python -m venv venv && pip install -r requirements.txt"
+  echo "   (o hook falha de propósito em vez de pular: pular em silêncio é"
+  echo "    exatamente a falha que ele existe para impedir)"
+  exit 1
+fi
+
+cd "$ROOT/backend"
+echo "🧪 pre-push: rodando a suíte do backend..."
+"$PY" -m pytest tests/ -q

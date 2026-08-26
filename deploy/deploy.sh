@@ -545,9 +545,56 @@ check_public() {
   esac
 }
 
+# Health de verdade. O `/health` responde 200 com o app inteiro quebrado: ele nao
+# toca no banco. Foi assim que os dois deploys de 2026-08-25 fecharam verdes com
+# 100% das rotas em 500 -- o cliente Supabase estourava na construcao e o unico
+# sintoma visivel era o navegador do usuario.
+#
+# Este check REPROVA o deploy de proposito (diferente do check_public, que e so
+# aviso): se o backend nao consegue consultar o banco, nao ha deploy bom.
+check_readiness() {
+  local cid ip url code i=0 max=20
+  echo ""
+  echo "Readiness (constrói o cliente Supabase e consulta o banco de verdade):"
+
+  cid="$(compose ps -q "$SERVICE_BACKEND" 2>/dev/null || true)"
+  if [ -z "$cid" ]; then
+    echo "❌ Readiness: container do backend não encontrado."
+    HEALTH_FAILED=true
+    return 0
+  fi
+
+  ip="$(container_ip "$cid")"
+  if [ -z "$ip" ]; then
+    echo "❌ Readiness: container sem IP na rede."
+    HEALTH_FAILED=true
+    return 0
+  fi
+
+  url="http://${ip}:8000/health/ready"
+  while [ $i -lt $max ]; do
+    code="$(http_code "$url")"
+    if [ "$code" = "200" ]; then
+      echo "✅ Backend pronto — consulta ao banco OK ($url)"
+      return 0
+    fi
+    i=$((i+1))
+    echo "⏳ ($i/$max) readiness=HTTP $code"
+    sleep 2
+  done
+
+  echo "❌ Backend NÃO consegue servir (último HTTP $code em $url)."
+  echo "   503 aqui = processo de pé, banco inalcançável. O corpo diz qual erro:"
+  curl -s --max-time 10 "$url" | head -c 600 || true
+  echo ""
+  compose logs --tail=100 "$SERVICE_BACKEND" || true
+  HEALTH_FAILED=true
+}
+
 health_checks() {
   echo "🔍 Health checks..."
   check_service "Backend"  "$SERVICE_BACKEND"  8000 "/health" "200"
+  check_readiness
   echo ""
   check_service "Frontend" "$SERVICE_FRONTEND" 3000 ""        "200 307 308 404"
   check_public
