@@ -1,7 +1,18 @@
 # Plano: rollup + RPC em passada única + leadscore em histograma
 
-Data: 2026-08-26. Estado: **aprovado, não iniciado.** Decisões do usuário: histograma de
-leadscore entra na v1; instância continua MICRO até o rollup medir.
+Data: 2026-08-26. Estado: **fase A implementada e provada no lab (2026-08-26); aguardando
+aplicação em produção.** Decisões do usuário: histograma de leadscore entra na v1;
+instância continua MICRO até o rollup medir; a nomenclatura nova é **"performance"**
+(artefatos novos nascem `ad_performance_*`; a entry `fetch_manager_rankings_core_v2` e as
+rotas `/rankings` só mudam num passe dedicado depois do cutover — ver §9).
+
+> **Mudança de desenho na fase A (2026-08-26):** as duas tabelas "altas" (`ad_conversions_daily`
+> com uma linha por chave e `ad_leads_daily` com uma linha por score) viraram **uma tabela
+> `ad_performance_daily` com uma linha por anúncio-dia e arrays paralelos**. Motivo medido no
+> lab: a forma alta custava **352 MB + 38 MB** (1,95 M + 212 mil linhas; o cabeçalho fixo por
+> linha do Postgres pesava mais que o dado) — a forma com arrays carrega a mesma informação em
+> **164.661 linhas / 61 MB**. A seção 2 abaixo descreve a forma final; a RPC (§3) lê
+> `conv_values[array_position(conv_key_ids, id)]` em vez de uma subconsulta agregada.
 
 ## 0. O problema, em uma linha por número
 
@@ -36,48 +47,65 @@ Princípios:
 - **Contrato de saída idêntico**, exceto `leadscore_values` (array) → `leadscore_histogram`
   (objeto `{score: quantidade}`). Provado por teste diferencial antes da troca.
 
-## 2. Tabelas (migration 128)
+## 2. Tabelas (migration 128) — forma final, implementada e provada no lab
 
-### `ad_conversions_daily`
+Arquivos: `supabase/migrations/128_rollup_de_performance_conversoes_e_leads.sql` (mecanismo),
+`supabase/scripts/backfill_128_rollup_de_performance.sql` (backfill por usuário via psql),
+`supabase/tests/128_rollup_de_performance.test.sql` (29 asserções; 3 sabotagens provadas),
+`supabase/tests/README.md` + `lab_prep.sql` (como montar o laboratório local).
+
+### `conversion_keys` — dicionário
+`id integer identity`, `key text unique` no formato `'conversion:<action_type>'` /
+`'action:<action_type>'` (**o mesmo** de `p_action_type` e de `packs.conversion_types`).
+Append-only; 81 chaves hoje, 31 bytes em média — no array cabem em 4.
+
+### `ad_performance_daily` — uma linha por anúncio-dia com evento ou lead
 | coluna | tipo | nota |
 |---|---|---|
-| user_id | uuid | |
-| ad_id | text | |
-| date | date | |
-| conv_key | text | `'conversion:'||action_type` ou `'action:'||action_type` — **o mesmo formato** do parâmetro `p_action_type` e de `packs.conversion_types` |
-| value | numeric | saneado como a RPC faz hoje (`regexp_replace(value,'[^0-9.-]','')`) |
+| user_id, ad_id, date | | PK; FK → `ad_metrics(user_id, ad_id, date)` `ON DELETE CASCADE ON UPDATE CASCADE` |
+| conv_key_ids | integer[] | ordenado por id; `conv_values[i]` é o valor de `conv_key_ids[i]` |
+| conv_values | numeric[] | SUM por chave, saneado como a RPC (`[^0-9.-]`); inválido conta 0 em vez de estourar |
+| lead_scores | numeric[] | ordenado; histograma — `lead_qtys[i]` é quantas vezes `lead_scores[i]` aparece |
+| lead_qtys | integer[] | |
 
-- PK `(user_id, ad_id, date, conv_key)`.
-- Índice `(user_id, ad_id, date) INCLUDE (conv_key, value)` → busca por (ad, dia) vinda do
-  mapa fica *index-only*.
-- FK `(user_id, ad_id, date) → ad_metrics(user_id, ad_id, date)` (chave única existente
-  `ad_metrics_user_ad_date_key`) `ON DELETE CASCADE`.
-- Volume hoje: **~1,75 M linhas** (medido: 6,7 eventos por anúncio-dia, não 70). ~90 MB +
-  índice. Escala linear com anúncio-dias; particionar por `date` quando passar de ~50 M.
+- Anúncio-dia sem evento e sem lead **não tem linha** (a RPC faz `left join`).
+- CHECK: cardinalidades pareadas e pelo menos um dos pares não vazio.
+- Medido no lab (dump de 2026-08-26): **164.661 linhas, 48 MB heap + 13 MB PK = 61 MB**.
+  A forma alta (uma linha por chave) custaria 390 MB. Escala linear com anúncio-dias.
+- Leitura da chave pedida: `conv_values[array_position(conv_key_ids, :id)]` (~7 inteiros).
 
-### `ad_leads_daily`
-| coluna | tipo | nota |
-|---|---|---|
-| user_id, ad_id, date | | |
-| score | smallint | medido: 27 valores distintos, todos inteiros |
-| qty | integer | quantas vezes o score aparece naquele anúncio-dia |
+### Derivação — uma fonte de verdade
+`ad_performance_parse_value(text)`, `ad_performance_derive_conversions(actions, conversions)`
+→ (chave, valor), `ad_performance_derive_leads(numeric[])` → (score, qty),
+`ad_performance_derive_row(...)` → os 4 arrays. Trigger, rebuild e checagem usam as mesmas
+funções: mudar a semântica num lugar muda em todos.
 
-- PK `(user_id, ad_id, date, score)`. FK cascade idem.
-- Volume: só 23% das linhas têm leads (média 8) → ~80 mil linhas hoje. Minúscula.
+### Triggers `ad_metrics_rollup_sync_ins` / `_upd` (por STATEMENT, tabelas de transição)
+Worker único `ad_performance_rollup_apply(ad_metric_key[])`: apaga e recomputa as chaves
+recebidas relendo `ad_metrics`. O de UPDATE compara OLD/NEW e só recomputa linhas cujas
+`actions`/`conversions`/`leadscore_values` **mudaram de fato** (o Postgres não aceita
+tabela de transição com `UPDATE OF colunas`; comparar é melhor: upsert que regrava o mesmo
+JSON não paga nada). Mudança só de chave propaga pela FK.
+Custo medido (lote de 500 linhas reais): upsert com JSON alterado 28 → 171 ms
+(+0,29 ms/linha); upsert idêntico 52 ms; insert 125 ms; delete com cascade 15 ms.
 
-### Trigger `ad_metrics_rollup_sync`
-`AFTER INSERT OR UPDATE OF actions, conversions, leadscore_values ON ad_metrics`, por linha:
-apaga e reinsere as linhas derivadas daquele `(user_id, ad_id, date)`. Idempotente.
-Custo: ~8 inserts estreitos por linha importada — no refresh (que grava em lotes de 500),
-segundos a mais num processo de minutos.
+### Backfill e checagem
+`ad_performance_rollup_rebuild(user_id)` — apaga e regrava o silo do usuário (idempotente).
+O script roda um usuário por transação, do menor para o maior, **via psql direto** (o
+maior tem 122 mil linhas; PostgREST estouraria o `statement_timeout`). Lab: 2,3 min no
+total; na t4g.micro esperar 3-5× isso — rodar com o app ocioso.
+`ad_performance_rollup_consistency_check([user_id])` compara a derivação **completa** nos
+dois sentidos (`EXCEPT ALL`), não só contagens. **Tem de devolver zero linhas** (lab: zero).
 
-### Backfill
-Uma passada sobre as 260 mil linhas existentes, **em lotes por usuário via psql direto**
-(não via PostgREST: `statement_timeout` de 8 s do `authenticator` e o `57014`).
-Função `rollup_consistency_check()` compara, por usuário: nº de linhas com eventos vs
-linhas na tabela nova, soma de leads no array vs soma de `qty`. Tem de dar zero diferença.
+## 3. RPC nova (migration 129): `fetch_manager_performance_base_v129`
 
-## 3. RPC nova (migration 129): `fetch_manager_rankings_core_v2_base_v128`
+(Nome novo já na família "performance". A entry `fetch_manager_rankings_core_v2` continua
+com o nome antigo até o passe de renomeação da §9 — é o contrato com o backend e o ponto
+de rollback.) Com a forma final da §2, os itens 2-4 abaixo viram: `left join
+ad_performance_daily d` pela chave de `ad_metrics`; valor pedido =
+`coalesce(d.conv_values[array_position(d.conv_key_ids, v_key_id)], 0)`; tipos disponíveis
+= `distinct unnest(d.conv_key_ids)` ⋈ `conversion_keys`; histograma por grupo =
+`unnest(d.lead_scores, d.lead_qtys)` → `sum(qty) group by score` → `jsonb_object_agg`.
 
 Regras herdadas das memórias do projeto (não negociáveis):
 - `SET plan_cache_mode = force_custom_plan` **e** `SET search_path` na `CREATE FUNCTION`
@@ -183,3 +211,22 @@ Regras de processo herdadas desta semana:
   `ad_conversions_daily` por mês; a consulta não muda.
 - Ponto de atenção real em escala: o **Meta API** (limite de chamadas) e o refresh,
   não o banco. Fica para o plano de produção.
+
+## 9. Passe de renomeação "rankings" → "performance" (depois do cutover, não junto)
+
+Decidido em 2026-08-26: o termo novo é **performance** (o alias `/analytics/ad-performance`
+e os hooks `useAdPerformance*` já existiam em voo). Não se renomeia junto com o rollup —
+tocaria os mesmos arquivos (`analytics.py`, `hooks.ts`, `schemas.ts`, `schema.sql`),
+contaminaria o diferencial (uma divergência passaria a ter duas causas) e tiraria a
+trivialidade do rollback (repontar uma entry de nome conhecido).
+
+Regra até lá: **artefatos novos nascem com o nome novo** (`ad_performance_daily`,
+`ad_performance_*`, `fetch_manager_performance_base_v129`); o que existe fica.
+
+Depois, um passe mecânico em 3 commits por camada, cada um verificado (`tsc`, `pytest`,
+testes de contrato): frontend (hooks/tipos/queryKeys) → backend (rotas novas ficam;
+`/rankings/**` vira alias por um ciclo de deploy — frontend antigo em cache não pode
+quebrar) → SQL por último (migration com `SET` explícitos + gate `check_plan_cache_mode_gaps`).
+Tamanho medido: 914 ocorrências em 133 arquivos. **Fora do passe:** `lib/utils/metricRankings.ts`
+(`calculateGlobalMetricRanks`, `getMetricRank`) é o conceito legítimo de *rank de um anúncio
+por métrica*, não a nomenclatura depreciada.
