@@ -45,7 +45,7 @@ export default function ApiTestPage() {
   // API hooks
   const { data: me, isLoading: meLoading, error: meError } = useMe();
   const adAccountsData = (me?.adaccounts ?? adAccounts) as any[];
-  const { data: adsData, isLoading: adsLoading, error: adsError, refetch: refetchAds } = useAds(testParams, false); // Desabilitado para execução automática
+  const { error: adsError } = useAds(testParams, false); // Desabilitado para execução automática
 
   // Mutations
   const authUrlMutation = useAuthUrl();

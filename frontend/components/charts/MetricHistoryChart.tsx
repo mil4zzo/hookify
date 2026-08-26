@@ -491,7 +491,6 @@ function MetricHistoryChartInner({ data, formatValue, actionType, availableMetri
               if (!coords) return;
 
               const x = coords.x - margin.left;
-              const y = coords.y - margin.top;
 
               // Encontrar o índice X mais próximo (não o ponto mais próximo em distância)
               // Isso garante que todos os pontos do mesmo dia sejam mostrados

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAdPerformance } from "@/lib/api/hooks";
-import type { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
+import type { RankingsRequest } from "@/lib/api/schemas";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";

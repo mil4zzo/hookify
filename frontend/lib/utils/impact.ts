@@ -59,7 +59,6 @@ export function computeLandingPageImpact(
 
   const spend = Number((ad as any).spend || 0);
   const impressions = Number((ad as any).impressions || 0);
-  const lpv = Number((ad as any).lpv || 0);
 
   // CPM: priorizar valor do backend, senão calcular
   const cpm = typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm) && isFinite((ad as any).cpm) 

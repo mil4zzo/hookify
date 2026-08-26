@@ -48,7 +48,7 @@ export function ActionPlanRow({
 }: ActionPlanRowProps) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const formatCurrency = useFormatCurrency();
-  const { ad, verdict, costActual, costTarget, lowData, costPotential, impactSavings } = item;
+  const { ad, verdict, costActual, costTarget, lowData } = item;
   const adRaw = ad as any;
 
   const chip = VERDICT_CHIP[verdict];

@@ -13,7 +13,6 @@ import {
   AuthUrlResponse,
   FacebookAdAccount,
   RankingsRequest,
-  RankingsFilters,
   RankingsResponse,
   RankingsSeriesRequest,
   RankingsSeriesResponse,

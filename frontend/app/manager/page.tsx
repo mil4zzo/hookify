@@ -79,7 +79,7 @@ function ManagerPageContent() {
   // União dos conversion_types dos packs selecionados + sync do dropdown, com o gate
   // correto. Extraído para hook porque Explorer e useAdPerformancePipeline precisavam
   // do mesmo, e cada tela que reimplementou errou o gate de um jeito diferente.
-  const { availableConversionTypes } = useAvailableConversionTypes();
+  useAvailableConversionTypes();
 
   // ── Page-specific state ────────────────────────────────────────────────────
   const [showTrends, setShowTrends] = useState<boolean>(() => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
@@ -19,7 +19,6 @@ const STORAGE_KEY_INSIGHTS_COLUMN_ORDER = "hookify-insights-column-order";
 const DEFAULT_INSIGHTS_COLUMN_TITLES = ["Page", "CPM", "Spend", "Hook"] as const;
 type InsightsColumnType = (typeof DEFAULT_INSIGHTS_COLUMN_TITLES)[number];
 // Flag de debug temporário para entender por que anúncios não entram na coluna Page
-const DEBUG_PAGE_CONV = true;
 
 interface InsightsKanbanWidgetProps {
   ads: RankingsItem[];
@@ -72,25 +71,6 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
 /**
  * Função helper para obter valor de métrica
  */
-function getMetricValue(ad: any, metric: "hook" | "website_ctr" | "ctr" | "page_conv" | "hold_rate", actionType: string): number {
-  switch (metric) {
-    case "hook":
-      return Number(ad.hook || 0);
-    case "website_ctr":
-      return Number(ad.website_ctr || 0);
-    case "ctr":
-      return Number(ad.ctr || 0);
-    case "hold_rate":
-      return Number((ad as any).hold_rate || 0);
-    case "page_conv": {
-      const lpv = Number(ad.lpv || 0);
-      const results = actionType ? Number(ad.conversions?.[actionType] || 0) : 0;
-      return lpv > 0 ? results / lpv : 0;
-    }
-    default:
-      return 0;
-  }
-}
 
 /**
  * Função helper para formatar métrica
@@ -373,7 +353,6 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
 
     // 8.1 Mapear métricas com fallbacks
     const mappedAds = validatedAds.map((ad) => {
-      const impressions = Number((ad as any).impressions || 0);
       const spend = Number((ad as any).spend || 0);
       const results = actionType ? Number((ad as any).conversions?.[actionType] || 0) : 0;
 
@@ -412,9 +391,6 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
 
       if (!opportunityRow) {
         // Fallback: usar impacto absoluto se não tiver OpportunityRow
-        const results = actionType ? Number((ad as any).conversions?.[actionType] || 0) : 0;
-        const cprReduction = Math.max(0, ad.cpr - avgCpr);
-        const potentialSavings = cprReduction * results;
         const spend = Number((ad as any).spend || 0);
         const improvementPct = ad.cpr > 0 && avgCpr > 0 ? 1 - avgCpr / ad.cpr : 0;
         const impactRelative = improvementPct * (spend / totalSpend);
@@ -533,7 +509,6 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       }
 
       // Calcular CPR se melhorar apenas Hook (similar ao computeHookImpact)
-      const impressions = Number((ad as any).impressions || 0);
       const spend = opportunityRow.spend;
       const cpm = opportunityRow.cpm;
       const websiteCtr = opportunityRow.website_ctr;

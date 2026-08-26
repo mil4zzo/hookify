@@ -5,7 +5,6 @@ import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils/cn";
-import { isLowerBetterMetric } from "@/lib/constants/metrics";
 import { computeAdDerivedMetrics, classifyGoldBucket, GoldBucket } from "@/lib/utils/goldClassification";
 import { IconArrowsSort, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
 

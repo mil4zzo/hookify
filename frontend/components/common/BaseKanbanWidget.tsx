@@ -74,7 +74,7 @@ export interface BaseKanbanWidgetProps<T extends string> {
  */
 export function BaseKanbanWidget<T extends string>({ storageKey, defaultColumnOrder, columnConfigs, activeColumns, enableDrag = true, modalProps, onAdClick, itemWidth = 320, scrollItems = 1, orientation = "horizontal" }: BaseKanbanWidgetProps<T>) {
   const [selectedAd, setSelectedAd] = useState<RankingsItem | null>(null);
-  const [openInVideoTab, setOpenInVideoTab] = useState(false);
+  const [, setOpenInVideoTab] = useState(false);
   const { columnOrder, setColumnOrder } = useKanbanColumnOrder(storageKey, defaultColumnOrder);
   const isHorizontal = orientation === "horizontal";
 

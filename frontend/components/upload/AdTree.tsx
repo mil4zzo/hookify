@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Image from "next/image"
-import { IconPhoto, IconSearch } from "@tabler/icons-react"
+import { IconPhoto } from "@tabler/icons-react"
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Button } from "@/components/ui/button"

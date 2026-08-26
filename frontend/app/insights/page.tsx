@@ -104,7 +104,7 @@ const loadGemsColumns = (): Set<GemsColumnType> => {
 };
 
 export default function InsightsPage() {
-  const { isClient, authStatus, onboardingStatus, isAuthorized } = useAppAuthReady();
+  const { isClient, authStatus, onboardingStatus } = useAppAuthReady();
   const { isLoading: packsLoading } = usePacksLoading();
 
   // ── Pipeline compartilhado (fetch + validação + médias) ───────────────────
@@ -144,7 +144,7 @@ export default function InsightsPage() {
   const [activeGemsColumns, setActiveGemsColumns] = useState<Set<GemsColumnType>>(() => loadGemsColumns());
 
   const [selectedAd, setSelectedAd] = useState<RankingsItem | null>(null);
-  const [openInVideoTab, setOpenInVideoTab] = useState(false);
+  const [, setOpenInVideoTab] = useState(false);
 
   const [activeTab, setActiveTab] = useState<string>(() => {
     if (typeof window === "undefined") return "diagnostico";

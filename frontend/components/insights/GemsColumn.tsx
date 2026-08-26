@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { GenericCard } from "@/components/common/GenericCard";
-import { GenericColumn, GenericColumnColorScheme } from "@/components/common/GenericColumn";
+import { GenericColumn } from "@/components/common/GenericColumn";
 import { gemsMetricColorSchemes } from "@/lib/utils/gemsColorSchemes";
 
 interface GemsColumnProps {

@@ -169,7 +169,6 @@ const AdGrid = memo(function AdGrid({ selectedAdId, onSelect }: AdGridProps) {
   )
 
   const hasTextFilter = !!(dQNameOrId || dQAdset || dQCampaign)
-  const hasAnyFilter = hasTextFilter || selectedPackIds.size > 0
   const selectedPackTotal = selectedPackId
     ? (packs.find((p) => p.id === selectedPackId)?.stats?.uniqueAds ?? null)
     : null

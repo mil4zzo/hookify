@@ -6,7 +6,6 @@ import { ValidationCondition } from "@/components/common/ValidationCriteriaBuild
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
 import { SortableColumn } from "@/components/common/SortableColumn";
-import { GenericColumnColorScheme } from "@/components/common/GenericColumn";
 import { goldBucketColorSchemes } from "@/lib/utils/gemsColorSchemes";
 import { GenericCard } from "@/components/common/GenericCard";
 import { splitAdsIntoGoldBuckets, GoldBucket } from "@/lib/utils/goldClassification";
@@ -136,9 +135,6 @@ export function GoldKanbanWidget({ ads, averages, actionType, validationCriteria
 
   // 3. Obter valores médios para exibição
   const avgCpr = actionType && averages?.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].cpr === "number" ? averages.per_action_type[actionType].cpr : null;
-  const avgHook = averages?.hook ?? null;
-  const avgWebsiteCtr = averages?.website_ctr ?? null;
-  const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? averages.per_action_type[actionType].page_conv ?? null : null;
 
   // 4. Função para formatar CPR
   const formatCpr = (value: number | null | undefined): string => {

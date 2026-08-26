@@ -14,7 +14,7 @@ import { RankingsItem } from "@/lib/api/schemas";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { MetricHistoryChart, AVAILABLE_METRICS } from "@/components/charts/MetricHistoryChart";
 import { DateRangeFilter, DateRangeValue } from "@/components/common/DateRangeFilter";
-import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+import { TabbedContent, TabbedContentItem } from "@/components/common/TabbedContent";
 import { ActionTypeFilter } from "@/components/common/ActionTypeFilter";
 import { computeMqlMetricsFromLeadscore } from "@/lib/utils/mqlMetrics";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
@@ -391,7 +391,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   // CPR: usar o valor já calculado do ranking se disponível, senão calcular
   const _spend = effectiveAd?.spend ?? Number(ad?.spend || 0);
   const _clicks = effectiveAd?.clicks ?? Number(ad?.clicks || 0);
-  const _inlineLinkClicks = effectiveAd?.inline_link_clicks ?? Number((ad as any)?.inline_link_clicks || 0);
 
   const cpr = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "cpr", { actionType: localActionType }), [ad, effectiveAd, localActionType]);
 
@@ -406,10 +405,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const cpc = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "cpc"), [ad, effectiveAd]);
 
   const hasCpc = useMemo(() => _clicks > 0, [_clicks]);
-
-  const cplc = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "cplc"), [ad, effectiveAd]);
-
-  const hasCplc = useMemo(() => _inlineLinkClicks > 0, [_inlineLinkClicks]);
 
   const websiteCtr = useMemo(() => getMetricNumericValue({ ...(ad as any), ...(effectiveAd as any) }, "website_ctr"), [ad, effectiveAd]);
 
@@ -494,8 +489,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     }
     return undefined;
   }, [ad, adDetails, effectiveAd]);
-
-  const isRetentionLoadingForVideo = activeTab === "video" && loadingAdDetails && retentionSeries.length === 0;
 
   const resolvedDetailModel = groupByAdName ? groupedSharedDetail.model : null;
   const resolvedThumbnail = groupByAdName ? (resolvedDetailModel?.thumbnailUrl ?? getAdThumbnail(ad)) : getAdThumbnail(ad);

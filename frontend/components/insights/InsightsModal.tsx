@@ -46,7 +46,6 @@ interface InsightsModalProps {
 }
 
 const STORAGE_KEY_INSIGHTS_MODAL_COLUMN_ORDER = "hookify-insights-modal-column-order";
-const DEFAULT_INSIGHTS_MODAL_COLUMN_ORDER: readonly GemsColumnType[] = ["hook", "hold_rate", "website_ctr", "page_conv"] as const;
 
 function formatPct(v: number): string {
   if (v == null || !Number.isFinite(v)) return "—";
@@ -90,7 +89,6 @@ export function InsightsModal({ row, isOpen, onClose, formatCurrency, avgCpr, ca
   // Obter valores médios para comparação
   const avgHook = averages?.hook ?? null;
   const avgWebsiteCtr = averages?.website_ctr ?? null;
-  const avgCtr = averages?.ctr ?? null;
   const avgPageConv = actionType && averages?.per_action_type?.[actionType] ? (averages.per_action_type[actionType].page_conv ?? null) : null;
   const avgHoldRate = (averages as any)?.hold_rate ?? null;
 

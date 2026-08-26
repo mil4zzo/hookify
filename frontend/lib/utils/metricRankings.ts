@@ -2,7 +2,7 @@ import { RankingsItem } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
 import { OpportunityRow } from "./opportunity";
-import { getMetricNumericValue, isLowerBetterMetric, type MetricKey } from "@/lib/metrics";
+import { getMetricNumericValue, type MetricKey } from "@/lib/metrics";
 
 /**
  * Rankings globais de métricas por ad_id

@@ -1,7 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { IconBrandGoogle, IconRefresh, IconCheck, IconTrash, IconPlus, IconLoader2 } from "@tabler/icons-react";
+import { IconRefresh, IconCheck, IconTrash, IconPlus, IconLoader2 } from "@tabler/icons-react";
 import { GoogleConnection } from "@/lib/api/schemas";
 
 interface ConnectStepProps {

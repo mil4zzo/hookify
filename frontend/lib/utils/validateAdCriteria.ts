@@ -9,7 +9,7 @@
 // `import type` é obrigatório aqui: o builder agora importa `resolveGlobalLogic` /
 // `applyGlobalLogic` deste módulo, e um import de valor fecharia um ciclo em runtime.
 import type { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
-import { getFieldInfo, getOperatorsForFieldType } from "@/lib/config/adMetricsFields";
+import { getFieldInfo } from "@/lib/config/adMetricsFields";
 import { computeConversionMetrics } from "./conversionMetrics";
 
 /**

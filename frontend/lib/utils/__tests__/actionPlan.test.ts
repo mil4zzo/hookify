@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { classifyActionVerdict, buildActionPlan } from "../actionPlan";
-import type { ActionPlan } from "../actionPlan";
 
 // ── classifyActionVerdict ────────────────────────────────────────────────────
 

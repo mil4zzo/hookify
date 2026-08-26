@@ -5,19 +5,16 @@ import { Button } from "@/components/ui/button";
 import { AppDialog } from "@/components/common/AppDialog";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import dynamic from "next/dynamic";
-import { AdInfoCard } from "@/components/ads/AdInfoCard";
 
 const AdDetailsDialog = dynamic(() => import("@/components/ads/AdDetailsDialog").then((m) => m.AdDetailsDialog), { ssr: false });
 import { createColumnHelper, getCoreRowModel, getSortedRowModel, getFilteredRowModel, useReactTable, ColumnFiltersState, SortingState, ColumnSizingState, RowSelectionState } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { IconPlus, IconFilter, IconCheck, IconIdBadge, IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown, IconShare2 } from "@tabler/icons-react";
+import { IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown, IconShare2 } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { ManagerExportDialog } from "@/components/manager/ManagerExportDialog";
 import { ShareCreateDialog } from "@/components/manager/ShareCreateDialog";
 import { toast } from "sonner";
-import { SparklineBars } from "@/components/common/SparklineBars";
-import { api } from "@/lib/api/endpoints";
 import { RankingsItem, type RankingsRowTag } from "@/lib/api/schemas";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
@@ -25,14 +22,10 @@ import { useManagerAverages } from "@/lib/hooks/useManagerAverages";
 import { useFilteredAverages } from "@/lib/hooks/useFilteredAverages";
 import { createManagerTableColumns } from "@/components/manager/managerTableColumns";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { ColumnFilter, FilterValue, FilterOperator, TextFilterValue, TextFilterOperator } from "@/components/common/ColumnFilter";
-import { Separator } from "@/components/common/Separator";
+import { FilterValue, TextFilterValue } from "@/components/common/ColumnFilter";
 import { TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 import { TabbedWorkspace, TableWorkspace } from "@/components/common/layout";
-import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDialog").then((m) => m.AdsetDetailsDialog), { ssr: false });
-import { MetricCell } from "@/components/manager/MetricCell";
 import { SearchInputWithClear } from "@/components/common/SearchInputWithClear";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { BulkActionsBar } from "@/components/common/BulkActionsBar";
@@ -267,8 +260,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     },
     [hasSheetIntegration],
   );
-
-  const isColumnVisible = useCallback((columnId: ManagerColumnType) => activeColumns.has(columnId) && isColumnEnabled(columnId), [activeColumns, isColumnEnabled]);
 
   const handleToggleColumn = useCallback(
     (columnId: ManagerColumnType) => {
@@ -632,7 +623,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   // Stable formatters using useCallback to prevent column recreation
   const formatPct = useCallback((v: number) => (v != null && !isNaN(v) ? `${Number(v).toFixed(2)}%` : "—"), []);
-  const formatNum = useCallback((v: number) => (v ? v.toLocaleString("pt-BR") : "—"), []);
   // formatUsd agora usa formatCurrency diretamente dentro dos cells para reatividade
 
   // Função helper para aplicar filtros numéricos
@@ -771,10 +761,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     (keys: string[]) => onVisibleGroupKeysChange?.(currentTab, keys),
     [onVisibleGroupKeysChange, currentTab],
   );
-
-  const handleResetFilters = useCallback(() => {
-    setColumnFilters([]);
-  }, [setColumnFilters]);
 
   // byKey Map: usado pelo MetricCell como fallback quando series não vêm do servidor.
   // Quando server series existem (caso padrão), retornamos Map vazio estável:

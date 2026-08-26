@@ -188,8 +188,6 @@ test("attributeDriverToAds: rate+mix effects sum to Δrate_pack", () => {
   const wctrDriver = dec.drivers.find((d) => d.driver === "website_ctr");
   if (!wctrDriver || wctrDriver.status !== "ok") return; // driver not ok, skip
 
-  const attr = attributeDriverToAds(snaps, "website_ctr", wctrDriver.contributionCurrency!);
-
   // Pack wctr prev: (200+300)/(5000+5000) = 0.05; last: (180+320)/(6000+4000) = 0.05
   // Δrate_pack for wctr = 0.05 - 0.05 = 0 in this case... let me pick a different driver
 
@@ -212,10 +210,6 @@ test("attributeDriverToAds: rate+mix effects sum to Δrate_pack", () => {
     const attribution = attributeDriverToAds(allSnaps, driverKey, drv.contributionCurrency!);
 
     // Sum of rateEffect + mixEffect across ALL ads (ranked + remainder's rankedAds)
-    const allAttrAds = [
-      ...attribution.rankedAds,
-      // remainder is collapsed; check only ranked + unranked in remainder
-    ];
 
     // We can check: ranked ads' contribs sum correctly relative to driver R$
     const sumRankedContrib = attribution.rankedAds.reduce((s, a) => s + a.contributionCurrency, 0);

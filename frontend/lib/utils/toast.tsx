@@ -97,7 +97,6 @@ export function showProcessCancelledWarning(context: "meta" | "sheets" | "transc
 }
 
 // Meta Ads: mapeamento status/stage -> índice 1-5 para "Etapa X de 5"
-const META_TOTAL_STAGES = 5;
 const META_STAGE_TITLES: Record<string, string> = {
   "1": "Preparando atualização",
   "2": "Coletando anúncios",

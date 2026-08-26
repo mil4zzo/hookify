@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios'
 import * as Sentry from '@sentry/nextjs'
-import { parseError, AppError, isAuthUnreachableError } from '@/lib/utils/errors'
+import { parseError, isAuthUnreachableError } from '@/lib/utils/errors'
 import { env } from '@/lib/config/env'
 import { getSupabaseClient } from '@/lib/supabase/client'
 

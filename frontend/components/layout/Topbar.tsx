@@ -14,10 +14,9 @@ import { FacebookConnectionCard } from "@/components/facebook/FacebookConnection
 import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import { AuthPopupError } from "@/lib/utils/authPopup";
 import { getAggregatedPackStatistics } from "@/lib/utils/adCounting";
-import { IconChartBar, IconMenu2, IconX, IconLogout, IconUser, IconUserFilled, IconUsers, IconBell, IconPlus, IconSettings, IconBrandFacebook, IconLoader2, IconBrandFacebookFilled, IconMoon, IconSun, IconCheck, IconAlertCircle, IconTarget, IconTrash, IconRefresh } from "@tabler/icons-react";
+import { IconLogout, IconUserFilled, IconUsers, IconBell, IconSettings, IconBrandFacebook, IconLoader2, IconMoon, IconSun, IconCheck, IconTarget, IconTrash, IconRefresh } from "@tabler/icons-react";
 import { AppDialog } from "@/components/common/AppDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
-import { useSettings } from "@/lib/store/settings";
 import { useSessionStore } from "@/lib/store/session";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
 import { Input } from "@/components/ui/input";
@@ -30,7 +29,7 @@ import { useAutoRefreshPacks } from "@/lib/hooks/useAutoRefreshPacks";
 import { AutoRefreshConfirmModal } from "@/components/common/AutoRefreshConfirmModal";
 import { formatToTitleCase } from "@/lib/utils/formatName";
 import ServerStatusBanner from "./ServerStatusBanner";
-import { ValidationCriteriaBuilder, ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
+import { ValidationCriteriaBuilder } from "@/components/common/ValidationCriteriaBuilder";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useCurrency } from "@/lib/hooks/useCurrency";
@@ -40,12 +39,11 @@ import { useNiche } from "@/lib/hooks/useNiche";
 import { api } from "@/lib/api/endpoints";
 import { useSyncAdAccounts } from "@/lib/api/hooks";
 import { clearAllPacks } from "@/lib/storage/indexedDB";
-import { getSupabaseClient } from "@/lib/supabase/client";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
 import { useQueryClient } from "@tanstack/react-query";
 import { UpdatedAtText } from "@/components/common/UpdatedAtText";
 import { useGoogleReconnectHandler } from "@/lib/hooks/useGoogleReconnectHandler";
-import { TabbedContent, TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
+import { TabbedContent, TabbedContentItem } from "@/components/common/TabbedContent";
 import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
 import { cn } from "@/lib/utils/cn";
 import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
@@ -53,7 +51,6 @@ import { APP_PAGE_SHELL_X } from "@/lib/constants/pageLayout";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { isOpen: isSettingsOpen, activeTab: activeSettingsTab, openSettings, closeSettings, setActiveTab: setActiveSettingsTab } = useSettingsModalStore();
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const { criteria: validationCriteria, updateCriteria: setValidationCriteria, isLoading: isLoadingCriteria, isSaving: isSavingCriteria, saveCriteria } = useValidationCriteria();
@@ -71,8 +68,7 @@ export default function Topbar() {
   const { niche: userNiche, isLoading: isLoadingNiche, isSaving: isSavingNiche, updateNiche, saveNiche } = useNiche();
   const { packs } = useClientPacks();
   const { handleLogout } = useAuthManager();
-  const { settings, setLanguage, setNiche, updateSettings } = useSettings();
-  const { connections, connect, disconnect, refreshPicture, activeConnections, expiredConnections, hasActiveConnection, hasExpiredConnections } = useFacebookAccountConnection();
+  const { connections, connect, disconnect, refreshPicture, activeConnections, hasActiveConnection } = useFacebookAccountConnection();
   const { verifyConnections, clearConnectionCache } = useFacebookConnectionVerification();
   const syncAdAccounts = useSyncAdAccounts();
   const { user: supabaseUser, isLoading: isAuthLoading } = useSupabaseAuth();
@@ -218,14 +214,6 @@ export default function Topbar() {
   const handleLogoutClick = async () => {
     await handleLogout();
     // handleLogout faz o redirect usando window.location.href para forçar reload completo
-  };
-
-  const toggleMobileMenu = () => {
-    setIsMobileMenuOpen(!isMobileMenuOpen);
-  };
-
-  const closeMobileMenu = () => {
-    setIsMobileMenuOpen(false);
   };
 
   // Só considera que tem conexão quando não está carregando E há conexões ativas

@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { AppDialog } from "@/components/common/AppDialog";
 import { api } from "@/lib/api/endpoints";
 import { env } from "@/lib/config/env";
-import { SheetIntegrationRequest, SheetColumnsResponse, GoogleConnection } from "@/lib/api/schemas";
+import { SheetIntegrationRequest, SheetColumnsResponse } from "@/lib/api/schemas";
 import { showError, showSuccess } from "@/lib/utils/toast";
 import { IconTableExport } from "@tabler/icons-react";
 import { MultiStepBreadcrumb } from "@/components/common/MultiStepBreadcrumb";
@@ -54,7 +54,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   const [mqlLeadscoreMin, setMqlLeadscoreMin] = useState("");
 
   const [integrationId, setIntegrationId] = useState<string | null>(null);
-  const [loadedIntegrationData, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
+  const [, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
 
   /** Número de efeitos que ainda devem ignorar limpeza (selectedSpreadsheetId + worksheetTitle) ao carregar integração existente */
   const skipClearCountRef = useRef(0);
@@ -74,7 +74,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   // Hooks
   const { connections, selectedConnectionId, setSelectedConnectionId, isLoadingConnections, isDeletingConnection, expiredConnections, testingConnections, loadConnections, handleRetestConnection, handleDeleteConnection, clearVerificationCache } = useGoogleConnections(isOpen);
 
-  const { isImporting, importStep, importProgress, lastSyncStats, setLastSyncStats, startSync, startSyncWithToast, reset: resetSync } = useGoogleSyncJob();
+  const { isImporting, importStep, importProgress, lastSyncStats, startSync, startSyncWithToast, reset: resetSync } = useGoogleSyncJob();
 
   // Atualizar isGoogleConnected quando selectedConnectionId mudar
   useEffect(() => {

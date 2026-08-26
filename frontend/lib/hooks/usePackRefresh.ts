@@ -30,15 +30,13 @@ import {
   showInfo,
   showProcessCancelledWarning,
   buildSheetsToastContent,
-  calculateSheetsProgressPercent,
   SHEETS_TOAST_TOTAL_STEPS,
   buildTranscriptionToastContent,
   calculateTranscriptionProgressPercent,
   calculateMetaProgressPercent,
   buildMetaToastContent,
-  type ProgressToastContent,
 } from "@/lib/utils/toast";
-import { AppError, parseError, normalizeJobErrorMessage } from "@/lib/utils/errors";
+import { parseError, normalizeJobErrorMessage } from "@/lib/utils/errors";
 import { AdsPack } from "@/lib/types";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";

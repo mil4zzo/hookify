@@ -11,7 +11,7 @@ import { LinearGradient } from "@visx/gradient";
 import { ParentSize } from "@visx/responsive";
 import { localPoint } from "@visx/event";
 import { ChartTooltip } from "@/components/common/ChartTooltip";
-import { Annotation, Connector, CircleSubject, Label } from "@visx/annotation";
+import { Annotation, Connector, CircleSubject } from "@visx/annotation";
 
 interface RetentionChartProps {
   videoPlayCurve: number[];
@@ -157,7 +157,6 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
           if (!coords) return;
 
           const x = coords.x - margin.left;
-          const y = coords.y - margin.top;
 
           // Encontrar o ponto mais próximo ao mouse
           let closestPoint = data[0];
@@ -189,7 +188,6 @@ function RetentionChartInner({ videoPlayCurve, averagesHook, averagesScrollStop,
           if (!coords) return;
 
           const x = coords.x - margin.left;
-          const y = coords.y - margin.top;
 
           // Encontrar o ponto mais próximo ao clique
           let closestPoint = data[0];

@@ -22,7 +22,6 @@ import {
   showWarning,
   calculateMetaProgressPercent,
   buildMetaToastContent,
-  type ProgressToastContent,
 } from "@/lib/utils/toast";
 import { pollJob } from "@/lib/utils/pollJob";
 import { pollPackBackgroundTasks } from "@/lib/utils/pollPackBackgroundTasks";
@@ -30,7 +29,6 @@ import { filterVideoAds } from "@/lib/utils/filterVideoAds";
 import { getAdStatistics } from "@/lib/utils/adCounting";
 import { MetaIcon } from "@/components/icons/MetaIcon";
 import { logger } from "@/lib/utils/logger";
-import type { AdsPack } from "@/lib/types";
 
 // ============================================================================
 // TYPES

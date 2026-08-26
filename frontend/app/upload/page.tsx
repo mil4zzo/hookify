@@ -103,10 +103,6 @@ function parseBundleName(fileName: string) {
   return { bundleName: match[1], slotKey: match[2] }
 }
 
-function generateId() {
-  return Math.random().toString(36).slice(2, 9)
-}
-
 function buildCampaignTreeForSelector(template: CampaignTemplateResponse): AdsTreeResponse {
   return [
     {
@@ -416,7 +412,7 @@ export default function UploadPage() {
   const [selectedTemplateAdName, setSelectedTemplateAdName] = useState<string>("")
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null)
   const [isLoadingCreative, setIsLoadingCreative] = useState(false)
-  const [isLoadingTree, setIsLoadingTree] = useState(true)
+  const [, setIsLoadingTree] = useState(true)
 
   // ── ads mode ────────────────────────────────────────────────────────────────
   const [creative, setCreative] = useState<AdCreativeDetailResponse | null>(null)

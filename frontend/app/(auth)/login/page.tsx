@@ -7,12 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { showError, showSuccess, showWarning } from "@/lib/utils/toast";
 import { useClientAuth } from "@/lib/hooks/useClientSession";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useSupabaseAuth } from "@/lib/hooks/useSupabaseAuth";
 import { LoadingState } from "@/components/common/States";
 
 function LoginContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const { isClient } = useClientAuth();
   const { signInWithEmail, signUpWithEmail, signInWithGoogle } = useSupabaseAuth();

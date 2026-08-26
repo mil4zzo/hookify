@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
 import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
 import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
@@ -168,22 +168,6 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
   const avgHoldRate = (averages as any)?.hold_rate ?? null;
   const avgCpr = actionType && averages?.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].cpr === "number" ? averages.per_action_type[actionType].cpr : null;
   const avgCpmql = (averages as any)?.cpmql ?? null;
-
-  // Preparar averages para o AdDetailsDialog
-  const dialogAverages = averages
-    ? {
-        hook: averages.hook ?? null,
-        hold_rate: averages.hold_rate ?? null,
-        video_watched_p50: averages.video_watched_p50 ?? null,
-        scroll_stop: averages.scroll_stop ?? null,
-        ctr: averages.ctr ?? null,
-        website_ctr: averages.website_ctr ?? null,
-        connect_rate: averages.connect_rate ?? null,
-        cpm: averages.cpm ?? null,
-        cpr: actionType && averages.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].cpr === "number" ? averages.per_action_type[actionType].cpr : null,
-        page_conv: actionType && averages.per_action_type?.[actionType] && typeof averages.per_action_type[actionType].page_conv === "number" ? averages.per_action_type[actionType].page_conv : null,
-      }
-    : undefined;
 
   // Se não há anúncios validados, não mostrar o widget
   if (validatedAds.length === 0) {

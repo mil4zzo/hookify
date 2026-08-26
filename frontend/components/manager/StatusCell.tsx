@@ -13,12 +13,6 @@ interface StatusCellProps {
   packIds?: string[];
 }
 
-function isPausedStatus(status?: string | null): boolean {
-  if (!status) return false;
-  const s = String(status).toUpperCase();
-  return s === "PAUSED" || s === "ADSET_PAUSED" || s === "CAMPAIGN_PAUSED";
-}
-
 export function StatusCell({ original, currentTab, packIds }: StatusCellProps) {
   const effectiveStatus = (original as any)?.effective_status;
   const statusResolved = (original as any)?.status_resolved;

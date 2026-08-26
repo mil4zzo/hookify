@@ -20,7 +20,7 @@ import { useClientAuth, useClientPacks } from "@/lib/hooks/useClientSession";
 import { useOnboardingGate } from "@/lib/hooks/useOnboardingGate";
 import { showSuccess, showError } from "@/lib/utils/toast";
 import { api } from "@/lib/api/endpoints";
-import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconMicrophone, IconArrowsSort, IconRefresh, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
+import { IconFilter, IconPlus, IconTrash, IconChartBar, IconLoader2, IconCircleCheck, IconCircleX, IconCircleDot, IconInfoCircle, IconArrowsSort, IconRefresh, IconChevronUp, IconChevronDown } from "@tabler/icons-react";
 
 import { FilterRule } from "@/lib/api/schemas";
 import { AdsPack } from "@/lib/types";

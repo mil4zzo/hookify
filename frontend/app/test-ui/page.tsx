@@ -1,7 +1,7 @@
 // frontend/app/test-ui/page.tsx
 "use client";
 import { LoadingState, ErrorState, EmptyState } from "@/components/common/States";
-import { showError, showSuccess, showInfo } from "@/lib/utils/toast";
+import { showSuccess } from "@/lib/utils/toast";
 
 export default function TestUI() {
   return (

@@ -131,7 +131,6 @@ export const getAggregatedPackStatistics = (packs: Array<{ ads?: AdData[], stats
       const stats = pack.stats;
       if (stats && typeof stats === 'object') {
         // Usar totalAds se disponível, senão uniqueAds
-        const totalAds = typeof stats.totalAds === 'number' ? stats.totalAds : (stats.uniqueAds || 0);
         acc.uniqueAds += stats.uniqueAds || 0;
         acc.uniqueCampaigns += stats.uniqueCampaigns || 0;
         acc.uniqueAdsets += stats.uniqueAdsets || 0;
