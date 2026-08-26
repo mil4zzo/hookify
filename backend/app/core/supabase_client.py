@@ -1,8 +1,11 @@
-from typing import Optional
+from typing import Dict, Optional, Union
 import logging
 
 import httpx
-from supabase import create_client, Client, ClientOptions
+from httpx import Timeout
+from postgrest import SyncPostgrestClient
+from postgrest.utils import SyncClient as PostgrestSession
+from supabase import Client, ClientOptions
 from app.core.config import (
     SUPABASE_URL,
     SUPABASE_ANON_KEY,
@@ -27,7 +30,7 @@ def _operation_label(request: "httpx.Request") -> str:
     return f"{request.method} {alvo or '?'}"
 
 
-class _SlottedHTTPXClient(httpx.Client):
+class _SlottedHTTPXClient(PostgrestSession):
     """Cliente HTTP do Supabase que respeita o teto de concorrencia de banco.
 
     POR QUE AQUI, E NAO EM CADA CHAMADA
@@ -40,15 +43,16 @@ class _SlottedHTTPXClient(httpx.Client):
 
     Interceptando aqui, no unico ponto por onde TODA chamada ao PostgREST passa,
     a garantia vale **por construcao**: `.execute()`, `.rpc()`, codigo futuro,
-    tudo. Ponto de extensao oficial do supabase-py (`ClientOptions.httpx_client`),
-    nao remendo em internals.
+    tudo. A fabrica do cliente PostgREST e sobrescrita em
+    `_SlottedSupabaseClient` (veja la por que nao da para injetar por parametro
+    nem trocar a sessao depois).
 
     SO PostgREST, nunca Storage
     ---------------------------
-    O supabase-py compartilha este MESMO cliente httpx com o Storage (verificado).
-    Upload de miniatura nao consome conexao de banco e nao pode disputar um dos 8
-    slots -- por isso o filtro por `/rest/v1/`. O Auth (GoTrue) tem cliente
-    proprio e nao passa por aqui.
+    Storage e Auth (GoTrue) constroem cada um o SEU proprio cliente httpx e nao
+    passam por aqui. O filtro por `/rest/v1/` fica como cinto e suspensorio: se
+    alguma versao voltar a compartilhar a sessao, upload de miniatura nao pode
+    disputar um dos 8 slots de banco.
 
     A reentrancia do `db_slot` faz o slot ser contado UMA vez quando a chamada ja
     vem de dentro de um `with_postgrest_retry` (que tambem pega slot, para poder
@@ -67,8 +71,63 @@ class _SlottedHTTPXClient(httpx.Client):
         return super().send(request, **kwargs)
 
 
-def _make_httpx_client(timeout_seconds: float) -> httpx.Client:
-    return _SlottedHTTPXClient(timeout=timeout_seconds)
+class _SlottedPostgrestClient(SyncPostgrestClient):
+    """Cliente PostgREST do supabase-py, so que com a sessao que pega slot."""
+
+    def create_session(
+        self,
+        base_url: str,
+        headers: Dict[str, str],
+        timeout: Union[int, float, Timeout],
+        verify: bool = True,
+    ) -> _SlottedHTTPXClient:
+        # Mesmos parametros do original (postgrest/_sync/client.py). Mexer em
+        # follow_redirects/http2 aqui seria mudar comportamento de rede de
+        # carona numa mudanca de concorrencia.
+        return _SlottedHTTPXClient(
+            base_url=base_url,
+            headers=headers,
+            timeout=timeout,
+            verify=verify,
+            follow_redirects=True,
+            http2=True,
+        )
+
+
+class _SlottedSupabaseClient(Client):
+    """Client do supabase-py que constroi o PostgREST com a sessao com slot.
+
+    POR QUE SUBCLASSE, E NAO PARAMETRO NEM TROCA POSTERIOR
+    ------------------------------------------------------
+    A primeira versao passava `ClientOptions(httpx_client=...)`. Esse campo NAO
+    existe no supabase-py -- conferido no 2.6.0 (o que o `requirements.txt`
+    resolve) e no 2.27.0. Resultado: TODO `create_client` estourava TypeError e
+    o backend inteiro respondia 500, com o `/health` passando porque nao toca no
+    banco. Custou um outage; nao reintroduzir.
+
+    Trocar `client.postgrest.session` depois de criado tambem nao serve: a
+    propriedade e lazy e o proprio supabase zera `_postgrest` em SIGNED_IN,
+    TOKEN_REFRESHED e SIGNED_OUT, o que descartaria a sessao com slot em
+    silencio no meio da vida do cliente. Sobrescrever a fabrica cobre tambem
+    essas reconstrucoes.
+    """
+
+    @staticmethod
+    def _init_postgrest_client(
+        rest_url: str,
+        headers: Dict[str, str],
+        schema: str,
+        timeout: Union[int, float, Timeout] = POSTGREST_TIMEOUT_SECONDS,
+        verify: bool = True,
+        **kwargs,
+    ) -> _SlottedPostgrestClient:
+        return _SlottedPostgrestClient(
+            rest_url,
+            headers=headers,
+            schema=schema,
+            timeout=timeout,
+            verify=verify,
+        )
 
 
 def _coerce_postgrest_timeout(timeout_seconds: Optional[float]) -> float:
@@ -95,13 +154,10 @@ def get_supabase_service() -> Client:
     if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
         raise RuntimeError("Supabase not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in env.")
 
-    _service_client = create_client(
+    _service_client = _SlottedSupabaseClient(
         SUPABASE_URL,
         SUPABASE_SERVICE_ROLE_KEY,
-        options=ClientOptions(
-            postgrest_client_timeout=POSTGREST_TIMEOUT_SECONDS,
-            httpx_client=_make_httpx_client(POSTGREST_TIMEOUT_SECONDS),
-        ),
+        options=ClientOptions(postgrest_client_timeout=POSTGREST_TIMEOUT_SECONDS),
     )
     _logger.info("Supabase service client initialized (service role)")
     return _service_client
@@ -122,13 +178,10 @@ def get_supabase_for_user(
     timeout_seconds = _coerce_postgrest_timeout(postgrest_timeout_seconds)
 
     # Create client with anon key (for RLS to work, we need anon key, not service role)
-    client = create_client(
+    client = _SlottedSupabaseClient(
         SUPABASE_URL,
         SUPABASE_ANON_KEY,
-        options=ClientOptions(
-            postgrest_client_timeout=timeout_seconds,
-            httpx_client=_make_httpx_client(timeout_seconds),
-        ),
+        options=ClientOptions(postgrest_client_timeout=timeout_seconds),
     )
 
     # Set the JWT token for PostgREST to enable RLS.

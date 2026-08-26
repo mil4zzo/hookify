@@ -228,7 +228,7 @@ class TestTetoNoPontoUnico:
         assert db_concurrency._in_flight == 0, "slot devolvido ao fim"
 
     def test_storage_nao_consome_slot_de_banco(self, monkeypatch):
-        """Upload de miniatura compartilha o mesmo cliente httpx, mas nao e banco."""
+        """Storage tem cliente proprio, mas o filtro por path e o que garante isso."""
         monkeypatch.setattr(db_concurrency, "_in_flight", 0)
         registro = []
         c = self._cliente(registro)
@@ -269,8 +269,43 @@ class TestTetoNoPontoUnico:
         import app.core.supabase_client as sc
 
         monkeypatch.setattr(sc, "SUPABASE_URL", "https://x.supabase.co")
-        monkeypatch.setattr(sc, "SUPABASE_ANON_KEY", "chave-anon")
+        # Precisa ter FORMATO de JWT: o construtor do supabase-py valida a
+        # chave por regex antes de montar o cliente. Uma string qualquer aqui
+        # faria o teste morrer na validacao, sem chegar a checar a fiacao.
+        monkeypatch.setattr(sc, "SUPABASE_ANON_KEY", "cabeca.corpo.assinatura")
         client = sc.get_supabase_for_user("jwt-fake")
+        assert isinstance(client.postgrest.session, sc._SlottedHTTPXClient)
+
+    def test_service_client_tambem_nasce_com_slot(self, monkeypatch):
+        """O service client e o caminho de TODA rota; se ele quebra, o app cai.
+
+        Guarda escrita depois de um outage: a versao anterior injetava a sessao
+        via `ClientOptions(httpx_client=...)`, campo que nao existe no
+        supabase-py. Como so o cliente de usuario tinha teste, o service client
+        -- usado por praticamente todas as rotas -- estourava TypeError em
+        producao sem nada vermelho aqui.
+        """
+        import app.core.supabase_client as sc
+
+        monkeypatch.setattr(sc, "SUPABASE_URL", "https://x.supabase.co")
+        monkeypatch.setattr(sc, "SUPABASE_SERVICE_ROLE_KEY", "cabeca.corpo.assinatura")
+        monkeypatch.setattr(sc, "_service_client", None)
+        client = sc.get_supabase_service()
+        assert isinstance(client.postgrest.session, sc._SlottedHTTPXClient)
+
+    def test_postgrest_recriado_apos_evento_de_auth_continua_com_slot(self, monkeypatch):
+        """`Client` zera `_postgrest` em TOKEN_REFRESHED e recria pela fabrica.
+
+        E por isso que a interceptacao esta na fabrica, e nao numa troca de
+        `client.postgrest.session` feita uma vez apos a construcao: aquela
+        sessao seria descartada aqui, em silencio.
+        """
+        import app.core.supabase_client as sc
+
+        monkeypatch.setattr(sc, "SUPABASE_URL", "https://x.supabase.co")
+        monkeypatch.setattr(sc, "SUPABASE_ANON_KEY", "cabeca.corpo.assinatura")
+        client = sc.get_supabase_for_user("jwt-fake")
+        client._postgrest = None  # o que o supabase-py faz no evento de auth
         assert isinstance(client.postgrest.session, sc._SlottedHTTPXClient)
 
 
