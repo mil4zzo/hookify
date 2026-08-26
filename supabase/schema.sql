@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict HLGSCmYHgUw2Hi88qjUVQwRxtKGatxJncKP2O88dc2tVRm8KDNOvBsRaSFMDbEr
+\restrict v3abb4p4lXTVCvuBe0lpjjHbxhC4ZngqxbBQN0b3azCSi5pBLbb5XAKUr75XigL
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -7621,10 +7621,10 @@ CREATE INDEX ads_transcription_id_idx ON public.ads USING btree (transcription_i
 
 
 --
--- Name: ads_user_adid_idx; Type: INDEX; Schema: public; Owner: postgres
+-- Name: ads_user_ad_status_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
-CREATE INDEX ads_user_adid_idx ON public.ads USING btree (user_id, ad_id);
+CREATE INDEX ads_user_ad_status_idx ON public.ads USING btree (user_id, ad_id) INCLUDE (effective_status, meta_created_time);
 
 
 --
@@ -8861,5 +8861,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict HLGSCmYHgUw2Hi88qjUVQwRxtKGatxJncKP2O88dc2tVRm8KDNOvBsRaSFMDbEr
+\unrestrict v3abb4p4lXTVCvuBe0lpjjHbxhC4ZngqxbBQN0b3azCSi5pBLbb5XAKUr75XigL
 
