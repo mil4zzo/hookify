@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict hYmPbPZ5CbcsoQqutalJ3cPQdYMKc1fQEgkXHGmhLEjpewidSTSzr55ct5w3j6N
+\restrict QtEdAkOtj2KPKZ9GPd0g1egxsI4sNU8wXrkaqkDx5NtOATVC38z8TZD9T1k3a22
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -33,6 +33,344 @@ ALTER SCHEMA public OWNER TO pg_database_owner;
 --
 
 COMMENT ON SCHEMA public IS 'standard public schema';
+
+
+--
+-- Name: ad_metric_key; Type: TYPE; Schema: public; Owner: postgres
+--
+
+CREATE TYPE public.ad_metric_key AS (
+	user_id uuid,
+	ad_id text,
+	date date
+);
+
+
+ALTER TYPE public.ad_metric_key OWNER TO postgres;
+
+--
+-- Name: ad_performance_derive_conversions(jsonb, jsonb); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb) RETURNS TABLE(key text, value numeric)
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    SET search_path TO 'public'
+    AS $$
+  -- Um par (chave, valor somado) por action_type presente. Chave no formato de
+  -- p_action_type. Elemento sem action_type é ignorado; JSON que não é array = vazio.
+  select k.key, sum(k.value)
+  from (
+    select 'conversion:' || nullif(elem ->> 'action_type', '') as key,
+           public.ad_performance_parse_value(elem ->> 'value')  as value
+    from jsonb_array_elements(case when jsonb_typeof(p_conversions) = 'array' then p_conversions else '[]'::jsonb end) elem
+    union all
+    select 'action:' || nullif(elem ->> 'action_type', ''),
+           public.ad_performance_parse_value(elem ->> 'value')
+    from jsonb_array_elements(case when jsonb_typeof(p_actions) = 'array' then p_actions else '[]'::jsonb end) elem
+  ) k
+  where k.key is not null
+  group by k.key
+$$;
+
+
+ALTER FUNCTION public.ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb) OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb) IS 'Fonte única da derivação de conversões/ações a partir de uma linha de ad_metrics (migration 128): (chave, valor somado). Trigger, rebuild e consistency_check usam esta função — mudar a semântica aqui muda em todos.';
+
+
+--
+-- Name: ad_performance_derive_leads(numeric[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_derive_leads(p_values numeric[]) RETURNS TABLE(score numeric, qty integer)
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    SET search_path TO 'public'
+    AS $$
+  select v as score, count(*)::integer as qty
+  from unnest(coalesce(p_values, '{}'::numeric[])) v
+  where v is not null
+  group by v
+$$;
+
+
+ALTER FUNCTION public.ad_performance_derive_leads(p_values numeric[]) OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_derive_leads(p_values numeric[]); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_derive_leads(p_values numeric[]) IS 'Fonte única da derivação do histograma de leadscore (score → quantidade) a partir de leadscore_values (migration 128).';
+
+
+--
+-- Name: ad_performance_derive_row(jsonb, jsonb, numeric[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) RETURNS TABLE(conv_key_ids integer[], conv_values numeric[], lead_scores numeric[], lead_qtys integer[])
+    LANGUAGE sql STABLE PARALLEL SAFE
+    SET search_path TO 'public'
+    AS $$
+  with c as (
+    select ck.id, d.value
+    from public.ad_performance_derive_conversions(p_actions, p_conversions) d
+    join public.conversion_keys ck on ck.key = d.key
+  ),
+  l as (
+    select score, qty from public.ad_performance_derive_leads(p_leadscore_values)
+  ),
+  packed as (
+    select
+      (select coalesce(array_agg(id    order by id), '{}') from c) as conv_key_ids,
+      (select coalesce(array_agg(value order by id), '{}') from c) as conv_values,
+      (select coalesce(array_agg(score order by score), '{}') from l) as lead_scores,
+      (select coalesce(array_agg(qty   order by score), '{}') from l) as lead_qtys
+  )
+  select * from packed
+  where cardinality(conv_key_ids) > 0 or cardinality(lead_scores) > 0
+$$;
+
+
+ALTER FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) IS 'Empacota a derivação de uma linha de ad_metrics nos arrays paralelos de ad_performance_daily, na ordem canônica (migration 128). Zero linhas = nada a guardar.';
+
+
+--
+-- Name: ad_performance_parse_value(text); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_parse_value(p_raw text) RETURNS numeric
+    LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE
+    SET search_path TO 'public'
+    AS $_$
+  -- Mesmo saneamento da RPC (regexp_replace '[^0-9.-]'), mas nunca estoura: o que não
+  -- vira número conta 0. Uma linha ruim não pode derrubar o upsert de um lote inteiro.
+  select case
+    when cleaned ~ '^-?([0-9]+\.?[0-9]*|\.[0-9]+)$' then cleaned::numeric
+    else 0::numeric
+  end
+  from (select regexp_replace(coalesce(p_raw, '0'), '[^0-9.-]', '', 'g') as cleaned) s
+$_$;
+
+
+ALTER FUNCTION public.ad_performance_parse_value(p_raw text) OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_parse_value(p_raw text); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_parse_value(p_raw text) IS 'Saneia o campo value dos itens de actions/conversions como a RPC do Manager faz (só [0-9.-]); inválido → 0 em vez de erro (migration 128).';
+
+
+--
+-- Name: ad_performance_rollup_apply(public.ad_metric_key[]); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) RETURNS void
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  IF p_keys IS NULL OR cardinality(p_keys) = 0 THEN
+    RETURN;
+  END IF;
+
+  -- Apaga-e-reinsere por chave → idempotente por construção.
+  DELETE FROM public.ad_performance_daily d
+  USING unnest(p_keys) k
+  WHERE d.user_id = k.user_id AND d.ad_id = k.ad_id AND d.date = k.date;
+
+  -- Dicionário: garante o id de toda chave nova antes de empacotar.
+  INSERT INTO public.conversion_keys (key)
+  SELECT DISTINCT c.key
+  FROM unnest(p_keys) k
+  JOIN public.ad_metrics am ON am.user_id = k.user_id AND am.ad_id = k.ad_id AND am.date = k.date
+  CROSS JOIN LATERAL public.ad_performance_derive_conversions(am.actions, am.conversions) c
+  ON CONFLICT (key) DO NOTHING;
+
+  INSERT INTO public.ad_performance_daily (user_id, ad_id, date, conv_key_ids, conv_values, lead_scores, lead_qtys)
+  SELECT am.user_id, am.ad_id, am.date, r.conv_key_ids, r.conv_values, r.lead_scores, r.lead_qtys
+  FROM unnest(p_keys) k
+  JOIN public.ad_metrics am ON am.user_id = k.user_id AND am.ad_id = k.ad_id AND am.date = k.date
+  CROSS JOIN LATERAL public.ad_performance_derive_row(am.actions, am.conversions, am.leadscore_values) r;
+END;
+$$;
+
+
+ALTER FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_rollup_apply(p_keys public.ad_metric_key[]); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) IS 'Worker do rollup (migration 128): apaga e recomputa ad_performance_daily das chaves (user, ad, dia) recebidas, relendo ad_metrics. Chamado pelos triggers por statement; também serve de reparo pontual.';
+
+
+--
+-- Name: ad_performance_rollup_consistency_check(uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_rollup_consistency_check(p_user_id uuid DEFAULT NULL::uuid) RETURNS TABLE(user_id uuid, missing bigint, extra bigint)
+    LANGUAGE sql STABLE
+    SET search_path TO 'public'
+    SET plan_cache_mode TO 'force_custom_plan'
+    AS $$
+  -- Compara a derivação COMPLETA (não só contagens) nos dois sentidos, por usuário.
+  -- Cobre trigger e backfill; a semântica da derivação em si é provada pelo teste
+  -- diferencial contra a RPC antiga (fase C do plano). Custo O(linhas do usuário):
+  -- rodar via psql, não via PostgREST.
+  with scope as (
+    select distinct am.user_id
+    from public.ad_metrics am
+    where p_user_id is null or am.user_id = p_user_id
+  ),
+  expected as (
+    select am.user_id, am.ad_id, am.date, r.conv_key_ids, r.conv_values, r.lead_scores, r.lead_qtys
+    from public.ad_metrics am
+    join scope s on s.user_id = am.user_id
+    cross join lateral public.ad_performance_derive_row(am.actions, am.conversions, am.leadscore_values) r
+  ),
+  stored as (
+    select d.user_id, d.ad_id, d.date, d.conv_key_ids, d.conv_values, d.lead_scores, d.lead_qtys
+    from public.ad_performance_daily d
+    join scope s on s.user_id = d.user_id
+  ),
+  diffs as (
+    select user_id, 1 as m, 0 as e from (table expected except all table stored) x
+    union all
+    select user_id, 0, 1 from (table stored except all table expected) x
+  )
+  select user_id, sum(m), sum(e)
+  from diffs
+  group by user_id
+  order by user_id
+$$;
+
+
+ALTER FUNCTION public.ad_performance_rollup_consistency_check(p_user_id uuid) OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_rollup_consistency_check(p_user_id uuid); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_rollup_consistency_check(p_user_id uuid) IS 'Guarda-chuva do rollup (migration 128). DEVE devolver zero linhas: qualquer linha = usuário cuja derivada diverge de ad_metrics. Fix: select ad_performance_rollup_rebuild(user_id). Sem argumento checa todos os usuários — rodar via psql direto (custo O(ad_metrics)).';
+
+
+--
+-- Name: ad_performance_rollup_rebuild(uuid); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) RETURNS jsonb
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  v_t0   timestamptz := clock_timestamp();
+  v_rows bigint;
+BEGIN
+  -- Guard de tenancy (padrão da migration 113): autenticado só reconstrói o próprio
+  -- silo; service role / psql direto (auth.uid() nulo) passam.
+  IF auth.uid() IS NOT NULL AND auth.uid() <> p_user_id THEN
+    RAISE EXCEPTION 'Forbidden: p_user_id must match auth.uid()';
+  END IF;
+
+  DELETE FROM public.ad_performance_daily WHERE user_id = p_user_id;
+
+  INSERT INTO public.conversion_keys (key)
+  SELECT DISTINCT c.key
+  FROM public.ad_metrics am
+  CROSS JOIN LATERAL public.ad_performance_derive_conversions(am.actions, am.conversions) c
+  WHERE am.user_id = p_user_id
+  ON CONFLICT (key) DO NOTHING;
+
+  INSERT INTO public.ad_performance_daily (user_id, ad_id, date, conv_key_ids, conv_values, lead_scores, lead_qtys)
+  SELECT am.user_id, am.ad_id, am.date, r.conv_key_ids, r.conv_values, r.lead_scores, r.lead_qtys
+  FROM public.ad_metrics am
+  CROSS JOIN LATERAL public.ad_performance_derive_row(am.actions, am.conversions, am.leadscore_values) r
+  WHERE am.user_id = p_user_id;
+  GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+  RETURN jsonb_build_object(
+    'user_id', p_user_id,
+    'rows', v_rows,
+    'ms', round(extract(epoch from clock_timestamp() - v_t0) * 1000)
+  );
+END;
+$$;
+
+
+ALTER FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_rollup_rebuild(p_user_id uuid); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) IS 'Reconstrói ad_performance_daily de UM usuário a partir de ad_metrics (migration 128). Usado no backfill (supabase/scripts/backfill_128_rollup_de_performance.sql) e como reparo. Rodar via psql direto: um usuário grande (~120 mil linhas) ultrapassa o statement_timeout do PostgREST.';
+
+
+--
+-- Name: ad_performance_rollup_sync_ins(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_rollup_sync_ins() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  PERFORM public.ad_performance_rollup_apply(
+    (SELECT array_agg(ROW(n.user_id, n.ad_id, n.date)::public.ad_metric_key) FROM new_rows n)
+  );
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION public.ad_performance_rollup_sync_ins() OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_rollup_sync_ins(); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_rollup_sync_ins() IS 'Trigger por STATEMENT (AFTER INSERT, tabela de transição new_rows) que mantém ad_performance_daily (migration 128). Cobre os 4 escritores de ad_metrics sem que nenhum precise saber do rollup.';
+
+
+--
+-- Name: ad_performance_rollup_sync_upd(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.ad_performance_rollup_sync_upd() RETURNS trigger
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+BEGIN
+  PERFORM public.ad_performance_rollup_apply(
+    (SELECT array_agg(ROW(n.user_id, n.ad_id, n.date)::public.ad_metric_key)
+     FROM new_rows n
+     JOIN old_rows o ON o.id = n.id AND o.user_id = n.user_id
+     WHERE n.actions          IS DISTINCT FROM o.actions
+        OR n.conversions      IS DISTINCT FROM o.conversions
+        OR n.leadscore_values IS DISTINCT FROM o.leadscore_values)
+  );
+  RETURN NULL;
+END;
+$$;
+
+
+ALTER FUNCTION public.ad_performance_rollup_sync_upd() OWNER TO postgres;
+
+--
+-- Name: FUNCTION ad_performance_rollup_sync_upd(); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.ad_performance_rollup_sync_upd() IS 'Trigger por STATEMENT (AFTER UPDATE, old_rows/new_rows) que recomputa ad_performance_daily só das linhas cujas actions/conversions/leadscore_values mudaram (migration 128).';
 
 
 --
@@ -6277,6 +6615,31 @@ COMMENT ON COLUMN public.ad_metrics.video_watched_p75 IS 'Percentual inteiro (0-
 
 
 --
+-- Name: ad_performance_daily; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.ad_performance_daily (
+    user_id uuid NOT NULL,
+    ad_id text NOT NULL,
+    date date NOT NULL,
+    conv_key_ids integer[] DEFAULT '{}'::integer[] NOT NULL,
+    conv_values numeric[] DEFAULT '{}'::numeric[] NOT NULL,
+    lead_scores numeric[] DEFAULT '{}'::numeric[] NOT NULL,
+    lead_qtys integer[] DEFAULT '{}'::integer[] NOT NULL,
+    CONSTRAINT ad_performance_daily_pairs_chk CHECK (((cardinality(conv_key_ids) = cardinality(conv_values)) AND (cardinality(lead_scores) = cardinality(lead_qtys)) AND ((cardinality(conv_key_ids) > 0) OR (cardinality(lead_scores) > 0))))
+);
+
+
+ALTER TABLE public.ad_performance_daily OWNER TO postgres;
+
+--
+-- Name: TABLE ad_performance_daily; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.ad_performance_daily IS 'DERIVADA de ad_metrics (migration 128), uma linha por anúncio-dia que tenha evento ou lead: conversões/ações somadas por chave (arrays paralelos conv_key_ids/conv_values, chave → conversion_keys.id) e histograma de leadscore (lead_scores/lead_qtys). Mantida pelos triggers ad_metrics_rollup_sync_ins/_upd; delete/mudança de chave em ad_metrics propagam por FK. Reconstruível com ad_performance_rollup_rebuild(user_id). NÃO escrever aqui à mão.';
+
+
+--
 -- Name: ad_shares; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -6694,6 +7057,40 @@ CREATE TABLE public.bulk_ad_items (
 
 
 ALTER TABLE public.bulk_ad_items OWNER TO postgres;
+
+--
+-- Name: conversion_keys; Type: TABLE; Schema: public; Owner: postgres
+--
+
+CREATE TABLE public.conversion_keys (
+    id integer NOT NULL,
+    key text NOT NULL,
+    CONSTRAINT conversion_keys_key_check CHECK ((key ~ '^(conversion|action):.+$'::text))
+);
+
+
+ALTER TABLE public.conversion_keys OWNER TO postgres;
+
+--
+-- Name: TABLE conversion_keys; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON TABLE public.conversion_keys IS 'Dicionário append-only das chaves de evento ("conversion:<action_type>" / "action:<action_type>", o MESMO formato de p_action_type e de packs.conversion_types). Referenciado por id em ad_performance_daily.conv_key_ids (migration 128). Nunca apagar linhas: ids são referenciados sem FK (custo de escrita).';
+
+
+--
+-- Name: conversion_keys_id_seq; Type: SEQUENCE; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.conversion_keys ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME public.conversion_keys_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
 
 --
 -- Name: facebook_connections; Type: TABLE; Schema: public; Owner: postgres
@@ -7211,6 +7608,14 @@ ALTER TABLE ONLY public.ad_metrics
 
 
 --
+-- Name: ad_performance_daily ad_performance_daily_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_performance_daily
+    ADD CONSTRAINT ad_performance_daily_pkey PRIMARY KEY (user_id, ad_id, date);
+
+
+--
 -- Name: ad_shares ad_shares_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
 --
 
@@ -7280,6 +7685,22 @@ ALTER TABLE ONLY public.boards
 
 ALTER TABLE ONLY public.bulk_ad_items
     ADD CONSTRAINT bulk_ad_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: conversion_keys conversion_keys_key_key; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.conversion_keys
+    ADD CONSTRAINT conversion_keys_key_key UNIQUE (key);
+
+
+--
+-- Name: conversion_keys conversion_keys_pkey; Type: CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.conversion_keys
+    ADD CONSTRAINT conversion_keys_pkey PRIMARY KEY (id);
 
 
 --
@@ -7873,6 +8294,20 @@ CREATE UNIQUE INDEX tags_user_slug_uidx ON public.tags USING btree (user_id, slu
 
 
 --
+-- Name: ad_metrics ad_metrics_rollup_sync_ins; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER ad_metrics_rollup_sync_ins AFTER INSERT ON public.ad_metrics REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION public.ad_performance_rollup_sync_ins();
+
+
+--
+-- Name: ad_metrics ad_metrics_rollup_sync_upd; Type: TRIGGER; Schema: public; Owner: postgres
+--
+
+CREATE TRIGGER ad_metrics_rollup_sync_upd AFTER UPDATE ON public.ad_metrics REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION public.ad_performance_rollup_sync_upd();
+
+
+--
 -- Name: pack_shares set_pack_shares_updated_at; Type: TRIGGER; Schema: public; Owner: postgres
 --
 
@@ -7935,6 +8370,14 @@ ALTER TABLE ONLY public.ad_accounts
 
 ALTER TABLE ONLY public.ad_metric_pack_map
     ADD CONSTRAINT ad_metric_pack_map_metric_fk FOREIGN KEY (user_id, ad_id, metric_date) REFERENCES public.ad_metrics(user_id, ad_id, date) ON DELETE CASCADE;
+
+
+--
+-- Name: ad_performance_daily ad_performance_daily_metric_fk; Type: FK CONSTRAINT; Schema: public; Owner: postgres
+--
+
+ALTER TABLE ONLY public.ad_performance_daily
+    ADD CONSTRAINT ad_performance_daily_metric_fk FOREIGN KEY (user_id, ad_id, date) REFERENCES public.ad_metrics(user_id, ad_id, date) ON UPDATE CASCADE ON DELETE CASCADE;
 
 
 --
@@ -8102,6 +8545,19 @@ CREATE POLICY ad_metrics_modify_own ON public.ad_metrics USING ((user_id = ( SEL
 
 
 --
+-- Name: ad_performance_daily; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.ad_performance_daily ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: ad_performance_daily ad_performance_daily_read_own; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY ad_performance_daily_read_own ON public.ad_performance_daily FOR SELECT USING ((user_id = ( SELECT auth.uid() AS uid)));
+
+
+--
 -- Name: ad_shares; Type: ROW SECURITY; Schema: public; Owner: postgres
 --
 
@@ -8197,6 +8653,19 @@ CREATE POLICY boards_modify_own ON public.boards USING ((user_id = ( SELECT auth
 --
 
 ALTER TABLE public.bulk_ad_items ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: conversion_keys; Type: ROW SECURITY; Schema: public; Owner: postgres
+--
+
+ALTER TABLE public.conversion_keys ENABLE ROW LEVEL SECURITY;
+
+--
+-- Name: conversion_keys conversion_keys_read_all; Type: POLICY; Schema: public; Owner: postgres
+--
+
+CREATE POLICY conversion_keys_read_all ON public.conversion_keys FOR SELECT USING (true);
+
 
 --
 -- Name: facebook_connections; Type: ROW SECURITY; Schema: public; Owner: postgres
@@ -8362,6 +8831,87 @@ GRANT USAGE ON SCHEMA public TO postgres;
 GRANT USAGE ON SCHEMA public TO anon;
 GRANT USAGE ON SCHEMA public TO authenticated;
 GRANT USAGE ON SCHEMA public TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_derive_conversions(p_actions jsonb, p_conversions jsonb) TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_derive_leads(p_values numeric[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_derive_leads(p_values numeric[]) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_derive_leads(p_values numeric[]) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_derive_leads(p_values numeric[]) TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_derive_row(p_actions jsonb, p_conversions jsonb, p_leadscore_values numeric[]) TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_parse_value(p_raw text); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_parse_value(p_raw text) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_parse_value(p_raw text) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_parse_value(p_raw text) TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_rollup_apply(p_keys public.ad_metric_key[]); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_apply(p_keys public.ad_metric_key[]) TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_rollup_consistency_check(p_user_id uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_rollup_consistency_check(p_user_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_consistency_check(p_user_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_consistency_check(p_user_id uuid) TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_rollup_rebuild(p_user_id uuid); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_rebuild(p_user_id uuid) TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_rollup_sync_ins(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_ins() TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_ins() TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_ins() TO service_role;
+
+
+--
+-- Name: FUNCTION ad_performance_rollup_sync_upd(); Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_upd() TO anon;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_upd() TO authenticated;
+GRANT ALL ON FUNCTION public.ad_performance_rollup_sync_upd() TO service_role;
 
 
 --
@@ -8613,6 +9163,15 @@ GRANT ALL ON TABLE public.ad_metrics TO service_role;
 
 
 --
+-- Name: TABLE ad_performance_daily; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.ad_performance_daily TO anon;
+GRANT ALL ON TABLE public.ad_performance_daily TO authenticated;
+GRANT ALL ON TABLE public.ad_performance_daily TO service_role;
+
+
+--
 -- Name: TABLE ad_shares; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -8682,6 +9241,24 @@ GRANT ALL ON TABLE public.boards TO service_role;
 GRANT ALL ON TABLE public.bulk_ad_items TO anon;
 GRANT ALL ON TABLE public.bulk_ad_items TO authenticated;
 GRANT ALL ON TABLE public.bulk_ad_items TO service_role;
+
+
+--
+-- Name: TABLE conversion_keys; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON TABLE public.conversion_keys TO anon;
+GRANT ALL ON TABLE public.conversion_keys TO authenticated;
+GRANT ALL ON TABLE public.conversion_keys TO service_role;
+
+
+--
+-- Name: SEQUENCE conversion_keys_id_seq; Type: ACL; Schema: public; Owner: postgres
+--
+
+GRANT ALL ON SEQUENCE public.conversion_keys_id_seq TO anon;
+GRANT ALL ON SEQUENCE public.conversion_keys_id_seq TO authenticated;
+GRANT ALL ON SEQUENCE public.conversion_keys_id_seq TO service_role;
 
 
 --
@@ -8854,5 +9431,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict hYmPbPZ5CbcsoQqutalJ3cPQdYMKc1fQEgkXHGmhLEjpewidSTSzr55ct5w3j6N
+\unrestrict QtEdAkOtj2KPKZ9GPd0g1egxsI4sNU8wXrkaqkDx5NtOATVC38z8TZD9T1k3a22
 

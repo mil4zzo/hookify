@@ -88,6 +88,20 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 
 ---
 
+### ad_performance_daily
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| user_id | uuid | NOT NULL |
+| ad_id | text | NOT NULL |
+| date | date | NOT NULL |
+| conv_key_ids | integer[] | NOT NULL, DEFAULT |
+| conv_values | numeric[] | NOT NULL, DEFAULT |
+| lead_scores | numeric[] | NOT NULL, DEFAULT |
+| lead_qtys | integer[] | NOT NULL, DEFAULT |
+
+---
+
 ### ad_shares
 
 | Coluna | Tipo | Flags |
@@ -264,6 +278,15 @@ Itens individuais de um job de criação em lote de anúncios no Meta.
 | campaign_name | text |  |
 | slot_media | jsonb |  |
 | error_details | jsonb |  |
+
+---
+
+### conversion_keys
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | integer | NOT NULL |
+| key | text | NOT NULL |
 
 ---
 

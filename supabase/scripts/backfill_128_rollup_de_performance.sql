@@ -19,6 +19,10 @@
 
 \set ON_ERROR_STOP on
 \timing on
+-- O role postgres do Supabase tem statement_timeout de 2 min; a checagem global
+-- (47 s no lab, >120 s em produção) estourou na primeira rodada. Sessão sem
+-- timeout e checagem POR USUÁRIO, como o rebuild.
+SET statement_timeout = 0;
 
 SELECT format('SELECT public.ad_performance_rollup_rebuild(%L::uuid);', user_id)
 FROM (
@@ -32,8 +36,11 @@ FROM (
 ANALYZE public.conversion_keys;
 ANALYZE public.ad_performance_daily;
 
--- DEVE devolver zero linhas. Qualquer linha = usuário divergente → rodar o rebuild dele.
-SELECT * FROM public.ad_performance_rollup_consistency_check();
+-- DEVE devolver zero linhas por usuário. Qualquer linha = usuário divergente → rodar o
+-- rebuild dele.
+SELECT format('SELECT %L AS checando, * FROM public.ad_performance_rollup_consistency_check(%L::uuid);', user_id, user_id)
+FROM (SELECT DISTINCT user_id FROM public.ad_metrics) u
+\gexec
 
 SELECT 'ad_performance_daily' AS tabela, count(*) AS linhas,
        pg_size_pretty(pg_relation_size('public.ad_performance_daily')) AS heap,
