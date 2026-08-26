@@ -2,7 +2,6 @@
 
 import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { ManagerTable } from "@/components/manager/ManagerTable";
 import { PackConflictGuard } from "@/components/common/PackConflictGuard";
 import { ManagerTableSkeleton } from "@/components/manager/ManagerTableSkeleton";
@@ -325,9 +324,15 @@ function ManagerPageContent() {
     }
   }, [managerError]);
 
-  // ── Pack ads for ManagerTable ──────────────────────────────────────────────
-  const selectedPacks = packs.filter((p) => selectedPackIds.has(p.id));
-  const { packsAdsMap } = usePacksAds(selectedPacks);
+  // Nota (2026-08-26): aqui havia `usePacksAds(selectedPacks)` desde o commit que
+  // criou o Manager, com o resultado nunca consumido. Ele baixava TODAS as linhas
+  // de `ads` de cada pack selecionado (select *, ~3,4 kB por linha x ate ~5.700
+  // linhas = ~19 MB crus / 3-4 MB comprimidos POR PACK) em toda carga fria, e
+  // essas requisicoes disputavam o banco com a do proprio Manager -- medido:
+  // ad-performance foi de ~11 s para 23 s com tres delas em voo. A tabela do
+  // Manager recebe tudo de que precisa do /rankings; quem realmente usa o mapa
+  // de ads e o useAdPerformancePipeline (Plano/GOLD), que o busca por conta
+  // propria e tem cache em IndexedDB.
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleShowTrendsChange = (checked: boolean) => {
