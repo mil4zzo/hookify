@@ -5,6 +5,7 @@ import { useAdPerformance } from "@/lib/api/hooks";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
+import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { buildAdMetricsData, evaluateValidationCriteria } from "@/lib/utils/validateAdCriteria";
 import { buildPackMembershipIndex, isAdInSelectedPacks } from "@/lib/utils/packMembership";
@@ -35,7 +36,6 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     effectiveDateRange: dateRange,
     actionType,
     actionTypeOptions,
-    setActionTypeOptions,
     packs,
     packsClient,
   } = useFilters();
@@ -50,10 +50,15 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     limit,
     filters: {},
     pack_ids: Array.from(selectedPackIds),
-    include_available_conversion_types: true,
+    // A lista vem do metadado materializado `packs.conversion_types` (ver
+    // useAvailableConversionTypes). Pedir para a RPC calcular custa de 0,8 s a 9 s
+    // conforme o tamanho da seleção — medido com EXPLAIN ANALYZE em 2026-08-25.
+    include_available_conversion_types: false,
   }), [dateRange.start, dateRange.end, groupBy, actionType, limit, selectedPackIds]);
 
-  const packsReady = !!packsClient && packs.length > 0;
+  // Une os conversion_types dos packs selecionados E sincroniza o dropdown com o
+  // gate correto. Encapsulado porque o gate ja quebrou de tres jeitos diferentes.
+  const { packsReady } = useAvailableConversionTypes();
 
   const fetchEnabled =
     enabledOpt &&
@@ -68,22 +73,6 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
 
   const serverData = useMemo(() => queryData?.data ?? null, [queryData]);
   const serverAverages = useMemo(() => queryData?.averages, [queryData]);
-  const availableConversionTypes = useMemo(
-    () => queryData?.available_conversion_types ?? [],
-    [queryData]
-  );
-
-  // Sincroniza dropdown de evento de conversão SÓ depois que dados reais chegam.
-  // Importante: chamar com [] é intencional — o store (setActionTypeOptions) limpa um
-  // actionType órfão quando o período/packs atuais não têm nenhuma conversão. Gatear em
-  // `length > 0` mataria essa limpeza e deixaria um actionType inexistente → CPR/results=0
-  // em tudo, silenciosamente. Gateamos em `queryData` (fetch resolvido) para não limpar
-  // durante o loading transiente.
-  useEffect(() => {
-    if (!queryData) return;
-    setActionTypeOptions(availableConversionTypes);
-  }, [queryData, availableConversionTypes, setActionTypeOptions]);
-
   // Restaura o diagnóstico de erro perdido na refatoração (as páginas antigas faziam
   // console.error + empty-state). Sem isso, falha de backend fica indistinguível de "sem dados".
   useEffect(() => {

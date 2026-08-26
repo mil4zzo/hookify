@@ -3526,3 +3526,88 @@ escopo perdeu um dos dois guardioes e o teste passou a cobrir o que sobrou
 Guardas novas contra regressao da amplificacao, incluindo uma que falha se
 `write_parent_statuses` for recriada. **9 sabotagens deliberadas** no total
 (7 nos passos 1-2, 2 no passo 3), todas capturadas.
+
+---
+
+## 2026-08-25 — EXPLAIN das RPCs do Manager: dois ganhos e quatro becos sem saída
+
+### Metodologia (e o atalho que eu ignorei)
+
+`EXPLAIN` numa função plpgsql só mostra `Result`. `pg_stat_statements` está em
+`track = 'top'` (não vê consultas internas) e o `auto_explain`, embora ativo, tem
+`log_nested_statements = off`. Reconstruí a consulta do `_base_v116` (669 linhas)
+como SQL puro com parâmetros reais.
+
+Existia um caminho bem mais simples, já registrado na memória e que eu não li antes
+de começar: `set local request.jwt.claims = '{"sub":"<uuid>"}'` numa transação e
+chamar a função direto. Usei no fim para **validar** a reconstrução — 2,6 s contra
+2,4-2,5 s da função real, ou seja, a reconstrução media a coisa certa.
+
+### Ganho 1 — índice de cobertura (migration 124)
+
+O CTE `status_agg` fazia um join a `ads` para cada `(group_key, ad_id, user_id)`
+distinto: **13.141 buscas ao heap** para produzir 77 linhas. O planner estimava 200
+onde havia 13.141 (erro de 65×, típico de fronteira de CTE) e escolhia laço aninhado.
+
+Com `effective_status` e `meta_created_time` em `INCLUDE`, vira `Index Only Scan`.
+**A/B sob cache idêntico: 7,6 s → 3,4 s (2,2×).** Substituição, não adição — o índice
+antigo tinha o mesmo prefixo, e o novo saiu menor (5,5 MB contra 8,4 MB).
+
+Custo medido, não estimado: HOT em `ads` cai de 37% para 0%, mas o impacto em tempo
+é de ~2 ms por lote de 500 linhas. Trade registrado na migration.
+
+### Ganho 2 — `available_conversion_types` vira opt-in
+
+Calcular essa lista expande ~70 tipos de conversão do jsonb, linha a linha:
+**+0,8 s** numa seleção de 3 packs, **+3 a +9 s** numa de 30.
+
+A lista já existe materializada em `packs.conversion_types`. O Manager já usava o
+metadado; `useExplorerData` e `useAdPerformancePipeline` continuavam pedindo o cálculo
+à RPC — e **sem ninguém escrever `true` em lugar nenhum**: o default do backend era
+`True`, bastava não setar o campo.
+
+Três correções: os dois hooks passaram a usar o metadado, o default do backend virou
+`False` (caminho caro em opt-in, travado por teste), e a lógica foi extraída para
+`useAvailableConversionTypes`.
+
+**Por que extrair:** o gate desse sync já quebrou de três jeitos diferentes em três
+telas (ver `actiontype_options_unconditional_sync`). Gatear em `length > 0` mata a
+limpeza de `actionType` órfão → CPR zerado em silêncio; chamar antes dos packs
+carregarem apaga a preferência persistida. O Explorer tinha a primeira variante do bug.
+Encapsular união + gate torna as duas impossíveis de errar no caller.
+
+### Correção de prioridade: a `series_v2` não era o problema
+
+Eu a havia colocado como alvo nº 1 com 26% do tempo. Medindo direto: **1,3 s (leve) a
+1,8 s (pesado)** — não é gargalo.
+
+Os 7,9 s vinham de uma janela do `pg_stat_statements` que **incluía o incidente de
+24/08**, quando tudo ficava na fila atrás dos UPDATEs de status de 16-18 s. Era
+contenção, não custo intrínseco. Perfil real do `core_v2`: 2,4-2,6 s (3 packs) e
+6,9-7,6 s (30 packs).
+
+**Lição de método:** número agregado de janela que contém incidente mede a fila, não a
+consulta. Confirmar com medição direta antes de priorizar.
+
+### Quatro hipóteses rejeitadas por medição — não repetir
+
+- **`work_mem` maior PIORA**: 3,5 MB → 32/128 MB levou 10,5 s para 12,8-14,4 s. O
+  planner troca de estratégia e erra. Testado nos dois regimes.
+- **Forçar hash join** (`enable_nestloop=off`): 13-14 s → 17-18 s.
+- **Remover a dedup cross-silo**, que num dono único não remove nenhuma linha (provado
+  no próprio plano: entra com 64.399, sai com 64.399): ganho zero — o `sort` dela
+  também serve de ponto de materialização.
+- **`ad_metrics.raw_data`**: suspeita de blob pesado, mas é **NULL nas 256.726 linhas**.
+  Coluna morta, candidata a DROP; não é problema de performance.
+
+### O que sobra é arquitetura
+
+O `core_v2` gasta o resto buscando ~80 mil linhas que carregam ~1 KB de jsonb cada
+(conversions/actions/curve/leadscore) para devolver algumas centenas de linhas. Volume
+de dado genuíno — nenhum índice resolve. Reduzir exige pré-agregar as conversões.
+
+### Armadilha de medição que custou uma conclusão errada
+
+A primeira execução é **fria**. Comparei "antes" frio contra "depois" quente e anunciei
+6 s de ganho que não existiam. Todo A/B daqui em diante: alternar as versões, ou dropar
+o índice **dentro de transação revertida** para manter o mesmo cache.

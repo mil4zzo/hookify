@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useStatusFocusSync } from "@/lib/hooks/useStatusFocusSync";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
+import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { mapRankingRow, resolveGroupKey, type ManagerTab } from "@/lib/utils/mapRankingRow";
 
 type ManagerRow = RankingsItem & { series_loading?: boolean };
@@ -55,7 +56,6 @@ function ManagerPageContent() {
     effectiveDateRange: dateRange,
     actionType,
     actionTypeOptions,
-    setActionTypeOptions,
     packs,
     packsClient,
   } = useFilters();
@@ -76,6 +76,11 @@ function ManagerPageContent() {
   // já é false → mostra estado vazio (não skeleton infinito).
   const { isLoading: packsLoading } = usePacksLoading();
   const packsReady = packsClient && packs.length > 0 && !packsLoading;
+
+  // União dos conversion_types dos packs selecionados + sync do dropdown, com o gate
+  // correto. Extraído para hook porque Explorer e useAdPerformancePipeline precisavam
+  // do mesmo, e cada tela que reimplementou errou o gate de um jeito diferente.
+  const { availableConversionTypes } = useAvailableConversionTypes();
 
   // ── Page-specific state ────────────────────────────────────────────────────
   const [showTrends, setShowTrends] = useState<boolean>(() => {
@@ -247,35 +252,6 @@ function ManagerPageContent() {
 
   // ── Derived from API data ──────────────────────────────────────────────────
   const serverData = managerData?.data || null;
-
-  // Dropdown de conversion types = união dos packs selecionados (metadado materializado
-  // packs.conversion_types, que já chega no payload de /packs carregado pelo PacksLoader).
-  // Zero request, zero RPC no read-path — a lista é mantida via union incremental no
-  // refresh (ver migration 081 / upsert_ad_metrics). Substitui o endpoint dedicado.
-  const availableConversionTypes = useMemo(() => {
-    if (selectedPackIds.size === 0 || packs.length === 0) return [] as string[];
-    const set = new Set<string>();
-    for (const p of packs) {
-      if (!selectedPackIds.has(p.id)) continue;
-      const types = (p as any).conversion_types;
-      if (Array.isArray(types)) {
-        for (const t of types) if (t) set.add(String(t));
-      }
-    }
-    return Array.from(set).sort();
-  }, [packs, selectedPackIds]);
-
-  // Propagate available conversion types to global store.
-  // Gatear em packsReady (não só selectedPackIds.size>0) é essencial: enquanto os packs
-  // ainda carregam, availableConversionTypes é [] (mesmo com packPreferences rehidratado →
-  // selectedPackIds.size>0). Chamar setActionTypeOptions([]) nessa janela apaga o actionType
-  // persistido — que só é restaurado no reload — e o próximo fetch cai em options[0].
-  // Com packsReady, a limpeza de actionType órfão só ocorre quando os packs de fato têm 0 tipos.
-  useEffect(() => {
-    if (packsReady && selectedPackIds.size > 0) {
-      setActionTypeOptions(availableConversionTypes);
-    }
-  }, [packsReady, availableConversionTypes, selectedPackIdsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Series request ─────────────────────────────────────────────────────────
   const activeSeriesKeys = visibleSeriesKeys[activeManagerTab];

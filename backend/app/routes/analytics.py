@@ -168,8 +168,20 @@ class RankingsRequest(BaseModel):
     series_window: Optional[int] = Field(default=None, description="Limitar series aos Ãºltimos N dias do range. Se None, usa range completo.")
     offset: int = Field(default=0, ge=0, description="Offset para paginaÃ§Ã£o server-side")
     include_available_conversion_types: bool = Field(
-        default=True,
-        description="Se False, omite available_conversion_types para reduzir processamento.",
+        # DEFAULT FALSE de proposito (2026-08-25): calcular esta lista expande ~70 tipos
+        # de conversao do jsonb linha a linha. Medido com EXPLAIN ANALYZE: +0,8 s numa
+        # selecao de 3 packs e +3 a +9 s numa de 30. A lista ja existe materializada em
+        # `packs.conversion_types` (union incremental no refresh), e e de la que o
+        # frontend a le -- nenhum caller pede o calculo hoje.
+        #
+        # O default era True, e por isso Explorer e useAdPerformancePipeline pagaram
+        # esse custo em silencio por meses: bastava NAO setar o campo. Com o caminho
+        # caro em opt-in, esquecer passa a ser barato em vez de lento.
+        default=False,
+        description=(
+            "Se True, a RPC calcula available_conversion_types (CARO: +0,8 s a +9 s "
+            "conforme o tamanho da selecao). Prefira o metadado packs.conversion_types."
+        ),
     )
 
     @field_validator("date_start", "date_stop")

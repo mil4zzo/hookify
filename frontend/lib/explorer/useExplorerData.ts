@@ -5,6 +5,7 @@ import { useAdPerformance } from "@/lib/api/hooks";
 import type { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
+import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { useSharedAdNameDetail } from "@/lib/ads/sharedAdDetail";
 import { computeWeightedAveragesFromAdPerformance } from "@/lib/utils/weightedAverages";
 import { buildExplorerDetailViewModel, buildExplorerListItemViewModel, compareExplorerAdsByMetric, getExplorerGroupKey, getExplorerMetricAverage } from "./viewModels";
@@ -18,8 +19,12 @@ export type ExplorerDataStatus =
   | { kind: "success" };
 
 export function useExplorerData(sortState: ExplorerSortState) {
-  const { selectedPackIds, effectiveDateRange, actionType, packs, packsClient, setActionTypeOptions } = useFilters();
+  const { selectedPackIds, effectiveDateRange, actionType, packs, packsClient } = useFilters();
   const { mqlLeadscoreMin } = useMqlLeadscore();
+  // Une os conversion_types dos packs selecionados E sincroniza o dropdown. Antes o
+  // Explorer fazia esse sync com gate `length > 0` -- o padrao que deixa um actionType
+  // orfao vivo ao trocar para um recorte sem aquele evento, zerando CPR em silencio.
+  const { availableConversionTypes } = useAvailableConversionTypes();
   const [selectedGroupKey, setSelectedGroupKey] = useState<string | null>(null);
 
   const hasSelectedPacks = selectedPackIds.size > 0;
@@ -41,7 +46,10 @@ export function useExplorerData(sortState: ExplorerSortState) {
       pack_ids: Array.from(selectedPackIds),
       include_series: true,
       include_leadscore: hasSheetIntegration,
-      include_available_conversion_types: true,
+      // A lista vem do metadado materializado `packs.conversion_types` (ver
+      // useAvailableConversionTypes). Pedir para a RPC calcular custa de 0,8 s a 9 s
+      // conforme o tamanho da seleção — medido com EXPLAIN ANALYZE em 2026-08-25.
+      include_available_conversion_types: false,
     }),
     [actionType, effectiveDateRange.end, effectiveDateRange.start, hasSheetIntegration, selectedPackIds],
   );
@@ -58,13 +66,6 @@ export function useExplorerData(sortState: ExplorerSortState) {
     );
     return rows;
   }, [actionType, mqlLeadscoreMin, performanceQuery.data?.data, sortState]);
-
-  useEffect(() => {
-    const availableConversionTypes = performanceQuery.data?.available_conversion_types || [];
-    if (availableConversionTypes.length > 0) {
-      setActionTypeOptions(availableConversionTypes);
-    }
-  }, [performanceQuery.data?.available_conversion_types, setActionTypeOptions]);
 
   useEffect(() => {
     if (sortedAds.length === 0) {
@@ -123,7 +124,7 @@ export function useExplorerData(sortState: ExplorerSortState) {
       computeWeightedAveragesFromAdPerformance(
         sortedAds,
         actionType,
-        performanceQuery.data?.available_conversion_types,
+        availableConversionTypes,
       );
 
     if (!responseAverages) {
@@ -144,7 +145,7 @@ export function useExplorerData(sortState: ExplorerSortState) {
       cpr: actionType && responseAverages.per_action_type?.[actionType] ? responseAverages.per_action_type[actionType].cpr ?? null : null,
       page_conv: actionType && responseAverages.per_action_type?.[actionType] ? responseAverages.per_action_type[actionType].page_conv ?? null : null,
     };
-  }, [actionType, performanceQuery.data?.available_conversion_types, performanceQuery.data?.averages, sortedAds]);
+  }, [actionType, availableConversionTypes, performanceQuery.data?.averages, sortedAds]);
 
   const status: ExplorerDataStatus = useMemo(() => {
     if (!packsClient) {
