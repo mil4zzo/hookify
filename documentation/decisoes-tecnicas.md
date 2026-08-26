@@ -3633,11 +3633,14 @@ foi decidido POR MEDIÇÃO e não deve ser reaberto sem número novo.
    estreita e sem JSON. Migration 129 — aplicada. A RPC nova não lê `ad_metrics` além das
    ~77 linhas representantes.
 
-### Resultado (lab, quente, mesma máquina)
+### Resultado
 
-Cenário real (3 packs, 57 dias): **1.100 → 470 ms**, payload 1.052 → 569 KB. Cenário
-pesado (30 packs, 1 ano, tipos disponíveis): **3,6 → 1,8 s**. Diferencial: **511/511
-cenários idênticos** à base v116 (`backend/scripts/diff_rankings_rollup.py`).
+Lab (quente, mesma máquina): cenário real (3 packs, 57 dias) **1.100 → 470 ms**, payload
+1.052 → 569 KB; cenário pesado (30 packs, 1 ano, tipos disponíveis) **3,6 → 1,8 s**.
+**Produção (t4g.micro), alternando as versões na mesma sessão: v116 8-12 s (594 MB de
+temporário lidos, 345 MB escritos) → v130 1,2 s estável, zero temporário.** A diferença
+lab × produção confirma o diagnóstico: o gargalo era I/O de página, não CPU. Diferencial:
+**511/511 cenários idênticos** à base v116 (`backend/scripts/diff_rankings_rollup.py`).
 
 ### Armadilhas do Postgres que custaram horas
 

@@ -1,8 +1,9 @@
 # Plano: rollup + RPC em passada única + leadscore em histograma
 
-Data: 2026-08-26. Estado (2026-08-26, fim do dia): **128 aplicada e backfilled em produção
-(zero divergências); 129 (read model completo), 130 (RPC nova) e fase D (frontend) prontas e
-provadas no lab; falta aplicar 129 + backfill em produção e o cutover (130 + deploy).**
+Data: 2026-08-26. Estado: **fases A–E concluídas em produção em 2026-08-26.** Cutover
+medido no banco, alternando as versões: v116 8-12 s → v130 **1,2 s** (a RPC do Manager),
+zero arquivo temporário. Pendente: fase F (remedir instância e `work_mem` com CPU
+saudável, rename §9) e a fase 2 do cache (IndexedDB), agora conforto e não urgência.
 Decisões do usuário: histograma de leadscore entra na v1; instância continua MICRO até o
 rollup medir; a nomenclatura nova é **"performance"** (artefatos novos nascem
 `ad_performance_*`; a entry `fetch_manager_rankings_core_v2` e as rotas `/rankings` só mudam
@@ -200,11 +201,11 @@ Frontend (**feito, 2026-08-26** — mais simples que o desenhado):
 | # | Entrega | Critério de pronto | Estado (2026-08-26) |
 |---|---|---|---|
 | A | Migration 128: tabela + trigger + backfill + consistency check | check = 0 diferenças; trigger provado por teste | **feito em produção** (backfill 3 min, zero divergências) |
-| A' | Migration 129: read model completo (números + chaves) | idem; teste da 128 estendido (32 asserções, 3 sabotagens) | **provado no lab; falta produção** (aplicar 129 + backfill de novo) |
-| B | Migration 130: `fetch_manager_performance_base_v130` + entry repontada | gate verde; medido no lab: 470 ms real / 1,8 s pesado | **pronta; não aplicada** (é o cutover) |
+| A' | Migration 129: read model completo (números + chaves) | idem; teste da 128 estendido (32 asserções, 3 sabotagens) | **feito em produção** (backfill 3 min, zero divergências, 154 MB) |
+| B | Migration 130: `fetch_manager_performance_base_v130` + entry repontada | gate verde; medido no lab: 470 ms real / 1,8 s pesado | **aplicada em produção** (cutover, linha E) |
 | C | Diferencial `backend/scripts/diff_rankings_rollup.py` | zero divergências no conjunto completo | **feito: 511/511 idênticos, 0 diferenças** (lab, 2026-08-26) |
 | D | Histograma no frontend | `tsc` + `node:test` verdes | **feito** (backend não muda: `/rankings` repassa a linha) |
-| E | Cutover | aplicar 130 + deploy D juntos; medir antes/depois em produção; rollback = repontar entry | pendente |
+| E | Cutover | aplicar 130 + deploy D juntos; medir antes/depois em produção; rollback = reaplicar 122 | **feito 2026-08-26** (deploy `aec7f74`, 130 aplicada): em produção, alternando, v116 **8-12 s** (594 MB de temporário lidos, 345 escritos) → v130 **1,2 s**, zero temporário |
 | F | Pós | memória + `decisoes-tecnicas.md`; remover `usePackAds`/`useMultiplePackAds` (mortos); refazer teste de `work_mem` com CPU saudável | pendente |
 
 Regras de processo herdadas desta semana:
