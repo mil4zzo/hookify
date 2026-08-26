@@ -43,14 +43,3 @@ def raise_google_http_error(
     raise HTTPException(status_code=status_code, detail=error_detail)
 
 
-def is_token_error(error_message: str) -> bool:
-    """
-    Verifica se uma mensagem de erro indica problema de token.
-    Mantido para compatibilidade durante transição.
-    """
-    error_lower = error_message.lower()
-    return any(
-        keyword in error_lower
-        for keyword in ["expirado", "revogado", "inválido", "reconecte", "unauthorized", "invalid_grant"]
-    )
-

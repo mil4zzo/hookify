@@ -933,11 +933,3 @@ def process_job_async(
     return processor.process(job_id)
 
 
-def get_job_processor(
-    user_jwt: str,
-    user_id: str,
-    access_token: str,
-    processing_owner: Optional[str] = None,
-) -> JobProcessor:
-    """Factory function para criar JobProcessor."""
-    return JobProcessor(user_jwt, user_id, access_token, processing_owner=processing_owner)

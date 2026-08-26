@@ -68,10 +68,6 @@ def normalize_pack_name(name: str) -> str:
     return str(name or "").strip()
 
 
-def _normalized_pack_name_key(name: str) -> str:
-    """Chave normalizada para unicidade case-insensitive."""
-    return normalize_pack_name(name).lower()
-
 
 def _is_pack_name_unique_violation(error: Exception) -> bool:
     """Detecta violação da constraint/índice único de nome de pack."""
@@ -1441,22 +1437,6 @@ def update_ads_thumbnail_cache(
     }
 
 
-def update_ad_video_owner(
-    user_jwt: str,
-    user_id: str,
-    ad_id: str,
-    video_owner_page_id: str,
-) -> None:
-    """Persiste o video_owner_page_id resolvido na coluna dedicada da tabela ads."""
-    try:
-        sb = get_supabase_for_user(user_jwt)
-        sb.table("ads").update({"video_owner_page_id": video_owner_page_id}).eq(
-            "ad_id", ad_id
-        ).eq("user_id", user_id).execute()
-        logger.info(f"[UPDATE_AD_VIDEO_OWNER] ad_id={ad_id} → video_owner_page_id={video_owner_page_id}")
-    except Exception as e:
-        logger.warning(f"[UPDATE_AD_VIDEO_OWNER] Falha (best-effort) para ad_id={ad_id}: {e}")
-
 
 def update_ad_video_source(
     user_jwt: Optional[str],
@@ -2480,21 +2460,6 @@ def validate_adsets_ownership(
     found_ids = {str(row.get("adset_id")).strip() for row in (result.data or []) if row.get("adset_id")}
     return found_ids == set(unique_ids)
 
-
-def validate_ad_account_ownership(
-    sb,
-    user_id: str,
-    account_id: str,
-) -> bool:
-    result = (
-        sb.table("ad_accounts")
-        .select("id")
-        .eq("user_id", user_id)
-        .eq("id", account_id)
-        .limit(1)
-        .execute()
-    )
-    return bool(result.data)
 
 
 def get_ad_account_connection_id(

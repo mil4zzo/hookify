@@ -44,7 +44,7 @@ import logging
 import threading
 import time
 from contextlib import contextmanager
-from typing import Callable, Iterator, TypeVar
+from typing import Iterator, TypeVar
 
 from app.core.config import (
     DB_BACKGROUND_MAX_CONCURRENT_CALLS,
@@ -201,11 +201,6 @@ def db_slot(operation: str = "db") -> Iterator[None]:
         if background:
             _background_semaphore.release()
 
-
-def with_db_slot(operation: str, fn: Callable[[], T]) -> T:
-    """Versao funcional de `db_slot` para embrulhar uma chamada existente."""
-    with db_slot(operation):
-        return fn()
 
 
 def get_stats() -> dict:

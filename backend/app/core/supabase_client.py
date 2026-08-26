@@ -140,10 +140,6 @@ def _coerce_postgrest_timeout(timeout_seconds: Optional[float]) -> float:
         return POSTGREST_TIMEOUT_SECONDS
 
 
-def get_supabase() -> Client:
-    """Legacy: returns a service-level client (bypasses RLS). Prefer get_supabase_for_user."""
-    return get_supabase_service()
-
 
 def get_supabase_service() -> Client:
     """Service client using service role key (bypasses RLS). For admin/scripts only."""

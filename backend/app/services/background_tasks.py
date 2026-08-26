@@ -31,18 +31,6 @@ _TTL_SECONDS = 600  # 10 minutos
 _MAX_ENTRIES = 200
 
 
-def _is_transient_bg_error(error: Exception) -> bool:
-    text = str(error or "")
-    markers = (
-        "WinError 10035",
-        "ReadError",
-        "ConnectError",
-        "Timeout",
-        "temporarily unavailable",
-        "connection reset",
-    )
-    return any(m in text for m in markers)
-
 
 def _storage_thumb_exists_for_repair(storage_path: str) -> bool:
     return storage_thumb_exists(storage_path, raise_on_error=True)
