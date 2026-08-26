@@ -1,0 +1,47 @@
+-- 126: remove dois índices redundantes de `ad_metrics` (33 MB).
+--
+-- POR QUE AGORA (o motivo é memória, não escrita)
+-- ------------------------------------------------
+-- Medido em 2026-08-26: o banco tem **1.145 MB** e a instância tem
+-- `shared_buffers` de **256 MB** — 4,5× mais dado que cache. Consequência
+-- medida na RPC do Manager, mesmo cenário:
+--
+--     execução fria:  9.291 ms
+--     execução quente: 1.806 ms
+--
+-- Quase toda visita do usuário é fria, porque entre uma sessão e outra os dados
+-- já foram expulsos da memória. Nesse regime, **cada MB de cache ocupado por
+-- lixo custa I/O real**. Estes 33 MB são 13% do cache inteiro.
+--
+-- (O custo de escrita evitado é bônus: todo INSERT em ad_metrics mantinha os
+-- dois. O ganho principal é parar de disputar memória.)
+--
+-- A REDUNDÂNCIA É POR DEFINIÇÃO, NÃO POR ESTATÍSTICA
+-- ---------------------------------------------------
+-- Não depende de `idx_scan` (que foi zerado pelo crash de 24/08 e de novo pela
+-- manutenção do Supabase, e a 2 usuários não seria confiável de todo jeito):
+--
+--   * `ad_metrics_user_ad_date_idx` (user_id, ad_id, date) — 21 MB
+--     Colunas IDÊNTICAS, na mesma ordem, ao `ad_metrics_user_ad_date_key`, que
+--     é UNIQUE. Um índice único atende toda consulta que o não-único atenderia.
+--     O planner vinha preferindo este só por ser 1 MB menor.
+--
+--   * `ad_metrics_id_idx` (id) — 12 MB
+--     A chave primária é (id, user_id) e LIDERA por `id`, então já serve
+--     qualquer busca por `id` sozinho.
+--
+-- Verificado antes de dropar: nenhum dos dois sustenta constraint
+-- (`pg_constraint.conindid` vazio). Os que ficam sustentam — e o
+-- `ad_metrics_user_ad_date_key` ainda ancora a FK `ad_metric_pack_map_metric_fk`,
+-- então jamais poderia ser o removido.
+--
+-- REVERSÃO: recriar é `CREATE INDEX CONCURRENTLY` com a definição acima. Não há
+-- perda de dado; no pior caso, buscas por `id` sozinho passam a ler a PK, que é
+-- maior (24 MB contra 12 MB) — mais páginas por busca, em troca de 33 MB de
+-- cache livre para os dados quentes.
+--
+-- CONCURRENTLY não roda dentro de transação; se o runner envolver em BEGIN,
+-- aplicar este arquivo via psql direto.
+
+DROP INDEX CONCURRENTLY IF EXISTS public.ad_metrics_user_ad_date_idx;
+DROP INDEX CONCURRENTLY IF EXISTS public.ad_metrics_id_idx;

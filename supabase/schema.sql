@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict xC5nmZHMgHbZmCMOulVjgPdT0tJFiiorSmDhnUzsPhMTxDqI5EtaxhH5xCe6pnT
+\restrict fgaOmqzBESBAynOCfxavbvxDVJdMii7LRfiat0zkSVtnYBQrXOjcXs5MUUUPFi2
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -7452,20 +7452,6 @@ CREATE INDEX ad_metrics_ad_name_idx ON public.ad_metrics USING btree (ad_name);
 
 
 --
--- Name: ad_metrics_id_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX ad_metrics_id_idx ON public.ad_metrics USING btree (id);
-
-
---
--- Name: ad_metrics_user_ad_date_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX ad_metrics_user_ad_date_idx ON public.ad_metrics USING btree (user_id, ad_id, date);
-
-
---
 -- Name: ad_metrics_user_adset_date_idx; Type: INDEX; Schema: public; Owner: postgres
 --
 
@@ -8860,5 +8846,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict xC5nmZHMgHbZmCMOulVjgPdT0tJFiiorSmDhnUzsPhMTxDqI5EtaxhH5xCe6pnT
+\unrestrict fgaOmqzBESBAynOCfxavbvxDVJdMii7LRfiat0zkSVtnYBQrXOjcXs5MUUUPFi2
 
