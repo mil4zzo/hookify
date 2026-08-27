@@ -95,8 +95,9 @@ class TestDbSlot:
 class _FakeQuery:
     """Grava a sequencia de ids pedida em cada UPDATE/UPSERT."""
 
-    def __init__(self, registro):
+    def __init__(self, registro, filtros=None):
         self._registro = registro
+        self._filtros = filtros if filtros is not None else []
         self._payload = None
 
     def update(self, payload):
@@ -115,6 +116,13 @@ class _FakeQuery:
         self._registro.append((id_column, list(ids)))
         return self
 
+    def or_(self, filtro):
+        # Registrado, e nao engolido: o filtro diferencial e o que impede o
+        # UPDATE de reescrever linha que ja esta no valor certo. Um dublê que
+        # aceitasse a chamada em silencio deixaria a remocao dele passar verde.
+        self._filtros.append(filtro)
+        return self
+
     def execute(self):
         return type("Res", (), {"data": []})()
 
@@ -122,9 +130,10 @@ class _FakeQuery:
 class _FakeClient:
     def __init__(self):
         self.updates = []
+        self.filtros = []
 
     def table(self, _name):
-        return _FakeQuery(self.updates)
+        return _FakeQuery(self.updates, self.filtros)
 
 
 class TestWriteParentStatusesOrdering:
@@ -174,13 +183,13 @@ class TestWriteLocalStatusesOrdering:
     supabase_repo; esta ficou meses sem ela.
     """
 
-    def _run(self, statuses, monkeypatch):
+    def _run(self, statuses, monkeypatch, devolver_fake=False):
         from app.routes import facebook
 
         fake = _FakeClient()
         monkeypatch.setattr(facebook, "_sb_for", lambda _jwt: fake)
         facebook._write_local_statuses(user_jwt=None, user_id="u1", statuses=statuses)
-        return fake.updates
+        return fake if devolver_fake else fake.updates
 
     def test_ids_saem_ordenados(self, monkeypatch):
         updates = self._run({"a3": "ACTIVE", "a1": "ACTIVE", "a2": "ACTIVE"}, monkeypatch)
@@ -198,6 +207,24 @@ class TestWriteLocalStatusesOrdering:
         updates = self._run({"a1": "IN_PROCESS", "a2": "PAUSED"}, monkeypatch)
         gravados = [i for _col, ids in updates for i in ids]
         assert gravados == ["a2"], "IN_PROCESS nunca pode ser persistido"
+
+    def test_so_grava_o_que_difere(self, monkeypatch):
+        """Todo UPDATE tem de carregar o filtro diferencial.
+
+        Sem ele o sync on-focus reescreve TODA linha a cada passada, mesmo as
+        que ja estao no valor certo -- e o `changed` volta inflado, o que faz o
+        frontend invalidar cache que nao precisava. O `is.null` importa junto:
+        NULL nunca casa com `neq`, entao linha nunca sincronizada ficaria de
+        fora se o filtro fosse so o `neq`.
+        """
+        fake = self._run({"a1": "ACTIVE", "a2": "PAUSED"}, monkeypatch, devolver_fake=True)
+
+        assert len(fake.filtros) == len(fake.updates), (
+            "todo UPDATE precisa do filtro diferencial, nao apenas alguns"
+        )
+        for filtro in fake.filtros:
+            assert "effective_status.is.null" in filtro
+            assert "effective_status.neq." in filtro
 
 
 class TestTetoNoPontoUnico:
