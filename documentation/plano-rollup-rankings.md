@@ -285,6 +285,34 @@ sem refetch. Implementação:
 Efeito esperado na recarga com dado inalterado: **zero chamadas** a `ad-performance` e
 `series`; só `packs` (2 kB, para o carimbo), `status-sync` (0,2 kB) e as pequenas.
 
+## 12. Os 3–5 s que não eram o banco — hidratação da rota (migration 132, 2026-08-27)
+
+Com a RPC em 1,2 s, o `ad-performance` ainda levava 4,5–7,5 s na tela. Medido rodada a
+rodada, com a resposta real das 3 packs (397 linhas), contra o PostgREST de produção:
+
+| rodada | tempo | requisições | linhas baixadas |
+|---|---|---|---|
+| thumbnails | 0,9 s | 1 | 397 — e 396 já traziam `thumb_storage_path` na própria RPC |
+| transcrição | 0,3 s | 2 | 280 |
+| **tipo de mídia** | **8,5 s fria / 2,2 s quente** | **15** | **13.764** — todas as cópias de cada criativo, para uma letra por linha |
+
+Verificado no banco antes de desenhar: o tipo de mídia é consistente entre cópias (0 nomes
+mistos em 3.451; 38 com alguma cópia sem tipo → a regra "maior precedência" fica); a
+miniatura do representante falta enquanto uma cópia tem em **13 de 3.451** nomes — e a
+hidratação antiga **não** cobria esse caso (buscava só pelo `ad_id` do representante).
+
+**Migration 132:** índice `ads (user_id, ad_name) INCLUDE (media_type)`; índice de status
+passa a incluir `thumb_storage_path`; base `fetch_manager_performance_base_v132` = v130 +
+`media_type` (max precedência entre cópias, por índice), `has_transcription` (EXISTS
+completed) e `thumb_storage_path` com fallback para qualquer cópia do grupo. Lab: campos
+antigos idênticos, `media_type`/transcrição **zero divergências** contra a semântica do
+Python (283 vídeo / 114 imagem / 280 transcritos), 1 miniatura recuperada; tempo da RPC
+igual (v130 548/527 ms × v132 522/521 ms, alternando).
+
+**Backend:** as três hidratações só consultam linhas **sem** a chave (payload de RPC antiga);
+com a v132 no ar, zero requisições depois da RPC. 8 testes (com sabotagem). Frontend: nada
+— o schema já tinha `media_type` e `has_transcription`.
+
 ## 9. Passe de renomeação "rankings" → "performance" (depois do cutover, não junto)
 
 Decidido em 2026-08-26: o termo novo é **performance** (o alias `/analytics/ad-performance`

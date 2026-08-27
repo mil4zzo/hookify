@@ -991,11 +991,17 @@ def _hydrate_storage_thumbnails_for_rankings_rows(
     user_id: str,
     rows: List[Dict[str, Any]],
 ) -> Dict[str, int]:
-    """Ensure rankings rows use Storage thumbnail URLs when available in ads.thumb_storage_path."""
+    """Ensure rankings rows use Storage thumbnail URLs when available in ads.thumb_storage_path.
+
+    Sem consulta quando a linha ja traz `thumb_storage_path` (a RPC devolve desde a v116;
+    medido em 2026-08-27: 396 de 397 linhas ja vinham com o caminho e a rota consultava
+    `ads` mesmo assim). So vai ao banco para linhas SEM a chave — payload de RPC antiga.
+    """
     if not rows:
         return {"rows": 0, "candidates": 0, "storage_found": 0, "overridden": 0}
 
     candidate_ad_ids: Set[str] = set()
+    ad_id_to_storage: Dict[str, str] = {}
     for row in rows:
         ad_id = str(row.get("ad_id") or "").strip()
         if not ad_id:
@@ -1003,12 +1009,17 @@ def _hydrate_storage_thumbnails_for_rankings_rows(
         current_thumb = row.get("thumbnail")
         if _is_storage_thumbnail_url(current_thumb):
             continue
+        if "thumb_storage_path" in row:
+            # a linha e a fonte: caminho presente -> URL; ausente -> nao ha miniatura no Storage
+            storage_url = _get_storage_thumb_if_any(row)
+            if storage_url:
+                ad_id_to_storage[ad_id] = storage_url
+            continue
         candidate_ad_ids.add(ad_id)
 
-    if not candidate_ad_ids:
+    if not candidate_ad_ids and not ad_id_to_storage:
         return {"rows": len(rows), "candidates": 0, "storage_found": 0, "overridden": 0}
 
-    ad_id_to_storage: Dict[str, str] = {}
     batch_size = 500
     candidate_list = sorted(candidate_ad_ids)
     for i in range(0, len(candidate_list), batch_size):
@@ -1057,11 +1068,20 @@ def _hydrate_media_type_for_rankings_rows(
     user_id: str,
     rows: List[Dict[str, Any]],
 ) -> int:
-    """Set media_type on each row by looking up ad_name in the ads table."""
+    """Set media_type on each row by looking up ad_name in the ads table.
+
+    So para linhas SEM a chave `media_type`: a RPC v132 (migration 132) ja a calcula por
+    indice. Antes, esta funcao baixava TODAS as copias de cada criativo — medido em
+    2026-08-27: 15 requisicoes e 13.764 linhas de `ads` para carimbar 397 linhas,
+    8,5 s frio / 2,2 s quente. Com a RPC nova: zero requisicoes.
+    """
     if not rows:
         return 0
 
-    ad_names: List[str] = list({str(r.get("ad_name") or "").strip() for r in rows if r.get("ad_name")})
+    pending = [r for r in rows if "media_type" not in r]
+    if not pending:
+        return 0
+    ad_names: List[str] = list({str(r.get("ad_name") or "").strip() for r in pending if r.get("ad_name")})
     if not ad_names:
         return 0
 
@@ -1101,7 +1121,7 @@ def _hydrate_media_type_for_rankings_rows(
             logger.warning("[rankings_media_type] hydration failed batch=%s err=%s", len(batch), e)
 
     hydrated = 0
-    for row in rows:
+    for row in pending:
         name = str(row.get("ad_name") or "").strip()
         mt = name_to_media_type.get(name)
         if mt:
@@ -1148,12 +1168,18 @@ def _hydrate_transcription_flags_for_rankings_rows(
     user_id: str,
     rows: List[Dict[str, Any]],
 ) -> int:
-    """Set has_transcription=True on rows whose ad_name has a completed transcription."""
+    """Set has_transcription=True on rows whose ad_name has a completed transcription.
+
+    So para linhas SEM a chave `has_transcription` (a RPC v132 ja a devolve).
+    """
     if not rows:
         return 0
 
+    pending = [r for r in rows if "has_transcription" not in r]
+    if not pending:
+        return 0
     ad_names: List[str] = []
-    for row in rows:
+    for row in pending:
         name = str(row.get("ad_name") or "").strip()
         if name:
             ad_names.append(name)
@@ -1184,7 +1210,7 @@ def _hydrate_transcription_flags_for_rankings_rows(
             logger.warning("[rankings_transcription_hydration] batch failed batch=%s err=%s", len(batch), e)
 
     flagged = 0
-    for row in rows:
+    for row in pending:
         name = str(row.get("ad_name") or "").strip()
         if name in completed_names:
             row["has_transcription"] = True

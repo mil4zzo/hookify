@@ -357,6 +357,44 @@ def compare(old: dict, new: dict) -> list:
     return diffs
 
 
+V132_NEW_KEYS = ("media_type", "has_transcription")
+V132_THUMB_KEYS = ("thumb_storage_path", "thumbnail")
+
+
+def compare_v132(old: dict, new: dict) -> list:
+    """v130 x v132: tudo igual, exceto (a) campos novos, que devem existir em toda linha, e
+    (b) miniatura, que só pode mudar de NULL para algo (o fallback para uma cópia)."""
+    diffs: list = []
+    for key in ("pagination", "available_conversion_types", "averages", "header_aggregates"):
+        cmp_value(key, old.get(key), new.get(key), diffs)
+    cmp_value("overlap", old.get("overlap"), new.get("overlap"), diffs)
+    od, nd = old.get("data", []), new.get("data", [])
+    if len(od) != len(nd):
+        diffs.append(("data.<len>", len(od), len(nd)))
+        return diffs
+    for i, (ro, rn) in enumerate(zip(od, nd)):
+        gk = ro.get("group_key")
+        if gk != rn.get("group_key"):
+            diffs.append((f"data[{i}].group_key (ordem)", gk, rn.get("group_key")))
+            continue
+        for k in V132_NEW_KEYS:
+            if k not in rn:
+                diffs.append((f"data[{gk}].{k}", "<ausente>", "esperado presente"))
+        if rn.get("media_type") not in (None, "video", "image"):
+            diffs.append((f"data[{gk}].media_type", "video|image|null", rn.get("media_type")))
+        if not isinstance(rn.get("has_transcription"), bool):
+            diffs.append((f"data[{gk}].has_transcription", "bool", rn.get("has_transcription")))
+        ro2 = {k: v for k, v in ro.items() if k not in V132_THUMB_KEYS}
+        rn2 = {k: v for k, v in rn.items() if k not in V132_THUMB_KEYS and k not in V132_NEW_KEYS}
+        cmp_value(f"data[{gk}]", ro2, rn2, diffs)
+        if ro.get("thumb_storage_path") is not None:
+            # representante tinha miniatura: nada pode mudar
+            for k in V132_THUMB_KEYS:
+                cmp_value(f"data[{gk}].{k}", ro.get(k), rn.get(k), diffs)
+        # senão: a v132 pode ter achado a miniatura de uma cópia (fallback) — permitido
+    return diffs
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -366,7 +404,14 @@ def main() -> int:
     ap.add_argument("--filter", default="", help="substring do id do cenário")
     ap.add_argument("--series", action="store_true",
                     help="compara a serie (fetch_manager_rankings_series_v2_legacy x wrapper da _v131) em vez da core")
+    ap.add_argument("--v132", action="store_true",
+                    help="compara base_v130 x base_v132: campos antigos identicos; media_type/has_transcription novos; "
+                         "thumb so muda onde a v130 nao tinha")
     args = ap.parse_args()
+    global OLD_FN, NEW_FN
+    if args.v132:
+        OLD_FN = "public.fetch_manager_performance_base_v130"
+        NEW_FN = "public.fetch_manager_performance_base_v132"
 
     psql = find_psql()
     url = os.environ.get("LAB_URL", LAB_URL_DEFAULT)
@@ -395,6 +440,8 @@ def main() -> int:
         if args.series:
             diffs = []
             cmp_value("series", old, new, diffs)   # contrato integral: window + series_by_group
+        elif args.v132:
+            diffs = compare_v132(old, new)
         else:
             diffs = compare(old, new)
         if diffs:
