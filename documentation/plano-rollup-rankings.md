@@ -2,8 +2,9 @@
 
 Data: 2026-08-26. Estado: **fases A–E concluídas em produção em 2026-08-26.** Cutover
 medido no banco, alternando as versões: v116 8-12 s → v130 **1,2 s** (a RPC do Manager),
-zero arquivo temporário; série (131) 4-11,6 s → 0,33 s. Pendente: fase F (remedir instância e `work_mem` com CPU
-saudável, rename §9) e a fase 2 do cache (IndexedDB), agora conforto e não urgência.
+zero arquivo temporário; série (131) 4-11,6 s → 0,33 s. **Fase 2 do cache (IndexedDB por
+query) implementada em 2026-08-26 — ver §11.** Pendente: fase F (remedir instância e
+`work_mem` com CPU saudável, rename §9).
 Decisões do usuário: histograma de leadscore entra na v1; instância continua MICRO até o
 rollup medir; a nomenclatura nova é **"performance"** (artefatos novos nascem
 `ad_performance_*`; a entry `fetch_manager_rankings_core_v2` e as rotas `/rankings` só mudam
@@ -253,6 +254,34 @@ nenhuma mudança fora do banco**: a série nunca expôs arrays de leadscore (cal
 com o corte do pack). Lab: saída byte a byte igual no cenário real, 405–478 ms → 146–152
 ms. Diferencial: `diff_rankings_rollup.py --series` — **496/496 cenários idênticos**.
 **Produção (2026-08-26, aplicada):** mesmas 150 chaves, janela 5 — **11,6 s fria / 4,0 s quente → 0,33 s**.
+
+## 11. Fase 2 do cache — o banco só é tocado quando o dado mudou (2026-08-26)
+
+Princípio: a resposta de uma chave é **imutável** (o carimbo de frescor dos packs está na
+queryKey desde a fase 1). Então ela pode viver em disco e ser servida em qualquer recarga
+sem refetch. Implementação:
+
+- `lib/storage/queryPersistStorage.ts`: IndexedDB próprio (`hookify-query-cache`), **uma
+  entrada por query**, lida só quando a query monta. Não o `localStorage` do provider: ele
+  serializa o cache inteiro, síncrono, em 5 MB — uma resposta do ad-performance tem ~570 kB.
+- `lib/api/analyticsPersister.ts`: `experimental_createQueryPersister` do TanStack, um por
+  usuário (`buster` = user id → entrada de outro usuário é descartada), `maxAge` 7 dias,
+  `refetchOnRestore: false` (restaurar do disco NÃO dispara busca; `staleTime: Infinity`
+  já estava). GC no primeiro uso; o logout apaga o store. Só `ad-performance` e `série`
+  (as chaves de drill ficam fora).
+- Provider: `setQueryData` dos toggles de status/tag (`action.manual`) regrava a entrada —
+  senão a recarga restauraria o estado de antes do toggle.
+- **status-sync on-focus**: o backend passa a atualizar só linhas cujo status difere
+  (`or(effective_status.is.null, effective_status.neq.X)` — antes reescrevia todas) e
+  devolve `changed_ads`. O frontend só refaz a busca pesada se `changed_ads > 0`; sem
+  mudança, só as visões de conjunto/campanha (status de `parent_entities`, não contado).
+- Testes: `lib/api/__tests__/analyticsPersister.test.ts` (roundtrip, sem refetch ao
+  restaurar, isolamento por usuário, GC), `backend/tests/test_status_sync_changed_ads.py`
+  (com sabotagem). Requer deploy de backend E frontend (o campo é opcional: frontend novo
+  com backend velho assume "pode ter mudado" e invalida como antes).
+
+Efeito esperado na recarga com dado inalterado: **zero chamadas** a `ad-performance` e
+`series`; só `packs` (2 kB, para o carimbo), `status-sync` (0,2 kB) e as pequenas.
 
 ## 9. Passe de renomeação "rankings" → "performance" (depois do cutover, não junto)
 

@@ -1033,10 +1033,14 @@ def _fetch_entity_ad_ids(*, user_jwt: Optional[str], user_id: str, entity_type: 
     return [str(r["ad_id"]) for r in (res.data or []) if r.get("ad_id")]
 
 
-def _write_local_statuses(*, user_jwt: Optional[str], user_id: str, statuses: Dict[str, Any]) -> None:
+def _write_local_statuses(*, user_jwt: Optional[str], user_id: str, statuses: Dict[str, Any]) -> int:
     """
     Grava effective_status por ad no cache local (Supabase `ads`), agrupando por valor
     (1 UPDATE por status distinto, em chunks de 200 para não estourar a URL do PostgREST).
+    Devolve quantas linhas MUDARAM de fato: o UPDATE só toca linhas cujo status difere
+    (ou é NULL). Antes, reescrevia todas as linhas a cada sync on-focus — write
+    amplification pura — e o frontend invalidava o cache dos rankings sem saber se algo
+    tinha mudado (fase 2 do cache: o banco só é tocado quando o dado mudou).
     Ads com status None/vazio (leitura fail-open do Meta) não são tocados.
 
     IN_PROCESS nunca é persistido: é transitório por definição (Meta ainda aplicando a
@@ -1055,9 +1059,10 @@ def _write_local_statuses(*, user_jwt: Optional[str], user_id: str, statuses: Di
             continue
         by_status.setdefault(status_value, []).append(str(ad_id))
     if not by_status:
-        return
+        return 0
 
     sb = _sb_for(user_jwt)
+    changed = 0
     # ORDEM DETERMINISTICA DE LOCK (anti-deadlock 40P01) — mesma correcao que
     # supabase_repo.write_parent_entity_statuses recebeu. Sao funcoes irmas: gravam status
     # nas MESMAS linhas de `ads`, e o sync on-focus dispara as duas em paralelo para
@@ -1074,14 +1079,18 @@ def _write_local_statuses(*, user_jwt: Optional[str], user_id: str, statuses: Di
             # laco chega a 100+ UPDATEs em massa por request de status-sync (ate 20
             # packs x chunks de 200) e rodava sem nenhuma das duas — foi um dos
             # caminhos nomeados no crash de 2026-08-24.
-            with_postgrest_retry(
+            res = with_postgrest_retry(
                 f"write_local_statuses[{status_value}:{len(chunk)}]",
                 lambda sv=status_value, c=chunk: sb.table("ads")
                 .update({"effective_status": sv})
                 .eq("user_id", user_id)
                 .in_("ad_id", c)
+                # so quem difere (NULL nunca casa em neq — entra pelo is.null)
+                .or_(f"effective_status.is.null,effective_status.neq.{sv}")
                 .execute(),
             )
+            changed += len(getattr(res, "data", None) or [])
+    return changed
 
 
 def _fetch_entity_account_id(*, user_jwt: Optional[str], user_id: str, entity_type: str, entity_id: str) -> Optional[str]:
@@ -1895,7 +1904,7 @@ def sync_packs_status(
     # verdade da Meta, nao mudanca autoral.
     owner_by_pack: Dict[str, str] = supabase_repo.resolve_pack_owner_map(actor_id, pack_ids[:200])
     if not owner_by_pack:
-        return {"synced": [], "skipped": [], "failed": [], "ads_covered": 0}
+        return {"synced": [], "skipped": [], "failed": [], "ads_covered": 0, "changed_ads": 0}
 
     packs_by_owner: Dict[str, List[str]] = {}
     for _pid, _own in owner_by_pack.items():
@@ -1932,6 +1941,7 @@ def sync_packs_status(
     skipped: List[str] = []
     failed: List[str] = []
     ads_covered = 0
+    changed_ads = 0
     # Caches por CONTA dentro do request: packs da mesma conta compartilham leitura de pais,
     # escrita de pais e (para packs sem filtro) o scan de ads da conta inteira.
     parent_synced_accounts: set = set()
@@ -1987,7 +1997,7 @@ def sync_packs_status(
                     for row in status_rows
                     if row.get("id")
                 }
-                _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
+                changed_ads += _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
                 ads_covered += len(statuses)
             elif act_id not in account_ads_statuses:
                 read = api.get_entity_statuses_for_account(act_id, "ads")
@@ -1995,7 +2005,7 @@ def sync_packs_status(
                     raise RuntimeError(read.get("message") or "falha ao ler statuses da conta")
                 statuses = read.get("statuses", {}) or {}
                 account_ads_statuses[act_id] = statuses
-                _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
+                changed_ads += _write_local_statuses(user_jwt=user_jwt, user_id=user_id, statuses=statuses)
                 ads_covered += len(statuses)
             # else: outro pack sem filtro da MESMA conta já cobriu o scan+write neste request
 
@@ -2024,7 +2034,7 @@ def sync_packs_status(
             _liberar_slot_de_status_sync(sb_svc, pack_id)
             failed.append(pack_id)
 
-    return {"synced": synced, "skipped": skipped, "failed": failed, "ads_covered": ads_covered}
+    return {"synced": synced, "skipped": skipped, "failed": failed, "ads_covered": ads_covered, "changed_ads": changed_ads}
 
 
 @router.post("/ads/{ad_id}/status")

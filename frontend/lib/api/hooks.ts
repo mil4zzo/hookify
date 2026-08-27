@@ -32,6 +32,7 @@ import { getCachedPackAds, cachePackAds, removeCachedPackAds } from '@/lib/stora
 import { filterVideoAds } from '@/lib/utils/filterVideoAds'
 import { usePacksLoading } from '@/components/layout/PacksLoader'
 import { computePacksFreshnessStamp } from '@/lib/utils/packsFreshness'
+import { getAnalyticsPersister } from '@/lib/api/analyticsPersister'
 
 // Query Keys
 export const queryKeys = {
@@ -543,9 +544,14 @@ function usePacksFreshness(packIds: RankingsRequest['pack_ids']) {
 
 export const useAdPerformance = (params: RankingsRequest, enabled: boolean = true) => {
   const { freshness, packsLoading } = usePacksFreshness(params.pack_ids)
+  const { session } = useSupabaseAuth()
+  // Fase 2 do cache: a resposta de uma chave é imutável (frescor na chave), então
+  // vive em IndexedDB e é restaurada sem refetch. Ver lib/api/analyticsPersister.ts.
+  const persister = getAnalyticsPersister(session?.user.id)
   return useQuery<RankingsResponse>({
     queryKey: queryKeys.adPerformance(params, freshness),
     queryFn: ({ signal }) => api.analytics.getAdPerformance(params, { signal }),
+    persister: persister?.persisterFn,
     enabled: enabled && !!params.date_start && !!params.date_stop && !packsLoading,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 60 * 1000,
@@ -559,6 +565,8 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
   const normalizedKeys = [...(params.group_keys || [])].map(String).sort()
   const groupKeysHash = hashStringArray(normalizedKeys)
   const { freshness, packsLoading } = usePacksFreshness(params.pack_ids)
+  const { session } = useSupabaseAuth()
+  const persister = getAnalyticsPersister(session?.user.id)
 
   return useQuery<RankingsSeriesResponse>({
     queryKey: queryKeys.adPerformanceSeries(params, groupKeysHash, freshness),
@@ -567,6 +575,7 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
         ...params,
         group_keys: normalizedKeys,
       }, { signal }),
+    persister: persister?.persisterFn,
     enabled:
       enabled &&
       !!params.date_start &&

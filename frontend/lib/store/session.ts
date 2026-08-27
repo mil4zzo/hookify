@@ -83,6 +83,12 @@ export const useSessionStore = create<SessionStore>()(
             indexedDB.clearAllPacks().catch((error) => {
               console.error('Erro ao limpar IndexedDB no logout:', error)
             })
+            // Cache persistido das queries analíticas (fase 2): é por usuário.
+            import('@/lib/storage/queryPersistStorage').then(({ clearQueryPersistStorage }) => {
+              clearQueryPersistStorage().catch((error) => {
+                console.error('Erro ao limpar cache de queries no logout:', error)
+              })
+            })
             // Limpar cache de ads também
             import('@/lib/storage/adsCache').then(({ clearAllAdsCache }) => {
               clearAllAdsCache().catch((error) => {

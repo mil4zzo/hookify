@@ -20,6 +20,12 @@ const MOUNT_DELAY_MS = 3000;
  * Só invalida os caches de rankings quando o backend confirmou que algum pack foi
  * de fato sincronizado (`synced.length > 0`) — pack dentro do TTL devolve `skipped`
  * e não dispara refetch.
+ *
+ * Fase 2 do cache (2026-08-26): o banco só é tocado quando o dado mudou. O backend
+ * devolve `changed_ads` (linhas de `ads` cujo status de fato mudou). Com mudança,
+ * invalida tudo; sem mudança, só as visões de conjunto/campanha — o status delas vem de
+ * `parent_entities`, que o sync também regrava e cujas mudanças não são contadas. As
+ * visões por anúncio/criativo (as pesadas) ficam com o cache restaurado do disco.
  */
 export function useStatusFocusSync(): void {
   const qc = useQueryClient();
@@ -50,7 +56,16 @@ export function useStatusFocusSync(): void {
         lastRunRef.current = 0;
       }
       if (res.synced.length > 0) {
-        await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+        const changedAds = typeof res.changed_ads === "number" ? res.changed_ads : null;
+        if (changedAds === null || changedAds > 0) {
+          await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
+        } else {
+          await qc.invalidateQueries({
+            queryKey: ["analytics", "rankings"],
+            refetchType: "active",
+            predicate: (q) => q.queryKey[4] === "adset_id" || q.queryKey[4] === "campaign_id",
+          });
+        }
       }
     } catch (e) {
       // Best-effort: falha de sync não deve incomodar o usuário; TTL liberado para retry.

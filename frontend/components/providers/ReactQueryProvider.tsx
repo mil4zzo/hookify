@@ -2,7 +2,8 @@
 import { QueryClient } from '@tanstack/react-query'
 import { PersistQueryClientProvider, type PersistQueryClientOptions } from '@tanstack/react-query-persist-client'
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { persistManualAnalyticsUpdate } from '@/lib/api/analyticsPersister'
 
 const PERSIST_KEY = 'hookify-rq-cache-v1'
 // Bump this string to invalidate all persisted caches at once (e.g., after a breaking schema change).
@@ -48,6 +49,17 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
       },
     }
   })
+
+  // Fase 2 do cache (IndexedDB por query): o persister grava no caminho de fetch; um
+  // update MANUAL (setQueryData no toggle de status/tag) não passa por lá. Regrava aqui,
+  // senão a recarga restauraria o estado de antes do toggle.
+  useEffect(() => {
+    return client.getQueryCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'success' && event.action.manual) {
+        persistManualAnalyticsUpdate(event.query)
+      }
+    })
+  }, [client])
 
   return (
     <PersistQueryClientProvider client={client} persistOptions={persistOptions}>
