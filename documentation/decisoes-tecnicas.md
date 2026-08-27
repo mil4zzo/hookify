@@ -3675,3 +3675,35 @@ arrays), zero mudança fora do banco; 496/496 cenários idênticos. **Produção
 Laboratório local (Postgres 17 + `pg_restore` do dump, `supabase/tests/README.md`): zero
 custo de burst na produção, EXPLAIN com dados reais, diferencial de 511 pares em minutos.
 Todo mecanismo novo com sabotagem deliberada provando que o teste falha.
+
+## 2026-08-27 — Método: o que levou o Manager de 20 s a 1 s não foi uma técnica
+
+Registro pedido pelo idealizador do produto, para valer em toda sessão futura.
+
+### A postura (mais importante que o rollup)
+
+- **Questionar o porquê antes de aceitar o sintoma.** "O Supabase não aguenta" era a
+  hipótese fácil. A pergunta certa era "por que 77 linhas custam 470 MB de arquivo
+  temporário?" — e a resposta mudou o desenho, não a instância.
+- **Medir antes de concluir, e desconfiar da medição**: frio × quente, isolado × com
+  concorrência, janela que contém incidente mede a fila (não a consulta), burst esgotado
+  pelo próprio teste. Dois ganhos anunciados esta semana não existiam (frio vs quente).
+- **Caçar desperdício antes de otimizar**: uma chamada esquecida baixava ~9 MB de ads por
+  carga sem nenhum consumidor; 425 kB de `ad_ids` na lista de packs; a série lia 57 dias
+  para usar 5; o status-sync reescrevia todos os status mesmo iguais. Cada um valia mais
+  que qualquer índice.
+- **Revisar com detalhe**: diferencial de 511 + 496 cenários antes de trocar a RPC;
+  sabotagem deliberada em todo teste novo (um teste que nunca falhou não provou nada).
+- **Eficiência como filosofia do produto**: "o banco só é tocado quando o dado mudou"
+  virou mecanismo — carimbo de frescor na chave do cache + persistência em disco.
+
+### O contrato de explicação
+
+Quem escreve o código sou eu (Claude); quem decide o produto é o idealizador, sem base
+técnica profunda e sem querer que a explicação pressuponha uma. Toda explicação técnica
+carrega a camada prática: **(1)** o problema na vida real, **(2)** a consequência de não
+arrumar e o ganho ao arrumar, em números que se sentem (segundos na tela, MB, R$),
+**(3)** prós, contras e efeitos colaterais — inclusive o que passa a custar, **(4)** termo
+técnico acompanhado da tradução, e **(5)** nome que eu inventei (`ad_performance_daily`,
+"carimbo de frescor", `_base_v130`) explicado na primeira menção — nunca como se já fosse
+conhecido. Os termos são bem-vindos: ele aprende com eles.
