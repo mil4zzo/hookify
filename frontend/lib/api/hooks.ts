@@ -547,12 +547,17 @@ export const useAdPerformance = (params: RankingsRequest, enabled: boolean = tru
   const { session } = useSupabaseAuth()
   // Fase 2 do cache: a resposta de uma chave é imutável (frescor na chave), então
   // vive em IndexedDB e é restaurada sem refetch. Ver lib/api/analyticsPersister.ts.
-  const persister = getAnalyticsPersister(session?.user.id)
+  const userId = session?.user?.id
+  const persister = getAnalyticsPersister(userId)
   return useQuery<RankingsResponse>({
     queryKey: queryKeys.adPerformance(params, freshness),
     queryFn: ({ signal }) => api.analytics.getAdPerformance(params, { signal }),
     persister: persister?.persisterFn,
-    enabled: enabled && !!params.date_start && !!params.date_stop && !packsLoading,
+    // `!!userId`: useSupabaseAuth resolve a sessão de forma assíncrona, por instância.
+    // Sem este gate a query disparava nas primeiras renderizações com persister
+    // indefinido e ia ao banco mesmo com a resposta em disco (visto em produção:
+    // ad-performance buscado, series restaurada, na mesma recarga). Custa ~ms.
+    enabled: enabled && !!params.date_start && !!params.date_stop && !packsLoading && !!userId,
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 60 * 1000,
     retry: retryOnlyNetworkErrors,
@@ -566,7 +571,8 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
   const groupKeysHash = hashStringArray(normalizedKeys)
   const { freshness, packsLoading } = usePacksFreshness(params.pack_ids)
   const { session } = useSupabaseAuth()
-  const persister = getAnalyticsPersister(session?.user.id)
+  const userId = session?.user?.id
+  const persister = getAnalyticsPersister(userId)
 
   return useQuery<RankingsSeriesResponse>({
     queryKey: queryKeys.adPerformanceSeries(params, groupKeysHash, freshness),
@@ -581,7 +587,8 @@ export const useAdPerformanceSeries = (params: RankingsSeriesRequest, enabled: b
       !!params.date_start &&
       !!params.date_stop &&
       normalizedKeys.length > 0 &&
-      !packsLoading,
+      !packsLoading &&
+      !!userId, // ver useAdPerformance: sem sessão resolvida não há persister
     staleTime: Infinity, // só muda com pack refresh (invalidação manual)
     gcTime: 2 * 60 * 1000,
     retry: retryOnlyNetworkErrors,
