@@ -348,7 +348,9 @@ export function ManagerChildrenTable({
 
   const innerContent = (
     <div className={asContent ? "relative flex h-full min-h-0 flex-1 flex-col overflow-hidden" : "relative"}>
-      <div className="flex-shrink-0 px-4 py-3" role="region" aria-label="Busca e filtros da tabela expandida">
+      {/* Dentro do modal (asContent) o wrapper nao leva padding lateral nem superior: a busca/filtros alinham
+          com a tabela e o resto do modal, e o conteudo comeca na mesma altura das outras abas (so o gap do TabbedContent). */}
+      <div className={asContent ? "flex-shrink-0 pb-3" : "flex-shrink-0 px-4 py-3"} role="region" aria-label="Busca e filtros da tabela expandida">
         {/* Mesmo layout de duas linhas da tabela principal: busca + contagem + Add filter + ações na
             1ª linha; chips de filtro em largura total na 2ª (renderizada pelo próprio FilterBar). */}
         <FilterBar

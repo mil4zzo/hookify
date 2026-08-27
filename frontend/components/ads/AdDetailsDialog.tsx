@@ -675,7 +675,6 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         onValueChange={(value) => setActiveTab(value as typeof activeTab)}
         variant="with-controls"
         tabs={[{ value: "video", label: "Geral" }, { value: "copy", label: "Copy" }, { value: "history", label: "Histórico" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : [])]}
-        tabsContainerClassName="mb-6"
         controls={
           allConversionTypes.length > 0 ? (
             <div className="flex items-center gap-2 min-w-0">
