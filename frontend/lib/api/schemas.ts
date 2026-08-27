@@ -233,6 +233,8 @@ export const StatusSyncResponseSchema = z.object({
   // Quantos ads tiveram o status de fato alterado no banco (0 = sincronizou, nada mudou).
   // Opcional: backend antigo não manda — sem o campo, o cliente assume "pode ter mudado".
   changed_ads: z.number().optional(),
+  // Idem para conjuntos/campanhas (parent_entities: status + orçamento).
+  changed_parents: z.number().optional(),
 })
 
 export const UpdateEntityBudgetResponseSchema = z.object({

@@ -273,8 +273,10 @@ sem refetch. Implementação:
   senão a recarga restauraria o estado de antes do toggle.
 - **status-sync on-focus**: o backend passa a atualizar só linhas cujo status difere
   (`or(effective_status.is.null, effective_status.neq.X)` — antes reescrevia todas) e
-  devolve `changed_ads`. O frontend só refaz a busca pesada se `changed_ads > 0`; sem
-  mudança, só as visões de conjunto/campanha (status de `parent_entities`, não contado).
+  devolve `changed_ads`; os pais (`upsert_parent_entities`) leem as linhas atuais,
+  gravam só as diferentes (status, orçamento, modo, conta, campanha-pai) e devolvem
+  `changed_parents`. O frontend: anúncio mudou → refaz tudo; só pai mudou → só as visões
+  de conjunto/campanha; nada mudou → nada. (2026-08-27 — fechou o "efeito colateral".)
 - Testes: `lib/api/__tests__/analyticsPersister.test.ts` (roundtrip, sem refetch ao
   restaurar, isolamento por usuário, GC), `backend/tests/test_status_sync_changed_ads.py`
   (com sabotagem). Requer deploy de backend E frontend (o campo é opcional: frontend novo

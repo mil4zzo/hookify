@@ -1904,7 +1904,7 @@ def sync_packs_status(
     # verdade da Meta, nao mudanca autoral.
     owner_by_pack: Dict[str, str] = supabase_repo.resolve_pack_owner_map(actor_id, pack_ids[:200])
     if not owner_by_pack:
-        return {"synced": [], "skipped": [], "failed": [], "ads_covered": 0, "changed_ads": 0}
+        return {"synced": [], "skipped": [], "failed": [], "ads_covered": 0, "changed_ads": 0, "changed_parents": 0}
 
     packs_by_owner: Dict[str, List[str]] = {}
     for _pid, _own in owner_by_pack.items():
@@ -1942,6 +1942,7 @@ def sync_packs_status(
     failed: List[str] = []
     ads_covered = 0
     changed_ads = 0
+    changed_parents = 0
     # Caches por CONTA dentro do request: packs da mesma conta compartilham leitura de pais,
     # escrita de pais e (para packs sem filtro) o scan de ads da conta inteira.
     parent_synced_accounts: set = set()
@@ -2019,12 +2020,14 @@ def sync_packs_status(
                 # reescrevia as colunas denormalizadas de `ads`; sem leitor desde a
                 # migration 122, virou so custo.
                 try:
-                    supabase_repo.upsert_parent_entities(
+                    changed_parents += supabase_repo.upsert_parent_entities(
                         user_jwt, user_id, enricher.project_parent_entities(act_id, parent_entities),
                         sb_client=_sb_for(user_jwt),
-                    )
+                    ) or 0
                 except Exception as exc:
                     logger.warning("[STATUS_SYNC] upsert_parent_entities falhou (best-effort): %s", exc)
+                    # Sem saber o que mudou, o cliente tem de assumir que mudou.
+                    changed_parents += 1
                 parent_synced_accounts.add(act_id)
 
             synced.append(pack_id)
@@ -2034,7 +2037,10 @@ def sync_packs_status(
             _liberar_slot_de_status_sync(sb_svc, pack_id)
             failed.append(pack_id)
 
-    return {"synced": synced, "skipped": skipped, "failed": failed, "ads_covered": ads_covered, "changed_ads": changed_ads}
+    return {
+        "synced": synced, "skipped": skipped, "failed": failed, "ads_covered": ads_covered,
+        "changed_ads": changed_ads, "changed_parents": changed_parents,
+    }
 
 
 @router.post("/ads/{ad_id}/status")

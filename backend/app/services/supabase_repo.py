@@ -943,13 +943,62 @@ def _fetch_present_parent_ids(sb: "Client", user_id: str) -> Tuple[set, set]:
 # migracao eliminou.
 
 
+_PARENT_COMPARE_FIELDS = (
+    "level", "account_id", "campaign_id", "daily_budget", "lifetime_budget", "budget_mode", "effective_status",
+)
+
+
+def _normalize_parent_value(field: str, value: Any) -> Any:
+    """Compara como o banco compara: budgets como int (o PostgREST devolve bigint como int, o
+    Meta como str), texto vazio como NULL."""
+    if value is None:
+        return None
+    if field in ("daily_budget", "lifetime_budget"):
+        try:
+            return int(str(value))
+        except (TypeError, ValueError):
+            return None
+    return str(value).strip() or None
+
+
+def _parent_row_differs(existing: Optional[Dict[str, Any]], new: Dict[str, Any]) -> bool:
+    """True se o pai ainda nao existe ou algum campo que o read-path le mudou."""
+    if not existing:
+        return True
+    for f in _PARENT_COMPARE_FIELDS:
+        if _normalize_parent_value(f, existing.get(f)) != _normalize_parent_value(f, new.get(f)):
+            return True
+    return False
+
+
+def _fetch_existing_parent_rows(sb: "Client", user_id: str, entity_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """Linhas atuais de parent_entities para os ids (lotes de 200: limite de URL do PostgREST)."""
+    out: Dict[str, Dict[str, Any]] = {}
+    for i in range(0, len(entity_ids), 200):
+        chunk = entity_ids[i : i + 200]
+        res = with_postgrest_retry(
+            f"fetch_existing_parent_rows[{len(chunk)}]",
+            lambda c=chunk: (
+                sb.table("parent_entities")
+                .select("entity_id," + ",".join(_PARENT_COMPARE_FIELDS))
+                .eq("user_id", user_id)
+                .in_("entity_id", c)
+                .execute()
+            ),
+        )
+        for r in (getattr(res, "data", None) or []):
+            if r.get("entity_id"):
+                out[str(r["entity_id"])] = r
+    return out
+
+
 def upsert_parent_entities(
     user_jwt: Optional[str],
     user_id: str,
     entities: Dict[str, Dict[str, Dict[str, Any]]],
     *,
     sb_client: Optional["Client"] = None,
-) -> None:
+) -> int:
     """
     Snapshot dos pais (campanhas/adsets, lido dos edges do Meta) na tabela parent_entities,
     keyed por (user_id, entity_id): orçamento + effective_status. Diferente do status
@@ -969,9 +1018,10 @@ def upsert_parent_entities(
     `entities` = shape de AdsEnricher.project_parent_entities:
     {"campaigns": {id: {daily_budget, lifetime_budget, budget_mode, effective_status, account_id}},
      "adsets":    {id: {daily_budget, lifetime_budget, campaign_id, effective_status, account_id}}}.
+    Devolve quantos pais foram de fato gravados (novos ou com algum campo diferente).
     """
     if not user_id or not entities:
-        return
+        return 0
     sb = _get_sb(user_jwt, sb_client)
 
     # FILTRO DE ESCOPO (unico guardiao desde o passo 3): só pais com ads importados — contas grandes
@@ -1004,14 +1054,25 @@ def upsert_parent_entities(
             )
 
     if not rows:
-        return
-    for i in range(0, len(rows), 500):
-        chunk = rows[i : i + 500]
+        return 0
+    # Grava SO o que mudou e devolve quantos mudaram (fase 2 do cache, 2026-08-27): o sync
+    # on-focus roda a cada 5 min por pack e regravava todos os pais mesmo iguais; o frontend
+    # usa a contagem para decidir se refaz a busca das visoes de conjunto/campanha.
+    # Efeito colateral aceito: `updated_at` de um pai inalterado deixa de avancar (nao ha
+    # leitor dessa coluna).
+    existing = _fetch_existing_parent_rows(sb, user_id, [r["entity_id"] for r in rows])
+    changed = [r for r in rows if _parent_row_differs(existing.get(r["entity_id"]), r)]
+    if not changed:
+        logger.info("upsert_parent_entities: %d entidades no escopo, nenhuma mudou (user %s)", len(rows), user_id)
+        return 0
+    for i in range(0, len(changed), 500):
+        chunk = changed[i : i + 500]
         with_postgrest_retry(
             f"upsert_parent_entities[{len(chunk)}]",
             lambda c=chunk: sb.table("parent_entities").upsert(c, on_conflict="user_id,entity_id").execute(),
         )
-    logger.info("upsert_parent_entities: %d entidades gravadas para user %s", len(rows), user_id)
+    logger.info("upsert_parent_entities: %d de %d entidades mudaram e foram gravadas (user %s)", len(changed), len(rows), user_id)
+    return len(changed)
 
 
 def upsert_parent_ads_counts(

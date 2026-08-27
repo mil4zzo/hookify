@@ -21,11 +21,12 @@ const MOUNT_DELAY_MS = 3000;
  * de fato sincronizado (`synced.length > 0`) — pack dentro do TTL devolve `skipped`
  * e não dispara refetch.
  *
- * Fase 2 do cache (2026-08-26): o banco só é tocado quando o dado mudou. O backend
- * devolve `changed_ads` (linhas de `ads` cujo status de fato mudou). Com mudança,
- * invalida tudo; sem mudança, só as visões de conjunto/campanha — o status delas vem de
- * `parent_entities`, que o sync também regrava e cujas mudanças não são contadas. As
- * visões por anúncio/criativo (as pesadas) ficam com o cache restaurado do disco.
+ * Fase 2 do cache (2026-08-26/27): o banco só é tocado quando o dado mudou. O backend
+ * devolve `changed_ads` (linhas de `ads` cujo status mudou) e `changed_parents`
+ * (conjuntos/campanhas cujo status ou orçamento mudou). Anúncio mudou → invalida tudo;
+ * só pai mudou → só as visões de conjunto/campanha; nada mudou → nada (o cache
+ * restaurado do disco continua valendo). Backend antigo (sem os campos) = "pode ter
+ * mudado", comportamento anterior.
  */
 export function useStatusFocusSync(): void {
   const qc = useQueryClient();
@@ -57,9 +58,10 @@ export function useStatusFocusSync(): void {
       }
       if (res.synced.length > 0) {
         const changedAds = typeof res.changed_ads === "number" ? res.changed_ads : null;
+        const changedParents = typeof res.changed_parents === "number" ? res.changed_parents : null;
         if (changedAds === null || changedAds > 0) {
           await qc.invalidateQueries({ queryKey: ["analytics", "rankings"], refetchType: "active" });
-        } else {
+        } else if (changedParents === null || changedParents > 0) {
           await qc.invalidateQueries({
             queryKey: ["analytics", "rankings"],
             refetchType: "active",
