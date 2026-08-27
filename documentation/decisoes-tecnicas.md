@@ -3662,6 +3662,14 @@ lab × produção confirma o diagnóstico: o gargalo era I/O de página, não CP
 - Role `postgres` do Supabase: `statement_timeout` de 2 min. Backfill e checagem por
   usuário com `SET statement_timeout = 0`.
 
+### Série (migration 131) — o gargalo seguinte, no mesmo dia
+
+Com a core em 1,2 s, os prints mostraram a `series` em 11 s. Ela lia `ad_metrics` cru E o
+período inteiro (57 dias) para usar só a janela de 5. Reescrita sobre o read model, só a
+janela, MQLs do histograma; `series_v2` virou wrapper. Contrato idêntico (nunca expôs
+arrays), zero mudança fora do banco; 496/496 cenários idênticos. **Produção: 11,6 s fria /
+4,0 s quente → 0,33 s.**
+
 ### Método que funcionou
 
 Laboratório local (Postgres 17 + `pg_restore` do dump, `supabase/tests/README.md`): zero

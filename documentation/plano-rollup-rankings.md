@@ -2,7 +2,7 @@
 
 Data: 2026-08-26. Estado: **fases A–E concluídas em produção em 2026-08-26.** Cutover
 medido no banco, alternando as versões: v116 8-12 s → v130 **1,2 s** (a RPC do Manager),
-zero arquivo temporário. Pendente: fase F (remedir instância e `work_mem` com CPU
+zero arquivo temporário; série (131) 4-11,6 s → 0,33 s. Pendente: fase F (remedir instância e `work_mem` com CPU
 saudável, rename §9) e a fase 2 do cache (IndexedDB), agora conforto e não urgência.
 Decisões do usuário: histograma de leadscore entra na v1; instância continua MICRO até o
 rollup medir; a nomenclatura nova é **"performance"** (artefatos novos nascem
@@ -236,6 +236,23 @@ Regras de processo herdadas desta semana:
   `ad_conversions_daily` por mês; a consulta não muda.
 - Ponto de atenção real em escala: o **Meta API** (limite de chamadas) e o refresh,
   não o banco. Fica para o plano de produção.
+
+## 10. Série diária (sparklines) no read model — migration 131 (2026-08-26)
+
+Depois do cutover da 130, os prints do Manager mostraram o próximo gargalo: `series`
+**11 s** na tela (produção: 181 chamadas, 1,7 s de média, 12,6 s no pior caso, 1,3 GB de
+temporário acumulado). Dois desperdícios: lia `ad_metrics` cru (o mesmo custo que a 130
+tirou da core) **e lia o período inteiro (57 dias) para usar só a janela (`SERIES_WINDOW =
+5`)**.
+
+`fetch_manager_performance_series_v131`: seleção no mapa restrita à janela, linhas do read
+model, MQLs/soma/contagem do dia direto do histograma (`unnest(lead_scores, lead_qtys)`),
+conversão por `array_position`. `fetch_manager_rankings_series_v2` vira wrapper fino
+(padrão da core); rollback = reaplicar a função da migration 110. **Contrato idêntico e
+nenhuma mudança fora do banco**: a série nunca expôs arrays de leadscore (calcula por dia
+com o corte do pack). Lab: saída byte a byte igual no cenário real, 405–478 ms → 146–152
+ms. Diferencial: `diff_rankings_rollup.py --series` — **496/496 cenários idênticos**.
+**Produção (2026-08-26, aplicada):** mesmas 150 chaves, janela 5 — **11,6 s fria / 4,0 s quente → 0,33 s**.
 
 ## 9. Passe de renomeação "rankings" → "performance" (depois do cutover, não junto)
 

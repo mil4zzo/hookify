@@ -190,6 +190,80 @@ def build_scenarios(meta: dict) -> list[dict]:
     return scen
 
 
+OLD_SERIES_FN = "public.fetch_manager_rankings_series_v2_legacy"   # renomeada no lab antes da 131
+NEW_SERIES_FN = "public.fetch_manager_rankings_series_v2"          # wrapper da _v131
+
+
+def build_series_scenarios(meta: dict) -> list[dict]:
+    """Série: por (ator, packs) × 4 group_by × {sem evento, top} × janela {5, 30}.
+    group_keys = até 500 chaves reais da seleção (subconsulta no read model)."""
+    groups = ["ad_id", "ad_name", "adset_id", "campaign_id"]
+    scen: list[dict] = []
+    by_user: dict[str, list[dict]] = {}
+    for p in meta["packs"]:
+        by_user.setdefault(p["user_id"], []).append(p)
+    top = meta["top_key"]
+
+    def add(sid, actor, owners, packs, ds, de, g, act, window):
+        scen.append(dict(id=sid, actor=actor, owners=owners, packs=packs, ds=ds, de=de, group_by=g, action=act, window=window))
+
+    for user, packs in by_user.items():
+        for p in packs:
+            for g in groups:
+                for act in dict.fromkeys([None, top.get(p["id"])]):
+                    add(f"series|{user[:8]}|pack:{p['id'][:8]}|{g}|{act or 'none'}|w5", user, [user], [p["id"]], p["ds"], p["de"], g, act, 5)
+        all_ids = [p["id"] for p in packs]
+        ds, de = min(p["ds"] for p in packs), max(p["de"] for p in packs)
+        tops = [top.get(p["id"]) for p in packs if top.get(p["id"])]
+        act_all = max(set(tops), key=tops.count) if tops else None
+        for g in groups:
+            for w in (5, 30):
+                for act in dict.fromkeys([None, act_all]):
+                    add(f"series|{user[:8]}|all|{g}|{act or 'none'}|w{w}", user, [user], all_ids, ds, de, g, act, w)
+    for sh in meta["shares"]:
+        for g in groups:
+            add(f"series|share:{sh['grantee'][:8]}<-{sh['owner'][:8]}|{sh['pack'][:8]}|{g}|w5", sh["grantee"], [sh["owner"]], [sh["pack"]], sh["ds"], sh["de"], g, top.get(sh["pack"]), 5)
+    return scen
+
+
+def series_keys_sql(s: dict) -> str:
+    gk = {
+        "ad_id": "d.ad_id",
+        "ad_name": "coalesce(nullif(d.ad_name, ''), d.ad_id)",
+        "adset_id": "d.adset_id",
+        "campaign_id": "d.campaign_id",
+    }[s["group_by"]]
+    return (
+        "(select array_agg(gk) from (select distinct " + gk + " as gk "
+        "from public.ad_metric_pack_map m join public.ad_performance_daily d "
+        "on d.user_id = m.user_id and d.ad_id = m.ad_id and d.date = m.metric_date "
+        f"where m.user_id = any({q_arr(s['owners'], 'uuid')}) and m.pack_id = any({q_arr(s['packs'], 'uuid')}) "
+        f"and m.metric_date between {q(s['ds'])}::date and {q(s['de'])}::date "
+        f"and coalesce({gk}, '') <> '' order by 1 limit 500) x)"
+    )
+
+
+def call_series_sql(fn: str, s: dict) -> str:
+    return (
+        f"{fn}({q(s['actor'])}::uuid, {q(s['ds'])}::date, {q(s['de'])}::date, {q(s['group_by'])}, "
+        f"{q_arr(s['packs'], 'uuid')}, null::text[], null, null, null, {q(s.get('action'))}, "
+        f"{series_keys_sql(s)}, {int(s['window'])})"
+    )
+
+
+def series_scenario_sql(scen: list[dict]) -> str:
+    parts = ["\\set ON_ERROR_STOP on", "set work_mem = '3500kB';"]
+    for s in scen:
+        claims = json.dumps({"sub": s["actor"]})
+        parts.append("begin;")
+        parts.append(f"set local request.jwt.claims = {q(claims)};")
+        parts.append(
+            "select " + q(s["id"]) + f" || {q(SEP)} || {call_series_sql(OLD_SERIES_FN, s)}::text || {q(SEP)} || {call_series_sql(NEW_SERIES_FN, s)}::text;"
+        )
+        parts.append("rollback;")
+    return "\n".join(parts) + "\n"
+
+
 def call_sql(fn: str, s: dict) -> str:
     return (
         f"{fn}({q(s['actor'])}::uuid, {q(s['ds'])}::date, {q(s['de'])}::date, {q(s['group_by'])}, "
@@ -290,6 +364,8 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=0, help="rodar só os N primeiros cenários")
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--filter", default="", help="substring do id do cenário")
+    ap.add_argument("--series", action="store_true",
+                    help="compara a serie (fetch_manager_rankings_series_v2_legacy x wrapper da _v131) em vez da core")
     args = ap.parse_args()
 
     psql = find_psql()
@@ -298,14 +374,15 @@ def main() -> int:
         sys.exit("Recusando rodar contra o Supabase remoto: o diferencial e para o lab local.")
 
     meta = discover(psql, url)
-    scen = build_scenarios(meta)
+    scen = build_series_scenarios(meta) if args.series else build_scenarios(meta)
     if args.filter:
         scen = [s for s in scen if args.filter in s["id"]]
     if args.limit:
         scen = scen[: args.limit]
-    print(f"{len(scen)} cenarios ({len(meta['packs'])} packs, {len(meta['shares'])} compartilhamentos)")
+    print(f"{len(scen)} cenarios ({len(meta['packs'])} packs, {len(meta['shares'])} compartilhamentos)"
+          + (" [serie]" if args.series else ""))
 
-    out = run_sql(psql, url, scenario_sql(scen))
+    out = run_sql(psql, url, series_scenario_sql(scen) if args.series else scenario_sql(scen))
     lines = [ln for ln in out.split("\n") if SEP in ln]
     if len(lines) != len(scen):
         print(f"AVISO: {len(lines)} resultados para {len(scen)} cenarios")
@@ -315,7 +392,11 @@ def main() -> int:
     for ln in lines:
         sid, old_s, new_s = ln.split(SEP, 2)
         old, new = loads(old_s), loads(new_s)
-        diffs = compare(old, new)
+        if args.series:
+            diffs = []
+            cmp_value("series", old, new, diffs)   # contrato integral: window + series_by_group
+        else:
+            diffs = compare(old, new)
         if diffs:
             bad += 1
             total_diffs += len(diffs)
