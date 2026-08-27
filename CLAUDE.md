@@ -176,6 +176,40 @@ Internal docs in `/documentation/`:
 
 Deployment docs in `/deploy/`: `README.md`, `QUICK_START.md`, `ENV_TEMPLATE.md`, `SETUP_GUIDE.md`, `TEST_CHECKLIST.md`.
 
+## Filosofia de trabalho
+
+Registrada em 2026-08-27, depois da semana em que o Manager foi de ~20 s para ~1 s.
+O ganho não veio de uma técnica (o rollup foi só o último passo) — veio de uma postura,
+que é a do projeto:
+
+- **Questionar o porquê antes de aceitar o sintoma.** "O banco não aguenta" é hipótese,
+  não diagnóstico. A pergunta certa era "por que 77 linhas custam 470 MB de temporário?".
+- **Medir antes de concluir — e desconfiar da própria medição** (frio × quente, isolado ×
+  concorrente, janela com incidente mede a fila, burst esgotado pelo próprio teste).
+- **Caçar desperdício antes de otimizar.** Diante de lentidão ou custo, a primeira
+  pergunta é "o que está sendo feito que não precisava?" — chamadas sem consumidor,
+  dados que ninguém lê, período inteiro lido para usar 5 dias, escrita do que não mudou.
+  Só depois: "como fazer mais rápido o que precisa".
+- **Revisar com detalhe.** Todo mecanismo novo com teste que já foi sabotado de propósito
+  (um teste que nunca falhou não provou nada); toda troca de cálculo com diferencial
+  contra a versão anterior antes do cutover.
+- **Eficiência é filosofia do produto, não tarefa.** "O banco só é tocado quando o dado
+  mudou" é um mecanismo (carimbo de frescor na chave do cache + persistência), não uma
+  intenção.
+
+### Como explicar as coisas
+
+Quem escreve ~99% do código é o Claude; quem decide o produto é o idealizador, que não
+tem base técnica profunda e é forte exatamente onde o Claude não é: pensar de forma
+prática, analisar fluxos e lógicas, pensar produto, comparar com o mundo real. Para ele
+decidir com cabeça de produto, toda explicação técnica traz a camada prática — o que o
+problema significa na vida real, o que acontece se não arrumar, o que se ganha ao
+arrumar, prós/contras/efeitos colaterais (inclusive o que passa a custar), em unidades
+que se sentem (segundos na tela, MB, R$). Termos técnicos são bem-vindos, com uma
+tradução curta quando novos. **Nome criado pelo Claude** (`ad_performance_daily`,
+"carimbo de frescor", `_base_v130`) nunca aparece como se já fosse conhecido: na primeira
+menção, o que é e para que serve. Isto é um refino do que já funciona, não um checklist.
+
 ## Gerenciamento de memória e decisões técnicas
 
 O default é **NÃO registrar**. A memória existe para carregar, em toda sessão
