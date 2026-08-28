@@ -15,6 +15,7 @@ from app.core.client_disconnect import ClientGone, abort_if_client_gone
 from app.core.auth import get_current_user
 from app.core.config import ANALYTICS_MANAGER_POSTGREST_TIMEOUT_SECONDS
 from app.services import supabase_repo
+from app.services import entity_performance as EP
 from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
 from app.services import pack_action_log
 from app.services.ad_media import resolve_media_type
@@ -256,57 +257,12 @@ class UpdatePackJudgmentRequest(BaseModel):
     model_config = {"extra": "forbid"}
 
 
-def _to_date(s: str) -> datetime:
-    return datetime(int(s[0:4]), int(s[5:7]), int(s[8:10]))
-
-
-def _axis_5_days(end_date: str) -> List[str]:
-    end = _to_date(end_date)
-    return [(end - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(4, -1, -1)]
-
-
-def _axis_date_range(start_date: str, end_date: str) -> List[str]:
-    """Gera array de datas entre start_date e end_date (inclusive)."""
-    start = _to_date(start_date)
-    end = _to_date(end_date)
-    dates = []
-    current = start
-    while current <= end:
-        dates.append(current.strftime("%Y-%m-%d"))
-        current += timedelta(days=1)
-    return dates
-
-
-def _safe_div(a: float, b: float) -> float:
-    return (a / b) if b else 0.0
-
-
-def _extract_lpv(row: Dict[str, Any]) -> int:
-    """Extrai LPV (landing_page_view) de forma consistente.
-
-    PreferÃªncia:
-    1) coluna explÃ­cita `lpv` (quando disponÃ­vel no ad_metrics)
-    2) soma de actions[].value onde action_type == landing_page_view
-
-    Retorna 0 quando nÃ£o houver dados.
-    """
-    try:
-        v = row.get("lpv")
-        if v is not None:
-            n = int(v or 0)
-            if n > 0:
-                return n
-    except Exception:
-        pass
-
-    lpv = 0
-    try:
-        for a in (row.get("actions") or []):
-            if str(a.get("action_type")) == "landing_page_view":
-                lpv += int(a.get("value") or 0)
-    except Exception:
-        return 0
-    return int(lpv or 0)
+# Datas e divisão segura vivem em entity_performance (migration 133): o agregador
+# das telas de detalhe e as rotas usam a MESMA implementação.
+_to_date = EP.to_date
+_axis_5_days = EP.axis_5_days
+_axis_date_range = EP.axis_date_range
+_safe_div = EP.safe_div
 
 
 def _resolve_mql_leadscore_min(user_id: str, pack_ids: Optional[List[str]] = None) -> Optional[float]:
@@ -349,215 +305,6 @@ def _resolve_mql_leadscore_min(user_id: str, pack_ids: Optional[List[str]] = Non
     except (TypeError, ValueError):
         return None
     return v if v >= 0 else None
-
-
-def _count_mql(leadscore_values: Any, mql_leadscore_min: Optional[float]) -> Optional[int]:
-    """Conta quantos leadscores sao >= o corte (valores invalidos sao ignorados).
-
-    Sem corte definido retorna None — nao 0. "Nenhum lead qualificou" e um fato;
-    "nao da para dizer quantos qualificaram" e outra coisa. Quem acumula converte
-    para 0 no somatorio, mas a camada que MONTA a resposta decide pelo corte ser
-    None, nunca pelo acumulador estar zerado.
-    """
-    if mql_leadscore_min is None:
-        return None
-    if not isinstance(leadscore_values, list) or not leadscore_values:
-        return 0
-    cnt = 0
-    for v in leadscore_values:
-        try:
-            n = float(v)
-        except Exception:
-            continue
-        if n >= mql_leadscore_min:
-            cnt += 1
-    return cnt
-
-
-def _sum_count_leadscore(leadscore_values: Any) -> Tuple[float, int]:
-    """Soma e contagem dos leadscores válidos do dia (para leadscore_avg = soma/contagem)."""
-    if not isinstance(leadscore_values, list) or not leadscore_values:
-        return 0.0, 0
-    total = 0.0
-    cnt = 0
-    for v in leadscore_values:
-        try:
-            n = float(v)
-        except Exception:
-            continue
-        total += n
-        cnt += 1
-    return total, cnt
-
-
-def _build_rankings_series(
-    axis: List[str],
-    S: Optional[Dict[str, Any]],
-    include_cpmql: bool = True,
-    mql_available: bool = True,
-) -> Dict[str, Any]:
-    """ConstrÃ³i payload `series` no formato consumido pelo frontend (sparklines).
-
-    `mql_available=False` (corte de leadscore indefinido ou divergente entre os
-    packs) zera a AFIRMACAO, nao o valor: cpmql/mqls/mql_rate saem como null.
-    `leadscore_avg` continua saindo, porque a media nao depende do corte.
-
-    A decisao olha o corte, nunca o acumulador. `mql_count` zerado e ambiguo —
-    pode ser "nenhum lead atingiu o corte", que e um fato publicavel.
-    """
-    # Se S for None, usar dict vazio para evitar AttributeError
-    if S is None:
-        S = {}
-    hook_series: List[Optional[float]] = []
-    scroll_stop_series: List[Optional[float]] = []
-    hold_rate_series: List[Optional[float]] = []
-    video_watched_p50_series: List[Optional[float]] = []
-    video_watched_p75_series: List[Optional[float]] = []
-    plays_series: List[Optional[int]] = []
-    thruplays_series: List[Optional[int]] = []
-    reach_series: List[Optional[int]] = []
-    spend_series: List[Optional[float]] = []
-    clicks_series: List[Optional[int]] = []
-    inline_link_clicks_series: List[Optional[int]] = []
-    ctr_series: List[Optional[float]] = []
-    connect_series: List[Optional[float]] = []
-    lpv_series: List[Optional[int]] = []
-    impressions_series: List[Optional[int]] = []
-    cpm_series: List[Optional[float]] = []
-    cpc_series: List[Optional[float]] = []
-    cplc_series: List[Optional[float]] = []
-    website_ctr_series: List[Optional[float]] = []
-    conversions_series: List[Dict[str, int]] = []  # conversions por dia
-    cpmql_series: List[Optional[float]] = []
-    mqls_series: List[Optional[int]] = []  # MQLs por dia
-    leadscore_avg_series: List[Optional[float]] = []  # leadscore médio por dia
-    mql_rate_series: List[Optional[float]] = []  # taxa de qualificação por dia (MQLs / total de leads, escala 0-1)
-
-    for d in axis:
-        plays = (S.get("plays") or {}).get(d, 0) or 0
-        hook_wsum = (S.get("hook_wsum") or {}).get(d, 0.0) or 0.0
-        hook_day = _safe_div(hook_wsum, plays) if plays else None
-
-        scroll_stop_wsum = (S.get("scroll_stop_wsum") or {}).get(d, 0.0) or 0.0
-        scroll_stop_day = _safe_div(scroll_stop_wsum, plays) if plays else None
-
-        hold_rate_wsum = (S.get("hold_rate_wsum") or {}).get(d, 0.0) or 0.0
-        hold_rate_day = _safe_div(hold_rate_wsum, plays) if plays else None
-
-        video_watched_p50_wsum = (S.get("video_watched_p50_wsum") or {}).get(d, 0.0) or 0.0
-        video_watched_p50_day = _safe_div(video_watched_p50_wsum, plays) if plays else None
-
-        video_watched_p75_wsum = (S.get("video_watched_p75_wsum") or {}).get(d, 0.0) or 0.0
-        video_watched_p75_day = _safe_div(video_watched_p75_wsum, plays) if plays else None
-
-        thruplays_day = (S.get("thruplays") or {}).get(d, 0) or 0
-        reach_day = (S.get("reach") or {}).get(d, 0) or 0
-
-        spend_day = (S.get("spend") or {}).get(d, 0.0) or 0.0
-        clicks_day = (S.get("clicks") or {}).get(d, 0) or 0
-        impr_day = (S.get("impressions") or {}).get(d, 0) or 0
-        inline_day = (S.get("inline") or {}).get(d, 0) or 0
-        lpv_day = (S.get("lpv") or {}).get(d, 0) or 0
-
-        ctr_day = (clicks_day / impr_day) if impr_day else None
-        connect_day = (lpv_day / inline_day) if inline_day else None
-        cpm_day = (spend_day * 1000.0 / impr_day) if impr_day else None
-        cpc_day = (spend_day / clicks_day) if clicks_day else None
-        cplc_day = (spend_day / inline_day) if inline_day else None
-        website_ctr_day = (inline_day / impr_day) if impr_day else None
-
-        conversions_day = ((S.get("conversions") or {}).get(d, {})) or {}
-
-        hook_series.append(hook_day)
-        scroll_stop_series.append(scroll_stop_day)
-        hold_rate_series.append(hold_rate_day)
-        video_watched_p50_series.append(video_watched_p50_day)
-        video_watched_p75_series.append(video_watched_p75_day)
-        plays_series.append(plays if plays else None)
-        thruplays_series.append(thruplays_day if thruplays_day else None)
-        reach_series.append(reach_day if reach_day else None)
-        spend_series.append(spend_day if spend_day else None)
-        clicks_series.append(clicks_day if clicks_day else None)
-        inline_link_clicks_series.append(inline_day if inline_day else None)
-        ctr_series.append(ctr_day)
-        connect_series.append(connect_day)
-        lpv_series.append(lpv_day)
-        impressions_series.append(impr_day if impr_day else None)
-        cpm_series.append(cpm_day)
-        cpc_series.append(cpc_day)
-        cplc_series.append(cplc_day)
-        website_ctr_series.append(website_ctr_day)
-        conversions_series.append(conversions_day)
-
-        if include_cpmql:
-            leadscore_sum_day = ((S.get("leadscore_sum") or {}).get(d, 0.0)) or 0.0
-            leadscore_count_day = ((S.get("leadscore_count") or {}).get(d, 0)) or 0
-            # Independe do corte: e a media dos leads, nao a fatia qualificada.
-            leadscore_avg_series.append((leadscore_sum_day / leadscore_count_day) if leadscore_count_day > 0 else None)
-
-            if not mql_available:
-                cpmql_series.append(None)
-                mqls_series.append(None)
-                mql_rate_series.append(None)
-            else:
-                mql_count_day = ((S.get("mql_count") or {}).get(d, 0)) or 0
-                cpmql_day = (spend_day / mql_count_day) if (mql_count_day and spend_day > 0) else None
-                cpmql_series.append(cpmql_day)
-                mqls_series.append(mql_count_day if mql_count_day > 0 else None)
-
-                # Taxa de qualificação: MQLs sobre o TOTAL de leads do dia (não sobre os não-MQLs).
-                mql_rate_series.append((mql_count_day / leadscore_count_day) if leadscore_count_day > 0 else None)
-
-    series: Dict[str, Any] = {
-        "axis": axis,
-        "hook": hook_series,
-        "scroll_stop": scroll_stop_series,
-        "hold_rate": hold_rate_series,
-        "video_watched_p50": video_watched_p50_series,
-        "video_watched_p75": video_watched_p75_series,
-        "plays": plays_series,
-        "thruplays": thruplays_series,
-        "reach": reach_series,
-        "spend": spend_series,
-        "clicks": clicks_series,
-        "inline_link_clicks": inline_link_clicks_series,
-        "ctr": ctr_series,
-        "connect_rate": connect_series,
-        "lpv": lpv_series,
-        "impressions": impressions_series,
-        "cpm": cpm_series,
-        "cpc": cpc_series,
-        "cplc": cplc_series,
-        "website_ctr": website_ctr_series,
-        "conversions": conversions_series,
-    }
-    if include_cpmql:
-        series["cpmql"] = cpmql_series
-        series["mqls"] = mqls_series
-        series["leadscore_avg"] = leadscore_avg_series
-        series["mql_rate"] = mql_rate_series
-    return series
-
-
-def _group_key_from_rankings_item(item: Dict[str, Any], group_by: GroupBy) -> str:
-    if group_by == "ad_id":
-        return str(item.get("ad_id") or "")
-    if group_by == "ad_name":
-        return str(item.get("ad_name") or item.get("ad_id") or "")
-    if group_by == "adset_id":
-        return str(item.get("adset_id") or "")
-    return str(item.get("campaign_id") or "")
-
-
-def _group_key_from_metric_row(row: Dict[str, Any], group_by: GroupBy) -> str:
-    ad_id = str(row.get("ad_id") or "")
-    if group_by == "ad_id":
-        return ad_id
-    if group_by == "ad_name":
-        return str(row.get("ad_name") or ad_id)
-    if group_by == "adset_id":
-        return str(row.get("adset_id") or "")
-    return str(row.get("campaign_id") or "")
 
 
 def _normalize_date_str(date_raw: Any) -> Optional[str]:
@@ -898,48 +645,6 @@ def _get_rankings_retention_v2_rpc(req: RankingsRetentionRequest, user: Dict[str
         "video_play_curve_actions": curve,
     }
 
-def _merge_row_conversions_actions(r: Dict[str, Any], target: Dict[str, Any]) -> None:
-    """Agrega conversions e actions de uma linha de ad_metrics em `target` usando chaves prefixadas.
-
-    Chaves no target:
-      - "conversion:{action_type}" para itens de r["conversions"]
-      - "action:{action_type}"     para itens de r["actions"]
-
-    Usado pelos trÃªs endpoints de children (ad-name, adset-id, campaign-id) para garantir
-    um contrato uniforme de conversions consumido pelo frontend.
-    """
-    try:
-        for c in (r.get("conversions") or []):
-            action_type = str(c.get("action_type") or "")
-            value = int(c.get("value") or 0)
-            if action_type:
-                key = f"conversion:{action_type}"
-                target[key] = target.get(key, 0) + value
-        for a in (r.get("actions") or []):
-            action_type = str(a.get("action_type") or "")
-            value = int(a.get("value") or 0)
-            if action_type:
-                key = f"action:{action_type}"
-                target[key] = target.get(key, 0) + value
-    except Exception:
-        pass
-
-
-def _hook_at_3_from_curve(curve: Any) -> float:
-    try:
-        if not isinstance(curve, list) or not curve:
-            return 0.0
-        v = float(curve[min(3, len(curve) - 1)] or 0)
-        return v / 100.0 if v > 1 else v
-    except Exception:
-        return 0.0
-
-def _get_thumbnail_with_fallback(ad_row: Dict[str, Any]) -> Optional[str]:
-    """Meta CDN thumbnail fallback is disabled; callers must use Storage thumbs."""
-    _ = ad_row
-    return None
-
-
 def _get_storage_thumb_if_any(ad_row: Dict[str, Any]) -> Optional[str]:
     """Retorna URL pÃºblica do Storage se `thumb_storage_path` existir; senÃ£o None."""
     try:
@@ -949,33 +654,6 @@ def _get_storage_thumb_if_any(ad_row: Dict[str, Any]) -> Optional[str]:
         return build_public_storage_url(DEFAULT_BUCKET, p)
     except Exception:
         return None
-
-
-def _select_storage_thumbnail_for_group(
-    rep_ad_id: Any,
-    ad_ids_in_group: Any,
-    storage_thumbnails_map: Dict[str, str],
-) -> tuple[Optional[str], Optional[str]]:
-    """Select a Storage thumbnail for an aggregated group, preferring the representative ad."""
-    rep_ad_id_str = str(rep_ad_id or "").strip()
-    if rep_ad_id_str:
-        rep_thumb = storage_thumbnails_map.get(rep_ad_id_str)
-        if rep_thumb:
-            return rep_thumb, rep_ad_id_str
-
-    try:
-        ad_ids = sorted(str(ad_id or "").strip() for ad_id in (ad_ids_in_group or []) if str(ad_id or "").strip())
-    except Exception:
-        ad_ids = []
-
-    for ad_id in ad_ids:
-        if ad_id == rep_ad_id_str:
-            continue
-        thumb = storage_thumbnails_map.get(ad_id)
-        if thumb:
-            return thumb, ad_id
-
-    return None, None
 
 
 def _is_storage_thumbnail_url(value: Any) -> bool:
@@ -1466,6 +1144,86 @@ def get_rankings_retention(req: RankingsRetentionRequest, user=Depends(get_curre
         raise HTTPException(status_code=500, detail="Erro ao consultar retencao do Manager.")
 
 
+
+def _entity_payload(user: Dict[str, Any], **kw) -> Dict[str, Any]:
+    """Uma chamada a fetch_entity_performance_v133 com o JWT do ator.
+
+    42501 (pack inacessível na seleção / ator ≠ p_user_id) → 403, como o Manager;
+    22023 (parâmetro inválido) → 400. O resto sobe como antes (500 genérico).
+    """
+    sb = get_supabase_for_user(user["token"])
+    try:
+        return EP.fetch_entity_performance(sb, user_id=user["user_id"], **kw)
+    except EP.EntityPerformanceForbidden:
+        raise HTTPException(status_code=403, detail="Pack inacessivel na selecao.")
+    except EP.EntityPerformanceBadRequest as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _entity_thumbnail(group: Dict[str, Any]) -> Optional[str]:
+    return _get_storage_thumb_if_any({"thumb_storage_path": group.get("thumb_storage_path")})
+
+
+def _entity_child_item(
+    group: Dict[str, Any],
+    axis: List[str],
+    mql: Optional[float],
+    include_leadscore: bool,
+    *,
+    series_null_when_empty: bool = False,
+) -> Dict[str, Any]:
+    """Linha-filha (um anúncio) no contrato de /children — comum a ad-name e adset-id.
+
+    `series_null_when_empty`: os filhos por ad_name sempre devolveram `series: null`
+    para o anúncio sem nenhum dia no eixo de 5 dias (os de adset devolvem o objeto
+    com nulls). Contrato mantido — provado pelo diferencial.
+    """
+    t = EP.totals_of(group)
+    d = EP.derived_of(t)
+    status = group.get("effective_status")
+    has_axis_days = any(str((day or {}).get("date") or "")[:10] in axis for day in (group.get("days") or []))
+    return {
+        "account_id": group.get("account_id"),
+        "ad_id": group.get("ad_id"),
+        "ad_name": group.get("ad_name"),
+        "effective_status": status,
+        "status_resolved": bool(str(status).strip()) if status is not None else False,
+        "campaign_name": group.get("campaign_name"),
+        "adset_name": group.get("adset_name"),
+        "impressions": t["impressions"],
+        "clicks": t["clicks"],
+        "inline_link_clicks": t["inline_link_clicks"],
+        "spend": t["spend"],
+        "lpv": t["lpv"],
+        "plays": t["plays"],
+        "video_total_thruplays": t["thruplays"],
+        "hook": d["hook"],
+        "hold_rate": d["hold_rate"],
+        "video_watched_p50": d["video_watched_p50"],
+        "video_watched_p75": d["video_watched_p75"],
+        "scroll_stop": d["scroll_stop"],
+        "ctr": d["ctr"],
+        "connect_rate": d["connect_rate"],
+        "cpm": d["cpm"],
+        "website_ctr": d["website_ctr"],
+        "reach": t["reach"],
+        "frequency": d["frequency"],
+        "conversions": t["conversions"],
+        "leadscore_values": t["leadscore_values"] if include_leadscore else [],
+        "thumbnail": _entity_thumbnail(group),
+        "series": None if (series_null_when_empty and not has_axis_days) else EP.series_of(group, axis, mql),
+    }
+
+
+_CHILDREN_ORDER_KEYS = {"hook", "hold_rate", "cpr", "spend", "ctr", "connect_rate", "page_conv"}
+
+
+def _sort_children(items: List[Dict[str, Any]], order_by: Optional[str]) -> None:
+    order = (order_by or "").lower()
+    if order in _CHILDREN_ORDER_KEYS:
+        items.sort(key=lambda x: (x.get(order) or 0), reverse=(order != "cpr"))
+
+
 @router.get("/rankings/ad-name/{ad_name}/details")
 def get_ad_name_details(
     ad_name: str,
@@ -1475,264 +1233,47 @@ def get_ad_name_details(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user)
 ):
-    """Retorna detalhes agregados de todos os ad_ids com o mesmo ad_name no perÃ­odo.
-    Equivalente a get_ad_details, mas agrupado por ad_name.
-
-    Quando `pack_ids` é fornecido, filtra somente as métricas que pertencem aos
-    packs especificados via `ad_metric_pack_map`.
-    """
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
+    """Detalhe agregado de todos os ad_ids com o mesmo ad_name no período (read model,
+    migration 133). Com `pack_ids`, só as métricas dos packs selecionados."""
     axis = _axis_5_days(date_stop)
-
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values,lpv"
+    payload = _entity_payload(
+        user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
+        pack_ids=pack_ids, group_by="entity", include_curve=True, series_days=5,
     )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values"
-    )
-
-    pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
-
-    data: List[Dict[str, Any]] = []
-    if pack_ids_clean:
-        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
-        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
-        data = supabase_repo.fetch_pack_metrics_rows(
-            user["user_id"], pack_ids_clean, date_start, date_stop,
-            select_with_lpv, select_without_lpv,
-            {"ad_name": ad_name}, log_tag="ad_name_details",
-            cancellable=True,
-        )
-    else:
-        def metrics_filters(q):
-            return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
-
-        try:
-            data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-        except ClientGone:
-            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
-            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
-            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
-            # explicita torna isso contrato em vez de coincidencia.
-            raise
-        except Exception as e:
-            msg = str(e or "")
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                logger.warning("[ad_name_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-            else:
-                raise
-
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Ad name '{ad_name}' nÃ£o encontrado no perÃ­odo especificado")
-
-    # Agregar dados do perÃ­odo completo (todos os ad_ids com esse nome)
-    agg: Dict[str, Any] = {
-        "account_id": None,
-        "ad_name": ad_name,
-        "campaign_name": None,
-        "adset_name": None,
-        "impressions": 0,
-        "clicks": 0,
-        "inline_link_clicks": 0,
-        "spend": 0.0,
-        "lpv": 0,
-        "plays": 0,
-        "thruplays": 0,
-        "hook_wsum": 0.0,
-        "hold_rate_wsum": 0.0,
-        "video_watched_p50_wsum": 0.0,
-        "video_watched_p75_wsum": 0.0,
-        "reach": 0,
-        "curve_weighted": {},
-        "conversions": {},
-        "leadscore_values": [],
-        "ad_ids": set(),
-    }
-
-    series_acc: Dict[str, Any] = {
-        "impressions": {d: 0 for d in axis},
-        "clicks": {d: 0 for d in axis},
-        "inline": {d: 0 for d in axis},
-        "spend": {d: 0.0 for d in axis},
-        "plays": {d: 0 for d in axis},
-        "lpv": {d: 0 for d in axis},
-        "hook_wsum": {d: 0.0 for d in axis},
-        "scroll_stop_wsum": {d: 0.0 for d in axis},
-        "hold_rate_wsum": {d: 0.0 for d in axis},
-        "video_watched_p50_wsum": {d: 0.0 for d in axis},
-        "video_watched_p75_wsum": {d: 0.0 for d in axis},
-        "conversions": {d: {} for d in axis},
-        "mql_count": {d: 0 for d in axis},
-        "leadscore_sum": {d: 0.0 for d in axis},
-        "leadscore_count": {d: 0 for d in axis},
-    }
-
-    for r in data:
-        if not agg["account_id"]:
-            agg["account_id"] = r.get("account_id")
-            agg["campaign_name"] = r.get("campaign_name")
-            agg["adset_name"] = r.get("adset_name")
-
-        aid = str(r.get("ad_id") or "")
-        if aid:
-            agg["ad_ids"].add(aid)
-
-        date = str(r.get("date"))[:10]
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-        plays = int(r.get("video_total_plays") or 0)
-        thruplays = int(r.get("video_total_thruplays") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        hold_rate = float(r.get("hold_rate") or 0)
-        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
-        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        reach = int(r.get("reach") or 0)
-        lpv = _extract_lpv(r)
-
-        agg["impressions"] += impressions
-        agg["clicks"] += clicks
-        agg["inline_link_clicks"] += inline_link_clicks
-        agg["spend"] += spend
-        agg["lpv"] += lpv
-        agg["plays"] += plays
-        agg["thruplays"] += thruplays
-        agg["hook_wsum"] += hook * plays
-        agg["hold_rate_wsum"] += hold_rate * plays
-        agg["video_watched_p50_wsum"] += video_watched_p50 * plays
-        agg["video_watched_p75_wsum"] += video_watched_p75 * plays
-        agg["reach"] += reach
-
-        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
-            try:
-                agg["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
-            except Exception:
-                pass
-
-        if isinstance(curve, list) and plays > 0:
-            try:
-                for i, val in enumerate(curve):
-                    val_num = int(val or 0)
-                    if i not in agg["curve_weighted"]:
-                        agg["curve_weighted"][i] = {"weighted_sum": 0.0, "plays_sum": 0}
-                    agg["curve_weighted"][i]["weighted_sum"] += val_num * plays
-                    agg["curve_weighted"][i]["plays_sum"] += plays
-            except Exception:
-                pass
-
-        _merge_row_conversions_actions(r, agg["conversions"])
-
-        if date in axis:
-            series_acc["impressions"][date] += impressions
-            series_acc["clicks"][date] += clicks
-            series_acc["inline"][date] += inline_link_clicks
-            series_acc["spend"][date] += spend
-            series_acc["lpv"][date] += lpv
-            series_acc["plays"][date] += plays
-            series_acc["hook_wsum"][date] += hook * plays
-            series_acc["scroll_stop_wsum"][date] += scroll_stop * plays
-            series_acc["hold_rate_wsum"][date] += hold_rate * plays
-            series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
-            series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
-            try:
-                series_acc["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
-                series_acc["leadscore_sum"][date] += ls_sum
-                series_acc["leadscore_count"][date] += ls_cnt
-            except Exception:
-                pass
-            _merge_row_conversions_actions(r, series_acc["conversions"][date])
-
-    # Buscar thumbnail cacheada do ad_id representativo. Se a propagaÃ§Ã£o por ad_name
-    # estiver correta, qualquer ad_id do grupo deve ter a mesma thumb_storage_path.
-    thumbnail: Optional[str] = None
-    representative_ad_id = next(iter(sorted(str(ad_id) for ad_id in (agg.get("ad_ids") or set()) if ad_id)), None)
-    if representative_ad_id:
-        try:
-            # O ad pode viver no silo do DONO de um pack compartilhado — as linhas
-            # de fetch_pack_metrics_rows carregam o user_id de origem. Sem ele
-            # (ramo legado), o silo e o do proprio ator.
-            thumb_owner = next(
-                (str(r.get("user_id")) for r in data
-                 if str(r.get("ad_id") or "") == representative_ad_id and r.get("user_id")),
-                user["user_id"],
-            )
-            ads_row = supabase_repo.fetch_ads_row_scoped(
-                thumb_owner, representative_ad_id,
-                "ad_id,thumb_storage_path,primary_video_id,media_type,creative_video_id",
-            )
-            if ads_row:
-                thumbnail = _get_storage_thumb_if_any(ads_row)
-        except Exception as e:
-            logger.warning(f"Erro ao buscar thumbnail (ad_name details): {e}")
-
-    # Calcular mÃ©tricas derivadas
-    ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
-    hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
-    hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
-    video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
-    video_watched_p75 = _safe_div(agg["video_watched_p75_wsum"], agg["plays"]) if agg["plays"] else 0
-    connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
-    cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
-    website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
-    frequency = round(agg["impressions"] / agg["reach"], 2) if agg["reach"] > 0 else None
-
-    # Calcular curva de retenÃ§Ã£o agregada
-    aggregated_curve: List[int] = []
-    if agg.get("curve_weighted"):
-        max_curve_len = max(agg["curve_weighted"].keys()) + 1 if agg["curve_weighted"] else 0
-        for i in range(max_curve_len):
-            if i in agg["curve_weighted"]:
-                w = agg["curve_weighted"][i]
-                if w["plays_sum"] > 0:
-                    aggregated_curve.append(int(round(w["weighted_sum"] / w["plays_sum"])))
-                else:
-                    aggregated_curve.append(0)
-            else:
-                aggregated_curve.append(0)
-
-    series = _build_rankings_series(axis, series_acc, include_cpmql=True, mql_available=mql_leadscore_min is not None)
-
+    g = EP.single_group(payload)
+    if g is None:
+        raise HTTPException(status_code=404, detail=f"Ad name '{ad_name}' não encontrado no período especificado")
+    mql = payload["mql_leadscore_min"]
+    t = EP.totals_of(g)
+    d = EP.derived_of(t)
     return {
-        "account_id": agg["account_id"],
-        "ad_name": agg["ad_name"],
-        "campaign_name": agg["campaign_name"],
-        "adset_name": agg["adset_name"],
-        "impressions": agg["impressions"],
-        "clicks": agg["clicks"],
-        "inline_link_clicks": agg["inline_link_clicks"],
-        "spend": agg["spend"],
-        "lpv": agg["lpv"],
-        "plays": agg["plays"],
-        "video_total_thruplays": agg["thruplays"],
-        "hook": hook,
-        "hold_rate": hold_rate,
-        "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
-        "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
-        "ctr": ctr,
-        "connect_rate": connect_rate,
-        "cpm": cpm,
-        "website_ctr": website_ctr,
-        "reach": agg["reach"],
-        "frequency": frequency,
-        "conversions": agg["conversions"],
-        "leadscore_values": (agg.get("leadscore_values") or []) if include_leadscore else [],
-        "thumbnail": thumbnail,
-        "video_play_curve_actions": aggregated_curve if aggregated_curve else None,
-        "ad_count": len(agg["ad_ids"]),
-        "series": series,
+        "account_id": g.get("account_id"),
+        "ad_name": ad_name,
+        "campaign_name": g.get("campaign_name"),
+        "adset_name": g.get("adset_name"),
+        "impressions": t["impressions"],
+        "clicks": t["clicks"],
+        "inline_link_clicks": t["inline_link_clicks"],
+        "spend": t["spend"],
+        "lpv": t["lpv"],
+        "plays": t["plays"],
+        "video_total_thruplays": t["thruplays"],
+        "hook": d["hook"],
+        "hold_rate": d["hold_rate"],
+        "video_watched_p50": d["video_watched_p50"],
+        "video_watched_p75": d["video_watched_p75"],
+        "ctr": d["ctr"],
+        "connect_rate": d["connect_rate"],
+        "cpm": d["cpm"],
+        "website_ctr": d["website_ctr"],
+        "reach": t["reach"],
+        "frequency": d["frequency"],
+        "conversions": t["conversions"],
+        "leadscore_values": t["leadscore_values"] if include_leadscore else [],
+        "thumbnail": _entity_thumbnail(g),
+        "video_play_curve_actions": EP.curve_of(g),
+        "ad_count": int(g.get("ad_count") or 0),
+        "series": EP.series_of(g, axis, mql),
     }
 
 
@@ -1746,253 +1287,21 @@ def get_rankings_children(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user)
 ):
-    """Retorna linhas-filhas agregadas por ad_id para um ad_name no perÃ­odo.
-    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
-
-    Quando `pack_ids` é fornecido, filtra somente as métricas que pertencem aos
-    packs especificados via `ad_metric_pack_map` — sem isso, ads compartilhados
-    entre packs com date_ranges diferentes super-contam.
-    """
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
+    """Linhas-filhas (um anúncio por ad_id) de um ad_name no período, com série de 5
+    dias (read model, migration 133). Com `pack_ids`, só os packs selecionados."""
     axis = _axis_5_days(date_stop)
-
-    select_with_lpv = (
-        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values,lpv"
+    payload = _entity_payload(
+        user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
+        pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=5,
     )
-    select_without_lpv = (
-        "ad_id,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values"
-    )
-
-    pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
-
-    data: List[Dict[str, Any]] = []
-    if pack_ids_clean:
-        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
-        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
-        data = supabase_repo.fetch_pack_metrics_rows(
-            user["user_id"], pack_ids_clean, date_start, date_stop,
-            select_with_lpv, select_without_lpv,
-            {"ad_name": ad_name}, log_tag="rankings_children",
-            cancellable=True,
-        )
-    else:
-        # Sem pack_ids: comportamento legado (todos os packs do usuário)
-        def metrics_filters(q):
-            return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
-
-        try:
-            data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-        except ClientGone:
-            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
-            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
-            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
-            # explicita torna isso contrato em vez de coincidencia.
-            raise
-        except Exception as e:
-            msg = str(e or "")
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                logger.warning("[rankings_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-            else:
-                raise
-
-    from collections import defaultdict
-
-    agg: Dict[str, Dict[str, Any]] = {}
-    series_acc: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
-        "impressions": {d: 0 for d in axis},
-        "clicks": {d: 0 for d in axis},
-        "inline": {d: 0 for d in axis},
-        "spend": {d: 0 for d in axis},
-        "plays": {d: 0 for d in axis},
-        "lpv": {d: 0 for d in axis},
-        "hook_wsum": {d: 0.0 for d in axis},
-        "scroll_stop_wsum": {d: 0.0 for d in axis},
-        "hold_rate_wsum": {d: 0.0 for d in axis},
-        "video_watched_p50_wsum": {d: 0.0 for d in axis},
-        "video_watched_p75_wsum": {d: 0.0 for d in axis},
-        "conversions": {d: {} for d in axis},
-        "mql_count": {d: 0 for d in axis},
-        "leadscore_sum": {d: 0.0 for d in axis},
-        "leadscore_count": {d: 0 for d in axis},
-    })
-
-    for r in data:
-        ad_id = str(r.get("ad_id") or "")
-        key = ad_id
-
-        date = str(r.get("date"))[:10]
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-        plays = int(r.get("video_total_plays") or 0)
-        thruplays = int(r.get("video_total_thruplays") or 0)
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        hold_rate = float(r.get("hold_rate") or 0)
-        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
-        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
-        reach = int(r.get("reach") or 0)
-
-        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
-        lpv = _extract_lpv(r)
-
-        if key not in agg:
-            agg[key] = {
-                "account_id": r.get("account_id"),
-                "ad_id": ad_id,
-                "ad_name": ad_name,
-                "campaign_name": r.get("campaign_name"),
-                "adset_name": r.get("adset_name"),
-                "impressions": 0,
-                "clicks": 0,
-                "inline_link_clicks": 0,
-                "spend": 0.0,
-                "lpv": 0,
-                "plays": 0,
-                "thruplays": 0,  # Total de thruplays agregado
-                "hook_wsum": 0.0,
-                "hold_rate_wsum": 0.0,  # Soma ponderada de hold_rate
-                "video_watched_p50_wsum": 0.0,  # Soma ponderada de video_watched_p50
-                "video_watched_p75_wsum": 0.0,
-                "scroll_stop_wsum": 0.0,
-                "reach": 0,
-                "conversions": {},
-                "leadscore_values": [],
-            }
-        A = agg[key]
-        A["impressions"] += impressions
-        A["clicks"] += clicks
-        A["inline_link_clicks"] += inline_link_clicks
-        A["spend"] += spend
-        A["lpv"] += lpv
-        A["plays"] += plays
-        A["thruplays"] += thruplays
-        A["hook_wsum"] += hook * plays
-        A["hold_rate_wsum"] += hold_rate * plays  # Agregar hold_rate ponderado por plays
-        A["video_watched_p50_wsum"] += video_watched_p50 * plays  # Agregar video_watched_p50 ponderado por plays
-        A["video_watched_p75_wsum"] += video_watched_p75 * plays
-        A["scroll_stop_wsum"] += scroll_stop * plays
-        A["reach"] += reach
-
-        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
-            try:
-                A["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
-            except Exception:
-                pass
-
-        # Agregar conversions e actions no total
-        _merge_row_conversions_actions(r, A["conversions"])
-
-        # SÃ©ries 5 dias
-        if date in axis:
-            S = series_acc[key]
-            S["impressions"][date] += impressions
-            S["clicks"][date] += clicks
-            S["inline"][date] += inline_link_clicks
-            S["spend"][date] += spend
-            S["lpv"][date] += lpv
-            S["plays"][date] += plays
-            S["hook_wsum"][date] += hook * plays
-            S["scroll_stop_wsum"][date] += scroll_stop * plays
-            S["hold_rate_wsum"][date] += hold_rate * plays
-            S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
-            S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
-            try:
-                S["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
-                S["leadscore_sum"][date] += ls_sum
-                S["leadscore_count"][date] += ls_cnt
-            except Exception:
-                pass
-            _merge_row_conversions_actions(r, S["conversions"][date])
-
-    # Buscar thumbnails e effective_status dos filhos
-    ad_ids_in_results = list(agg.keys())
-    thumbnails_map: Dict[str, Optional[str]] = {}
-    effective_status_map: Dict[str, Optional[str]] = {}
-    if ad_ids_in_results:
-        try:
-            # Silo por linha: num pack compartilhado os ads vivem no silo do DONO
-            # — a leitura via JWT do ator voltava vazia e o drill perdia
-            # thumbnails/effective_status. O helper agrupa pelo user_id das
-            # linhas (ja escopadas) e le via service role, em lotes de 500.
-            all_ads_rows = supabase_repo.fetch_ads_rows_for_metric_rows(
-                data,
-                user["user_id"],
-                "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
-            )
-            
-            for ad_row in all_ads_rows:
-                aid = str(ad_row.get("ad_id") or "")
-                thumbnails_map[aid] = _get_storage_thumb_if_any(ad_row) or _get_thumbnail_with_fallback(ad_row)
-                effective_status_map[aid] = ad_row.get("effective_status")
-        except Exception as e:
-            logger.warning(f"Erro ao buscar thumbnails (children): {e}")
-
+    mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
-    for key, A in agg.items():
-        ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
-        hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
-        hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
-        video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
-        video_watched_p75 = _safe_div(A["video_watched_p75_wsum"], A["plays"]) if A["plays"] else 0
-        scroll_stop = _safe_div(A["scroll_stop_wsum"], A["plays"]) if A["plays"] else 0
-        frequency = round(A["impressions"] / A["reach"], 2) if A["reach"] > 0 else None
-        cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
-        website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
-
-        S = series_acc.get(key)
-        series = _build_rankings_series(axis, S, include_cpmql=True, mql_available=mql_leadscore_min is not None) if S else None
-
-        items.append({
-            "account_id": A.get("account_id"),
-            "ad_id": A.get("ad_id"),
-            "ad_name": ad_name,
-            "effective_status": effective_status_map.get(key),
-            "status_resolved": bool(str(effective_status_map.get(key)).strip()) if effective_status_map.get(key) is not None else False,
-            "campaign_name": A.get("campaign_name"),
-            "adset_name": A.get("adset_name"),
-            "impressions": A["impressions"],
-            "clicks": A["clicks"],
-            "inline_link_clicks": A["inline_link_clicks"],
-            "spend": A["spend"],
-            "lpv": A["lpv"],
-            "plays": A["plays"],
-            "video_total_thruplays": A["thruplays"],
-            "hook": hook,
-            "hold_rate": hold_rate,
-            "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
-            "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
-            "scroll_stop": scroll_stop,
-            "ctr": ctr,
-            "connect_rate": _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0,
-            "cpm": cpm,
-            "website_ctr": website_ctr,
-            "reach": A["reach"],
-            "frequency": frequency,
-            "conversions": A.get("conversions", {}),
-            "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
-            "thumbnail": thumbnails_map.get(key),
-            "series": series,
-        })
-
-    order = (order_by or "").lower()
-    if order in {"hook", "hold_rate", "cpr", "spend", "ctr", "connect_rate", "page_conv"}:
-        reverse = order not in {"cpr"}
-        items.sort(key=lambda x: (x.get(order) or 0), reverse=reverse)
-
-    return { "data": items }
+    for g in payload["groups"]:
+        item = _entity_child_item(g, axis, mql, include_leadscore, series_null_when_empty=True)
+        item["ad_name"] = ad_name
+        items.append(item)
+    _sort_children(items, order_by)
+    return {"data": items}
 
 
 @router.get("/rankings/campaign-id/{campaign_id}/children")
@@ -2049,260 +1358,28 @@ def get_adset_children(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
 ):
-    """Retorna linhas-filhas agregadas por ad_id para um adset_id no perÃ­odo.
-    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
-
-    Quando `pack_ids` é fornecido, filtra somente as métricas que pertencem aos
-    packs especificados via `ad_metric_pack_map`.
-    """
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
+    """Linhas-filhas (um anúncio por ad_id) de um adset_id no período, com série de 5
+    dias (read model, migration 133). Com `pack_ids`, só os packs selecionados."""
     axis = _axis_5_days(date_stop)
-
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
-        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values,lpv"
+    payload = _entity_payload(
+        user, date_start=date_start, date_stop=date_stop, entity="adset_id", entity_id=adset_id,
+        pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=5,
     )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
-        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,hold_rate,scroll_stop_rate,video_watched_p75,reach,leadscore_values"
-    )
-
-    pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
-
-    data: List[Dict[str, Any]] = []
-    if pack_ids_clean:
-        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
-        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
-        data = supabase_repo.fetch_pack_metrics_rows(
-            user["user_id"], pack_ids_clean, date_start, date_stop,
-            select_with_lpv, select_without_lpv,
-            {"adset_id": adset_id}, log_tag="adset_children",
-            cancellable=True,
-        )
-    else:
-        def metrics_filters(q):
-            return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).gte("date", date_start).lte("date", date_stop)
-
-        try:
-            data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-        except ClientGone:
-            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
-            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
-            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
-            # explicita torna isso contrato em vez de coincidencia.
-            raise
-        except Exception as e:
-            msg = str(e or "")
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                logger.warning("[adset_children] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-            else:
-                raise
-
-    from collections import defaultdict
-
-    agg: Dict[str, Dict[str, Any]] = {}
-    series_acc: Dict[str, Dict[str, Any]] = defaultdict(
-        lambda: {
-            "impressions": {d: 0 for d in axis},
-            "clicks": {d: 0 for d in axis},
-            "inline": {d: 0 for d in axis},
-            "spend": {d: 0.0 for d in axis},
-            "plays": {d: 0 for d in axis},
-            "lpv": {d: 0 for d in axis},
-            "hook_wsum": {d: 0.0 for d in axis},
-            "scroll_stop_wsum": {d: 0.0 for d in axis},
-            "hold_rate_wsum": {d: 0.0 for d in axis},
-            "video_watched_p50_wsum": {d: 0.0 for d in axis},
-            "video_watched_p75_wsum": {d: 0.0 for d in axis},
-            "conversions": {d: {} for d in axis},
-            "mql_count": {d: 0 for d in axis},
-        "leadscore_sum": {d: 0.0 for d in axis},
-        "leadscore_count": {d: 0 for d in axis},
-        }
-    )
-
-    for r in data:
-        ad_id = str(r.get("ad_id") or "")
-        if not ad_id:
-            continue
-        key = ad_id
-
-        date = str(r.get("date"))[:10]
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-        plays = int(r.get("video_total_plays") or 0)
-        thruplays = int(r.get("video_total_thruplays") or 0)
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        hold_rate = float(r.get("hold_rate") or 0)
-        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
-        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
-        reach = int(r.get("reach") or 0)
-
-        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
-        lpv = _extract_lpv(r)
-
-        if key not in agg:
-            agg[key] = {
-                "account_id": r.get("account_id"),
-                "campaign_id": r.get("campaign_id"),
-                "campaign_name": r.get("campaign_name"),
-                "adset_id": r.get("adset_id"),
-                "adset_name": r.get("adset_name"),
-                "ad_id": ad_id,
-                "ad_name": r.get("ad_name"),
-                "impressions": 0,
-                "clicks": 0,
-                "inline_link_clicks": 0,
-                "spend": 0.0,
-                "lpv": 0,
-                "plays": 0,
-                "thruplays": 0,
-                "hook_wsum": 0.0,
-                "hold_rate_wsum": 0.0,
-                "video_watched_p50_wsum": 0.0,
-                "video_watched_p75_wsum": 0.0,
-                "scroll_stop_wsum": 0.0,
-                "reach": 0,
-                "conversions": {},
-                "leadscore_values": [],
-            }
-
-        A = agg[key]
-        A["impressions"] += impressions
-        A["clicks"] += clicks
-        A["inline_link_clicks"] += inline_link_clicks
-        A["spend"] += spend
-        A["lpv"] += lpv
-        A["plays"] += plays
-        A["thruplays"] += thruplays
-        A["hook_wsum"] += hook * plays
-        A["hold_rate_wsum"] += hold_rate * plays
-        A["video_watched_p50_wsum"] += video_watched_p50 * plays
-        A["video_watched_p75_wsum"] += video_watched_p75 * plays
-        A["scroll_stop_wsum"] += scroll_stop * plays
-        A["reach"] += reach
-
-        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
-            try:
-                A["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
-            except Exception:
-                pass
-
-        # conversions e actions agregado no perÃ­odo
-        _merge_row_conversions_actions(r, A["conversions"])
-
-        # series (Ãºltimos 5 dias)
-        if date in axis:
-            S = series_acc[key]
-            S["impressions"][date] += impressions
-            S["clicks"][date] += clicks
-            S["inline"][date] += inline_link_clicks
-            S["spend"][date] += spend
-            S["plays"][date] += plays
-            S["lpv"][date] += lpv
-            S["hook_wsum"][date] += hook * plays
-            S["scroll_stop_wsum"][date] += scroll_stop * plays
-            S["hold_rate_wsum"][date] += hold_rate * plays
-            S["video_watched_p50_wsum"][date] += video_watched_p50 * plays
-            S["video_watched_p75_wsum"][date] += video_watched_p75 * plays
-            _merge_row_conversions_actions(r, S["conversions"][date])
-
-            # MQLs por dia
-            try:
-                S["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
-                S["leadscore_sum"][date] += ls_sum
-                S["leadscore_count"][date] += ls_cnt
-            except Exception:
-                pass
-
-    # Buscar thumbnails e effective_status dos filhos (mesma lÃ³gica de get_rankings_children)
-    ad_ids_in_results = list(agg.keys())
-    thumbnails_map: Dict[str, Optional[str]] = {}
-    effective_status_map: Dict[str, Optional[str]] = {}
-    if ad_ids_in_results:
-        try:
-            # Silo por linha: num pack compartilhado os ads vivem no silo do DONO
-            # — a leitura via JWT do ator voltava vazia e o drill perdia
-            # thumbnails/effective_status. O helper agrupa pelo user_id das
-            # linhas (ja escopadas) e le via service role, em lotes de 500.
-            all_ads_rows = supabase_repo.fetch_ads_rows_for_metric_rows(
-                data,
-                user["user_id"],
-                "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id,effective_status",
-            )
-
-            for ad_row in all_ads_rows:
-                aid = str(ad_row.get("ad_id") or "")
-                thumbnails_map[aid] = _get_storage_thumb_if_any(ad_row) or _get_thumbnail_with_fallback(ad_row)
-                effective_status_map[aid] = ad_row.get("effective_status")
-        except Exception as e:
-            logger.warning(f"Erro ao buscar thumbnails (adset_children): {e}")
-
+    mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
-    for key, A in agg.items():
-        ctr = _safe_div(A["clicks"], A["impressions"]) if A["impressions"] else 0
-        hook = _safe_div(A["hook_wsum"], A["plays"]) if A["plays"] else 0
-        hold_rate = _safe_div(A["hold_rate_wsum"], A["plays"]) if A["plays"] else 0
-        video_watched_p50 = _safe_div(A["video_watched_p50_wsum"], A["plays"]) if A["plays"] else 0
-        video_watched_p75 = _safe_div(A["video_watched_p75_wsum"], A["plays"]) if A["plays"] else 0
-        scroll_stop = _safe_div(A["scroll_stop_wsum"], A["plays"]) if A["plays"] else 0
-        frequency = round(A["impressions"] / A["reach"], 2) if A["reach"] > 0 else None
-        connect_rate = _safe_div(A["lpv"], A["inline_link_clicks"]) if A["inline_link_clicks"] else 0
-        cpm = (_safe_div(A["spend"], A["impressions"]) * 1000.0) if A["impressions"] else 0
-        website_ctr = _safe_div(A["inline_link_clicks"], A["impressions"]) if A["impressions"] else 0
-
-        series = _build_rankings_series(axis, series_acc.get(key), include_cpmql=True, mql_available=mql_leadscore_min is not None)
-
-        items.append(
-            {
-                "unique_id": None,
-                "account_id": A.get("account_id"),
-                "campaign_id": A.get("campaign_id"),
-                "campaign_name": A.get("campaign_name"),
-                "adset_id": A.get("adset_id"),
-                "adset_name": A.get("adset_name"),
-                "ad_id": A.get("ad_id"),
-                "ad_name": A.get("ad_name"),
-                "effective_status": effective_status_map.get(key),
-                "status_resolved": bool(str(effective_status_map.get(key)).strip()) if effective_status_map.get(key) is not None else False,
-                "impressions": A["impressions"],
-                "clicks": A["clicks"],
-                "inline_link_clicks": A["inline_link_clicks"],
-                "spend": A["spend"],
-                "lpv": A["lpv"],
-                "plays": A["plays"],
-                "video_total_thruplays": A["thruplays"],
-                "hook": hook,
-                "hold_rate": hold_rate,
-                "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
-                "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
-                "scroll_stop": scroll_stop,
-                "ctr": ctr,
-                "connect_rate": connect_rate,
-                "cpm": cpm,
-                "website_ctr": website_ctr,
-                "reach": A["reach"],
-                "frequency": frequency,
-                "leadscore_values": (A.get("leadscore_values") or []) if include_leadscore else [],
-                "conversions": A.get("conversions", {}),
-                "ad_count": 1,
-                "thumbnail": thumbnails_map.get(key),
-                "series": series,
-            }
-        )
-
+    for g in payload["groups"]:
+        item = _entity_child_item(g, axis, mql, include_leadscore)
+        items.append({
+            "unique_id": None,
+            "account_id": item["account_id"],
+            "campaign_id": g.get("campaign_id"),
+            "campaign_name": item["campaign_name"],
+            "adset_id": g.get("adset_id"),
+            "adset_name": item["adset_name"],
+            **{k: v for k, v in item.items() if k not in ("account_id", "campaign_name", "adset_name")},
+            "ad_count": 1,
+        })
+    _sort_children(items, order_by)
     return {"data": items}
 
 
@@ -2314,225 +1391,46 @@ def get_adset_details(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
 ):
-    """Retorna detalhes completos de um adset_id no perÃ­odo.
-    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
-
-    Quando `pack_ids` é fornecido, filtra somente as métricas que pertencem aos
-    packs especificados via `ad_metric_pack_map`.
-    """
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
+    """Detalhe de um adset_id no período, com série de 5 dias (read model, migration
+    133). `conversions` aqui SEM prefixo e só as conversões da Meta — contrato
+    histórico desta rota. Com `pack_ids`, só os packs selecionados."""
     axis = _axis_5_days(date_stop)
-
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
-        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,leadscore_values,lpv"
+    payload = _entity_payload(
+        user, date_start=date_start, date_stop=date_stop, entity="adset_id", entity_id=adset_id,
+        pack_ids=pack_ids, group_by="entity", include_curve=False, series_days=5,
     )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_id,campaign_name,adset_id,adset_name,date,clicks,impressions,"
-        "inline_link_clicks,spend,video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,"
-        "video_play_curve_actions,leadscore_values"
-    )
-
-    pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
-
-    data: List[Dict[str, Any]] = []
-    if pack_ids_clean:
-        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
-        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
-        data = supabase_repo.fetch_pack_metrics_rows(
-            user["user_id"], pack_ids_clean, date_start, date_stop,
-            select_with_lpv, select_without_lpv,
-            {"adset_id": adset_id}, log_tag="adset_details",
-            cancellable=True,
-        )
-    else:
-        def metrics_filters(q):
-            return q.eq("user_id", user["user_id"]).eq("adset_id", adset_id).gte("date", date_start).lte("date", date_stop)
-
-        try:
-            data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-        except ClientGone:
-            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
-            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
-            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
-            # explicita torna isso contrato em vez de coincidencia.
-            raise
-        except Exception as e:
-            msg = str(e or "")
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                logger.warning("[adset_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-            else:
-                raise
-
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Adset ID {adset_id} nÃ£o encontrado no perÃ­odo especificado")
-
-    from collections import defaultdict
-
-    agg: Dict[str, Any] = {
-        "account_id": None,
-        "campaign_id": None,
-        "campaign_name": None,
-        "adset_id": adset_id,
-        "adset_name": None,
-        "impressions": 0,
-        "clicks": 0,
-        "inline_link_clicks": 0,
-        "spend": 0.0,
-        "lpv": 0,
-        "plays": 0,
-        "thruplays": 0,
-        "hook_wsum": 0.0,
-        "video_watched_p50_wsum": 0.0,
-        "video_watched_p75_wsum": 0.0,
-        "conversions": {},
-        "leadscore_values": [],
-        "ad_ids": set(),
-    }
-
-    series_acc: Dict[str, Any] = {
-        "impressions": {d: 0 for d in axis},
-        "clicks": {d: 0 for d in axis},
-        "inline": {d: 0 for d in axis},
-        "spend": {d: 0.0 for d in axis},
-        "plays": {d: 0 for d in axis},
-        "lpv": {d: 0 for d in axis},
-        "hook_wsum": {d: 0.0 for d in axis},
-        "conversions": {d: {} for d in axis},
-        "mql_count": {d: 0 for d in axis},
-        "leadscore_sum": {d: 0.0 for d in axis},
-        "leadscore_count": {d: 0 for d in axis},
-    }
-
-    for r in data:
-        if not agg["account_id"]:
-            agg["account_id"] = r.get("account_id")
-        if not agg["campaign_id"]:
-            agg["campaign_id"] = r.get("campaign_id")
-        if not agg["campaign_name"]:
-            agg["campaign_name"] = r.get("campaign_name")
-        if not agg["adset_name"]:
-            agg["adset_name"] = r.get("adset_name")
-
-        ad_id = str(r.get("ad_id") or "")
-        if ad_id:
-            agg["ad_ids"].add(ad_id)
-
-        date = str(r.get("date"))[:10]
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        plays = int(r.get("video_total_plays") or 0)
-        thruplays = int(r.get("video_total_thruplays") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-
-        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
-        lpv = _extract_lpv(r)
-
-        agg["impressions"] += impressions
-        agg["clicks"] += clicks
-        agg["inline_link_clicks"] += inline_link_clicks
-        agg["spend"] += spend
-        agg["lpv"] += lpv
-        agg["plays"] += plays
-        agg["thruplays"] += thruplays
-        agg["hook_wsum"] += hook * plays
-        agg["video_watched_p50_wsum"] += video_watched_p50 * plays
-        agg["video_watched_p75_wsum"] += video_watched_p75 * plays
-
-        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
-            try:
-                agg["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
-            except Exception:
-                pass
-
-        conversions = r.get("conversions") or []
-        if isinstance(conversions, list):
-            for conv in conversions:
-                if isinstance(conv, dict):
-                    t = conv.get("action_type")
-                    v = conv.get("value")
-                    if t:
-                        try:
-                            agg["conversions"][str(t)] = agg["conversions"].get(str(t), 0) + int(v or 0)
-                        except Exception:
-                            pass
-
-        if date in axis:
-            series_acc["impressions"][date] += impressions
-            series_acc["clicks"][date] += clicks
-            series_acc["inline"][date] += inline_link_clicks
-            series_acc["spend"][date] += spend
-            series_acc["plays"][date] += plays
-            series_acc["lpv"][date] += lpv
-            series_acc["hook_wsum"][date] += hook * plays
-
-            conversions_day = series_acc["conversions"][date]
-            conversions = r.get("conversions") or []
-            if isinstance(conversions, list):
-                for conv in conversions:
-                    if isinstance(conv, dict):
-                        t = conv.get("action_type")
-                        v = conv.get("value")
-                        if t:
-                            try:
-                                conversions_day[str(t)] = conversions_day.get(str(t), 0) + int(v or 0)
-                            except Exception:
-                                pass
-            series_acc["conversions"][date] = conversions_day
-
-            try:
-                series_acc["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
-                series_acc["leadscore_sum"][date] += ls_sum
-                series_acc["leadscore_count"][date] += ls_cnt
-            except Exception:
-                pass
-
-    ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
-    hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
-    video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
-    video_watched_p75 = _safe_div(agg["video_watched_p75_wsum"], agg["plays"]) if agg["plays"] else 0
-    connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
-    cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
-    website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
-
-    series = _build_rankings_series(axis, series_acc, include_cpmql=True, mql_available=mql_leadscore_min is not None)
-
+    g = EP.single_group(payload)
+    if g is None:
+        raise HTTPException(status_code=404, detail=f"Adset ID {adset_id} não encontrado no período especificado")
+    mql = payload["mql_leadscore_min"]
+    t = EP.totals_of(g)
+    d = EP.derived_of(t)
+    adset_name = g.get("adset_name")
     return {
-        "account_id": agg["account_id"],
-        "campaign_id": agg["campaign_id"],
-        "campaign_name": agg["campaign_name"],
-        "adset_id": agg["adset_id"],
-        "adset_name": agg["adset_name"],
+        "account_id": g.get("account_id"),
+        "campaign_id": g.get("campaign_id"),
+        "campaign_name": g.get("campaign_name"),
+        "adset_id": adset_id,
+        "adset_name": adset_name,
         "ad_id": None,
-        "ad_name": agg["adset_name"] or agg["adset_id"],
-        "impressions": agg["impressions"],
-        "clicks": agg["clicks"],
-        "inline_link_clicks": agg["inline_link_clicks"],
-        "spend": agg["spend"],
-        "lpv": agg["lpv"],
-        "plays": agg["plays"],
-        "video_total_thruplays": agg["thruplays"],
-        "hook": hook,
-        "ctr": ctr,
-        "connect_rate": connect_rate,
-        "cpm": cpm,
-        "website_ctr": website_ctr,
-        "leadscore_values": agg.get("leadscore_values") or [],
-        "conversions": agg.get("conversions", {}),
-        "ad_count": len(agg.get("ad_ids") or []),
+        "ad_name": adset_name or adset_id,
+        "impressions": t["impressions"],
+        "clicks": t["clicks"],
+        "inline_link_clicks": t["inline_link_clicks"],
+        "spend": t["spend"],
+        "lpv": t["lpv"],
+        "plays": t["plays"],
+        "video_total_thruplays": t["thruplays"],
+        "hook": d["hook"],
+        "ctr": d["ctr"],
+        "connect_rate": d["connect_rate"],
+        "cpm": d["cpm"],
+        "website_ctr": d["website_ctr"],
+        "leadscore_values": t["leadscore_values"],
+        "conversions": EP.plain_conversions_of((g.get("totals") or {}).get("conversions")),
+        "ad_count": int(g.get("ad_count") or 0),
         "thumbnail": None,
-        "series": series,
+        "series": EP.series_of(g, axis, mql, plain_conversions=True),
     }
 
 
@@ -2544,264 +1442,47 @@ def get_ad_details(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user)
 ):
-    """Retorna detalhes completos de um ad_id especÃ­fico no perÃ­odo.
-    Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
-    Reutiliza a lÃ³gica de get_rankings_children, mas retorna um Ãºnico item.
-
-    Quando `pack_ids` é fornecido, filtra somente as métricas que pertencem aos
-    packs especificados via `ad_metric_pack_map`.
-    """
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
+    """Detalhe de um ad_id no período, com série de 5 dias e curva de retenção (read
+    model, migration 133). Com `pack_ids`, só os packs selecionados."""
     axis = _axis_5_days(date_stop)
-
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values,lpv"
+    payload = _entity_payload(
+        user, date_start=date_start, date_stop=date_stop, entity="ad_id", entity_id=ad_id,
+        pack_ids=pack_ids, group_by="entity", include_curve=True, series_days=5,
     )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_total_thruplays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,video_watched_p75,reach,frequency,leadscore_values"
-    )
-
-    pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
-
-    data: List[Dict[str, Any]] = []
-    if pack_ids_clean:
-        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
-        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
-        data = supabase_repo.fetch_pack_metrics_rows(
-            user["user_id"], pack_ids_clean, date_start, date_stop,
-            select_with_lpv, select_without_lpv,
-            {"ad_id": ad_id}, log_tag="ad_details",
-            cancellable=True,
-        )
-    else:
-        def metrics_filters(q):
-            return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
-
-        try:
-            data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-        except ClientGone:
-            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
-            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
-            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
-            # explicita torna isso contrato em vez de coincidencia.
-            raise
-        except Exception as e:
-            msg = str(e or "")
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                logger.warning("[ad_details] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-            else:
-                raise
-
-    if not data:
-        raise HTTPException(status_code=404, detail=f"Ad ID {ad_id} nÃ£o encontrado no perÃ­odo especificado")
-
-    from collections import defaultdict
-
-    # Agregar dados do perÃ­odo completo
-    agg: Dict[str, Any] = {
-        "account_id": None,
-        "ad_id": ad_id,
-        "ad_name": None,
-        "campaign_name": None,
-        "adset_name": None,
-        "impressions": 0,
-        "clicks": 0,
-        "inline_link_clicks": 0,
-        "spend": 0.0,
-        "lpv": 0,
-        "plays": 0,
-        "thruplays": 0,
-        "hook_wsum": 0.0,
-        "hold_rate_wsum": 0.0,
-        "video_watched_p50_wsum": 0.0,
-        "video_watched_p75_wsum": 0.0,
-        "reach": 0,
-        # Curva de retenÃ§Ã£o agregada (ponderada por plays, mesma lÃ³gica do hook)
-        "curve_weighted": {},  # {segundo_index: {"weighted_sum": float, "plays_sum": int}}
-        "conversions": {},
-        "leadscore_values": [],
-    }
-
-    # Series accumulator (5 dias)
-    series_acc: Dict[str, Any] = {
-        "impressions": {d: 0 for d in axis},
-        "clicks": {d: 0 for d in axis},
-        "inline": {d: 0 for d in axis},
-        "spend": {d: 0.0 for d in axis},
-        "plays": {d: 0 for d in axis},
-        "lpv": {d: 0 for d in axis},
-        "hook_wsum": {d: 0.0 for d in axis},
-        "scroll_stop_wsum": {d: 0.0 for d in axis},
-        "hold_rate_wsum": {d: 0.0 for d in axis},
-        "video_watched_p50_wsum": {d: 0.0 for d in axis},
-        "video_watched_p75_wsum": {d: 0.0 for d in axis},
-        "conversions": {d: {} for d in axis},
-        "mql_count": {d: 0 for d in axis},
-        "leadscore_sum": {d: 0.0 for d in axis},
-        "leadscore_count": {d: 0 for d in axis},
-    }
-
-    for r in data:
-        # Preencher metadados uma vez (devem ser consistentes para o mesmo ad_id)
-        if not agg["account_id"]:
-            agg["account_id"] = r.get("account_id")
-            agg["ad_name"] = r.get("ad_name")
-            agg["campaign_name"] = r.get("campaign_name")
-            agg["adset_name"] = r.get("adset_name")
-
-        date = str(r.get("date"))[:10]
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-        plays = int(r.get("video_total_plays") or 0)
-        thruplays = int(r.get("video_total_thruplays") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        hold_rate = float(r.get("hold_rate") or 0)
-        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
-        scroll_stop = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        reach = int(r.get("reach") or 0)
-
-        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
-        lpv = _extract_lpv(r)
-
-        # Agregar totais
-        agg["impressions"] += impressions
-        agg["clicks"] += clicks
-        agg["inline_link_clicks"] += inline_link_clicks
-        agg["spend"] += spend
-        agg["lpv"] += lpv
-        agg["plays"] += plays
-        agg["thruplays"] += thruplays
-        agg["hook_wsum"] += hook * plays
-        agg["hold_rate_wsum"] += hold_rate * plays
-        agg["video_watched_p50_wsum"] += video_watched_p50 * plays
-        agg["video_watched_p75_wsum"] += video_watched_p75 * plays
-        agg["reach"] += reach
-
-        if isinstance(leadscore_values, list) and len(leadscore_values) > 0:
-            try:
-                agg["leadscore_values"].extend([float(v) for v in leadscore_values if v is not None])
-            except Exception:
-                pass
-
-        # Agregar curva de retenÃ§Ã£o ponderada por plays (mesma lÃ³gica do hook)
-        if isinstance(curve, list) and plays > 0:
-            try:
-                for i, val in enumerate(curve):
-                    val_num = int(val or 0)
-                    if i not in agg["curve_weighted"]:
-                        agg["curve_weighted"][i] = {"weighted_sum": 0.0, "plays_sum": 0}
-                    agg["curve_weighted"][i]["weighted_sum"] += val_num * plays
-                    agg["curve_weighted"][i]["plays_sum"] += plays
-            except Exception:
-                pass
-
-        # Agregar conversions e actions
-        _merge_row_conversions_actions(r, agg["conversions"])
-
-        # SÃ©ries 5 dias
-        if date in axis:
-            series_acc["impressions"][date] += impressions
-            series_acc["clicks"][date] += clicks
-            series_acc["inline"][date] += inline_link_clicks
-            series_acc["spend"][date] += spend
-            series_acc["lpv"][date] += lpv
-            series_acc["plays"][date] += plays
-            series_acc["hook_wsum"][date] += hook * plays
-            series_acc["scroll_stop_wsum"][date] += scroll_stop * plays
-            series_acc["hold_rate_wsum"][date] += hold_rate * plays
-            series_acc["video_watched_p50_wsum"][date] += video_watched_p50 * plays
-            series_acc["video_watched_p75_wsum"][date] += video_watched_p75 * plays
-            try:
-                series_acc["mql_count"][date] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-                ls_sum, ls_cnt = _sum_count_leadscore(leadscore_values)
-                series_acc["leadscore_sum"][date] += ls_sum
-                series_acc["leadscore_count"][date] += ls_cnt
-            except Exception:
-                pass
-            _merge_row_conversions_actions(r, series_acc["conversions"][date])
-
-    # Buscar thumbnail e informaÃ§Ãµes adicionais da tabela ads
-    thumbnail: Optional[str] = None
-    try:
-        # Silo de origem das linhas (dono do pack compartilhado, se for o caso).
-        thumb_owner = next((str(r.get("user_id")) for r in data if r.get("user_id")), user["user_id"])
-        ads_row = supabase_repo.fetch_ads_row_scoped(
-            thumb_owner, ad_id,
-            "ad_id,thumb_storage_path,thumbnail_url,adcreatives_videos_thumbs,primary_video_id,media_type,creative_video_id",
-        )
-        if ads_row:
-            thumbnail = _get_storage_thumb_if_any(ads_row) or _get_thumbnail_with_fallback(ads_row)
-    except Exception as e:
-        logger.warning(f"Erro ao buscar thumbnail (ad details): {e}")
-
-    # Calcular mÃ©tricas derivadas
-    ctr = _safe_div(agg["clicks"], agg["impressions"]) if agg["impressions"] else 0
-    hook = _safe_div(agg["hook_wsum"], agg["plays"]) if agg["plays"] else 0
-    hold_rate = _safe_div(agg["hold_rate_wsum"], agg["plays"]) if agg["plays"] else 0
-    video_watched_p50 = _safe_div(agg["video_watched_p50_wsum"], agg["plays"]) if agg["plays"] else 0
-    video_watched_p75 = _safe_div(agg["video_watched_p75_wsum"], agg["plays"]) if agg["plays"] else 0
-    connect_rate = _safe_div(agg["lpv"], agg["inline_link_clicks"]) if agg["inline_link_clicks"] else 0
-    cpm = (_safe_div(agg["spend"], agg["impressions"]) * 1000.0) if agg["impressions"] else 0
-    website_ctr = _safe_div(agg["inline_link_clicks"], agg["impressions"]) if agg["impressions"] else 0
-    frequency = round(agg["impressions"] / agg["reach"], 2) if agg["reach"] > 0 else None
-
-    # Calcular curva de retenÃ§Ã£o agregada (mÃ©dia ponderada por plays)
-    aggregated_curve: List[int] = []
-    if agg.get("curve_weighted"):
-        max_curve_len = max(agg["curve_weighted"].keys()) + 1 if agg["curve_weighted"] else 0
-        for i in range(max_curve_len):
-            if i in agg["curve_weighted"]:
-                w = agg["curve_weighted"][i]
-                if w["plays_sum"] > 0:
-                    aggregated_curve.append(int(round(w["weighted_sum"] / w["plays_sum"])))
-                else:
-                    aggregated_curve.append(0)
-            else:
-                aggregated_curve.append(0)
-
-    series = _build_rankings_series(axis, series_acc, include_cpmql=True, mql_available=mql_leadscore_min is not None)
-
+    g = EP.single_group(payload)
+    if g is None:
+        raise HTTPException(status_code=404, detail=f"Ad ID {ad_id} não encontrado no período especificado")
+    mql = payload["mql_leadscore_min"]
+    t = EP.totals_of(g)
+    d = EP.derived_of(t)
     return {
-        "account_id": agg["account_id"],
-        "ad_id": agg["ad_id"],
-        "ad_name": agg["ad_name"],
-        "campaign_name": agg["campaign_name"],
-        "adset_name": agg["adset_name"],
-        "impressions": agg["impressions"],
-        "clicks": agg["clicks"],
-        "inline_link_clicks": agg["inline_link_clicks"],
-        "spend": agg["spend"],
-        "lpv": agg["lpv"],
-        "plays": agg["plays"],
-        "video_total_thruplays": agg["thruplays"],
-        "hook": hook,
-        "hold_rate": hold_rate,
-        "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
-        "video_watched_p75": int(round(video_watched_p75)) if video_watched_p75 else 0,
-        "ctr": ctr,
-        "connect_rate": connect_rate,
-        "cpm": cpm,
-        "website_ctr": website_ctr,
-        "reach": agg["reach"],
-        "frequency": frequency,
-        "conversions": agg["conversions"],
-        "leadscore_values": agg.get("leadscore_values") or [],
-        "thumbnail": thumbnail,
-        "video_play_curve_actions": aggregated_curve if aggregated_curve else None,
-        "series": series,
+        "account_id": g.get("account_id"),
+        "ad_id": ad_id,
+        "ad_name": g.get("ad_name"),
+        "campaign_name": g.get("campaign_name"),
+        "adset_name": g.get("adset_name"),
+        "impressions": t["impressions"],
+        "clicks": t["clicks"],
+        "inline_link_clicks": t["inline_link_clicks"],
+        "spend": t["spend"],
+        "lpv": t["lpv"],
+        "plays": t["plays"],
+        "video_total_thruplays": t["thruplays"],
+        "hook": d["hook"],
+        "hold_rate": d["hold_rate"],
+        "video_watched_p50": d["video_watched_p50"],
+        "video_watched_p75": d["video_watched_p75"],
+        "ctr": d["ctr"],
+        "connect_rate": d["connect_rate"],
+        "cpm": d["cpm"],
+        "website_ctr": d["website_ctr"],
+        "reach": t["reach"],
+        "frequency": d["frequency"],
+        "conversions": t["conversions"],
+        "leadscore_values": t["leadscore_values"],
+        "thumbnail": _entity_thumbnail(g),
+        "video_play_curve_actions": EP.curve_of(g),
+        "series": EP.series_of(g, axis, mql),
     }
 
 
@@ -2893,196 +1574,14 @@ def get_ad_history(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user)
 ):
-    """Retorna dados histÃ³ricos diÃ¡rios de um anÃºncio para o perÃ­odo especificado.
-
-    Retorna um array de objetos, um para cada dia do perÃ­odo, contendo todas as mÃ©tricas diÃ¡rias.
-
-    Quando `pack_ids` é fornecido, filtra somente as métricas que pertencem aos
-    packs especificados via `ad_metric_pack_map`.
-    """
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
-    # Gerar array de datas do perÃ­odo
+    """Histórico diário de um anúncio: um objeto por dia do período (dias sem dado =
+    zeros). Read model, migration 133. Com `pack_ids`, só os packs selecionados."""
     axis = _axis_date_range(date_start, date_stop)
-
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,leadscore_values,lpv"
+    payload = _entity_payload(
+        user, date_start=date_start, date_stop=date_stop, entity="ad_id", entity_id=ad_id,
+        pack_ids=pack_ids, group_by="entity", include_curve=False, series_days=None,
     )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,leadscore_values"
-    )
-
-    pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
-
-    data: List[Dict[str, Any]] = []
-    if pack_ids_clean:
-        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
-        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
-        data = supabase_repo.fetch_pack_metrics_rows(
-            user["user_id"], pack_ids_clean, date_start, date_stop,
-            select_with_lpv, select_without_lpv,
-            {"ad_id": ad_id}, log_tag="ad_history",
-            cancellable=True,
-        )
-    else:
-        def metrics_filters(q):
-            return q.eq("user_id", user["user_id"]).eq("ad_id", ad_id).gte("date", date_start).lte("date", date_stop)
-
-        try:
-            data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-        except ClientGone:
-            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
-            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
-            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
-            # explicita torna isso contrato em vez de coincidencia.
-            raise
-        except Exception as e:
-            msg = str(e or "")
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                logger.warning("[ad_history] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-            else:
-                raise
-
-    # Criar mapa de dados por data
-    data_by_date: Dict[str, Dict[str, Any]] = {}
-    for r in data:
-        date = str(r.get("date"))[:10]
-        if date not in data_by_date:
-            data_by_date[date] = {
-                "date": date,
-                "impressions": 0,
-                "clicks": 0,
-                "inline_link_clicks": 0,
-                "spend": 0.0,
-                "lpv": 0,
-                "plays": 0,
-                "hook_wsum": 0.0,
-                "video_watched_p50_wsum": 0.0,
-                "hold_rate_wsum": 0.0,
-                "scroll_stop_wsum": 0.0,
-                "reach": 0,
-                "mql_count": 0,
-                "conversions": {},
-            }
-
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        plays = int(r.get("video_total_plays") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        hold_rate_val = float(r.get("hold_rate") or 0)
-        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
-        scroll_stop_val = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
-        reach = int(r.get("reach") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-
-        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
-        lpv = _extract_lpv(r)
-
-        # ConversÃµes e actions
-        conversions = r.get("conversions") or {}
-        if isinstance(conversions, list):
-            for conv in conversions:
-                if isinstance(conv, dict):
-                    action_type = str(conv.get("action_type") or "")
-                    value = int(conv.get("value") or 0)
-                    if action_type:
-                        key = f"conversion:{action_type}"
-                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
-
-        actions = r.get("actions") or {}
-        if isinstance(actions, list):
-            for action in actions:
-                if isinstance(action, dict):
-                    action_type = str(action.get("action_type") or "")
-                    value = int(action.get("value") or 0)
-                    if action_type:
-                        key = f"action:{action_type}"
-                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
-
-        data_by_date[date]["impressions"] += impressions
-        data_by_date[date]["clicks"] += clicks
-        data_by_date[date]["inline_link_clicks"] += inline_link_clicks
-        data_by_date[date]["spend"] += spend
-        data_by_date[date]["lpv"] += lpv
-        data_by_date[date]["plays"] += plays
-        data_by_date[date]["hook_wsum"] += hook * plays
-        data_by_date[date]["video_watched_p50_wsum"] += video_watched_p50 * plays
-        data_by_date[date]["hold_rate_wsum"] += hold_rate_val * plays
-        data_by_date[date]["scroll_stop_wsum"] += scroll_stop_val * plays
-        data_by_date[date]["reach"] += reach
-        data_by_date[date]["mql_count"] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-
-    # Construir array de resultados com todas as datas do perÃ­odo
-    result = []
-    for date in axis:
-        day_data = data_by_date.get(date, {
-            "date": date,
-            "impressions": 0,
-            "clicks": 0,
-            "inline_link_clicks": 0,
-            "spend": 0.0,
-            "lpv": 0,
-            "plays": 0,
-            "hook_wsum": 0.0,
-            "video_watched_p50_wsum": 0.0,
-            "hold_rate_wsum": 0.0,
-            "scroll_stop_wsum": 0.0,
-            "reach": 0,
-            "mql_count": 0,
-            "conversions": {},
-        })
-
-        # Calcular mÃ©tricas derivadas
-        ctr = _safe_div(day_data["clicks"], day_data["impressions"])
-        hook = _safe_div(day_data["hook_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        video_watched_p50 = _safe_div(day_data["video_watched_p50_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        connect_rate = _safe_div(day_data["lpv"], day_data["inline_link_clicks"]) if day_data["inline_link_clicks"] else 0
-        cpm = (_safe_div(day_data["spend"], day_data["impressions"]) * 1000.0) if day_data["impressions"] else 0
-        hold_rate = _safe_div(day_data["hold_rate_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        scroll_stop = _safe_div(day_data["scroll_stop_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        frequency = _safe_div(day_data["impressions"], day_data["reach"]) if day_data["reach"] else 0
-        # Corte de leadscore indefinido -> MQL/CPMQL sao INDISPONIVEIS, nao zero.
-        # Zero aqui viraria "nenhum lead qualificou", afirmacao que nao se pode fazer.
-        if mql_leadscore_min is None:
-            mqls = None
-            cpmql = None
-        else:
-            mqls = day_data["mql_count"]
-            cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
-
-        result.append({
-            "date": date,
-            "impressions": day_data["impressions"],
-            "clicks": day_data["clicks"],
-            "inline_link_clicks": day_data["inline_link_clicks"],
-            "spend": day_data["spend"],
-            "lpv": day_data["lpv"],
-            "plays": day_data["plays"],
-            "hook": hook,
-            "video_watched_p50": int(round(video_watched_p50)) if video_watched_p50 else 0,
-            "ctr": ctr,
-            "connect_rate": connect_rate,
-            "cpm": cpm,
-            "hold_rate": hold_rate,
-            "scroll_stop": scroll_stop,
-            "frequency": frequency,
-            "mqls": mqls,
-            "cpmql": cpmql,
-            "conversions": day_data["conversions"],
-        })
-
-    return {"data": result}
+    return {"data": EP.history_rows(EP.single_group(payload), axis, payload["mql_leadscore_min"])}
 
 
 @router.get("/rankings/ad-name/{ad_name}/history")
@@ -3093,195 +1592,14 @@ def get_ad_name_history(
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user)
 ):
-    """Retorna dados histÃ³ricos diÃ¡rios agregados por *ad_name* para o perÃ­odo especificado.
-
-    Soma mÃ©tricas de todos os `ad_metrics` que possuem o mesmo `ad_name`, agrupando por `date`.
-
-    Quando `pack_ids` é fornecido, filtra somente as métricas que pertencem aos
-    packs especificados via `ad_metric_pack_map`.
-    """
-    sb = get_supabase_for_user(user["token"])
-    mql_leadscore_min = _resolve_mql_leadscore_min(user["user_id"], pack_ids)
-
-    # Gerar array de datas do perÃ­odo (inclusive)
+    """Histórico diário agregado por ad_name: um objeto por dia do período (dias sem
+    dado = zeros). Read model, migration 133. Com `pack_ids`, só os packs selecionados."""
     axis = _axis_date_range(date_start, date_stop)
-
-    select_with_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,leadscore_values,lpv"
+    payload = _entity_payload(
+        user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
+        pack_ids=pack_ids, group_by="entity", include_curve=False, series_days=None,
     )
-    select_without_lpv = (
-        "ad_id,ad_name,account_id,campaign_name,adset_name,date,clicks,impressions,inline_link_clicks,spend,"
-        "video_total_plays,video_watched_p50,conversions,actions,video_play_curve_actions,"
-        "hold_rate,scroll_stop_rate,reach,leadscore_values"
-    )
-
-    pack_ids_clean = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
-
-    data: List[Dict[str, Any]] = []
-    if pack_ids_clean:
-        # Multi-dono: escopo (donos derivados de resolve_pack_access), lotes,
-        # fallback de lpv e dedup cross-silo vivem em UM lugar — supabase_repo.
-        data = supabase_repo.fetch_pack_metrics_rows(
-            user["user_id"], pack_ids_clean, date_start, date_stop,
-            select_with_lpv, select_without_lpv,
-            {"ad_name": ad_name}, log_tag="ad_name_history",
-            cancellable=True,
-        )
-    else:
-        def metrics_filters(q):
-            return q.eq("user_id", user["user_id"]).eq("ad_name", ad_name).gte("date", date_start).lte("date", date_stop)
-
-        try:
-            data = _fetch_all_paginated(sb, "ad_metrics", select_with_lpv, metrics_filters)
-        except ClientGone:
-            # Cancelamento nao e "coluna ausente": nao pode cair no fallback e
-            # re-executar a consulta inteira. Hoje o `else: raise` abaixo ja
-            # repassaria, mas so porque a mensagem nao casa com "lpv" -- guarda
-            # explicita torna isso contrato em vez de coincidencia.
-            raise
-        except Exception as e:
-            msg = str(e or "")
-            if "lpv" in msg and ("column" in msg or "does not exist" in msg):
-                logger.warning("[ad_name_history] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).")
-                data = _fetch_all_paginated(sb, "ad_metrics", select_without_lpv, metrics_filters)
-            else:
-                raise
-
-    # Agregar por data
-    data_by_date: Dict[str, Dict[str, Any]] = {}
-    for r in data:
-        date = str(r.get("date"))[:10]
-        if date not in data_by_date:
-            data_by_date[date] = {
-                "date": date,
-                "impressions": 0,
-                "clicks": 0,
-                "inline_link_clicks": 0,
-                "spend": 0.0,
-                "lpv": 0,
-                "plays": 0,
-                "hook_wsum": 0.0,
-                "video_watched_p50_wsum": 0.0,
-                "hold_rate_wsum": 0.0,
-                "scroll_stop_wsum": 0.0,
-                "reach": 0,
-                "mql_count": 0,
-                "conversions": {},
-            }
-
-        clicks = int(r.get("clicks") or 0)
-        impressions = int(r.get("impressions") or 0)
-        inline_link_clicks = int(r.get("inline_link_clicks") or 0)
-        spend = float(r.get("spend") or 0)
-        plays = int(r.get("video_total_plays") or 0)
-        curve = r.get("video_play_curve_actions") or []
-        hook = _hook_at_3_from_curve(curve)
-        video_watched_p50 = int(r.get("video_watched_p50") or 0)
-        video_watched_p75 = int(r.get("video_watched_p75") or 0)
-        hold_rate_val = float(r.get("hold_rate") or 0)
-        _ss_raw = float(r.get("scroll_stop_value") or r.get("scroll_stop_rate") or 0)
-        scroll_stop_val = _ss_raw / 100.0 if _ss_raw > 1 else _ss_raw
-        reach = int(r.get("reach") or 0)
-        leadscore_values = r.get("leadscore_values") or []
-
-        # landing_page_views (preferir coluna lpv quando disponÃ­vel)
-        lpv = _extract_lpv(r)
-
-        # ConversÃµes e actions
-        conversions = r.get("conversions") or {}
-        if isinstance(conversions, list):
-            for conv in conversions:
-                if isinstance(conv, dict):
-                    action_type = str(conv.get("action_type") or "")
-                    value = int(conv.get("value") or 0)
-                    if action_type:
-                        key = f"conversion:{action_type}"
-                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
-
-        actions = r.get("actions") or {}
-        if isinstance(actions, list):
-            for action in actions:
-                if isinstance(action, dict):
-                    action_type = str(action.get("action_type") or "")
-                    value = int(action.get("value") or 0)
-                    if action_type:
-                        key = f"action:{action_type}"
-                        data_by_date[date]["conversions"][key] = data_by_date[date]["conversions"].get(key, 0) + value
-
-        data_by_date[date]["impressions"] += impressions
-        data_by_date[date]["clicks"] += clicks
-        data_by_date[date]["inline_link_clicks"] += inline_link_clicks
-        data_by_date[date]["spend"] += spend
-        data_by_date[date]["lpv"] += lpv
-        data_by_date[date]["plays"] += plays
-        data_by_date[date]["hook_wsum"] += hook * plays
-        data_by_date[date]["video_watched_p50_wsum"] += video_watched_p50 * plays
-        data_by_date[date]["hold_rate_wsum"] += hold_rate_val * plays
-        data_by_date[date]["scroll_stop_wsum"] += scroll_stop_val * plays
-        data_by_date[date]["reach"] += reach
-        data_by_date[date]["mql_count"] += (_count_mql(leadscore_values, mql_leadscore_min) or 0)
-
-    # Construir array de resultados com todas as datas do perÃ­odo
-    result: List[Dict[str, Any]] = []
-    for date in axis:
-        day_data = data_by_date.get(date, {
-            "date": date,
-            "impressions": 0,
-            "clicks": 0,
-            "inline_link_clicks": 0,
-            "spend": 0.0,
-            "lpv": 0,
-            "plays": 0,
-            "hook_wsum": 0.0,
-            "video_watched_p50_wsum": 0.0,
-            "hold_rate_wsum": 0.0,
-            "scroll_stop_wsum": 0.0,
-            "reach": 0,
-            "mql_count": 0,
-            "conversions": {},
-        })
-
-        ctr = _safe_div(day_data["clicks"], day_data["impressions"])
-        hook_val = _safe_div(day_data["hook_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        video_watched_p50_val = _safe_div(day_data["video_watched_p50_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        connect_rate = _safe_div(day_data["lpv"], day_data["inline_link_clicks"]) if day_data["inline_link_clicks"] else 0
-        cpm = (_safe_div(day_data["spend"], day_data["impressions"]) * 1000.0) if day_data["impressions"] else 0
-        hold_rate = _safe_div(day_data["hold_rate_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        scroll_stop = _safe_div(day_data["scroll_stop_wsum"], day_data["plays"]) if day_data["plays"] else 0
-        frequency = _safe_div(day_data["impressions"], day_data["reach"]) if day_data["reach"] else 0
-        # Corte de leadscore indefinido -> MQL/CPMQL sao INDISPONIVEIS, nao zero.
-        # Zero aqui viraria "nenhum lead qualificou", afirmacao que nao se pode fazer.
-        if mql_leadscore_min is None:
-            mqls = None
-            cpmql = None
-        else:
-            mqls = day_data["mql_count"]
-            cpmql = _safe_div(day_data["spend"], mqls) if mqls else 0
-
-        result.append({
-            "date": date,
-            "impressions": day_data["impressions"],
-            "clicks": day_data["clicks"],
-            "inline_link_clicks": day_data["inline_link_clicks"],
-            "spend": day_data["spend"],
-            "lpv": day_data["lpv"],
-            "plays": day_data["plays"],
-            "hook": hook_val,
-            "video_watched_p50": int(round(video_watched_p50_val)) if video_watched_p50_val else 0,
-            "ctr": ctr,
-            "connect_rate": connect_rate,
-            "cpm": cpm,
-            "hold_rate": hold_rate,
-            "scroll_stop": scroll_stop,
-            "frequency": frequency,
-            "mqls": mqls,
-            "cpmql": cpmql,
-            "conversions": day_data["conversions"],
-        })
-
-    return {"data": result}
+    return {"data": EP.history_rows(EP.single_group(payload), axis, payload["mql_leadscore_min"])}
 
 @router.post("/dashboard")
 def get_dashboard(req: DashboardRequest, user=Depends(get_current_user)):

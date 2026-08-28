@@ -45,3 +45,26 @@ sed '0,/^BEGIN;/s//BEGIN;\nALTER TABLE public.ad_metrics DISABLE TRIGGER ad_metr
 
 Sabotagens já provadas para o 128 (2026-08-26): trigger de UPDATE desligado → falha em B;
 trigger de INSERT desligado → falha em A; FK sem `ON UPDATE CASCADE` → falha em G.
+
+## Diferenciais (rota/RPC antiga × nova, sobre os dados do laboratório)
+
+Toda troca de cálculo passa por um diferencial contra a versão anterior antes do cutover.
+Dois scripts, ambos recusam URL do Supabase:
+
+| Script | O que compara | Como fala com o banco |
+|---|---|---|
+| `backend/scripts/diff_rankings_rollup.py` | RPC do Manager: v116 × v130 (`--series`, `--v132`) | `psql` (sem driver Python) |
+| `backend/scripts/diff_entity_routes.py` | As 7 rotas de detalhe: código Python ANTIGO (carregado do git, `--old-ref`) × rotas novas sobre `fetch_entity_performance_v133` (migration 133) | `psycopg` — instale só no venv de laboratório: `pip install "psycopg[binary]"` (não está no requirements: produção fala PostgREST) |
+
+O segundo executa as duas implementações no mesmo processo com um cliente Supabase
+falso que traduz o query builder do PostgREST para SQL (ordem física por `ctid` sem
+ORDER BY — a paginação por offset da rota antiga exige ordem estável entre páginas).
+Aplique a migration 133 no lab antes de rodar:
+
+```bash
+psql -d hookify_lab -v ON_ERROR_STOP=1 -f supabase/migrations/133_detalhe_de_entidade_no_read_model.sql
+LAB_URL=postgresql://postgres@127.0.0.1:5433/hookify_lab backend/venv/Scripts/python backend/scripts/diff_entity_routes.py
+```
+
+O cabeçalho de cada script lista o que é exato e o que é tolerado (e por quê). Critério
+de saída: zero divergências não classificadas.

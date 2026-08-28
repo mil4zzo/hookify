@@ -3707,3 +3707,37 @@ arrumar e o ganho ao arrumar, em números que se sentem (segundos na tela, MB, R
 técnico acompanhado da tradução, e **(5)** nome que eu inventei (`ad_performance_daily`,
 "carimbo de frescor", `_base_v130`) explicado na primeira menção — nunca como se já fosse
 conhecido. Os termos são bem-vindos: ele aprende com eles.
+
+
+## 2026-08-27 — Telas de detalhe no read model (migration 133): "não dói hoje" não é motivo
+
+**Contexto.** Depois do rollup (128–132), as 7 rotas de detalhe do Manager (anúncio,
+criativo, conjunto, filhos, histórico) ainda baixavam `ad_metrics` cru via PostgREST e
+somavam em Python. Eu as tinha deixado "para a v2" com o argumento de que eram consultas
+pequenas. O idealizador questionou: se o jeito atual é sabidamente o menos eficiente e não
+é o padrão do app, a única razão para não corrigir seria a forma nova poder piorar algo —
+e não podia. O resto era viés de fechar o capítulo, vestido de "medir primeiro".
+
+**O que estava errado de verdade não era velocidade — era uma segunda matemática.** Sete
+cópias do mesmo bloco reimplementavam em Python a derivação que `ad_performance_daily` já
+faz em SQL. O número do modal e o da tabela vinham de códigos diferentes, e nenhum
+diferencial cobria o modal.
+
+**Decisões.**
+- Uma RPC de entidade (`fetch_entity_performance_v133`) com escopo, dedup cross-silo e
+  representante **idênticos à base do Manager**; totais do período + dias só da janela
+  pedida (a primeira versão mandava 1,4 MB de dias que ninguém lia); curva de retenção como
+  única leitura de JSON, por entidade, sob demanda (guardá-la no read model: ~80 MB).
+- Chaves pelos índices existentes de `ad_metrics`; zero índice novo. Índice de cobertura
+  para o conjunto medido e rejeitado (4 MB → 21 MB, o INCLUDE desliga a deduplicação).
+- Um agregador em Python (`entity_performance.py`) para as 7 rotas; `analytics.py` perdeu
+  ~1.400 linhas.
+- Diferencial com as rotas antigas **carregadas do git** e executadas no mesmo processo com
+  um cliente Supabase falso (query builder → SQL). 822 cenários, 2.242 chamadas, 0
+  divergências. Só ele pegou dois contratos que eu não tinha visto lendo o código: `series:
+  null` do filho sem dia no eixo e chaves sem prefixo na série do detalhe do conjunto. E a
+  primeira rodada "divergiu" por culpa do próprio harness (paginação por offset sem ordem
+  estável) — desconfiar da medição inclui desconfiar do medidor.
+
+**Lição.** Cálculo duplicado é bug latente mesmo quando os dois lados concordam hoje. E o
+critério para mexer no que "não dói" é "pode piorar?", não "já doeu?".

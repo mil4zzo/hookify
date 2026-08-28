@@ -328,7 +328,8 @@ class _FakePaginacao:
 
 
 class TestCorteNaPaginacaoDosDrills:
-    """As 8 telas de detalhe desembocam nos lacos de paginacao.
+    """Lacos de paginacao (hidratacao do Manager e afins; as telas de detalhe
+    deixaram de paginar ad_metrics na migration 133).
 
     Um checkpoint no topo do laco cobre todas de uma vez -- o ganho e cortar a
     CAUDA: parar na pagina 2 em vez de varrer as 10 restantes para o lixo.
@@ -413,65 +414,48 @@ class TestOptInDoHelperCompartilhado:
         finally:
             current_liveness.reset(token)
 
-    def test_drills_ligam_o_opt_in(self):
-        """Backstop: se alguem remover o cancellable=True, o ganho some calado."""
+    def test_drills_checam_desconexao_antes_da_rpc(self):
+        """As 7 telas de detalhe passam por fetch_entity_performance (migration 133),
+        que checa a desconexao ANTES de disparar a RPC — leitura pura, seguro cortar."""
+        from app.core.client_disconnect import _Liveness
+        from app.services import entity_performance as EP
+
+        class _Rpc:
+            chamadas = 0
+
+            def rpc(self, *_a, **_k):
+                _Rpc.chamadas += 1
+                return self
+
+            def execute(self):
+                return type("Res", (), {"data": {"groups": []}})()
+
+        estado = _Liveness()
+        estado.disconnected = True
+        token = current_liveness.set(estado)
+        try:
+            with pytest.raises(ClientGone):
+                EP.fetch_entity_performance(
+                    _Rpc(), user_id="u", date_start="2026-01-01", date_stop="2026-01-05",
+                    entity="ad_id", entity_id="1",
+                )
+        finally:
+            current_liveness.reset(token)
+        assert _Rpc.chamadas == 0, "a RPC nao pode ser disparada para um cliente que ja desligou"
+
+    def test_as_sete_rotas_usam_o_agregador_unico(self):
+        """Backstop: se alguem voltar a somar ad_metrics cru numa rota de detalhe, a
+        matematica do modal descola da do Manager de novo."""
         import inspect
         from app.routes import analytics
 
-        src = inspect.getsource(analytics)
-        assert src.count("cancellable=True") == 7, (
-            "os 7 drills precisam passar cancellable=True para fetch_pack_metrics_rows"
+        rotas = (
+            analytics.get_ad_name_details, analytics.get_rankings_children,
+            analytics.get_adset_children, analytics.get_adset_details,
+            analytics.get_ad_details, analytics.get_ad_history, analytics.get_ad_name_history,
         )
+        for rota in rotas:
+            src = inspect.getsource(rota)
+            assert "_entity_payload(" in src, f"{rota.__name__} nao passa pelo read model"
+            assert "ad_metrics" not in src, f"{rota.__name__} voltou a ler ad_metrics cru"
 
-
-class TestFallbackDeColunaAusente:
-    """O cancelamento nao pode ser confundido com 'coluna lpv ausente'.
-
-    Sem a guarda, o bloco de fallback re-executaria a consulta inteira que
-    acabamos de cancelar -- o dobro do trabalho em vez de zero.
-    """
-
-    def test_fallback_de_lpv_continua_funcionando(self):
-        from app.services import supabase_repo as R
-
-        chamadas = []
-
-        def fake_fetch(sb, table, select, filters, *a, **kw):
-            if table == "ad_metric_pack_map":
-                # Indice de pertinencia: usa `metric_date`, nao `date`.
-                return [{"ad_id": "A", "metric_date": "2026-01-01"}]
-            chamadas.append(select)
-            if "lpv" in select:
-                raise Exception('column "lpv" does not exist')
-            return [{"ad_id": "A", "date": "2026-01-01", "user_id": "o1"}]
-
-        with mock.patch.object(R, "resolve_pack_owner_map", return_value={"p1": "o1"}), \
-             mock.patch.object(R, "get_supabase_service", return_value=object()), \
-             mock.patch.object(R, "_fetch_all_paginated", side_effect=fake_fetch):
-            out = R.fetch_pack_metrics_rows(
-                "o1", ["p1"], "2026-01-01", "2026-01-31",
-                "ad_id,date,lpv", "ad_id,date", None, log_tag="teste",
-            )
-        assert out, "o fallback tinha de devolver linhas"
-        assert any("lpv" in c for c in chamadas) and any("lpv" not in c for c in chamadas)
-
-    def test_cancelamento_nao_dispara_o_fallback(self):
-        from app.services import supabase_repo as R
-
-        chamadas = []
-
-        def fake_fetch(sb, table, select, filters, *a, **kw):
-            if table == "ad_metric_pack_map":
-                return [{"ad_id": "A", "metric_date": "2026-01-01"}]
-            chamadas.append(select)
-            raise ClientGone("paginacao:ad_metrics")
-
-        with mock.patch.object(R, "resolve_pack_owner_map", return_value={"p1": "o1"}), \
-             mock.patch.object(R, "get_supabase_service", return_value=object()), \
-             mock.patch.object(R, "_fetch_all_paginated", side_effect=fake_fetch):
-            with pytest.raises(ClientGone):
-                R.fetch_pack_metrics_rows(
-                    "o1", ["p1"], "2026-01-01", "2026-01-31",
-                    "ad_id,date,lpv", "ad_id,date", None, log_tag="teste",
-                )
-        assert len(chamadas) == 1, "nao pode re-executar a consulta cancelada"

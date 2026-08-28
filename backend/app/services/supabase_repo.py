@@ -163,22 +163,16 @@ def _fetch_all_paginated(
     return all_rows
 
 
-# ─── Leitura multi-dono de métricas (packs próprios E compartilhados) ─────────
+# ─── Donos dos packs selecionados ─────────────────────────────────────────────
 #
-# Ponto ÚNICO de acesso a `ad_metrics` quando o escopo é "os packs selecionados".
-# Antes, cada endpoint de drill montava a própria lambda de filtro com
-# `user_id = ator` — o que funcionava por coincidência (dono == ator) e quebraria
-# em silêncio num pack compartilhado: as linhas pertencem ao DONO, e o endpoint
-# voltaria vazio. A duplicação também já tinha divergido (uma das lambdas perdeu
-# o filtro de user_id sem ninguém notar).
-#
-# TROCA DE GUARDA — leia antes de mexer: estas funções usam SERVICE ROLE, então a
-# RLS deixa de proteger. O que protege é o desenho: os donos são SEMPRE derivados
-# de `resolve_pack_access(pack_ids, ator)` aqui dentro — não existe parâmetro para
+# TROCA DE GUARDA — leia antes de mexer: usa SERVICE ROLE, então a RLS deixa de
+# proteger. O que protege é o desenho: os donos são SEMPRE derivados de
+# `resolve_pack_access(pack_ids, ator)` aqui dentro — não existe parâmetro para
 # injetar uma lista de donos. Pack sem acesso simplesmente não entra no mapa.
-
-_PACK_METRICS_IN_BATCH = 200  # .in_() com mais ids estoura a URL do PostgREST
-
+#
+# (A leitura multi-dono de `ad_metrics` cru que vivia aqui — fetch_pack_metrics_rows
+# e companhia — saiu na migration 133: as telas de detalhe leem o read model pela
+# RPC fetch_entity_performance_v133, que resolve o escopo do mesmo jeito, em SQL.)
 
 def resolve_pack_owner_map(actor_id: str, pack_ids: List[str]) -> Dict[str, str]:
     """`{pack_id: owner_id}` SOMENTE para os packs que o ator pode acessar.
@@ -201,254 +195,6 @@ def resolve_pack_owner_map(actor_id: str, pack_ids: List[str]) -> Dict[str, str]
         if isinstance(row, dict) and row.get("pack_id") and row.get("owner_id"):
             out[str(row["pack_id"])] = str(row["owner_id"])
     return out
-
-
-def _pack_metric_ids_by_owner(
-    sb,
-    owner_map: Dict[str, str],
-    date_start: str,
-    date_stop: str,
-    *,
-    cancellable: bool = False,
-) -> Dict[str, set]:
-    """`{owner_id: {composite ids}}` a partir de `ad_metric_pack_map`.
-
-    O id composto é `{date}-{ad_id}` (gerado em upsert_ad_metrics). Ele NÃO é
-    único entre usuários — a PK de `ad_metrics` é (id, user_id) — então os ids
-    ficam agrupados por dono e a busca SEMPRE pareia id com o silo certo.
-    Set por dono: dois packs do mesmo dono com anúncios em comum não duplicam.
-    """
-    ids_by_owner: Dict[str, set] = {}
-    for pack_id, owner_id in owner_map.items():
-
-        def _filters(q, _pid=pack_id, _own=owner_id):
-            return (
-                q.eq("user_id", _own)
-                .eq("pack_id", _pid)
-                .gte("metric_date", date_start)
-                .lte("metric_date", date_stop)
-            )
-
-        rows = _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _filters, cancellable=cancellable)
-        bucket = ids_by_owner.setdefault(owner_id, set())
-        for r in rows:
-            aid = str(r.get("ad_id") or "").strip()
-            d = str(r.get("metric_date") or "")[:10]
-            if aid and d:
-                bucket.add(f"{d}-{aid}")
-    return ids_by_owner
-
-
-def _dedup_cross_silo(rows: List[Dict[str, Any]], actor_id: str) -> List[Dict[str, Any]]:
-    """Uma linha por (ad_id, date) quando o mesmo anúncio existe em mais de um silo.
-
-    MESMA regra da RPC (migration 104): vence o silo que NÃO é o do ator (o dono
-    do pack compartilhado), desempate por uuid. Se divergir daqui, o número do
-    drill descola do número da tabela. Empate dentro do mesmo silo é impossível:
-    UNIQUE (user_id, ad_id, date).
-    """
-    actor = str(actor_id)
-    best: Dict[tuple, tuple] = {}
-    for r in rows:
-        key = (str(r.get("ad_id") or ""), str(r.get("date") or ""))
-        uid = str(r.get("user_id") or "")
-        rank = (uid == actor, uid)
-        prev = best.get(key)
-        if prev is None or rank < prev[0]:
-            best[key] = (rank, r)
-    return [r for _, r in best.values()]
-
-
-def fetch_pack_metrics_rows(
-    actor_id: str,
-    pack_ids: List[str],
-    date_start: str,
-    date_stop: str,
-    select_fields: str,
-    fallback_select_fields: Optional[str] = None,
-    attr_filters: Optional[Dict[str, str]] = None,
-    log_tag: str = "pack_metrics",
-    cancellable: bool = False,
-) -> List[Dict[str, Any]]:
-    """Linhas de `ad_metrics` dos packs selecionados, lidas do silo de cada dono.
-
-    - `attr_filters`: filtros de atributo do drill (ex.: {"ad_name": x}) — nunca
-      de escopo; o escopo é derivado aqui dentro.
-    - `fallback_select_fields`: select sem `lpv` para bancos sem a coluna (o
-      fallback vive aqui, não mais copiado em cada endpoint).
-    - As linhas voltam com `user_id` (o silo de origem) mesmo que o select não
-      peça: o dedup precisa dele, e o chamador o usa para escopar leituras
-      derivadas (ex.: thumbnail em `ads`). Agregações ignoram a chave extra.
-
-    Lista vazia quando nenhum pack é acessível — mesmo comportamento observável
-    de "pack sem dados", sem confirmar a existência de pack alheio.
-    """
-    owner_map = resolve_pack_owner_map(actor_id, pack_ids)
-    if not owner_map:
-        return []
-
-    sb = get_supabase_service()
-
-    select_eff = select_fields if "user_id" in select_fields else f"{select_fields},user_id"
-    fallback_eff = (
-        fallback_select_fields
-        if not fallback_select_fields or "user_id" in fallback_select_fields
-        else f"{fallback_select_fields},user_id"
-    )
-
-    if attr_filters:
-        # CAMINHO ATRIBUTO-PRIMEIRO (drill). O atributo do drill (adset_id/ad_name/
-        # ad_id) e seletivo e coberto por indice em ad_metrics. Em vez de resolver
-        # TODOS os ids compostos do pack e lotear por id (fan-out de ~Npack/200
-        # round-trips — o gargalo do drill em pack grande), busca-se ad_metrics por
-        # atributo (1 round-trip/dono, via indice) e checa-se a pertinencia ao pack
-        # com a lista CURTA de ad_ids resultante. Resultado final identico ao caminho
-        # por-id (validado por diff contra a implementacao antiga).
-        packs_by_owner: Dict[str, List[str]] = {}
-        for pack_id, owner_id in owner_map.items():
-            packs_by_owner.setdefault(owner_id, []).append(pack_id)
-
-        def _run(select_str: str) -> List[Dict[str, Any]]:
-            rows: List[Dict[str, Any]] = []
-            for owner_id, owner_packs in packs_by_owner.items():
-
-                def _attr_q(q, _own=owner_id):
-                    q = q.eq("user_id", _own).gte("date", date_start).lte("date", date_stop)
-                    for k, v in (attr_filters or {}).items():
-                        q = q.eq(k, v)
-                    return q
-
-                cand = _fetch_all_paginated(sb, "ad_metrics", select_str, _attr_q, cancellable=cancellable)
-                if not cand:
-                    continue
-
-                # Pertinencia ao pack: composto {date}-{ad_id} presente em
-                # ad_metric_pack_map para algum pack do dono. A lista de ad_ids do
-                # drill e curta, entao isto e 1 (raramente +) round-trip por dono.
-                ad_ids = sorted({str(r.get("ad_id") or "").strip() for r in cand if r.get("ad_id")})
-                member: set = set()
-                for i in range(0, len(ad_ids), _PACK_METRICS_IN_BATCH):
-                    batch = ad_ids[i:i + _PACK_METRICS_IN_BATCH]
-
-                    def _mem_q(q, _own=owner_id, _packs=owner_packs, _b=batch):
-                        return (
-                            q.eq("user_id", _own)
-                            .in_("pack_id", _packs)
-                            .gte("metric_date", date_start)
-                            .lte("metric_date", date_stop)
-                            .in_("ad_id", _b)
-                        )
-
-                    for m in _fetch_all_paginated(sb, "ad_metric_pack_map", "ad_id, metric_date", _mem_q, cancellable=cancellable):
-                        aid = str(m.get("ad_id") or "").strip()
-                        d = str(m.get("metric_date") or "")[:10]
-                        if aid and d:
-                            member.add(f"{d}-{aid}")
-
-                for r in cand:
-                    aid = str(r.get("ad_id") or "").strip()
-                    d = str(r.get("date") or "")[:10]
-                    if aid and d and f"{d}-{aid}" in member:
-                        rows.append(r)
-            return rows
-    else:
-        # CAMINHO POR-ID (sem atributo seletivo): resolve os ids do pack e loteia.
-        # Sem um atributo para restringir ad_metrics nao ha como evitar varrer o
-        # pack inteiro — mantido para chamadores futuros sem attr_filters.
-        ids_by_owner = _pack_metric_ids_by_owner(sb, owner_map, date_start, date_stop, cancellable=cancellable)
-
-        def _run(select_str: str) -> List[Dict[str, Any]]:
-            rows: List[Dict[str, Any]] = []
-            for owner_id, ids in ids_by_owner.items():
-                id_list = sorted(ids)
-                for i in range(0, len(id_list), _PACK_METRICS_IN_BATCH):
-                    batch = id_list[i:i + _PACK_METRICS_IN_BATCH]
-
-                    def _filters(q, _own=owner_id, _b=batch):
-                        q = q.eq("user_id", _own).in_("id", _b)
-                        for k, v in (attr_filters or {}).items():
-                            q = q.eq(k, v)
-                        return q
-
-                    rows.extend(_fetch_all_paginated(sb, "ad_metrics", select_str, _filters, cancellable=cancellable))
-            return rows
-
-    try:
-        raw = _run(select_eff)
-    except ClientGone:
-        # Cancelamento nao e "coluna ausente": sem esta guarda, dependeriamos de a
-        # mensagem do ClientGone nunca conter "lpv" para nao cair no fallback e
-        # re-executar a consulta inteira que acabamos de cancelar.
-        raise
-    except Exception as e:
-        msg = str(e or "")
-        if fallback_eff and "lpv" in msg and ("column" in msg or "does not exist" in msg):
-            logger.warning("[%s] Coluna `lpv` ausente no DB; seguindo sem ela (fallback via actions).", log_tag)
-            raw = _run(fallback_eff)
-        else:
-            raise
-
-    return _dedup_cross_silo(raw, actor_id)
-
-
-def fetch_ads_rows_for_metric_rows(
-    metric_rows: List[Dict[str, Any]],
-    actor_id: str,
-    select_fields: str,
-    batch_size: int = 500,
-) -> List[Dict[str, Any]]:
-    """Linhas de `ads` para os ad_ids das linhas de metricas, no silo de CADA uma.
-
-    As linhas de fetch_pack_metrics_rows carregam `user_id` (o silo de origem);
-    linhas do ramo legado nao carregam e caem no silo do ATOR — mesmo filtro que
-    a RLS aplicava, so que via service role. O escopo nunca vem do cliente: vem
-    do user_id de linhas ja escopadas ou do ator autenticado.
-    """
-    by_owner: Dict[str, set] = {}
-    for r in metric_rows:
-        aid = str(r.get("ad_id") or "").strip()
-        if not aid:
-            continue
-        owner = str(r.get("user_id") or actor_id)
-        by_owner.setdefault(owner, set()).add(aid)
-
-    if not by_owner:
-        return []
-
-    sb = get_supabase_service()
-    out: List[Dict[str, Any]] = []
-    for owner, ids in by_owner.items():
-        id_list = sorted(ids)
-        for i in range(0, len(id_list), batch_size):
-            batch = id_list[i:i + batch_size]
-
-            def _filters(q, _own=owner, _b=batch):
-                return q.eq("user_id", _own).in_("ad_id", _b)
-
-            out.extend(_fetch_all_paginated(sb, "ads", select_fields, _filters))
-    return out
-
-
-def fetch_ads_row_scoped(owner_id: str, ad_id: str, select_fields: str) -> Optional[Dict[str, Any]]:
-    """Uma linha de `ads` no silo indicado (service role).
-
-    `owner_id` deve vir do `user_id` de uma linha devolvida por
-    `fetch_pack_metrics_rows` — nunca de input do cliente. É o que permite
-    resolver thumbnail/creative de um anúncio de pack compartilhado.
-    """
-    if not owner_id or not ad_id:
-        return None
-    res = (
-        get_supabase_service()
-        .table("ads")
-        .select(select_fields)
-        .eq("user_id", str(owner_id))
-        .eq("ad_id", str(ad_id))
-        .limit(1)
-        .execute()
-    )
-    rows = res.data or []
-    return rows[0] if rows else None
 
 
 def _process_pack_deletion_in_batches(
@@ -3459,7 +3205,7 @@ def get_ads_for_pack(
 
             if ad_ids:
                 # IDs de ads são longos (~18 chars). Lotes de 200 evitam URLs >32KB
-                # no PostgREST (mesmo padrão de fetch_pack_metrics_rows).
+                # no PostgREST.
                 batch_size = 200
                 all_ads = []
 

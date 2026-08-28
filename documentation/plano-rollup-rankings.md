@@ -3,7 +3,8 @@
 Data: 2026-08-26. Estado: **fases A–E concluídas em produção em 2026-08-26.** Cutover
 medido no banco, alternando as versões: v116 8-12 s → v130 **1,2 s** (a RPC do Manager),
 zero arquivo temporário; série (131) 4-11,6 s → 0,33 s. **Fase 2 do cache (IndexedDB por
-query) implementada em 2026-08-26 — ver §11.** Pendente: fase F (remedir instância e
+query) implementada em 2026-08-26 — ver §11.** Hidratação da rota (132, §12) e as **7 telas
+de detalhe no read model (133, §13)** em 2026-08-27. Pendente: fase F (remedir instância e
 `work_mem` com CPU saudável, rename §9).
 Decisões do usuário: histograma de leadscore entra na v1; instância continua MICRO até o
 rollup medir; a nomenclatura nova é **"performance"** (artefatos novos nascem
@@ -219,7 +220,7 @@ Regras de processo herdadas desta semana:
 ## 7. O que fica de fora, de propósito
 
 - **Fase 2 do cache (IndexedDB)**: depois; com leitura a ~0,4 s, vira conforto, não urgência.
-- **Telas de detalhe (8) migrarem para o rollup**: v2. Hoje leem `ad_metrics` cru.
+- ~~**Telas de detalhe migrarem para o rollup**: v2.~~ Feito na migration 133 — ver §13.
 - **Tirar os JSON pesados de `ad_metrics`** (deixá-la estreita): v2, depois das telas.
 - **Cache de resultado no servidor**: só com número mostrando repetição entre usuários.
 - **Instância**: decisão adiada por escolha do usuário; remedir após o cutover com a
@@ -312,6 +313,68 @@ igual (v130 548/527 ms × v132 522/521 ms, alternando).
 **Backend:** as três hidratações só consultam linhas **sem** a chave (payload de RPC antiga);
 com a v132 no ar, zero requisições depois da RPC. 8 testes (com sabotagem). Frontend: nada
 — o schema já tinha `media_type` e `has_transcription`.
+
+## 13. As 7 telas de detalhe no read model — migration 133 (2026-08-27)
+
+**Por que não ficou "para a v2".** As rotas de detalhe (anúncio, criativo, conjunto; filhos;
+histórico por dia) baixavam as linhas cruas de `ad_metrics` via PostgREST — com os JSONs
+de `actions`, `conversions`, `leadscore_values` e a curva inteira — e somavam em Python:
+sete cópias do mesmo bloco, cada uma com o próprio fallback de `lpv`, o próprio dedup de
+pack compartilhado e a própria derivação de conversão. Isso era uma **segunda
+implementação** da matemática que `ad_performance_daily` faz em SQL: o número do modal e
+o da tabela saíam de códigos diferentes, e nenhum diferencial cobria o modal. "Hoje não
+dói" não é motivo para manter um cálculo duplicado que só um usuário comparando card e
+tabela descobriria.
+
+**Antes de desenhar, o laboratório respondeu se a matemática por linha era a mesma dos dois
+lados** (260.709 anúncio-dias): hook (`hook_rate` nunca preenchido → curva[3] nos dois),
+scroll-stop (`scroll_stop_rate` nunca nulo com curva), lpv (coluna nunca zerada com
+`landing_page_view` em `actions`), p50/p75 e curva sem casas decimais. Idêntica — as
+diferenças que restavam eram de contrato, não de número (abaixo).
+
+**Migration 133 — `fetch_entity_performance_v133`** (uma entidade: `ad_id` | `ad_name` |
+`adset_id`; grupo = a entidade ou cada `ad_id` dela): chaves pelos índices de `ad_metrics`
+(zero índice novo — os dois que o read model precisaria custariam ~30 MB), números pela PK
+do read model, escopo e dedup cross-silo **idênticos à base do Manager**, representante
+pela **mesma regra do Manager** (dia de mais impressões) para nomes/status/miniatura (com
+fallback para qualquer cópia, como a v132), corte de MQL resolvido na própria chamada.
+Devolve por grupo os **totais do período** e as **linhas por dia só da janela pedida**
+(`p_series_days`: 5 para detalhe/filhos, tudo para histórico) — a primeira versão mandava
+os 9 meses de dias dos filhos do conjunto mais pesado: 1,4 MB que ninguém lia; com a
+janela, 99 KB. A curva de retenção ponderada por plays é a **única** leitura de JSON, por
+entidade e sob demanda (guardá-la no read model custaria ~80 MB para uma aba).
+
+Medido no lab, casos mais pesados: criativo com 66 cópias/1.351 dias com curva **18–31 ms**;
+seus filhos **44 ms**; filhos do conjunto com 29 anúncios/9 meses **47 ms**.
+
+**Backend:** `app/services/entity_performance.py` é o **único** agregador (razões, série de
+5 dias, curva, histórico); as 7 rotas viraram ~20 linhas cada; `analytics.py` perdeu ~1.400
+linhas; `fetch_pack_metrics_rows` e companhia saíram de `supabase_repo`. 14 testes novos
+(3 sabotagens provadas) + backstop de que nenhuma rota de detalhe volta a ler `ad_metrics`.
+**Frontend:** nada — contrato inalterado.
+
+**Diferencial `backend/scripts/diff_entity_routes.py`** — as rotas antigas (código carregado
+do git) e as novas rodam no mesmo processo contra o lab, com um cliente Supabase falso que
+traduz o query builder do PostgREST para SQL. 822 cenários × rotas aplicáveis = 2.242
+chamadas. O que ele tolera, contado e listado (e por quê): ordem de `leadscore_values`
+(nenhum consumidor lê ordem); nomes quando a entidade teve os dois valores no período (a
+antiga pegava a primeira linha física; a nova, o representante do Manager); miniatura do
+criativo quando as duas são não-nulas (cópias compartilham a mídia); e as séries
+`hold_rate/scroll_stop/p50/p75` do detalhe do **conjunto**, que a rota antiga alimentava
+com zeros (bug) e a nova manda de verdade. Duas coisas que só o diferencial pegou: o filho
+por `ad_name` sem dia no eixo devolvia `series: null` (mantido); o detalhe do conjunto usa
+chaves **sem prefixo** nos totais **e na série** (mantido). **Resultado: 2.242/2.242 chamadas idênticas, 0 divergências** (lab, 2026-08-27).
+
+**Produção (133 aplicada em 2026-08-27):** criativo de 66 cópias com curva 1,08 s fria /
+**60 ms** quente; filhos 190 ms; filhos do conjunto de 9 meses 1,5 s fria / **105 ms** quente;
+histórico do conjunto inteiro 417 ms. O frio é I/O da instância MICRO lendo as ~1.100
+páginas de `ad_metrics` que dão as chaves do conjunto. Medido um índice de cobertura
+`(user_id, adset_id, date) INCLUDE (ad_id)` para tornar isso index-only: passa de 4 MB
+para **21 MB** (o INCLUDE desliga a deduplicação do B-tree) por ~1 s numa primeira abertura
+— rejeitado; o índice atual fica.
+
+**Prova de sabotagem dos testes novos:** `count_mql` devolvendo 0 sem corte, `series: null`
+ignorado e curva dividida pelo total de plays derrubam exatamente um teste cada.
 
 ## 9. Passe de renomeação "rankings" → "performance" (depois do cutover, não junto)
 
