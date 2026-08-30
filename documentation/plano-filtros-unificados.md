@@ -1,7 +1,8 @@
 # Plano: um motor de filtros para Manager, Boards e Critério de validação
 
-Data: 2026-08-28. Estado: **fases 0, 1 e 2 implementadas** (268 testes verdes, `tsc` e
-design-system limpos, nada commitado ainda). Fases 3–6 pendentes.
+Data: 2026-08-28. Estado: **fases 0 a 4 implementadas e em produção** (282 testes verdes no
+frontend, `tsc` e design-system limpos; migrations 134 e 135 aplicadas). Faltam a fase 5 (RPC:
+`campaign_ids`/`adset_ids` + dicionário de nomes) e a 6 (limpeza e registro).
 
 Achados durante a execução, que valem mais que o texto original das fases:
 
@@ -215,32 +216,57 @@ nem o CI os executam.
     default da aba individual, funil por coluna, e um diferencial "filtro antigo × árvore" para
     os casos que existiam (contém / > / status / tags / data) via as referências da fase 0.
 
-### Fase 4 — Critério de validação no motor (M)
+### Fase 4 — Critério de validação no motor (M) — ✅ FEITA (2026-08-30)
 
-1. **Formato gravado.** `user_preferences.validation_criteria` passa a ser uma `RuleTree`
+1. **Formato gravado.** `user_preferences.validation_criteria` é uma `RuleTree`
    (`{logic, conditions}`) — o mesmo jsonb dos grupos do Board. O único leitor de forma no
-   backend é `onboarding_service.py` (`isinstance(criteria, list) and len > 0`): vira "árvore com
-   ≥ 1 condição". Nenhuma outra rota lê o campo.
-2. **Migration 134** (ver fase 5 para a numeração): `update user_preferences set
-   validation_criteria = '{"logic":"AND","conditions":[]}'` — reset combinado. Antes de rodar,
-   `SELECT` dos critérios atuais para o usuário redigitar (regra `sql_update_verify_before_run`).
-3. Apagar `lib/config/adMetricsFields.ts`, o avaliador de `lib/utils/validateAdCriteria.ts`
-   (`evaluateCondition`, `evaluateGroup`, `resolveGlobalLogic`, `applyGlobalLogic`,
-   `buildAdMetricsData`, `aggregateMetricsForGroup` — conferir consumidores de cada um),
-   `components/common/ValidationCriteriaForm.tsx` (morto, sem importadores) e o tipo
-   `ValidationCondition` que vive dentro do `.tsx`.
-4. `ValidationCriteriaBuilder` → `RuleBuilder` com `context: "criteria"` (mesmo componente do
-   Boards e do Manager). Renderizado em `Topbar` (aba "Validação") e em
-   `onboarding/steps/ValidationStep.tsx` (semente default no formato novo).
-5. Consumidores do avaliador passam a chamar `rowMatchesRules(ad, criteria, { actionType,
-   mqlLeadscoreMin })` **direto sobre a linha da RPC**, sem `buildAdMetricsData`/
-   `mapRankingToMetrics`: `useAdPerformancePipeline`, `metricRankings`, `GoldKanbanWidget`,
-   `InsightsKanbanWidget`, `GemsWidget`. É o que o Boards já faz sobre as mesmas linhas.
-6. Ganhos automáticos: `hook`, `page_conv` e as MQL entram no critério; os 11 campos mortos
-   somem; a escala de porcentagem passa a ser a mesma das outras telas.
-7. Testes: `validationGlobalLogic.test.ts` é reescrito sobre a árvore (10 casos preservados:
-   E/OU global, grupos, lógica do grupo não desce). Diferencial da fase 0 vale para os 11 campos
-   que **passam a funcionar** — a divergência é intencional e listada.
+   backend é `onboarding_service.py`: `isinstance(criteria, list) and len > 0` virou "dict com
+   `conditions` não-vazio". Nenhuma outra rota lê o campo.
+2. **Migration 135** (134 ficou com `pack_ids` nas filhas). O `SELECT` prévio revelou o que
+   fechou a decisão: nas 11 linhas existentes **ninguém nunca usou nada além de
+   `impressions >= N`** (5 com 3000, 3 com 1, 3 vazias). Não havia critério real a preservar,
+   então o reset é gravar a semente `impressões > 3000` em quem tinha critério e árvore vazia
+   em quem não tinha — **ninguém muda de estado no onboarding**. Ensaiada no laboratório local
+   antes da produção; a reexecução quebrava (`jsonb_array_length` avaliado antes do teste de
+   tipo — o planner não garante a ordem dentro do `AND`), resolvido com `CASE`, e o segundo
+   `psql` confirma `UPDATE 0 / UPDATE 0`.
+3. Apagados: `lib/config/adMetricsFields.ts`, `lib/utils/validateAdCriteria.ts` **inteiro**
+   (`aggregateMetricsForGroup` não tinha consumidor nenhum), `ValidationCriteriaBuilder.tsx`
+   (587 linhas), `ValidationCriteriaForm.tsx` (morto), `validateAdCriteria.test.ts`,
+   `validationGlobalLogic.test.ts` e as **4 cópias** de `mapRankingToMetrics`.
+4. `ValidationCriteriaBuilder` → `RuleBuilder` com `context: "criteria"`, dentro de
+   `components/rules/ValidationCriteriaEditor.tsx` — invólucro fino que cuida do que orbita o
+   salvar (botão, "salvo × alterado", trava contra critério vazio) e das opções de Pack/Conta.
+   Elas vêm da **sessão do cliente**, não do recorte: nas Configurações não existe recorte, e a
+   lista completa é a resposta certa para um critério que vale para qualquer período futuro.
+5. Consumidores chamam `rowMatchesRules(ad, criteria, { actionType, mqlLeadscoreMin })`
+   **direto sobre a linha da RPC**: `useAdPerformancePipeline`, `metricRankings`,
+   `GoldKanbanWidget`, `InsightsKanbanWidget`, `GemsWidget`.
+6. Ganhos: `hook`, `hold_rate`, `scroll_stop`, `page_conv` e retenção entram no critério;
+   `reach`, `frequency`, `plays`, `thruplays` e `video_watched_p50` **deixam de rejeitar todo
+   anúncio**; entram também tags, status, "criado em", pack, conta e ID do anúncio; a escala de
+   porcentagem passa a ser a das outras telas.
+
+**Decisões tomadas durante a execução**
+
+- **O bug dos 11 campos era do MAPPER, não do avaliador.** `buildAdMetricsData` copiava 14
+  campos escolhidos a dedo; o que não copiava chegava `undefined`, e campo ausente devolvia
+  `false`. Por isso a fase apagou o mapper em vez de consertá-lo, e por isso o teste novo tem
+  uma rede permanente: `is_not_empty` em TODA métrica oferecida no contexto `criteria`, sobre
+  uma linha de RPC realista. Um campo que entre no seletor sem chegar na linha volta a ser
+  "opção de menu que zera a tela" — e agora o teste quebra.
+- **Formato antigo não é traduzido, é descartado.** `normalizeRuleTree` já devolve árvore
+  vazia para um array. Traduzir exigiria adivinhar a escala métrica a métrica (`ctr > 0.02`
+  era 2%, seria 0,02%), e critério traduzido errado não dá erro: só esvazia três telas.
+- **`isRestrictiveLeaf`/`countRestrictiveConditions` mudaram de casa**, de
+  `lib/manager/managerRules.ts` para `lib/rules/restrictive.ts`. O onboarding faz a mesma
+  pergunta ("este critério diz alguma coisa?") para liberar o botão; importar de `lib/manager`
+  para responder isso recriaria em pequeno a dependência que a unificação veio desfazer.
+- **Campo default por contexto.** Uma condição nova nasce em `impressions` no Critério (a
+  pergunta da tela é volume) e em `tags` no Manager/Boards.
+- **MQL fora do Critério por ora.** As quatro métricas de planilha só aparecem com
+  `hasSheetIntegration`, e o editor nas Configurações não tem pack selecionado — nem o
+  pipeline pede `include_leadscore`. Oferecê-las ali seria recriar o campo morto.
 
 ### Fase 5 — RPC: `campaign_ids`, `adset_ids` e dicionário de nomes (M)
 

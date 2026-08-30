@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
+import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
 
 export const DEFAULT_LANGUAGE = "pt-BR";
 export const DEFAULT_CURRENCY = "BRL";
@@ -11,7 +11,8 @@ export interface UserPreferencesValues {
   language: string;
   currency: string;
   niche: string;
-  validationCriteria: ValidationCondition[];
+  /** Critério de validação: a MESMA árvore de regra do Manager e do Boards. */
+  validationCriteria: RuleTree;
   diagnosticCostMetric: DiagnosticCostMetric;
 }
 
@@ -37,7 +38,7 @@ export const useUserPreferencesStore = create<UserPreferencesStore>()((set) => (
   language: DEFAULT_LANGUAGE,
   currency: DEFAULT_CURRENCY,
   niche: DEFAULT_NICHE,
-  validationCriteria: [],
+  validationCriteria: EMPTY_RULE_TREE,
   diagnosticCostMetric: DEFAULT_DIAGNOSTIC_COST_METRIC,
   isLoading: false,
   isSaving: false,

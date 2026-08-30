@@ -24,9 +24,9 @@ import { logger } from "@/lib/utils/logger";
 import {
   getDefaultRuleOperator,
   getDefaultRuleValue,
-  getRuleField,
   type RuleManagerTab,
 } from "@/lib/rules/fields";
+import { getFilteredFieldIds as getFilteredFieldIdsFromRules, walkRuleLeaves } from "@/lib/rules/restrictive";
 import {
   EMPTY_RULE_TREE,
   normalizeRuleTree,
@@ -78,49 +78,13 @@ export function loadManagerRules(tab: ManagerTab): RuleTree {
   }
 }
 
-function walkLeaves(nodes: RuleNode[], visit: (leaf: RuleConditionLeaf) => void): void {
-  for (const node of nodes) {
-    if (node.type === "group") walkLeaves(node.conditions ?? [], visit);
-    else visit(node);
-  }
-}
-
 /**
- * Uma folha só "restringe" quando tem o que comparar. Condição em branco (valor
- * vazio, multi-seleção sem nada escolhido) não acende funil nem conta no "Filtros
- * (N)" — é pergunta pela metade, e o avaliador a ignora do mesmo jeito.
+ * `isRestrictiveLeaf` / `getFilteredFieldIds` / `countRestrictiveConditions` moraram
+ * aqui enquanto o Manager era o único a perguntar "esta condição diz alguma coisa?".
+ * O Critério de validação faz a mesma pergunta (para liberar o botão do onboarding),
+ * então elas passaram para o motor. Reexportadas para quem já as importava daqui.
  */
-export function isRestrictiveLeaf(leaf: RuleConditionLeaf): boolean {
-  const field = getRuleField(leaf.field);
-  if (!field) return false;
-  if (field.kind === "status") return true; // is_active / is_paused são a pergunta inteira
-  if (leaf.operator === "is_empty" || leaf.operator === "is_not_empty") return true;
-  const value = leaf.value;
-  if (value == null) return false;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "string") return value.trim() !== "";
-  return Number.isFinite(Number(value));
-}
-
-/** Campos citados por alguma folha restritiva — alimenta o funil no header. */
-export function getFilteredFieldIds(rules: RuleTree | null | undefined): Set<string> {
-  const ids = new Set<string>();
-  if (!rules) return ids;
-  walkLeaves(rules.conditions ?? [], (leaf) => {
-    if (isRestrictiveLeaf(leaf)) ids.add(leaf.field);
-  });
-  return ids;
-}
-
-/** Quantas condições restritivas a regra tem — o N de "Filtros (N)". */
-export function countRestrictiveConditions(rules: RuleTree | null | undefined): number {
-  let total = 0;
-  if (!rules) return 0;
-  walkLeaves(rules.conditions ?? [], (leaf) => {
-    if (isRestrictiveLeaf(leaf)) total += 1;
-  });
-  return total;
-}
+export { countRestrictiveConditions, getFilteredFieldIds, isRestrictiveLeaf } from "@/lib/rules/restrictive";
 
 let leafSeq = 0;
 function nextLeafId(): string {
@@ -134,10 +98,10 @@ function nextLeafId(): string {
  * empilhar uma segunda condição igual.
  */
 export function ensureLeafForField(rules: RuleTree, fieldId: string): RuleTree {
-  const existing = getFilteredFieldIds(rules);
+  const existing = getFilteredFieldIdsFromRules(rules);
   let cited = existing.has(fieldId);
   if (!cited) {
-    walkLeaves(rules.conditions ?? [], (leaf) => {
+    walkRuleLeaves(rules.conditions ?? [], (leaf) => {
       if (leaf.field === fieldId) cited = true;
     });
   }

@@ -58,13 +58,19 @@ def get_onboarding_status(user_jwt: str, user_id: str) -> Dict[str, Any]:
   except Exception as e:
     logger.warning(f"[ONBOARDING] Erro ao buscar facebook_connections para {user_id}: {e}")
 
-  # 3) Verificar se há critérios de validação configurados
+  # 3) Verificar se há critério de validação configurado
+  #
+  # O campo é uma ÁRVORE DE REGRA — {"logic": "AND"|"OR", "conditions": [...]} —
+  # a mesma dos filtros do Manager e dos grupos do Boards (migration 135). Antes
+  # dela era um ARRAY de condições no vocabulário antigo; um resto nesse formato
+  # cai em "não configurado", exatamente como um array vazio caía, então ninguém
+  # tem o onboarding reaberto nem fechado por engano.
   validation_criteria_configured = False
   if prefs is not None:
     try:
-      criteria = prefs.get("validation_criteria") or []
-      # Considera configurado se há pelo menos uma condição
-      validation_criteria_configured = isinstance(criteria, list) and len(criteria) > 0
+      criteria = prefs.get("validation_criteria")
+      conditions = criteria.get("conditions") if isinstance(criteria, dict) else None
+      validation_criteria_configured = isinstance(conditions, list) and len(conditions) > 0
     except Exception:
       validation_criteria_configured = False
 

@@ -29,7 +29,7 @@ import { useAutoRefreshPacks } from "@/lib/hooks/useAutoRefreshPacks";
 import { AutoRefreshConfirmModal } from "@/components/common/AutoRefreshConfirmModal";
 import { formatToTitleCase } from "@/lib/utils/formatName";
 import ServerStatusBanner from "./ServerStatusBanner";
-import { ValidationCriteriaBuilder } from "@/components/common/ValidationCriteriaBuilder";
+import { ValidationCriteriaEditor } from "@/components/rules/ValidationCriteriaEditor";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useCurrency } from "@/lib/hooks/useCurrency";
@@ -685,7 +685,7 @@ export default function Topbar() {
             </div>
           )}
         </div>
-        <p className="text-sm text-muted-foreground mb-4">Configure os critérios de validação para os anúncios. Use condições individuais ou grupos de condições com operadores lógicos AND/OR.</p>
+        <p className="text-sm text-muted-foreground mb-4">Defina a partir de quando um anúncio já tem dados suficientes para ser julgado. Quem não atende continua em fase de teste e fica fora do G.O.L.D., do plano de ação e das oportunidades. É o mesmo construtor dos filtros do Manager e dos grupos do Boards.</p>
       </div>
       <div className="space-y-4">
         {isLoadingCriteria ? (
@@ -693,7 +693,7 @@ export default function Topbar() {
             <IconLoader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : (
-          <ValidationCriteriaBuilder
+          <ValidationCriteriaEditor
             value={validationCriteria}
             onChange={setValidationCriteria}
             onSave={async (criteria) => {

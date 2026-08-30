@@ -7,7 +7,9 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
-import { buildAdMetricsData, evaluateValidationCriteria } from "@/lib/utils/validateAdCriteria";
+import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { isEmptyRuleTree } from "@/lib/rules/types";
+import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { buildPackMembershipIndex, isAdInSelectedPacks } from "@/lib/utils/packMembership";
 import { showError } from "@/lib/utils/toast";
 import type { RankingsRequest } from "@/lib/api/schemas";
@@ -111,6 +113,7 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
 
   // ── Validation ───────────────────────────────────────────────────────────────
   const { criteria: validationCriteria, isLoading: criteriaLoading } = useValidationCriteria();
+  const { mqlLeadscoreMin } = useMqlLeadscore();
 
   // Split validado/não-validado: os critérios de validação servem APENAS para filtrar
   // QUAIS ads são elegíveis a julgamento (G.O.L.D., plano de ação, oportunidades).
@@ -121,16 +124,19 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
       return [[], []] as [any[], any[]];
     }
 
-    if (!validationCriteria || validationCriteria.length === 0) {
+    if (isEmptyRuleTree(validationCriteria)) {
       return [filteredRankings, []] as [any[], any[]];
     }
 
     const validated: any[] = [];
     const notValidated: any[] = [];
 
+    // A regra roda sobre a LINHA da RPC, sem mapper intermediário. O mapper antigo
+    // (`buildAdMetricsData`) copiava 14 campos escolhidos a dedo, e era ele — não o
+    // avaliador — que fazia 11 campos do critério rejeitarem todo anúncio: o que
+    // ele não copiava chegava `undefined`, e campo ausente devolvia `false`.
     for (const ad of filteredRankings) {
-      const metrics = buildAdMetricsData(ad, actionType);
-      if (evaluateValidationCriteria(validationCriteria, metrics)) {
+      if (rowMatchesRules(ad, validationCriteria, { actionType, mqlLeadscoreMin })) {
         validated.push(ad);
       } else {
         notValidated.push(ad);
@@ -138,7 +144,7 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     }
 
     return [validated, notValidated] as [any[], any[]];
-  }, [filteredRankings, validationCriteria, actionType]);
+  }, [filteredRankings, validationCriteria, actionType, mqlLeadscoreMin]);
 
   // packsAdsLoading só bloqueia o render quando o pack-filter client-side é usado
   // (Plano/Gold com filterToSelectedPacks=true → membershipIndex filtra serverData). No

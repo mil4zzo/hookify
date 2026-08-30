@@ -61,16 +61,24 @@ export interface RuleBuilderProps {
 const FIELD_GROUP_ORDER: RuleFieldGroup[] = ["Tags", "Criativo", "Procedência", "Métricas"];
 
 /**
- * Campo em que uma condição nova nasce. "tags" é a pergunta mais comum, mas não
- * existe em todo contexto (linhas-filhas não carregam tags) — nascer num campo
- * que o seletor não oferece deixaria a condição órfã, sem como ser corrigida.
+ * Campo em que uma condição nova nasce, por tela.
+ *
+ * No Manager e no Boards a pergunta mais comum é "quais tags?"; no Critério de
+ * validação a pergunta é sempre volume ("a partir de quantas impressões este
+ * anúncio já pode ser julgado?"), então nascer em Tags ali obrigaria a trocar o
+ * campo em toda condição nova. O fallback existe porque nem todo contexto oferece
+ * o preferido — linhas-filhas não carregam tags — e nascer num campo que o
+ * seletor não oferece deixaria a condição órfã, sem como ser corrigida.
  */
-const PREFERRED_DEFAULT_FIELD = "tags";
+const PREFERRED_DEFAULT_FIELD: Record<string, string> = {
+  criteria: "impressions",
+};
+const FALLBACK_DEFAULT_FIELD = "tags";
 
-function pickDefaultField(fields: RuleField[]): string {
-  return fields.some((field) => field.id === PREFERRED_DEFAULT_FIELD)
-    ? PREFERRED_DEFAULT_FIELD
-    : (fields[0]?.id ?? "ad_name");
+function pickDefaultField(fields: RuleField[], context?: RuleContext): string {
+  const preferred = (context && PREFERRED_DEFAULT_FIELD[context]) || FALLBACK_DEFAULT_FIELD;
+  if (fields.some((field) => field.id === preferred)) return preferred;
+  return fields[0]?.id ?? "ad_name";
 }
 
 function newId(prefix: string): string {
@@ -464,7 +472,7 @@ export function RuleBuilder({
     () => getAvailableRuleFields({ hasSheetIntegration, context, tab }),
     [hasSheetIntegration, context, tab],
   );
-  const defaultField = useMemo(() => pickDefaultField(fields), [fields]);
+  const defaultField = useMemo(() => pickDefaultField(fields, context), [fields, context]);
 
   const setNodes = (conditions: RuleNode[]) => onChange({ ...value, conditions });
 
@@ -572,7 +580,9 @@ export function RuleBuilder({
     <div className="space-y-3">
       {value.conditions.length === 0 ? (
         <InlineNotice tone="info" title="Sem condições">
-          Um grupo sem condição mostra todos os criativos do recorte. Adicione ao menos uma para o grupo significar algo.
+          {context === "criteria"
+            ? "Sem critério, todo anúncio é considerado maduro — inclusive os que mal começaram a rodar. Adicione ao menos uma condição."
+            : "Um grupo sem condição mostra todos os criativos do recorte. Adicione ao menos uma para o grupo significar algo."}
         </InlineNotice>
       ) : (
         <div className="space-y-2">{value.conditions.map(renderNode)}</div>

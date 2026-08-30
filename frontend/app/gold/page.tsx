@@ -63,7 +63,7 @@ export default function GoldPage() {
           validatedRankings filtra QUEM é julgado; o julgamento compara contra a média global. */}
       {actionType && serverAverages && (
         <AnalyticsWorkspace className="gap-8 overflow-visible">
-          <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={serverAverages} actionType={actionType} validationCriteria={validationCriteria || []} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
+          <GoldKanbanWidget ads={validatedRankings as RankingsItem[]} averages={serverAverages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
 
           <div>
             <h2 className="text-xl font-semibold mb-4">Lista de Anúncios</h2>

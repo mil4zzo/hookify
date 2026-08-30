@@ -4,7 +4,9 @@ import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { IconChevronRight, IconChevronLeft, IconLoader2 } from "@tabler/icons-react";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
-import { ValidationCondition, ValidationCriteriaBuilder, validateConditions } from "@/components/common/ValidationCriteriaBuilder";
+import { ValidationCriteriaEditor } from "@/components/rules/ValidationCriteriaEditor";
+import { countRestrictiveConditions } from "@/lib/rules/restrictive";
+import { isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { api } from "@/lib/api/endpoints";
 import { useQueryClient } from "@tanstack/react-query";
 import { patchOnboardingStatusCache } from "@/lib/hooks/useOnboardingStatus";
@@ -19,23 +21,27 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
   const queryClient = useQueryClient();
   const defaultsApplied = useRef(false);
 
-  // Sugerir "Impressions >= 3000" se não houver critérios ainda
+  // Semente: "impressões > 3000". É o mesmo corte que a fase 4 gravou para todo
+  // mundo — um anúncio com menos que isso ainda não tem amostra para ser julgado.
   useEffect(() => {
-    if (!isLoading && !defaultsApplied.current && (!criteria || criteria.length === 0)) {
+    if (!isLoading && !defaultsApplied.current && isEmptyRuleTree(criteria)) {
       defaultsApplied.current = true;
-      updateCriteria([
-        {
-          id: `onboarding_default_${Date.now()}`,
-          type: "condition",
-          field: "impressions",
-          operator: "GREATER_THAN_OR_EQUAL",
-          value: String(RECOMMENDED_IMPRESSIONS),
-        } as ValidationCondition,
-      ]);
+      updateCriteria({
+        logic: "AND",
+        conditions: [
+          {
+            id: `onboarding_default_${Date.now()}`,
+            type: "condition",
+            field: "impressions",
+            operator: ">",
+            value: RECOMMENDED_IMPRESSIONS,
+          },
+        ],
+      });
     }
   }, [isLoading, criteria, updateCriteria]);
 
-  const handleSave = async (conditions: ValidationCondition[]) => {
+  const handleSave = async (conditions: RuleTree) => {
     await saveCriteria(conditions);
     await api.onboarding.complete();
     patchOnboardingStatusCache(queryClient, {
@@ -55,13 +61,14 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
   }
 
   const handleNext = async () => {
-    const validation = validateConditions(criteria || []);
-    if (!validation.isValid) {
-      showError(validation.errors.join(", "));
+    // Condição em branco não conta: um critério com "impressões >" sem número
+    // deixa todo anúncio passar por maduro, que é o oposto do que esta tela pede.
+    if (countRestrictiveConditions(criteria) === 0) {
+      showError("Preencha ao menos uma condição para concluir.");
       return;
     }
     try {
-      await handleSave(criteria || []);
+      await handleSave(criteria);
     } catch (e: any) {
       showError(e);
     }
@@ -77,14 +84,14 @@ export function ValidationStep(props: { onContinue: () => void; onBack: () => vo
       }
       density="spacious"
     >
-      <ValidationCriteriaBuilder value={criteria} onChange={updateCriteria} onSave={handleSave} isSaving={isSaving} hideSaveButton={true} />
+      <ValidationCriteriaEditor value={criteria} onChange={updateCriteria} onSave={handleSave} isSaving={isSaving} hideSaveButton={true} />
 
       <div className="flex justify-between">
         <Button variant="outline" onClick={props.onBack} disabled={isSaving}>
           <IconChevronLeft className="w-4 h-4 mr-1" />
           Voltar
         </Button>
-        <Button variant="default" onClick={handleNext} disabled={isSaving || !criteria || criteria.length === 0}>
+        <Button variant="default" onClick={handleNext} disabled={isSaving || countRestrictiveConditions(criteria) === 0}>
           {isSaving ? (
             <>
               <IconLoader2 className="w-4 h-4 mr-1 animate-spin" />

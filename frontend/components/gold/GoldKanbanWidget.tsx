@@ -2,14 +2,15 @@
 
 import { useMemo } from "react";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
-import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
-import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
+import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { BaseKanbanWidget, KanbanColumnConfig } from "@/components/common/BaseKanbanWidget";
 import { SortableColumn } from "@/components/common/SortableColumn";
 import { goldBucketColorSchemes } from "@/lib/utils/gemsColorSchemes";
 import { GenericCard } from "@/components/common/GenericCard";
 import { splitAdsIntoGoldBuckets, GoldBucket } from "@/lib/utils/goldClassification";
 import { useFormatCurrency } from "@/lib/utils/currency";
+import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 
 interface GoldKanbanWidgetProps {
   ads: RankingsItem[];
@@ -17,7 +18,7 @@ interface GoldKanbanWidgetProps {
    *  Usada como threshold de classificação, display de coluna/card e benchmark do dialog. */
   averages?: RankingsResponse["averages"];
   actionType: string;
-  validationCriteria: ValidationCondition[];
+  validationCriteria: RuleTree;
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
@@ -28,38 +29,6 @@ interface GoldKanbanWidgetProps {
 const STORAGE_KEY_GOLD_COLUMN_ORDER = "hookify-gold-column-order";
 const DEFAULT_GOLD_COLUMN_ORDER: readonly GoldBucket[] = ["golds", "oportunidades", "licoes", "descartes", "neutros"] as const;
 
-/**
- * Mapeia um anúncio para AdMetricsData (usado para validação)
- */
-function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsData {
-  const impressions = Number((ad as any).impressions || 0);
-  const spend = Number((ad as any).spend || 0);
-  const cpm = typeof (ad as any).cpm === "number" && !Number.isNaN((ad as any).cpm) && isFinite((ad as any).cpm) ? (ad as any).cpm : impressions > 0 ? (spend * 1000) / impressions : 0;
-  const website_ctr = Number((ad as any).website_ctr || 0);
-  const connect_rate = Number((ad as any).connect_rate || 0);
-  const lpv = Number((ad as any).lpv || 0);
-  const results = actionType ? Number((ad as any).conversions?.[actionType] || 0) : 0;
-  const page_conv = lpv > 0 ? results / lpv : 0;
-  const overall_conversion = website_ctr * connect_rate * page_conv;
-
-  return {
-    ad_name: (ad as any).ad_name,
-    ad_id: (ad as any).ad_id,
-    account_id: (ad as any).account_id,
-    impressions,
-    spend,
-    cpm,
-    website_ctr,
-    connect_rate,
-    inline_link_clicks: Number((ad as any).inline_link_clicks || 0),
-    clicks: Number((ad as any).clicks || 0),
-    plays: Number((ad as any).plays || 0),
-    hook: Number((ad as any).hook || 0),
-    ctr: Number((ad as any).ctr || 0),
-    page_conv,
-    overall_conversion,
-  };
-}
 
 /**
  * Widget de Kanban para a página G.O.L.D.
@@ -67,20 +36,22 @@ function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsDat
  */
 export function GoldKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [], packIds = [] }: GoldKanbanWidgetProps) {
   const formatCurrency = useFormatCurrency();
+  // Só entra na conta se o critério citar uma métrica de MQL; o contexto é passado
+  // sempre para que as três telas avaliem a MESMA regra do mesmo jeito.
+  const { mqlLeadscoreMin } = useMqlLeadscore();
 
   const colorSchemes = goldBucketColorSchemes;
 
   // 1. Filtrar apenas anúncios validados
   const validatedAds = useMemo(() => {
-    if (!validationCriteria || validationCriteria.length === 0) {
+    if (isEmptyRuleTree(validationCriteria)) {
       return ads;
     }
 
-    return ads.filter((ad) => {
-      const metrics = mapRankingToMetrics(ad, actionType);
-      return evaluateValidationCriteria(validationCriteria, metrics);
-    });
-  }, [ads, validationCriteria, actionType]);
+    // Regra avaliada direto na linha da RPC — a mesma linha e o mesmo motor do
+    // filtro do Manager e dos grupos do Boards.
+    return ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria, { actionType, mqlLeadscoreMin }));
+  }, [ads, validationCriteria, actionType, mqlLeadscoreMin]);
 
   // 2. Classificar anúncios nos buckets G.O.L.D.
   const buckets = useMemo(() => {

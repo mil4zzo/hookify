@@ -1,6 +1,6 @@
 import { RankingsItem } from "@/lib/api/schemas";
-import { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
-import { evaluateValidationCriteria, AdMetricsData } from "@/lib/utils/validateAdCriteria";
+import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { OpportunityRow } from "./opportunity";
 import { getMetricNumericValue, type MetricKey } from "@/lib/metrics";
 
@@ -41,45 +41,14 @@ export function createEmptyMetricRanks(): MetricRanks {
  * Opções para cálculo de rankings
  */
 export interface MetricRankingsOptions {
-  /** Critérios de validação para filtrar anúncios */
-  validationCriteria?: ValidationCondition[];
+  /** Critério de validação (árvore de regra). Vazio = todo anúncio é elegível. */
+  validationCriteria?: RuleTree;
   /** ActionType para calcular page_conv */
   actionType?: string;
   /** Se true, inclui apenas anúncios com métricas válidas (> 0 e finitas) */
   filterValidOnly?: boolean;
   /** Leadscore mínimo para calcular MQL/CPMQL */
   mqlLeadscoreMin?: number | null;
-}
-
-/**
- * Mapeia RankingsItem para AdMetricsData para validação
- */
-function mapRankingToMetrics(ad: RankingsItem, actionType: string): AdMetricsData {
-  const impressions = Number((ad as any).impressions || 0);
-  const spend = Number((ad as any).spend || 0);
-  const cpm = getMetricNumericValue(ad as any, "cpm");
-  const website_ctr = getMetricNumericValue(ad as any, "website_ctr");
-  const connect_rate = getMetricNumericValue(ad as any, "connect_rate");
-  const page_conv = getMetricNumericValue(ad as any, "page_conv", { actionType });
-  const overall_conversion = website_ctr * connect_rate * page_conv;
-
-  return {
-    ad_name: (ad as any).ad_name,
-    ad_id: (ad as any).ad_id,
-    account_id: (ad as any).account_id,
-    impressions,
-    spend,
-    cpm,
-    website_ctr,
-    connect_rate,
-    inline_link_clicks: Number((ad as any).inline_link_clicks || 0),
-    clicks: Number((ad as any).clicks || 0),
-    plays: Number((ad as any).plays || 0),
-    hook: Number((ad as any).hook || 0),
-    ctr: Number((ad as any).ctr || 0),
-    page_conv,
-    overall_conversion,
-  };
 }
 
 /**
@@ -94,12 +63,12 @@ function getMetricValue(ad: RankingsItem, metric: Extract<MetricKey, "hook" | "w
  * Calcula rankings globais de métricas a partir de RankingsItem[]
  * 
  * IMPORTANTE: Os anúncios que entram no cálculo dos rankings devem todos obedecer
- * os critérios de validação definidos pelo usuário em "Configurações > Critérios de Validação",
- * a menos que não haja critérios definidos (array vazio ou undefined).
+ * o critério de validação definido pelo usuário em "Configurações > Validação",
+ * a menos que não haja critério definido (árvore vazia ou ausente).
  * 
  * @param ads - Array de RankingsItem (todos os anúncios disponíveis)
  * @param options - Opções para cálculo de rankings
- * @param options.validationCriteria - Critérios de validação do usuário. Se undefined, null ou array vazio, todos os anúncios são considerados válidos.
+ * @param options.validationCriteria - Critério de validação do usuário. Árvore vazia (ou ausente) = todos os anúncios são considerados válidos.
  * @param options.actionType - ActionType para calcular page_conv
  * @param options.filterValidOnly - Se true, filtra apenas métricas válidas (> 0 e finitas)
  * @returns Rankings globais por métrica (Map<ad_id, rank>)
@@ -107,14 +76,13 @@ function getMetricValue(ad: RankingsItem, metric: Extract<MetricKey, "hook" | "w
 export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricRankingsOptions = {}): MetricRanks {
   const { validationCriteria, actionType, filterValidOnly = true, mqlLeadscoreMin = null } = options;
 
-  // 1. Filtrar anúncios validados se houver critérios definidos
-  // Se validationCriteria for undefined, null ou array vazio, todos os anúncios são válidos
+  // 1. Filtrar anúncios validados se houver critério definido.
+  // A regra roda sobre a LINHA da RPC — a mesma linha que alimenta as colunas da
+  // tela. Sem mapper no meio, "hook > 30%" no critério e "hook > 30%" no filtro do
+  // Manager passam a responder a mesma coisa sobre o mesmo anúncio.
   let validatedAds = ads;
-  if (validationCriteria && Array.isArray(validationCriteria) && validationCriteria.length > 0) {
-    validatedAds = ads.filter((ad) => {
-      const metrics = mapRankingToMetrics(ad, actionType || "");
-      return evaluateValidationCriteria(validationCriteria, metrics);
-    });
+  if (!isEmptyRuleTree(validationCriteria)) {
+    validatedAds = ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria!, { actionType, mqlLeadscoreMin }));
   }
 
   // 2. Calcular rankings para cada métrica

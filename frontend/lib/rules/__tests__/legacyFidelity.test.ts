@@ -1,32 +1,29 @@
 /**
- * Prova que `reference/legacyEvaluators.ts` é cópia FIEL dos avaliadores de hoje.
+ * Diferencial do motor único contra o comportamento CONGELADO das três telas.
  *
- * POR QUE ESTE TESTE EXISTE
- *   O congelamento da fase 0 só vale como referência do diferencial se for igual ao
- *   original. Uma cópia "conferida a olho" não prova nada — e os originais vão ser
- *   apagados nas fases 3 e 4, quando ninguém mais conseguirá comparar. Este teste
- *   confronta cópia × produção ENQUANTO os dois existem.
+ * O QUE MUDOU DESDE QUE ESTE ARQUIVO NASCEU
+ *   Ele começou como "cópia × produção": provava que `reference/legacyEvaluators.ts`
+ *   era cópia fiel dos avaliadores enquanto os dois existiam. Os originais foram
+ *   apagados nas fases 3 e 4, e o que sobrou tem MAIS valor, não menos — comparar o
+ *   motor de hoje contra o registro do que a tela fazia antes é justamente o
+ *   diferencial que o método do projeto exige antes de um cutover.
  *
- * DEPOIS DA FASE 4
- *   Os imports de produção aqui deixam de existir. Este arquivo então é APAGADO —
- *   ele já terá cumprido o papel; quem continua é `reference/legacyEvaluators.ts`,
- *   usado pelos diferenciais das fases 1 e 3.
+ *   O bloco do Critério de validação (que importava `evaluateValidationCriteria` da
+ *   produção) mudou de casa junto com a fase 4: virou `criteriaDifferential.test.ts`,
+ *   onde as divergências INTENCIONAIS estão listadas uma a uma. Este arquivo fica com
+ *   o que não diverge — texto, número e data.
  */
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { rowMatchesRules } from "@/lib/rules/evaluate";
-import { evaluateValidationCriteria } from "@/lib/utils/validateAdCriteria";
 import type { RuleTree } from "@/lib/rules/types";
 
 import {
   compareDate,
   compareNumeric,
   compareText,
-  evaluateCondition,
-  LEGACY_DEAD_FIELDS,
-  LEGACY_FIELD_TYPES,
   type LegacyFilterOperator,
   type LegacyTextFilterOperator,
 } from "./reference/legacyEvaluators";
@@ -126,87 +123,4 @@ test("Boards: compareDate congelado bate com rowMatchesBoardRules", () => {
       }
     }
   }
-});
-
-/* ------------------------------------------------------------------ *
- * 3. Critério de validação: evaluateCondition congelado × avaliador real
- * ------------------------------------------------------------------ */
-
-const CRITERIA_OPERATORS = [
-  "EQUAL",
-  "NOT_EQUAL",
-  "GREATER_THAN",
-  "GREATER_THAN_OR_EQUAL",
-  "LESS_THAN",
-  "LESS_THAN_OR_EQUAL",
-  "CONTAIN",
-  "NOT_CONTAIN",
-  "STARTS_WITH",
-  "ENDS_WITH",
-  "OPERADOR_INEXISTENTE",
-];
-
-test("Critério: evaluateCondition congelado bate com evaluateValidationCriteria (campos vivos)", () => {
-  const metrics: Record<string, any> = {
-    ad_name: "BF_2026",
-    ad_id: "123",
-    account_id: "act_9",
-    spend: 300.5,
-    impressions: 40000,
-    clicks: 0,
-    ctr: 0.0187,
-    website_ctr: 0,
-    connect_rate: 0.5,
-    cpm: 7.5,
-    inline_link_clicks: 12,
-  };
-  for (const field of Object.keys(metrics)) {
-    for (const operator of CRITERIA_OPERATORS) {
-      for (const value of ["0", "2", "0.02", "300.5", "BF", "bf_2026", "", "abc"]) {
-        const condition = { id: "c1", type: "condition" as const, field, operator, value };
-        assert.equal(
-          evaluateValidationCriteria([condition], metrics),
-          evaluateCondition(condition, metrics, LEGACY_FIELD_TYPES[field]),
-          `divergiu: ${field} ${operator} "${value}"`,
-        );
-      }
-    }
-  }
-});
-
-test("Critério: os 11 campos mortos rejeitam TODO anúncio — o bug que a fase 4 conserta", () => {
-  // Linha rica de propósito: mesmo tendo os dados, o mapper não os repassa.
-  const metrics: Record<string, any> = { ad_name: "BF_2026", spend: 300, ctr: 0.02 };
-  assert.equal(LEGACY_DEAD_FIELDS.length, 11);
-  for (const field of LEGACY_DEAD_FIELDS) {
-    for (const operator of CRITERIA_OPERATORS) {
-      for (const value of ["", "0", "BF", "2026-08-28"]) {
-        const condition = { id: "c1", type: "condition" as const, field, operator, value };
-        assert.equal(
-          evaluateValidationCriteria([condition], metrics),
-          false,
-          `${field} ${operator} "${value}" deveria rejeitar (campo morto)`,
-        );
-        assert.equal(
-          evaluateCondition(condition, metrics, LEGACY_FIELD_TYPES[field]),
-          false,
-          `cópia divergiu em ${field} ${operator} "${value}"`,
-        );
-      }
-    }
-  }
-});
-
-test("Critério: hook e page_conv funcionam mas não são oferecidos — a outra metade do bug", () => {
-  const metrics: Record<string, any> = { hook: 0.3, page_conv: 0.1 };
-  // Provam que o dado chega; o que falta é o campo no dropdown (adMetricsFields.ts).
-  assert.equal(
-    evaluateValidationCriteria(
-      [{ id: "c1", type: "condition", field: "hook", operator: "GREATER_THAN", value: "0.2" }],
-      metrics,
-    ),
-    true,
-  );
-  assert.equal(LEGACY_FIELD_TYPES.hook, undefined, "hook não deveria estar no registry do Critério");
-  assert.equal(LEGACY_FIELD_TYPES.page_conv, undefined, "page_conv não deveria estar no registry do Critério");
 });

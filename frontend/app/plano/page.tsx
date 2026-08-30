@@ -22,6 +22,7 @@ import { useJudgmentEditor } from "@/lib/hooks/useJudgmentEditor";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { Verdict } from "@/lib/utils/actionPlan";
 import type { DiagnosticTarget } from "@/lib/metrics/diagnostics";
+import { isEmptyRuleTree } from "@/lib/rules/types";
 
 function PlanPageSkeleton() {
   return (
@@ -239,7 +240,7 @@ export default function PlanoPage() {
           <WorkspaceState
             kind="empty"
             message={
-              validationCriteria && validationCriteria.length > 0 && (!validatedAds || validatedAds.length === 0)
+              !isEmptyRuleTree(validationCriteria) && (!validatedAds || validatedAds.length === 0)
                 ? "Nenhum anúncio passou nos critérios de validação para entrar no plano de ação — o diagnóstico acima considera todos os anúncios. Ajuste os critérios ou selecione outro período."
                 : "Nenhum dado disponível para gerar o plano."
             }

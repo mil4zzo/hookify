@@ -13,7 +13,7 @@ import {
   UserPreferencesValues,
   useUserPreferencesStore,
 } from "@/lib/store/userPreferences";
-import type { ValidationCondition } from "@/components/common/ValidationCriteriaBuilder";
+import { EMPTY_RULE_TREE, normalizeRuleTree, type RuleTree } from "@/lib/rules/types";
 import { logger } from "@/lib/utils/logger";
 
 const VALIDATION_STORAGE_KEY = "hookify-validation-criteria";
@@ -26,7 +26,10 @@ type DbUserPreferences = {
   locale?: string | null;
   currency?: string | null;
   niche?: string | null;
-  validation_criteria?: ValidationCondition[] | null;
+  // jsonb livre: hoje uma `RuleTree`, antes da fase 4 um array de condições no
+  // vocabulário antigo. `normalizeRuleTree` devolve árvore vazia para o formato
+  // antigo — o critério some em vez de ser reinterpretado errado.
+  validation_criteria?: unknown;
   diagnostic_cost_metric?: string | null;
 };
 
@@ -37,21 +40,26 @@ type InFlightLoad = {
 
 let inFlightLoad: InFlightLoad | null = null;
 
-function loadValidationCriteriaFromStorage(): ValidationCondition[] {
-  if (typeof window === "undefined") return [];
+/**
+ * Espelho local do critério, para a tela não piscar "sem critério" enquanto o
+ * Supabase responde. Um valor no formato ANTIGO (array de condições) cai em
+ * árvore vazia: preferimos "sem critério" a reinterpretar `ctr > 0.02` como
+ * 0,02% — o formato mudou de escala junto com a estrutura.
+ */
+function loadValidationCriteriaFromStorage(): RuleTree {
+  if (typeof window === "undefined") return EMPTY_RULE_TREE;
 
   const saved = localStorage.getItem(VALIDATION_STORAGE_KEY);
-  if (!saved) return [];
+  if (!saved) return EMPTY_RULE_TREE;
 
   try {
-    const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) ? parsed : [];
+    return normalizeRuleTree(JSON.parse(saved));
   } catch {
-    return [];
+    return EMPTY_RULE_TREE;
   }
 }
 
-function saveValidationCriteriaToStorage(criteria: ValidationCondition[]) {
+function saveValidationCriteriaToStorage(criteria: RuleTree) {
   if (typeof window !== "undefined") {
     localStorage.setItem(VALIDATION_STORAGE_KEY, JSON.stringify(criteria));
   }
@@ -66,7 +74,7 @@ function normalizePreferences(data: DbUserPreferences | null, fallbackSettings: 
     language: data?.locale || fallbackSettings.language || DEFAULT_LANGUAGE,
     currency: data?.currency || fallbackSettings.currency || DEFAULT_CURRENCY,
     niche: data?.niche || fallbackSettings.niche || DEFAULT_NICHE,
-    validationCriteria: Array.isArray(data?.validation_criteria) ? data.validation_criteria : storageCriteria,
+    validationCriteria: data?.validation_criteria ? normalizeRuleTree(data.validation_criteria) : storageCriteria,
     diagnosticCostMetric,
   };
 }
