@@ -9,6 +9,7 @@
     "lint": "next lint",
     "generate:themes": "npx tsx scripts/generate-theme-css.ts",
     "check:design-system": "npx tsx scripts/check-design-system.ts",
+    "test": "tsx --test \"**/__tests__/*.test.ts\"",
     "prepare": "cd .. && husky frontend/.husky"
   },
   "//overrides": "Força versões corrigidas em deps transitivas que os pais ainda pinam vulneráveis. postcss: next@15.5.20 pina 8.4.31 (GHSA-qx2v-qp2m-jg93, XSS no stringify) — 8.5.x é minor compatível. esbuild: tsx@4.21 pina 0.27.3 (GHSA de leitura de arquivo no dev server). Remover cada entrada quando o pai subir a sua própria dep.",

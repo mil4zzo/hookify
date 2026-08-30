@@ -24,3 +24,14 @@ fi
 cd "$ROOT/backend"
 echo "🧪 pre-push: rodando a suíte do backend..."
 "$PY" -m pytest tests/ -q
+
+# Suite do frontend logo depois.
+#
+# POR QUE: os testes do frontend existiam desde sempre mas rodavam so a mao --
+# nem o pre-commit (design system + tsc) nem o CI os executavam. Um teste que
+# ninguem roda nao e rede de seguranca, e decoracao. Entrou junto com a
+# unificacao dos filtros (documentation/plano-filtros-unificados.md), cujo
+# diferencial contra os avaliadores antigos vive nessa suite.
+cd "$ROOT/frontend"
+echo "🧪 pre-push: rodando a suíte do frontend..."
+npm test
