@@ -3,6 +3,7 @@
 import React from "react";
 import { SparklineBars, getSparklineBarNumericDisplay } from "@/components/common/SparklineBars";
 import { SparklineSkeleton } from "@/components/common/SparklineSkeleton";
+import { MetricNotApplicable } from "@/components/common/MetricNotApplicable";
 import { useRowHoveredDay, setHoveredBar, clearHoveredBar } from "@/lib/hooks/useRowBarHover";
 import { Badge } from "@/components/ui/badge";
 import { RankingsItem } from "@/lib/api/schemas";
@@ -13,6 +14,7 @@ import {
   formatMetricValue,
   getManagerMetricCurrentValue,
   getManagerMetricDeltaPresentation,
+  getManagerMetricEmptyKind,
   getManagerMetricTrendPresentation,
   getMetricSeriesAvailability,
   type ManagerAverages,
@@ -93,6 +95,12 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
     return getMetricValueTextClass(tone);
   }, [colorMetricValue, original, metric, actionType, mqlLeadscoreMin, hasSheetIntegration, averages]);
 
+  // Métrica de VÍDEO numa linha de IMAGEM: não se aplica. Sai antes de tudo —
+  // antes do skeleton, do sparkline e do hover — porque não há série para animar
+  // nem dia para destacar. É a única ausência que ganha ícone; as outras (CPR sem
+  // conversão, CTR sem impressão) seguem com travessão e sparkline.
+  const emptyKind = getManagerMetricEmptyKind(original as any, metric, { actionType, mqlLeadscoreMin, hasSheetIntegration });
+
   // Dia em hover para esta linha (sincronizado entre todas as colunas via store por rowKey).
   // A data (quando relevante) é mostrada pela tooltip flutuante do próprio SparklineBars,
   // ancorada na barra sob o cursor — aqui só trocamos o número exibido.
@@ -156,6 +164,10 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       }
     };
   }, [seriesLoading, showTrends, TOTAL_STAGGERED_TRANSITION_MS]);
+
+  if (emptyKind === "format") {
+    return <MetricNotApplicable minimal={minimal} />;
+  }
 
   if (showTrends && sparklinePhase === "skeleton") {
     return (

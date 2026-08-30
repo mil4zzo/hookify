@@ -42,6 +42,13 @@ export interface MetricDefinition {
   formatKind: MetricFormatKind;
   requiresActionType?: boolean;
   requiresSheetIntegration?: boolean;
+  /**
+   * Métrica que só existe em VÍDEO: numerador e denominador vêm de `plays`.
+   * Num anúncio de imagem ela não é zero — ela NÃO SE APLICA, e a tela diz isso
+   * com um ícone de formato em vez do travessão de "sem dado".
+   * Ver documentation/plano-filtros-unificados.md.
+   */
+  requiresVideo?: boolean;
 }
 
 export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
@@ -84,6 +91,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Percentual que parou no primeiro segundo do vídeo.",
     polarity: "higher",
     formatKind: "ratioPercent",
+    requiresVideo: true,
   },
   hook: {
     key: "hook",
@@ -92,6 +100,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Taxa de retenção inicial nos primeiros 3 segundos.",
     polarity: "higher",
     formatKind: "ratioPercent",
+    requiresVideo: true,
   },
   hold_rate: {
     key: "hold_rate",
@@ -100,6 +109,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Taxa de retenção entre Hook (3s) e Trueplay (15s).",
     polarity: "higher",
     formatKind: "ratioPercent",
+    requiresVideo: true,
   },
   video_watched_p50: {
     key: "video_watched_p50",
@@ -108,6 +118,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Percentual de visualizações que atingiram 50% da duração.",
     polarity: "higher",
     formatKind: "rawPercent",
+    requiresVideo: true,
   },
   video_watched_p75: {
     key: "video_watched_p75",
@@ -116,6 +127,7 @@ export const METRIC_DEFINITIONS: Record<MetricKey, MetricDefinition> = {
     technicalDescription: "Percentual de visualizações que atingiram 75% da duração.",
     polarity: "higher",
     formatKind: "rawPercent",
+    requiresVideo: true,
   },
   ctr: {
     key: "ctr",

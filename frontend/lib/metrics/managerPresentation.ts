@@ -32,6 +32,46 @@ function requiresSheetIntegration(metric: ManagerMetricKey): boolean {
   return METRIC_DEFINITIONS[metric].requiresSheetIntegration === true;
 }
 
+/**
+ * POR QUE UMA CÉLULA VAZIA PRECISA DE DOIS SÍMBOLOS
+ *
+ * Existem duas ausências diferentes numa tabela de anúncios, e tratá-las igual
+ * confunde:
+ *
+ *   "não se aplica"  — hook num anúncio de IMAGEM. Não é zero, não vai mudar
+ *                      amanhã, e é uma propriedade do criativo. A célula mostra
+ *                      um ícone de imagem, e o sparkline nem é desenhado: não
+ *                      existe série de retenção para um estático.
+ *
+ *   "sem dado"       — CPR sem nenhuma conversão, CPMQL sem MQL, CTR sem
+ *                      impressão. A métrica CABE no anúncio, só não houve o que
+ *                      medir no período — e pode haver amanhã. Fica o travessão,
+ *                      com o sparkline como está hoje.
+ *
+ * Só entra no ramo "formato" quem tem certeza: `media_type === "image"`. Vídeo
+ * sem entrega no período e formato desconhecido caem em "sem dado", que é a
+ * resposta honesta — dizer "é imagem" sem saber seria inventar.
+ *
+ * Numa linha AGREGADA que mistura formatos o valor não chega a ser nulo (os
+ * vídeos do grupo alimentam plays), então o ramo nem é alcançado.
+ */
+export type ManagerMetricEmptyKind = "format" | "missing";
+
+export function getManagerMetricEmptyKind(
+  source: MetricValueSource,
+  metric: ManagerMetricKey,
+  options: GetManagerMetricPresentationOptions = {},
+): ManagerMetricEmptyKind | null {
+  const value = getMetricNumericValueOrNull(source, metric, options);
+  if (value != null && Number.isFinite(value)) return null;
+
+  const isVideoMetric = METRIC_DEFINITIONS[metric]?.requiresVideo === true;
+  const mediaType = (source as { media_type?: string | null }).media_type;
+  if (isVideoMetric && mediaType === "image") return "format";
+
+  return "missing";
+}
+
 function formatManagerMetricValueLocal(
   metric: ManagerMetricKey,
   value: number,

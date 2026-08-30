@@ -134,13 +134,15 @@ export function AdsetDetailsDialog({ adsetId, adsetName, dateStart, dateStop, ac
                     </tr>
                   ) : (
                     children.map((row: any) => {
-                      const ctr = getMetricNumericValueOrNull(row, "ctr") ?? 0;
+                      // Anúncio sem impressões não tem CTR — mostrar 0,00% aqui diria
+                      // "ninguém clicou", quando o certo é "não houve o que clicar".
+                      const ctr = getMetricNumericValueOrNull(row, "ctr");
                       return (
                         <tr key={row.ad_id} className="border-t border-border">
                           <td className="px-4 py-2">{row.ad_name || row.ad_id}</td>
                           <td className="px-4 py-2 text-right">{formatMetricValue("spend", Number(row.spend || 0), { currencyFormatter: formatCurrency })}</td>
                           <td className="px-4 py-2 text-right">{formatMetricValue("impressions", Number(row.impressions || 0))}</td>
-                          <td className="px-4 py-2 text-right">{formatMetricValue("ctr", ctr)}</td>
+                          <td className="px-4 py-2 text-right">{ctr == null ? "—" : formatMetricValue("ctr", ctr)}</td>
                         </tr>
                       );
                     })

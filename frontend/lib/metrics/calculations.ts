@@ -90,18 +90,38 @@ export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey
   switch (canonicalKey) {
     case "score":
       return toFiniteNumber(source.score);
+    // Contagens e valores brutos: zero é zero DE VERDADE, nunca "não se aplica".
     case "spend":
-    case "ctr":
-    case "hook":
-    case "hold_rate":
-    case "scroll_stop":
-    case "video_watched_p50":
-    case "video_watched_p75":
     case "impressions":
     case "clicks":
     case "lpv":
     case "reach": {
       return toFiniteNumber(source[canonicalKey]);
+    }
+    // Métricas de VÍDEO. A RPC fabrica 0 quando não há plays
+    // (`case when plays > 0 then wsum / plays else 0 end`), e esse zero é
+    // indistinguível do real: um anúncio de IMAGEM aparecia em "hook < 5%" como
+    // se fosse um vídeo ruim. Sem plays, a métrica não existe — devolve null.
+    case "hook":
+    case "hold_rate":
+    case "scroll_stop":
+    case "video_watched_p50":
+    case "video_watched_p75": {
+      const value = toFiniteNumber(source[canonicalKey]);
+      if (value == null) return null;
+      const plays = toFiniteNumber(source.plays ?? source.video_total_plays);
+      // `plays` ausente (aba/consulta que não o devolve) não é o mesmo que zero:
+      // aí não dá para saber, e o valor lido continua valendo.
+      if (plays != null && plays <= 0) return null;
+      return value;
+    }
+    // Mesma lógica com o denominador de exibição.
+    case "ctr": {
+      const value = toFiniteNumber(source.ctr);
+      if (value == null) return null;
+      const impressions = toFiniteNumber(source.impressions);
+      if (impressions != null && impressions <= 0) return null;
+      return value;
     }
     case "plays": {
       return toFiniteNumber(source.plays ?? source.video_total_plays);

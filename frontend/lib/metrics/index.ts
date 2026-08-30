@@ -11,10 +11,12 @@ export {
   getManagerChildSortInitialDirection,
   getManagerMetricCurrentValue,
   getManagerMetricDeltaPresentation,
+  getManagerMetricEmptyKind,
   getManagerMetricTrendPresentation,
   type GetManagerMetricPresentationOptions,
   type ManagerChildSortColumn,
   type ManagerMetricDeltaPresentation,
+  type ManagerMetricEmptyKind,
   type ManagerSortDirection,
   type ManagerMetricTrendPresentation,
 } from "./managerPresentation";
