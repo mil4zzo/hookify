@@ -4,10 +4,8 @@ import React from "react";
 import type { ColumnDef, ColumnHelper } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import type { FilterValue, TextFilterValue, StatusFilterValue, DateFilterValue } from "@/components/common/ColumnFilter";
 import type { GroupedMetricSeriesByKey, ManagerAverages } from "@/lib/metrics";
 import type { SettingsTab } from "@/lib/store/settingsModal";
-import type { ColumnFiltersState } from "@tanstack/react-table";
 import { IconFilter } from "@tabler/icons-react";
 import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
 import { AdNameCell } from "@/components/manager/AdNameCell";
@@ -15,26 +13,39 @@ import { StatusCell } from "@/components/manager/StatusCell";
 import { BudgetCell, getRowBudgetMinor } from "@/components/manager/BudgetCell";
 import { ProvenanceCell } from "@/components/manager/ProvenanceCell";
 import { TagsCell } from "@/components/manager/TagsCell";
-import { rowMatchesTagFilter } from "@/lib/tags/filter";
 import { Checkbox } from "@/components/ui/checkbox";
-import { isRestrictiveFilterValue } from "@/lib/utils/columnFilters";
+import { MANAGER_RULES_COLUMN_ID, type ManagerRuleFilterValue } from "@/lib/manager/managerRules";
+import { compareText, rowMatchesRules, type RuleEvaluationContext } from "@/lib/rules/evaluate";
+import { isEmptyRuleTree } from "@/lib/rules/types";
 import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance";
 import { metaCreatedLocalDate } from "@/lib/utils/dateFilters";
 
 export type ViewMode = "detailed" | "minimal";
 
 // O estado da tabela agrega múltiplos filtros da mesma coluna num array — restritivo se qualquer um for.
-const hasRestrictiveFilter = (value: unknown): boolean => (Array.isArray(value) ? value.some(isRestrictiveFilterValue) : isRestrictiveFilterValue(value));
+
 
 // Filtros auxiliares (colunas ocultas) que atuam sobre dados exibidos na célula de nome
 // (subtítulo de conjunto/campanha, contagem de ativos) — o funil aparece no header do nome.
-const NAME_AUX_FILTER_IDS = ["adset_name_filter", "campaign_name_filter", "active_count_filter"];
+/** Campos cujo filtro aparece no funil da coluna de NOME (não têm coluna própria). */
+const NAME_FUNNEL_FIELDS = ["ad_name", "adset_name", "campaign_name", "ad_id"];
 
 // Mesmo visual do ColumnFilter readonly usado nas colunas de métrica — um só vocabulário de "coluna filtrada".
-const ActiveFilterIcon = () => (
-  <span className="flex h-6 w-6 items-center justify-center rounded text-primary" title="Filtro ativo">
+const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => (
+  <button
+    type="button"
+    className="flex h-6 w-6 items-center justify-center rounded text-primary hover:bg-primary-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    title="Ver onde esta coluna está sendo filtrada"
+    aria-label="Ver o filtro desta coluna"
+    onClick={(e) => {
+      // O header também ordena: sem parar a propagação, revelar o filtro
+      // reordenaria a tabela no mesmo clique.
+      e.stopPropagation();
+      onReveal(field);
+    }}
+  >
     <IconFilter className="h-3.5 w-3.5 fill-current" />
-  </span>
+  </button>
 );
 
 export type CreateManagerTableColumnsParams = {
@@ -72,104 +83,24 @@ export type CreateManagerTableColumnsParams = {
   /** Âncora do último checkbox clicado sem shift — habilita seleção em intervalo (shift+click). */
   selectionAnchorRef: React.MutableRefObject<string | null>;
 
-  applyNumericFilter: (rowValue: number | null | undefined, filterValue: FilterValue | undefined) => boolean;
   openSettings: (tab?: SettingsTab) => void;
-  columnFiltersRef: React.MutableRefObject<ColumnFiltersState>;
+  /** Campos citados por condição restritiva — acende o funil no header. */
+  filteredFieldIdsRef: React.MutableRefObject<Set<string>>;
+  /** Clique no funil: abre o popover de Filtros destacando as condições do campo. */
+  onRevealField: (fieldId: string) => void;
   globalFilterRef: React.MutableRefObject<string>;
+  /** Contexto de avaliação da regra (tipo de conversão, corte de MQL). */
+  ruleContext: RuleEvaluationContext;
 };
 
-function matchesTextFilter(rawValue: string, filterValue: TextFilterValue | undefined): boolean {
-  if (!filterValue || filterValue.value === null || filterValue.value === undefined) {
-    return true;
-  }
-  const fieldValue = rawValue.toLowerCase();
-  const searchValue = String(filterValue.value).toLowerCase();
 
-  switch (filterValue.operator) {
-    case "contains":
-      return fieldValue.includes(searchValue);
-    case "not_contains":
-      return !fieldValue.includes(searchValue);
-    case "starts_with":
-      return fieldValue.startsWith(searchValue);
-    case "ends_with":
-      return fieldValue.endsWith(searchValue);
-    case "equals":
-      return fieldValue === searchValue;
-    case "not_equals":
-      return fieldValue !== searchValue;
-    default:
-      return true;
-  }
-}
 
-function textFilterFnSingle(row: any, filterValue: TextFilterValue | undefined, fieldName: keyof RankingsItem): boolean {
-  return matchesTextFilter(String((row.original as RankingsItem)?.[fieldName] || ""), filterValue);
-}
 
-function textFilterFn(row: any, _columnId: string, filterValue: TextFilterValue | TextFilterValue[] | undefined, fieldName: keyof RankingsItem): boolean {
-  if (!filterValue) return true;
-  if (Array.isArray(filterValue)) {
-    return filterValue.every((fv) => textFilterFnSingle(row, fv, fieldName));
-  }
-  return textFilterFnSingle(row, filterValue, fieldName);
-}
 
-/** Filtro de texto sobre o VALOR da coluna — para dimensões derivadas (Pack/Conta), que são
- *  resolvidas no accessor e não existem como campo da linha. */
-function textFilterFnOnValue(row: any, columnId: string, filterValue: TextFilterValue | TextFilterValue[] | undefined): boolean {
-  if (!filterValue) return true;
-  const value = String(row.getValue(columnId) ?? "");
-  if (Array.isArray(filterValue)) {
-    return filterValue.every((fv) => matchesTextFilter(value, fv));
-  }
-  return matchesTextFilter(value, filterValue);
-}
 
-/** Compara YYYY-MM-DD como string: a ordem lexicográfica desse formato é a cronológica. */
-function matchesDateFilter(rowDate: string | null, filterValue: DateFilterValue | undefined): boolean {
-  if (!filterValue || !filterValue.value) return true;
-  // Linha sem data (ad ainda não ressincronizado desde a migration 115) não pode satisfazer
-  // um recorte temporal — sai do resultado em vez de fingir que é do período.
-  if (!rowDate) return false;
-  const target = filterValue.value;
-  switch (filterValue.operator) {
-    case ">":
-      return rowDate > target;
-    case "<":
-      return rowDate < target;
-    case ">=":
-      return rowDate >= target;
-    case "<=":
-      return rowDate <= target;
-    case "=":
-      return rowDate === target;
-    case "!=":
-      return rowDate !== target;
-    default:
-      return true;
-  }
-}
-
-/** Um intervalo é a conjunção de dois filtros (>= início e <= fim) na mesma coluna. */
-function dateFilterFnOnValue(row: any, columnId: string, filterValue: DateFilterValue | DateFilterValue[] | undefined): boolean {
-  if (!filterValue) return true;
-  const value = (row.getValue(columnId) as string | null) ?? null;
-  if (Array.isArray(filterValue)) {
-    return filterValue.every((fv) => matchesDateFilter(value, fv));
-  }
-  return matchesDateFilter(value, filterValue);
-}
 
 const CREATED_DATE_FORMATTER = new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
 
-function numericFilterFnMaybeArray(rowValue: number | null | undefined, filterValue: FilterValue | FilterValue[] | undefined, applyNumericFilter: (rowValue: number | null | undefined, filterValue: FilterValue | undefined) => boolean): boolean {
-  if (!filterValue) return true;
-  if (Array.isArray(filterValue)) {
-    return filterValue.every((fv) => applyNumericFilter(rowValue, fv));
-  }
-  return applyNumericFilter(rowValue, filterValue);
-}
 
 /** Considera ativo apenas ACTIVE; demais (PAUSED, ADSET_PAUSED, etc.) são inativos. */
 function isActiveStatus(status?: string | null): boolean {
@@ -194,7 +125,7 @@ function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: Ra
 }
 
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
-  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex, selectedPackIds } = params;
+  const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex, selectedPackIds, filteredFieldIdsRef, onRevealField } = params;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cols: ColumnDef<RankingsItem, any>[] = [];
@@ -278,7 +209,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           <div className="flex items-center gap-1">
             <SortIcon column={column} invertDirection />
             <span>Status</span>
-            {hasRestrictiveFilter(column.getFilterValue()) && <ActiveFilterIcon />}
+            {filteredFieldIdsRef.current.has("status") && <ActiveFilterIcon onReveal={onRevealField} field="status" />}
           </div>
         ),
         size: 80,
@@ -287,17 +218,6 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         enableSorting: true,
         sortDescFirst: false, // primeiro clique = ativos primeiro, exibimos como seta baixo (invertDirection)
         sortingFn: statusSortingFn,
-        filterFn: (row, _columnId, filterValue: StatusFilterValue | StatusFilterValue[] | undefined) => {
-          const checkOne = (fv: StatusFilterValue | undefined) => {
-            if (!fv || !fv.selectedStatuses || fv.selectedStatuses.length === 0) return true;
-            const status = row.original.effective_status;
-            if (!status) return false;
-            return fv.selectedStatuses.includes(status);
-          };
-          if (!filterValue) return true;
-          if (Array.isArray(filterValue)) return filterValue.every(checkOne);
-          return checkOne(filterValue);
-        },
         cell: (info) => {
           const original = info.row.original as RankingsItem;
           return <StatusCell original={original} currentTab={currentTab} packIds={selectedPackIds} />;
@@ -312,12 +232,15 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
     columnHelper.accessor("ad_name", {
       sortDescFirst: false, // primeiro clique = A-Z, exibimos como seta baixo (invertDirection)
       header: ({ column, table }) => {
-        const isFiltered = hasRestrictiveFilter(column.getFilterValue()) || table.getState().columnFilters.some((f) => NAME_AUX_FILTER_IDS.includes(f.id) && hasRestrictiveFilter(f.value));
+        // O funil da coluna de nome acende também para os nomes de conjunto e
+        // campanha: são condições sobre a identidade da linha, e não têm coluna
+        // própria onde aparecer.
+        const isFiltered = NAME_FUNNEL_FIELDS.some((field) => filteredFieldIdsRef.current.has(field));
         return (
           <div className="flex items-center gap-1">
             <SortIcon column={column} invertDirection />
             <span>{nameColumnLabel}</span>
-            {isFiltered && <ActiveFilterIcon />}
+            {isFiltered && <ActiveFilterIcon onReveal={onRevealField} field={NAME_FUNNEL_FIELDS.find((f) => filteredFieldIdsRef.current.has(f)) ?? "ad_name"} />}
           </div>
         );
       },
@@ -325,7 +248,6 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
       minSize: 160,
       enableResizing: true,
       sortingFn: "auto",
-      filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "ad_name"),
       cell: (info) => {
         const original = info.row.original as RankingsItem;
         const name = String(info.getValue() || "—");
@@ -346,7 +268,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           <div className="flex items-center gap-1">
             <SortIcon column={column} invertDirection />
             <span>Tags</span>
-            {hasRestrictiveFilter(column.getFilterValue()) && <ActiveFilterIcon />}
+            {filteredFieldIdsRef.current.has("tags") && <ActiveFilterIcon onReveal={onRevealField} field="tags" />}
           </div>
         ),
         size: 180,
@@ -356,7 +278,6 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         sortingFn: "auto",
         // O valor cru vai inteiro: rowMatchesTagFilter conhece o operador e ainda
         // normaliza o shape antigo que possa ter sobrado no sessionStorage.
-        filterFn: (row, _columnId, filterValue: unknown) => rowMatchesTagFilter((row.original as RankingsItem).tags, filterValue),
         cell: (info) => {
           const original = info.row.original as RankingsItem;
           // group_key é o próprio ad_name na aba Criativos; na aba Por anúncio o
@@ -372,8 +293,11 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
   // Procedência (Pack / Conta) — dimensões opcionais, ligadas pelo seletor de colunas.
   // O accessor devolve os nomes já resolvidos: é o que alimenta ordenação, filtro de texto e CSV.
   const provenanceDimensions = [
-    { id: "pack" as const, label: "Pack", resolve: (row: RankingsItem) => getRowPackNames(row, provenanceIndex) },
-    { id: "account" as const, label: "Conta", resolve: (row: RankingsItem) => getRowAccountNames(row, provenanceIndex) },
+    // `fieldId` é o campo que a REGRA cita (array de ids da linha); `id` é a coluna,
+    // que mostra os nomes resolvidos. São diferentes de propósito: a regra pergunta
+    // "está em algum destes packs?", a coluna exibe "Black Friday, Sempre On".
+    { id: "pack" as const, fieldId: "pack_ids", label: "Pack", resolve: (row: RankingsItem) => getRowPackNames(row, provenanceIndex) },
+    { id: "account" as const, fieldId: "account_ids", label: "Conta", resolve: (row: RankingsItem) => getRowAccountNames(row, provenanceIndex) },
   ];
 
   for (const dimension of provenanceDimensions) {
@@ -387,7 +311,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           <div className="flex items-center gap-1">
             <SortIcon column={column} invertDirection />
             <span>{dimension.label}</span>
-            {hasRestrictiveFilter(column.getFilterValue()) && <ActiveFilterIcon />}
+            {filteredFieldIdsRef.current.has(dimension.fieldId) && <ActiveFilterIcon onReveal={onRevealField} field={dimension.fieldId} />}
           </div>
         ),
         size: 150,
@@ -395,7 +319,6 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         enableResizing: true,
         enableSorting: true,
         sortingFn: "auto",
-        filterFn: (row, columnId, filterValue: TextFilterValue | TextFilterValue[] | undefined) => textFilterFnOnValue(row, columnId, filterValue),
         cell: (info) => <ProvenanceCell original={info.row.original as RankingsItem} dimension={dimension.id} />,
       }),
     );
@@ -414,7 +337,7 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           <div className="flex items-center gap-1">
             <SortIcon column={column} />
             <span>Criado em</span>
-            {hasRestrictiveFilter(column.getFilterValue()) && <ActiveFilterIcon />}
+            {filteredFieldIdsRef.current.has("meta_created_time") && <ActiveFilterIcon onReveal={onRevealField} field="meta_created_time" />}
           </div>
         ),
         size: 120,
@@ -431,7 +354,6 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
           return a < b ? -1 : a > b ? 1 : 0;
         },
         sortUndefined: "last",
-        filterFn: (row, columnId, filterValue: DateFilterValue | DateFilterValue[] | undefined) => dateFilterFnOnValue(row, columnId, filterValue),
         cell: (info) => {
           const isoDate = info.getValue() as string | null;
           if (!isoDate) {
@@ -471,50 +393,33 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
     );
   }
 
-  // Colunas ocultas para filtros de nome cruzados (adset_name e campaign_name)
+  // A ÚNICA coluna que filtra. Não desenha nada: existe para o TanStack ter onde
+  // pendurar a avaliação da regra e continuar entregando `getFilteredRowModel()`
+  // (do qual dependem a média filtrada do header, a seleção em massa e o
+  // virtualizador). As antigas colunas ocultas de nome de conjunto/campanha e de
+  // "ads ativos" saíram: viraram campos da regra.
   cols.push(
-    columnHelper.accessor("adset_name", {
-      id: "adset_name_filter",
+    columnHelper.display({
+      id: MANAGER_RULES_COLUMN_ID,
       header: () => null,
       enableSorting: false,
       enableResizing: false,
+      enableHiding: true,
       size: 0,
       minSize: 0,
       maxSize: 0,
-      filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "adset_name"),
-      cell: () => null,
-    }),
-  );
-
-  cols.push(
-    columnHelper.accessor("campaign_name", {
-      id: "campaign_name_filter",
-      header: () => null,
-      enableSorting: false,
-      enableResizing: false,
-      size: 0,
-      minSize: 0,
-      maxSize: 0,
-      filterFn: (row, columnId, filterValue: TextFilterValue | undefined) => textFilterFn(row, columnId, filterValue, "campaign_name"),
-      cell: () => null,
-    }),
-  );
-
-  // Coluna oculta: quantidade de anúncios ativos no grupo (por-anúncio/por-conjunto/por-campanha).
-  // Fallback ad_count espelha o mesmo critério do AdNameCell (active_count ausente = assume todos ativos).
-  cols.push(
-    columnHelper.accessor("active_count", {
-      id: "active_count_filter",
-      header: () => null,
-      enableSorting: false,
-      enableResizing: false,
-      size: 0,
-      minSize: 0,
-      maxSize: 0,
-      filterFn: (row, _columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
+      filterFn: (row, _columnId, filterValue: ManagerRuleFilterValue | undefined) => {
+        if (!filterValue) return true;
         const original = row.original as RankingsItem;
-        const activeCount = original.active_count ?? original.ad_count ?? 0;
-        return numericFilterFnMaybeArray(activeCount, filterValue, params.applyNumericFilter);
+
+        // Busca por nome: atalho da barra, avaliado com o mesmo comparador da
+        // regra para não haver duas noções de "contém" na mesma tela.
+        if (filterValue.search && !compareText(String(original.ad_name ?? ""), filterValue.search, "contains")) {
+          return false;
+        }
+
+        if (isEmptyRuleTree(filterValue.rules)) return true;
+        return rowMatchesRules(original, filterValue.rules, params.ruleContext);
       },
       cell: () => null,
     }),

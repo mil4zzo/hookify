@@ -1,5 +1,6 @@
+import type { RuleTree } from "@/lib/rules/types";
 import React from "react";
-import type { Table, ColumnFiltersState, RowSelectionState } from "@tanstack/react-table";
+import type { Table, RowSelectionState } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 
@@ -34,8 +35,8 @@ export interface SharedTableContentProps {
   actionType: string;
   formatCurrency: (n: number) => string;
   formatPct: (v: number) => string;
-  columnFilters: ColumnFiltersState;
-  setColumnFilters: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
+  rules: RuleTree;
+  setRules: React.Dispatch<React.SetStateAction<RuleTree>>;
   activeColumns: Set<ManagerColumnType>;
   /** Ordem das colunas de métrica. Não é lida no render (a tabela já vem ordenada por state.columnOrder),
    * mas precisa ser prop explícita: `table` é instância mutável estável e o React.memo não veria o reorder. */

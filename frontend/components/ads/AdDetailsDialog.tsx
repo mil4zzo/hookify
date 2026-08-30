@@ -1,7 +1,8 @@
 "use client";
 
+import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
+
 import { useMemo, useState, useEffect, useRef } from "react";
-import type { ColumnFiltersState } from "@tanstack/react-table";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { VideoMetricCell } from "@/components/common/VideoMetricCell";
 import { StatePanel } from "@/components/common/States";
@@ -71,7 +72,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
   const [retentionViewMode, setRetentionViewMode] = useState<"chart" | "metrics">("metrics");
-  const [variationColumnFilters, setVariationColumnFilters] = useState<ColumnFiltersState>([]);
+  const [variationColumnFilters, setVariationColumnFilters] = useState<RuleTree>(EMPTY_RULE_TREE);
   // Espelha a preferência de colunas do Manager (visibilidade + ordem) na tabela de variações.
   const [variationColumnPreferences] = useState(() => loadManagerColumnPreferences());
   const [transcriptionPending, setTranscriptionPending] = useState(false);
@@ -85,7 +86,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
     setShouldAutoplay(false);
     setInitialVideoTime(null); // Resetar tempo inicial quando mudar de anúncio
     setRetentionViewMode("metrics");
-    setVariationColumnFilters([]);
+    setVariationColumnFilters(EMPTY_RULE_TREE);
     setHistoryDateRange({ start: dateStart, end: dateStop }); // Resetar date range quando mudar de anúncio
     setUsePackDates(true); // Resetar para "usar datas do pack" quando mudar de anúncio
     setTranscriptionPending(false);
@@ -688,7 +689,7 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       >
         {groupByAdName && (
           <TabbedContentItem value="variations" variant="simple" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-            <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationColumnPreferences.active} columnOrder={variationColumnPreferences.order} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} columnFilters={variationColumnFilters} setColumnFilters={setVariationColumnFilters} packIds={packIds} asContent />
+            <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationColumnPreferences.active} columnOrder={variationColumnPreferences.order} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} rules={variationColumnFilters} setRules={setVariationColumnFilters} packIds={packIds} asContent />
           </TabbedContentItem>
         )}
 

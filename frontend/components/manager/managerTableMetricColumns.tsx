@@ -3,7 +3,7 @@
 import React from "react";
 import type { ColumnDef, Column } from "@tanstack/react-table";
 import { IconAlertTriangle, IconArrowNarrowDown, IconArrowNarrowUp } from "@tabler/icons-react";
-import { ColumnFilter, type FilterValue } from "@/components/common/ColumnFilter";
+import { IconFilter } from "@tabler/icons-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { MetricCell } from "@/components/manager/MetricCell";
 import type { RankingsItem } from "@/lib/api/schemas";
@@ -26,16 +26,26 @@ export const SortIcon = ({
   return null;
 };
 
-function applyNumericFilterMaybeArray(rowValue: number | null | undefined, filterValue: FilterValue | FilterValue[] | undefined, applyNumericFilter: (rowValue: number | null | undefined, filterValue: FilterValue | undefined) => boolean): boolean {
-  if (!filterValue) return true;
-  if (Array.isArray(filterValue)) {
-    return filterValue.every((fv) => applyNumericFilter(rowValue, fv));
-  }
-  return applyNumericFilter(rowValue, filterValue);
-}
+
+/** Funil do header: alguma condição da regra cita este campo. */
+const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => void; field: string }) => (
+  <button
+    type="button"
+    className="shrink-0 rounded text-primary hover:bg-primary-10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+    title="Ver onde esta coluna está sendo filtrada"
+    aria-label="Ver o filtro desta coluna"
+    onClick={(e) => {
+      // O header ordena no clique: sem parar a propagação, revelar reordenaria junto.
+      e.stopPropagation();
+      onReveal(field);
+    }}
+  >
+    <IconFilter className="h-3.5 w-3.5 fill-current" />
+  </button>
+);
 
 export function buildMetricColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, unknown>[] {
-  const { columnHelper, activeColumns, byKey, endDate, showTrends, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, formatCurrencyRef, formatPct, globalFilterRef, columnFiltersRef, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, actionTypeRef, applyNumericFilter, getRowKey, openSettings } = params;
+  const { columnHelper, activeColumns, byKey, endDate, showTrends, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, formatCurrencyRef, formatPct, globalFilterRef, filteredFieldIdsRef, onRevealField, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, actionTypeRef, getRowKey, openSettings } = params;
 
   const shouldShow = (id: ManagerColumnType) => isManagerMetricColumnVisible(id, { activeColumns, hasSheetIntegration });
 
@@ -43,11 +53,10 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
 
   const sumMetrics = new Set(["spend", "impressions", "clicks", "reach", "lpv", "plays", "thruplays", "results", "mqls"]);
 
-  const renderMetricHeader = (metricId: string, label: string, column: Column<RankingsItem, unknown>, filterValue: FilterValue | FilterValue[] | undefined) => {
-    const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
+  const renderMetricHeader = (metricId: string, label: string, column: Column<RankingsItem, unknown>) => {
+    const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (filteredFieldIdsRef.current && filteredFieldIdsRef.current.size > 0);
     const hasFilters = hasActiveFilters && !!filteredAveragesRef.current;
     const filteredAvg = formatFilteredAverageRef.current(metricId);
-    const displayFilterValue: FilterValue | undefined = Array.isArray(filterValue) ? (filterValue.length > 0 ? filterValue[0] : undefined) : (filterValue ?? undefined);
     const textSize = isMinimal ? "text-2xs" : "text-xs";
     const avgLeading = isMinimal ? "leading-none" : "";
     const isSum = sumMetrics.has(metricId);
@@ -57,7 +66,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         <div className={`flex items-center ${isMinimal ? "gap-0.5" : "gap-1"}`}>
           <SortIcon column={column} />
           <span className={isMinimal ? "text-xs" : ""}>{label}</span>
-          <ColumnFilter value={displayFilterValue} readonly={true} />
+          {filteredFieldIdsRef.current.has(metricId) && <ActiveFilterIcon onReveal={onRevealField} field={metricId} />}
         </div>
         {formatAverageRef.current(metricId) && (
           <TooltipProvider>
@@ -104,21 +113,6 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     return formatMetricValue(metricId, value, { currencyFormatter: formatCurrencyRef.current });
   };
 
-  const applyPercentageFilterMaybeArray = (rowValue: number | null | undefined, filterValue: FilterValue | FilterValue[] | undefined) => {
-    const normalizeFilter = (singleFilter: FilterValue | undefined) => {
-      if (!singleFilter) return true;
-      const filterNum = singleFilter.value;
-      if (filterNum !== null && filterNum !== undefined && !isNaN(filterNum)) {
-        const normalizedFilter = filterNum > 1 ? filterNum / 100 : filterNum;
-        return applyNumericFilter(rowValue, { ...singleFilter, value: normalizedFilter });
-      }
-      return true;
-    };
-
-    if (!filterValue) return true;
-    if (Array.isArray(filterValue)) return filterValue.every(normalizeFilter);
-    return normalizeFilter(filterValue);
-  };
 
   const cols: ColumnDef<RankingsItem, unknown>[] = [];
 
@@ -134,12 +128,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: metricId,
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader(metricId, getManagerMetricLabel(metricId), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            const rowValue = getValue(row.original as RankingsItem);
-            return opts.percentageFilter ? applyPercentageFilterMaybeArray(rowValue, filterValue) : applyNumericFilterMaybeArray(rowValue, filterValue, applyNumericFilter);
+            return renderMetricHeader(metricId, getManagerMetricLabel(metricId), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -156,13 +145,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     cols.push(
       columnHelper.accessor("spend", {
         header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return renderMetricHeader("spend", getManagerMetricLabel("spend"), column, filterValue);
-        },
-        filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-          const ad = row.original as RankingsItem;
-          const spend = Number(ad.spend || 0);
-          return applyNumericFilterMaybeArray(spend, filterValue, applyNumericFilter);
+          return renderMetricHeader("spend", getManagerMetricLabel("spend"), column);
         },
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatCurrencyRef.current(Number(info.getValue()) || 0)}</span>} metric="spend" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} colorMetricValue={colorMetricValue} lightweight />,
@@ -178,11 +161,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "impressions",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("impressions", getManagerMetricLabel("impressions"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            return applyNumericFilterMaybeArray(getMetricValue(row.original as RankingsItem, "impressions"), filterValue, applyNumericFilter);
+            return renderMetricHeader("impressions", getManagerMetricLabel("impressions"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -207,12 +186,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "results",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return renderMetricHeader("results", getManagerMetricLabel("results"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            const ad = row.original as RankingsItem;
-          return applyNumericFilterMaybeArray(getMetricValue(ad, "results"), filterValue, applyNumericFilter);
+          return renderMetricHeader("results", getManagerMetricLabel("results"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -233,12 +207,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "mqls",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return renderMetricHeader("mqls", getManagerMetricLabel("mqls"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            const ad = row.original as RankingsItem;
-          return applyNumericFilterMaybeArray(getMetricValueOrNull(ad, "mqls"), filterValue, applyNumericFilter);
+          return renderMetricHeader("mqls", getManagerMetricLabel("mqls"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -258,11 +227,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "cpr",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("cpr", getManagerMetricLabel("cpr"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            return applyNumericFilterMaybeArray(getMetricValueOrNull(row.original as RankingsItem, "cpr"), filterValue, applyNumericFilter);
+            return renderMetricHeader("cpr", getManagerMetricLabel("cpr"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -284,11 +249,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "cpc",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("cpc", getManagerMetricLabel("cpc"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            return applyNumericFilterMaybeArray(getMetricValueOrNull(row.original as RankingsItem, "cpc"), filterValue, applyNumericFilter);
+            return renderMetricHeader("cpc", getManagerMetricLabel("cpc"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -310,11 +271,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "cplc",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("cplc", getManagerMetricLabel("cplc"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            return applyNumericFilterMaybeArray(getMetricValueOrNull(row.original as RankingsItem, "cplc"), filterValue, applyNumericFilter);
+            return renderMetricHeader("cplc", getManagerMetricLabel("cplc"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -336,9 +293,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "cpmql",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | FilterValue[] | undefined;
-            const displayFilterValue: FilterValue | undefined = Array.isArray(filterValue) ? (filterValue.length > 0 ? filterValue[0] : undefined) : (filterValue ?? undefined);
-            const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (columnFiltersRef.current && columnFiltersRef.current.length > 0);
+            const hasActiveFilters = (globalFilterRef.current && globalFilterRef.current.trim() !== "") || (filteredFieldIdsRef.current && filteredFieldIdsRef.current.size > 0);
             const hasFilters = hasActiveFilters && !!filteredAveragesRef.current;
             const textSize = isMinimal ? "text-2xs" : "text-xs";
             const avgLeading = isMinimal ? "leading-none" : "";
@@ -379,7 +334,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
                   )}
                   <SortIcon column={column} />
                   <span className={isMinimal ? "text-xs" : ""}>{getManagerMetricLabel("cpmql")}</span>
-                  <ColumnFilter value={displayFilterValue} readonly={true} />
+                  {filteredFieldIdsRef.current.has("cpmql") && <ActiveFilterIcon onReveal={onRevealField} field="cpmql" />}
                 </div>
                 {formatAverageRef.current("cpmql") && (
                   <TooltipProvider>
@@ -408,9 +363,6 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
               </div>
             );
           },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            return applyNumericFilterMaybeArray(getMetricValueOrNull(row.original as RankingsItem, "cpmql"), filterValue, applyNumericFilter);
-          },
           sortingFn: "auto",
           cell: (info) => {
             const ad = info.row.original as RankingsItem;
@@ -435,13 +387,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "cpm",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return renderMetricHeader("cpm", getManagerMetricLabel("cpm"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            const ad = row.original as RankingsItem;
-            const cpm = typeof ad.cpm === "number" ? ad.cpm : null;
-            return applyNumericFilterMaybeArray(cpm, filterValue, applyNumericFilter);
+          return renderMetricHeader("cpm", getManagerMetricLabel("cpm"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -462,13 +408,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     cols.push(
       columnHelper.accessor("hook", {
         header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return renderMetricHeader("hook", getManagerMetricLabel("hook"), column, filterValue);
-        },
-        filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-          const original = row.original as RankingsItem;
-          const hookValue = Number(original.hook ?? 0);
-          return applyPercentageFilterMaybeArray(hookValue, filterValue);
+          return renderMetricHeader("hook", getManagerMetricLabel("hook"), column);
         },
         cell: (info) => {
           const original = info.row.original as RankingsItem;
@@ -496,11 +436,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "website_ctr",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("website_ctr", getManagerMetricLabel("website_ctr"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            return applyPercentageFilterMaybeArray(getMetricValueOrNull(row.original as RankingsItem, "website_ctr"), filterValue);
+            return renderMetricHeader("website_ctr", getManagerMetricLabel("website_ctr"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -518,13 +454,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     cols.push(
       columnHelper.accessor("connect_rate", {
         header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return renderMetricHeader("connect_rate", getManagerMetricLabel("connect_rate"), column, filterValue);
-        },
-        filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-          const original = row.original as RankingsItem;
-          const connectRateValue = Number(original.connect_rate ?? 0);
-          return applyPercentageFilterMaybeArray(connectRateValue, filterValue);
+          return renderMetricHeader("connect_rate", getManagerMetricLabel("connect_rate"), column);
         },
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(Number(info.getValue()) * 100))}</span>} metric="connect_rate" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} colorMetricValue={colorMetricValue} lightweight />,
@@ -549,11 +479,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
         {
           id: "page_conv",
           header: ({ column }) => {
-            const filterValue = column.getFilterValue() as FilterValue | undefined;
-            return renderMetricHeader("page_conv", getManagerMetricLabel("page_conv"), column, filterValue);
-          },
-          filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-            return applyPercentageFilterMaybeArray(getMetricValueOrNull(row.original as RankingsItem, "page_conv"), filterValue);
+            return renderMetricHeader("page_conv", getManagerMetricLabel("page_conv"), column);
           },
           sortingFn: "auto",
           cell: (info) => {
@@ -571,13 +497,7 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
     cols.push(
       columnHelper.accessor("ctr", {
         header: ({ column }) => {
-          const filterValue = column.getFilterValue() as FilterValue | undefined;
-          return renderMetricHeader("ctr", getManagerMetricLabel("ctr"), column, filterValue);
-        },
-        filterFn: (row, columnId, filterValue: FilterValue | FilterValue[] | undefined) => {
-          const original = row.original as RankingsItem;
-          const ctrValue = Number(original.ctr ?? 0);
-          return applyPercentageFilterMaybeArray(ctrValue, filterValue);
+          return renderMetricHeader("ctr", getManagerMetricLabel("ctr"), column);
         },
         sortingFn: "auto",
         cell: (info) => <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatPct(Number(Number(info.getValue()) * 100))}</span>} metric="ctr" getRowKey={getRowKey} byKey={byKey} endDate={endDate} showTrends={showTrends} averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} colorMetricValue={colorMetricValue} lightweight />,

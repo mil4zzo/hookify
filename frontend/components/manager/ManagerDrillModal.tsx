@@ -1,7 +1,8 @@
 "use client";
 
+import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
+
 import React, { useEffect, useMemo, useState } from "react";
-import type { ColumnFiltersState } from "@tanstack/react-table";
 import { AppDialog } from "@/components/common/AppDialog";
 import { ExpandedChildrenRow } from "@/components/manager/ExpandedChildrenRow";
 import { CampaignChildrenRow } from "@/components/manager/CampaignChildrenRow";
@@ -50,9 +51,9 @@ export function ManagerDrillModal({
 
   // Filtros locais de coluna por nível atual — resetam ao trocar de step (chave de currentKey).
   const currentKey = current ? `${current.kind}:${current.id}` : null;
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [rules, setRules] = useState<RuleTree>(EMPTY_RULE_TREE);
   useEffect(() => {
-    setColumnFilters([]);
+    setRules(EMPTY_RULE_TREE);
   }, [currentKey]);
 
   const title = useMemo(() => {
@@ -135,8 +136,8 @@ export function ManagerDrillModal({
         columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         mqlLeadscoreMin={mqlLeadscoreMin}
-        columnFilters={columnFilters}
-        setColumnFilters={setColumnFilters}
+        rules={rules}
+        setRules={setRules}
         asContent
         onRowClick={handleAdsetRowClick}
       />
@@ -155,8 +156,8 @@ export function ManagerDrillModal({
         columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         mqlLeadscoreMin={mqlLeadscoreMin}
-        columnFilters={columnFilters}
-        setColumnFilters={setColumnFilters}
+        rules={rules}
+        setRules={setRules}
         asContent
         onRowClick={handleAdRowClick}
       />
@@ -175,8 +176,8 @@ export function ManagerDrillModal({
         columnOrder={columnOrder}
         hasSheetIntegration={hasSheetIntegration}
         mqlLeadscoreMin={mqlLeadscoreMin}
-        columnFilters={columnFilters}
-        setColumnFilters={setColumnFilters}
+        rules={rules}
+        setRules={setRules}
         asContent
         onRowClick={handleAdRowClick}
       />

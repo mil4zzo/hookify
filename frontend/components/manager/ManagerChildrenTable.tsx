@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { IconArrowsSort, IconFilter } from "@tabler/icons-react";
-import type { ColumnFiltersState } from "@tanstack/react-table";
 import type { RankingsChildrenItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { StatePanel } from "@/components/common/States";
@@ -15,19 +14,20 @@ import { useMultiSelect } from "@/lib/hooks/useMultiSelect";
 import { FilterBar } from "@/components/manager/FilterBar";
 import { StatusCell } from "@/components/manager/StatusCell";
 import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
-import { getManagerFilterableColumns, getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
+import { getVisibleManagerColumns } from "@/components/manager/managerColumnPreferences";
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
-import { applyRowFilters } from "@/lib/utils/applyRowFilters";
-import { getFilteredColumnIds } from "@/lib/utils/columnFilters";
+import { countRestrictiveConditions, getFilteredFieldIds } from "@/lib/manager/managerRules";
+import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { EMPTY_RULE_TREE, isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn, type ManagerMetricKey } from "@/lib/metrics";
 import { isManagerMetricColumn } from "@/components/manager/managerColumns";
 
 /** Tipo de filho renderizado: anúncios de um adset, variações de um ad name, ou adsets de uma campanha. */
 export type ChildrenEntity = "ads" | "variations" | "adsets";
 
-// Fallback estável quando o caller não passa setColumnFilters (nunca ocorre no drill modal, que
+// Fallback estável quando o caller não passa setRules (nunca ocorre no drill modal, que
 // sempre o fornece — existe só para manter a busca visível e o tipo do FilterBar satisfeito).
-const NOOP_SET_COLUMN_FILTERS: React.Dispatch<React.SetStateAction<ColumnFiltersState>> = () => {};
+const NOOP_SET_RULES: React.Dispatch<React.SetStateAction<RuleTree>> = () => {};
 
 type EntityConfig = {
   plural: string;
@@ -131,8 +131,8 @@ interface ManagerChildrenTableProps {
   columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number | null;
-  columnFilters?: ColumnFiltersState;
-  setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
+  rules?: RuleTree;
+  setRules?: React.Dispatch<React.SetStateAction<RuleTree>>;
   asContent?: boolean;
   /** Quando definido, cada linha vira clicável e dispara este callback. */
   onRowClick?: (child: RankingsChildrenItem) => void;
@@ -153,8 +153,8 @@ export function ManagerChildrenTable({
   columnOrder,
   hasSheetIntegration = false,
   mqlLeadscoreMin = null,
-  columnFilters = [],
-  setColumnFilters,
+  rules = EMPTY_RULE_TREE,
+  setRules,
   asContent = false,
   onRowClick,
   packIds,
@@ -174,6 +174,8 @@ export function ManagerChildrenTable({
   // vazia. E a pergunta "de qual pack veio?" já foi respondida na linha-pai que abriu este drill.
   const visibleColumns = useMemo(() => getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration }).filter(isManagerMetricColumn), [activeColumns, columnOrder, hasSheetIntegration]);
   const childrenLabel = config.plural;
+
+  const ruleContext = useMemo(() => ({ actionType, mqlLeadscoreMin }), [actionType, mqlLeadscoreMin]);
 
   const sortedData = useMemo(() => {
     if (!childrenData || childrenData.length === 0) {
@@ -221,8 +223,11 @@ export function ManagerChildrenTable({
         })
       : dataWithCalculations;
 
-    if (columnFilters.length > 0) {
-      filteredData = filteredData.filter((row) => applyRowFilters(row as Record<string, unknown>, columnFilters));
+    // Mesmo avaliador da tabela principal e dos Boards. A linha-filha é um
+    // anúncio, não um grupo: o contexto "manager-children" tira do vocabulário os
+    // campos que ela não carrega (tags, procedência) — ver lib/rules/fields.
+    if (!isEmptyRuleTree(rules)) {
+      filteredData = filteredData.filter((row) => rowMatchesRules(row as Record<string, unknown>, rules, ruleContext));
     }
 
     if (!sortConfig.column) {
@@ -232,7 +237,7 @@ export function ManagerChildrenTable({
     return [...filteredData].sort((a, b) => {
       return compareManagerChildRows(a, b, sortConfig.column as ManagerChildSortColumn, sortConfig.direction);
     });
-  }, [actionType, childrenData, columnFilters, hasSheetIntegration, mqlLeadscoreMin, searchTerm, sortConfig]);
+  }, [actionType, childrenData, rules, ruleContext, hasSheetIntegration, mqlLeadscoreMin, searchTerm, sortConfig]);
 
   // Chaves selecionáveis na ordem visível atual (pós-filtro/sort) — base do select-all e do shift.
   // Entidades arquivadas/deletadas na Meta ficam fora da seleção: gasto histórico, sem ação.
@@ -263,17 +268,10 @@ export function ManagerChildrenTable({
     [bulk, selectedKeys, clearSelection],
   );
 
-  const filterableColumns = useMemo(() => {
-    return getManagerFilterableColumns({
-      visibleColumns,
-      includeStatus: true,
-      textColumns: config.textColumns,
-    });
-  }, [config, visibleColumns]);
-
-  // Colunas com filtro EFETIVO — sinalizadas com funil no header. Filtros de texto (nome/
-  // campanha/conjunto) atuam sobre a coluna de nome desta tabela.
-  const filteredColumnIds = useMemo(() => getFilteredColumnIds(columnFilters), [columnFilters]);
+  // Campos com condição EFETIVA — sinalizados com funil no header. Condições sobre
+  // nome (do anúncio/conjunto/campanha) acendem o funil da coluna de nome, que é
+  // onde a identidade da linha aparece.
+  const filteredColumnIds = useMemo(() => getFilteredFieldIds(rules), [rules]);
   const isNameColumnFiltered = config.textColumns.some((tc) => filteredColumnIds.has(tc.id));
 
   // Mesmo visual do ColumnFilter readonly das colunas de métrica da tabela principal.
@@ -354,9 +352,11 @@ export function ManagerChildrenTable({
         {/* Mesmo layout de duas linhas da tabela principal: busca + contagem + Add filter + ações na
             1ª linha; chips de filtro em largura total na 2ª (renderizada pelo próprio FilterBar). */}
         <FilterBar
-          columnFilters={columnFilters}
-          setColumnFilters={setColumnFilters ?? NOOP_SET_COLUMN_FILTERS}
-          filterableColumns={filterableColumns}
+          rules={rules}
+          setRules={setRules ?? NOOP_SET_RULES}
+          conditionCount={countRestrictiveConditions(rules)}
+          ruleContext="manager-children"
+          hasSheetIntegration={hasSheetIntegration}
           filteredCount={sortedData.length}
           totalCount={childrenData.length || 0}
           itemLabel={childrenLabel}
@@ -373,13 +373,13 @@ export function ManagerChildrenTable({
         />
       </div>
 
-      {sortedData.length === 0 && (searchTerm.trim() || columnFilters.length > 0) ? (
+      {sortedData.length === 0 && (searchTerm.trim() || !isEmptyRuleTree(rules)) ? (
         <div className="p-4">
           <StatePanel
             kind="empty"
             message={
               searchTerm.trim()
-                ? columnFilters.length > 0
+                ? !isEmptyRuleTree(rules)
                   ? config.emptyForSearchAndFilters(searchTerm)
                   : config.emptyForSearch(searchTerm)
                 : config.emptyForFilters
@@ -393,9 +393,9 @@ export function ManagerChildrenTable({
                 Limpar busca
               </button>
             )}
-            {searchTerm.trim() && columnFilters.length > 0 && <span className="text-muted-foreground">·</span>}
-            {columnFilters.length > 0 && setColumnFilters && (
-              <button onClick={() => setColumnFilters([])} className="text-xs text-primary hover:underline">
+            {searchTerm.trim() && !isEmptyRuleTree(rules) && <span className="text-muted-foreground">·</span>}
+            {!isEmptyRuleTree(rules) && setRules && (
+              <button onClick={() => setRules(EMPTY_RULE_TREE)} className="text-xs text-primary hover:underline">
                 Limpar filtros
               </button>
             )}

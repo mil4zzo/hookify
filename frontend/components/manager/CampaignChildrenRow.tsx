@@ -1,7 +1,8 @@
 "use client";
 
+import { EMPTY_RULE_TREE, type RuleTree } from "@/lib/rules/types";
+
 import React from "react";
-import type { ColumnFiltersState } from "@tanstack/react-table";
 import { useCampaignChildren } from "@/lib/api/hooks";
 import type { RankingsChildrenItem, RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
@@ -20,8 +21,8 @@ interface CampaignChildrenRowProps {
   columnOrder?: readonly ManagerColumnType[];
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number | null;
-  columnFilters?: ColumnFiltersState;
-  setColumnFilters?: React.Dispatch<React.SetStateAction<ColumnFiltersState>>;
+  rules?: RuleTree;
+  setRules?: React.Dispatch<React.SetStateAction<RuleTree>>;
   /** Quando true, retorna apenas o conteúdo interno (sem tr/td) para uso dentro de uma célula pai */
   asContent?: boolean;
   /** Quando definido, cada linha vira clicável e dispara este callback (passa o adset). */
@@ -33,16 +34,17 @@ function areCampaignChildrenRowPropsEqual(prev: CampaignChildrenRowProps, next: 
 
   const columnOrderEqual = (prev.columnOrder?.length ?? 0) === (next.columnOrder?.length ?? 0) && (prev.columnOrder ?? []).every((col, i) => next.columnOrder?.[i] === col);
 
-  const columnFiltersEqual = (prev.columnFilters?.length ?? 0) === (next.columnFilters?.length ?? 0) && JSON.stringify(prev.columnFilters ?? []) === JSON.stringify(next.columnFilters ?? []);
+  // Referência primeiro: a árvore só é recriada quando algo mudou de verdade.
+  const rulesEqual = prev.rules === next.rules || JSON.stringify(prev.rules) === JSON.stringify(next.rules);
 
   const prevPackIdsKey = [...(prev.packIds || [])].sort().join("|");
   const nextPackIdsKey = [...(next.packIds || [])].sort().join("|");
 
-  return prev.asContent === next.asContent && prev.campaignId === next.campaignId && prev.dateStart === next.dateStart && prev.dateStop === next.dateStop && prev.actionType === next.actionType && prev.formatCurrency === next.formatCurrency && prev.formatPct === next.formatPct && activeColumnsEqual && columnOrderEqual && prev.hasSheetIntegration === next.hasSheetIntegration && prev.mqlLeadscoreMin === next.mqlLeadscoreMin && columnFiltersEqual && prevPackIdsKey === nextPackIdsKey && prev.setColumnFilters === next.setColumnFilters && prev.onRowClick === next.onRowClick;
+  return prev.asContent === next.asContent && prev.campaignId === next.campaignId && prev.dateStart === next.dateStart && prev.dateStop === next.dateStop && prev.actionType === next.actionType && prev.formatCurrency === next.formatCurrency && prev.formatPct === next.formatPct && activeColumnsEqual && columnOrderEqual && prev.hasSheetIntegration === next.hasSheetIntegration && prev.mqlLeadscoreMin === next.mqlLeadscoreMin && rulesEqual && prevPackIdsKey === nextPackIdsKey && prev.setRules === next.setRules && prev.onRowClick === next.onRowClick;
 }
 
 /** Filhos (adsets) de uma campanha — wrapper fino: só escolhe a query e delega ao ManagerChildrenTable. */
-export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, packIds = [], actionType, formatCurrency, formatPct, activeColumns, columnOrder, hasSheetIntegration = false, mqlLeadscoreMin = null, columnFilters = [], setColumnFilters, asContent = false, onRowClick }: CampaignChildrenRowProps) {
+export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ campaignId, dateStart, dateStop, packIds = [], actionType, formatCurrency, formatPct, activeColumns, columnOrder, hasSheetIntegration = false, mqlLeadscoreMin = null, rules = EMPTY_RULE_TREE, setRules, asContent = false, onRowClick }: CampaignChildrenRowProps) {
   const { data: childrenData, isLoading, isError } = useCampaignChildren(campaignId, dateStart, dateStop, actionType, packIds, true);
 
   return (
@@ -58,8 +60,8 @@ export const CampaignChildrenRow = React.memo(function CampaignChildrenRow({ cam
       columnOrder={columnOrder}
       hasSheetIntegration={hasSheetIntegration}
       mqlLeadscoreMin={mqlLeadscoreMin}
-      columnFilters={columnFilters}
-      setColumnFilters={setColumnFilters}
+      rules={rules}
+      setRules={setRules}
       asContent={asContent}
       packIds={packIds}
       onRowClick={onRowClick ? (child) => onRowClick(child as unknown as RankingsItem) : undefined}

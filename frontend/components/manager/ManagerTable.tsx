@@ -22,7 +22,6 @@ import { useManagerAverages } from "@/lib/hooks/useManagerAverages";
 import { useFilteredAverages } from "@/lib/hooks/useFilteredAverages";
 import { createManagerTableColumns } from "@/components/manager/managerTableColumns";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { FilterValue, TextFilterValue } from "@/components/common/ColumnFilter";
 import { TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
 import { TabbedWorkspace, TableWorkspace } from "@/components/common/layout";
 const AdsetDetailsDialog = dynamic(() => import("@/components/ads/AdsetDetailsDialog").then((m) => m.AdsetDetailsDialog), { ssr: false });
@@ -31,7 +30,6 @@ import { FilterBar } from "@/components/manager/FilterBar";
 import { BulkActionsBar } from "@/components/common/BulkActionsBar";
 import { buildManagerBulkActions } from "@/components/manager/managerBulkActions";
 import { BulkTagDialog } from "@/components/manager/BulkTagDialog";
-import { useTags } from "@/lib/api/hooks";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
@@ -39,9 +37,17 @@ import { ManagerDrillModal } from "@/components/manager/ManagerDrillModal";
 import { useDrillState, type DrillKind } from "@/lib/manager/useDrillState";
 import { useDebouncedSessionStorage } from "@/lib/hooks/useDebouncedSessionStorage";
 import { logger } from "@/lib/utils/logger";
-import { getColumnId } from "@/lib/utils/columnFilters";
+import {
+  MANAGER_RULES_COLUMN_ID,
+  countRestrictiveConditions,
+  getFilteredFieldIds,
+  getManagerRulesStorageKey,
+  loadManagerRules,
+  pruneRulesForVisibleFields,
+} from "@/lib/manager/managerRules";
+import { isEmptyRuleTree, type RuleConditionLeaf, type RuleTree } from "@/lib/rules/types";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
-import { getManagerFilterableColumns, getVisibleManagerColumns, loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
+import { loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
 import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { useAdAccountsDb } from "@/lib/api/hooks";
 import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
@@ -437,28 +443,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [currentTab],
   );
 
-  const getFiltersStorageKey = (tab: ManagerTab) => `hookify-manager-filters:${tab}`;
   const getGlobalFilterStorageKey = (tab: ManagerTab) => `hookify-manager-global-filter:${tab}`;
-
-  // Filtro padrão para aba individual: Status = Ativo (reduz lag em packs grandes)
-  const DEFAULT_INDIVIDUAL_FILTERS: ColumnFiltersState = [{ id: `status__default`, value: { selectedStatuses: ["ACTIVE"] } }];
-
-  const loadColumnFilters = (tab: ManagerTab): ColumnFiltersState => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = sessionStorage.getItem(getFiltersStorageKey(tab));
-      if (!saved) {
-        // Aba individual: aplicar filtro de Status = Ativo por padrão
-        if (tab === "individual") return DEFAULT_INDIVIDUAL_FILTERS;
-        return [];
-      }
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (e) {
-      logger.error("Erro ao carregar filtros do sessionStorage:", e);
-      return [];
-    }
-  };
 
   const loadGlobalFilter = (tab: ManagerTab): string => {
     if (typeof window === "undefined") return "";
@@ -471,19 +456,35 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   };
 
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
-  const [columnFilters, setColumnFiltersRaw] = useState<ColumnFiltersState>(() => loadColumnFilters(initialTab));
+  // A regra de filtro da aba — a MESMA árvore do Boards e do Critério.
+  const [rules, setRulesRaw] = useState<RuleTree>(() => loadManagerRules(initialTab));
 
-  // Wrapper com startTransition: mudanças de filtro (especialmente remoção de status)
-  // podem expor milhares de rows de uma vez. startTransition marca a atualização como
-  // não-urgente, permitindo que React mantenha a UI responsiva durante o recálculo.
-  const setColumnFilters: typeof setColumnFiltersRaw = useCallback(
-    (updater) => {
-      startTransition(() => {
-        setColumnFiltersRaw(updater);
-      });
-    },
-    [],
-  );
+  // Wrapper com startTransition: mudanças de filtro (especialmente remoção do corte
+  // de status) podem expor milhares de rows de uma vez. startTransition marca a
+  // atualização como não-urgente, mantendo a UI responsiva durante o recálculo.
+  const setRules: React.Dispatch<React.SetStateAction<RuleTree>> = useCallback((updater) => {
+    startTransition(() => {
+      setRulesRaw(updater);
+    });
+  }, []);
+
+  // Campos citados por condição restritiva (funil no header) e o N de "Filtros (N)".
+  const filteredFieldIds = useMemo(() => getFilteredFieldIds(rules), [rules]);
+
+  // Clique no funil de uma coluna: abre o popover de Filtros destacando as
+  // condições daquele campo. REVELA, não cria — ver o comentário de
+  // `highlightFieldId` no RuleBuilder para o porquê.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [highlightFieldId, setHighlightFieldId] = useState<string | null>(null);
+  const handleRevealField = useCallback((fieldId: string) => {
+    setHighlightFieldId(fieldId);
+    setFiltersOpen(true);
+  }, []);
+  const handleFiltersOpenChange = useCallback((open: boolean) => {
+    setFiltersOpen(open);
+    if (!open) setHighlightFieldId(null);
+  }, []);
+  const restrictiveConditionCount = useMemo(() => countRestrictiveConditions(rules), [rules]);
 
   const [sorting, setSorting] = useState<SortingState>([{ id: "spend", desc: true }]);
 
@@ -498,13 +499,16 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // retorna a mesma ref → React pula o re-render.
   useEffect(() => {
     setRowSelection((prev) => (Object.keys(prev).length === 0 ? prev : {}));
-  }, [columnFilters, globalFilter]);
+  }, [rules, globalFilter]);
 
   // Estado para gerenciar o tamanho das colunas
   const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
 
   // Refs para evitar recriação das colunas durante mudanças de filtros (performance optimization)
-  const columnFiltersRef = useRef<ColumnFiltersState>([]);
+  // Campos citados por alguma condição restritiva — é o que acende o funil no
+  // header. Substitui o antigo `columnFiltersRef`: a folha cita um CAMPO, não uma
+  // coluna, e num OU cruzando colunas o funil acende nas duas (ver managerRules).
+  const filteredFieldIdsRef = useRef<Set<string>>(new Set());
   const globalFilterRef = useRef<string>("");
 
   // Se o usuário ocultar colunas, remover filters/sorting dessas colunas para evitar estado "invisível"
@@ -514,8 +518,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       if (isColumnEnabled(col)) enabledColumns.add(col);
     }
 
-    // Column filters: manter apenas os que ainda existem/estão visíveis
-    setColumnFilters((prev) => prev.filter((f) => getColumnId(f.id) === "ad_name" || enabledColumns.has(getColumnId(f.id) as ManagerColumnType)));
+    // Regra: soltar condições de colunas que saíram de vista, para não deixar
+    // filtro invisível encolhendo a tabela sem explicação. `ad_name` e `status`
+    // existem independentemente da escolha de colunas.
+    setRules((prev) =>
+      pruneRulesForVisibleFields(prev, (fieldId) => fieldId === "ad_name" || fieldId === "status" || enabledColumns.has(fieldId as ManagerColumnType)),
+    );
 
     // Sorting: manter apenas sorting de colunas visíveis; se ficar vazio, escolher fallback visível
     // status é coluna fixa (não está em activeColumns) nas abas individual / por-conjunto / por-campanha
@@ -545,8 +553,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (hydratingTabRef.current === currentTab) return;
-    debouncedStorage.setItem(getFiltersStorageKey(currentTab), JSON.stringify(columnFilters));
-  }, [columnFilters, currentTab, debouncedStorage]);
+    debouncedStorage.setItem(getManagerRulesStorageKey(currentTab), JSON.stringify(rules));
+  }, [rules, currentTab, debouncedStorage]);
 
   // Salvar globalFilter no sessionStorage sempre que mudar (debounced para reduzir I/O)
   useEffect(() => {
@@ -558,7 +566,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Rehidratar filtros e busca ao trocar de aba (persistência por aba)
   useEffect(() => {
     hydratingTabRef.current = currentTab;
-    setColumnFilters(loadColumnFilters(currentTab));
+    setRules(loadManagerRules(currentTab));
     setGlobalFilter(loadGlobalFilter(currentTab));
     // Fechar modal de drill ao trocar de tab — drill perde sentido em outra aba.
     drillCloseRef.current();
@@ -569,26 +577,23 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     if (hydratingTabRef.current === currentTab) {
       hydratingTabRef.current = null;
     }
-  }, [columnFilters, globalFilter, currentTab]);
+  }, [rules, globalFilter, currentTab]);
 
   // Aplicar filtros iniciais (ex: vindos de query params da URL)
   const initialFiltersAppliedRef = useRef(false);
   useEffect(() => {
     if (initialFilters && initialFilters.length > 0 && !initialFiltersAppliedRef.current) {
-      // Converter filtros iniciais para o formato esperado pelo TanStack Table
-      const formattedFilters: ColumnFiltersState = initialFilters.map((filter) => {
-        // Assumir que filtros de texto usam "contains" por padrão
-        const textFilterValue: TextFilterValue = {
-          operator: "contains",
-          value: filter.value,
-        };
-        return {
-          id: filter.id,
-          value: textFilterValue,
-        };
-      });
+      // Vem da busca global (?filter=campaign_name&value=X): vira uma folha de
+      // texto "contém". O contrato da URL não mudou — só o formato interno.
+      const conditions: RuleConditionLeaf[] = initialFilters.map((filter, index) => ({
+        id: `url_${index}_${filter.id}`,
+        type: "condition",
+        field: filter.id,
+        operator: "contains",
+        value: filter.value,
+      }));
 
-      setColumnFilters(formattedFilters);
+      setRules({ logic: "AND", conditions });
       initialFiltersAppliedRef.current = true;
     } else if (!initialFilters || initialFilters.length === 0) {
       // Resetar flag quando não há mais filtros iniciais
@@ -598,19 +603,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   // Os dados já vêm agregados do servidor quando pais; não re-agregar aqui
   // Aplicar filtro de busca pelo nome do anúncio
-  const data = useMemo(() => {
-    if (!adsEffective || !Array.isArray(adsEffective)) {
-      return [];
-    }
-    if (!deferredGlobalFilter || deferredGlobalFilter.trim() === "") {
-      return adsEffective;
-    }
-    const searchValue = deferredGlobalFilter.toLowerCase().trim();
-    return adsEffective.filter((ad) => {
-      const adName = String((ad as RankingsItem)?.ad_name || "").toLowerCase();
-      return adName.includes(searchValue);
-    });
-  }, [adsEffective, deferredGlobalFilter]);
+  const data = useMemo(() => (Array.isArray(adsEffective) ? adsEffective : []), [adsEffective]);
 
   // Procedência (pack/conta): alimenta as colunas opcionais Pack/Conta e o header do modal de
   // detalhes. As contas são carregadas aqui porque o Manager precisa do NOME delas e não as
@@ -625,36 +618,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const formatPct = useCallback((v: number) => (v != null && !isNaN(v) ? `${Number(v).toFixed(2)}%` : "—"), []);
   // formatUsd agora usa formatCurrency diretamente dentro dos cells para reatividade
 
-  // Função helper para aplicar filtros numéricos
-  const applyNumericFilter = useCallback((rowValue: number | null | undefined, filterValue: FilterValue | undefined): boolean => {
-    // Importante: esta função precisa ser estável para não invalidar `columns` durante resize (onChange).
-    if (!filterValue || filterValue.value === null || filterValue.value === undefined || isNaN(filterValue.value)) {
-      return true; // Sem filtro, mostrar tudo
-    }
 
-    if (rowValue === null || rowValue === undefined || isNaN(rowValue) || !isFinite(rowValue)) {
-      return false; // Valor inválido, não mostrar
-    }
-
-    const { operator, value: filterNum } = filterValue;
-
-    switch (operator) {
-      case ">":
-        return rowValue > filterNum!;
-      case "<":
-        return rowValue < filterNum!;
-      case ">=":
-        return rowValue >= filterNum!;
-      case "<=":
-        return rowValue <= filterNum!;
-      case "=":
-        return Math.abs(rowValue - filterNum!) < 0.0001; // Tolerância para comparação de floats
-      case "!=":
-        return Math.abs(rowValue - filterNum!) >= 0.0001;
-      default:
-        return true;
-    }
-  }, []);
 
   // `computedAverages` representa a agregação local da tabela atual.
   // Quando `averagesOverride` existe, ele injeta a camada validada/alinhada ao backend
@@ -835,12 +799,13 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       mqlLeadscoreMin,
       actionTypeRef,
       selectionAnchorRef,
-      applyNumericFilter,
       openSettings: openSettings as any,
-      columnFiltersRef,
+      filteredFieldIdsRef,
+      onRevealField: handleRevealField,
       globalFilterRef,
+      ruleContext: { actionType, mqlLeadscoreMin },
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, applyNumericFilter, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -854,22 +819,25 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     });
   }, []);
 
-  // Estado de filtros no formato da tabela (um por coluna); a tabela espera ids de coluna, não ids de instância
+  // UMA entrada sintética em vez de uma por coluna.
+  //
+  // POR QUE PASSAR PELO TANSTACK EM VEZ DE PRÉ-FILTRAR `data`
+  //   Pré-filtrar seria mais direto, mas `getFilteredRowModel()` é o que alimenta
+  //   a média filtrada do header, a seleção em massa e o virtualizador. Se a
+  //   filtragem acontecesse antes, o modelo filtrado seria sempre igual ao
+  //   completo e a média filtrada nunca apareceria. Uma coluna só (`__rules`)
+  //   mantém a semântica do TanStack intacta com um ponto de avaliação único.
+  const ruleFilterValue = useMemo(
+    () => ({ rules, search: deferredGlobalFilter.trim() }),
+    [rules, deferredGlobalFilter],
+  );
+
   const tableColumnFilters = useMemo(() => {
-    const byColumn = new Map<string, unknown[]>();
-    for (const filter of columnFilters) {
-      if (!filter.value) continue;
-      const colId = getColumnId(filter.id);
-      const arr = byColumn.get(colId) ?? [];
-      arr.push(filter.value);
-      byColumn.set(colId, arr);
-    }
-    if (byColumn.size === 0) return EMPTY_FILTERS;
-    return Array.from(byColumn.entries()).map(([id, values]) => ({
-      id,
-      value: values.length === 1 ? values[0] : values,
-    }));
-  }, [columnFilters]);
+    const semRegra = isEmptyRuleTree(rules);
+    const semBusca = ruleFilterValue.search === "";
+    if (semRegra && semBusca) return EMPTY_FILTERS;
+    return [{ id: MANAGER_RULES_COLUMN_ID, value: ruleFilterValue }];
+  }, [rules, ruleFilterValue]);
 
   // Ordem das colunas para a tabela. As fixas (seleção, status, nome, orçamento, filtros ocultos) mantêm
   // a ordem em que foram declaradas; as de métrica seguem a ordem escolhida pelo usuário. Ids ausentes
@@ -945,7 +913,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const filteredAverages = useFilteredAverages({
     table: table as any,
     dataLength: data.length,
-    columnFilters,
+    columnFilters: tableColumnFilters,
     globalFilter: deferredGlobalFilter,
     actionType,
     hasSheetIntegration,
@@ -965,12 +933,26 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Não usar useEffect aqui pois ele roda APÓS render, causando valores desatualizados nos headers
   filteredAveragesRef.current = filteredAverages;
   formatFilteredAverageRef.current = formatFilteredAverage;
-  columnFiltersRef.current = columnFilters;
+  filteredFieldIdsRef.current = filteredFieldIds;
   globalFilterRef.current = deferredGlobalFilter;
   averagesRef.current = averages;
   formatAverageRef.current = formatAverage;
   formatCurrencyRef.current = formatCurrency;
   actionTypeRef.current = actionType;
+
+  // Opções de Pack/Conta oferecidas nos campos multi-seleção da regra. Saem do
+  // recorte carregado, não do universo: oferecer pack que não está na tela produz
+  // grupo vazio que parece bug.
+  const ruleDimensionOptions = useMemo(() => {
+    const packs = new Map<string, string>();
+    const accounts = new Map<string, string>();
+    for (const row of adsEffectiveRaw as RankingsItem[]) {
+      for (const id of row.pack_ids ?? []) if (!packs.has(id)) packs.set(id, provenanceIndex.packNameById.get(id) ?? id);
+      for (const id of row.account_ids ?? []) if (!accounts.has(id)) accounts.set(id, provenanceIndex.accountNameById.get(id) ?? id);
+    }
+    const toOptions = (m: Map<string, string>) => Array.from(m, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+    return { pack_ids: toOptions(packs), account_ids: toOptions(accounts) };
+  }, [adsEffectiveRaw, provenanceIndex]);
 
   // Modal de exportação (seleção de colunas + transcrições). A execução do CSV vive no dialog.
   const [isExportOpen, setIsExportOpen] = useState(false);
@@ -978,38 +960,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // Mapeamento de colunas disponíveis para filtro
   // Opções do filtro de tags: só o vocabulário do usuário. "Sem tag" deixou de ser
   // uma opção-sentinela na lista e virou operador próprio (ver TAG_FILTER_OPERATORS).
-  const { data: tagsData } = useTags();
-  const tagOptions = useMemo(() => (tagsData?.data ?? []).map((tag) => ({ value: tag.id, label: tag.name })), [tagsData]);
 
-  const filterableColumns = useMemo(() => {
-    const visibleColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration });
-    const nameColumn =
-      currentTab === "por-conjunto"
-        ? { id: "ad_name", label: "Conjunto", isText: true }
-        : currentTab === "por-campanha"
-          ? { id: "ad_name", label: "Campanha", isText: true }
-          : { id: "ad_name", label: "Anúncio", isText: true };
-
-    // "Ads ativos" só faz sentido em grupos com múltiplos anúncios (por-anúncio/por-conjunto/
-    // por-campanha) — em "individual" cada linha já é um único ad, redundante com o filtro de Status.
-    const activeCountColumn = { id: "active_count_filter", label: "Ads ativos" };
-
-    const textColumns =
-      currentTab === "individual"
-        ? [nameColumn, { id: "adset_name_filter", label: "Conjunto", isText: true }, { id: "campaign_name_filter", label: "Campanha", isText: true }]
-        : currentTab === "por-anuncio"
-          ? [nameColumn, { id: "adset_name_filter", label: "Conjunto", isText: true }, { id: "campaign_name_filter", label: "Campanha", isText: true }, activeCountColumn]
-          : currentTab === "por-conjunto"
-            ? [nameColumn, { id: "campaign_name_filter", label: "Campanha", isText: true }, activeCountColumn]
-            : [nameColumn, activeCountColumn];
-
-    return getManagerFilterableColumns({
-      visibleColumns,
-      includeStatus: currentTab !== "por-anuncio",
-      textColumns,
-      tagOptions,
-    });
-  }, [hasSheetIntegration, currentTab, activeColumns, columnOrder, tagOptions]);
 
   const searchBar = useMemo(() => {
     const placeholder =
@@ -1181,8 +1132,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       actionType,
       formatCurrency,
       formatPct,
-      columnFilters,
-      setColumnFilters,
+      rules,
+      setRules,
       activeColumns,
       columnOrder,
       hasSheetIntegration,
@@ -1197,7 +1148,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       isError: isError && currentTab === "por-anuncio",
       onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, columnFilters, setColumnFilters, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, rules, setRules, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
 
   // Na aba Criativos a seleção existe para compartilhar, não para mexer em status — daí o
@@ -1240,9 +1191,16 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   // As ações em massa vivem na BulkActionsBar flutuante (base da tabela), fora do toolbar.
   const tableToolbar = (
     <FilterBar
-      columnFilters={columnFilters}
-      setColumnFilters={setColumnFilters}
-      filterableColumns={filterableColumns}
+      rules={rules}
+      setRules={setRules}
+      conditionCount={restrictiveConditionCount}
+      ruleContext="manager"
+      tab={currentTab}
+      open={filtersOpen}
+      onOpenChange={handleFiltersOpenChange}
+      highlightFieldId={highlightFieldId}
+      hasSheetIntegration={hasSheetIntegration}
+      dimensionOptions={ruleDimensionOptions}
       serverTotal={serverTotal}
       filteredCount={filterBarFilteredCount}
       totalCount={adsEffectiveRaw.length}

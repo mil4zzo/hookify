@@ -82,7 +82,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   }
 
   // 2. Comparação de funções (devem ser estáveis via useCallback)
-  if (prev.getRowKey !== next.getRowKey || prev.onOpenDrill !== next.onOpenDrill || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setColumnFilters !== next.setColumnFilters || prev.onVisibleRowKeysChange !== next.onVisibleRowKeysChange) {
+  if (prev.getRowKey !== next.getRowKey || prev.onOpenDrill !== next.onOpenDrill || prev.setSelectedAd !== next.setSelectedAd || prev.setSelectedAdset !== next.setSelectedAdset || prev.formatCurrency !== next.formatCurrency || prev.formatPct !== next.formatPct || prev.setRules !== next.setRules || prev.onVisibleRowKeysChange !== next.onVisibleRowKeysChange) {
     return false;
   }
 
@@ -134,18 +134,12 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   // 3. O TanStack Table já atualiza o DOM diretamente via CSS (width das colunas)
   // 4. Comparar columnSizing aqui causaria re-renders desnecessários durante resize
 
-  // 4. Comparação de columnFilters (array) — referência primeiro
-  if (prev.columnFilters !== next.columnFilters) {
-    if (prev.columnFilters.length !== next.columnFilters.length) {
-      return false;
-    }
-    for (let i = 0; i < prev.columnFilters.length; i++) {
-      const prevFilter = prev.columnFilters[i];
-      const nextFilter = next.columnFilters[i];
-      if (prevFilter.id !== nextFilter.id || (prevFilter.value !== nextFilter.value && JSON.stringify(prevFilter.value) !== JSON.stringify(nextFilter.value))) {
-        return false;
-      }
-    }
+  // 4. A regra de filtro. Referência primeiro: `setRules` só cria árvore nova
+  // quando algo mudou de verdade (ver managerRules), então o caso comum sai daqui
+  // sem serializar nada. O stringify é o desempate de uma árvore reconstruída
+  // com o mesmo conteúdo — bem menor que o array por coluna de antes.
+  if (prev.rules !== next.rules && JSON.stringify(prev.rules) !== JSON.stringify(next.rules)) {
+    return false;
   }
 
   // Todas as props relevantes são iguais - não re-renderizar
