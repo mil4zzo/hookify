@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.core.client_disconnect import abort_if_client_gone
 from app.core.supabase_retry import with_postgrest_retry
 
-RPC_NAME = "fetch_entity_performance_v133"
+RPC_NAME = "fetch_entity_performance_v134"
 
 # Campos inteiros e somas ponderadas que a RPC devolve em `totals` e em cada dia.
 INT_FIELDS = ("impressions", "clicks", "inline_link_clicks", "lpv", "plays", "thruplays", "reach")

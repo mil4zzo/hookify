@@ -700,6 +700,10 @@ export const RankingsRetentionResponseSchema = z.object({
 // Reutilizado tanto para /rankings/ad-name/{ad_name}/children quanto para /rankings/ad-id/{ad_id}
 export const RankingsChildrenItemSchema = z.object({
   account_id: z.string().nullable().optional(),
+  // Packs de onde vieram as metricas da filha, restritos a selecao (migration 134).
+  // ATENCAO: este schema nao tem .passthrough() — chave nao declarada aqui e
+  // silenciosamente descartada, e o filtro por Pack da visao expandida some.
+  pack_ids: z.array(z.string()).nullable().optional(),
   ad_id: z.string(),
   ad_name: z.string().nullable().optional(),
   status_resolved: z.boolean().optional(),

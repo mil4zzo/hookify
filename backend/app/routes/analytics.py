@@ -1184,6 +1184,10 @@ def _entity_child_item(
     has_axis_days = any(str((day or {}).get("date") or "")[:10] in axis for day in (group.get("days") or []))
     return {
         "account_id": group.get("account_id"),
+        # Packs de onde vieram as metricas desta filha, restritos a selecao
+        # (migration 134). E o que permite filtrar a visao expandida por Pack —
+        # sem isto o campo nao existiria na linha e o filtro zeraria a tabela.
+        "pack_ids": group.get("pack_ids") or [],
         "ad_id": group.get("ad_id"),
         "ad_name": group.get("ad_name"),
         "effective_status": status,
