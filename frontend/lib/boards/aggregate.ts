@@ -12,7 +12,7 @@
  */
 
 import { computeManagerAverages, getMetricNumericValueOrNull, type ManagerAverages } from "@/lib/metrics";
-import type { BoardRow } from "./evaluate";
+import type { RuleRow } from "@/lib/rules/evaluate";
 
 export interface BoardGroupSummary {
   /** Quantos criativos caíram no grupo. */
@@ -34,7 +34,7 @@ export interface BoardAggregateOptions {
   totalSpend?: number;
 }
 
-export function summarizeBoardGroup(rows: readonly BoardRow[], options: BoardAggregateOptions = {}): BoardGroupSummary {
+export function summarizeBoardGroup(rows: readonly RuleRow[], options: BoardAggregateOptions = {}): BoardGroupSummary {
   const { actionType, hasSheetIntegration = false, mqlLeadscoreMin = null, totalSpend } = options;
 
   const averages = computeManagerAverages(rows as any[], {
@@ -61,7 +61,7 @@ export function summarizeBoardGroup(rows: readonly BoardRow[], options: BoardAgg
  * nas duas direções — em `asc`, tratar ausente como zero jogaria o que não tem
  * dado para o topo, que é o oposto do que "menor primeiro" quer dizer.
  */
-export function sortBoardRows<T extends BoardRow>(
+export function sortBoardRows<T extends RuleRow>(
   rows: readonly T[],
   metricKey: string,
   direction: "asc" | "desc",

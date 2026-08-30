@@ -14,7 +14,7 @@ import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { BoardGroupBand } from "@/components/boards/BoardGroupBand";
 import { BoardGroupDialog, type BoardGroupDraft } from "@/components/boards/BoardGroupDialog";
 import { BoardToolbar } from "@/components/boards/BoardToolbar";
-import type { BoardDimensionOption } from "@/components/boards/BoardRuleBuilder";
+import type { RuleDimensionOption } from "@/components/rules/RuleBuilder";
 import {
   useAdPerformance,
   useBoards,
@@ -27,8 +27,9 @@ import {
   useUpdateBoardGroup,
 } from "@/lib/api/hooks";
 import type { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
-import { rowMatchesBoardRules } from "@/lib/boards/evaluate";
-import { normalizeBoardRules, type Board, type BoardGroup } from "@/lib/boards/types";
+import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { normalizeRuleTree } from "@/lib/rules/types";
+import type { Board, BoardGroup } from "@/lib/boards/types";
 import { TAG_COLORS } from "@/lib/tags/colors";
 import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { useFilters } from "@/lib/hooks/useFilters";
@@ -41,7 +42,7 @@ import { toast } from "sonner";
 
 const ACTIVE_BOARD_STORAGE_KEY = "hookify-boards-active-id";
 
-type BoardRow = RankingsItem & Record<string, any>;
+type RuleRow = RankingsItem & Record<string, any>;
 
 function BoardsPageShell({ children }: { children: React.ReactNode }) {
   return (
@@ -79,7 +80,7 @@ export default function BoardsPage() {
         position: board.position,
         groups: (board.groups ?? []).map((group) => ({
           ...group,
-          rules: normalizeBoardRules(group.rules),
+          rules: normalizeRuleTree(group.rules),
         })) as BoardGroup[],
       })),
     [boardsData],
@@ -176,7 +177,7 @@ export default function BoardsPage() {
     }
   }, [rowsError]);
 
-  const rows = useMemo<BoardRow[]>(() => {
+  const rows = useMemo<RuleRow[]>(() => {
     const serverData = rankingsData?.data ?? [];
     return serverData.map((row: any) => mapRankingRow(row, actionType, "por-anuncio"));
   }, [rankingsData, actionType]);
@@ -184,7 +185,7 @@ export default function BoardsPage() {
   const totalSpend = useMemo(() => rows.reduce((sum, row) => sum + (Number(row.spend) || 0), 0), [rows]);
 
   /** Opções de Pack/Conta oferecidas na regra: só o que existe no recorte atual. */
-  const dimensionOptions = useMemo<Partial<Record<string, BoardDimensionOption[]>>>(() => {
+  const dimensionOptions = useMemo<Partial<Record<string, RuleDimensionOption[]>>>(() => {
     const packNameById = new Map(packs.map((pack) => [pack.id, pack.name]));
     const packIds = new Set<string>();
     const accountIds = new Set<string>();
@@ -214,11 +215,11 @@ export default function BoardsPage() {
       return { covered: 0, total: rows.length };
     }
     const context = { actionType, mqlLeadscoreMin };
-    const rulesByGroup = activeBoard.groups.map((group) => normalizeBoardRules(group.rules));
+    const rulesByGroup = activeBoard.groups.map((group) => normalizeRuleTree(group.rules));
     // Linha por fora, grupo por dentro: o `some` para no primeiro grupo que casa,
     // então o caso comum (criativo classificado) não paga as outras 19 regras.
     const covered = rows.reduce(
-      (total, row) => total + (rulesByGroup.some((rules) => rowMatchesBoardRules(row, rules, context)) ? 1 : 0),
+      (total, row) => total + (rulesByGroup.some((rules) => rowMatchesRules(row, rules, context)) ? 1 : 0),
       0,
     );
     return { covered, total: rows.length };
@@ -227,7 +228,7 @@ export default function BoardsPage() {
   // ── Diálogos ───────────────────────────────────────────────────────────────
   const [groupDialog, setGroupDialog] = useState<{ open: boolean; group: BoardGroup | null }>({ open: false, group: null });
   const [pendingDelete, setPendingDelete] = useState<{ kind: "board" | "group"; id: string; name: string } | null>(null);
-  const [selectedAd, setSelectedAd] = useState<BoardRow | null>(null);
+  const [selectedAd, setSelectedAd] = useState<RuleRow | null>(null);
 
   const handleSubmitGroup = useCallback(
     async (draft: BoardGroupDraft) => {
@@ -380,7 +381,7 @@ export default function BoardsPage() {
                   onEdit={() => setGroupDialog({ open: true, group })}
                   onDelete={() => setPendingDelete({ kind: "group", id: group.id, name: group.name })}
                   onMove={(direction) => handleMoveGroup(group.id, direction)}
-                  onOpenAd={(row) => setSelectedAd(row as BoardRow)}
+                  onOpenAd={(row) => setSelectedAd(row as RuleRow)}
                 />
               ))}
 

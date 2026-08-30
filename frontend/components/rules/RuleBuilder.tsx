@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { IconPlus, IconTrash, IconX } from "@tabler/icons-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,53 +11,84 @@ import { InlineNotice } from "@/components/common/States";
 import { useTags } from "@/lib/api/hooks";
 import { tagChipClasses, tagDotClasses } from "@/lib/tags/colors";
 import {
-  BOARD_OPERATORS,
-  boardOperatorNeedsValue,
-  getAvailableBoardFields,
-  getBoardField,
-  getBoardOperators,
-  getDefaultBoardOperator,
-  getDefaultBoardValue,
-  type BoardField,
-  type BoardFieldGroup,
-} from "@/lib/boards/fields";
-import type { BoardConditionLeaf, BoardConditionValue, BoardLogic, BoardRuleNode, BoardRules } from "@/lib/boards/types";
+  RULE_OPERATORS,
+  ruleOperatorNeedsValue,
+  getAvailableRuleFields,
+  getRuleField,
+  getRuleOperators,
+  getDefaultRuleOperator,
+  getDefaultRuleValue,
+  type RuleContext,
+  type RuleField,
+  type RuleFieldGroup,
+  type RuleManagerTab,
+} from "@/lib/rules/fields";
+import type { RuleConditionLeaf, RuleConditionValue, RuleLogic, RuleNode, RuleTree } from "@/lib/rules/types";
 import { cn } from "@/lib/utils/cn";
 
-export interface BoardDimensionOption {
+export interface RuleDimensionOption {
   value: string;
   label: string;
 }
 
-export interface BoardRuleBuilderProps {
-  value: BoardRules;
-  onChange: (rules: BoardRules) => void;
-  /** Opções de Pack/Conta presentes no recorte atual. */
-  dimensionOptions?: Partial<Record<string, BoardDimensionOption[]>>;
+export interface RuleBuilderProps {
+  value: RuleTree;
+  onChange: (rules: RuleTree) => void;
+  /** Opções de Pack/Conta/Campanha/Conjunto presentes no recorte atual. */
+  dimensionOptions?: Partial<Record<string, RuleDimensionOption[]>>;
   hasSheetIntegration?: boolean;
   disabled?: boolean;
+  /**
+   * Tela que está usando o construtor. É o ÚNICO eixo em que as três telas
+   * diferem — muda quais campos o seletor oferece, nunca o operador, a escala
+   * ou a semântica. Ver lib/rules/fields.ts.
+   */
+  context?: RuleContext;
+  /**
+   * Campo a destacar ao abrir — vem do clique no funil de uma coluna do Manager.
+   *
+   * O funil REVELA, não cria. Numa árvore com grupos e OU não existe resposta
+   * óbvia para "onde entra a condição nova": no topo ela somaria (OU) ou apertaria
+   * (E) conforme um seletor que está em outro lugar da tela, e o mesmo clique
+   * faria coisas opostas. Então o funil responde a pergunta que ele PODE responder
+   * sem ambiguidade — "onde este campo está sendo filtrado?" — e rola até lá.
+   */
+  highlightFieldId?: string | null;
+  /** Aba do Manager, quando o contexto é o Manager. */
+  tab?: RuleManagerTab;
 }
 
-const FIELD_GROUP_ORDER: BoardFieldGroup[] = ["Tags", "Criativo", "Procedência", "Métricas"];
+const FIELD_GROUP_ORDER: RuleFieldGroup[] = ["Tags", "Criativo", "Procedência", "Métricas"];
 
-const DEFAULT_FIELD = "tags";
+/**
+ * Campo em que uma condição nova nasce. "tags" é a pergunta mais comum, mas não
+ * existe em todo contexto (linhas-filhas não carregam tags) — nascer num campo
+ * que o seletor não oferece deixaria a condição órfã, sem como ser corrigida.
+ */
+const PREFERRED_DEFAULT_FIELD = "tags";
+
+function pickDefaultField(fields: RuleField[]): string {
+  return fields.some((field) => field.id === PREFERRED_DEFAULT_FIELD)
+    ? PREFERRED_DEFAULT_FIELD
+    : (fields[0]?.id ?? "ad_name");
+}
 
 function newId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function newCondition(field: string = DEFAULT_FIELD): BoardConditionLeaf {
+function newCondition(field: string): RuleConditionLeaf {
   return {
     id: newId("cond"),
     type: "condition",
     field,
-    operator: getDefaultBoardOperator(field),
-    value: getDefaultBoardValue(field),
+    operator: getDefaultRuleOperator(field),
+    value: getDefaultRuleValue(field),
   };
 }
 
 /** Substitui um nó pelo id, em qualquer profundidade. */
-function replaceNode(nodes: BoardRuleNode[], id: string, next: BoardRuleNode): BoardRuleNode[] {
+function replaceNode(nodes: RuleNode[], id: string, next: RuleNode): RuleNode[] {
   return nodes.map((node) => {
     if (node.id === id) return next;
     if (node.type === "group") return { ...node, conditions: replaceNode(node.conditions ?? [], id, next) };
@@ -65,7 +96,7 @@ function replaceNode(nodes: BoardRuleNode[], id: string, next: BoardRuleNode): B
   });
 }
 
-function removeNode(nodes: BoardRuleNode[], id: string): BoardRuleNode[] {
+function removeNode(nodes: RuleNode[], id: string): RuleNode[] {
   return nodes
     .filter((node) => node.id !== id)
     .map((node) => (node.type === "group" ? { ...node, conditions: removeNode(node.conditions ?? [], id) } : node));
@@ -80,8 +111,8 @@ function TagValueEditor({
   onChange,
   disabled,
 }: {
-  value: BoardConditionValue;
-  onChange: (value: BoardConditionValue) => void;
+  value: RuleConditionValue;
+  onChange: (value: RuleConditionValue) => void;
   disabled?: boolean;
 }) {
   const { data } = useTags();
@@ -143,9 +174,9 @@ function MultiSelectValueEditor({
   onChange,
   disabled,
 }: {
-  options: BoardDimensionOption[];
-  value: BoardConditionValue;
-  onChange: (value: BoardConditionValue) => void;
+  options: RuleDimensionOption[];
+  value: RuleConditionValue;
+  onChange: (value: RuleConditionValue) => void;
   disabled?: boolean;
 }) {
   const selectedIds = useMemo(() => (Array.isArray(value) ? value : []), [value]);
@@ -207,13 +238,13 @@ function ConditionValueEditor({
   dimensionOptions,
   disabled,
 }: {
-  field: BoardField;
-  condition: BoardConditionLeaf;
-  onChange: (value: BoardConditionValue) => void;
-  dimensionOptions?: Partial<Record<string, BoardDimensionOption[]>>;
+  field: RuleField;
+  condition: RuleConditionLeaf;
+  onChange: (value: RuleConditionValue) => void;
+  dimensionOptions?: Partial<Record<string, RuleDimensionOption[]>>;
   disabled?: boolean;
 }) {
-  if (!boardOperatorNeedsValue(condition.operator)) {
+  if (!ruleOperatorNeedsValue(condition.operator)) {
     return <span className="text-2xs text-muted-foreground">A pergunta já está completa.</span>;
   }
 
@@ -268,7 +299,7 @@ function ConditionValueEditor({
         disabled={disabled}
       />
       {/* O valor é digitado e gravado na escala visível (30 = 30%); a divisão por
-          100 acontece só na avaliação. Ver lib/boards/evaluate.ts. */}
+          100 acontece só na avaliação. Ver lib/rules/evaluate.ts. */}
       {field.isRatioPercent && <span className="text-2xs text-muted-foreground">%</span>}
     </div>
   );
@@ -285,19 +316,29 @@ function ConditionRow({
   onChange,
   onRemove,
   disabled,
+  highlighted = false,
 }: {
-  condition: BoardConditionLeaf;
-  fields: BoardField[];
-  dimensionOptions?: Partial<Record<string, BoardDimensionOption[]>>;
-  onChange: (next: BoardConditionLeaf) => void;
+  condition: RuleConditionLeaf;
+  fields: RuleField[];
+  dimensionOptions?: Partial<Record<string, RuleDimensionOption[]>>;
+  onChange: (next: RuleConditionLeaf) => void;
   onRemove: () => void;
   disabled?: boolean;
+  highlighted?: boolean;
 }) {
-  const field = getBoardField(condition.field);
-  const operators = getBoardOperators(condition.field);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // Rola até a condição destacada — numa regra com vários grupos ela pode estar
+  // fora da área visível do popover, e destacar sem rolar não ajudaria ninguém.
+  useEffect(() => {
+    if (highlighted) rowRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [highlighted]);
+
+  const field = getRuleField(condition.field);
+  const operators = getRuleOperators(condition.field);
 
   const grouped = useMemo(() => {
-    const map = new Map<BoardFieldGroup, BoardField[]>();
+    const map = new Map<RuleFieldGroup, RuleField[]>();
     for (const item of fields) {
       const list = map.get(item.group) ?? [];
       list.push(item);
@@ -312,13 +353,19 @@ function ConditionRow({
     onChange({
       ...condition,
       field: nextFieldId,
-      operator: getDefaultBoardOperator(nextFieldId),
-      value: getDefaultBoardValue(nextFieldId),
+      operator: getDefaultRuleOperator(nextFieldId),
+      value: getDefaultRuleValue(nextFieldId),
     });
   };
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-2 py-2">
+    <div
+      ref={rowRef}
+      className={cn(
+        "flex flex-wrap items-center gap-2 rounded-md border bg-card px-2 py-2 transition-colors",
+        highlighted ? "border-primary ring-1 ring-primary-30" : "border-border",
+      )}
+    >
       <div className="w-44 flex-shrink-0">
         <Select value={condition.field} onValueChange={handleFieldChange} disabled={disabled}>
           <SelectTrigger size="sm">
@@ -386,12 +433,12 @@ function LogicSelect({
   onChange,
   disabled,
 }: {
-  value: BoardLogic;
-  onChange: (logic: BoardLogic) => void;
+  value: RuleLogic;
+  onChange: (logic: RuleLogic) => void;
   disabled?: boolean;
 }) {
   return (
-    <Select value={value} onValueChange={(next) => onChange(next as BoardLogic)} disabled={disabled}>
+    <Select value={value} onValueChange={(next) => onChange(next as RuleLogic)} disabled={disabled}>
       <SelectTrigger size="sm" className="w-20">
         <SelectValue />
       </SelectTrigger>
@@ -403,18 +450,25 @@ function LogicSelect({
   );
 }
 
-export function BoardRuleBuilder({
+export function RuleBuilder({
   value,
   onChange,
   dimensionOptions,
   hasSheetIntegration = false,
+  context,
+  tab,
+  highlightFieldId,
   disabled = false,
-}: BoardRuleBuilderProps) {
-  const fields = useMemo(() => getAvailableBoardFields({ hasSheetIntegration }), [hasSheetIntegration]);
+}: RuleBuilderProps) {
+  const fields = useMemo(
+    () => getAvailableRuleFields({ hasSheetIntegration, context, tab }),
+    [hasSheetIntegration, context, tab],
+  );
+  const defaultField = useMemo(() => pickDefaultField(fields), [fields]);
 
-  const setNodes = (conditions: BoardRuleNode[]) => onChange({ ...value, conditions });
+  const setNodes = (conditions: RuleNode[]) => onChange({ ...value, conditions });
 
-  const renderNode = (node: BoardRuleNode, index: number) => {
+  const renderNode = (node: RuleNode, index: number) => {
     const connector =
       index === 0 ? null : (
         <div className="flex items-center gap-2 pl-1">
@@ -449,7 +503,7 @@ export function BoardRuleBuilder({
                   variant="ghost"
                   size="sm"
                   onClick={() =>
-                    setNodes(replaceNode(value.conditions, node.id, { ...node, conditions: [...children, newCondition()] }))
+                    setNodes(replaceNode(value.conditions, node.id, { ...node, conditions: [...children, newCondition(defaultField)] }))
                   }
                   disabled={disabled}
                 >
@@ -487,6 +541,7 @@ export function BoardRuleBuilder({
                       onChange={(next) => setNodes(replaceNode(value.conditions, child.id, next))}
                       onRemove={() => setNodes(removeNode(value.conditions, child.id))}
                       disabled={disabled}
+                      highlighted={!!highlightFieldId && child.field === highlightFieldId}
                     />
                   )}
                 </div>
@@ -507,6 +562,7 @@ export function BoardRuleBuilder({
           onChange={(next) => setNodes(replaceNode(value.conditions, node.id, next))}
           onRemove={() => setNodes(removeNode(value.conditions, node.id))}
           disabled={disabled}
+          highlighted={!!highlightFieldId && node.field === highlightFieldId}
         />
       </div>
     );
@@ -527,7 +583,7 @@ export function BoardRuleBuilder({
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => setNodes([...value.conditions, newCondition()])}
+          onClick={() => setNodes([...value.conditions, newCondition(defaultField)])}
           disabled={disabled}
         >
           <IconPlus className="mr-1 h-3.5 w-3.5" />
@@ -538,7 +594,7 @@ export function BoardRuleBuilder({
           variant="ghost"
           size="sm"
           onClick={() =>
-            setNodes([...value.conditions, { id: newId("grp"), type: "group", logic: "OR", conditions: [newCondition()] }])
+            setNodes([...value.conditions, { id: newId("grp"), type: "group", logic: "OR", conditions: [newCondition(defaultField)] }])
           }
           disabled={disabled}
         >
@@ -550,4 +606,4 @@ export function BoardRuleBuilder({
   );
 }
 
-export { BOARD_OPERATORS };
+export { RULE_OPERATORS };

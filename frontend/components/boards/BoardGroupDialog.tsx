@@ -7,16 +7,17 @@ import { AppDialog } from "@/components/common/AppDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { BoardRuleBuilder, type BoardDimensionOption } from "@/components/boards/BoardRuleBuilder";
-import { getBoardSortMetrics } from "@/lib/boards/fields";
-import { EMPTY_BOARD_RULES, normalizeBoardRules, type BoardGroup, type BoardRules } from "@/lib/boards/types";
+import { RuleBuilder, type RuleDimensionOption } from "@/components/rules/RuleBuilder";
+import { getRuleSortMetrics } from "@/lib/rules/fields";
+import { EMPTY_RULE_TREE, normalizeRuleTree, type RuleTree } from "@/lib/rules/types";
+import type { BoardGroup } from "@/lib/boards/types";
 import { TAG_COLORS, tagDotClasses } from "@/lib/tags/colors";
 import { cn } from "@/lib/utils/cn";
 
 export interface BoardGroupDraft {
   name: string;
   color: string;
-  rules: BoardRules;
+  rules: RuleTree;
   sort_metric: string;
   sort_direction: "asc" | "desc";
 }
@@ -28,7 +29,7 @@ export interface BoardGroupDialogProps {
   group?: BoardGroup | null;
   /** Cor sugerida na criação, rotacionando a paleta pelo total de grupos. */
   suggestedColor?: string;
-  dimensionOptions?: Partial<Record<string, BoardDimensionOption[]>>;
+  dimensionOptions?: Partial<Record<string, RuleDimensionOption[]>>;
   hasSheetIntegration?: boolean;
   isSaving?: boolean;
   onSubmit: (draft: BoardGroupDraft) => Promise<void> | void;
@@ -48,7 +49,7 @@ export function BoardGroupDialog({
 }: BoardGroupDialogProps) {
   const [name, setName] = useState("");
   const [color, setColor] = useState<string>(TAG_COLORS[0]);
-  const [rules, setRules] = useState<BoardRules>(EMPTY_BOARD_RULES);
+  const [rules, setRules] = useState<RuleTree>(EMPTY_RULE_TREE);
   const [sortMetric, setSortMetric] = useState("spend");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
 
@@ -58,12 +59,12 @@ export function BoardGroupDialog({
     if (!isOpen) return;
     setName(group?.name ?? "");
     setColor(group?.color ?? suggestedColor ?? TAG_COLORS[0]);
-    setRules(group ? normalizeBoardRules(group.rules) : EMPTY_BOARD_RULES);
+    setRules(group ? normalizeRuleTree(group.rules) : EMPTY_RULE_TREE);
     setSortMetric(group?.sort_metric ?? "spend");
     setSortDirection(group?.sort_direction ?? "desc");
   }, [isOpen, group, suggestedColor]);
 
-  const sortMetrics = getBoardSortMetrics({ hasSheetIntegration });
+  const sortMetrics = getRuleSortMetrics({ hasSheetIntegration });
   const trimmedName = name.trim();
   const canSubmit = trimmedName.length > 0 && !isSaving;
 
@@ -128,12 +129,13 @@ export function BoardGroupDialog({
 
         <div>
           <span className="mb-2 block text-2xs uppercase tracking-wide text-muted-foreground">Condições</span>
-          <BoardRuleBuilder
+          <RuleBuilder
             value={rules}
             onChange={setRules}
             dimensionOptions={dimensionOptions}
             hasSheetIntegration={hasSheetIntegration}
             disabled={isSaving}
+            context="boards"
           />
         </div>
 

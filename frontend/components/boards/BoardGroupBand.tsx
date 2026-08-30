@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { BoardCreativeCard } from "@/components/boards/BoardCreativeCard";
 import { summarizeBoardGroup, sortBoardRows } from "@/lib/boards/aggregate";
-import { countBoardConditions, filterRowsByBoardRules } from "@/lib/boards/evaluate";
+import { countRuleConditions, filterRowsByRules } from "@/lib/rules/evaluate";
 import { getManagerMetricLabel } from "@/lib/metrics";
-import { isEmptyBoardRules, normalizeBoardRules, type BoardGroup } from "@/lib/boards/types";
+import { isEmptyRuleTree, normalizeRuleTree } from "@/lib/rules/types";
+import type { BoardGroup } from "@/lib/boards/types";
 import { tagDotClasses } from "@/lib/tags/colors";
 import { formatLocaleInteger, useFormatCurrency } from "@/lib/utils/currency";
 import { cn } from "@/lib/utils/cn";
@@ -52,12 +53,12 @@ export function BoardGroupBand({
   const [collapsed, setCollapsed] = useState(false);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  const rules = useMemo(() => normalizeBoardRules(group.rules), [group.rules]);
+  const rules = useMemo(() => normalizeRuleTree(group.rules), [group.rules]);
 
   const matched = useMemo(
     () =>
       sortBoardRows(
-        filterRowsByBoardRules(rows, rules, { actionType, mqlLeadscoreMin }),
+        filterRowsByRules(rows, rules, { actionType, mqlLeadscoreMin }),
         group.sort_metric,
         group.sort_direction,
         { actionType, mqlLeadscoreMin },
@@ -70,7 +71,7 @@ export function BoardGroupBand({
     [matched, actionType, hasSheetIntegration, mqlLeadscoreMin, totalSpend],
   );
 
-  const conditionCount = countBoardConditions(rules);
+  const conditionCount = countRuleConditions(rules);
   const visible = matched.slice(0, visibleCount);
   const remaining = matched.length - visible.length;
 
@@ -91,7 +92,7 @@ export function BoardGroupBand({
           <span className={cn("h-2.5 w-2.5 flex-shrink-0 rounded-full", tagDotClasses(group.color))} />
           <span className="truncate font-medium text-foreground">{group.name}</span>
           <span className="flex-shrink-0 text-2xs text-muted-foreground">
-            {isEmptyBoardRules(rules)
+            {isEmptyRuleTree(rules)
               ? "sem condição"
               : `${conditionCount} ${conditionCount === 1 ? "condição" : "condições"}`}
           </span>
@@ -129,7 +130,7 @@ export function BoardGroupBand({
         <div className="p-3">
           {matched.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              {isEmptyBoardRules(rules)
+              {isEmptyRuleTree(rules)
                 ? "Nenhum criativo no recorte atual."
                 : "Nenhum criativo do recorte atual atende às condições deste grupo."}
             </p>
