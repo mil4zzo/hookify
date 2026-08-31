@@ -240,12 +240,6 @@ function ManagerPageContent() {
       // available_conversion_types vem do metadado packs.conversion_types (union no refresh),
       // não do rankings — manter false pra não pagar o CTE extra que ~dobra o custo da query.
       include_available_conversion_types: false,
-      // Procedência completa (migration 136): campaign_ids/adset_ids na linha + o
-      // dicionário de nomes. Sempre ligada AQUI, e só aqui e no Boards: esta é a tela
-      // do filtro, e a alternativa — ligar só quando a regra cita campanha — deixaria
-      // o seletor de Campanha abrir com a lista vazia até a resposta nova chegar.
-      // Custo medido: +35% (30 dias) a +67% (13 meses) de payload comprimido.
-      include_parent_ids: true,
     }),
     [dateRange.start, dateRange.end, activeGroupBy, selectedPackIds, actionType, hasSheetIntegration],
   );

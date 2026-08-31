@@ -50,6 +50,7 @@ import type { RuleNameDictionary } from "@/lib/rules/evaluate";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
 import { loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
 import { useProvenanceIndex } from "@/lib/manager/provenance";
+import { buildRuleDimensionOptions } from "@/lib/rules/dimensionOptions";
 import { useAdAccountsDb } from "@/lib/api/hooks";
 import { BULK_ENTITY_NOUN, isTerminalEntityStatus, useBulkEntityStatusControl, type AdEntityType } from "@/lib/hooks/useAdStatusControl";
 import { cn } from "@/lib/utils/cn";
@@ -947,31 +948,17 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   formatCurrencyRef.current = formatCurrency;
   actionTypeRef.current = actionType;
 
-  // Opções de Pack/Conta oferecidas nos campos multi-seleção da regra. Saem do
-  // recorte carregado, não do universo: oferecer pack que não está na tela produz
-  // grupo vazio que parece bug.
-  const ruleDimensionOptions = useMemo(() => {
-    const packs = new Map<string, string>();
-    const accounts = new Map<string, string>();
-    const campaigns = new Map<string, string>();
-    const adsets = new Map<string, string>();
-    for (const row of adsEffectiveRaw as RankingsItem[]) {
-      for (const id of row.pack_ids ?? []) if (!packs.has(id)) packs.set(id, provenanceIndex.packNameById.get(id) ?? id);
-      for (const id of row.account_ids ?? []) if (!accounts.has(id)) accounts.set(id, provenanceIndex.accountNameById.get(id) ?? id);
-      // Campanha/conjunto (migration 136): o id vem na linha, o nome no dicionário
-      // da resposta. Id sem nome no dicionário aparece pelo próprio id — melhor uma
-      // opção rotulada com o número do que uma opção faltando na lista.
-      for (const id of row.campaign_ids ?? []) if (!campaigns.has(id)) campaigns.set(id, names?.campaigns?.[id] ?? id);
-      for (const id of row.adset_ids ?? []) if (!adsets.has(id)) adsets.set(id, names?.adsets?.[id] ?? id);
-    }
-    const toOptions = (m: Map<string, string>) => Array.from(m, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
-    return {
-      pack_ids: toOptions(packs),
-      account_ids: toOptions(accounts),
-      campaign_ids: toOptions(campaigns),
-      adset_ids: toOptions(adsets),
-    };
-  }, [adsEffectiveRaw, provenanceIndex, names]);
+  // Opções dos campos multi-seleção: saem do recorte carregado, não do universo —
+  // oferecer pack que não está na tela produz filtro que zera a tabela e parece bug.
+  const ruleDimensionOptions = useMemo(
+    () =>
+      buildRuleDimensionOptions(adsEffectiveRaw as RankingsItem[], {
+        packNameById: provenanceIndex.packNameById,
+        accountNameById: provenanceIndex.accountNameById,
+        names,
+      }),
+    [adsEffectiveRaw, provenanceIndex, names],
+  );
 
   // Modal de exportação (seleção de colunas + transcrições). A execução do CSV vive no dialog.
   const [isExportOpen, setIsExportOpen] = useState(false);

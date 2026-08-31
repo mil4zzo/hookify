@@ -172,8 +172,10 @@ test("id na linha agregada; nome em toda parte, inclusive nas filhas", () => {
   for (const field of ["campaign_ids", "adset_ids"]) {
     assert.ok(idsDe("manager").includes(field));
     assert.ok(idsDe("boards").includes(field));
-    assert.ok(idsDe("criteria").includes(field));
-    // A filha não tem o id, só o nome — escolher da lista ali nunca casaria.
+    // Nem no Critério nem nas filhas: escolher da lista exige uma LISTA, e ela sai
+    // das linhas do recorte. As Configurações não têm recorte; a filha é um anúncio
+    // só e a RPC de detalhe devolve o nome, não o id. Ali a pergunta é por nome.
+    assert.ok(!idsDe("criteria").includes(field), `${field} não tem lista nas Configurações`);
     assert.ok(!idsDe("manager-children").includes(field), `${field} não cabe na linha-filha`);
   }
   for (const field of ["campaign_name", "adset_name"]) {

@@ -184,28 +184,6 @@ class RankingsRequest(BaseModel):
             "conforme o tamanho da selecao). Prefira o metadado packs.conversion_types."
         ),
     )
-    include_parent_ids: bool = Field(
-        # DEFAULT FALSE (migration 136). `campaign_ids`/`adset_ids` na linha mais o
-        # dicionario `names` na raiz existem para o filtro "ALGUMA campanha do
-        # criativo e X" -- sem eles a tela compara com a campanha do REPRESENTANTE e
-        # esconde 22% dos criativos em silencio.
-        #
-        # Custa: medido no laboratorio em bytes COMPRIMIDOS, a aba de criativos cresce
-        # de 85 kB para 115 kB em 30 dias (+35%) e de 224 kB para 373 kB em 13 meses
-        # (+67%), porque um criativo colapsa ate 60 conjuntos. Nas abas de anuncio,
-        # conjunto e campanha cada linha tem um pai so: +6%.
-        #
-        # Por isso e opt-in: quem nao filtra por campanha (Explorer; Plano/GOLD/
-        # Insights quando o criterio nao cita campanha) nao paga nada. Desligado, a
-        # resposta e identica a da versao anterior -- nem uma chave a mais.
-        default=False,
-        description=(
-            "Se True, cada linha traz campaign_ids/adset_ids e a resposta traz o "
-            "dicionario names (id -> nome). Necessario para filtrar por campanha/"
-            "conjunto sem usar o representante do grupo. Custa +35%% a +67%% de payload "
-            "nas abas de criativo."
-        ),
-    )
 
     @field_validator("date_start", "date_stop")
     @classmethod
@@ -508,7 +486,6 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
         "p_action_type": req.action_type,
         "p_include_leadscore": bool(req.include_leadscore),
         "p_include_available_conversion_types": bool(req.include_available_conversion_types),
-        "p_include_parent_ids": bool(req.include_parent_ids),
         "p_limit": max(1, int(req.limit or 500)),
         "p_offset": max(0, int(req.offset or 0)),
         "p_order_by": (req.order_by or "spend"),

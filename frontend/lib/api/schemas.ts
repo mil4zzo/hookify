@@ -442,11 +442,6 @@ export const RankingsRequestSchema = z.object({
   series_window: z.number().optional(),
   offset: z.number().int().nonnegative().optional(),
   include_available_conversion_types: z.boolean().optional(),
-  // Procedência completa: `campaign_ids`/`adset_ids` na linha + `names` na raiz
-  // (migration 136). OPT-IN porque custa +35% (30 dias) a +67% (13 meses) de payload
-  // comprimido nas abas de criativo — um criativo colapsa até 60 conjuntos. Ligue
-  // onde a regra pode citar campanha/conjunto; sem isso essa condição é IGNORADA.
-  include_parent_ids: z.boolean().optional(),
 })
 
 // Schema centralizado para séries de métricas diárias (sparklines)

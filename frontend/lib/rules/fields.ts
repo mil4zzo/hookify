@@ -167,23 +167,33 @@ const DIMENSION_FIELDS: RuleField[] = [
     availableIn: ["manager", "manager-children", "criteria", "boards"],
     rowKeyFallback: "account_id",
   },
-  // Campanha e conjunto (migration 136). A linha AGREGADA traz os arrays completos;
-  // escolher da lista é "é alguma de". Fora das linhas-filhas: a filha é UM anúncio
-  // e a RPC de detalhe devolve o NOME dele, não o id — quem quer filtrar ali usa
-  // "Nome da campanha", que na filha é exato.
+  // Campanha e conjunto por ID (migration 136/137). A linha AGREGADA traz os arrays
+  // completos; escolher da lista é "é alguma de".
+  //
+  // ONDE NÃO APARECE, E POR QUÊ
+  //   Uma lista para escolher só existe dentro de um RECORTE — as opções saem das
+  //   linhas na tela. Dois contextos não têm recorte nenhum:
+  //   • `manager-children`: a filha é UM anúncio e a RPC de detalhe devolve o NOME
+  //     dele, não o id.
+  //   • `criteria`: o construtor vive nas Configurações, onde não há período nem pack
+  //     selecionado. O seletor abriria vazio ("nada disponível no recorte atual") e o
+  //     campo seria inutilizável — a mesma opção-de-menu-que-não-funciona que a fase 4
+  //     acabou de apagar do Critério.
+  //   Nos dois casos a pergunta continua possível por "Nome da campanha", que é texto
+  //   e não precisa de lista.
   {
     id: "campaign_ids",
     label: "Campanha",
     kind: "multiselect",
     group: "Procedência",
-    availableIn: ["manager", "boards", "criteria"],
+    availableIn: ["manager", "boards"],
   },
   {
     id: "adset_ids",
     label: "Conjunto",
     kind: "multiselect",
     group: "Procedência",
-    availableIn: ["manager", "boards", "criteria"],
+    availableIn: ["manager", "boards"],
   },
   // Texto sobre os MESMOS pais: na linha agregada a pergunta é "algum nome do grupo
   // casa?" (resolvido pelo dicionário); na filha, o nome da própria linha.

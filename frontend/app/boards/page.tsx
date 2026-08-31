@@ -14,7 +14,6 @@ import { AdDetailsDialog } from "@/components/ads/AdDetailsDialog";
 import { BoardGroupBand } from "@/components/boards/BoardGroupBand";
 import { BoardGroupDialog, type BoardGroupDraft } from "@/components/boards/BoardGroupDialog";
 import { BoardToolbar } from "@/components/boards/BoardToolbar";
-import type { RuleDimensionOption } from "@/components/rules/RuleBuilder";
 import {
   useAdPerformance,
   useBoards,
@@ -28,6 +27,8 @@ import {
 } from "@/lib/api/hooks";
 import type { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
 import { rowMatchesRules, type RuleNameDictionary } from "@/lib/rules/evaluate";
+import { buildRuleDimensionOptions, type RuleDimensionOptions } from "@/lib/rules/dimensionOptions";
+import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { normalizeRuleTree } from "@/lib/rules/types";
 import type { Board, BoardGroup } from "@/lib/boards/types";
 import { TAG_COLORS } from "@/lib/tags/colors";
@@ -154,10 +155,6 @@ export default function BoardsPage() {
       include_series: false,
       include_leadscore: hasSheetIntegration,
       include_available_conversion_types: false,
-      // Regra de grupo pode citar campanha/conjunto (migration 136). Ligado sempre:
-      // no Boards a regra É a tela, e um grupo que some porque o dado não veio é
-      // exatamente o tipo de mentira silenciosa que os boards não podem ter.
-      include_parent_ids: true,
     }),
     [dateRange.start, dateRange.end, actionType, selectedPackIds, hasSheetIntegration],
   );
@@ -186,6 +183,8 @@ export default function BoardsPage() {
     return serverData.map((row: any) => mapRankingRow(row, actionType, "por-anuncio"));
   }, [rankingsData, actionType]);
 
+  const provenanceIndex = useProvenanceIndex();
+
   const totalSpend = useMemo(() => rows.reduce((sum, row) => sum + (Number(row.spend) || 0), 0), [rows]);
 
   /**
@@ -195,36 +194,16 @@ export default function BoardsPage() {
    */
   const names = useMemo(() => (rankingsData as any)?.names as RuleNameDictionary | undefined, [rankingsData]);
 
-  /** Opções de Pack/Conta oferecidas na regra: só o que existe no recorte atual. */
-  const dimensionOptions = useMemo<Partial<Record<string, RuleDimensionOption[]>>>(() => {
-    const packNameById = new Map(packs.map((pack) => [pack.id, pack.name]));
-    const packIds = new Set<string>();
-    const accountIds = new Set<string>();
-    for (const row of rows) {
-      for (const id of row.pack_ids ?? []) if (id) packIds.add(String(id));
-      for (const id of row.account_ids ?? []) if (id) accountIds.add(String(id));
-    }
-    const campaignIds = new Set<string>();
-    const adsetIds = new Set<string>();
-    for (const row of rows) {
-      for (const id of row.campaign_ids ?? []) if (id) campaignIds.add(String(id));
-      for (const id of row.adset_ids ?? []) if (id) adsetIds.add(String(id));
-    }
-    const rotular = (ids: Set<string>, dicionario?: Record<string, string>) =>
-      Array.from(ids)
-        .map((id) => ({ value: id, label: dicionario?.[id] ?? id }))
-        .sort((a, b) => a.label.localeCompare(b.label));
-    return {
-      pack_ids: Array.from(packIds)
-        .map((id) => ({ value: id, label: packNameById.get(id) ?? id }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-      account_ids: Array.from(accountIds)
-        .map((id) => ({ value: id, label: id }))
-        .sort((a, b) => a.label.localeCompare(b.label)),
-      campaign_ids: rotular(campaignIds, names?.campaigns),
-      adset_ids: rotular(adsetIds, names?.adsets),
-    };
-  }, [rows, packs, names]);
+  /** Opções dos campos multi-seleção: só o que existe no recorte atual. */
+  const dimensionOptions = useMemo<RuleDimensionOptions>(
+    () =>
+      buildRuleDimensionOptions(rows, {
+        packNameById: new Map(packs.map((pack) => [pack.id, pack.name])),
+        accountNameById: provenanceIndex.accountNameById,
+        names,
+      }),
+    [rows, packs, provenanceIndex, names],
+  );
 
   /**
    * Quantos criativos do recorte caem em ALGUM grupo.

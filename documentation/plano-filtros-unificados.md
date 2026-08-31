@@ -284,34 +284,32 @@ nem o CI os executam.
 
 **Decisões tomadas durante a execução**
 
-- **O custo foi medido e mudou o desenho.** O plano dizia "se passar de ~10% do total da aba,
-  aí sim `p_include_parent_ids`". Passou de 3,5 a 6,7×. Em bytes **comprimidos** (o que viaja):
+- **O custo foi medido, mudou o desenho, e a medição estava errada.** Na primeira passada
+  medi com 500 linhas e vi +35% a +67%, o que motivou o opt-in `p_include_parent_ids`
+  (migration 136). Mas o Manager pede até **10.000** linhas — remedido no tamanho real, o
+  gzip aproveita a repetição dos ids em muito mais linhas e a conta cai:
 
-  | recorte | antes | depois | |
+  | Manager, 36 packs | antes | depois | |
   |---|---|---|---|
-  | criativos, 36 packs, 13 meses | 224 kB | 373 kB | +67% |
-  | criativos, 36 packs, 30 dias | 85 kB | 115 kB | +35% |
-  | abas de anúncio / conjunto / campanha | | | +6% |
+  | 30 dias (407 criativos) | 82 kB | 111 kB | **+29 kB** (+36%) |
+  | 13 meses (1.739 criativos) | 721 kB | 918 kB | **+197 kB** (+27%) |
 
-  O peso é todo nas abas de **criativo**: 23 campanhas e **60 conjuntos** por linha no
-  recorte de 13 meses. Nas outras abas cada linha tem um pai só. Daí o opt-in
-  `p_include_parent_ids`, default `false`.
+  Diante do número real, o idealizador decidiu **ligar sempre** (migration 137): padroniza o
+  contrato e as telas que hoje não filtram por campanha provavelmente vão filtrar. O
+  interruptor saiu inteiro — do SQL, do backend e das quatro telas — em vez de virar um
+  `default true` que ninguém mais desliga. **Lição: medir no tamanho em que a tela carrega,
+  não num tamanho conveniente.**
 
-- **Quem liga.** Manager e Boards, sempre — a regra É a tela, e ligar só quando a regra cita
-  campanha faria o seletor abrir com a lista vazia até a resposta nova chegar. Explorer,
-  nunca — não usa regra. Plano/GOLD/Insights, **só quando o critério de validação cita**
-  campanha ou conjunto: senão a condição existiria e seria ignorada em silêncio, que é o bug
-  de campo morto que a fase 4 acabou de matar.
+- **A entrada precisou de `drop`, não de `replace`** — duas vezes, para pôr e tirar o
+  parâmetro. `create or replace` não adiciona nem remove parâmetro: deixaria as duas
+  sobrecargas vivas e o PostgREST não saberia qual chamar (PGRST203). Cada migration verifica
+  no fim que sobrou exatamente uma, e o `drop`+`create` vai numa transação — entre os dois a
+  função não existe, e uma requisição viva nesse instante levaria "function does not exist".
 
-- **Desligado, a resposta é IDÊNTICA à da v132** — nem uma chave a mais. Os arrays e o
-  `names` entram por `||` condicional, e o gate vive dentro do `filter` do `array_agg`, então
-  desligado não há sequer acumulação. Provado por `jsonb =` nos 4 agrupamentos e 2 janelas:
-  é o diferencial mais forte e mais barato desta fase.
-
-- **A entrada precisou de `drop`, não de `replace`.** `fetch_manager_rankings_core_v2` ganhou
-  o 17º parâmetro, e `create or replace` não adiciona parâmetro: criaria uma **segunda
-  sobrecarga** de 16 argumentos e o PostgREST não saberia qual chamar (PGRST203). A migration
-  verifica no fim que sobrou exatamente uma.
+- **A equivalência da 137 foi provada contra a 136 ligada**, por `jsonb =` em 6 cenários
+  (4 agrupamentos, o caminho do fold e o limite real de 10.000). Isso herda o diferencial
+  completo de 484 cenários que a 136 já tinha passado contra a v132 — em vez de gastar outros
+  45 minutos repetindo a matriz.
 
 - **A linha-filha responde por si.** A RPC de detalhe devolve `campaign_name` da filha — que é
   UM anúncio, nome exato — e não o id. Então `campaign_name`/`adset_name` são oferecidos ali
@@ -328,6 +326,36 @@ nem o CI os executam.
   aqui: ele comparava `leadscore_histogram` só de um lado (herança do modo v116→v130) e
   morria de `UnicodeEncodeError` ao imprimir um nome com til no console cp1252 do Windows —
   **depois de 45 minutos de execução**.
+
+### Revisão das fases 3–5 (2026-08-30) — ✅ FEITA
+
+Passada crítica depois de fechar a fase 5. Dois bugs reais, ambos da mesma família — a que
+este plano inteiro veio matar: **campo oferecido no menu que não funciona.**
+
+1. **A visão expandida do Manager oferecia Pack e Conta com o seletor VAZIO.** Shipado na
+   fase 3. O dado chega na linha-filha desde a migration 134, o campo estava no vocabulário,
+   e faltava só quem montasse a lista de opções — `ManagerChildrenTable` não passava
+   `dimensionOptions` ao `FilterBar`. Era exatamente o filtro de pack nas filhas que o
+   usuário pediu na fase 3, e ele não funcionava.
+
+2. **O Critério de validação passou a oferecer "Campanha" nas Configurações**, onde não há
+   recorte de onde tirar a lista — introduzido pela fase 5. O seletor abria com "nada
+   disponível no recorte atual".
+
+**A causa comum, e o conserto estrutural.** Três telas montavam a lista de opções, cada uma
+do seu jeito, e a quarta esqueceu. Virou uma função só (`lib/rules/dimensionOptions.ts`), com
+teste próprio — a montagem agora é algo que EXISTE para poder ser testado. O teste de
+disponibilidade não pegava nenhum dos dois casos: ele verifica o registry, e o registry estava
+certo nos dois.
+
+**Regra que ficou:** um campo de multi-seleção só pode ser oferecido onde a tela consegue
+montar a lista, e a lista sai das linhas do recorte. Onde não há recorte (Configurações) ou
+não há o id na linha (linhas-filhas), a pergunta se faz por **nome**, que é texto e não
+precisa de lista. `disponibilidade.test.ts` guarda esse contrato num mapa explícito.
+
+**Achado menor, do mesmo passe:** o Manager consultava o nome da conta **com** o prefixo
+`act_`, e o índice é chaveado sem ele — a opção vinha rotulada com o id cru. Consertado na
+função compartilhada.
 
 ### Fase 6 — Limpeza e registro (P)
 

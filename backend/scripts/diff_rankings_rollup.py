@@ -491,6 +491,9 @@ def main() -> int:
     ap.add_argument("--filter", default="", help="substring do id do cenário")
     ap.add_argument("--series", action="store_true",
                     help="compara a serie (fetch_manager_rankings_series_v2_legacy x wrapper da _v131) em vez da core")
+    ap.add_argument("--v137", action="store_true",
+                    help="compara base_v132 x base_v137 (a que esta em producao): campos antigos identicos; "
+                         "campaign_ids/adset_ids sempre presentes; dicionario `names` so com ids das linhas")
     ap.add_argument("--v136", action="store_true",
                     help="compara base_v132 x base_v136: campos antigos identicos; campaign_ids/adset_ids "
                          "novos e coerentes com o representante; dicionario `names` cobre os ids das linhas")
@@ -503,9 +506,13 @@ def main() -> int:
         OLD_FN = "public.fetch_manager_performance_base_v130"
         NEW_FN = "public.fetch_manager_performance_base_v132"
     if args.v136:
+        # Historico: a v136 tinha o opt-in `p_include_parent_ids`, removido na 137.
         OLD_FN = "public.fetch_manager_performance_base_v132"
         NEW_FN = "public.fetch_manager_performance_base_v136"
         EXTRA_ARGS[NEW_FN] = ", true"   # p_include_parent_ids
+    if args.v137:
+        OLD_FN = "public.fetch_manager_performance_base_v132"
+        NEW_FN = "public.fetch_manager_performance_base_v137"
 
     psql = find_psql()
     url = os.environ.get("LAB_URL", LAB_URL_DEFAULT)
@@ -534,7 +541,7 @@ def main() -> int:
         if args.series:
             diffs = []
             cmp_value("series", old, new, diffs)   # contrato integral: window + series_by_group
-        elif args.v136:
+        elif args.v136 or args.v137:
             diffs = compare_v136(old, new)
         elif args.v132:
             diffs = compare_v132(old, new)

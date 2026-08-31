@@ -26,6 +26,55 @@ function idsFor(context: RuleContext, extra: Record<string, unknown> = {}): stri
   return getAvailableRuleFields({ hasSheetIntegration: true, context, ...extra }).map((f) => f.id);
 }
 
+/**
+ * A REGRA que pegou um bug real (2026-08-30): um campo de multi-seleção só pode ser
+ * oferecido onde a tela consegue montar a LISTA de opções, e a lista sempre sai das
+ * linhas do recorte. Onde não há recorte, o seletor abre com "nada disponível" e o
+ * campo vira opção de menu que não funciona — o mesmo campo morto que a fase 4 apagou
+ * do Critério, e que a fase 5 quase reintroduziu ao oferecer "Campanha" nas
+ * Configurações.
+ *
+ * Este mapa é o contrato com os quatro editores. Ao acrescentar um campo
+ * multi-seleção, ou ele entra aqui (e o editor daquele contexto passa a fornecer as
+ * opções), ou este teste quebra.
+ */
+const OPCOES_FORNECIDAS: Record<RuleContext, string[]> = {
+  // ManagerTable.ruleDimensionOptions: monta as quatro a partir das linhas carregadas.
+  manager: ["pack_ids", "account_ids", "campaign_ids", "adset_ids"],
+  // ManagerChildrenTable: a filha traz pack_ids (migration 134) e account_id.
+  "manager-children": ["pack_ids", "account_ids"],
+  // app/boards/page.tsx: as quatro, a partir das linhas do board.
+  boards: ["pack_ids", "account_ids", "campaign_ids", "adset_ids"],
+  // ValidationCriteriaEditor: nas Configurações não há período nem pack selecionado.
+  // Packs e contas saem da sessão do cliente (lista completa e estável); campanha e
+  // conjunto não têm fonte equivalente — a pergunta ali se faz por NOME.
+  criteria: ["pack_ids", "account_ids"],
+};
+
+test("todo campo de multi-seleção oferecido tem quem forneça as opções", () => {
+  for (const context of ALL_RULE_CONTEXTS) {
+    const oferecidos = getAvailableRuleFields({ hasSheetIntegration: true, context })
+      .filter((field) => field.kind === "multiselect")
+      .map((field) => field.id);
+    const semFonte = oferecidos.filter((id) => !OPCOES_FORNECIDAS[context].includes(id));
+    assert.deepEqual(
+      semFonte,
+      [],
+      `em "${context}" estes seletores abririam vazios: ${semFonte.join(", ")}`,
+    );
+  }
+});
+
+test("e a pergunta por NOME continua possível onde o id não é oferecido", () => {
+  // O contrapeso do teste acima: tirar o seletor de id não pode deixar o contexto
+  // sem forma nenhuma de perguntar por campanha.
+  for (const context of ["criteria", "manager-children"] as RuleContext[]) {
+    const ids = idsFor(context);
+    assert.ok(ids.includes("campaign_name"), `${context} ficou sem como perguntar por campanha`);
+    assert.ok(ids.includes("adset_name"), `${context} ficou sem como perguntar por conjunto`);
+  }
+});
+
 test("os três contextos compartilham o núcleo: métricas, nome e status", () => {
   const nucleo = ["ad_name", "status", "meta_created_time", "spend", "hook", "cpr", "ctr"];
   for (const context of ALL_RULE_CONTEXTS) {
@@ -82,7 +131,9 @@ test("campanha e conjunto: id onde a linha traz o array, nome em toda parte", ()
   for (const field of ["campaign_ids", "adset_ids"]) {
     assert.ok(idsFor("manager").includes(field), `${field} deveria ser oferecido no Manager`);
     assert.ok(idsFor("boards").includes(field), `${field} deveria ser oferecido no Boards`);
-    assert.ok(idsFor("criteria").includes(field), `${field} deveria ser oferecido no Critério`);
+    // Fora de `criteria` e `manager-children`: sem recorte não há lista de opções —
+    // ver OPCOES_FORNECIDAS acima.
+    assert.ok(!idsFor("criteria").includes(field), `${field} não tem lista nas Configurações`);
     assert.ok(!idsFor("manager-children").includes(field), `${field} não cabe na linha-filha`);
   }
   for (const field of ["campaign_name", "adset_name"]) {

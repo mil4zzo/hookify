@@ -18,6 +18,8 @@ import { getVisibleManagerColumns } from "@/components/manager/managerColumnPref
 import { getAdThumbnail } from "@/lib/utils/thumbnailFallback";
 import { countRestrictiveConditions, getFilteredFieldIds } from "@/lib/manager/managerRules";
 import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { buildRuleDimensionOptions } from "@/lib/rules/dimensionOptions";
+import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { EMPTY_RULE_TREE, isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn, type ManagerMetricKey } from "@/lib/metrics";
 import { isManagerMetricColumn } from "@/components/manager/managerColumns";
@@ -176,6 +178,20 @@ export function ManagerChildrenTable({
   const childrenLabel = config.plural;
 
   const ruleContext = useMemo(() => ({ actionType, mqlLeadscoreMin }), [actionType, mqlLeadscoreMin]);
+
+  // Sem isto os campos Pack e Conta apareciam no seletor e abriam VAZIOS: o dado
+  // chega na filha desde a migration 134, o campo estava no vocabulário, e faltava
+  // só quem montasse a lista. Campanha e conjunto não entram — a filha traz o NOME
+  // do pai, não o id (ver lib/rules/fields.ts).
+  const provenanceIndex = useProvenanceIndex();
+  const ruleDimensionOptions = useMemo(
+    () =>
+      buildRuleDimensionOptions(childrenData ?? [], {
+        packNameById: provenanceIndex.packNameById,
+        accountNameById: provenanceIndex.accountNameById,
+      }),
+    [childrenData, provenanceIndex],
+  );
 
   const sortedData = useMemo(() => {
     if (!childrenData || childrenData.length === 0) {
@@ -356,6 +372,7 @@ export function ManagerChildrenTable({
           setRules={setRules ?? NOOP_SET_RULES}
           conditionCount={countRestrictiveConditions(rules)}
           ruleContext="manager-children"
+          dimensionOptions={ruleDimensionOptions}
           hasSheetIntegration={hasSheetIntegration}
           filteredCount={sortedData.length}
           totalCount={childrenData.length || 0}
