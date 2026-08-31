@@ -187,17 +187,33 @@ function matchesRegex(rawValue: string, pattern: string): boolean | null {
 }
 
 /**
- * Texto de um campo `*_name` numa linha agregada: TODOS os nomes do grupo,
- * resolvidos pelo dicionário. Devolve `null` quando o dicionário não veio — a
- * condição então é ignorada, em vez de responder com o nome do representante.
+ * Texto de um campo `*_name`: TODOS os nomes que a linha representa.
+ *
+ * DUAS LINHAS, DUAS FONTES
+ *   A linha AGREGADA colapsa dezenas de anúncios e traz `campaign_ids` (migration
+ *   136): a resposta é o conjunto de nomes resolvidos pelo dicionário. A
+ *   linha-FILHA é UM anúncio e traz `campaign_name` direto — exato, não
+ *   representante de nada. `Array.isArray(ids)` separa os dois casos.
+ *
+ * QUANDO DEVOLVE `null`
+ *   Linha agregada com os ids mas sem dicionário (resposta antiga em cache, ou a
+ *   migration ainda não aplicada): a condição é IGNORADA. Responder com o nome do
+ *   representante seria exatamente a mentira que a v136 veio corrigir — acertar a
+ *   maioria e esconder o resto sem avisar.
  */
 function resolveNamesForField(fieldId: string, row: RuleRow, context: RuleEvaluationContext): string[] | null {
   const lookup = NAME_LOOKUP_FIELDS[fieldId];
   if (!lookup) return null;
+  const ids = row[lookup.idsField];
+  // Sem o array: a linha é uma filha, e o nome dela é o dela mesma. Ausente conta
+  // como vazio — a pergunta É respondível ("esta filha não tem campanha"), ao
+  // contrário do caso abaixo, em que a linha tem pais mas falta como traduzi-los.
+  if (!Array.isArray(ids)) {
+    const own = row[fieldId];
+    return [typeof own === "string" ? own : ""];
+  }
   const dictionary = context.names?.[lookup.dictionary];
   if (!dictionary) return null;
-  const ids = row[lookup.idsField];
-  if (!Array.isArray(ids)) return null;
   return ids.map((id) => dictionary[String(id)]).filter((name): name is string => typeof name === "string");
 }
 

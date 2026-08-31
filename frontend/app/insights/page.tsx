@@ -122,6 +122,7 @@ export default function InsightsPage() {
     dateRange,
     packsClient,
     validationCriteria,
+    names,
     isLoading: loading,
   } = useAdPerformancePipeline({ filterToSelectedPacks: false });
 
@@ -241,8 +242,8 @@ export default function InsightsPage() {
   const globalMetricRanks = useMemo(() => {
     if (!serverData || serverData.length === 0) return createEmptyMetricRanks();
     const criteriaToUse = isEmptyRuleTree(validationCriteria) ? undefined : validationCriteria;
-    return calculateGlobalMetricRanks(serverData, { validationCriteria: criteriaToUse, actionType, filterValidOnly: true, mqlLeadscoreMin });
-  }, [serverData, validationCriteria, actionType, mqlLeadscoreMin]);
+    return calculateGlobalMetricRanks(serverData, { validationCriteria: criteriaToUse, actionType, filterValidOnly: true, mqlLeadscoreMin, names });
+  }, [serverData, validationCriteria, actionType, mqlLeadscoreMin, names]);
 
   const headerConfig = useMemo(() => {
     return TAB_HEADER_CONFIG[activeTab as keyof typeof TAB_HEADER_CONFIG] ?? TAB_HEADER_CONFIG.opportunities;
@@ -374,7 +375,7 @@ export default function InsightsPage() {
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
           ) : !isEmptyRuleTree(validationCriteria) && !loading && averages ? (
-            <InsightsKanbanWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
+            <InsightsKanbanWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} names={names} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} packIds={Array.from(selectedPackIds)} />
           ) : (
             <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver insights." framed={false} fill />
           )}
@@ -387,7 +388,7 @@ export default function InsightsPage() {
           ) : !hasData ? (
             <StatePanel kind="empty" message="Sem dados no período selecionado. Ajuste os filtros acima para buscar em outro período." framed={false} fill />
           ) : !isEmptyRuleTree(validationCriteria) && !loading && averages ? (
-            <GemsWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
+            <GemsWidget ads={validatedAds} averages={averages} actionType={actionType} validationCriteria={validationCriteria} names={names} limit={5} dateStart={dateRange.start} dateStop={dateRange.end} availableConversionTypes={actionTypeOptions} activeColumns={activeGemsColumns} packIds={Array.from(selectedPackIds)} />
           ) : (
             <StatePanel kind="empty" message="Configure critérios de validação nas configurações para ver gems." framed={false} fill />
           )}

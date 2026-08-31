@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { StandardCard } from "@/components/common/StandardCard";
 import { BoardCreativeCard } from "@/components/boards/BoardCreativeCard";
 import { summarizeBoardGroup, sortBoardRows } from "@/lib/boards/aggregate";
-import { countRuleConditions, filterRowsByRules } from "@/lib/rules/evaluate";
+import { countRuleConditions, filterRowsByRules, type RuleNameDictionary } from "@/lib/rules/evaluate";
 import { getManagerMetricLabel } from "@/lib/metrics";
 import { isEmptyRuleTree, normalizeRuleTree } from "@/lib/rules/types";
 import type { BoardGroup } from "@/lib/boards/types";
@@ -27,6 +27,9 @@ export interface BoardGroupBandProps {
   actionType?: string;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin?: number | null;
+  /** Dicionário id → nome de campanhas/conjuntos (migration 136). Sem ele, uma
+   *  regra sobre "Nome da campanha" é ignorada em vez de responder errado. */
+  names?: RuleNameDictionary;
   isFirst?: boolean;
   isLast?: boolean;
   onEdit: () => void;
@@ -42,6 +45,7 @@ export function BoardGroupBand({
   actionType,
   hasSheetIntegration = false,
   mqlLeadscoreMin = null,
+  names,
   isFirst = false,
   isLast = false,
   onEdit,
@@ -58,12 +62,12 @@ export function BoardGroupBand({
   const matched = useMemo(
     () =>
       sortBoardRows(
-        filterRowsByRules(rows, rules, { actionType, mqlLeadscoreMin }),
+        filterRowsByRules(rows, rules, { actionType, mqlLeadscoreMin, names }),
         group.sort_metric,
         group.sort_direction,
         { actionType, mqlLeadscoreMin },
       ),
-    [rows, rules, group.sort_metric, group.sort_direction, actionType, mqlLeadscoreMin],
+    [rows, rules, group.sort_metric, group.sort_direction, actionType, mqlLeadscoreMin, names],
   );
 
   const summary = useMemo(

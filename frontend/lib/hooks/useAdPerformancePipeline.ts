@@ -7,12 +7,16 @@ import { useAppAuthReady } from "@/lib/hooks/useAppAuthReady";
 import { usePacksAds } from "@/lib/hooks/usePacksAds";
 import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { useValidationCriteria } from "@/lib/hooks/useValidationCriteria";
-import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { rowMatchesRules, type RuleNameDictionary } from "@/lib/rules/evaluate";
+import { getFilteredFieldIds } from "@/lib/rules/restrictive";
 import { isEmptyRuleTree } from "@/lib/rules/types";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { buildPackMembershipIndex, isAdInSelectedPacks } from "@/lib/utils/packMembership";
 import { showError } from "@/lib/utils/toast";
 import type { RankingsRequest } from "@/lib/api/schemas";
+
+/** Campos cuja avaliação depende de `campaign_ids`/`adset_ids` + dicionário de nomes. */
+const PARENT_RULE_FIELDS = ["campaign_ids", "adset_ids", "campaign_name", "adset_name"] as const;
 
 interface UseAdPerformancePipelineOptions {
   enabled?: boolean;
@@ -32,6 +36,22 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
   } = options;
 
   const { isAuthorized } = useAppAuthReady();
+
+  // Lido ANTES do request: é ele que decide se vale pagar pela procedência completa.
+  const { criteria: validationCriteria, isLoading: criteriaLoading } = useValidationCriteria();
+  const { mqlLeadscoreMin } = useMqlLeadscore();
+
+  /**
+   * A procedência completa (`campaign_ids`/`adset_ids` + dicionário de nomes) custa
+   * +35% a +67% de payload nas abas de criativo — e estas telas quase nunca precisam
+   * dela. Só é pedida quando o critério de validação REALMENTE cita campanha ou
+   * conjunto; do contrário a condição existiria e seria ignorada em silêncio, que é
+   * o bug de campo morto que a fase 4 acabou de matar.
+   */
+  const criterioCitaPais = useMemo(
+    () => PARENT_RULE_FIELDS.some((field) => getFilteredFieldIds(validationCriteria).has(field)),
+    [validationCriteria],
+  );
 
   const {
     selectedPackIds,
@@ -56,7 +76,8 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     // useAvailableConversionTypes). Pedir para a RPC calcular custa de 0,8 s a 9 s
     // conforme o tamanho da seleção — medido com EXPLAIN ANALYZE em 2026-08-25.
     include_available_conversion_types: false,
-  }), [dateRange.start, dateRange.end, groupBy, actionType, limit, selectedPackIds]);
+    include_parent_ids: criterioCitaPais,
+  }), [dateRange.start, dateRange.end, groupBy, actionType, limit, selectedPackIds, criterioCitaPais]);
 
   // Une os conversion_types dos packs selecionados E sincroniza o dropdown com o
   // gate correto. Encapsulado porque o gate ja quebrou de tres jeitos diferentes.
@@ -75,6 +96,10 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
 
   const serverData = useMemo(() => queryData?.data ?? null, [queryData]);
   const serverAverages = useMemo(() => queryData?.averages, [queryData]);
+  // Dicionario id -> nome de campanhas/conjuntos (migration 136). O criterio pode
+  // citar "Nome da campanha"; sem o dicionario essa condicao e IGNORADA, e o
+  // usuario veria mais ads validados do que pediu, sem nada na tela explicando.
+  const names = useMemo(() => (queryData as any)?.names as RuleNameDictionary | undefined, [queryData]);
   // Restaura o diagnóstico de erro perdido na refatoração (as páginas antigas faziam
   // console.error + empty-state). Sem isso, falha de backend fica indistinguível de "sem dados".
   useEffect(() => {
@@ -112,8 +137,6 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
   }, [serverData, filterToSelectedPacks, membershipIndex]);
 
   // ── Validation ───────────────────────────────────────────────────────────────
-  const { criteria: validationCriteria, isLoading: criteriaLoading } = useValidationCriteria();
-  const { mqlLeadscoreMin } = useMqlLeadscore();
 
   // Split validado/não-validado: os critérios de validação servem APENAS para filtrar
   // QUAIS ads são elegíveis a julgamento (G.O.L.D., plano de ação, oportunidades).
@@ -136,7 +159,7 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     // avaliador — que fazia 11 campos do critério rejeitarem todo anúncio: o que
     // ele não copiava chegava `undefined`, e campo ausente devolvia `false`.
     for (const ad of filteredRankings) {
-      if (rowMatchesRules(ad, validationCriteria, { actionType, mqlLeadscoreMin })) {
+      if (rowMatchesRules(ad, validationCriteria, { actionType, mqlLeadscoreMin, names })) {
         validated.push(ad);
       } else {
         notValidated.push(ad);
@@ -144,7 +167,7 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     }
 
     return [validated, notValidated] as [any[], any[]];
-  }, [filteredRankings, validationCriteria, actionType, mqlLeadscoreMin]);
+  }, [filteredRankings, validationCriteria, actionType, mqlLeadscoreMin, names]);
 
   // packsAdsLoading só bloqueia o render quando o pack-filter client-side é usado
   // (Plano/Gold com filterToSelectedPacks=true → membershipIndex filtra serverData). No
@@ -174,5 +197,6 @@ export function useAdPerformancePipeline(options: UseAdPerformancePipelineOption
     packsClient,
     dateRange,
     validationCriteria,
+    names,
   };
 }

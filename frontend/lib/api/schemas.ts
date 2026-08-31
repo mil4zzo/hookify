@@ -442,6 +442,11 @@ export const RankingsRequestSchema = z.object({
   series_window: z.number().optional(),
   offset: z.number().int().nonnegative().optional(),
   include_available_conversion_types: z.boolean().optional(),
+  // Procedência completa: `campaign_ids`/`adset_ids` na linha + `names` na raiz
+  // (migration 136). OPT-IN porque custa +35% (30 dias) a +67% (13 meses) de payload
+  // comprimido nas abas de criativo — um criativo colapsa até 60 conjuntos. Ligue
+  // onde a regra pode citar campanha/conjunto; sem isso essa condição é IGNORADA.
+  include_parent_ids: z.boolean().optional(),
 })
 
 // Schema centralizado para séries de métricas diárias (sparklines)
@@ -542,6 +547,12 @@ export const RankingsItemSchema = z.object({
   // por natureza (~17% das linhas da aba "Por anúncio" reúnem ads de packs diferentes), ainda que
   // um ad individual, nos dados atuais, pertença sempre a um único pack.
   pack_ids: z.array(z.string()).nullable().optional(),
+  // Campanhas e conjuntos de ONDE vieram as métricas da linha (migration 136).
+  // `campaign_id`/`campaign_name` logo abaixo são do REPRESENTANTE e mentem quando o
+  // grupo mistura pais — 22% dos criativos rodam em mais de uma campanha (medido).
+  // Para filtrar, use estes: a pergunta é "ALGUMA campanha do criativo é X".
+  campaign_ids: z.array(z.string()).nullable().optional(),
+  adset_ids: z.array(z.string()).nullable().optional(),
   // Data de CRIACAO do anuncio no Meta (migration 115), ISO8601. Numa linha agregada e o MIN
   // do grupo ("quando este anuncio estreou"). NAO e inicio de veiculacao — o Meta nao expoe
   // esse campo — nem ads.created_at, que e a data do primeiro sync neste banco.
@@ -607,6 +618,16 @@ export const RankingsItemSchema = z.object({
 export const RankingsResponseSchema = z.object({
   data: z.array(RankingsItemSchema),
   available_conversion_types: z.array(z.string()).optional(),
+  // Dicionário id → nome dos pais citados nas linhas DESTA página (migration 136).
+  // O nome não viaja por linha: com 7,5 campanhas por criativo em média, o mesmo
+  // nome apareceria milhares de vezes. Quem resolve id → nome é o avaliador de
+  // regra (`RuleEvaluationContext.names`) e o seletor de Campanha/Conjunto.
+  names: z
+    .object({
+      campaigns: z.record(z.string(), z.string()).optional(),
+      adsets: z.record(z.string(), z.string()).optional(),
+    })
+    .optional(),
   averages: z
     .object({
       hook: z.number(),

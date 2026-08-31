@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
-import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { rowMatchesRules, type RuleNameDictionary } from "@/lib/rules/evaluate";
 import { isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { GemsColumn } from "./GemsColumn";
 import { GemsColumnType } from "@/components/common/GemsColumnFilter";
@@ -20,6 +20,8 @@ interface GemsWidgetProps {
   averages?: RankingsResponse["averages"];
   actionType: string;
   validationCriteria: RuleTree;
+  /** Dicionário id → nome (migration 136): resolve "Nome da campanha" no critério. */
+  names?: RuleNameDictionary;
   limit?: number; // Top N por métrica
   dateStart?: string;
   dateStop?: string;
@@ -57,7 +59,7 @@ function SortableGemsColumn({ id, ...columnProps }: { id: GemsColumnType } & Rea
 }
 
 
-export function GemsWidget({ ads, averages, actionType, validationCriteria, limit = 5, dateStart, dateStop, availableConversionTypes = [], activeColumns, packIds = [] }: GemsWidgetProps) {
+export function GemsWidget({ ads, averages, actionType, validationCriteria, names, limit = 5, dateStart, dateStop, availableConversionTypes = [], activeColumns, packIds = [] }: GemsWidgetProps) {
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
   // 1. Filtrar apenas anúncios validados
@@ -68,8 +70,8 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
 
     // Regra avaliada direto na linha da RPC — a mesma linha e o mesmo motor do
     // filtro do Manager e dos grupos do Boards.
-    return ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria, { actionType, mqlLeadscoreMin }));
-  }, [ads, validationCriteria, actionType, mqlLeadscoreMin]);
+    return ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria, { actionType, mqlLeadscoreMin, names }));
+  }, [ads, validationCriteria, actionType, mqlLeadscoreMin, names]);
 
   // 2. Calcular top por cada métrica
   const topHook = useMemo(() => computeTopMetric(validatedAds as any, "hook", actionType, limit, mqlLeadscoreMin), [validatedAds, actionType, limit, mqlLeadscoreMin]);
@@ -98,8 +100,9 @@ export function GemsWidget({ ads, averages, actionType, validationCriteria, limi
       actionType,
       filterValidOnly: true,
       mqlLeadscoreMin,
+      names,
     });
-  }, [ads, validationCriteria, actionType, mqlLeadscoreMin]);
+  }, [ads, validationCriteria, actionType, mqlLeadscoreMin, names]);
 
   // 4. Função helper para obter ranks de um anúncio em todas as métricas
   const getTopMetrics = (adId: string | null | undefined) => {

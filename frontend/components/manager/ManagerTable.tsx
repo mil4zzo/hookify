@@ -46,6 +46,7 @@ import {
   pruneRulesForVisibleFields,
 } from "@/lib/manager/managerRules";
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleTree } from "@/lib/rules/types";
+import type { RuleNameDictionary } from "@/lib/rules/evaluate";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
 import { loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
 import { useProvenanceIndex } from "@/lib/manager/provenance";
@@ -101,6 +102,12 @@ interface ManagerTableProps {
   };
   /** Indica se há integração de planilha (Google Sheets) em pelo menos um dos packs selecionados */
   hasSheetIntegration?: boolean;
+  /**
+   * Dicionário id → nome de campanhas e conjuntos desta resposta (migration 136).
+   * Sem ele, uma regra sobre "Nome da campanha" é IGNORADA em vez de responder com
+   * o nome do representante — a mentira que a v136 veio corrigir.
+   */
+  names?: RuleNameDictionary;
   /** Indica se os dados estão sendo carregados */
   isLoading?: boolean;
   /** Indica que a requisição da aba por-anuncio falhou (ex: timeout do RPC) */
@@ -139,7 +146,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, onShowTrendsChange, averagesOverride, hasSheetIntegration = false, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, onShowTrendsChange, averagesOverride, hasSheetIntegration = false, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -803,9 +810,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       filteredFieldIdsRef,
       onRevealField: handleRevealField,
       globalFilterRef,
-      ruleContext: { actionType, mqlLeadscoreMin },
+      ruleContext: { actionType, mqlLeadscoreMin, names },
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -946,13 +953,25 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const ruleDimensionOptions = useMemo(() => {
     const packs = new Map<string, string>();
     const accounts = new Map<string, string>();
+    const campaigns = new Map<string, string>();
+    const adsets = new Map<string, string>();
     for (const row of adsEffectiveRaw as RankingsItem[]) {
       for (const id of row.pack_ids ?? []) if (!packs.has(id)) packs.set(id, provenanceIndex.packNameById.get(id) ?? id);
       for (const id of row.account_ids ?? []) if (!accounts.has(id)) accounts.set(id, provenanceIndex.accountNameById.get(id) ?? id);
+      // Campanha/conjunto (migration 136): o id vem na linha, o nome no dicionário
+      // da resposta. Id sem nome no dicionário aparece pelo próprio id — melhor uma
+      // opção rotulada com o número do que uma opção faltando na lista.
+      for (const id of row.campaign_ids ?? []) if (!campaigns.has(id)) campaigns.set(id, names?.campaigns?.[id] ?? id);
+      for (const id of row.adset_ids ?? []) if (!adsets.has(id)) adsets.set(id, names?.adsets?.[id] ?? id);
     }
     const toOptions = (m: Map<string, string>) => Array.from(m, ([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
-    return { pack_ids: toOptions(packs), account_ids: toOptions(accounts) };
-  }, [adsEffectiveRaw, provenanceIndex]);
+    return {
+      pack_ids: toOptions(packs),
+      account_ids: toOptions(accounts),
+      campaign_ids: toOptions(campaigns),
+      adset_ids: toOptions(adsets),
+    };
+  }, [adsEffectiveRaw, provenanceIndex, names]);
 
   // Modal de exportação (seleção de colunas + transcrições). A execução do CSV vive no dialog.
   const [isExportOpen, setIsExportOpen] = useState(false);

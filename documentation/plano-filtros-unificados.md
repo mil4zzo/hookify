@@ -268,40 +268,66 @@ nem o CI os executam.
   `hasSheetIntegration`, e o editor nas Configurações não tem pack selecionado — nem o
   pipeline pede `include_leadscore`. Oferecê-las ali seria recriar o campo morto.
 
-### Fase 5 — RPC: `campaign_ids`, `adset_ids` e dicionário de nomes (M)
+### Fase 5 — RPC: `campaign_ids`, `adset_ids` e dicionário de nomes (M) — ✅ FEITA (2026-08-30)
 
-Independente das fases 2–4; destrava os campos de campanha/conjunto no registry.
+1. **Migration 136**: `fetch_manager_performance_base_v136`, gerada do corpo real da v132
+   lido do banco (não transcrita à mão). `sel` passa a carregar `campaign_id`; `per_ad` o
+   agrega com `min()` (um anúncio pertence a UMA campanha, como a UM conjunto); `grp` monta
+   `campaign_ids`/`adset_ids` no **mesmo `group by` do `account_ids`** — nenhuma leitura nova.
+   O dicionário `names` sai de `public.ads` por ids conhecidos, **depois** da paginação.
+2. **Backend** `analytics.py`: `names` no passthrough da whitelist e `include_parent_ids` no
+   `RankingsRequest`. **Frontend**: `campaign_ids`/`adset_ids` em `RankingsItemSchema`, `names`
+   em `RankingsResponseSchema`, `include_parent_ids` no request.
+3. Registry: `pendingBackend` **apagado** (mecanismo sem consumidor depois desta fase).
+   `campaign_ids`/`adset_ids` são multi-seleção no Manager/Boards/Critério;
+   `campaign_name`/`adset_name` são texto em **todos** os contextos, inclusive linhas-filhas.
 
-1. **Migration 136** (134 = pack_ids nas filhas; 135 = reset do Critério): `fetch_manager_performance_base_v135` a partir
-   da v132, e a entry `fetch_manager_rankings_core_v2` re-apontada (mesmo padrão da 132):
-   - `per_ad`: `+ min(nullif(f.campaign_id, '')) as campaign_id` (o rollup já tem a coluna;
-     `adset_id` já está lá).
-   - `grouped`: `+ array_agg(distinct p.campaign_id) filter (…) as campaign_ids`, idem
-     `adset_ids` — mesmo `group by` do `account_ids`, sem passada nova.
-   - item: `'campaign_ids', 'adset_ids'`.
-   - raiz: `'names', jsonb_build_object('campaigns', {id: nome}, 'adsets', {id: nome})` — só dos
-     ids presentes nas linhas **paginadas**; nomes vêm de `public.ads` (tem `campaign_name` /
-     `adset_name`; `per_ad_status` já faz o join por `(user_id, ad_id)`, o que cobre pack
-     compartilhado — o nome vem do silo do dono). `campaign_name`/`adset_name` do representante
-     continuam na linha por compatibilidade até a fase 6.
-2. **Backend** `analytics.py`: `_normalize_rankings_rpc_response` deixa `names` passar (é
-   whitelist — sem isso o frontend nunca vê). Parâmetros `p_*_name_contains` ficam na assinatura
-   (compatibilidade), continuam não enviados pelo frontend.
-3. **Frontend** `lib/api/schemas.ts`: `campaign_ids`/`adset_ids` em `RankingsItemSchema` e
-   `names` em `RankingsResponseSchema` — os dois são `z.object` **sem passthrough**, chave não
-   declarada é descartada em silêncio. `useAdPerformance` entrega `names` ao contexto do motor
-   (Manager, Boards, pipeline do Critério).
-4. Registry: ativar `campaign_ids`/`adset_ids` (multiselect, opções do dicionário) e
-   `campaign_name`/`adset_name` (texto). Boards: `dimensionOptions` ganha campanha/conjunto.
-   Manager: colunas opcionais "Campanha"/"Conjunto" iguais a Pack/Conta (chips, "alguma") —
-   pode ficar para depois; o filtro não depende delas.
-5. **Diferencial no lab** (`backend/scripts/diff_rankings_rollup.py`, v132 × v135): todas as
-   chaves antigas idênticas; as novas presentes e coerentes (`campaign_ids` ⊇ `campaign_id` do
-   representante; toda id do array tem nome no dicionário). Todos os cenários do script.
-6. **Medir o payload** por aba antes/depois (pior caso esperado: por-anúncio, ~600 B/linha em
-   criativos com ~34 ads → ≤ 300 KB em 500 linhas; sparklines já pesam mais). Se passar de ~10%
-   do total da aba, aí sim `p_include_parent_ids` (com custo de query key nova no cache).
-7. Depois: `pg_dump` do `schema.sql` (está parado na base v116) + `generate_schema_map.py`.
+**Decisões tomadas durante a execução**
+
+- **O custo foi medido e mudou o desenho.** O plano dizia "se passar de ~10% do total da aba,
+  aí sim `p_include_parent_ids`". Passou de 3,5 a 6,7×. Em bytes **comprimidos** (o que viaja):
+
+  | recorte | antes | depois | |
+  |---|---|---|---|
+  | criativos, 36 packs, 13 meses | 224 kB | 373 kB | +67% |
+  | criativos, 36 packs, 30 dias | 85 kB | 115 kB | +35% |
+  | abas de anúncio / conjunto / campanha | | | +6% |
+
+  O peso é todo nas abas de **criativo**: 23 campanhas e **60 conjuntos** por linha no
+  recorte de 13 meses. Nas outras abas cada linha tem um pai só. Daí o opt-in
+  `p_include_parent_ids`, default `false`.
+
+- **Quem liga.** Manager e Boards, sempre — a regra É a tela, e ligar só quando a regra cita
+  campanha faria o seletor abrir com a lista vazia até a resposta nova chegar. Explorer,
+  nunca — não usa regra. Plano/GOLD/Insights, **só quando o critério de validação cita**
+  campanha ou conjunto: senão a condição existiria e seria ignorada em silêncio, que é o bug
+  de campo morto que a fase 4 acabou de matar.
+
+- **Desligado, a resposta é IDÊNTICA à da v132** — nem uma chave a mais. Os arrays e o
+  `names` entram por `||` condicional, e o gate vive dentro do `filter` do `array_agg`, então
+  desligado não há sequer acumulação. Provado por `jsonb =` nos 4 agrupamentos e 2 janelas:
+  é o diferencial mais forte e mais barato desta fase.
+
+- **A entrada precisou de `drop`, não de `replace`.** `fetch_manager_rankings_core_v2` ganhou
+  o 17º parâmetro, e `create or replace` não adiciona parâmetro: criaria uma **segunda
+  sobrecarga** de 16 argumentos e o PostgREST não saberia qual chamar (PGRST203). A migration
+  verifica no fim que sobrou exatamente uma.
+
+- **A linha-filha responde por si.** A RPC de detalhe devolve `campaign_name` da filha — que é
+  UM anúncio, nome exato — e não o id. Então `campaign_name`/`adset_name` são oferecidos ali
+  (o avaliador usa o nome próprio quando não há array), e `campaign_ids`/`adset_ids` não.
+
+- **O nome mora em `public.ads`**, não em `parent_entities` (que tem `entity_id` e nenhuma
+  coluna de nome). `supabase/schema_map.md` está parado numa versão anterior e não mostra
+  essas colunas — a fonte foi o banco. **Regenerar o schema_map ficou para a fase 6.**
+
+- **O harness ganhou um modo `--v136`** com três invariantes que o diferencial de campos
+  antigos não pegaria: os arrays existem em toda linha; o pai do **representante** está dentro
+  do array (se não estivesse, a agregação nova estaria olhando outro conjunto de anúncios);
+  o dicionário não tem chave que nenhuma linha cita. Dois bugs do próprio harness apareceram
+  aqui: ele comparava `leadscore_histogram` só de um lado (herança do modo v116→v130) e
+  morria de `UnicodeEncodeError` ao imprimir um nome com til no console cp1252 do Windows —
+  **depois de 45 minutos de execução**.
 
 ### Fase 6 — Limpeza e registro (P)
 

@@ -1,5 +1,5 @@
 import { RankingsItem } from "@/lib/api/schemas";
-import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { rowMatchesRules, type RuleNameDictionary } from "@/lib/rules/evaluate";
 import { isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { OpportunityRow } from "./opportunity";
 import { getMetricNumericValue, type MetricKey } from "@/lib/metrics";
@@ -49,6 +49,8 @@ export interface MetricRankingsOptions {
   filterValidOnly?: boolean;
   /** Leadscore mínimo para calcular MQL/CPMQL */
   mqlLeadscoreMin?: number | null;
+  /** Dicionário id → nome (migration 136): resolve "Nome da campanha" no critério. */
+  names?: RuleNameDictionary;
 }
 
 /**
@@ -74,7 +76,7 @@ function getMetricValue(ad: RankingsItem, metric: Extract<MetricKey, "hook" | "w
  * @returns Rankings globais por métrica (Map<ad_id, rank>)
  */
 export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricRankingsOptions = {}): MetricRanks {
-  const { validationCriteria, actionType, filterValidOnly = true, mqlLeadscoreMin = null } = options;
+  const { validationCriteria, actionType, filterValidOnly = true, mqlLeadscoreMin = null, names } = options;
 
   // 1. Filtrar anúncios validados se houver critério definido.
   // A regra roda sobre a LINHA da RPC — a mesma linha que alimenta as colunas da
@@ -82,7 +84,7 @@ export function calculateGlobalMetricRanks(ads: RankingsItem[], options: MetricR
   // Manager passam a responder a mesma coisa sobre o mesmo anúncio.
   let validatedAds = ads;
   if (!isEmptyRuleTree(validationCriteria)) {
-    validatedAds = ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria!, { actionType, mqlLeadscoreMin }));
+    validatedAds = ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria!, { actionType, mqlLeadscoreMin, names }));
   }
 
   // 2. Calcular rankings para cada métrica

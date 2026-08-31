@@ -67,12 +67,6 @@ export interface RuleField {
    * exata — não é representante de nada). A pergunta do usuário é a mesma.
    */
   rowKeyFallback?: string;
-  /**
-   * Campo declarado mas ainda sem dado na linha — some do seletor até a RPC
-   * passar a devolvê-lo (fase 5 do plano). Uma regra já salva continua sendo
-   * avaliada; o que a flag esconde é a oferta.
-   */
-  pendingBackend?: boolean;
 }
 
 export const RULE_OPERATORS: Record<RuleFieldKind, { value: string; label: string }[]> = {
@@ -173,15 +167,16 @@ const DIMENSION_FIELDS: RuleField[] = [
     availableIn: ["manager", "manager-children", "criteria", "boards"],
     rowKeyFallback: "account_id",
   },
-  // Campanha e conjunto: declarados agora, oferecidos quando a RPC devolver os
-  // arrays e o dicionário de nomes (fase 5). Ver o cabeçalho deste arquivo.
+  // Campanha e conjunto (migration 136). A linha AGREGADA traz os arrays completos;
+  // escolher da lista é "é alguma de". Fora das linhas-filhas: a filha é UM anúncio
+  // e a RPC de detalhe devolve o NOME dele, não o id — quem quer filtrar ali usa
+  // "Nome da campanha", que na filha é exato.
   {
     id: "campaign_ids",
     label: "Campanha",
     kind: "multiselect",
     group: "Procedência",
     availableIn: ["manager", "boards", "criteria"],
-    pendingBackend: true,
   },
   {
     id: "adset_ids",
@@ -189,21 +184,20 @@ const DIMENSION_FIELDS: RuleField[] = [
     kind: "multiselect",
     group: "Procedência",
     availableIn: ["manager", "boards", "criteria"],
-    pendingBackend: true,
   },
+  // Texto sobre os MESMOS pais: na linha agregada a pergunta é "algum nome do grupo
+  // casa?" (resolvido pelo dicionário); na filha, o nome da própria linha.
   {
     id: "campaign_name",
     label: "Nome da campanha",
     kind: "text",
     group: "Procedência",
-    pendingBackend: true,
   },
   {
     id: "adset_name",
     label: "Nome do conjunto",
     kind: "text",
     group: "Procedência",
-    pendingBackend: true,
   },
 ];
 
@@ -240,8 +234,6 @@ export interface RuleFieldAvailability {
   context?: RuleContext;
   /** Aba do Manager. Ausente = não filtra por aba. */
   tab?: RuleManagerTab;
-  /** Mostra campos ainda sem dado na linha. Só para teste. */
-  includePending?: boolean;
 }
 
 /**
@@ -255,11 +247,9 @@ export function getAvailableRuleFields({
   hasSheetIntegration = false,
   context,
   tab,
-  includePending = false,
 }: RuleFieldAvailability = {}): RuleField[] {
   return RULE_FIELDS.filter((field) => {
     if (field.requiresSheetIntegration && !hasSheetIntegration) return false;
-    if (field.pendingBackend && !includePending) return false;
     if (context && field.availableIn && !field.availableIn.includes(context)) return false;
     if (tab && field.availableTabs && !field.availableTabs.includes(tab)) return false;
     return true;

@@ -27,7 +27,7 @@ import {
   useUpdateBoardGroup,
 } from "@/lib/api/hooks";
 import type { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
-import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { rowMatchesRules, type RuleNameDictionary } from "@/lib/rules/evaluate";
 import { normalizeRuleTree } from "@/lib/rules/types";
 import type { Board, BoardGroup } from "@/lib/boards/types";
 import { TAG_COLORS } from "@/lib/tags/colors";
@@ -154,6 +154,10 @@ export default function BoardsPage() {
       include_series: false,
       include_leadscore: hasSheetIntegration,
       include_available_conversion_types: false,
+      // Regra de grupo pode citar campanha/conjunto (migration 136). Ligado sempre:
+      // no Boards a regra É a tela, e um grupo que some porque o dado não veio é
+      // exatamente o tipo de mentira silenciosa que os boards não podem ter.
+      include_parent_ids: true,
     }),
     [dateRange.start, dateRange.end, actionType, selectedPackIds, hasSheetIntegration],
   );
@@ -184,6 +188,13 @@ export default function BoardsPage() {
 
   const totalSpend = useMemo(() => rows.reduce((sum, row) => sum + (Number(row.spend) || 0), 0), [rows]);
 
+  /**
+   * Dicionário id → nome de campanhas e conjuntos desta resposta (migration 136).
+   * A linha traz os ids; o nome vem uma vez só, na raiz. Sem ele, uma regra sobre
+   * "Nome da campanha" é ignorada em vez de responder com o nome do representante.
+   */
+  const names = useMemo(() => (rankingsData as any)?.names as RuleNameDictionary | undefined, [rankingsData]);
+
   /** Opções de Pack/Conta oferecidas na regra: só o que existe no recorte atual. */
   const dimensionOptions = useMemo<Partial<Record<string, RuleDimensionOption[]>>>(() => {
     const packNameById = new Map(packs.map((pack) => [pack.id, pack.name]));
@@ -193,6 +204,16 @@ export default function BoardsPage() {
       for (const id of row.pack_ids ?? []) if (id) packIds.add(String(id));
       for (const id of row.account_ids ?? []) if (id) accountIds.add(String(id));
     }
+    const campaignIds = new Set<string>();
+    const adsetIds = new Set<string>();
+    for (const row of rows) {
+      for (const id of row.campaign_ids ?? []) if (id) campaignIds.add(String(id));
+      for (const id of row.adset_ids ?? []) if (id) adsetIds.add(String(id));
+    }
+    const rotular = (ids: Set<string>, dicionario?: Record<string, string>) =>
+      Array.from(ids)
+        .map((id) => ({ value: id, label: dicionario?.[id] ?? id }))
+        .sort((a, b) => a.label.localeCompare(b.label));
     return {
       pack_ids: Array.from(packIds)
         .map((id) => ({ value: id, label: packNameById.get(id) ?? id }))
@@ -200,8 +221,10 @@ export default function BoardsPage() {
       account_ids: Array.from(accountIds)
         .map((id) => ({ value: id, label: id }))
         .sort((a, b) => a.label.localeCompare(b.label)),
+      campaign_ids: rotular(campaignIds, names?.campaigns),
+      adset_ids: rotular(adsetIds, names?.adsets),
     };
-  }, [rows, packs]);
+  }, [rows, packs, names]);
 
   /**
    * Quantos criativos do recorte caem em ALGUM grupo.
@@ -214,7 +237,7 @@ export default function BoardsPage() {
     if (!activeBoard || activeBoard.groups.length === 0 || rows.length === 0) {
       return { covered: 0, total: rows.length };
     }
-    const context = { actionType, mqlLeadscoreMin };
+    const context = { actionType, mqlLeadscoreMin, names };
     const rulesByGroup = activeBoard.groups.map((group) => normalizeRuleTree(group.rules));
     // Linha por fora, grupo por dentro: o `some` para no primeiro grupo que casa,
     // então o caso comum (criativo classificado) não paga as outras 19 regras.
@@ -223,7 +246,7 @@ export default function BoardsPage() {
       0,
     );
     return { covered, total: rows.length };
-  }, [activeBoard, rows, actionType, mqlLeadscoreMin]);
+  }, [activeBoard, rows, actionType, mqlLeadscoreMin, names]);
 
   // ── Diálogos ───────────────────────────────────────────────────────────────
   const [groupDialog, setGroupDialog] = useState<{ open: boolean; group: BoardGroup | null }>({ open: false, group: null });
@@ -376,6 +399,7 @@ export default function BoardsPage() {
                   actionType={actionType}
                   hasSheetIntegration={hasSheetIntegration}
                   mqlLeadscoreMin={mqlLeadscoreMin}
+                  names={names}
                   isFirst={index === 0}
                   isLast={index === activeBoard.groups.length - 1}
                   onEdit={() => setGroupDialog({ open: true, group })}

@@ -61,6 +61,14 @@ LAB_URL_DEFAULT = "postgresql://postgres@127.0.0.1:5433/hookify_lab"
 SEP = "\x1f"
 
 
+# O console do Windows abre em cp1252; um nome de campanha com "ç" ou "~" derrubava
+# o script NO MEIO do relatorio, depois de 45 minutos de execucao.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
 def find_psql() -> str:
     cand = os.environ.get("PSQL") or shutil.which("psql")
     if cand:
@@ -264,15 +272,21 @@ def series_scenario_sql(scen: list[dict]) -> str:
     return "\n".join(parts) + "\n"
 
 
-def call_sql(fn: str, s: dict) -> str:
+def call_sql(fn: str, s: dict, extra: str = "") -> str:
     return (
         f"{fn}({q(s['actor'])}::uuid, {q(s['ds'])}::date, {q(s['de'])}::date, {q(s['group_by'])}, "
         f"{q_arr(s['packs'], 'uuid')}, {q_arr(s.get('account_ids'), 'text')}, "
         f"{q(s.get('campaign_contains'))}, {q(s.get('adset_contains'))}, {q(s.get('ad_contains'))}, "
         f"{q(s.get('action'))}, {'true' if s.get('include_leadscore', True) else 'false'}, "
         f"{'true' if s.get('include_conv_types', False) else 'false'}, "
-        f"{int(s.get('limit', 500))}, {int(s.get('offset', 0))}, {q(s.get('order_by', 'spend'))}, {q(s.get('campaign_id'))})"
+        f"{int(s.get('limit', 500))}, {int(s.get('offset', 0))}, {q(s.get('order_by', 'spend'))}, {q(s.get('campaign_id'))}{extra})"
     )
+
+
+# Sufixo por funcao: a v136 recebe `p_include_parent_ids`. O diferencial roda com ele
+# LIGADO — desligado a igualdade ja esta provada por jsonb `=` (gate_off), e o que
+# falta provar e que ligar so ACRESCENTA.
+EXTRA_ARGS: dict = {}
 
 
 def scenario_sql(scen: list[dict]) -> str:
@@ -282,7 +296,9 @@ def scenario_sql(scen: list[dict]) -> str:
         parts.append("begin;")
         parts.append(f"set local request.jwt.claims = {q(claims)};")
         parts.append(
-            "select " + q(s["id"]) + f" || {q(SEP)} || {call_sql(OLD_FN, s)}::text || {q(SEP)} || {call_sql(NEW_FN, s)}::text;"
+            "select " + q(s["id"])
+            + f" || {q(SEP)} || {call_sql(OLD_FN, s, EXTRA_ARGS.get(OLD_FN, ''))}::text"
+            + f" || {q(SEP)} || {call_sql(NEW_FN, s, EXTRA_ARGS.get(NEW_FN, ''))}::text;"
         )
         parts.append("rollback;")
     return "\n".join(parts) + "\n"
@@ -395,6 +411,77 @@ def compare_v132(old: dict, new: dict) -> list:
     return diffs
 
 
+V136_NEW_KEYS = ("campaign_ids", "adset_ids")
+
+
+def compare_v136(old: dict, new: dict) -> list:
+    """v132 x v136: tudo igual, mais tres invariantes sobre o que e novo.
+
+    1. `campaign_ids`/`adset_ids` existem em TODA linha e sao listas.
+    2. Coerencia com o que ja existia: o pai do REPRESENTANTE (`campaign_id`/
+       `adset_id`, que a v132 ja devolvia) tem de estar dentro do array. Se nao
+       estiver, a agregacao nova esta olhando outro conjunto de anuncios — e o
+       diferencial de campos antigos nao pegaria isso, porque os antigos nao mudam.
+    3. O dicionario `names` nao inventa: toda chave dele aparece em alguma linha.
+       A cobertura inversa (todo id ter nome) e reportada, nao exigida: um anuncio
+       cuja copia em `ads` esta sem `campaign_name` nao tem nome a oferecer, e o
+       avaliador ja ignora id sem nome.
+    """
+    diffs: list = []
+    for key in ("pagination", "available_conversion_types", "averages", "header_aggregates"):
+        cmp_value(key, old.get(key), new.get(key), diffs)
+    cmp_value("overlap", old.get("overlap"), new.get("overlap"), diffs)
+
+    names = new.get("names")
+    if not isinstance(names, dict):
+        diffs.append(("names", "objeto", type(names).__name__))
+        names = {}
+    campanhas = names.get("campaigns") or {}
+    conjuntos = names.get("adsets") or {}
+
+    od, nd = old.get("data", []), new.get("data", [])
+    if len(od) != len(nd):
+        diffs.append(("data.<len>", len(od), len(nd)))
+        return diffs
+
+    vistos_camp: set = set()
+    vistos_adset: set = set()
+    for i, (ro, rn) in enumerate(zip(od, nd)):
+        gk = ro.get("group_key")
+        if gk != rn.get("group_key"):
+            diffs.append((f"data[{i}].group_key (ordem)", gk, rn.get("group_key")))
+            continue
+        for k in V136_NEW_KEYS:
+            v = rn.get(k)
+            if not isinstance(v, list):
+                diffs.append((f"data[{gk}].{k}", "lista", repr(v)))
+        cids = [str(x) for x in (rn.get("campaign_ids") or [])]
+        aids = [str(x) for x in (rn.get("adset_ids") or [])]
+        vistos_camp.update(cids)
+        vistos_adset.update(aids)
+        # invariante 2: o pai do representante esta no array
+        rep_c = ro.get("campaign_id")
+        if rep_c and str(rep_c) not in cids:
+            diffs.append((f"data[{gk}].campaign_ids", f"contem o representante {rep_c}", cids[:5]))
+        rep_a = ro.get("adset_id")
+        if rep_a and str(rep_a) not in aids:
+            diffs.append((f"data[{gk}].adset_ids", f"contem o representante {rep_a}", aids[:5]))
+        # Campos antigos: identicos, INCLUSIVE o histograma de leads. Os dois lados
+        # ja o devolvem nesse formato (a conversao leadscore_values -> histograma foi
+        # na v130); comparar um contra o outro direto e mais forte que reexpandir.
+        rn2 = {k: v for k, v in rn.items() if k not in V136_NEW_KEYS}
+        cmp_value(f"data[{gk}]", ro, rn2, diffs)
+
+    # invariante 3: o dicionario nao tem chave que nenhuma linha cita
+    sobra_c = set(campanhas) - vistos_camp
+    sobra_a = set(conjuntos) - vistos_adset
+    if sobra_c:
+        diffs.append(("names.campaigns", "so ids das linhas", f"{len(sobra_c)} sobrando"))
+    if sobra_a:
+        diffs.append(("names.adsets", "so ids das linhas", f"{len(sobra_a)} sobrando"))
+    return diffs
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -404,6 +491,9 @@ def main() -> int:
     ap.add_argument("--filter", default="", help="substring do id do cenário")
     ap.add_argument("--series", action="store_true",
                     help="compara a serie (fetch_manager_rankings_series_v2_legacy x wrapper da _v131) em vez da core")
+    ap.add_argument("--v136", action="store_true",
+                    help="compara base_v132 x base_v136: campos antigos identicos; campaign_ids/adset_ids "
+                         "novos e coerentes com o representante; dicionario `names` cobre os ids das linhas")
     ap.add_argument("--v132", action="store_true",
                     help="compara base_v130 x base_v132: campos antigos identicos; media_type/has_transcription novos; "
                          "thumb so muda onde a v130 nao tinha")
@@ -412,6 +502,10 @@ def main() -> int:
     if args.v132:
         OLD_FN = "public.fetch_manager_performance_base_v130"
         NEW_FN = "public.fetch_manager_performance_base_v132"
+    if args.v136:
+        OLD_FN = "public.fetch_manager_performance_base_v132"
+        NEW_FN = "public.fetch_manager_performance_base_v136"
+        EXTRA_ARGS[NEW_FN] = ", true"   # p_include_parent_ids
 
     psql = find_psql()
     url = os.environ.get("LAB_URL", LAB_URL_DEFAULT)
@@ -440,6 +534,8 @@ def main() -> int:
         if args.series:
             diffs = []
             cmp_value("series", old, new, diffs)   # contrato integral: window + series_by_group
+        elif args.v136:
+            diffs = compare_v136(old, new)
         elif args.v132:
             diffs = compare_v132(old, new)
         else:

@@ -201,23 +201,18 @@ test("registry: campo conhece o proprio tipo, operadores e valor inicial", () =>
   assert.ok(getRuleOperators("ad_name").some((op) => op.value === "contains"));
 });
 
-test("campanha e conjunto sao campos DECLARADOS mas ainda nao oferecidos", () => {
-  // A decisao anterior era nao ter estes campos, porque o nome na linha vem do
+test("campanha e conjunto: o id da linha, nao o nome do representante", () => {
+  // A decisao original era NAO ter estes campos, porque o nome na linha vem do
   // REPRESENTANTE do grupo e mentiria para criativos que rodam em mais de uma
-  // campanha. A decisao nova (2026-08-28) mantem o diagnostico e troca a saida:
-  // em vez de nao existir, o campo passa a ler o ARRAY de ids da linha e resolver
-  // os nomes pelo dicionario da resposta — semantica "alguma", como Pack e Conta.
-  // Enquanto a RPC nao devolve esses dados (fase 5), ficam fora do seletor.
-  for (const id of ["campaign_name", "adset_name", "campaign_ids", "adset_ids"]) {
-    assert.ok(getRuleField(id), `${id} deveria estar declarado no registry`);
-    assert.equal(getRuleField(id)?.pendingBackend, true, `${id} deveria estar marcado como pendente`);
-  }
-
+  // campanha. A saida (2026-08-28) mantem o diagnostico e troca o dado: o campo le o
+  // ARRAY de ids da linha (migration 136) e resolve os nomes pelo dicionario da
+  // resposta — semantica "alguma", como Pack e Conta.
   const offered = getAvailableRuleFields({ hasSheetIntegration: true }).map((f) => f.id);
   for (const id of ["campaign_name", "adset_name", "campaign_ids", "adset_ids"]) {
-    assert.ok(!offered.includes(id), `${id} nao pode aparecer no seletor antes da fase 5`);
+    assert.ok(getRuleField(id), `${id} deveria estar declarado no registry`);
+    assert.ok(offered.includes(id), `${id} deveria ser oferecido no seletor`);
   }
-  // A garantia que importa: o que JA funciona continua oferecido.
+  // A garantia que importa: o que JA funcionava continua oferecido.
   for (const id of ["ad_name", "tags", "status", "pack_ids", "account_ids", "hook", "cpr"]) {
     assert.ok(offered.includes(id), `${id} sumiu do seletor`);
   }

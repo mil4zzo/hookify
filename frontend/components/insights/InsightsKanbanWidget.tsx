@@ -3,7 +3,7 @@
 import { useMemo } from "react";
 import type { ReactNode } from "react";
 import { RankingsItem, RankingsResponse } from "@/lib/api/schemas";
-import { rowMatchesRules } from "@/lib/rules/evaluate";
+import { rowMatchesRules, type RuleNameDictionary } from "@/lib/rules/evaluate";
 import { isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
 import { GenericCard } from "@/components/common/GenericCard";
 import { calculateGlobalMetricRanks, createEmptyMetricRanks } from "@/lib/utils/metricRankings";
@@ -27,6 +27,8 @@ interface InsightsKanbanWidgetProps {
   averages?: RankingsResponse["averages"];
   actionType: string;
   validationCriteria: RuleTree;
+  /** Dicionário id → nome (migration 136): resolve "Nome da campanha" no critério. */
+  names?: RuleNameDictionary;
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
@@ -52,7 +54,7 @@ function formatMetric(value: number, metric: "hook" | "website_ctr" | "ctr" | "p
  * Usa a mesma estrutura e estilização de Gems.
  * Colunas são arrastáveis para reordenar.
  */
-export function InsightsKanbanWidget({ ads, averages, actionType, validationCriteria, dateStart, dateStop, availableConversionTypes = [], packIds = [] }: InsightsKanbanWidgetProps) {
+export function InsightsKanbanWidget({ ads, averages, actionType, validationCriteria, names, dateStart, dateStop, availableConversionTypes = [], packIds = [] }: InsightsKanbanWidgetProps) {
   const formatCurrency = useFormatCurrency();
   const { mqlLeadscoreMin } = useMqlLeadscore();
 
@@ -72,8 +74,8 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
 
     // Regra avaliada direto na linha da RPC — a mesma linha e o mesmo motor do
     // filtro do Manager e dos grupos do Boards.
-    return ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria, { actionType, mqlLeadscoreMin }));
-  }, [ads, validationCriteria, actionType, mqlLeadscoreMin]);
+    return ads.filter((ad) => rowMatchesRules(ad as any, validationCriteria, { actionType, mqlLeadscoreMin, names }));
+  }, [ads, validationCriteria, actionType, mqlLeadscoreMin, names]);
 
   // 2. Calcular rankings globais
   const globalMetricRanks = useMemo(() => {
@@ -86,8 +88,9 @@ export function InsightsKanbanWidget({ ads, averages, actionType, validationCrit
       actionType,
       filterValidOnly: true,
       mqlLeadscoreMin,
+      names,
     });
-  }, [ads, validationCriteria, actionType, mqlLeadscoreMin]);
+  }, [ads, validationCriteria, actionType, mqlLeadscoreMin, names]);
 
   // 3. Função helper para obter ranks de um anúncio
   const getTopMetrics = (adId: string | null | undefined) => {

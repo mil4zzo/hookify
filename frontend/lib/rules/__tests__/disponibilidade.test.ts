@@ -20,7 +20,7 @@ import {
   type RuleContext,
 } from "@/lib/rules/fields";
 
-const ALL = { hasSheetIntegration: true, includePending: true };
+const ALL = { hasSheetIntegration: true };
 
 function idsFor(context: RuleContext, extra: Record<string, unknown> = {}): string[] {
   return getAvailableRuleFields({ hasSheetIntegration: true, context, ...extra }).map((f) => f.id);
@@ -75,15 +75,21 @@ test("MQL some sem integração de planilha, mas a regra salva continua avaliáv
   }
 });
 
-test("campos pendentes de backend não são oferecidos em lugar nenhum", () => {
-  for (const context of ALL_RULE_CONTEXTS) {
-    const ids = idsFor(context);
-    for (const field of ["campaign_ids", "adset_ids", "campaign_name", "adset_name"]) {
-      assert.ok(!ids.includes(field), `${field} não pode ser oferecido em "${context}" antes da fase 5`);
+test("campanha e conjunto: id onde a linha traz o array, nome em toda parte", () => {
+  // A migration 136 pôs `campaign_ids`/`adset_ids` na linha AGREGADA. A linha-filha
+  // é UM anúncio e a RPC de detalhe devolve o NOME dele, não o id — escolher da
+  // lista ali seria um filtro que nunca casa, então só o campo de texto é ofertado.
+  for (const field of ["campaign_ids", "adset_ids"]) {
+    assert.ok(idsFor("manager").includes(field), `${field} deveria ser oferecido no Manager`);
+    assert.ok(idsFor("boards").includes(field), `${field} deveria ser oferecido no Boards`);
+    assert.ok(idsFor("criteria").includes(field), `${field} deveria ser oferecido no Critério`);
+    assert.ok(!idsFor("manager-children").includes(field), `${field} não cabe na linha-filha`);
+  }
+  for (const field of ["campaign_name", "adset_name"]) {
+    for (const context of ALL_RULE_CONTEXTS) {
+      assert.ok(idsFor(context).includes(field), `${field} deveria ser oferecido em "${context}"`);
     }
   }
-  // Mas existem, declarados, para a regra já salva ser avaliada.
-  assert.equal(getRuleField("campaign_ids")?.pendingBackend, true);
 });
 
 test("todo campo do registry tem operadores, e todo operador tem rótulo", () => {
