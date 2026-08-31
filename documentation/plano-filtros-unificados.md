@@ -1,8 +1,8 @@
 # Plano: um motor de filtros para Manager, Boards e Critério de validação
 
-Data: 2026-08-28. Estado: **fases 0 a 4 implementadas e em produção** (282 testes verdes no
-frontend, `tsc` e design-system limpos; migrations 134 e 135 aplicadas). Faltam a fase 5 (RPC:
-`campaign_ids`/`adset_ids` + dicionário de nomes) e a 6 (limpeza e registro).
+Data: 2026-08-28. Estado: **CONCLUÍDO** (2026-08-30). Fases 0 a 6 em produção — migrations 134,
+135, 136 e 137 aplicadas; 304 testes verdes no frontend, `tsc` e design-system limpos.
+**Falta o deploy**: o banco está à frente do app.
 
 Achados durante a execução, que valem mais que o texto original das fases:
 
@@ -357,38 +357,43 @@ precisa de lista. `disponibilidade.test.ts` guarda esse contrato num mapa explí
 `act_`, e o índice é chaveado sem ele — a opção vinha rotulada com o id cru. Consertado na
 função compartilhada.
 
-### Fase 6 — Limpeza e registro (P)
+### Fase 6 — Limpeza e registro (P) — ✅ FEITA (2026-08-30)
 
-- Apagar os re-exports de `lib/boards/{types,fields,evaluate}`, `campaign_name`/`adset_name`
-  do representante na RPC (só quando nenhum consumidor ler), `p_*_name_contains` se o diferencial
-  não os usar mais.
-- `documentation/decisoes-tecnicas.md`: entrada "2026-08 — Um motor de filtros" com as três
-  decisões e o porquê de **não** filtrar nome no servidor (OU inexpressável atravessando a
-  agregação + forma `p_x is null or` dos 57014).
-- `como-funciona-o-app.md`: seção de filtros (E/OU, "sem dado", `%`).
-- Memória: candidata única — "`formatKind` imutável depois de publicado" (restrição que o código
-  não revela). Decidir ao final, pelo teste do `CLAUDE.md`.
+**Dois dos três itens de limpeza não se sustentaram na verificação.** O plano os escreveu
+como previsão; a fase os conferiu antes de executar.
 
-### Decisões de 2026-08-28 (funil, tags, procedência nas filhas)
+- **Re-exports de `lib/boards/{types,fields,evaluate}`:** `fields` e `evaluate` já tinham sido
+  apagados na fase 1 (nasceram e morreram no mesmo passe). O que restou — `types.ts`
+  (`Board`/`BoardGroup`) e `aggregate.ts` — é domínio do Board, vivo e com consumidores.
+  Nada a apagar.
+- **`campaign_name`/`adset_name` do representante na RPC:** o plano condicionava a remoção a
+  "quando nenhum consumidor os ler". **Continuam sendo lidos**: são o rótulo da aba Campanha
+  (`resolveAdName`), o breadcrumb do drill (`ManagerDrillModal`) e a coluna das linhas-filhas.
+  Ficam.
+- **`p_*_name_contains`:** o plano condicionava a remoção a "se o diferencial não os usar
+  mais" — e o diferencial os usa (três cenários de filtro por nome). Nenhum caller do app os
+  envia (`filters: {}` em todos os quatro), então são inertes, e sob `force_custom_plan` o
+  predicado constante poda o ramo. Terceira troca de assinatura na RPC mais quente do app no
+  mesmo dia, por ganho zero, não se faz. Ficam, documentados.
 
-- **O funil da coluna REVELA, não cria.** Numa árvore com grupos e OU não existe
-  resposta óbvia para "onde entra a condição nova": no topo ela somaria (OU) ou
-  apertaria (E) conforme um seletor que está em outro lugar da tela — o mesmo
-  clique faria coisas opostas. O funil responde a pergunta que consegue responder
-  sem ambiguidade ("onde este campo está sendo filtrado?"), abre o popover e rola
-  até a condição, destacada. Criar continua sendo dentro do construtor.
-- **Tags só nas abas Criativos e Anúncios.** A RPC devolve `tags: []` nas abas de
-  Conjunto e Campanha de propósito (a tag do representante descreveria o grupo
-  errado). Oferecer o campo lá era filtro que zerava a tabela sempre — parecia bug
-  do filtro, não do dado. Conserto, não escopo novo.
-- **Conta nas linhas-filhas:** sai de graça. A filha é UM anúncio e já traz
-  `account_id` (exato, não representante). O campo declara `rowKeyFallback` e o
-  motor trata um valor único como lista de um.
-- **Pack nas linhas-filhas:** exige a migration 134. Rende só com dois ou mais
-  packs selecionados — com um pack só, todas as linhas mostram o mesmo. O usuário
-  confirmou que trabalha com vários.
-- **Tags nas filhas: NÃO.** Tag é do criativo; derivá-la para o anúncio exigiria
-  casar por nome, vínculo que não existe no dado.
+**Varredura de código morto de verdade:** nenhum. Seis tipos exportados sem importador nos
+arquivos do motor, mas isso é vocabulário do módulo, não desperdício — o que a filosofia do
+projeto caça é desperdício de RUNTIME (chamada sem consumidor, dado que ninguém lê). A única
+exceção foi `RULE_DIMENSION_FIELDS`, exportado especulativamente por mim uma hora antes:
+voltou a ser local.
+
+**Registro.**
+- `documentation/decisoes-tecnicas.md`: entrada "2026-08-30 — Um motor de filtros para três
+  telas (migrations 134–137)", com o diagnóstico, as decisões, a medição que estava errada e
+  as três lições.
+- `documentation/como-funciona-o-app.md`: seção nova "Filtros de Análise" — o que dá para
+  escrever, a escala de porcentagem, zero × sem dado, "alguma campanha", a matriz de onde cada
+  campo aparece **com o porquê de cada ausência**, o funil, e onde cada filtro é guardado. A
+  seção antiga "Filtros de Busca" foi desambiguada: ela é do **carregador de packs**, não da
+  análise, e os dois estavam a dois parágrafos de distância sem nada dizendo isso.
+- Memória: duas entradas. `formatKind` imutável (a candidata que o plano previa) e — a que
+  este trabalho realmente ensinou — **campo oferecido que a tela não consegue responder**,
+  com os três eixos independentes e as quatro ocorrências.
 
 ## 5. Riscos e como cada um é tratado
 

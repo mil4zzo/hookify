@@ -41,8 +41,8 @@ export interface RuleDimensionSources {
 }
 
 /** Campos de multi-seleção conhecidos, na ordem em que aparecem no seletor. */
-export const RULE_DIMENSION_FIELDS = ["pack_ids", "account_ids", "campaign_ids", "adset_ids"] as const;
-export type RuleDimensionField = (typeof RULE_DIMENSION_FIELDS)[number];
+const RULE_DIMENSION_FIELDS = ["pack_ids", "account_ids", "campaign_ids", "adset_ids"] as const;
+type RuleDimensionField = (typeof RULE_DIMENSION_FIELDS)[number];
 
 export type RuleDimensionOptions = Partial<Record<string, RuleDimensionOption[]>>;
 

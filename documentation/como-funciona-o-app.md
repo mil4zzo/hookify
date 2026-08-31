@@ -197,11 +197,100 @@ Enriquecer os dados dos anúncios com informações de **leadscore** e **CPR má
 - **Sincronizar**: Atualizar dados da planilha manualmente
 - **Status**: Visualizar última sincronização e status
 
-### Filtros de Busca
+### Filtros de Busca (ao CRIAR o pack)
+
+Estes decidem **quais anúncios entram no pack** e são enviados ao Meta na importação.
+Não confundir com os filtros de análise, que são outra coisa — ver abaixo.
 
 - **Campo**: Nome de campanha, adset ou anúncio
 - **Operador**: CONTAIN, EQUAL, NOT_EQUAL, NOT_CONTAIN, STARTS_WITH, ENDS_WITH
 - **Valor**: Texto a ser buscado
+
+---
+
+## Filtros de Análise (Manager, Boards e Critério de Validação)
+
+As três telas usam **o mesmo construtor de regra**. Aprender numa vale para as outras: o
+operador, a escala e o significado são idênticos; o que muda é só quais campos cada tela
+oferece.
+
+### O que dá para escrever
+
+- **E / OU no topo**, e **subgrupos** com lógica própria. `hook > 30% E (gasto > 1000 OU
+  resultados > 50)` é exprimível.
+- **Texto**: contém, não contém, começa com, termina com, é igual, é diferente, **casa com a
+  expressão** (regex) e **está vazio / tem valor**.
+- **Métrica**: `> < >= <= = !=`, mais **"está vazio (não se aplica)"** e **"tem valor"**.
+- **Dimensões**: tags, status, "criado em", pack, conta, campanha, conjunto.
+
+### Porcentagem é a escala que você digita
+
+`2` é 2%. `0,5` é 0,5%. Vale nas três telas e no filtro das linhas-filhas — antes cada uma
+tinha uma convenção diferente e `hook > 0,5%` não funcionava em lugar nenhum.
+
+### Zero e "sem dado" são coisas diferentes
+
+Uma métrica que é **divisão** fica *sem dado* quando o divisor é zero: hook de um anúncio de
+imagem (não houve vídeo), CPR de um anúncio sem conversão, CTR de um anúncio sem impressão.
+Linha sem dado **não entra em `< x` nem em `>= x`** — não há número para afirmar ou negar.
+Para pedir essas linhas de propósito, use **"está vazio"**.
+
+Antes, o zero que o servidor fabricava nesses casos era indistinguível de um zero real: era
+por isso que "hook < 5%" trazia todo anúncio estático e "CPR mais barato" começava por quem
+não converteu.
+
+Métrica de **contagem** (gasto, impressões, plays, resultados) nunca fica sem dado — zero é
+zero de verdade.
+
+### Campanha e conjunto: "ALGUMA", não "a principal"
+
+Uma linha da aba Criativos não é um anúncio — é o mesmo criativo somando dezenas de anúncios,
+que podem estar espalhados por várias campanhas (22% deles estão). Filtrar por campanha
+pergunta **"alguma campanha deste criativo é X"**. Antes comparava só com a campanha do
+anúncio de maior entrega, e escondia o resto em silêncio.
+
+O negativo funciona ao contrário, como se espera: **"nenhuma campanha contém X"** só é
+verdade se nenhuma contiver.
+
+### Onde cada campo aparece, e por quê
+
+| Campo | Manager | Linhas-filhas | Boards | Critério |
+|---|:-:|:-:|:-:|:-:|
+| Métricas, nome do criativo, status, criado em | ✓ | ✓ | ✓ | ✓ |
+| Tags | Criativos e Anúncios | — | ✓ | ✓ |
+| Pack, Conta | ✓ | ✓ | ✓ | ✓ |
+| Campanha / Conjunto (escolher da lista) | ✓ | — | ✓ | — |
+| Nome da campanha / do conjunto (texto) | ✓ | ✓ | ✓ | ✓ |
+| Métricas de MQL | só com planilha | só com planilha | só com planilha | — |
+
+As ausências são deliberadas, e todas pela mesma razão: **um campo só é oferecido onde a tela
+consegue responder a pergunta.**
+
+- **Tags nas abas Conjunto e Campanha:** a tag é do criativo; a do representante descreveria o
+  grupo errado. O servidor devolve lista vazia ali de propósito, então o filtro zeraria a
+  tabela sempre.
+- **Escolher campanha da lista nas linhas-filhas e no Critério:** uma lista precisa vir de
+  algum lugar — as opções saem das linhas na tela. A linha-filha é um anúncio só e traz o
+  *nome* do pai, não o id; e o Critério vive nas Configurações, onde não há período nem pack
+  selecionado. Nos dois, a pergunta se faz por **nome**, que é texto e não precisa de lista.
+
+### O funil no cabeçalho da coluna
+
+Ele **mostra** onde aquela coluna está sendo filtrada — abre o construtor e rola até a
+condição. Não cria condição nova: numa regra com "ou" e subgrupos não existe resposta óbvia
+para onde ela entraria, e o mesmo clique faria coisas opostas conforme o lugar.
+
+Numa regra que usa "ou" cruzando colunas, o funil acende nas duas. É honesto: as duas
+participam da decisão.
+
+### Onde cada filtro é guardado
+
+- **Manager**: na sessão do navegador, por aba. É recorte de trabalho, não preferência — fecha
+  o navegador, some.
+- **Boards**: no banco, junto do grupo.
+- **Critério de validação**: no banco, em `user_preferences`. É ele que decide quais anúncios
+  são elegíveis a julgamento no G.O.L.D., no plano de ação e nas oportunidades — quem não
+  atende fica "em fase de teste".
 
 ---
 

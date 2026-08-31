@@ -3741,3 +3741,77 @@ diferencial cobria o modal.
 
 **Lição.** Cálculo duplicado é bug latente mesmo quando os dois lados concordam hoje. E o
 critério para mexer no que "não dói" é "pode piorar?", não "já doeu?".
+
+## 2026-08-30 — Um motor de filtros para três telas (migrations 134–137)
+
+**Contexto.** A pergunta era estreita: "o filtro de nome do Manager aceita regex, tipo X ou
+Y?". Não aceitava — e ao explicar por quê apareceu o resto. Havia **três motores de filtro**
+para a mesma pergunta, nascidos em três meses diferentes (Critério 2025-11, Manager 2025-12,
+Boards 2026-08), nenhum olhando para o anterior. Eu argumentei que o Critério deveria ficar
+de fora por ter vocabulário próprio; o idealizador respondeu que isso "me parece drift, não
+algo intencional". Ele estava certo, e a evidência datada do git confirmou.
+
+**Os três erravam em lugares diferentes, e todos em silêncio.**
+- Manager: combinava tudo em **E**. "X ou Y" era inexprimível — não havia onde pendurar o OU.
+- Critério: oferecia 22 campos dos quais **11 rejeitavam TODO anúncio**. E não era bug do
+  avaliador: o mapper (`buildAdMetricsData`) copiava 14 campos escolhidos a dedo, e o que ele
+  não copiava chegava `undefined` — campo ausente devolvia `false`. `reach` e `frequency`
+  estavam na linha e mesmo assim reprovavam todo mundo. Do outro lado, `hook` e `page_conv`
+  funcionavam e não apareciam no menu.
+- Filtro de campanha: comparava com o **representante** do grupo (o anúncio de maior entrega).
+  Uma linha de criativo colapsa dezenas de anúncios espalhados por várias campanhas; 390 de
+  1.739 criativos (22%) rodam em mais de uma. "Me mostre os criativos da campanha X" escondia
+  todo criativo cuja maior entrega estivesse em outra — sem erro, a linha só não aparecia.
+- E havia **quatro convenções de porcentagem** para a mesma coluna.
+
+**Decisões.**
+- **Um motor** (`lib/rules/`), um construtor (`components/rules/RuleBuilder`), e as três telas
+  viram **contextos** dele. O único eixo em que diferem é disponibilidade de campo, declarada
+  no registry. Foi isso que permitiu que E/OU, subgrupos, regex e "está vazio" chegassem nas
+  três de uma vez.
+- **Escala de porcentagem = a que o usuário digita.** `2` é 2%. Consequência a carregar: o
+  `formatKind` de uma métrica passa a ser **imutável depois de publicado** — trocá-lo
+  reinterpreta em silêncio toda regra já gravada.
+- **Três estados, não dois.** Métrica que é divisão fica *sem dado* quando o divisor é zero, e
+  sem dado **não casa com a condição nem com a contrária**. Antes o zero fabricado pela RPC
+  fazia "hook < 5%" trazer todo anúncio de imagem e "CPR mais barato" começar por quem não
+  converteu. A alavanca **não é `media_type`**, como o plano supunha: é o divisor zero — cobre
+  CPR, que `media_type` não alcança.
+- **Formato antigo do Critério é descartado, não traduzido** (migration 135). A escala mudou
+  junto (`ctr > 0.02` era 2%, seria 0,02%), e critério traduzido errado não dá erro: só esvazia
+  três telas. O `SELECT` prévio mostrou que ninguém nunca usara nada além de `impressions >= N`.
+- **Procedência múltipla na linha** (`campaign_ids`/`adset_ids`) + dicionário `id → nome` na
+  raiz da resposta (136/137). O nome não viaja por linha: com ~23 campanhas por criativo ele
+  apareceria milhares de vezes.
+
+**A medição que estava errada.** Medi o custo dos arrays com 500 linhas e vi +35% a +67%, o que
+me levou a criar um opt-in (`p_include_parent_ids`) com toda a complexidade que ele traz. Mas o
+Manager pede até **10.000** linhas. Remedido no tamanho real, o gzip aproveita a repetição dos
+ids em muito mais linhas e a conta cai para +29 kB (30 dias) e +197 kB (13 meses). Diante do
+número real o idealizador optou por ligar sempre, e o interruptor saiu inteiro. **Medir num
+tamanho conveniente não é medir.**
+
+**A revisão achou dois seletores que abriam vazios** — a mesma família de bug que o trabalho
+inteiro veio matar. A visão expandida oferecia Pack e Conta sem receber a lista de opções
+(o dado estava lá desde a 134); e o Critério passou a oferecer "Campanha" nas Configurações,
+onde não existe recorte de onde tirar lista. Causa comum: **três telas montavam essa lista,
+cada uma do seu jeito, e a quarta esqueceu.** Virou uma função só, com teste próprio. O teste
+de disponibilidade não pegava nenhum dos dois — ele verifica o registry, e o registry estava
+certo nas duas vezes.
+
+**O que NÃO foi feito, e por quê.** O plano previa apagar `campaign_name`/`adset_name` do
+representante "quando nenhum consumidor os ler" — mas eles são o rótulo da aba Campanha e o
+breadcrumb do drill; continuam vivos. E previa remover os `p_*_name_contains` "se o diferencial
+não os usar" — o diferencial os usa. Terceira troca de assinatura na RPC mais quente do app, no
+mesmo dia, por ganho zero, não se faz.
+
+**Lições.**
+1. **Campo que aparece no menu e não funciona é a pior falha de todas**, porque não dá erro:
+   a tela fica vazia e isso se lê como "não tenho isso", não como "meu filtro está quebrado".
+   Apareceu quatro vezes neste trabalho (os 11 campos mortos, tags nas abas erradas, e os dois
+   seletores da revisão). A regra que ficou: um campo só é oferecido onde a tela consegue
+   **responder** a pergunta — e onde ela não consegue, existe outra forma de perguntar.
+2. **O diferencial precisa medir o que a tela faz, no tamanho em que ela faz.**
+3. **Desconfiar do medidor continua valendo:** dois bugs do próprio harness apareceram aqui —
+   ele comparava o histograma de leads só de um lado, e morria de `UnicodeEncodeError` ao
+   imprimir um nome com til, depois de 45 minutos de execução.
