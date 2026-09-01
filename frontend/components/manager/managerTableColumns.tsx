@@ -1,9 +1,10 @@
 "use client";
 
 import React from "react";
-import type { ColumnDef, ColumnHelper } from "@tanstack/react-table";
+import type { ColumnDef, ColumnHelper, Row, Table as TableInstance } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
+import type { ManagerCellMode } from "@/components/manager/managerCellMode";
 import type { GroupedMetricSeriesByKey, ManagerAverages } from "@/lib/metrics";
 import type { SettingsTab } from "@/lib/store/settingsModal";
 import { IconFilter } from "@tabler/icons-react";
@@ -62,11 +63,14 @@ export type CreateManagerTableColumnsParams = {
   getRowKey: (row: { original?: RankingsItem } | RankingsItem) => string;
 
   endDate?: string;
-  showTrends: boolean;
+  cellMode: ManagerCellMode;
   averagesRef: React.MutableRefObject<ManagerAverages>;
   formatAverageRef: React.MutableRefObject<(metricId: string) => string>;
   filteredAveragesRef: React.MutableRefObject<ManagerAverages | null>;
   formatFilteredAverageRef: React.MutableRefObject<(metricId: string) => string>;
+  /** Agregado das linhas SELECIONADAS — o grupo de comparação ad-hoc. `null` sem seleção. */
+  selectionAveragesRef: React.MutableRefObject<ManagerAverages | null>;
+  formatSelectionAverageRef: React.MutableRefObject<(metricId: string) => string>;
 
   formatCurrencyRef: React.MutableRefObject<(n: number) => string>;
   formatPct: (v: number) => string;
@@ -124,6 +128,48 @@ function statusSortingFn(rowA: { getValue: (id: string) => unknown; original: Ra
   return activeA && !activeB ? -1 : 1;
 }
 
+/**
+ * Regra de clique da seleção, compartilhada pelo checkbox e pela célula em volta dele —
+ * os dois precisam se comportar igual, inclusive no shift+click.
+ *
+ * Shift+click aplica a TODAS as linhas do intervalo (na ordem visível atual, pós-filtro/sort)
+ * o mesmo estado que esta linha passaria a ter: marca ou desmarca o intervalo inteiro.
+ *
+ * Devolve "range" quando já resolveu o intervalo (o chamador deve suprimir o toggle da própria
+ * linha) ou "toggle" quando é clique normal — aí a linha ancora aqui e alterna sozinha.
+ */
+function applySelectionClick(
+  event: { shiftKey: boolean },
+  row: Row<RankingsItem>,
+  table: TableInstance<RankingsItem>,
+  selectionAnchorRef: React.MutableRefObject<string | null>,
+): "range" | "toggle" {
+  const anchorId = selectionAnchorRef.current;
+  if (event.shiftKey && anchorId && anchorId !== row.id) {
+    const visibleRows = table.getRowModel().rows;
+    const anchorPos = visibleRows.findIndex((r) => r.id === anchorId);
+    const clickedPos = visibleRows.findIndex((r) => r.id === row.id);
+    if (anchorPos !== -1 && clickedPos !== -1) {
+      const [start, end] = anchorPos < clickedPos ? [anchorPos, clickedPos] : [clickedPos, anchorPos];
+      const value = !row.getIsSelected();
+      table.setRowSelection((prev) => {
+        const next = { ...prev };
+        for (let i = start; i <= end; i++) {
+          const r = visibleRows[i];
+          if (!r.getCanSelect()) continue;
+          if (value) next[r.id] = true;
+          else delete next[r.id];
+        }
+        return next;
+      });
+      return "range";
+    }
+  }
+  // Clique normal (ou shift sem âncora válida): ancora nesta linha.
+  selectionAnchorRef.current = row.id;
+  return "toggle";
+}
+
 export function createManagerTableColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, any>[] {
   const { columnHelper, currentTab, onOpenDrill, groupByAdNameEffective, viewMode, selectionAnchorRef, activeColumns, provenanceIndex, selectedPackIds, filteredFieldIdsRef, onRevealField } = params;
 
@@ -150,47 +196,48 @@ export function createManagerTableColumns(params: CreateManagerTableColumnsParam
         );
       },
       cell: ({ row, table }) => (
-        <Checkbox
-          checked={row.getIsSelected()}
-          onCheckedChange={(v) => row.toggleSelected(!!v)}
+        <div
+          // HITBOX = A CÉLULA INTEIRA. O alvo real era o ícone de 16px; errar por poucos pixels
+          // caía no <tr> e abria o modal do anúncio — o erro mais caro possível, porque
+          // interrompe a seleção que estava sendo montada e ainda cobre a tela.
+          // O `absolute inset-0` (o <td> da coluna é `relative p-0`, ver TableContent) preenche
+          // a célula toda, padding incluído — que é justamente a faixa morta de antes.
+          className="absolute inset-0 flex cursor-pointer items-center justify-center"
           onMouseDown={(e) => {
             // Evita que shift+click destaque texto da página (seleção de texto do navegador).
             if (e.shiftKey) e.preventDefault();
           }}
           onClick={(e) => {
+            // Linha não-selecionável (arquivada/deletada): deixa o clique seguir para o <tr> e
+            // abrir o modal, como sempre foi. Bloquear aqui criaria uma zona morta.
+            if (!row.getCanSelect()) return;
             e.stopPropagation();
-            // Shift+click: aplica a TODAS as linhas do intervalo (na ordem visível atual, pós-filtro/sort)
-            // o mesmo estado que este checkbox passaria a ter. Assim marca ou desmarca o intervalo inteiro.
-            const anchorId = selectionAnchorRef.current;
-            if (e.shiftKey && anchorId && anchorId !== row.id) {
-              const visibleRows = table.getRowModel().rows;
-              const anchorPos = visibleRows.findIndex((r) => r.id === anchorId);
-              const clickedPos = visibleRows.findIndex((r) => r.id === row.id);
-              if (anchorPos !== -1 && clickedPos !== -1) {
-                // Suprime o toggle nativo do Radix (Root usa composeEventHandlers → checa defaultPrevented),
-                // senão onCheckedChange re-alternaria a própria linha clicada.
-                e.preventDefault();
-                const [start, end] = anchorPos < clickedPos ? [anchorPos, clickedPos] : [clickedPos, anchorPos];
-                const value = !row.getIsSelected();
-                table.setRowSelection((prev) => {
-                  const next = { ...prev };
-                  for (let i = start; i <= end; i++) {
-                    const r = visibleRows[i];
-                    if (!r.getCanSelect()) continue;
-                    if (value) next[r.id] = true;
-                    else delete next[r.id];
-                  }
-                  return next;
-                });
-                return;
-              }
+            // Clique no próprio checkbox: ele tem handler próprio (que também já para a
+            // propagação). O guard existe para a célula continuar correta sozinha, sem
+            // depender de o checkbox lembrar de parar a bolha.
+            if (e.target !== e.currentTarget) return;
+            if (applySelectionClick(e, row, table, selectionAnchorRef) === "toggle") {
+              row.toggleSelected(!row.getIsSelected());
             }
-            // Clique normal (ou shift sem âncora válida): ancora nesta linha; o toggle ocorre via onCheckedChange.
-            selectionAnchorRef.current = row.id;
           }}
-          aria-label="Selecionar linha"
-          disabled={!row.getCanSelect()}
-        />
+        >
+          <Checkbox
+            checked={row.getIsSelected()}
+            onCheckedChange={(v) => row.toggleSelected(!!v)}
+            onMouseDown={(e) => {
+              if (e.shiftKey) e.preventDefault();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              // Suprime o toggle nativo do Radix (Root usa composeEventHandlers → checa
+              // defaultPrevented), senão onCheckedChange re-alternaria a própria linha clicada
+              // por cima do intervalo já aplicado.
+              if (applySelectionClick(e, row, table, selectionAnchorRef) === "range") e.preventDefault();
+            }}
+            aria-label="Selecionar linha"
+            disabled={!row.getCanSelect()}
+          />
+        </div>
       ),
       enableSorting: false,
       enableColumnFilters: false,

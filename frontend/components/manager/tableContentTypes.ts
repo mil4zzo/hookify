@@ -3,6 +3,7 @@ import React from "react";
 import type { Table, RowSelectionState } from "@tanstack/react-table";
 import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
+import type { ManagerCellMode } from "@/components/manager/managerCellMode";
 
 export type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
 
@@ -49,12 +50,17 @@ export interface SharedTableContentProps {
    * porque table é instância mutável estável. Comparada por referência no React.memo — setRowSelection gera
    * objeto novo a cada toggle. Sem isso, o checkbox fica visualmente defasado até um render não relacionado. */
   rowSelection: RowSelectionState;
+  /** "Selecionados no topo": reordena as linhas colocando a seleção primeiro, sem esconder
+   *  o resto da tabela (a régua de comparação continua na tela). Opt-in pela barra flutuante —
+   *  automático faria a linha pular debaixo do cursor a cada checkbox marcado. */
+  pinSelectionToTop?: boolean;
   // Adicionado para detectar quando dados chegam do servidor (evita cache incorreto)
   dataLength: number;
   /** Referência direta ao array de dados para detectar mudanças de conteúdo (ex: series data) no React.memo */
   dataRef: readonly any[] | any[];
-  /** Toggle Médias vs Tendências: quando muda, a tabela deve re-renderizar para mostrar sparklines ou médias */
-  showTrends?: boolean;
+  /** Modo das células (só o valor / variação vs. média / tendência): quando muda, a tabela
+   *  deve re-renderizar para trocar o que aparece acima do número. */
+  cellMode?: ManagerCellMode;
   /** Toggle Comparar com a média: quando muda, a tabela deve re-renderizar para (des)colorir os números. Não é usado diretamente aqui — serve de sinal para o React.memo re-renderizar com os novos closures de célula. */
   colorMetricValue?: boolean;
   /** Chaves de grupo visiveis no viewport virtualizado (ordem atual da tabela). */

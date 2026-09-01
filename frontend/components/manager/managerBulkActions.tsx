@@ -1,4 +1,4 @@
-import { IconPlayerPause, IconPlayerPlay, IconShare2, IconTag } from "@tabler/icons-react";
+import { IconArrowBarToUp, IconPlayerPause, IconPlayerPlay, IconShare2, IconTag } from "@tabler/icons-react";
 import type { BulkAction } from "@/components/common/BulkActionsBar";
 
 interface BuildManagerBulkActionsParams {
@@ -13,6 +13,13 @@ interface BuildManagerBulkActionsParams {
    * campanha seria uma expansão implícita para os N criativos daquele grupo.
    */
   onTags?: () => void;
+  /**
+   * Liga/desliga "selecionados no topo". Existe só onde a tabela sabe reordenar
+   * (ManagerTable); a tabela de filhos do drill não passa.
+   */
+  onTogglePin?: () => void;
+  /** Estado atual do "selecionados no topo" — pinta o botão como pressionado. */
+  isPinned?: boolean;
 }
 
 /**
@@ -20,8 +27,21 @@ interface BuildManagerBulkActionsParams {
  * ManagerChildrenTable renderizam a mesma barra: a copy dos dialogs precisa
  * existir em um lugar só, senão as duas superfícies divergem com o tempo.
  */
-export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags }: BuildManagerBulkActionsParams): BulkAction[] {
+export function buildManagerBulkActions({ onPause, onActivate, onShare, onTags, onTogglePin, isPinned = false }: BuildManagerBulkActionsParams): BulkAction[] {
   const actions: BulkAction[] = [];
+
+  if (onTogglePin) {
+    actions.push({
+      id: "pin",
+      // Primeira ação da barra: é a única que serve para LER (juntar as linhas para
+      // comparar), e é o passo natural depois de marcar os checkboxes. As de escrita
+      // (pausar/ativar) vêm depois, longe do gesto de conferir.
+      label: isPinned ? "Desafixar" : "Fixar no topo",
+      icon: <IconArrowBarToUp className="h-3.5 w-3.5" />,
+      active: isPinned,
+      onSelect: onTogglePin,
+    });
+  }
 
   if (onTags) {
     actions.push({

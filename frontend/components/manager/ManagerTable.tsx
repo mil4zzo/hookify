@@ -12,6 +12,8 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { IconDeviceTablet, IconBorderAll, IconFolder, IconPlayCardA, IconLoader2, IconDownload, IconMaximize, IconMinimize, IconAdjustmentsHorizontal, IconChevronDown, IconShare2 } from "@tabler/icons-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { ToggleSwitch } from "@/components/common/ToggleSwitch";
+import { TriStateToggle } from "@/components/common/TriStateToggle";
+import { MANAGER_CELL_MODE_OPTIONS, type ManagerCellMode } from "@/components/manager/managerCellMode";
 import { ManagerExportDialog } from "@/components/manager/ManagerExportDialog";
 import { ShareCreateDialog } from "@/components/manager/ShareCreateDialog";
 import { toast } from "sonner";
@@ -20,6 +22,7 @@ import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { useSettingsModalStore } from "@/lib/store/settingsModal";
 import { useManagerAverages } from "@/lib/hooks/useManagerAverages";
 import { useFilteredAverages } from "@/lib/hooks/useFilteredAverages";
+import { useSelectionAverages } from "@/lib/hooks/useSelectionAverages";
 import { createManagerTableColumns } from "@/components/manager/managerTableColumns";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TabbedContentItem, type TabItem } from "@/components/common/TabbedContent";
@@ -83,9 +86,10 @@ interface ManagerTableProps {
   dateStart?: string;
   dateStop?: string;
   availableConversionTypes?: string[];
-  showTrends?: boolean;
-  /** Setter do toggle Médias/Tendências — permite hospedar o controle dentro do menu "Exibição". */
-  onShowTrendsChange?: (checked: boolean) => void;
+  /** O que cada célula de métrica mostra acima do número (só o valor / variação / tendência). */
+  cellMode?: ManagerCellMode;
+  /** Setter do toggle de 3 posições — permite hospedar o controle dentro do menu "Exibição". */
+  onCellModeChange?: (mode: ManagerCellMode) => void;
   averagesOverride?: {
     hook: number | null;
     hold_rate?: number | null;
@@ -147,7 +151,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], showTrends = true, onShowTrendsChange, averagesOverride, hasSheetIntegration = false, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], cellMode = "trend", onCellModeChange, averagesOverride, hasSheetIntegration = false, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -464,6 +468,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   };
 
   const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+  // "Selecionados no topo". Opt-in: automático faria a linha pular debaixo do cursor a cada
+  // checkbox marcado. Ligado, uma linha marcada depois SOBE na hora — que é o que se espera
+  // de quem pediu isso explicitamente (juntar o 4º anúncio ao grupo que está comparando).
+  const [pinSelectionToTop, setPinSelectionToTop] = useState(false);
   // A regra de filtro da aba — a MESMA árvore do Boards e do Critério.
   const [rules, setRulesRaw] = useState<RuleTree>(() => loadManagerRules(initialTab));
 
@@ -701,6 +709,11 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const filteredAveragesRef = useRef<any>(null);
   const formatFilteredAverageRef = useRef<(metricId: string) => string>(() => "");
 
+  // Idem para o agregado da SELEÇÃO — mesmo motivo (as colunas não podem depender de um
+  // valor que muda a cada checkbox, senão o TanStack recria todas as colunas).
+  const selectionAveragesRef = useRef<ManagerAverages | null>(null);
+  const formatSelectionAverageRef = useRef<(metricId: string) => string>(() => "");
+
   const getRowKey = useCallback(
     (row: { original?: RankingsItem } | RankingsItem) => {
       const original = "original" in row ? row.original : row;
@@ -774,6 +787,13 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const selectedIds = useMemo(() => Object.keys(rowSelection), [rowSelection]);
   const selectedCount = selectedIds.length;
 
+  // Seleção vazia desliga o pin. Um só ponto cobre todas as saídas: troca de aba, mudança de
+  // filtro (que já limpa a seleção), botão "Limpar", ou desmarcar o último checkbox na mão.
+  // Sem isso o pin ficaria ligado e invisível, e voltaria a reordenar na próxima seleção.
+  useEffect(() => {
+    if (selectedCount === 0) setPinSelectionToTop(false);
+  }, [selectedCount]);
+
   // Refs para valores que mudam frequentemente mas NÃO devem invalidar columns (evita recriação de colunas pelo TanStack Table)
   const averagesRef = useRef(averages);
   const formatAverageRef = useRef(formatAverage);
@@ -793,11 +813,13 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       currentTab,
       getRowKey,
       endDate,
-      showTrends,
+      cellMode,
       averagesRef,
       formatAverageRef,
       filteredAveragesRef,
       formatFilteredAverageRef,
+      selectionAveragesRef,
+      formatSelectionAverageRef,
       formatCurrencyRef,
       formatPct,
       viewMode,
@@ -813,7 +835,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       globalFilterRef,
       ruleContext: { actionType, mqlLeadscoreMin, names },
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, showTrends, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, cellMode, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -937,10 +959,30 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [filteredAverages, formatCurrency],
   );
 
+  // Agregado das linhas selecionadas — o grupo de comparação que o usuário monta no clique,
+  // sem precisar traduzir a seleção para um filtro por nome.
+  const selectionAverages = useSelectionAverages({
+    table: table as any,
+    rowSelection,
+    actionType,
+    hasSheetIntegration,
+    mqlLeadscoreMin,
+  });
+
+  const formatSelectionAverage = useMemo(
+    () =>
+      (metricId: string): string => {
+        return formatManagerAverageValue(metricId as any, selectionAverages, { currencyFormatter: formatCurrency });
+      },
+    [selectionAverages, formatCurrency],
+  );
+
   // Atualizar refs sincronamente (antes do render) para que os headers leiam valores atualizados
   // Não usar useEffect aqui pois ele roda APÓS render, causando valores desatualizados nos headers
   filteredAveragesRef.current = filteredAverages;
   formatFilteredAverageRef.current = formatFilteredAverage;
+  selectionAveragesRef.current = selectionAverages;
+  formatSelectionAverageRef.current = formatSelectionAverage;
   filteredFieldIdsRef.current = filteredFieldIds;
   globalFilterRef.current = deferredGlobalFilter;
   averagesRef.current = averages;
@@ -1020,15 +1062,17 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
                   className="w-full justify-start"
                 />
               </div>
+              {/* Conteúdo das células: 3 posições no mesmo trilho — só o valor, variação
+                  vs. média do pack, ou o sparkline dos últimos 5 dias. O label muda com a
+                  posição e traz a linha de dica (antes não havia nenhuma pista na tela). */}
               <div className="px-2 py-1.5" onKeyDown={(e) => e.stopPropagation()}>
-                <ToggleSwitch
-                  id="menu-show-trends"
-                  checked={showTrends}
-                  onCheckedChange={(v) => onShowTrendsChange?.(v)}
-                  label="Tendências"
-                  variant="minimal"
-                  size="sm"
-                  className="w-full justify-start"
+                <TriStateToggle
+                  id="menu-cell-mode"
+                  value={cellMode}
+                  options={MANAGER_CELL_MODE_OPTIONS}
+                  onValueChange={(mode) => onCellModeChange?.(mode)}
+                  ariaLabel="Conteúdo das células"
+                  className="w-full"
                 />
               </div>
               <div className="px-2 py-1.5" onKeyDown={(e) => e.stopPropagation()}>
@@ -1067,7 +1111,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         </div>
       </>
     ),
-    [viewMode, handleViewModeChange, showTrends, onShowTrendsChange, colorMetricValue, handleColorMetricValueChange, activeColumns, columnOrder, handleToggleColumn, handleReorderColumns, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
+    [viewMode, handleViewModeChange, cellMode, onCellModeChange, colorMetricValue, handleColorMetricValueChange, activeColumns, columnOrder, handleToggleColumn, handleReorderColumns, handleSelectAllColumns, handleDeselectAllColumns, hasSheetIntegration, isFullscreen],
   );
 
   // ── Compartilhamento (aba Criativos): seleção/preset → dialog → link público /s/{token} ──
@@ -1146,15 +1190,16 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       mqlLeadscoreMin,
       sorting,
       rowSelection,
+      pinSelectionToTop,
       dataLength: data.length,
       dataRef: data,
-      showTrends,
+      cellMode,
       colorMetricValue,
       onVisibleRowKeysChange: handleVisibleRowKeysChange,
       isError: isError && currentTab === "por-anuncio",
       onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, rules, setRules, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, data, adsEffectiveRaw, showTrends, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, rules, setRules, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, pinSelectionToTop, data, adsEffectiveRaw, cellMode, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
 
   // Na aba Criativos a seleção existe para compartilhar, não para mexer em status — daí o
@@ -1189,8 +1234,10 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         onActivate: isCreativesTab ? undefined : () => { bulkActivate(selectedIds); setRowSelection({}); },
         onShare: isCreativesTab ? openShareFromSelection : undefined,
         onTags: canBulkTag ? () => setBulkTagOpen(true) : undefined,
+        onTogglePin: () => setPinSelectionToTop((prev) => !prev),
+        isPinned: pinSelectionToTop,
       }),
-    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds, canBulkTag],
+    [isCreativesTab, bulkPause, bulkActivate, openShareFromSelection, selectedIds, canBulkTag, pinSelectionToTop],
   );
 
   // Toolbar única compartilhada pelas 4 abas: busca (leadingSlot) + contagem + botão Filtros.

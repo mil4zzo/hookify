@@ -3,6 +3,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ManagerTable } from "@/components/manager/ManagerTable";
+import { MANAGER_CELL_MODE_STORAGE_KEY, readManagerCellMode, type ManagerCellMode } from "@/components/manager/managerCellMode";
 import { PackConflictGuard } from "@/components/common/PackConflictGuard";
 import { ManagerTableSkeleton } from "@/components/manager/ManagerTableSkeleton";
 import { RankingsItem, RankingsRequest } from "@/lib/api/schemas";
@@ -82,14 +83,9 @@ function ManagerPageContent() {
   useAvailableConversionTypes();
 
   // ── Page-specific state ────────────────────────────────────────────────────
-  const [showTrends, setShowTrends] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    try {
-      return localStorage.getItem("hookify-manager-show-trends") !== "false";
-    } catch (e) {
-      return true;
-    }
-  });
+  // Toggle de 3 posições do menu "Exibição": o que cada célula mostra acima do número.
+  // "trend" é o único modo que consome séries — os outros dois não pedem nada ao backend.
+  const [cellMode, setCellMode] = useState<ManagerCellMode>(() => readManagerCellMode());
 
   // ── Search params → initial filters ───────────────────────────────────────
   const initialFilters = useMemo(() => {
@@ -269,6 +265,7 @@ function ManagerPageContent() {
     [dateRange.start, dateRange.end, activeGroupBy, actionType, selectedPackIds, activeSeriesKeys],
   );
 
+  const showTrends = cellMode === "trend";
   const shouldFetchSeries = showTrends && activeSeriesKeys.length > 0;
   const { data: managerSeriesData, isError: managerSeriesError } = useAdPerformanceSeries(managerSeriesRequest, shouldFetchSeries);
 
@@ -335,12 +332,12 @@ function ManagerPageContent() {
   // propria e tem cache em IndexedDB.
 
   // ── Handlers ───────────────────────────────────────────────────────────────
-  const handleShowTrendsChange = (checked: boolean) => {
-    setShowTrends(checked);
+  const handleCellModeChange = (mode: ManagerCellMode) => {
+    setCellMode(mode);
     try {
-      localStorage.setItem("hookify-manager-show-trends", checked.toString());
+      localStorage.setItem(MANAGER_CELL_MODE_STORAGE_KEY, mode);
     } catch (e) {
-      logger.error("Erro ao salvar showTrends no localStorage:", e);
+      logger.error("Erro ao salvar cellMode no localStorage:", e);
     }
   };
 
@@ -380,8 +377,8 @@ function ManagerPageContent() {
           dateStart={dateRange.start}
           dateStop={dateRange.end}
           availableConversionTypes={actionTypeOptions}
-          showTrends={showTrends}
-          onShowTrendsChange={handleShowTrendsChange}
+          cellMode={cellMode}
+          onCellModeChange={handleCellModeChange}
           hasSheetIntegration={hasSheetIntegration}
           names={(managerData as any)?.names}
           isLoading={loading || packsLoading}

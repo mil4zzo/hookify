@@ -27,7 +27,12 @@ import { MANAGER_METRIC_KEYS, getManagerMetricLabel, type ManagerMetricKey } fro
 import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
 import { TAG_FILTER_OPERATORS } from "@/lib/tags/filter";
 
-export type RuleFieldKind = "metric" | "text" | "tags" | "status" | "date" | "multiselect";
+/**
+ * `count` é uma contagem que a LINHA carrega (quantos anúncios ativos o grupo tem),
+ * não uma métrica do registry de métricas: não tem escala de porcentagem, não tem
+ * divisor que possa ser zero, e o valor é lido direto da linha.
+ */
+export type RuleFieldKind = "metric" | "count" | "text" | "tags" | "status" | "date" | "multiselect";
 
 export type RuleFieldGroup = "Tags" | "Criativo" | "Procedência" | "Métricas";
 
@@ -60,6 +65,12 @@ export interface RuleField {
   availableIn?: RuleContext[];
   /** Abas do Manager que oferecem o campo. Ausente = todas. */
   availableTabs?: RuleManagerTab[];
+  /**
+   * Opções FIXAS do campo, quando o vocabulário não vem das linhas da tela. O status
+   * é o caso: as quatro situações existem independentemente do que está carregado.
+   * Um campo com `options` não precisa que o editor forneça `dimensionOptions`.
+   */
+  options?: { value: string; label: string }[];
   /**
    * Chave alternativa na linha, quando a mesma pergunta é respondida por um campo
    * de nome diferente. A linha AGREGADA traz `account_ids` (lista: o criativo roda
@@ -105,9 +116,20 @@ export const RULE_OPERATORS: Record<RuleFieldKind, { value: string; label: strin
     { value: "is_not_empty", label: "Tem valor" },
   ],
   tags: TAG_FILTER_OPERATORS.map((op) => ({ value: op.value as string, label: op.label })),
+  // Caixas de marcar, como sempre foi: escolher mais de uma é "ou". Os operadores
+  // `is_active`/`is_paused` da versão de agosto continuam sendo aceitos pelo
+  // avaliador (regra salva não muda de significado), mas saíram do menu.
   status: [
-    { value: "is_active", label: "Tem veiculação ativa" },
-    { value: "is_paused", label: "Está totalmente pausado" },
+    { value: "has_any", label: "É algum de" },
+    { value: "has_none", label: "Não é nenhum de" },
+  ],
+  count: [
+    { value: ">", label: "Maior que" },
+    { value: "<", label: "Menor que" },
+    { value: ">=", label: "Maior ou igual" },
+    { value: "<=", label: "Menor ou igual" },
+    { value: "=", label: "Igual a" },
+    { value: "!=", label: "Diferente de" },
   ],
   multiselect: [
     { value: "has_any", label: "É algum de" },
@@ -137,7 +159,32 @@ const DIMENSION_FIELDS: RuleField[] = [
     availableTabs: ["individual", "por-anuncio"],
   },
   { id: "ad_name", label: "Nome do criativo", kind: "text", group: "Criativo" },
-  { id: "status", label: "Status", kind: "status", group: "Criativo" },
+  {
+    id: "status",
+    label: "Status",
+    kind: "status",
+    group: "Criativo",
+    // Os rótulos do Meta, que são os que o usuário lê no Gerenciador. "Pausado
+    // (Conjunto)" e "(Campanha)" respondem a pergunta que o status sozinho não
+    // responde: está parado porque EU parei, ou porque o pai está parado?
+    options: [
+      { value: "ACTIVE", label: "Ativo" },
+      { value: "PAUSED", label: "Pausado" },
+      { value: "ADSET_PAUSED", label: "Pausado (Conjunto)" },
+      { value: "CAMPAIGN_PAUSED", label: "Pausado (Campanha)" },
+    ],
+  },
+  // Contagem de anúncios ativos do grupo. Só onde a linha agrega anúncios E a RPC
+  // manda o número: na aba de Anúncios ele é 0 ou 1 (inútil) e na de Campanhas a
+  // RPC não o devolve. `is_active` responde "≥ 1"; este campo responde "quantos".
+  {
+    id: "active_count",
+    label: "Anúncios ativos",
+    kind: "count",
+    group: "Criativo",
+    availableIn: ["manager"],
+    availableTabs: ["por-anuncio", "por-conjunto"],
+  },
   // meta_created_time é ATRIBUTO do criativo ("quando estreou"), não o recorte da
   // tela — por isso é regra, enquanto o período continua vindo do seletor global.
   { id: "meta_created_time", label: "Criado em", kind: "date", group: "Criativo" },
@@ -279,8 +326,7 @@ export function getDefaultRuleOperator(fieldId: string): string {
 export function getDefaultRuleValue(fieldId: string): import("./types").RuleConditionValue {
   const field = getRuleField(fieldId);
   if (!field) return null;
-  if (field.kind === "tags" || field.kind === "multiselect") return [];
-  if (field.kind === "status") return null;
+  if (field.kind === "tags" || field.kind === "multiselect" || field.kind === "status") return [];
   return "";
 }
 

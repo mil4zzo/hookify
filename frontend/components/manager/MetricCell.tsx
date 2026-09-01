@@ -7,6 +7,7 @@ import { MetricNotApplicable } from "@/components/common/MetricNotApplicable";
 import { useRowHoveredDay, setHoveredBar, clearHoveredBar } from "@/lib/hooks/useRowBarHover";
 import { Badge } from "@/components/ui/badge";
 import { RankingsItem } from "@/lib/api/schemas";
+import type { ManagerCellMode } from "./managerCellMode";
 import { cn } from "@/lib/utils/cn";
 import { getMetricQualityToneByAverage, getMetricValueTextClass } from "@/lib/utils/metricQuality";
 import {
@@ -28,7 +29,8 @@ interface MetricCellProps {
   getRowKey: (row: any) => string;
   byKey: Map<string, any>;
   endDate?: string;
-  showTrends?: boolean;
+  /** O que a célula mostra acima do número: nada, a variação vs. média ou o sparkline. */
+  cellMode?: ManagerCellMode;
   averages: ManagerAverages;
   formatCurrency: (n: number) => string;
   actionType?: string;
@@ -55,7 +57,7 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
 
   // Primitive props
   if (prev.endDate !== next.endDate) return false;
-  if (prev.showTrends !== next.showTrends) return false;
+  if (prev.cellMode !== next.cellMode) return false;
   if (prev.actionType !== next.actionType) return false;
   if (prev.hasSheetIntegration !== next.hasSheetIntegration) return false;
   if (prev.mqlLeadscoreMin !== next.mqlLeadscoreMin) return false;
@@ -77,7 +79,7 @@ function arePropsEqual(prev: MetricCellProps, next: MetricCellProps): boolean {
   return true;
 }
 
-export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, showTrends, averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false, lightweight = false, colorMetricValue = false }: MetricCellProps) {
+export const MetricCell = React.memo(function MetricCell({ row, value, metric, getRowKey, byKey, endDate, cellMode = "trend", averages, formatCurrency, actionType, hasSheetIntegration, mqlLeadscoreMin, minimal = false, lightweight = false, colorMetricValue = false }: MetricCellProps) {
   // row já é o objeto agregado (info.row.original), então precisamos ajustar
   const original: RankingsItem = ("original" in row ? row.original : row) as RankingsItem;
   const rowKey = getRowKey(row);
@@ -134,7 +136,7 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       fadeTimerRef.current = null;
     }
 
-    if (!showTrends) {
+    if (cellMode !== "trend") {
       setSparklinePhase("done");
       return;
     }
@@ -163,13 +165,13 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
         fadeTimerRef.current = null;
       }
     };
-  }, [seriesLoading, showTrends, TOTAL_STAGGERED_TRANSITION_MS]);
+  }, [seriesLoading, cellMode, TOTAL_STAGGERED_TRANSITION_MS]);
 
   if (emptyKind === "format") {
     return <MetricNotApplicable minimal={minimal} />;
   }
 
-  if (showTrends && sparklinePhase === "skeleton") {
+  if (cellMode === "trend" && sparklinePhase === "skeleton") {
     return (
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
         <SparklineSkeleton minimal={minimal} barCount={loadedBarsCount} staggeredFadeOut={false} />
@@ -187,8 +189,8 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
   // Isso garante que sempre renderizamos o sparkline, mesmo quando não há dados
   const normalizedSeries = s || (dates ? Array(dates.length).fill(null) : Array(5).fill(null));
 
-  // Se showTrends estiver ativo, mostrar sparklines
-  if (showTrends) {
+  // Modo "trend": sparkline acima do número
+  if (cellMode === "trend") {
     const trendPresentation = getManagerMetricTrendPresentation(metric, averages);
 
     // Obter série apropriada para determinar disponibilidade de dados baseada na métrica
@@ -278,6 +280,16 @@ export const MetricCell = React.memo(function MetricCell({ row, value, metric, g
       <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
         {sparklineBars}
         {valueNode}
+      </div>
+    );
+  }
+
+  // Modo "value": a célula é só o número — sem badge de variação e sem sparkline
+  // (e, por consequência, sem nenhuma série pedida ao backend).
+  if (cellMode === "value") {
+    return (
+      <div className={`flex flex-col items-center ${minimal ? "gap-1" : "gap-3"}`}>
+        <span className={cn(minimal ? "text-xs" : "text-base", "font-medium leading-none", valueColorClass)}>{value}</span>
       </div>
     );
   }

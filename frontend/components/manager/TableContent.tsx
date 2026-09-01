@@ -8,6 +8,7 @@ import { StatePanel } from "@/components/common/States";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { RankingsItem } from "@/lib/api/schemas";
 import { MANAGER_ROW_HEIGHT, type SharedTableContentProps } from "@/components/manager/tableContentTypes";
+import { orderSelectedFirst } from "@/lib/manager/selectionComparison";
 
 export type TableContentVariant = "detailed" | "minimal";
 
@@ -34,7 +35,7 @@ const VARIANT_STYLES = {
     resizeHandle: "w-1.5",
     skeletonRow: "bg-background",
     row: (isResizing: boolean) => `bg-background transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-input-30 cursor-pointer"}`,
-    cell: (cellAlign: string, isFirst: boolean, isLast: boolean) => `p-4 ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`,
+    cell: (cellAlign: string, isFirst: boolean, isLast: boolean, padless = false) => `${padless ? "relative p-0" : "p-4"} ${cellAlign} border-y border-border ${isFirst ? "rounded-l-md border-l" : ""} ${isLast ? "rounded-r-md border-r" : ""}`,
     emptyTd: "p-4",
     skeletonThumb: "w-14 h-14",
     skeletonName: (
@@ -59,7 +60,7 @@ const VARIANT_STYLES = {
     resizeHandle: "w-1",
     skeletonRow: "border-b border-border",
     row: (isResizing: boolean) => `border-b border-border transition-colors ${isResizing ? "cursor-col-resize" : "hover:bg-muted-30 cursor-pointer"}`,
-    cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean) => `py-1.5 px-2 ${cellAlign} border-r border-border last:border-r-0`,
+    cell: (cellAlign: string, _isFirst: boolean, _isLast: boolean, padless = false) => `${padless ? "relative p-0" : "py-1.5 px-2"} ${cellAlign} border-r border-border last:border-r-0`,
     emptyTd: "p-2",
     skeletonThumb: "w-8 h-8",
     skeletonName: <Skeleton className="h-3 w-24" />,
@@ -71,7 +72,7 @@ const VARIANT_STYLES = {
 // Função de comparação customizada otimizada para React.memo
 function areTableContentPropsEqual(prev: TableContentProps, next: TableContentProps): boolean {
   // 1. Comparações primitivas (rápidas)
-  if (prev.variant !== next.variant || prev.isLoadingEffective !== next.isLoadingEffective || prev.isError !== next.isError || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.showTrends !== next.showTrends || prev.colorMetricValue !== next.colorMetricValue) {
+  if (prev.variant !== next.variant || prev.isLoadingEffective !== next.isLoadingEffective || prev.isError !== next.isError || prev.groupByAdNameEffective !== next.groupByAdNameEffective || prev.currentTab !== next.currentTab || prev.dateStart !== next.dateStart || prev.dateStop !== next.dateStop || prev.actionType !== next.actionType || prev.cellMode !== next.cellMode || prev.colorMetricValue !== next.colorMetricValue) {
     return false;
   }
 
@@ -128,6 +129,10 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
     return false;
   }
 
+  if (prev.pinSelectionToTop !== next.pinSelectionToTop) {
+    return false;
+  }
+
   // IMPORTANTE: Não comparar columnSizing aqui porque:
   // 1. columnSizing não afeta quais rows são mostradas, só o tamanho das colunas
   // 2. Durante resize, columnSizing muda frequentemente mas os dados não mudam
@@ -146,17 +151,29 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, onVisibleRowKeysChange, onOpenDrill, variant = "detailed" }: TableContentProps) {
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, variant = "detailed" }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const styles = VARIANT_STYLES[variant];
 
   // OTIMIZAÇÃO CRÍTICA: Memoizar rows para evitar processar 873 linhas durante resize
   // rows só deve ser recalculado quando dados, filtros ou sorting mudarem
   // NÃO recalcular quando apenas columnSizing mudar (durante resize)
+  // `rowSelection` entra nas deps só por causa do pin: sem ele marcar um checkbox não
+  // reordenaria. Quando o pin está desligado (caso comum), `orderSelectedFirst` nem roda.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- columnFilters/sorting comparados por referência, suficiente pois vêm de state controlado
   const rows = useMemo(() => {
-    return table.getRowModel().rows;
-  }, [table.options.data, table.getState().columnFilters, sorting]);
+    const base = table.getRowModel().rows;
+    if (!pinSelectionToTop) return base;
+    return orderSelectedFirst(base, (row) => row.getIsSelected()) as typeof base;
+  }, [table.options.data, table.getState().columnFilters, sorting, rowSelection, pinSelectionToTop]);
+
+  // Ligar o pin com a tabela rolada colocaria a seleção no topo FORA da vista — o usuário
+  // pediu justamente para vê-las juntas. Só ao LIGAR: rolar a cada linha marcada depois
+  // disso arrancaria a tabela debaixo do cursor enquanto ele continua selecionando.
+  useEffect(() => {
+    if (!pinSelectionToTop) return;
+    tableContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [pinSelectionToTop]);
 
   // Estado para controlar se está redimensionando uma coluna
   const [isResizing, setIsResizing] = useState(false);
@@ -399,8 +416,11 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
                       const cellAlign = cell.column.id === "ad_name" ? "text-left" : "text-center";
                       const isFirst = cellIndex === 0;
                       const isLast = cellIndex === row.getVisibleCells().length - 1;
+                      // A célula de seleção entrega o padding para dentro: o conteúdo é um alvo
+                      // `absolute inset-0` que ocupa a célula inteira (ver managerTableColumns).
+                      const isSelectCell = cell.column.id === "select";
                       return (
-                        <td key={cell.id} className={styles.cell(cellAlign, isFirst, isLast)}>
+                        <td key={cell.id} className={styles.cell(cellAlign, isFirst, isLast, isSelectCell)}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       );

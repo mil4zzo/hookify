@@ -63,7 +63,7 @@ export function getManagerRulesStorageKey(tab: ManagerTab): string {
  */
 export const DEFAULT_INDIVIDUAL_RULES: RuleTree = {
   logic: "AND",
-  conditions: [{ id: "status__default", type: "condition", field: "status", operator: "is_active", value: null }],
+  conditions: [{ id: "status__default", type: "condition", field: "status", operator: "has_any", value: ["ACTIVE"] }],
 };
 
 export function loadManagerRules(tab: ManagerTab): RuleTree {

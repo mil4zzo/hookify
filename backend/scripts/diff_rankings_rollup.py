@@ -482,6 +482,58 @@ def compare_v136(old: dict, new: dict) -> list:
     return diffs
 
 
+
+V138_COUNTERS = ("paused_self_count", "adset_paused_count", "campaign_paused_count")
+
+
+def compare_v138(old: dict, new: dict, scenario: dict) -> list:
+    """v137 x v138: puro acrescimo, mais tres invariantes sobre os contadores.
+
+    1. Toda chave antiga identica.
+    2. Os contadores existem SO nas abas que agregam anuncios (ad_name/ad_id). Numa
+       linha de conjunto ou campanha a presenca deles faria a tela classificar a
+       ENTIDADE pelo motivo dos anuncios dela — "conjunto pausado" viraria "pausado
+       pelo conjunto", que e a resposta certa para o anuncio e errada para o conjunto.
+    3. Coerencia: nenhum contador negativo, e active_count + os tres nunca passam do
+       total de anuncios do grupo (sao particoes disjuntas de `effective_status`).
+    """
+    diffs: list = []
+    for key in ("pagination", "available_conversion_types", "averages", "header_aggregates", "names"):
+        cmp_value(key, old.get(key), new.get(key), diffs)
+    cmp_value("overlap", old.get("overlap"), new.get("overlap"), diffs)
+
+    agrega = scenario.get("group_by") in ("ad_name", "ad_id")
+    od, nd = old.get("data", []), new.get("data", [])
+    if len(od) != len(nd):
+        diffs.append(("data.<len>", len(od), len(nd)))
+        return diffs
+
+    for i, (ro, rn) in enumerate(zip(od, nd)):
+        gk = ro.get("group_key")
+        if gk != rn.get("group_key"):
+            diffs.append((f"data[{i}].group_key (ordem)", gk, rn.get("group_key")))
+            continue
+
+        presentes = [k for k in V138_COUNTERS if rn.get(k) is not None]
+        if agrega and len(presentes) != len(V138_COUNTERS):
+            diffs.append((f"data[{gk}].<contadores>", "os tres presentes", presentes))
+        if not agrega and presentes:
+            diffs.append((f"data[{gk}].<contadores>", "nenhum (linha e a entidade)", presentes))
+
+        if agrega:
+            soma = sum(int(rn.get(k) or 0) for k in V138_COUNTERS)
+            ativos = int(rn.get("active_count") or 0)
+            total = int(rn.get("ad_count") or 0)
+            if any(int(rn.get(k) or 0) < 0 for k in V138_COUNTERS):
+                diffs.append((f"data[{gk}].<contadores>", ">= 0", [rn.get(k) for k in V138_COUNTERS]))
+            if soma + ativos > total:
+                diffs.append((f"data[{gk}].<soma>", f"<= ad_count ({total})", soma + ativos))
+
+        rn2 = {k: v for k, v in rn.items() if k not in V138_COUNTERS}
+        cmp_value(f"data[{gk}]", ro, rn2, diffs)
+    return diffs
+
+
 # ---------------------------------------------------------------------------
 
 def main() -> int:
@@ -491,6 +543,9 @@ def main() -> int:
     ap.add_argument("--filter", default="", help="substring do id do cenário")
     ap.add_argument("--series", action="store_true",
                     help="compara a serie (fetch_manager_rankings_series_v2_legacy x wrapper da _v131) em vez da core")
+    ap.add_argument("--v138", action="store_true",
+                    help="compara base_v137 x base_v138: tudo identico, mais os contadores de motivo de "
+                         "pausa (presentes SO nas abas que agregam anuncios, e coerentes com active_count)")
     ap.add_argument("--v137", action="store_true",
                     help="compara base_v132 x base_v137 (a que esta em producao): campos antigos identicos; "
                          "campaign_ids/adset_ids sempre presentes; dicionario `names` so com ids das linhas")
@@ -513,6 +568,9 @@ def main() -> int:
     if args.v137:
         OLD_FN = "public.fetch_manager_performance_base_v132"
         NEW_FN = "public.fetch_manager_performance_base_v137"
+    if args.v138:
+        OLD_FN = "public.fetch_manager_performance_base_v137"
+        NEW_FN = "public.fetch_manager_performance_base_v138"
 
     psql = find_psql()
     url = os.environ.get("LAB_URL", LAB_URL_DEFAULT)
@@ -533,6 +591,7 @@ def main() -> int:
     if len(lines) != len(scen):
         print(f"AVISO: {len(lines)} resultados para {len(scen)} cenarios")
 
+    s_by_id = {sc['id']: sc for sc in scen}
     total_diffs = 0
     bad = 0
     for ln in lines:
@@ -541,6 +600,8 @@ def main() -> int:
         if args.series:
             diffs = []
             cmp_value("series", old, new, diffs)   # contrato integral: window + series_by_group
+        elif args.v138:
+            diffs = compare_v138(old, new, s_by_id.get(sid, {}))
         elif args.v136 or args.v137:
             diffs = compare_v136(old, new)
         elif args.v132:

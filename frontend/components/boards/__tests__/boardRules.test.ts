@@ -197,7 +197,13 @@ test("registry: campo conhece o proprio tipo, operadores e valor inicial", () =>
   assert.deepEqual(getDefaultRuleValue("pack_ids"), []);
   assert.equal(getDefaultRuleValue("spend"), "");
 
-  assert.ok(getRuleOperators("status").some((op) => op.value === "is_active"));
+  // Status voltou a ser caixa de marcar (migration 138), com os rotulos do Meta.
+  assert.deepEqual(getDefaultRuleValue("status"), []);
+  assert.ok(getRuleOperators("status").some((op) => op.value === "has_any"));
+  assert.deepEqual(
+    getRuleField("status")?.options?.map((o) => o.value),
+    ["ACTIVE", "PAUSED", "ADSET_PAUSED", "CAMPAIGN_PAUSED"],
+  );
   assert.ok(getRuleOperators("ad_name").some((op) => op.value === "contains"));
 });
 

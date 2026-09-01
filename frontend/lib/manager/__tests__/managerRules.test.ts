@@ -32,7 +32,8 @@ test("aba individual nasce filtrando por veiculação ativa", () => {
   assert.equal(DEFAULT_INDIVIDUAL_RULES.conditions.length, 1);
   const only = DEFAULT_INDIVIDUAL_RULES.conditions[0] as RuleConditionLeaf;
   assert.equal(only.field, "status");
-  assert.equal(only.operator, "is_active");
+  assert.equal(only.operator, "has_any");
+  assert.deepEqual(only.value, ["ACTIVE"]);
   assert.equal(countRestrictiveConditions(DEFAULT_INDIVIDUAL_RULES), 1);
 });
 

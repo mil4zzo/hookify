@@ -23,6 +23,8 @@ export interface BulkAction {
   /** Classes extras do botão — tint de hover conforme a natureza da ação. */
   className?: string;
   disabled?: boolean;
+  /** Ação de liga/desliga: quando true, o botão aparece pressionado (estado visível na barra). */
+  active?: boolean;
   /** Troca o ícone por spinner enquanto `isLoading`. Só para ações que disparam a carga. */
   showsLoading?: boolean;
   /** Ausente = executa direto (ação não destrutiva). Presente = passa pelo ConfirmDialog. */
@@ -81,7 +83,7 @@ export function BulkActionsBar({ selectedCount, isLoading, allSelected, entityNo
         </span>
         <div className="h-4 w-px bg-border" />
         {actions.map((action) => (
-          <Button key={action.id} variant="ghost" size="sm" className={cn("h-auto gap-1 px-2 py-0.5 text-xs", action.className)} disabled={isLoading || action.disabled} onClick={() => handleClick(action)}>
+          <Button key={action.id} variant="ghost" size="sm" aria-pressed={action.active} className={cn("h-auto gap-1 px-2 py-0.5 text-xs", action.active && "bg-primary-10 text-primary", action.className)} disabled={isLoading || action.disabled} onClick={() => handleClick(action)}>
             {isLoading && action.showsLoading ? <IconLoader2 className="h-3.5 w-3.5 animate-spin" /> : action.icon}
             {action.label}
           </Button>

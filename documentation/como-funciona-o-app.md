@@ -228,6 +228,47 @@ oferece.
 `2` é 2%. `0,5` é 0,5%. Vale nas três telas e no filtro das linhas-filhas — antes cada uma
 tinha uma convenção diferente e `hook > 0,5%` não funcionava em lugar nenhum.
 
+### Status: os quatro rótulos, e o que cada aba lê
+
+As opções são as mesmas do Gerenciador do Meta — **Ativo**, **Pausado**, **Pausado
+(Conjunto)**, **Pausado (Campanha)** — em caixas de marcar (marcar mais de uma é "ou").
+As duas últimas respondem a pergunta que "pausado" sozinho não responde: *está parado
+porque eu parei, ou porque o pai está parado?*
+
+O que cada aba considera:
+
+| aba | o que é lido |
+|---|---|
+| **Anúncios** | o status do próprio anúncio, exato |
+| **Conjuntos** | o estado do **conjunto**, como veio do Meta |
+| **Campanhas** | o estado da **campanha**, como veio do Meta |
+| **Criativos** | a única que agrega — ver abaixo |
+
+Um conjunto pausado tem todos os seus anúncios em "Pausado (Conjunto)". Se a aba de
+Conjuntos lesse os anúncios, ele apareceria como *Pausado (Conjunto)* — resposta certa
+para o anúncio e errada para o conjunto, que está simplesmente **Pausado**. Por isso
+cada aba lê o que lhe corresponde.
+
+**Na aba Criativos**, a linha soma dezenas de anúncios:
+
+- **Ativo** = tem pelo menos um anúncio ativo. E só isso — com algum no ar, nenhum
+  motivo de pausa se aplica.
+- Se **nenhum** está ativo, o criativo aparece em **cada motivo presente** entre seus
+  anúncios. Um criativo parado com 30 anúncios pausados pelo conjunto e 1 pausado por
+  você aparece tanto em *Pausado (Conjunto)* quanto em *Pausado*.
+
+Por que "cada motivo presente" e não "todos pelo mesmo motivo": medido sobre 400
+criativos reais, **motivo misturado é a regra** — só 88 tinham todos os anúncios parados
+pela mesma razão, porque um criativo roda em várias campanhas e cada anúncio para por um
+motivo. Com a regra estrita, as duas opções específicas ficariam quase vazias.
+
+### Anúncios ativos: contagem, com corte
+
+Campo numérico separado do status: *"criativos com mais de 3 anúncios ativos"*. O status
+responde "tem algum"; este responde "quantos". Disponível nas abas **Criativos** e
+**Conjuntos** — na de Anúncios seria sempre 0 ou 1, e na de Campanhas o número não vem
+do servidor.
+
 ### Zero e "sem dado" são coisas diferentes
 
 Uma métrica que é **divisão** fica *sem dado* quando o divisor é zero: hook de um anúncio de
@@ -257,6 +298,7 @@ verdade se nenhuma contiver.
 | Campo | Manager | Linhas-filhas | Boards | Critério |
 |---|:-:|:-:|:-:|:-:|
 | Métricas, nome do criativo, status, criado em | ✓ | ✓ | ✓ | ✓ |
+| Anúncios ativos (contagem) | Criativos e Conjuntos | — | — | — |
 | Tags | Criativos e Anúncios | — | ✓ | ✓ |
 | Pack, Conta | ✓ | ✓ | ✓ | ✓ |
 | Campanha / Conjunto (escolher da lista) | ✓ | — | ✓ | — |

@@ -3815,3 +3815,57 @@ mesmo dia, por ganho zero, não se faz.
 3. **Desconfiar do medidor continua valendo:** dois bugs do próprio harness apareceram aqui —
    ele comparava o histograma de leads só de um lado, e morria de `UnicodeEncodeError` ao
    imprimir um nome com til, depois de 45 minutos de execução.
+
+## 2026-08-30 — O filtro de status volta a ter quatro rótulos (migration 138)
+
+**Contexto.** Horas depois de fechar o motor único de filtros, o idealizador notou que o
+filtro de "anúncios ativos" tinha sumido, e perguntou se campanhas/conjuntos também. A
+verificação deu razão a ele em duas de três coisas — e as duas eram decisão minha que
+**não foi comunicada**.
+
+- **Campanha/conjunto:** não removidos, melhorados (viraram "alguma campanha do criativo").
+- **Status:** encolhido de quatro caixas de marcar (Ativo, Pausado, Pausado (Conjunto),
+  Pausado (Campanha)) para dois operadores booleanos. Havia motivo para metade dos casos:
+  nas abas que agregam, a lista antiga comparava com o status do REPRESENTANTE do grupo, a
+  mesma mentira do filtro de campanha. Mas na aba de Anúncios, onde a linha É um anúncio, o
+  status era exato e distinguir a causa da pausa era informação legítima.
+- **Quantidade de anúncios ativos:** removido. E no plano eu havia escrito que
+  `is_active`/`is_paused` **"substitui `active_count_filter`"** — não substitui.
+  `is_active` é "≥ 1"; o antigo aceitava qualquer corte. Perdi uma pergunta inteira e a
+  registrei como equivalente.
+
+**O que o dado revelou.** O status que a linha de CRIATIVOS carrega é
+`fallback_status = min(effective_status)` — o primeiro motivo em ordem **alfabética** entre
+os anúncios do grupo. Por isso 'ARCHIVED' aparecia como status de criativos que tinham um
+único anúncio arquivado (ACTIVE < ADSET_PAUSED < ARCHIVED < CAMPAIGN_PAUSED < PAUSED).
+Devolver os quatro rótulos exigia um dado que a linha não tinha.
+
+**Decisões.**
+- **Migration 138:** contadores por motivo de pausa (`paused_self_count`,
+  `adset_paused_count`, `campaign_paused_count`) no mesmo `group by` que já calculava
+  `active_count` — nenhuma leitura nova.
+- **Cada aba lê o que lhe corresponde**, e quem decide é o DADO, não um parâmetro: a RPC
+  manda os contadores **só** nas abas que agregam anúncios, e a ausência deles é o sinal de
+  "leia o status da própria entidade". Sem isso, um conjunto pausado seria classificado como
+  "pausado pelo conjunto" — resposta certa para o anúncio, errada para o conjunto.
+- **"Cada motivo presente", não "todos compartilham".** Medido sobre 400 criativos: motivo
+  MISTURADO é a regra (só 88 tinham todos os anúncios parados pela mesma razão — um criativo
+  roda em várias campanhas e cada anúncio para por um motivo). Com a regra estrita as duas
+  opções específicas ficariam quase vazias e o filtro pareceria quebrado. Com "algum motivo":
+  58 ativos, 188 pausados no próprio anúncio, 256 pelo conjunto, 231 pela campanha.
+- **Tipo de campo novo `count`**, para "Anúncios ativos": não é métrica (sem escala de
+  porcentagem, sem divisor que possa ser zero) e é lido direto da linha. Oferecido só onde a
+  contagem existe — na aba de Anúncios seria 0/1, e na de Campanhas a RPC devolve `null`
+  (o filtro antigo caía para "número de conjuntos" ali, silenciosamente errado).
+- `is_active`/`is_paused` continuam aceitos pelo avaliador: mudar o significado de uma regra
+  já gravada é pior do que carregar dois apelidos.
+
+**Uma sabotagem "escapou" e achou código morto.** O avaliador tinha um
+`if (activeCount == null) return proprio()` que dava a MESMA resposta que as linhas
+seguintes para toda forma de linha que a RPC produz. A sabotagem não mudou comportamento
+porque não havia comportamento ali. Removido.
+
+**Lição.** As duas perdas estavam escritas na seção de arquitetura do plano, mas **nenhuma
+apareceu na tabela "o que muda para quem usa"** — que é onde o idealizador lê o que vai
+sentir. Colateral que não é chamado pelo nome não foi comunicado, mesmo estando escrito: o
+lugar certo para declarar uma perda é a lista de perdas, não a especificação da solução.

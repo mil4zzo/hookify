@@ -562,6 +562,14 @@ export const RankingsItemSchema = z.object({
   status_resolved: z.boolean().optional(),
   effective_status: z.string().nullable().optional(), // Status do anúncio (ACTIVE, PAUSED, ARCHIVED, etc.)
   active_count: z.number().nullable().optional(), // Quantidade de anúncios ativos no grupo (por anúncio / por conjunto)
+  // POR QUE o grupo está parado (migration 138): quantos anúncios em cada motivo.
+  // Só vêm nas abas que AGREGAM anúncios (criativos e anúncios) — em conjunto e
+  // campanha a linha é a própria entidade e o status dela vem de `parent_entities`.
+  // A ausência é o sinal que o avaliador usa; declarar aqui é obrigatório porque
+  // este schema não tem `.passthrough()`.
+  paused_self_count: z.number().nullable().optional(),
+  adset_paused_count: z.number().nullable().optional(),
+  campaign_paused_count: z.number().nullable().optional(),
   // Orçamento (abas por-conjunto/por-campanha, read-only): budget da PRÓPRIA entidade da
   // linha em SUBUNIDADE da moeda da conta (ex.: R$ 150,00 → 15000). NULL com budget_mode
   // preenchido = budget vive no outro nível (CBO/ABO); tudo NULL = ainda não sincronizado.

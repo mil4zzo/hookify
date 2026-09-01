@@ -260,10 +260,13 @@ function ConditionValueEditor({
     return <TagValueEditor value={condition.value} onChange={onChange} disabled={disabled} />;
   }
 
-  if (field.kind === "multiselect") {
+  // `status` também é multi-seleção, mas o vocabulário é FIXO (as quatro situações
+  // do Meta existem independentemente do que está carregado na tela), então vem do
+  // próprio campo em vez de `dimensionOptions`.
+  if (field.kind === "multiselect" || field.kind === "status") {
     return (
       <MultiSelectValueEditor
-        options={dimensionOptions?.[field.id] ?? []}
+        options={field.options ?? dimensionOptions?.[field.id] ?? []}
         value={condition.value}
         onChange={onChange}
         disabled={disabled}

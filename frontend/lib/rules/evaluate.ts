@@ -149,21 +149,74 @@ function matchesMultiSelect(rowValues: unknown, value: RuleConditionValue, opera
 }
 
 /**
- * Ativo = tem ao menos UMA veiculação ativa. `active_count` é o número de ads
- * ativos do grupo; quando a RPC não o devolve (abas que não agregam), cai para o
- * status do representante.
+ * Em que situação a LINHA está, no vocabulário do Meta que o usuário lê no
+ * Gerenciador: ACTIVE, PAUSED, ADSET_PAUSED, CAMPAIGN_PAUSED.
+ *
+ * DUAS LINHAS, DUAS LEITURAS — e quem decide é o DADO, não um parâmetro
+ *   Linha que É a entidade (um anúncio, um conjunto, uma campanha): o status dela
+ *   mesma, exato. `effective_status` vem de `parent_entities` nas abas de conjunto
+ *   e campanha, ou do próprio anúncio.
+ *
+ *   Linha que AGREGA anúncios (a aba de criativos): a RPC manda os contadores por
+ *   motivo (migration 138), e a ausência deles é o sinal de "leia o status direto".
+ *   Mandar contadores numa linha de conjunto faria um conjunto pausado ser
+ *   classificado como "pausado pelo conjunto" — resposta certa para o anúncio,
+ *   errada para o conjunto.
+ *
+ * A REGRA DA AGREGAÇÃO
+ *   Ativo se ALGUM anúncio está ativo — e aí é só isso, porque "pausado" com algum
+ *   ativo não faria sentido. Se nenhum está ativo, a linha casa com CADA motivo
+ *   presente entre os anúncios.
+ *
+ *   Não é "todos compartilham o motivo": medido no laboratório sobre 400 criativos,
+ *   motivo misturado é a REGRA (só 88 tinham todos parados pelo mesmo motivo — um
+ *   criativo roda em várias campanhas e cada anúncio para por um motivo). Com
+ *   "todos", as duas opções específicas ficariam quase vazias e o filtro pareceria
+ *   quebrado. Como são caixas de marcar (ou), sobreposição é esperada.
  */
-function matchesStatus(row: RuleRow, operator: string): boolean {
-  // `Number(null)` e 0, nao NaN — checar ausencia ANTES de converter. Sem isso,
-  // linha sem contagem seria lida como "zero ativos" e todo criativo cairia em
-  // "totalmente pausado".
+const PAUSE_REASON_COUNTERS: { field: string; status: string }[] = [
+  { field: "paused_self_count", status: "PAUSED" },
+  { field: "adset_paused_count", status: "ADSET_PAUSED" },
+  { field: "campaign_paused_count", status: "CAMPAIGN_PAUSED" },
+];
+
+function resolveRowStatuses(row: RuleRow): Set<string> {
+  const proprio = () => {
+    const own = String(row.effective_status || "").toUpperCase();
+    return own ? new Set([own]) : new Set<string>();
+  };
+
+  // `Number(null)` é 0, não NaN — checar ausência ANTES de converter, senão linha
+  // sem contagem seria lida como "zero ativos" e todo grupo cairia em pausado.
   const raw = row.active_count;
-  const activeCount = raw == null ? null : Number(raw);
-  const hasActive =
-    activeCount != null && Number.isFinite(activeCount)
-      ? activeCount > 0
-      : String(row.effective_status || "").toUpperCase() === "ACTIVE";
-  return operator === "is_paused" ? !hasActive : hasActive;
+  const activeCount = raw == null || !Number.isFinite(Number(raw)) ? null : Number(raw);
+
+  // "Tem veiculação ativa" é uma pergunta que a CONTAGEM responde melhor que
+  // `effective_status` — numa linha de criativo este é o motivo alfabeticamente
+  // primeiro entre os anúncios, e diria "pausado" com 30 anúncios no ar.
+  if (activeCount != null && activeCount > 0) return new Set(["ACTIVE"]);
+
+  // Daqui para baixo a linha está parada (ou não sabemos). O MOTIVO exige os
+  // contadores; a ausência deles é o sinal de que a linha É a entidade — conjunto,
+  // campanha, linha-filha — ou de que é uma resposta anterior à migration 138.
+  const contadores = PAUSE_REASON_COUNTERS.filter((c) => row[c.field] != null);
+  if (contadores.length === 0) return proprio();
+  return new Set(contadores.filter((c) => Number(row[c.field]) > 0).map((c) => c.status));
+}
+
+function matchesStatus(row: RuleRow, operator: string, value: RuleConditionValue): boolean {
+  const atuais = resolveRowStatuses(row);
+
+  // Compatibilidade com as regras salvas entre 2026-08-28 e 2026-08-30, quando o
+  // status era booleano. Mudar o significado de uma regra gravada é pior do que
+  // carregar dois apelidos.
+  if (operator === "is_active") return atuais.has("ACTIVE");
+  if (operator === "is_paused") return !atuais.has("ACTIVE");
+
+  const wanted = toStringList(value);
+  if (wanted.length === 0) return true; // nada marcado é pergunta em branco
+  const intersects = wanted.some((status) => atuais.has(status.toUpperCase()));
+  return operator === "has_none" ? !intersects : intersects;
 }
 
 /**
@@ -238,7 +291,20 @@ function evaluateLeaf(condition: RuleConditionLeaf, row: RuleRow, context: RuleE
   }
 
   if (field.kind === "status") {
-    return matchesStatus(row, operator);
+    return matchesStatus(row, operator, value);
+  }
+
+  // Contagem que a linha carrega (quantos anúncios ativos). Sem escala de
+  // porcentagem e sem "sem dado": ausente é zero de verdade — um grupo sem a
+  // contagem não tem anúncio ativo nenhum a declarar.
+  if (field.kind === "count") {
+    const target = typeof value === "number" ? value : Number(String(value ?? "").replace(",", "."));
+    if (!Number.isFinite(target)) return true;
+    const raw = row[field.id];
+    if (raw == null) return false;
+    const rowValue = Number(raw);
+    if (!Number.isFinite(rowValue)) return false;
+    return compareNumeric(rowValue, target, operator);
   }
 
   if (field.kind === "multiselect") {

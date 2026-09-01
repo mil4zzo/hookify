@@ -34,7 +34,14 @@ export function walkRuleLeaves(nodes: RuleNode[], visit: (leaf: RuleConditionLea
 export function isRestrictiveLeaf(leaf: RuleConditionLeaf): boolean {
   const field = getRuleField(leaf.field);
   if (!field) return false;
-  if (field.kind === "status") return true; // is_active / is_paused são a pergunta inteira
+  // O status virou caixa de marcar (migration 138): nada marcado é pergunta em
+  // branco e não restringe, igual a Pack e Conta. Os operadores booleanos antigos
+  // (`is_active`/`is_paused`), que uma regra salva pode carregar, são a pergunta
+  // inteira e continuam restringindo sozinhos.
+  if (field.kind === "status") {
+    if (leaf.operator === "is_active" || leaf.operator === "is_paused") return true;
+    return Array.isArray(leaf.value) && leaf.value.length > 0;
+  }
   if (leaf.operator === "is_empty" || leaf.operator === "is_not_empty") return true;
   const value = leaf.value;
   if (value == null) return false;
