@@ -130,8 +130,10 @@ export const api = {
      * Timeout de 5min: uma rodada FRIA (centenas de mídias sem cache, vídeos a 4 por vez)
      * passa de 2min com folga; o backend cacheia conforme resolve, então retentar após
      * timeout é barato. Rodadas seguintes são majoritariamente cache. */
-    getMediaSourceUrlsBatch: (adNames: string[]): Promise<MediaSourceUrlsBatchResponse> =>
-      apiClient.post('/facebook/media-source-urls/batch', { ad_names: adNames }, { timeout: 300000 }),
+    getMediaSourceUrlsBatch: (adNames: string[], packIds?: string[]): Promise<MediaSourceUrlsBatchResponse> =>
+      // `pack_ids` NAO e opcional na pratica para pack compartilhado: sem ele o backend
+      // procura os anuncios no silo de quem pediu, e o convidado recebe "sem midia".
+      apiClient.post('/facebook/media-source-urls/batch', { ad_names: adNames, pack_ids: packIds }, { timeout: 300000 }),
 
     getImageSource: (params: GetImageSourceRequest): Promise<GetImageSourceResponse> =>
       apiClient.get('/facebook/image-source', { params }),

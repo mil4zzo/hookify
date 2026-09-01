@@ -100,11 +100,11 @@ export function getMediaAdNames(rows: readonly Row<RankingsItem>[]): string[] {
 
 /** Resolve URLs de mídia em batch. `baseMap` (retry) preserva sucessos anteriores — o
  * backend serve os já-resolvidos do cache, mas manter o merge deixa o retry incremental. */
-export async function fetchMediaUrls(adNames: string[], baseMap: MediaUrlMap = {}): Promise<MediaUrlFetchResult> {
+export async function fetchMediaUrls(adNames: string[], baseMap: MediaUrlMap = {}, packIds?: string[]): Promise<MediaUrlFetchResult> {
   const map: MediaUrlMap = { ...baseMap }
   for (let i = 0; i < adNames.length; i += MEDIA_URL_BATCH_CHUNK) {
     const chunk = adNames.slice(i, i + MEDIA_URL_BATCH_CHUNK)
-    const res = await api.facebook.getMediaSourceUrlsBatch(chunk)
+    const res = await api.facebook.getMediaSourceUrlsBatch(chunk, packIds)
     Object.assign(map, res.results)
   }
   let resolved = 0
@@ -218,7 +218,7 @@ export async function exportManagerToCsv({
   if (showMediaUrls && !mediaUrlMap) {
     const mediaAdNames = getMediaAdNames(rows)
     if (mediaAdNames.length > 0) {
-      resolvedMediaUrlMap = (await fetchMediaUrls(mediaAdNames)).map
+      resolvedMediaUrlMap = (await fetchMediaUrls(mediaAdNames, {}, packIds)).map
     }
   }
 

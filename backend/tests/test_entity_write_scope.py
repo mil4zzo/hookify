@@ -46,6 +46,17 @@ class _AdsQuery:
         self._packs = list(vals)
         return self
 
+    # A consulta de pertencimento passou a PAGINAR (o `.in_()` limita nomes na URL,
+    # nao linhas na resposta; ad_name tem fan-out e o PostgREST corta em 1000 em
+    # silencio). O duble precisa aceitar order/range — sem isso o teste falha por
+    # AttributeError, que e ruido, e nao pelo que ele deveria estar verificando.
+    def order(self, *a, **k):
+        return self
+
+    def range(self, start, end):
+        self._range = (start, end)
+        return self
+
     def execute(self):
         out = []
         for owner, entries in self._rows_by_owner.items():
@@ -54,6 +65,9 @@ class _AdsQuery:
             for value, packs in entries:
                 if value in self._ids and set(packs) & set(self._packs):
                     out.append({self._column: value})
+        rng = getattr(self, "_range", None)
+        if rng is not None:
+            out = out[rng[0] : rng[1] + 1]
         return _Resp(out)
 
 

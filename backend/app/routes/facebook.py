@@ -15,7 +15,11 @@ from app.services.graph_api import GraphAPI, GraphAPIError
 from app.services import supabase_repo
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
-from app.services.pack_access import assert_pack_role, resolve_entity_pack_scope
+from app.services.pack_access import (
+    assert_pack_role,
+    resolve_entity_pack_groups,
+    resolve_entity_pack_scope,
+)
 from app.services import pack_action_log
 from app.services.facebook_token_service import (
     get_facebook_token_for_user, 
@@ -3808,17 +3812,30 @@ _VIDEO_URL_BATCH_CONCURRENCY = 4
 @router.post("/video-source-urls/batch", include_in_schema=False)  # alias legado (frontend antigo)
 def get_media_source_urls_batch(
     body: Dict[str, Any] = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
-    """Resolve URLs de mídia (vídeo E imagem em alta) para uma lista de ad_names — export CSV.
+    """Resolve URLs de midia (video E imagem em alta) para uma lista de ad_names — export CSV.
 
-    Controle de volume de chamadas à Meta:
+    Controle de volume de chamadas a Meta:
     - cache-first em ads.video_source_url / ads.image_source_url (margem EXPORT_MIN_TTL_S);
-    - vídeo: dedupe por video_id (ads que compartilham criativo pagam 1 chamada);
-    - imagem: hashes do creative já no banco + /adimages em LOTE por conta (1 chamada
-      cobre dezenas de imagens); permalink_url é efetivamente permanente;
-    - erro por item — uma mídia inacessível não derruba o batch.
+    - video: dedupe por video_id (ads que compartilham criativo pagam 1 chamada);
+    - imagem: hashes do creative ja no banco + /adimages em LOTE por conta;
+    - erro por item — uma midia inacessivel nao derruba o batch.
+
+    PACK COMPARTILHADO (correcao de 2026-08-23). Esta rota nao recebia `pack_ids` e lia
+    SEMPRE o silo de quem pediu. Para um convidado exportando packs de outro dono os
+    anuncios nao estavam la: 110 de 112 nomes voltaram "sem midia", e a retentativa era
+    instantanea porque nao havia o que chamar na Meta. Os 2 que funcionaram eram nomes
+    que por coincidencia tambem existiam no silo do ator — o que tornava o sintoma
+    "quase tudo falhou" em vez de "tudo falhou", e escondia a causa.
+
+    Duas consequencias no desenho:
+    - o lote e resolvido POR SILO (`resolve_entity_pack_groups`): a selecao de packs do
+      Manager pode legitimamente misturar donos, e a funcao de escopo unico teria de
+      eleger um so — voltando ao mesmo bug para os demais;
+    - `Depends(get_graph_api)` saiu: exige conexao Meta DO ATOR e levanta 403 antes do
+      corpo, e mesmo com conexao o token do convidado nao tem permissao na conta de
+      anuncios do dono. A credencial e sempre a do DONO do pack.
     """
     ad_names_raw = body.get("ad_names", [])
     if not isinstance(ad_names_raw, list) or not ad_names_raw:
@@ -3829,13 +3846,145 @@ def get_media_source_urls_batch(
     if len(ad_names) > _VIDEO_URL_BATCH_MAX_NAMES:
         raise HTTPException(
             status_code=422,
-            detail=f"Máximo de {_VIDEO_URL_BATCH_MAX_NAMES} ad_names por request (recebido: {len(ad_names)})",
+            detail=f"Maximo de {_VIDEO_URL_BATCH_MAX_NAMES} ad_names por request (recebido: {len(ad_names)})",
         )
 
-    user_jwt = user["token"]
-    user_id = user["user_id"]
+    pack_ids = [str(x).strip() for x in (body.get("pack_ids") or []) if str(x or "").strip()]
 
     try:
+        by_name: Dict[str, Dict[str, Any]] = {}
+        for silo in _media_batch_silos(user=user, ad_names=ad_names, pack_ids=pack_ids):
+            by_name.update(
+                _resolve_media_for_silo(
+                    api=silo.api,
+                    user_jwt=silo.user_jwt,
+                    user_id=silo.user_id,
+                    ad_names=list(silo.allowed_ids),
+                    user=user,
+                )
+            )
+
+        results: Dict[str, Dict[str, Any]] = {}
+        resolved_count = 0
+        failed_count = 0
+        from_cache_count = 0
+        for name in ad_names:
+            entry = by_name.get(name)
+            if entry is None:
+                results[name] = {
+                    "url": None, "expires_at": None, "video_id": None,
+                    "error": "Anuncio sem midia ou nao encontrado",
+                }
+                failed_count += 1
+                continue
+            results[name] = {k: v for k, v in entry.items() if k != "_from_cache"}
+            if entry.get("url"):
+                resolved_count += 1
+                if entry.get("_from_cache"):
+                    from_cache_count += 1
+            else:
+                failed_count += 1
+
+        logger.info(
+            f"[MEDIA_URL_BATCH] {len(ad_names)} ad_names: "
+            f"{resolved_count} ok ({from_cache_count} do cache), {failed_count} falhas"
+        )
+        if failed_count:
+            reason_counts: Dict[str, int] = {}
+            for entry in results.values():
+                err = entry.get("error")
+                if err:
+                    reason_counts[err] = reason_counts.get(err, 0) + 1
+            grouped = " | ".join(
+                f"{count}x {reason[:160]}"
+                for reason, count in sorted(reason_counts.items(), key=lambda kv: -kv[1])
+            )
+            logger.warning(f"[MEDIA_URL_BATCH] Motivos das falhas: {grouped}")
+        return {
+            "results": results,
+            "resolved": resolved_count,
+            "failed": failed_count,
+            "from_cache": from_cache_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Error in /media-source-urls/batch endpoint")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class _MediaSilo(NamedTuple):
+    api: GraphAPI
+    user_jwt: Optional[str]   # None => service role (silo do dono)
+    user_id: str              # dono dos DADOS, nao quem pediu
+    allowed_ids: Tuple[str, ...]
+
+
+def _media_batch_silos(
+    *,
+    user: Dict[str, Any],
+    ad_names: List[str],
+    pack_ids: List[str],
+) -> List["_MediaSilo"]:
+    """Divide o lote nos silos que de fato contem cada ad_name.
+
+    Sem `pack_ids` (cliente antigo, ou nenhum pack selecionado) cai no caminho
+    historico — silo e credencial do proprio ator.
+    """
+    actor_id = user["user_id"]
+    actor_jwt = user["token"]
+
+    groups = resolve_entity_pack_groups(actor_id, "adname", ad_names, pack_ids) if pack_ids else []
+
+    if not groups:
+        fb_token = get_facebook_token_for_user(actor_jwt, actor_id)
+        if not fb_token:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "facebook_connection_missing",
+                    "message": "Nenhuma conexao do Facebook encontrada. Por favor, conecte sua conta do Facebook primeiro.",
+                },
+            )
+        return [_MediaSilo(GraphAPI(fb_token, user_id=actor_id), actor_jwt, actor_id, tuple(ad_names))]
+
+    silos: List["_MediaSilo"] = []
+    for g in groups:
+        if g.is_guest:
+            fb_token = get_facebook_token_for_silo(g.owner_id)
+            if not fb_token:
+                # Dono sem conexao ativa: os nomes dele caem como falha por item, com
+                # motivo proprio, em vez de derrubar o export inteiro.
+                logger.warning(
+                    "[MEDIA_URL_BATCH] dono %s sem conexao Meta; %d nomes ficam sem midia",
+                    str(g.owner_id)[:8], len(g.allowed_ids),
+                )
+                continue
+            logger.info(
+                "[MEDIA_URL_BATCH] %d nomes no silo do dono %s (ator %s, papel %s)",
+                len(g.allowed_ids), str(g.owner_id)[:8], str(actor_id)[:8], g.role,
+            )
+            silos.append(_MediaSilo(GraphAPI(fb_token, user_id=g.owner_id), None, g.owner_id, g.allowed_ids))
+        else:
+            fb_token = get_facebook_token_for_user(actor_jwt, actor_id)
+            if not fb_token:
+                continue
+            silos.append(_MediaSilo(GraphAPI(fb_token, user_id=actor_id), actor_jwt, actor_id, g.allowed_ids))
+    return silos
+
+
+def _resolve_media_for_silo(
+    *,
+    api: GraphAPI,
+    user_jwt: Optional[str],
+    user_id: str,
+    ad_names: List[str],
+    user: Dict[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    """Resolve as midias de UM silo. `user_id` e o dono dos dados, nao quem pediu."""
+    if not ad_names:
+        return {}
+
         rows = supabase_repo.get_ads_video_fields_by_names(user_jwt, user_id, ad_names)
 
         # Representante de VÍDEO por ad_name: primeiro ad com vídeo (mesma regra do
@@ -3952,59 +4101,34 @@ def get_media_source_urls_batch(
             if res.get("error"):
                 _raise_if_meta_token_expired(str(res["error"]), user)
 
-        results: Dict[str, Dict[str, Any]] = {}
-        resolved_count = 0
-        failed_count = 0
-        from_cache_count = 0
-        for name in ad_names:
-            info = representatives.get(name)
-            if info:
-                res = resolved_by_key.get(media_key_by_name[name]) or {"error": "Falha desconhecida"}
-                video_id = info["video_id"] or None
-            elif name in image_reps:
-                res = image_results.get(name) or {"error": "Falha desconhecida"}
-                video_id = None
-            else:
-                results[name] = {"url": None, "expires_at": None, "video_id": None, "error": "Anúncio sem mídia ou não encontrado"}
-                failed_count += 1
-                continue
-            if res.get("url"):
-                expires_at = res.get("expires_at")
-                results[name] = {
-                    "url": res["url"],
-                    "expires_at": expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at,
-                    "video_id": video_id,
-                }
-                resolved_count += 1
-                if res.get("from_cache"):
-                    from_cache_count += 1
-            else:
-                results[name] = {"url": None, "expires_at": None, "video_id": video_id, "error": str(res.get("error"))}
-                failed_count += 1
 
-        logger.info(
-            f"[MEDIA_URL_BATCH] {len(ad_names)} ad_names → {len(media_infos)} vídeos únicos + {len(image_reps)} imagens: "
-            f"{resolved_count} ok ({from_cache_count} do cache), {failed_count} falhas"
-        )
-        if failed_count:
-            reason_counts: Dict[str, int] = {}
-            for entry in results.values():
-                err = entry.get("error")
-                if err:
-                    reason_counts[err] = reason_counts.get(err, 0) + 1
-            grouped = " | ".join(f"{count}x {reason[:160]}" for reason, count in sorted(reason_counts.items(), key=lambda kv: -kv[1]))
-            logger.warning(f"[MEDIA_URL_BATCH] Motivos das falhas: {grouped}")
-        return {
-            "results": results,
-            "resolved": resolved_count,
-            "failed": failed_count,
-            "from_cache": from_cache_count,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Error in /media-source-urls/batch endpoint")
-        raise HTTPException(status_code=500, detail=str(e))
+    out: Dict[str, Dict[str, Any]] = {}
+    for name in ad_names:
+        info = representatives.get(name)
+        if info:
+            res = resolved_by_key.get(media_key_by_name[name]) or {"error": "Falha desconhecida"}
+            video_id = info["video_id"] or None
+        elif name in image_reps:
+            res = image_results.get(name) or {"error": "Falha desconhecida"}
+            video_id = None
+        else:
+            out[name] = {
+                "url": None, "expires_at": None, "video_id": None,
+                "error": "Anuncio sem midia ou nao encontrado",
+            }
+            continue
+        if res.get("url"):
+            expires_at = res.get("expires_at")
+            out[name] = {
+                "url": res["url"],
+                "expires_at": expires_at.isoformat() if hasattr(expires_at, "isoformat") else expires_at,
+                "video_id": video_id,
+                "_from_cache": bool(res.get("from_cache")),
+            }
+        else:
+            out[name] = {"url": None, "expires_at": None, "video_id": video_id, "error": str(res.get("error"))}
+    return out
+
 
 @router.get("/image-source")
 def get_image_source(

@@ -109,6 +109,52 @@ _ENTITY_COLUMN = {
     "adname": "ad_name",  # midia/transcricao resolvem por NOME, nao por id
 }
 _ENTITY_IN_BATCH = 200  # limite de URL do PostgREST
+_ENTITY_PAGE = 1000     # teto de linhas por resposta do PostgREST
+
+
+def _membership_hits(
+    sb,
+    column: str,
+    owner_id: str,
+    owner_packs: Sequence[str],
+    ids: Sequence[str],
+) -> set:
+    """Quais desses ids/nomes existem nos packs DAQUELE dono.
+
+    PAGINA AS LINHAS, e nao so os ids. O `.in_()` limita quantos NOMES vao na
+    URL, nao quantas LINHAS voltam: `ad_name` tem fan-out enorme (dezenas de
+    instancias por nome). Medido no caso que motivou esta funcao: 104 nomes =
+    6394 linhas de `ads` — o PostgREST devolvia as primeiras 1000 EM SILENCIO e
+    a resposta cobria 42 nomes. O sintoma nao e erro: e "esse anuncio nao existe
+    no pack", que se le como dado faltando.
+
+    `order()` estabiliza as paginas; a saida antecipada evita varrer o resto
+    quando todos os nomes do lote ja apareceram (o caso comum).
+    """
+    found: set = set()
+    for i in range(0, len(ids), _ENTITY_IN_BATCH):
+        batch = list(ids[i : i + _ENTITY_IN_BATCH])
+        target = set(batch)
+        offset = 0
+        while True:
+            rows = (
+                sb.table("ads")
+                .select(column)
+                .eq("user_id", owner_id)
+                .in_(column, batch)
+                .overlaps("pack_ids", list(owner_packs))
+                .order(column)
+                .range(offset, offset + _ENTITY_PAGE - 1)
+                .execute()
+            ).data or []
+            for r in rows:
+                val = str(r.get(column) or "").strip()
+                if val:
+                    found.add(val)
+            if len(rows) < _ENTITY_PAGE or target.issubset(found):
+                break
+            offset += _ENTITY_PAGE
+    return found
 
 
 class EntityWriteScope(NamedTuple):
@@ -177,21 +223,7 @@ def resolve_entity_pack_scope(
     # A entidade pertence a algum desses packs, no silo do dono?
     hits: Dict[str, List[str]] = {}
     for owner_id, owner_packs in packs_by_owner.items():
-        found: set = set()
-        for i in range(0, len(ids), _ENTITY_IN_BATCH):
-            batch = ids[i:i + _ENTITY_IN_BATCH]
-            rows = (
-                sb.table("ads")
-                .select(column)
-                .eq("user_id", owner_id)
-                .in_(column, batch)
-                .overlaps("pack_ids", owner_packs)
-                .execute()
-            )
-            for r in (rows.data or []):
-                val = str(r.get(column) or "").strip()
-                if val:
-                    found.add(val)
+        found = _membership_hits(sb, column, owner_id, owner_packs, ids)
         if found:
             hits[owner_id] = [i for i in ids if i in found]
 
@@ -219,3 +251,86 @@ def resolve_entity_pack_scope(
         pack_ids=tuple(packs_by_owner[chosen]),
         allowed_ids=tuple(hits[chosen]),
     )
+
+
+def resolve_entity_pack_groups(
+    actor_id: str,
+    entity_type: str,
+    entity_ids: Sequence[str],
+    pack_ids: Optional[Sequence[str]],
+    roles: Sequence[str] = ("dono", "editor", "viewer"),
+) -> List[EntityWriteScope]:
+    """Como `resolve_entity_pack_scope`, mas devolve TODOS os silos, sem escolher um.
+
+    Existe para operações em LOTE sobre uma lista de nomes/ids que pode legitimamente
+    atravessar silos — o export de mídia do Manager e o caso que a motivou: o usuario
+    seleciona 6 packs de outro dono e pede o CSV com as URLs de midia.
+
+    A funcao de escopo unico nao serve ai. Ela precisa escolher UM silo (porque uma
+    escrita so pode acontecer num lugar) e, na presenca do silo do ator, escolhe o do
+    ator — que para o convidado tem os anuncios ERRADOS ou nenhum. Foi exatamente
+    assim que 110 de 112 anuncios voltaram "sem midia": o lote inteiro foi procurado
+    no silo de quem pediu, e so os 2 nomes que por coincidencia existiam la
+    responderam.
+
+    Cada grupo traz apenas os ids que pertencem AQUELE silo, entao o chamador resolve
+    grupo a grupo com a credencial certa. Um id que exista em dois silos fica com o do
+    ator (comportamento historico preservado; nenhuma chamada e feita duas vezes).
+    """
+    column = _ENTITY_COLUMN.get(entity_type)
+    ids = [str(i).strip() for i in (entity_ids or []) if str(i or "").strip()]
+    packs = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
+    if not column or not ids or not packs or not actor_id:
+        return []
+
+    sb = get_supabase_service()
+    try:
+        res = sb.rpc(
+            "resolve_pack_access",
+            {"p_pack_ids": packs, "p_actor_id": str(actor_id)},
+        ).execute()
+    except Exception as e:
+        logger.exception("[PACK_ACCESS] Falha ao resolver contexto de pack (lote): %s", e)
+        raise HTTPException(status_code=500, detail="Erro ao verificar acesso ao pack")
+
+    packs_by_owner: Dict[str, List[str]] = {}
+    role_by_owner: Dict[str, str] = {}
+    for row in (res.data or []):
+        if not isinstance(row, dict):
+            continue
+        role = str(row.get("role") or "")
+        owner = str(row.get("owner_id") or "")
+        pack_id = str(row.get("pack_id") or "")
+        if role in tuple(roles) and owner and pack_id:
+            packs_by_owner.setdefault(owner, []).append(pack_id)
+            role_by_owner[owner] = role
+    if not packs_by_owner:
+        return []
+
+    actor = str(actor_id)
+    # Silo do ator primeiro: quem casar la nao volta a ser procurado nos demais.
+    ordered_owners = ([actor] if actor in packs_by_owner else []) + [
+        o for o in packs_by_owner if o != actor
+    ]
+
+    groups: List[EntityWriteScope] = []
+    pending = list(ids)
+    for owner_id in ordered_owners:
+        if not pending:
+            break
+        owner_packs = packs_by_owner[owner_id]
+        found = _membership_hits(sb, column, owner_id, owner_packs, pending)
+        if not found:
+            continue
+        groups.append(
+            EntityWriteScope(
+                owner_id=owner_id,
+                is_guest=owner_id != actor,
+                role=role_by_owner.get(owner_id, ""),
+                pack_ids=tuple(owner_packs),
+                allowed_ids=tuple(i for i in pending if i in found),
+            )
+        )
+        pending = [i for i in pending if i not in found]
+
+    return groups

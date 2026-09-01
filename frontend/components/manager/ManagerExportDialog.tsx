@@ -141,7 +141,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
       // Com URLs de mídia: resolve ANTES de baixar — se houver falhas, abre a
       // fase de revisão (retentar / exportar assim mesmo) em vez de baixar direto
       if (withMediaUrls && showMediaUrlsToggle && mediaUrlStats.videos + mediaUrlStats.images > 0) {
-        const result = await fetchMediaUrls(getMediaAdNames(exportRowsRef.current));
+        const result = await fetchMediaUrls(getMediaAdNames(exportRowsRef.current), {}, packIds);
         if (result.failedNames.length > 0) {
           setMediaUrlReview(result);
           return;
@@ -163,7 +163,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     if (!mediaUrlReview) return;
     setIsRetrying(true);
     try {
-      const result = await fetchMediaUrls(mediaUrlReview.failedNames, mediaUrlReview.map);
+      const result = await fetchMediaUrls(mediaUrlReview.failedNames, mediaUrlReview.map, packIds);
       if (result.failedNames.length === 0) {
         await doExport(result.map);
         return;
