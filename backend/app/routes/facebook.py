@@ -3985,121 +3985,121 @@ def _resolve_media_for_silo(
     if not ad_names:
         return {}
 
-        rows = supabase_repo.get_ads_video_fields_by_names(user_jwt, user_id, ad_names)
+    rows = supabase_repo.get_ads_video_fields_by_names(user_jwt, user_id, ad_names)
 
-        # Representante de VÍDEO por ad_name: primeiro ad com vídeo (mesma regra do
-        # worker de transcrição — ver _extract_video_info).
-        representatives: Dict[str, Dict[str, Any]] = {}
-        for row in rows:
-            name = str(row.get("ad_name") or "").strip()
-            if not name or name in representatives:
-                continue
-            creative = row.get("creative") or {}
-            video_id = str(row.get("primary_video_id") or "").strip()
-            ig_media_id = str(creative.get("effective_instagram_media_id") or "").strip()
-            media_type = str(row.get("media_type") or "").strip().lower()
-            is_video = media_type == "video" or (media_type not in ("image",) and bool(video_id))
-            if is_video and (video_id or ig_media_id):
-                representatives[name] = {
-                    "ad_id": str(row.get("ad_id") or "").strip(),
-                    "video_id": video_id,
-                    "ig_media_id": ig_media_id,
-                    "actor_id": str(creative.get("actor_id") or "").strip(),
-                    "video_owner_page_id": str(row.get("video_owner_page_id") or "").strip(),
-                    "cached_url": row.get("video_source_url"),
-                    "cached_expires_at": row.get("video_source_expires_at"),
-                }
-
-        # Representante de IMAGEM: nomes sem vídeo, com hash no creative (96% dos ads
-        # de imagem) ou igm como fallback. Prefere linha que tenha hashes.
-        image_reps: Dict[str, Dict[str, Any]] = {}
-        for row in rows:
-            name = str(row.get("ad_name") or "").strip()
-            if not name or name in representatives:
-                continue
-            media_type = str(row.get("media_type") or "").strip().lower()
-            if media_type == "video":
-                continue
-            creative = row.get("creative") or {}
-            hashes = extract_image_hashes(creative)
-            ig_media_id = str(creative.get("effective_instagram_media_id") or "").strip()
-            if not (media_type == "image" or hashes or ig_media_id):
-                continue
-            existing = image_reps.get(name)
-            if existing and (existing["hashes"] or not hashes):
-                continue
-            image_reps[name] = {
+    # Representante de VÍDEO por ad_name: primeiro ad com vídeo (mesma regra do
+    # worker de transcrição — ver _extract_video_info).
+    representatives: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        name = str(row.get("ad_name") or "").strip()
+        if not name or name in representatives:
+            continue
+        creative = row.get("creative") or {}
+        video_id = str(row.get("primary_video_id") or "").strip()
+        ig_media_id = str(creative.get("effective_instagram_media_id") or "").strip()
+        media_type = str(row.get("media_type") or "").strip().lower()
+        is_video = media_type == "video" or (media_type not in ("image",) and bool(video_id))
+        if is_video and (video_id or ig_media_id):
+            representatives[name] = {
                 "ad_id": str(row.get("ad_id") or "").strip(),
-                "account_id": str(row.get("account_id") or "").strip(),
-                "hashes": hashes,
+                "video_id": video_id,
                 "ig_media_id": ig_media_id,
-                "cached_url": row.get("image_source_url"),
-                "cached_expires_at": row.get("image_source_expires_at"),
+                "actor_id": str(creative.get("actor_id") or "").strip(),
+                "video_owner_page_id": str(row.get("video_owner_page_id") or "").strip(),
+                "cached_url": row.get("video_source_url"),
+                "cached_expires_at": row.get("video_source_expires_at"),
             }
 
-        # Dedupe por mídia: ads que compartilham o mesmo vídeo resolvem uma vez só
-        media_infos: Dict[str, Dict[str, Any]] = {}
-        media_key_by_name: Dict[str, str] = {}
-        for name, info in representatives.items():
-            key = info["video_id"] or f"igm:{info['ig_media_id']}"
-            media_key_by_name[name] = key
-            if key not in media_infos:
-                media_infos[key] = info
+    # Representante de IMAGEM: nomes sem vídeo, com hash no creative (96% dos ads
+    # de imagem) ou igm como fallback. Prefere linha que tenha hashes.
+    image_reps: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        name = str(row.get("ad_name") or "").strip()
+        if not name or name in representatives:
+            continue
+        media_type = str(row.get("media_type") or "").strip().lower()
+        if media_type == "video":
+            continue
+        creative = row.get("creative") or {}
+        hashes = extract_image_hashes(creative)
+        ig_media_id = str(creative.get("effective_instagram_media_id") or "").strip()
+        if not (media_type == "image" or hashes or ig_media_id):
+            continue
+        existing = image_reps.get(name)
+        if existing and (existing["hashes"] or not hashes):
+            continue
+        image_reps[name] = {
+            "ad_id": str(row.get("ad_id") or "").strip(),
+            "account_id": str(row.get("account_id") or "").strip(),
+            "hashes": hashes,
+            "ig_media_id": ig_media_id,
+            "cached_url": row.get("image_source_url"),
+            "cached_expires_at": row.get("image_source_expires_at"),
+        }
 
-        def _resolve_one(key: str) -> Tuple[str, Dict[str, Any]]:
-            info = media_infos[key]
+    # Dedupe por mídia: ads que compartilham o mesmo vídeo resolvem uma vez só
+    media_infos: Dict[str, Dict[str, Any]] = {}
+    media_key_by_name: Dict[str, str] = {}
+    for name, info in representatives.items():
+        key = info["video_id"] or f"igm:{info['ig_media_id']}"
+        media_key_by_name[name] = key
+        if key not in media_infos:
+            media_infos[key] = info
 
-            def _attempt() -> Dict[str, Any]:
-                return resolve_video_source_cached(
-                    api,
-                    user_jwt=user_jwt,
-                    user_id=user_id,
-                    ad_id=info["ad_id"],
-                    video_id=info["video_id"],
-                    actor_id=info["actor_id"],
-                    ig_media_id=info["ig_media_id"],
-                    video_owner_page_id=info["video_owner_page_id"],
-                    cached_url=info["cached_url"],
-                    cached_expires_at=info["cached_expires_at"],
-                    min_ttl_seconds=EXPORT_MIN_TTL_S,
-                )
+    def _resolve_one(key: str) -> Tuple[str, Dict[str, Any]]:
+        info = media_infos[key]
 
-            res = _attempt()
-            # Falha transitória (rede/429/5xx): 1 retentativa com backoff curto.
-            # Permanentes (erro 100, vídeo removido) não se retentam — mesma resposta.
-            if res.get("error") and res.get("transient"):
-                time.sleep(1.5)
-                res = _attempt()
-            return key, res
-
-        resolved_by_key: Dict[str, Dict[str, Any]] = {}
-        if media_infos:
-            max_workers = min(_VIDEO_URL_BATCH_CONCURRENCY, len(media_infos))
-            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="video-url-batch") as pool:
-                for key, res in pool.map(_resolve_one, list(media_infos.keys())):
-                    resolved_by_key[key] = res
-
-        # Imagens: lote por conta (cache-first no serviço) + 1 retentativa dos transitórios
-        image_results: Dict[str, Dict[str, Any]] = {}
-        if image_reps:
-            image_results = resolve_image_sources_batch(
-                api, user_jwt=user_jwt, user_id=user_id, representatives=image_reps
+        def _attempt() -> Dict[str, Any]:
+            return resolve_video_source_cached(
+                api,
+                user_jwt=user_jwt,
+                user_id=user_id,
+                ad_id=info["ad_id"],
+                video_id=info["video_id"],
+                actor_id=info["actor_id"],
+                ig_media_id=info["ig_media_id"],
+                video_owner_page_id=info["video_owner_page_id"],
+                cached_url=info["cached_url"],
+                cached_expires_at=info["cached_expires_at"],
+                min_ttl_seconds=EXPORT_MIN_TTL_S,
             )
-            transient_names = [n for n, r in image_results.items() if r.get("error") and r.get("transient")]
-            if transient_names:
-                time.sleep(1.5)
-                retry_results = resolve_image_sources_batch(
-                    api,
-                    user_jwt=user_jwt,
-                    user_id=user_id,
-                    representatives={n: image_reps[n] for n in transient_names},
-                )
-                image_results.update(retry_results)
 
-        # Token expirado invalida o batch inteiro — 401 padronizado (frontend reconecta)
-        for res in list(resolved_by_key.values()) + list(image_results.values()):
-            if res.get("error"):
-                _raise_if_meta_token_expired(str(res["error"]), user)
+        res = _attempt()
+        # Falha transitória (rede/429/5xx): 1 retentativa com backoff curto.
+        # Permanentes (erro 100, vídeo removido) não se retentam — mesma resposta.
+        if res.get("error") and res.get("transient"):
+            time.sleep(1.5)
+            res = _attempt()
+        return key, res
+
+    resolved_by_key: Dict[str, Dict[str, Any]] = {}
+    if media_infos:
+        max_workers = min(_VIDEO_URL_BATCH_CONCURRENCY, len(media_infos))
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="video-url-batch") as pool:
+            for key, res in pool.map(_resolve_one, list(media_infos.keys())):
+                resolved_by_key[key] = res
+
+    # Imagens: lote por conta (cache-first no serviço) + 1 retentativa dos transitórios
+    image_results: Dict[str, Dict[str, Any]] = {}
+    if image_reps:
+        image_results = resolve_image_sources_batch(
+            api, user_jwt=user_jwt, user_id=user_id, representatives=image_reps
+        )
+        transient_names = [n for n, r in image_results.items() if r.get("error") and r.get("transient")]
+        if transient_names:
+            time.sleep(1.5)
+            retry_results = resolve_image_sources_batch(
+                api,
+                user_jwt=user_jwt,
+                user_id=user_id,
+                representatives={n: image_reps[n] for n in transient_names},
+            )
+            image_results.update(retry_results)
+
+    # Token expirado invalida o batch inteiro — 401 padronizado (frontend reconecta)
+    for res in list(resolved_by_key.values()) + list(image_results.values()):
+        if res.get("error"):
+            _raise_if_meta_token_expired(str(res["error"]), user)
 
 
     out: Dict[str, Dict[str, Any]] = {}
