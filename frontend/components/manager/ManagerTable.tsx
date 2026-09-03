@@ -33,6 +33,7 @@ import { FilterBar } from "@/components/manager/FilterBar";
 import { BulkActionsBar } from "@/components/common/BulkActionsBar";
 import { buildManagerBulkActions } from "@/components/manager/managerBulkActions";
 import { BulkTagDialog } from "@/components/manager/BulkTagDialog";
+import { TagScopeProvider } from "@/components/manager/TagScopeProvider";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
 import { TableContent } from "@/components/manager/TableContent";
@@ -1264,7 +1265,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   );
 
   return (
-    <>
+    // O escopo de pack alimenta as chamadas de tag: a tag vive no silo do pack
+    // (migration 139), entao criar/marcar precisa dizer em qual pack acontece.
+    <TagScopeProvider packIds={selectedPackIds}>
       {/* Em fullscreen, o wrapper vira overlay fixed acima do topbar/sidebar (z-sticky) e a tabela ganha a viewport inteira.
           `relative` ancora a BulkActionsBar flutuante na base da área da tabela. */}
       <div className={cn(isFullscreen ? "fixed inset-0 z-overlay flex flex-col overflow-hidden bg-background p-widget-default" : "relative flex min-h-0 min-w-0 flex-1 flex-col")}>
@@ -1393,6 +1396,6 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         mqlLeadscoreMin={mqlLeadscoreMin}
         averages={averages}
       />
-    </>
+    </TagScopeProvider>
   );
 }

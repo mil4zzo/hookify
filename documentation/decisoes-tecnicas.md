@@ -3869,3 +3869,44 @@ porque não havia comportamento ali. Removido.
 apareceu na tabela "o que muda para quem usa"** — que é onde o idealizador lê o que vai
 sentir. Colateral que não é chamado pelo nome não foi comunicado, mesmo estando escrito: o
 lugar certo para declarar uma perda é a lista de perdas, não a especificação da solução.
+
+---
+
+## Tag passa a ser do silo do pack (2026-09-03, migration 139)
+
+**O que mudou.** A tag nasceu pessoal (migration 117): cada um via só o próprio
+vocabulário sobre os mesmos criativos. Agora ela pertence ao **silo do pack** —
+num pack compartilhado qualquer editor marca e todos veem a mesma coisa.
+
+**O código já tinha respondido isso.** Dentro da mesma função, as duas laterais
+vizinhas ao join de tags já liam por silo do pack:
+
+```
+media_type        -> a.user_id   = any(v_owners)   (public.ads)
+has_transcription -> t.user_id   = any(v_owners)   (public.ad_transcriptions)
+tags              -> atg.user_id = p_user_id       <- única fora do padrão
+```
+
+Transcrição de pack compartilhado já era vista pelo convidado. Tag pessoal era
+inconsistência, não decisão de arquitetura. A correção foi trocar um predicado.
+
+**Custo medido (pack real, quente):** v138 314,7/300,5 ms · v139 299,4/300,5 ms —
+idêntico. A lateral roda depois do agrupamento, sobre centenas de linhas, contra
+uma tabela pequena, pelo índice `(user_id, ad_name)`. Não encosta no read model
+`ad_performance_daily` nem na agregação do rollup 128–138.
+
+**`ad_tags.created_by`.** Com a posse indo para o silo, "quem marcou isso?" perderia
+resposta — a mesma preocupação que originou o `pack_action_log`. `user_id` é o silo,
+`created_by` é o ator. Num pack compartilhado são pessoas diferentes.
+
+**Escrita.** Silo alheio não passa por RLS (a policy é `user_id = auth.uid()`), então
+vai por service role **depois** de conferir o papel — mesmo padrão da reconexão do
+Google em pack compartilhado. Viewer lê o vocabulário (senão o filtro por tag abre
+vazio para ele) e não escreve. Seleção com packs de **donos diferentes** recusa a
+escrita com 409: não há desempate honesto para onde gravar uma tag, que não pertence
+a um criativo específico que pudesse decidir por ela. A leitura continua multi-silo.
+
+**Contexto de pack no frontend** viaja por contexto React (`TagScopeProvider`), não
+por prop: a célula de tags é renderizada dentro da fábrica de colunas do TanStack, e
+passar por prop obrigaria a atravessar o comparador do memo da tabela — o caminho que
+já causou célula sem re-render neste projeto.

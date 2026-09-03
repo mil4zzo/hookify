@@ -176,6 +176,7 @@ Integrações com Google Sheets para importar leadscores via planilha.
 | tag_id | uuid | NOT NULL |
 | ad_name | text | NOT NULL |
 | created_at | timestamp | NOT NULL, DEFAULT |
+| created_by | uuid |  |
 
 ---
 
@@ -555,4 +556,4 @@ Preferências e configurações personalizadas por usuário.
 
 ---
 
-*Gerado em: 2026-08-31 — via `supabase/generate_schema_map.py`*
+*Gerado em: 2026-09-03 — via `supabase/generate_schema_map.py`*
