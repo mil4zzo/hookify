@@ -6,6 +6,7 @@ import { IconTag, IconX } from "@tabler/icons-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TagCombobox } from "@/components/manager/TagCombobox";
 import { useAssignTags, useCreateTag, useUnassignTags } from "@/lib/api/hooks";
+import { useTagScope } from "@/components/manager/TagScopeProvider";
 import type { RankingsRowTag, TagItem } from "@/lib/api/schemas";
 import type { TagColor } from "@/lib/tags/colors";
 import { tagChipClasses } from "@/lib/tags/colors";
@@ -63,11 +64,12 @@ export function TagsCell({ adName, tags }: { adName: string; tags: RankingsRowTa
   const assign = useAssignTags();
   const unassign = useUnassignTags();
   const createTag = useCreateTag();
+  const { packIds } = useTagScope();
 
   const appliedIds = useMemo(() => new Set(tags.map((t) => t.id)), [tags]);
 
   const handleSelect = (tag: TagItem) => {
-    assign.mutate({ tags: [tag], adNames: [adName] });
+    assign.mutate({ tags: [tag], adNames: [adName], packIds });
   };
 
   // Cria e aplica numa tacada: nesta superfície não existe um "confirmar" depois
@@ -77,12 +79,12 @@ export function TagsCell({ adName, tags }: { adName: string; tags: RankingsRowTa
   // dropdown fecharia assim que a tag fosse criada e a linha ficaria um instante
   // sem o chip — o mesmo flicker de "parece que deu errado".
   const handleCreate = async (name: string, color: TagColor) => {
-    const created = await createTag.mutateAsync({ name, color });
-    if (created?.data) await assign.mutateAsync({ tags: [created.data], adNames: [adName] });
+    const created = await createTag.mutateAsync({ name, color, packIds });
+    if (created?.data) await assign.mutateAsync({ tags: [created.data], adNames: [adName], packIds });
   };
 
   const handleRemove = (tag: RankingsRowTag) => {
-    unassign.mutate({ tags: [{ id: tag.id, name: tag.name, color: tag.color }], adNames: [adName] });
+    unassign.mutate({ tags: [{ id: tag.id, name: tag.name, color: tag.color }], adNames: [adName], packIds });
   };
 
   return (

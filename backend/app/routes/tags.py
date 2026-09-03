@@ -4,22 +4,31 @@ A tag e do CRIATIVO (ad_name), nunca do anuncio (ad_id): o Manager agrupa por
 nome e o fan-out medido e de ~34 ad_ids por nome. Marcar por ad_id faria a tag
 faltar nas outras 33 linhas do mesmo criativo. Ver migration 116.
 
-A tag tambem e SEMPRE do usuario que a criou. Num pack compartilhado cada um ve
-o proprio vocabulario — por isso todo acesso aqui passa pelo cliente com o JWT
-do usuario, deixando a RLS ser a guarda, em vez de filtrar por user_id na mao.
+A tag e do SILO DO PACK, nao de quem olha (migration 139). Num pack compartilhado
+qualquer editor marca e todos veem a mesma coisa — que e como a transcricao ja
+funcionava. Consequencias no codigo:
+
+  - `user_id` em tags/ad_tags e o DONO do pack, nao o ator.
+  - `ad_tags.created_by` guarda o ator: num pack compartilhado sao pessoas
+    diferentes, e este e o unico registro dessa autoria.
+  - Escrita em silo alheio nao passa por RLS (a policy e user_id = auth.uid()),
+    entao vai por service role — depois de o papel ser conferido aqui. Mesmo
+    padrao da reconexao do Google em pack compartilhado.
+  - Viewer LE o vocabulario (senao o filtro abre vazio para ele) e nao escreve.
 """
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Sequence, Set
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.core.auth import get_current_user
-from app.core.supabase_client import get_supabase_for_user
+from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
+from app.services.pack_access import resolve_entity_pack_scope, resolve_pack_silo
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tags", tags=["tags"])
@@ -34,6 +43,9 @@ MAX_NAME_LEN = 40          # espelha o CHECK tags_name_max_len da migration 116
 MAX_TAGS_PER_USER = 200
 MAX_AD_NAMES_PER_CALL = 5000
 
+READ_ROLES = ("dono", "editor", "viewer")
+WRITE_ROLES = ("dono", "editor")
+
 # ad_name e texto livre e longo (~38 bytes de media, cauda bem maior). PostgREST
 # monta o .in_() na URL, entao lote grande estoura o limite de tamanho — mesmo
 # problema que ja mordeu com ad_id. 100 nomes deixa margem confortavel.
@@ -44,20 +56,19 @@ UPSERT_BATCH = 500
 class TagCreate(BaseModel):
     name: str = Field(min_length=1, max_length=MAX_NAME_LEN)
     color: str = DEFAULT_COLOR
+    pack_ids: List[str] = Field(default_factory=list)
 
 
 class TagUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=MAX_NAME_LEN)
     color: Optional[str] = None
+    pack_ids: List[str] = Field(default_factory=list)
 
 
 class TagAssignment(BaseModel):
     tag_ids: List[str] = Field(min_length=1)
     ad_names: List[str] = Field(min_length=1)
-
-
-def _sb(user: Dict[str, Any]):
-    return get_supabase_for_user(user["token"])
+    pack_ids: List[str] = Field(default_factory=list)
 
 
 def _clean_name(raw: str) -> str:
@@ -76,7 +87,7 @@ def _clean_color(raw: Optional[str]) -> str:
     return color
 
 
-def _clean_ad_names(raw: List[str]) -> List[str]:
+def _clean_ad_names(raw: Sequence[str]) -> List[str]:
     """Dedup preservando ordem. Nome em branco e descartado (CHECK do banco)."""
     seen: Set[str] = set()
     out: List[str] = []
@@ -101,17 +112,27 @@ def _is_unique_violation(exc: Exception) -> bool:
     return "23505" in text or "duplicate key" in text.lower()
 
 
-def _valid_tag_ids(sb, raw: List[str]) -> List[str]:
-    """So aceita tags que a RLS confirma serem do usuario.
+def _client_for(user: Dict[str, Any], is_guest: bool):
+    """Service role SO quando o silo e alheio.
 
-    Sem isso um tag_id alheio passaria pelo insert: a RLS de ad_tags checa o
-    user_id da LINHA, nao a dona da tag referenciada pela FK.
+    No silo do proprio ator o cliente com JWT mantem a RLS como defesa em
+    profundidade; trocar tudo por service role apagaria essa rede sem ganho.
+    """
+    return get_supabase_service() if is_guest else get_supabase_for_user(user["token"])
+
+
+def _valid_tag_ids(sb, raw: Sequence[str], owner_id: str) -> List[str]:
+    """So aceita tags que existem NO SILO alvo.
+
+    Sem isto um tag_id de outro silo entraria no insert: a RLS de ad_tags olha o
+    user_id da LINHA, nao o dono da tag que a FK aponta — e com service role nem
+    RLS existe.
     """
     wanted = sorted({str(t).strip() for t in raw if str(t).strip()})
     if not wanted:
         raise HTTPException(status_code=422, detail="Nenhuma tag informada.")
     try:
-        res = sb.table("tags").select("id").in_("id", wanted).execute()
+        res = sb.table("tags").select("id").eq("user_id", owner_id).in_("id", wanted).execute()
     except Exception as e:
         logger.exception("[tags] falha ao validar tag_ids: %s", e)
         raise HTTPException(status_code=500, detail="Erro ao validar tags.")
@@ -123,14 +144,23 @@ def _valid_tag_ids(sb, raw: List[str]) -> List[str]:
 
 
 @router.get("")
-def list_tags(user=Depends(get_current_user)) -> Dict[str, Any]:
-    """Vocabulario do usuario + quantos criativos cada tag marca."""
-    sb = _sb(user)
+def list_tags(
+    pack_ids: List[str] = Query(default_factory=list),
+    user=Depends(get_current_user),
+) -> Dict[str, Any]:
+    """Vocabulario do SILO + quantos criativos cada tag marca.
+
+    Viewer entra aqui: sem a lista, o filtro por tag abriria vazio para quem so
+    tem leitura, embora as tags apareçam nas linhas.
+    """
+    silo = resolve_pack_silo(user["user_id"], pack_ids, roles=READ_ROLES)
+    sb = _client_for(user, silo.is_guest)
     try:
         res = with_postgrest_retry(
             "tags.list",
             lambda: sb.table("tags")
             .select("id,name,slug,color,created_at,ad_tags(count)")
+            .eq("user_id", silo.owner_id)
             .order("name")
             .execute(),
         )
@@ -155,17 +185,18 @@ def list_tags(user=Depends(get_current_user)) -> Dict[str, Any]:
             "created_at": row.get("created_at"),
             "usage_count": usage,
         })
-    return {"data": items}
+    return {"data": items, "owner_id": silo.owner_id, "role": silo.role}
 
 
 @router.post("", status_code=201)
 def create_tag(payload: TagCreate, user=Depends(get_current_user)) -> Dict[str, Any]:
-    sb = _sb(user)
+    silo = resolve_pack_silo(user["user_id"], payload.pack_ids, roles=WRITE_ROLES)
+    sb = _client_for(user, silo.is_guest)
     name = _clean_name(payload.name)
     color = _clean_color(payload.color)
 
     try:
-        existing = sb.table("tags").select("id", count="exact").limit(1).execute()
+        existing = sb.table("tags").select("id", count="exact").eq("user_id", silo.owner_id).limit(1).execute()
         if (existing.count or 0) >= MAX_TAGS_PER_USER:
             raise HTTPException(
                 status_code=422,
@@ -180,7 +211,7 @@ def create_tag(payload: TagCreate, user=Depends(get_current_user)) -> Dict[str, 
         res = with_postgrest_retry(
             "tags.create",
             lambda: sb.table("tags")
-            .insert({"user_id": user["user_id"], "name": name, "color": color})
+            .insert({"user_id": silo.owner_id, "name": name, "color": color})
             .execute(),
         )
     except Exception as e:
@@ -197,7 +228,8 @@ def create_tag(payload: TagCreate, user=Depends(get_current_user)) -> Dict[str, 
 @router.patch("/{tag_id}")
 def update_tag(tag_id: str, payload: TagUpdate, user=Depends(get_current_user)) -> Dict[str, Any]:
     """Renomear preserva o id — as marcacoes existentes nao sao tocadas."""
-    sb = _sb(user)
+    silo = resolve_pack_silo(user["user_id"], payload.pack_ids, roles=WRITE_ROLES)
+    sb = _client_for(user, silo.is_guest)
     patch: Dict[str, Any] = {}
     if payload.name is not None:
         patch["name"] = _clean_name(payload.name)
@@ -209,7 +241,11 @@ def update_tag(tag_id: str, payload: TagUpdate, user=Depends(get_current_user)) 
     try:
         res = with_postgrest_retry(
             "tags.update",
-            lambda: sb.table("tags").update(patch).eq("id", tag_id).execute(),
+            lambda: sb.table("tags")
+            .update(patch)
+            .eq("id", tag_id)
+            .eq("user_id", silo.owner_id)
+            .execute(),
         )
     except Exception as e:
         if _is_unique_violation(e):
@@ -223,13 +259,22 @@ def update_tag(tag_id: str, payload: TagUpdate, user=Depends(get_current_user)) 
 
 
 @router.delete("/{tag_id}")
-def delete_tag(tag_id: str, user=Depends(get_current_user)) -> Dict[str, Any]:
+def delete_tag(
+    tag_id: str,
+    pack_ids: List[str] = Query(default_factory=list),
+    user=Depends(get_current_user),
+) -> Dict[str, Any]:
     """Apaga a tag e, por ON DELETE CASCADE, todas as suas marcacoes."""
-    sb = _sb(user)
+    silo = resolve_pack_silo(user["user_id"], pack_ids, roles=WRITE_ROLES)
+    sb = _client_for(user, silo.is_guest)
     try:
         res = with_postgrest_retry(
             "tags.delete",
-            lambda: sb.table("tags").delete().eq("id", tag_id).execute(),
+            lambda: sb.table("tags")
+            .delete()
+            .eq("id", tag_id)
+            .eq("user_id", silo.owner_id)
+            .execute(),
         )
     except Exception as e:
         logger.exception("[tags] falha ao apagar %s: %s", tag_id, e)
@@ -240,15 +285,46 @@ def delete_tag(tag_id: str, user=Depends(get_current_user)) -> Dict[str, Any]:
     return {"deleted": True, "id": tag_id}
 
 
+def _resolve_marking_scope(user: Dict[str, Any], ad_names: List[str], pack_ids: List[str]):
+    """Silo + criativos autorizados para marcar/desmarcar.
+
+    Ancora em resolve_entity_pack_scope("adname"): ele confere o papel no pack E
+    que os nomes realmente pertencem aquele pack dentro do silo do dono. Um
+    pack_id forjado nao passa no primeiro; um ad_name alheio nao passa no segundo.
+    Dois donos distintos na selecao -> 409 vindo de la.
+
+    Sem contexto de pack ele devolve None; ai a operacao e no silo do proprio ator.
+    """
+    scope = resolve_entity_pack_scope(
+        actor_id=str(user["user_id"]),
+        entity_type="adname",
+        entity_ids=ad_names,
+        pack_ids=pack_ids,
+        roles=WRITE_ROLES,
+    )
+    if scope is None:
+        return str(user["user_id"]), False, ad_names
+    return scope.owner_id, scope.is_guest, list(scope.allowed_ids)
+
+
 @router.post("/assign")
 def assign_tags(payload: TagAssignment, user=Depends(get_current_user)) -> Dict[str, Any]:
     """Aplica N tags a M criativos. Idempotente: reaplicar nao duplica nem falha."""
-    sb = _sb(user)
-    ad_names = _clean_ad_names(payload.ad_names)
-    tag_ids = _valid_tag_ids(sb, payload.tag_ids)
+    requested = _clean_ad_names(payload.ad_names)
+    owner_id, is_guest, ad_names = _resolve_marking_scope(user, requested, payload.pack_ids)
+    if not ad_names:
+        raise HTTPException(status_code=404, detail="Nenhum criativo da selecao pertence ao pack.")
+
+    sb = _client_for(user, is_guest)
+    tag_ids = _valid_tag_ids(sb, payload.tag_ids, owner_id)
 
     rows = [
-        {"user_id": user["user_id"], "tag_id": tag_id, "ad_name": ad_name}
+        {
+            "user_id": owner_id,          # silo (dono do pack)
+            "tag_id": tag_id,
+            "ad_name": ad_name,
+            "created_by": str(user["user_id"]),  # ator: a autoria que o silo perde
+        }
         for tag_id in tag_ids
         for ad_name in ad_names
     ]
@@ -266,14 +342,18 @@ def assign_tags(payload: TagAssignment, user=Depends(get_current_user)) -> Dict[
             logger.exception("[tags] falha ao marcar lote %s: %s", i, e)
             raise HTTPException(status_code=500, detail="Erro ao aplicar tags.")
 
-    return {"tag_ids": tag_ids, "ad_names": len(ad_names), "pairs": len(rows)}
+    return {"tag_ids": tag_ids, "ad_names": len(ad_names), "pairs": len(rows), "owner_id": owner_id}
 
 
 @router.post("/unassign")
 def unassign_tags(payload: TagAssignment, user=Depends(get_current_user)) -> Dict[str, Any]:
-    sb = _sb(user)
-    ad_names = _clean_ad_names(payload.ad_names)
-    tag_ids = _valid_tag_ids(sb, payload.tag_ids)
+    requested = _clean_ad_names(payload.ad_names)
+    owner_id, is_guest, ad_names = _resolve_marking_scope(user, requested, payload.pack_ids)
+    if not ad_names:
+        raise HTTPException(status_code=404, detail="Nenhum criativo da selecao pertence ao pack.")
+
+    sb = _client_for(user, is_guest)
+    tag_ids = _valid_tag_ids(sb, payload.tag_ids, owner_id)
 
     removed = 0
     for i in range(0, len(ad_names), DELETE_BATCH):
@@ -283,6 +363,7 @@ def unassign_tags(payload: TagAssignment, user=Depends(get_current_user)) -> Dic
                 "tags.unassign[%d]" % i,
                 lambda b=batch: sb.table("ad_tags")
                 .delete()
+                .eq("user_id", owner_id)
                 .in_("tag_id", tag_ids)
                 .in_("ad_name", b)
                 .execute(),
@@ -292,4 +373,4 @@ def unassign_tags(payload: TagAssignment, user=Depends(get_current_user)) -> Dic
             logger.exception("[tags] falha ao desmarcar lote %s: %s", i, e)
             raise HTTPException(status_code=500, detail="Erro ao remover tags.")
 
-    return {"tag_ids": tag_ids, "ad_names": len(ad_names), "removed": removed}
+    return {"tag_ids": tag_ids, "ad_names": len(ad_names), "removed": removed, "owner_id": owner_id}

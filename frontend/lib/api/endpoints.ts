@@ -539,19 +539,33 @@ export const api = {
    * As tags sao pessoais: num pack compartilhado cada um ve as suas.
    */
   tags: {
-    list: (options?: { signal?: AbortSignal }): Promise<{ data: TagItem[] }> =>
-      apiClient.get('/tags', { signal: options?.signal }),
-    create: (name: string, color: string): Promise<{ data: TagItem }> =>
-      apiClient.post('/tags', { name, color }),
-    update: (tagId: string, patch: { name?: string; color?: string }): Promise<{ data: TagItem }> =>
-      apiClient.patch(`/tags/${tagId}`, patch),
-    remove: (tagId: string): Promise<{ deleted: boolean; id: string }> =>
-      apiClient.delete(`/tags/${tagId}`),
+    /**
+     * `packIds` nao e filtro: e o CONTEXTO que resolve o silo da tag (migration
+     * 139). O backend deriva dele o dono do pack e o papel do ator. Sem ele, a
+     * operacao cai no silo do proprio usuario — correto so para quem nao
+     * compartilha nada.
+     */
+    list: (packIds: string[] = [], options?: { signal?: AbortSignal }): Promise<{ data: TagItem[] }> => {
+      const qs = new URLSearchParams()
+      packIds.forEach((id) => { if (id) qs.append('pack_ids', id) })
+      const suffix = qs.toString() ? `?${qs.toString()}` : ''
+      return apiClient.get(`/tags${suffix}`, { signal: options?.signal })
+    },
+    create: (name: string, color: string, packIds: string[] = []): Promise<{ data: TagItem }> =>
+      apiClient.post('/tags', { name, color, pack_ids: packIds }),
+    update: (tagId: string, patch: { name?: string; color?: string }, packIds: string[] = []): Promise<{ data: TagItem }> =>
+      apiClient.patch(`/tags/${tagId}`, { ...patch, pack_ids: packIds }),
+    remove: (tagId: string, packIds: string[] = []): Promise<{ deleted: boolean; id: string }> => {
+      const qs = new URLSearchParams()
+      packIds.forEach((id) => { if (id) qs.append('pack_ids', id) })
+      const suffix = qs.toString() ? `?${qs.toString()}` : ''
+      return apiClient.delete(`/tags/${tagId}${suffix}`)
+    },
     /** Idempotente: reaplicar a mesma tag no mesmo criativo nao duplica nem falha. */
-    assign: (tagIds: string[], adNames: string[]): Promise<TagAssignResult> =>
-      apiClient.post('/tags/assign', { tag_ids: tagIds, ad_names: adNames }),
-    unassign: (tagIds: string[], adNames: string[]): Promise<TagAssignResult> =>
-      apiClient.post('/tags/unassign', { tag_ids: tagIds, ad_names: adNames }),
+    assign: (tagIds: string[], adNames: string[], packIds: string[] = []): Promise<TagAssignResult> =>
+      apiClient.post('/tags/assign', { tag_ids: tagIds, ad_names: adNames, pack_ids: packIds }),
+    unassign: (tagIds: string[], adNames: string[], packIds: string[] = []): Promise<TagAssignResult> =>
+      apiClient.post('/tags/unassign', { tag_ids: tagIds, ad_names: adNames, pack_ids: packIds }),
   },
 
   /**

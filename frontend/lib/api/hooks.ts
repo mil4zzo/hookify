@@ -814,7 +814,10 @@ export const usePrefetchUserData = () => {
 // status. So a lista de tags (barata) e invalidada de fato.
 
 export const tagQueryKeys = {
-  list: ['tags', 'list'] as const,
+  // O silo entra na chave: a mesma sessao pode ver o vocabulario do proprio
+  // usuario e o de um pack compartilhado, e sao listas diferentes.
+  list: (packIds: string[] = []) => ['tags', 'list', [...packIds].sort().join(',')] as const,
+  all: ['tags', 'list'] as const,
 }
 
 /** Aplica `mutate` nas tags de toda linha de rankings ja cacheada. */
@@ -850,7 +853,7 @@ function patchCachedTagList(
   queryClient: ReturnType<typeof useQueryClient>,
   mutate: (tags: TagItem[]) => TagItem[],
 ) {
-  queryClient.setQueryData<{ data: TagItem[] }>(tagQueryKeys.list, (cached) => {
+  queryClient.setQueriesData<{ data: TagItem[] }>({ queryKey: tagQueryKeys.all }, (cached) => {
     if (!cached?.data) return cached
     return { ...cached, data: mutate(cached.data) }
   })
@@ -862,10 +865,10 @@ function insertTagSorted(tags: TagItem[], created: TagItem): TagItem[] {
   return [...tags, created].sort((a, b) => a.name.localeCompare(b.name))
 }
 
-export const useTags = (enabled: boolean = true) => {
+export const useTags = (packIds: string[] = [], enabled: boolean = true) => {
   return useQuery<{ data: TagItem[] }>({
-    queryKey: tagQueryKeys.list,
-    queryFn: ({ signal }) => api.tags.list({ signal }),
+    queryKey: tagQueryKeys.list(packIds),
+    queryFn: ({ signal }) => api.tags.list(packIds, { signal }),
     enabled,
     staleTime: 5 * 60 * 1000,
     retry: 1,
@@ -875,7 +878,8 @@ export const useTags = (enabled: boolean = true) => {
 export const useCreateTag = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ name, color }: { name: string; color: string }) => api.tags.create(name, color),
+    mutationFn: ({ name, color, packIds }: { name: string; color: string; packIds?: string[] }) =>
+      api.tags.create(name, color, packIds ?? []),
     onSuccess: (result) => {
       // Escreve a tag criada direto no cache em vez de invalidar. Invalidar deixava a
       // lista exibindo a versão ANTIGA (sem a tag nova) até o refetch chegar — o usuário
@@ -891,8 +895,8 @@ export const useCreateTag = () => {
 export const useUpdateTag = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ tagId, patch }: { tagId: string; patch: { name?: string; color?: string } }) =>
-      api.tags.update(tagId, patch),
+    mutationFn: ({ tagId, patch, packIds }: { tagId: string; patch: { name?: string; color?: string }; packIds?: string[] }) =>
+      api.tags.update(tagId, patch, packIds ?? []),
     onSuccess: (result, { tagId }) => {
       const updated = result?.data
       if (updated) {
@@ -903,7 +907,7 @@ export const useUpdateTag = () => {
             : tags,
         )
       }
-      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.all })
     },
     onError: (error) => showError(error),
   })
@@ -912,13 +916,14 @@ export const useUpdateTag = () => {
 export const useDeleteTag = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (tagId: string) => api.tags.remove(tagId),
-    onSuccess: (_result, tagId) => {
+    mutationFn: ({ tagId, packIds }: { tagId: string; packIds?: string[] }) =>
+      api.tags.remove(tagId, packIds ?? []),
+    onSuccess: (_result, { tagId }) => {
       // O ON DELETE CASCADE ja removeu as marcacoes no banco; o cache acompanha.
       patchCachedRankingTags(queryClient, (tags) =>
         tags.some((t) => t.id === tagId) ? tags.filter((t) => t.id !== tagId) : tags,
       )
-      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.all })
     },
     onError: (error) => showError(error),
   })
@@ -927,8 +932,8 @@ export const useDeleteTag = () => {
 export const useAssignTags = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ tags, adNames }: { tags: TagItem[]; adNames: string[] }) =>
-      api.tags.assign(tags.map((t) => t.id), adNames),
+    mutationFn: ({ tags, adNames, packIds }: { tags: TagItem[]; adNames: string[]; packIds?: string[] }) =>
+      api.tags.assign(tags.map((t) => t.id), adNames, packIds ?? []),
     onSuccess: (_result, { tags, adNames }) => {
       const targets = new Set(adNames)
       patchCachedRankingTags(queryClient, (current, adName) => {
@@ -938,7 +943,7 @@ export const useAssignTags = () => {
         const merged = [...current, ...missing.map((t) => ({ id: t.id, name: t.name, color: t.color }))]
         return merged.sort((a, b) => a.name.localeCompare(b.name))
       })
-      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.all })
     },
     onError: (error) => showError(error),
   })
@@ -947,8 +952,8 @@ export const useAssignTags = () => {
 export const useUnassignTags = () => {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ tags, adNames }: { tags: TagItem[]; adNames: string[] }) =>
-      api.tags.unassign(tags.map((t) => t.id), adNames),
+    mutationFn: ({ tags, adNames, packIds }: { tags: TagItem[]; adNames: string[]; packIds?: string[] }) =>
+      api.tags.unassign(tags.map((t) => t.id), adNames, packIds ?? []),
     onSuccess: (_result, { tags, adNames }) => {
       const targets = new Set(adNames)
       const removing = new Set(tags.map((t) => t.id))
@@ -957,7 +962,7 @@ export const useUnassignTags = () => {
         const next = current.filter((t) => !removing.has(t.id))
         return next.length === current.length ? current : next
       })
-      queryClient.invalidateQueries({ queryKey: tagQueryKeys.list })
+      queryClient.invalidateQueries({ queryKey: tagQueryKeys.all })
     },
     onError: (error) => showError(error),
   })

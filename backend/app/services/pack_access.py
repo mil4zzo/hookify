@@ -334,3 +334,78 @@ def resolve_entity_pack_groups(
         pending = [i for i in pending if i not in found]
 
     return groups
+
+
+# ── Silo por CONTEXTO DE PACK, sem entidade (P4 tags) ────────────────────────
+# As rotas de VOCABULARIO (listar/criar/renomear/apagar tag) nao tem ad_name para
+# ancorar em resolve_entity_pack_scope: a tag existe antes de marcar qualquer
+# criativo. O que autoriza aqui e so o papel no pack, e o silo sai do dono dele.
+
+class PackSilo(NamedTuple):
+    owner_id: str      # silo onde o vocabulario vive
+    role: str          # papel do ator ('dono' | 'editor' | 'viewer')
+    is_guest: bool     # True => escrever exige service role
+
+
+def resolve_pack_silo(
+    actor_id: str,
+    pack_ids: Optional[Sequence[str]],
+    roles: Sequence[str] = ("dono", "editor"),
+) -> PackSilo:
+    """Silo (e autorizacao) a partir do contexto de packs, sem entidade.
+
+    - Sem pack_ids -> silo do proprio ator. E o caminho de quem nao compartilha
+      nada; falha fechado por RLS mais adiante se o ator mentir.
+    - Pack inacessivel na lista -> 404 (nao confirma existencia a quem esta fora).
+    - Papel insuficiente -> 403.
+    - Packs de DONOS diferentes -> 409. Escrever vocabulario no silo errado e pior
+      que nao escrever, e nao ha desempate honesto: a tag nao pertence a um
+      criativo especifico que pudesse decidir por ela.
+    """
+    actor = str(actor_id or "").strip()
+    if not actor:
+        raise HTTPException(status_code=401, detail="Sessao invalida")
+
+    packs = [str(p).strip() for p in (pack_ids or []) if str(p or "").strip()]
+    if not packs:
+        return PackSilo(owner_id=actor, role="dono", is_guest=False)
+
+    sb = get_supabase_service()
+    try:
+        res = sb.rpc(
+            "resolve_pack_access",
+            {"p_pack_ids": packs, "p_actor_id": actor},
+        ).execute()
+    except Exception as e:
+        logger.exception("[PACK_ACCESS] Falha ao resolver silo p/ packs %s: %s", packs, e)
+        raise HTTPException(status_code=500, detail="Erro ao verificar acesso ao pack")
+
+    rows = [r for r in (res.data or []) if isinstance(r, dict)]
+    # Pack que nao volta do resolvedor e pack sem acesso — nunca ignorar em
+    # silencio, senao a operacao rodaria num escopo menor que o pedido.
+    if len({str(r.get("pack_id")) for r in rows}) < len(set(packs)):
+        raise HTTPException(status_code=404, detail="Pack nao encontrado")
+
+    owners = {str(r.get("owner_id")) for r in rows if r.get("owner_id")}
+    if len(owners) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="A selecao mistura packs de donos diferentes. Escolha packs de um dono so para gerenciar tags.",
+        )
+    if not owners:
+        raise HTTPException(status_code=404, detail="Pack nao encontrado")
+
+    owner_id = owners.pop()
+    # Papel efetivo = o MENOR poder entre os packs. Um viewer num dos packs nao
+    # vira editor porque e editor no outro.
+    role_rank = {"viewer": 0, "editor": 1, "dono": 2}
+    effective = min((str(r.get("role") or "") for r in rows), key=lambda r: role_rank.get(r, -1))
+    if effective not in roles:
+        detail = (
+            "Somente o dono do pack pode executar esta acao"
+            if tuple(roles) == ("dono",)
+            else "Somente dono ou editor podem gerenciar tags deste pack"
+        )
+        raise HTTPException(status_code=403, detail=detail)
+
+    return PackSilo(owner_id=owner_id, role=effective, is_guest=owner_id != actor)

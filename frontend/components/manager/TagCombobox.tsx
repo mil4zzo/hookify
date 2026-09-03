@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useTags } from "@/lib/api/hooks";
+import { useTagScope } from "@/components/manager/TagScopeProvider";
 import type { TagItem } from "@/lib/api/schemas";
 import { nextTagColor, tagDotClasses, type TagColor } from "@/lib/tags/colors";
 import { isTagNameTaken, normalizeTagName } from "@/lib/tags/naming";
@@ -53,7 +54,10 @@ export function TagCombobox({
   disabled = false,
   className,
 }: TagComboboxProps) {
-  const { data, isLoading } = useTags();
+  // O vocabulario e do SILO do pack, nao do usuario: sem o escopo, o convidado
+  // veria a propria lista vazia em vez das tags do pack compartilhado.
+  const { packIds } = useTagScope();
+  const { data, isLoading } = useTags(packIds);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [isCreating, setIsCreating] = useState(false);

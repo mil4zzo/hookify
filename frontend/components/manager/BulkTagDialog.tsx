@@ -9,6 +9,7 @@ import { TagChip } from "@/components/manager/TagsCell";
 import { TagCombobox } from "@/components/manager/TagCombobox";
 import { nextTagColor } from "@/lib/tags/colors";
 import { useAssignTags, useCreateTag, useTags, useUnassignTags } from "@/lib/api/hooks";
+import { useTagScope } from "@/components/manager/TagScopeProvider";
 import type { RankingsRowTag, TagItem } from "@/lib/api/schemas";
 import { cn } from "@/lib/utils/cn";
 
@@ -49,7 +50,8 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
   const assign = useAssignTags();
   const unassign = useUnassignTags();
   const createTag = useCreateTag();
-  const { data: tagsData } = useTags();
+  const { packIds } = useTagScope();
+  const { data: tagsData } = useTags(packIds);
 
   const [mode, setMode] = useState<BulkTagMode>("add");
   const [staged, setStaged] = useState<StagedTag[]>([]);
@@ -102,7 +104,7 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
       if (mode === "remove") {
         // Draft não existe no modo remover — nada a criar.
         const tags = staged.filter((t): t is TagItem => !isDraft(t));
-        if (tags.length > 0) await unassign.mutateAsync({ tags, adNames });
+        if (tags.length > 0) await unassign.mutateAsync({ tags, adNames, packIds });
       } else {
         // As tags novas nascem só agora: quem desistiu no meio não deixou lixo.
         const resolved: TagItem[] = [];
@@ -115,10 +117,11 @@ export function BulkTagDialog({ open, onOpenChange, selection, onApplied }: Bulk
           const created = await createTag.mutateAsync({
             name: tag.draftName,
             color: nextTagColor(colorSeed++),
+            packIds,
           });
           if (created?.data) resolved.push(created.data);
         }
-        if (resolved.length > 0) await assign.mutateAsync({ tags: resolved, adNames });
+        if (resolved.length > 0) await assign.mutateAsync({ tags: resolved, adNames, packIds });
       }
       onApplied?.();
       onOpenChange(false);
