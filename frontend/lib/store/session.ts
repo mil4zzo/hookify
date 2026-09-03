@@ -5,6 +5,8 @@ import { FacebookUser, FacebookAdAccount } from '@/lib/api/schemas'
 import { setAuthToken } from '@/lib/api/client'
 import { hybridStorage } from '@/lib/storage/hybridStorage'
 import * as indexedDB from '@/lib/storage/indexedDB'
+import { REACT_QUERY_PERSIST_KEY } from '@/lib/storage/reactQueryPersistKeys'
+import { clearAvatarCache } from '@/lib/utils/avatarCache'
 
 const STORAGE_KEY = 'hookify-session'
 const STORAGE_VERSION = 1
@@ -79,6 +81,14 @@ export const useSessionStore = create<SessionStore>()(
           try {
             localStorage.removeItem(STORAGE_KEY)
             localStorage.removeItem('hookify-pack-ids')
+            // Cache SÍNCRONO do React Query (ReactQueryProvider) — hoje só as
+            // conexões do Facebook. Tem que sair aqui, antes do redirect do
+            // logout: o persister grava com throttle de 1s e não chega a
+            // reagir ao queryClient.clear(). Sem isso o blob do usuário
+            // anterior sobrevive e é reidratado no próximo login.
+            localStorage.removeItem(REACT_QUERY_PERSIST_KEY)
+            // Foto de perfil cacheada para o primeiro frame do Topbar.
+            clearAvatarCache()
             // Limpar IndexedDB em background
             indexedDB.clearAllPacks().catch((error) => {
               console.error('Erro ao limpar IndexedDB no logout:', error)

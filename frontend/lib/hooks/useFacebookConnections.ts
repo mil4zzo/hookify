@@ -10,12 +10,15 @@ import { queryKeys } from '@/lib/api/hooks'
 import { api } from '@/lib/api/endpoints'
 
 const qk = {
+  // Prefixo — usado em invalidate/cancel/refetch (casamento é por prefixo, então
+  // atinge a entrada de qualquer dono).
   connections: ['facebook', 'connections'] as const,
 }
 
 export function useFacebookConnections() {
   const qc = useQueryClient()
-  const { isAuthenticated } = useClientAuth()
+  const { isAuthenticated, user } = useClientAuth()
+  const userId = (user as { id?: string } | null)?.id ?? null
 
   // Cancelar queries ativas quando o usuário deslogar
   useEffect(() => {
@@ -26,7 +29,11 @@ export function useFacebookConnections() {
   }, [isAuthenticated, qc])
 
   const connections = useQuery({
-    queryKey: qk.connections,
+    // O dono entra na chave: esta query é persistida em localStorage
+    // (ReactQueryProvider) e sobrevive ao logout. Sem o userId, ao entrar com
+    // outra conta o cache do usuário anterior era reidratado como se fosse
+    // desta — mostrando a foto e as conexões da conta errada até o refetch.
+    queryKey: [...qk.connections, userId] as const,
     queryFn: facebookConnectorApi.listConnections,
     staleTime: 60_000,
     enabled: isAuthenticated, // Só executa quando o usuário estiver autenticado

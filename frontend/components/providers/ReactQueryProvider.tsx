@@ -4,8 +4,9 @@ import { PersistQueryClientProvider, type PersistQueryClientOptions } from '@tan
 import { createSyncStoragePersister } from '@tanstack/query-sync-storage-persister'
 import { useEffect, useState } from 'react'
 import { persistManualAnalyticsUpdate } from '@/lib/api/analyticsPersister'
+import { REACT_QUERY_PERSIST_KEY } from '@/lib/storage/reactQueryPersistKeys'
 
-const PERSIST_KEY = 'hookify-rq-cache-v1'
+const PERSIST_KEY = REACT_QUERY_PERSIST_KEY
 // Bump this string to invalidate all persisted caches at once (e.g., after a breaking schema change).
 const PERSIST_BUSTER = 'hookify-2026-05-01'
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
@@ -42,7 +43,12 @@ export function ReactQueryProvider({ children }: { children: React.ReactNode }) 
           if (query.state.status !== 'success') return false
           const key = query.queryKey
           // Persist connections so the button area renders instantly on return visits (optimistic),
-          // then revalidates in the background. Logout clears this via invalidateSessionCache.
+          // then revalidates in the background.
+          // A chave é ['facebook','connections', userId] — o dono faz parte dela,
+          // então uma entrada de outra conta nunca é reidratada como se fosse
+          // desta. O logout ainda apaga o blob inteiro (store de sessão), mas o
+          // escopo por usuário cobre os casos em que o logout não roda (sessão
+          // expirada, aba fechada, cookie limpo).
           if (Array.isArray(key) && key[0] === 'facebook' && key[1] === 'connections') return true
           return false
         },

@@ -47,6 +47,7 @@ import { TabbedContent, TabbedContentItem } from "@/components/common/TabbedCont
 import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
 import { cn } from "@/lib/utils/cn";
 import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
+import { readAvatarCache, writeAvatarCache, clearAvatarCache, type AvatarCacheEntry } from "@/lib/utils/avatarCache";
 import { APP_PAGE_SHELL_X } from "@/lib/constants/pageLayout";
 
 export default function Topbar() {
@@ -86,9 +87,8 @@ export default function Topbar() {
   const [isConfirmingUpdate, setIsConfirmingUpdate] = useState(false);
   const [profilePopupAvatarError, setProfilePopupAvatarError] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [cachedAvatarUrl, setCachedAvatarUrl] = useState<string | null>(() =>
-    typeof window !== "undefined" ? localStorage.getItem("hookify_avatar_url") : null
-  );
+  // Cache do avatar amarrado ao dono (uid) — ver lib/utils/avatarCache.ts
+  const [cachedAvatar, setCachedAvatar] = useState<AvatarCacheEntry | null>(() => readAvatarCache());
   const { refreshPack, isRefreshing, refreshingPackIds } = usePackRefresh();
 
   // Hook para retomar jobs pausados quando o Google for reconectado
@@ -138,10 +138,9 @@ export default function Topbar() {
   // URL única do avatar: Facebook prioridade, depois Supabase OAuth
   const displayAvatarUrl = facebookAvatarUrl || user?.user_metadata?.avatar_url || null;
   // Falls back to cached Facebook avatar while connections query is in-flight
+  const cachedAvatarUrl = cachedAvatar?.url ?? null;
   const effectiveAvatarUrl = facebookAvatarUrl || cachedAvatarUrl || user?.user_metadata?.avatar_url || null;
 
-  // Cache only the Facebook avatar URL (slow to load — requires connections query)
-  const AVATAR_CACHE_KEY = "hookify_avatar_url";
   // Preload the cached image so it's decoded by the time the <img> element actually mounts.
   // Without this, the <img> mounts → browser fetches/decodes → brief transparent moment where initials show through.
   useEffect(() => {
@@ -152,25 +151,34 @@ export default function Topbar() {
     }
   }, [cachedAvatarUrl]);
   useEffect(() => {
-    if (facebookAvatarUrl) {
-      localStorage.setItem(AVATAR_CACHE_KEY, facebookAvatarUrl);
-      setCachedAvatarUrl(facebookAvatarUrl);
+    // Dono errado: o cache é de OUTRA conta (trocou de login neste navegador).
+    // Descarta assim que o usuário atual é conhecido, sem esperar a query de
+    // conexões — senão a foto da conta anterior fica na tela nesse intervalo.
+    if (user?.id && cachedAvatar && cachedAvatar.uid !== user.id) {
+      clearAvatarCache();
+      setCachedAvatar(null);
+    }
+  }, [user?.id, cachedAvatar]);
+  useEffect(() => {
+    if (facebookAvatarUrl && user?.id) {
+      writeAvatarCache(user.id, facebookAvatarUrl);
+      setCachedAvatar({ uid: user.id, url: facebookAvatarUrl });
     } else if (connections.data !== undefined) {
       // A query de conexões já resolveu e nenhuma conexão ativa fornece avatar
       // (ex.: a conta que fornecia a foto foi excluída) — descarta o avatar
       // cacheado para não exibir um "fantasma" da conta removida.
       // O guard `data !== undefined` preserva o cache durante o load inicial
       // (data ainda undefined), que é justamente para o que o cache existe.
-      localStorage.removeItem(AVATAR_CACHE_KEY);
-      setCachedAvatarUrl(null);
+      clearAvatarCache();
+      setCachedAvatar(null);
     }
-  }, [facebookAvatarUrl, connections.data]);
+  }, [facebookAvatarUrl, connections.data, user?.id]);
   useEffect(() => {
     // Only clear on confirmed logout — not on initial mount where user is null because Supabase auth is still resolving.
     // Without the isAuthLoading gate, this effect fires on every page load and wipes the cache before it can be used.
     if (!isAuthLoading && !user) {
-      localStorage.removeItem(AVATAR_CACHE_KEY);
-      setCachedAvatarUrl(null);
+      clearAvatarCache();
+      setCachedAvatar(null);
     }
   }, [user, isAuthLoading]);
   useEffect(() => {
