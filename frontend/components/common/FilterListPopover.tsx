@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Input } from "@/components/ui/input";
 import { IconCheck, IconGripVertical } from "@tabler/icons-react";
 import { cn } from "@/lib/utils/cn";
+import { usePopoverWheelScroll } from "@/lib/hooks/usePopoverWheelScroll";
 import { CheckSquare } from "@/components/common/CheckSquare";
 
 export interface FilterListOption {
@@ -99,6 +100,7 @@ function SortableFilterListRow({ id, children }: { id: string; children: (state:
 export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", onSelectAll, onDeselectAll, reorderable = false, onReorder, align = "start", contentClassName, disablePortal = false, onOpenChange, disabled = false }: FilterListPopoverProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const listRef = usePopoverWheelScroll<HTMLDivElement>(open);
 
   // Reseta a busca ao fechar o popover
   useEffect(() => {
@@ -314,7 +316,8 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
             </span>
           </div>
         )}
-        <div className="max-h-[320px] overflow-y-auto">{renderList()}</div>
+        {/* ref: devolve a roda do mouse quando este popover abre sobre um diálogo */}
+        <div ref={listRef} className="max-h-[320px] overflow-y-auto">{renderList()}</div>
       </PopoverContent>
     </Popover>
   );

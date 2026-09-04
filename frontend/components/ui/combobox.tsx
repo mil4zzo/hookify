@@ -5,6 +5,7 @@ import { IconCheck, IconChevronDown } from "@tabler/icons-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { usePopoverWheelScroll } from "@/lib/hooks/usePopoverWheelScroll";
 import { cn } from "@/lib/utils/cn";
 
 interface ComboboxProps {
@@ -29,6 +30,9 @@ interface ComboboxProps {
 export function Combobox({ value, onValueChange, options, placeholder = "Selecione...", searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", className, size = "default", contentClassName, disablePortal = false }: ComboboxProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
+  // Sem isto a lista não rola com a roda do mouse quando o combobox está dentro de um
+  // diálogo (o scroll-lock do modal bloqueia o portal) — ver o hook.
+  const listRef = usePopoverWheelScroll<HTMLDivElement>(open);
 
   const filteredOptions = React.useMemo(() => {
     if (!search) return options;
@@ -83,7 +87,7 @@ export function Combobox({ value, onValueChange, options, placeholder = "Selecio
               autoFocus
             />
           </div>
-          <div className="max-h-[300px] overflow-y-auto">
+          <div ref={listRef} className="max-h-[300px] overflow-y-auto">
             {filteredOptions.length === 0 ? (
               <div className="py-6 text-center text-sm text-muted-foreground">{emptyMessage}</div>
             ) : (
