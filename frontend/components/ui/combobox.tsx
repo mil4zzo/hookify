@@ -32,7 +32,8 @@ export function Combobox({ value, onValueChange, options, placeholder = "Selecio
   const [search, setSearch] = React.useState("");
   // Sem isto a lista não rola com a roda do mouse quando o combobox está dentro de um
   // diálogo (o scroll-lock do modal bloqueia o portal) — ver o hook.
-  const listRef = usePopoverWheelScroll<HTMLDivElement>(open);
+  const listRef = React.useRef<HTMLDivElement>(null);
+  usePopoverWheelScroll(open, listRef);
 
   const filteredOptions = React.useMemo(() => {
     if (!search) return options;

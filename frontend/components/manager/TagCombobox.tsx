@@ -6,6 +6,7 @@ import { IconChevronDown, IconLoader2, IconPlus } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePopoverWheelScroll } from "@/lib/hooks/usePopoverWheelScroll";
 import { useTags } from "@/lib/api/hooks";
 import { useTagScope } from "@/components/manager/TagScopeProvider";
 import type { TagItem } from "@/lib/api/schemas";
@@ -59,6 +60,9 @@ export function TagCombobox({
   const { packIds } = useTagScope();
   const { data, isLoading } = useTags(packIds);
   const [open, setOpen] = useState(false);
+  // Roda do mouse dentro de dialogo (BulkTagDialog): ver o hook.
+  const listRef = useRef<HTMLDivElement>(null);
+  usePopoverWheelScroll(open, listRef);
   const [query, setQuery] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -167,7 +171,7 @@ export function TagCombobox({
           />
         </div>
 
-        <div className="max-h-56 overflow-y-auto p-1">
+        <div ref={listRef} className="max-h-56 overflow-y-auto p-1">
           {canOfferCreate && (
             <button
               type="button"

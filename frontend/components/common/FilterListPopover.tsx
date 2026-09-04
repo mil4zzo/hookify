@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, type ReactElement, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { closestCenter, DndContext, type DragEndEvent, KeyboardSensor, PointerSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -100,7 +100,8 @@ function SortableFilterListRow({ id, children }: { id: string; children: (state:
 export function FilterListPopover({ options, groups, mode = "multi", selectedIds, onSelect, trigger, triggerWrap, header, searchable = false, searchPlaceholder = "Buscar...", emptyMessage = "Nenhum resultado encontrado.", onSelectAll, onDeselectAll, reorderable = false, onReorder, align = "start", contentClassName, disablePortal = false, onOpenChange, disabled = false }: FilterListPopoverProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const listRef = usePopoverWheelScroll<HTMLDivElement>(open);
+  const listRef = useRef<HTMLDivElement>(null);
+  usePopoverWheelScroll(open, listRef);
 
   // Reseta a busca ao fechar o popover
   useEffect(() => {

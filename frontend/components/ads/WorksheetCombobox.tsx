@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePopoverWheelScroll } from "@/lib/hooks/usePopoverWheelScroll";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconCheck, IconChevronDown, IconLoader2 } from "@tabler/icons-react";
@@ -25,6 +26,9 @@ interface WorksheetComboboxProps {
 
 export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeholder = "Selecione uma aba...", className, disabled = false, connectionId, active = true }: WorksheetComboboxProps) {
   const [open, setOpen] = useState(false);
+  // Roda do mouse dentro de dialogo: ver o hook.
+  const listRef = useRef<HTMLDivElement>(null);
+  usePopoverWheelScroll(open, listRef);
   const [search, setSearch] = useState("");
   const {
     data,
@@ -127,7 +131,7 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
               autoFocus
             />
           </div>
-          <div className="max-h-[300px] overflow-y-auto">
+          <div ref={listRef} className="max-h-[300px] overflow-y-auto">
             {queryError ? (
               <div className="py-6 px-4 text-center">
                 <p className="text-sm text-destructive mb-2">{(queryError as any)?.message || "Erro ao carregar abas. Tente novamente."}</p>

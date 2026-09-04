@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePopoverWheelScroll } from "@/lib/hooks/usePopoverWheelScroll";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { IconCheck, IconChevronDown, IconLoader2 } from "@tabler/icons-react";
@@ -29,6 +30,8 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  // Roda do mouse dentro de dialogo: ver o hook. Reusa o ref da rolagem infinita.
+  usePopoverWheelScroll(open, scrollContainerRef);
 
   // Debounce para busca
   const [debouncedSearch, setDebouncedSearch] = useState("");
