@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, date, timezone
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.client_disconnect import ClientGone, abort_if_client_gone
 from app.core.supabase_retry import with_postgrest_retry
+from app.services import sheet_column_mappings
 from app.services.ad_media import resolve_media_type, resolve_primary_video_id
 from app.services.thumbnail_cache import CachedThumb, DEFAULT_BUCKET, build_public_storage_url, normalize_ad_name
 
@@ -2808,7 +2809,9 @@ def list_packs(user_jwt: str, user_id: Optional[str]) -> List[Dict[str, Any]]:
                 )
                 # Criar mapa id -> integration
                 integrations_map = {str(int["id"]): int for int in integrations}
-                
+                # 140: colunas vinculadas viajam dentro de sheet_integration
+                sheet_column_mappings.attach_to_integrations(sb, integrations)
+
                 # Enriquecer packs com dados da integração já persistidos.
                 for pack in packs:
                     if not isinstance(pack, dict):
@@ -2874,6 +2877,8 @@ def list_shared_packs(actor_id: str) -> List[Dict[str, Any]]:
                 lambda q: q.in_("id", integration_ids),
             )
             integrations_map = {str(i["id"]): i for i in integrations}
+            # 140: colunas vinculadas (service role: o vinculo vive no silo do dono)
+            sheet_column_mappings.attach_to_integrations(sb, integrations)
         except Exception as e:
             logger.warning(f"[LIST_SHARED_PACKS] Erro ao buscar integracoes: {e}")
 
@@ -2924,6 +2929,7 @@ def get_pack(
                 )
                 if int_res.data and len(int_res.data) > 0:
                     integration = int_res.data[0]
+                    sheet_column_mappings.attach_to_integrations(sb, [integration])
                     pack["sheet_integration"] = integration
             except Exception as e:
                 logger.warning(f"[GET_PACK] Erro ao buscar integração para pack {pack_id}: {e}")

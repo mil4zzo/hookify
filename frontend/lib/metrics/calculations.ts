@@ -1,4 +1,6 @@
 import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
+import { getCustomMetricValue, isCustomColumnKey } from "./customColumns";
+import { getActiveCustomColumn } from "./customColumnsRegistry";
 import { type MetricKey, METRIC_DEFINITIONS } from "./definitions";
 
 type MetricKeyLike = MetricKey | string;
@@ -84,6 +86,14 @@ export function getResultsForActionType(source: MetricValueSource, actionType?: 
 }
 
 export function getMetricNumericValueOrNull(source: MetricValueSource, metricKey: MetricKeyLike, context: MetricValueContext = {}): number | null {
+  // 140: coluna vinculada da planilha (`custom:<id>:<faceta>`). A definição vem do
+  // registro ativo (packs selecionados); chave fora do registro = sem dado, como uma
+  // métrica desconhecida — nunca zero.
+  if (isCustomColumnKey(metricKey)) {
+    const def = getActiveCustomColumn(metricKey);
+    return def ? getCustomMetricValue(source, def) : null;
+  }
+
   const canonicalKey = resolveMetricKey(metricKey);
   if (!canonicalKey) return null;
 

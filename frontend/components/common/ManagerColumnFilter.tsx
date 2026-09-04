@@ -5,8 +5,14 @@ import { Button } from "@/components/ui/button";
 import { IconChevronDown } from "@tabler/icons-react";
 import { FilterListPopover } from "@/components/common/FilterListPopover";
 import { MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
+import type { CustomColumnKey } from "@/lib/metrics/customColumns";
+import { getActiveCustomColumn } from "@/lib/metrics/customColumnsRegistry";
 
 export type ManagerColumnType =
+  // 140: colunas vinculadas da planilha — `custom:<mappingId>:<faceta>`. Tipo à parte
+  // (template literal) para o tsc continuar pegando `undefined` nos consumidores que só
+  // conhecem as fixas.
+  | CustomColumnKey
   // Dimensões (não-métricas) — ver isDimension em MANAGER_COLUMNS
   | "tags"
   | "pack"
@@ -57,8 +63,13 @@ interface ManagerColumnFilterProps {
 
 const COLUMN_NAME_BY_ID = new Map<ManagerColumnType, string>(MANAGER_COLUMN_OPTIONS.map((column) => [column.id, column.name]));
 
+/** Nome de uma coluna: fixa pelo mapa, vinculada (140) pelo registro ativo. */
+const columnLabel = (columnId: ManagerColumnType): string =>
+  COLUMN_NAME_BY_ID.get(columnId) ?? getActiveCustomColumn(columnId)?.label ?? columnId;
+
 export function ManagerColumnFilter({ activeColumns, columnOrder, onToggleColumn, onReorderColumns, isColumnDisabled, onSelectAll, onDeselectAll, className }: ManagerColumnFilterProps) {
-  const totalCount = MANAGER_COLUMN_OPTIONS.length;
+  // A ordem carrega TODAS as colunas (fixas + vinculadas dos packs selecionados).
+  const totalCount = columnOrder.length;
   const selectedCount = activeColumns.size;
 
   const buttonText = selectedCount === 0 ? "Colunas (0)" : selectedCount === totalCount ? `Colunas (${totalCount})` : `Colunas (${selectedCount} de ${totalCount})`;
@@ -67,7 +78,7 @@ export function ManagerColumnFilter({ activeColumns, columnOrder, onToggleColumn
     () =>
       columnOrder.map((columnId) => ({
         id: columnId,
-        label: COLUMN_NAME_BY_ID.get(columnId) ?? columnId,
+        label: columnLabel(columnId),
         disabled: isColumnDisabled?.(columnId) ?? false,
         disabledHint: " (requer planilha)",
       })),

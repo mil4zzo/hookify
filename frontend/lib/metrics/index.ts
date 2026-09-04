@@ -1,5 +1,7 @@
 import { METRIC_DEFINITION_LIST, METRIC_DEFINITIONS, type MetricDefinition, type MetricFormatKind, type MetricKey } from "./definitions";
 import { formatMetricValueByKind as formatMetricValueByKindCore, type FormatMetricValueOptions } from "./formatMetricValueCore";
+import { isCustomColumnKey } from "./customColumns";
+import { getActiveCustomColumn } from "./customColumnsRegistry";
 
 export type { MetricDefinition, MetricFormatKind, MetricKey, MetricPolarity } from "./definitions";
 export { METRIC_DEFINITION_LIST, METRIC_DEFINITIONS } from "./definitions";
@@ -51,7 +53,31 @@ export function resolveMetricKey(metricKey: string): MetricKey | null {
   return definition?.key ?? null;
 }
 
+/**
+ * A definição de uma métrica — a porta única por onde saem rótulo, formato,
+ * polaridade e tooltip. Tudo que vem depois (`formatMetricValue`,
+ * `getMetricDisplayLabel`, `isLowerBetterMetric`…) depende dela.
+ *
+ * 140: uma coluna vinculada da planilha (`custom:<id>:<faceta>`) não está em
+ * `METRIC_DEFINITIONS` — ela nasce dos vínculos dos packs selecionados. A definição
+ * é sintetizada a partir do registro ativo. Sem isto, quem formata devolvia travessão
+ * mesmo com valor na linha: foi o que apareceu na primeira integração real.
+ */
 export function getMetricDefinition(metricKey: string): MetricDefinition | undefined {
+  if (isCustomColumnKey(metricKey)) {
+    const custom = getActiveCustomColumn(metricKey);
+    if (!custom) return undefined;
+    return {
+      key: metricKey as unknown as MetricKey,
+      label: custom.label,
+      shortLabel: custom.shortLabel,
+      polarity: custom.polarity,
+      // `top` (categoria) é texto e não passa por formatador numérico; o decimal aqui
+      // é só um valor de preenchimento para o tipo — a célula dela tem render próprio.
+      formatKind: custom.formatKind === "text" ? "decimal" : custom.formatKind,
+      technicalDescription: `Coluna "${custom.mapping.label}" da planilha vinculada.`,
+    };
+  }
   const canonicalKey = resolveMetricKey(metricKey);
   return canonicalKey ? METRIC_DEFINITIONS[canonicalKey] : undefined;
 }

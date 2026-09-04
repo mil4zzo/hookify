@@ -21,7 +21,9 @@ import { rowMatchesRules } from "@/lib/rules/evaluate";
 import { buildRuleDimensionOptions } from "@/lib/rules/dimensionOptions";
 import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { EMPTY_RULE_TREE, isEmptyRuleTree, type RuleTree } from "@/lib/rules/types";
-import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, getManagerChildSortInitialDirection, type ManagerChildSortColumn, type ManagerMetricKey } from "@/lib/metrics";
+import { buildManagerComputedRow, compareManagerChildRows, formatManagerChildMetricValue, formatManagerMetricValue, getManagerChildSortInitialDirection, getMetricNumericValueOrNull, type ManagerChildSortColumn, type ManagerMetricKey } from "@/lib/metrics";
+import { getCustomTopValue, isCustomColumnKey } from "@/lib/metrics/customColumns";
+import { getActiveCustomColumn, getActiveCustomColumns, getActiveCustomColumnsVersion } from "@/lib/metrics/customColumnsRegistry";
 import { isManagerMetricColumn } from "@/components/manager/managerColumns";
 
 /** Tipo de filho renderizado: anúncios de um adset, variações de um ad name, ou adsets de uma campanha. */
@@ -174,7 +176,18 @@ export function ManagerChildrenTable({
   // Só métricas: as dimensões de procedência (Pack/Conta) são descartadas aqui. Os filhos vêm de
   // outro endpoint (RankingsChildrenItem), que não carrega pack_ids/account_ids — a coluna sairia
   // vazia. E a pergunta "de qual pack veio?" já foi respondida na linha-pai que abriu este drill.
-  const visibleColumns = useMemo(() => getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration }).filter(isManagerMetricColumn), [activeColumns, columnOrder, hasSheetIntegration]);
+  // 140: colunas vinculadas da planilha entram (inclusive categoria, que é texto): a filha
+  // traz `custom_histograms` desde a v135. A lista vem do registro ativo, publicado pela
+  // página; ligar/desligar a coluna muda `activeColumns`, que já re-renderiza.
+  const customColumnsVersion = getActiveCustomColumnsVersion();
+  const visibleColumns = useMemo(
+    () =>
+      getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration, customColumns: getActiveCustomColumns() }).filter(
+        (column) => isManagerMetricColumn(column) || !!column.custom,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- customColumnsVersion é o gatilho do registro
+    [activeColumns, columnOrder, hasSheetIntegration, customColumnsVersion],
+  );
   const childrenLabel = config.plural;
 
   const ruleContext = useMemo(() => ({ actionType, mqlLeadscoreMin }), [actionType, mqlLeadscoreMin]);
@@ -306,8 +319,18 @@ export function ManagerChildrenTable({
     });
   };
 
-  const renderCellValue = (child: any, columnId: ManagerMetricKey) => {
-    return formatManagerChildMetricValue(columnId, child, { currencyFormatter: formatCurrency });
+  const renderCellValue = (child: any, columnId: ManagerMetricKey | string) => {
+    // 140: categoria da planilha — resposta majoritária e fatia; sem histograma, travessão.
+    if (isCustomColumnKey(columnId)) {
+      const def = getActiveCustomColumn(columnId);
+      if (def?.facet === "top") {
+        const top = getCustomTopValue(child, def.mappingId);
+        return top ? `${top.value} · ${Math.round(top.share * 100)}%` : "—";
+      }
+      const value = getMetricNumericValueOrNull(child, columnId, { actionType, mqlLeadscoreMin });
+      return value == null ? "—" : formatManagerMetricValue(columnId, value, { currencyFormatter: formatCurrency }) || "—";
+    }
+    return formatManagerChildMetricValue(columnId as ManagerMetricKey, child, { currencyFormatter: formatCurrency });
   };
 
   const metricColumnClass = "cursor-pointer select-none px-4 py-3 text-center hover:text-brand";

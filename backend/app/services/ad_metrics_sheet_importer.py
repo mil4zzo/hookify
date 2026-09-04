@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections import defaultdict
@@ -8,6 +9,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
 from app.core.supabase_retry import with_postgrest_retry
+from app.services import sheet_column_mappings
 from app.services.google_sheets_service import fetch_all_rows, GoogleSheetsError
 from app.services.google_errors import (
     GOOGLE_TOKEN_EXPIRED,
@@ -191,7 +193,10 @@ def _load_sheet_config(sb: Any, integration_id: str, user_id: str) -> Dict[str, 
     )
     if not res.data:
         raise AdMetricsImportError("Configuração de integração não encontrada.")
-    return res.data[0]
+    cfg = dict(res.data[0])
+    # 140: colunas vinculadas além do leadscore (lista vazia quando não há)
+    cfg["column_mappings"] = sheet_column_mappings.list_for_integrations(sb, [integration_id]).get(str(integration_id), [])
+    return cfg
 
 
 def _fetch_and_parse_sheet(
@@ -226,8 +231,14 @@ def _parse_and_aggregate_rows(
     leadscore_idx: Optional[int],
     date_format: str,
     check_cancelled: Optional[Callable[[], bool]],
+    collector: Optional[sheet_column_mappings.HistogramCollector] = None,
 ) -> tuple[Dict[tuple[str, str], Dict[str, Any]], int, int]:
-    """Parse e agrega linhas por (ad_id, date). Retorna aggregated_data, processed, skipped_invalid."""
+    """Parse e agrega linhas por (ad_id, date). Retorna aggregated_data, processed, skipped_invalid.
+
+    `collector` (140): acumula os histogramas das colunas vinculadas para as MESMAS
+    linhas que entram no leadscore. Uma célula ruim numa coluna vinculada é pulada e
+    contada pelo collector; nunca invalida a linha nem derruba o sync.
+    """
     aggregated_data = defaultdict(lambda: {'leadscore_values': [], 'row_count': 0})
     processed = 0
     skipped_invalid = 0
@@ -286,6 +297,8 @@ def _parse_and_aggregate_rows(
         aggregated_data[key]['row_count'] += 1
         if leadscore_val is not None:
             aggregated_data[key]['leadscore_values'].append(leadscore_val)
+        if collector is not None:
+            collector.add_row(key, row)
 
     if skipped_empty_rows:
         logger.info(f"[AD_METRICS_IMPORT] Linhas vazias ignoradas silenciosamente: {skipped_empty_rows}")
@@ -295,19 +308,30 @@ def _parse_and_aggregate_rows(
 
 def _build_final_data_and_groups(
     aggregated_data: Dict[tuple[str, str], Dict[str, Any]],
+    collector: Optional[sheet_column_mappings.HistogramCollector] = None,
 ) -> tuple[Dict[str, Dict[str, Any]], Dict[tuple, List[str]], List[Dict[str, Any]]]:
-    """Constrói final_data e updates_by_values para o RPC."""
+    """Constrói final_data e updates_by_values para o RPC.
+
+    140: cada anúncio-dia leva também `custom_hist`, o objeto COMPLETO dos histogramas
+    das colunas vinculadas. Sempre enviado (`{}` quando a linha não tem valor nenhum ou
+    quando não há vínculo): é assim que um vínculo excluído some da linha no próximo
+    sync, sem purge (o RPC grava NULL para `{}`). Ids com o mesmo par
+    (leadscore_values, custom_hist) viajam no mesmo item.
+    """
+    invalid = collector.invalid_mappings() if collector is not None else {}
     final_data: Dict[str, Dict[str, Any]] = {}
     for (ad_id, date), agg in aggregated_data.items():
         metric_id = f"{date}-{ad_id}"
         leadscore_values = agg['leadscore_values'] if agg['leadscore_values'] else None
         if leadscore_values:
             leadscore_values = [round(v, 6) for v in leadscore_values]
+        custom_hist = collector.histogram_for((ad_id, date), invalid) if collector is not None else {}
         final_data[metric_id] = {
             'id': metric_id,
             'ad_id': ad_id,
             'date': date,
             'leadscore_values': leadscore_values,
+            'custom_hist': custom_hist,
             'lead_count': agg['row_count'],
         }
 
@@ -315,14 +339,16 @@ def _build_final_data_and_groups(
     for metric_id, data in final_data.items():
         leadscore_vals = data.get('leadscore_values')
         leadscore_key = tuple(leadscore_vals) if leadscore_vals else None
-        value_key = leadscore_key
+        custom_key = json.dumps(data.get('custom_hist') or {}, sort_keys=True, separators=(",", ":"))
+        value_key = (leadscore_key, custom_key)
         updates_by_values[value_key].append(metric_id)
 
     rpc_updates = []
-    for leadscore_key, ids_batch in updates_by_values.items():
+    for (leadscore_key, custom_key), ids_batch in updates_by_values.items():
         update_item: Dict[str, Any] = {"ids": ids_batch}
         if leadscore_key is not None:
             update_item["leadscore_values"] = list(leadscore_key)
+        update_item["custom_hist"] = json.loads(custom_key)
         rpc_updates.append(update_item)
 
     return final_data, updates_by_values, rpc_updates
@@ -508,10 +534,21 @@ def run_ad_metrics_sheet_import(
             "Coluna de Leadscore não encontrada no header da planilha."
         )
 
+    # 140: colunas vinculadas. O índice gravado no vínculo é a verdade (como os
+    # *_column_index); se a planilha encolheu e o índice não existe mais, a coluna
+    # simplesmente não rende valor nenhum neste sync (contado no relatório).
+    collector = sheet_column_mappings.HistogramCollector(cfg.get("column_mappings") or [])
+    if collector.enabled:
+        logger.info(
+            "[AD_METRICS_IMPORT] %d coluna(s) vinculada(s): %s",
+            len(collector.mappings),
+            ", ".join(f"{m.get('label')} ({m.get('kind')}, col {m.get('column_index')})" for m in collector.mappings),
+        )
+
     if on_stage_change:
         on_stage_change("processando_dados")
     aggregated_data, processed, skipped_invalid = _parse_and_aggregate_rows(
-        rows, ad_id_idx, date_idx, leadscore_idx, date_format, check_cancelled
+        rows, ad_id_idx, date_idx, leadscore_idx, date_format, check_cancelled, collector
     )
 
     if not aggregated_data:
@@ -527,7 +564,14 @@ def run_ad_metrics_sheet_import(
 
     unique_ad_ids_set = set(ad_id for ad_id, _ in aggregated_data.keys())
     unique_dates_set = set(date for _, date in aggregated_data.keys())
-    final_data, updates_by_values, rpc_updates = _build_final_data_and_groups(aggregated_data)
+    final_data, updates_by_values, rpc_updates = _build_final_data_and_groups(aggregated_data, collector)
+    custom_report = collector.report() if collector.enabled else {}
+    for mid, info in custom_report.items():
+        if info.get("invalid_reason"):
+            logger.warning("[AD_METRICS_IMPORT] Coluna vinculada '%s' ignorada: %s", info.get("label"), info["invalid_reason"])
+        elif info.get("skipped"):
+            logger.info("[AD_METRICS_IMPORT] Coluna vinculada '%s': %d valores, %d células inválidas puladas",
+                        info.get("label"), info.get("values", 0), info.get("skipped", 0))
 
     logger.info(f"[AD_METRICS_IMPORT] {len(final_data)} IDs únicos gerados para atualização")
     logger.info(f"[AD_METRICS_IMPORT] Estatísticas de agregação:")
@@ -575,6 +619,8 @@ def run_ad_metrics_sheet_import(
         "ids_out_of_pack_count": ids_out_of_pack_count,
         "total_update_queries": total_groups_processed,
         "skipped_invalid": skipped_invalid,
+        # 140: por vínculo: valores lidos, células puladas e motivo de invalidação
+        "custom_columns": custom_report,
     }
 
     # Atualizar status da integracao - falha e critica, interrompe e notifica usuario

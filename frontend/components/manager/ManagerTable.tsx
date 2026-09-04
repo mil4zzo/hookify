@@ -35,7 +35,8 @@ import { buildManagerBulkActions } from "@/components/manager/managerBulkActions
 import { BulkTagDialog } from "@/components/manager/BulkTagDialog";
 import { TagScopeProvider } from "@/components/manager/TagScopeProvider";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import { MANAGER_COLUMN_RENDER_ORDER, MANAGER_COLUMN_OPTIONS } from "@/components/manager/managerColumns";
+import { MANAGER_COLUMN_RENDER_ORDER, getManagerColumnOptions } from "@/components/manager/managerColumns";
+import { isCustomColumnKey, type CustomColumnDef } from "@/lib/metrics/customColumns";
 import { TableContent } from "@/components/manager/TableContent";
 import { ManagerDrillModal } from "@/components/manager/ManagerDrillModal";
 import { useDrillState, type DrillKind } from "@/lib/manager/useDrillState";
@@ -52,7 +53,10 @@ import {
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleTree } from "@/lib/rules/types";
 import type { RuleNameDictionary } from "@/lib/rules/evaluate";
 import { buildGroupedMetricBaseSeries, formatManagerAverageValue, type ManagerAverages } from "@/lib/metrics";
-import { loadManagerColumnPreferences, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
+import { loadManagerColumnPreferences, normalizeManagerColumnOrder, saveManagerColumnPreferences, type ManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
+
+/** Referência estável para "nenhuma coluna vinculada" — evita re-normalizar as preferências a cada render. */
+const EMPTY_CUSTOM_COLUMNS: ReadonlyArray<CustomColumnDef> = [];
 import { useProvenanceIndex } from "@/lib/manager/provenance";
 import { buildRuleDimensionOptions } from "@/lib/rules/dimensionOptions";
 import { useAdAccountsDb } from "@/lib/api/hooks";
@@ -109,6 +113,13 @@ interface ManagerTableProps {
   /** Indica se há integração de planilha (Google Sheets) em pelo menos um dos packs selecionados */
   hasSheetIntegration?: boolean;
   /**
+   * 140: colunas vinculadas da planilha nos packs selecionados. Viram colunas opcionais
+   * (desligadas por padrão) anexadas após as fixas; a mesma lista está publicada no
+   * registro ativo (`setActiveCustomColumns`) para o motor de regra e a porta de leitura
+   * de métrica — aqui ela viaja por prop porque a tabela precisa re-renderizar com ela.
+   */
+  customColumns?: ReadonlyArray<CustomColumnDef>;
+  /**
    * Dicionário id → nome de campanhas e conjuntos desta resposta (migration 136).
    * Sem ele, uma regra sobre "Nome da campanha" é IGNORADA em vez de responder com
    * o nome do representante — a mentira que a v136 veio corrigir.
@@ -152,7 +163,7 @@ const MANAGER_TABS: TabItem[] = [
 
 // ExpandedChildrenRow / CampaignChildrenRow são reusados como conteúdo do ManagerDrillModal.
 
-export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], cellMode = "trend", onCellModeChange, averagesOverride, hasSheetIntegration = false, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
+export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange, adsIndividual, isLoadingIndividual, adsAdset, isLoadingAdset, adsCampaign, isLoadingCampaign, actionType = "", selectedPackIds = [], endDate, dateStart, dateStop, availableConversionTypes = [], cellMode = "trend", onCellModeChange, averagesOverride, hasSheetIntegration = false, customColumns = EMPTY_CUSTOM_COLUMNS, names, isLoading = false, isError = false, initialFilters, onVisibleGroupKeysChange, serverTotal }: ManagerTableProps) {
   type ManagerTab = "individual" | "por-anuncio" | "por-conjunto" | "por-campanha";
   const initialTab = (activeTab ?? "por-anuncio") as ManagerTab;
   const [internalTab, setInternalTab] = useState<ManagerTab>(initialTab);
@@ -162,7 +173,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
   const debouncedStorage = useDebouncedSessionStorage(500);
 
   // Visibilidade + ordem das colunas vivem juntas (mesma preferência persistida, ver managerColumnPreferences).
-  const [columnPreferences, setColumnPreferences] = useState<ManagerColumnPreferences>(() => loadManagerColumnPreferences());
+  const [columnPreferences, setColumnPreferences] = useState<ManagerColumnPreferences>(() => loadManagerColumnPreferences(customColumns));
   const { active: activeColumns, order: columnOrder } = columnPreferences;
 
   /** Atualiza e persiste as preferências de coluna. O updater pode devolver `prev` para não mudar nada. */
@@ -174,6 +185,21 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       return next;
     });
   }, []);
+
+  // 140: a seleção de packs mudou as colunas vinculadas conhecidas — a ordem ganha as
+  // novas no fim e perde as que saíram (a preferência delas fica guardada no storage e
+  // volta com o pack). Sem isto, uma coluna nova não apareceria no seletor.
+  const customColumnIds = useMemo(() => new Set<string>(customColumns.map((def) => def.key)), [customColumns]);
+  useEffect(() => {
+    setColumnPreferences((prev) => {
+      const order = normalizeManagerColumnOrder(prev.order, customColumns);
+      const same = order.length === prev.order.length && order.every((id, i) => id === prev.order[i]);
+      if (same) return prev;
+      const next = { ...prev, order };
+      saveManagerColumnPreferences(next);
+      return next;
+    });
+  }, [customColumns]);
 
   const setActiveColumns = useCallback(
     (updater: (prev: Set<ManagerColumnType>) => Set<ManagerColumnType>) => {
@@ -274,10 +300,12 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   const isColumnEnabled = useCallback(
     (columnId: ManagerColumnType) => {
+      // 140: coluna vinculada só existe enquanto algum pack selecionado tem o vínculo.
+      if (isCustomColumnKey(columnId)) return customColumnIds.has(columnId);
       if (columnId === "cpmql" || columnId === "mqls" || columnId === "leadscore_avg" || columnId === "mql_rate") return hasSheetIntegration;
       return true;
     },
-    [hasSheetIntegration],
+    [hasSheetIntegration, customColumnIds],
   );
 
   const handleToggleColumn = useCallback(
@@ -301,8 +329,8 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
 
   // Bulk: seleciona todas as colunas habilitadas (ex: cpmql/mqls ficam de fora sem planilha)
   const handleSelectAllColumns = useCallback(() => {
-    setActiveColumns(() => new Set<ManagerColumnType>(MANAGER_COLUMN_OPTIONS.filter((column) => isColumnEnabled(column.id)).map((column) => column.id)));
-  }, [isColumnEnabled, setActiveColumns]);
+    setActiveColumns(() => new Set<ManagerColumnType>(getManagerColumnOptions(customColumns).filter((column) => isColumnEnabled(column.id)).map((column) => column.id)));
+  }, [isColumnEnabled, setActiveColumns, customColumns]);
 
   // Bulk: limpa a seleção (mesmo padrão do PackFilter — 0 é um estado válido)
   const handleDeselectAllColumns = useCallback(() => {
@@ -645,6 +673,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     actionType,
     hasSheetIntegration,
     mqlLeadscoreMin,
+    customColumns,
   });
 
   const averages = useMemo(() => {
@@ -692,6 +721,9 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         mqls: computedAverages.mqls,
         leadscore_avg: computedAverages.leadscore_avg,
         mql_rate: computedAverages.mql_rate,
+        // 140: colunas vinculadas são sempre calculadas no cliente (o override do
+        // backend não as conhece)
+        custom: computedAverages.custom,
         sumSpend: computedAverages.sumSpend,
         sumImpressions: computedAverages.sumImpressions,
         sumClicks: computedAverages.sumClicks,
@@ -828,6 +860,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       provenanceIndex,
       hasSheetIntegration,
       mqlLeadscoreMin,
+      customColumns,
       actionTypeRef,
       selectionAnchorRef,
       openSettings: openSettings as any,
@@ -836,7 +869,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       globalFilterRef,
       ruleContext: { actionType, mqlLeadscoreMin, names },
     });
-  }, [activeColumns, groupByAdNameEffective, byKey, endDate, cellMode, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
+  }, [activeColumns, groupByAdNameEffective, byKey, endDate, cellMode, formatPct, viewMode, colorMetricValue, provenanceIndex, hasSheetIntegration, mqlLeadscoreMin, customColumns, getRowKey, handleRevealField, currentTab, openSettings, actionType, handleOpenDrill, packCtxIds, names]);
 
   // Handler que garante que sempre haja pelo menos uma ordenação
   const handleSortingChange = useCallback((updater: SortingState | ((old: SortingState) => SortingState)) => {
@@ -949,6 +982,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     actionType,
     hasSheetIntegration,
     mqlLeadscoreMin,
+    customColumns,
   });
 
   // Função helper para formatar a média filtrada de uma métrica
@@ -968,6 +1002,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     actionType,
     hasSheetIntegration,
     mqlLeadscoreMin,
+    customColumns,
   });
 
   const formatSelectionAverage = useMemo(
@@ -1038,7 +1073,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         <div className="flex flex-wrap items-stretch justify-start gap-2 md:justify-end">
           {/* Colunas: controle mais usado, permanece dedicado e fora do menu */}
           <div className="w-full sm:w-[190px]">
-            <ManagerColumnFilter activeColumns={activeColumns} columnOrder={columnOrder} onToggleColumn={handleToggleColumn} onReorderColumns={handleReorderColumns} isColumnDisabled={(id) => !hasSheetIntegration && (id === "cpmql" || id === "mqls" || id === "leadscore_avg" || id === "mql_rate")} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
+            <ManagerColumnFilter activeColumns={activeColumns} columnOrder={columnOrder} onToggleColumn={handleToggleColumn} onReorderColumns={handleReorderColumns} isColumnDisabled={(id) => !isColumnEnabled(id)} onSelectAll={handleSelectAllColumns} onDeselectAll={handleDeselectAllColumns} />
           </div>
 
           {/* Exibição: agrupa toggles de exibição e exportação (ações esporádicas) */}
@@ -1383,6 +1418,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         dateStop={dateStop}
         metricContext={{ actionType, mqlLeadscoreMin }}
         packIds={packCtxIds}
+        customColumns={customColumns}
       />
 
       {/* Share Dialog — link público de criativos em stories (aba Criativos) */}

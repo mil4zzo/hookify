@@ -2,6 +2,9 @@ import { METRIC_DEFINITIONS, type MetricKey } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import { getMetricNumericValueOrNull, getResultsForActionType, type MetricValueContext, type MetricValueSource } from "./calculations";
 import { computeMqlMetricsFromLeadscore, getLeadscoreRaw } from "@/lib/utils/mqlMetrics";
+import { isCustomColumnKey, parseCustomColumnKey, type CustomColumnDef } from "./customColumns";
+import { getActiveCustomColumn } from "./customColumnsRegistry";
+import { computeLeadscoreFacets, histogramStats } from "@/lib/utils/customHistogram";
 
 export type ManagerMetricKey = Extract<
   MetricKey,
@@ -71,6 +74,13 @@ export interface ManagerAverages {
   sumThruplays: number;
   sumResults: number;
   sumMqls: number;
+  /**
+   * 140: médias das colunas vinculadas, por chave `custom:<id>:<faceta>`. Mesma
+   * ponderação do leadscore V1 (por contagem de leads); `mqls` é SOMA (como mqls);
+   * `cpmql` = gasto total / MQLs totais; `mql_rate` = MQLs totais / leads totais.
+   * Categoria não tem média. Ausente = nenhuma coluna vinculada pedida.
+   */
+  custom?: Record<string, number | null>;
 }
 
 const EMPTY_MANAGER_AVERAGES: ManagerAverages = {
@@ -175,10 +185,13 @@ function getMetricDisplayLabelLocal(metricKey: string, options: { preferShortLab
 }
 
 export function isManagerSummaryMetric(metricKey: string): boolean {
+  // 140: a faceta MQLs de uma coluna leadscore é soma, como `mqls`.
+  if (isCustomColumnKey(metricKey)) return parseCustomColumnKey(metricKey)?.facet === "mqls";
   return MANAGER_SUMMARY_METRICS.has(metricKey as ManagerMetricKey);
 }
 
 export function isManagerPercentageMetric(metricKey: string): boolean {
+  if (isCustomColumnKey(metricKey)) return parseCustomColumnKey(metricKey)?.facet === "mql_rate";
   const formatKind = getMetricDefinitionLocal(metricKey)?.formatKind;
   return formatKind === "ratioPercent" || formatKind === "rawPercent";
 }
@@ -189,16 +202,28 @@ export function isManagerPercentageMetric(metricKey: string): boolean {
  * em escala 0-100 e comparam direto com o valor digitado.
  */
 export function isManagerRatioPercentMetric(metricKey: string): boolean {
+  if (isCustomColumnKey(metricKey)) return parseCustomColumnKey(metricKey)?.facet === "mql_rate";
   return getMetricDefinitionLocal(metricKey)?.formatKind === "ratioPercent";
 }
 
 export function getManagerMetricLabel(metricKey: string): string {
+  if (isCustomColumnKey(metricKey)) {
+    // Vínculo fora da seleção atual (ou excluído): a coluna nem é construída, mas um
+    // rótulo honesto evita um cabeçalho com a chave crua onde a preferência ainda a cita.
+    return getActiveCustomColumn(metricKey)?.label ?? "Coluna excluída (planilha)";
+  }
   return getMetricDisplayLabelLocal(metricKey, { preferShortLabel: true });
 }
 
 export function formatManagerMetricValue(metricKey: string, value: number | null | undefined, options: { currencyFormatter?: (value: number) => string } = {}): string {
   if (value == null || !Number.isFinite(value)) {
     return "";
+  }
+
+  if (isCustomColumnKey(metricKey)) {
+    const def = getActiveCustomColumn(metricKey);
+    if (!def || def.formatKind === "text") return "—";
+    return formatMetricValueByKind(value, def.formatKind, options);
   }
 
   const definition = getMetricDefinitionLocal(metricKey);
@@ -209,17 +234,89 @@ export function formatManagerMetricValue(metricKey: string, value: number | null
   return formatMetricValueByKind(value, definition.formatKind, options);
 }
 
-export function formatManagerAverageValue(metricKey: ManagerMetricKey, averages: ManagerAverages | null | undefined, options: { currencyFormatter?: (value: number) => string } = {}): string {
+export function formatManagerAverageValue(metricKey: ManagerMetricKey | string, averages: ManagerAverages | null | undefined, options: { currencyFormatter?: (value: number) => string } = {}): string {
   if (!averages) {
     return "";
   }
 
-  const sumField = MANAGER_SUM_FIELD_BY_METRIC[metricKey];
+  if (isCustomColumnKey(metricKey)) {
+    return formatManagerMetricValue(metricKey, averages.custom?.[metricKey], options);
+  }
+
+  const sumField = MANAGER_SUM_FIELD_BY_METRIC[metricKey as ManagerMetricKey];
   if (sumField) {
     return formatManagerMetricValue(metricKey, averages[sumField] as number, options);
   }
 
-  return formatManagerMetricValue(metricKey, averages[metricKey], options);
+  return formatManagerMetricValue(metricKey, averages[metricKey as ManagerMetricKey], options);
+}
+
+/**
+ * 140: agregado das colunas vinculadas sobre as linhas dadas. Devolve `undefined`
+ * quando não há coluna (o campo `custom` nem aparece no objeto de médias).
+ */
+export function computeCustomColumnAverages(
+  rows: readonly MetricValueSource[],
+  customColumns: ReadonlyArray<CustomColumnDef>,
+): Record<string, number | null> | undefined {
+  if (!customColumns.length) return undefined;
+  const out: Record<string, number | null> = {};
+  // Por vínculo: somas de gasto, leads, MQLs e (para número) soma ponderada.
+  const byMapping = new Map<string, { spend: number; n: number; mqls: number; weighted: number; hasCut: boolean }>();
+  const defsByMapping = new Map<string, CustomColumnDef[]>();
+  for (const def of customColumns) {
+    const list = defsByMapping.get(def.mappingId) ?? [];
+    list.push(def);
+    defsByMapping.set(def.mappingId, list);
+  }
+  for (const [mappingId, defs] of defsByMapping) {
+    const kind = defs[0].kind;
+    if (kind === "category") {
+      for (const def of defs) out[def.key] = null;
+      continue;
+    }
+    const acc = { spend: 0, n: 0, mqls: 0, weighted: 0, hasCut: true };
+    const cut = defs[0].mapping.config?.mql_min ?? null;
+    if (kind === "leadscore" && cut == null) acc.hasCut = false;
+    for (const row of rows) {
+      const hist = (row as { custom_histograms?: Record<string, Record<string, number>> }).custom_histograms?.[mappingId];
+      if (!hist) continue;
+      const spend = Number(row.spend ?? 0);
+      if (kind === "leadscore") {
+        const facets = computeLeadscoreFacets(hist, Number.isFinite(spend) ? spend : 0, cut);
+        if (facets.n === 0) continue;
+        acc.n += facets.n;
+        acc.weighted += (facets.avg ?? 0) * facets.n;
+        acc.spend += Number.isFinite(spend) ? spend : 0;
+        acc.mqls += facets.mqls ?? 0;
+      } else {
+        const stats = histogramStats(hist);
+        if (!stats) continue;
+        acc.n += stats.n;
+        acc.weighted += stats.avg * stats.n;
+      }
+    }
+    byMapping.set(mappingId, acc);
+    for (const def of defs) {
+      switch (def.facet) {
+        case "avg":
+          out[def.key] = acc.n > 0 ? acc.weighted / acc.n : null;
+          break;
+        case "mqls":
+          out[def.key] = acc.hasCut ? acc.mqls : null;
+          break;
+        case "mql_rate":
+          out[def.key] = acc.hasCut && acc.n > 0 ? acc.mqls / acc.n : null;
+          break;
+        case "cpmql":
+          out[def.key] = acc.hasCut && acc.mqls > 0 ? acc.spend / acc.mqls : null;
+          break;
+        default:
+          out[def.key] = null;
+      }
+    }
+  }
+  return out;
 }
 
 function getWeightedMetricValue(source: MetricValueSource, metricKey: Extract<MetricKey, "hook" | "hold_rate" | "video_watched_p50" | "video_watched_p75" | "scroll_stop">): number | null {
@@ -246,14 +343,18 @@ function getWeightedMetricValue(source: MetricValueSource, metricKey: Extract<Me
 export interface ComputeManagerAveragesOptions extends MetricValueContext {
   hasSheetIntegration?: boolean;
   includeScrollStop?: boolean;
+  /** 140: colunas vinculadas dos packs selecionados; ausente = sem `custom` no resultado. */
+  customColumns?: ReadonlyArray<CustomColumnDef>;
 }
 
 export function computeManagerAverages(rows: MetricValueSource[], options: ComputeManagerAveragesOptions = {}): ManagerAverages {
-  const { actionType, hasSheetIntegration = false, includeScrollStop = true, mqlLeadscoreMin = null } = options;
+  const { actionType, hasSheetIntegration = false, includeScrollStop = true, mqlLeadscoreMin = null, customColumns = [] } = options;
 
   if (!Array.isArray(rows) || rows.length === 0) {
     return EMPTY_MANAGER_AVERAGES;
   }
+
+  const custom = computeCustomColumnAverages(rows, customColumns);
 
   let sumSpend = 0;
   let sumImpressions = 0;
@@ -392,6 +493,7 @@ export function computeManagerAverages(rows: MetricValueSource[], options: Compu
     sumThruplays,
     sumResults,
     sumMqls,
+    ...(custom ? { custom } : {}),
   };
 }
 

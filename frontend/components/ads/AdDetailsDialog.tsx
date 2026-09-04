@@ -22,6 +22,9 @@ import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { buildMetricSeriesFromSourceSeries, getMetricAverageTooltip, getMetricBetterDirection, getMetricDisplayLabel, getMetricNumericValue, getMetricNumericValueOrNull } from "@/lib/metrics";
 import { ManagerChildrenTable } from "@/components/manager/ManagerChildrenTable";
 import { loadManagerColumnPreferences } from "@/components/manager/managerColumnPreferences";
+import { SurveyPanel } from "@/components/ads/SurveyPanel";
+import { getActiveCustomColumns, getActiveCustomColumnsVersion } from "@/lib/metrics/customColumnsRegistry";
+import type { SheetColumnMapping } from "@/lib/api/schemas";
 import { IconAlignLeft, IconBrandParsinta, IconChartAreaLine, IconChartFunnel, IconCheck, IconCopy, IconCurrencyDollar, IconLayoutGrid, IconMicrophone, IconWorld } from "@tabler/icons-react";
 import { retentionToColor, findHookBoundary, secondToRetentionIndex } from "@/lib/utils/retentionColor";
 import type { TimestampedWord } from "@/lib/api/schemas";
@@ -68,7 +71,16 @@ interface AdDetailsDialogProps {
 }
 
 export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, actionType, packIds = [], availableConversionTypes = [], initialTab = "video", averages }: AdDetailsDialogProps) {
-  const [activeTab, setActiveTab] = useState<"variations" | "video" | "copy" | "history">(initialTab);
+  const [activeTab, setActiveTab] = useState<"variations" | "video" | "copy" | "history" | "survey">(initialTab);
+  // 140: colunas vinculadas da planilha dos packs selecionados (registro publicado pela
+  // página). Com alguma, a aba "Pesquisa" existe.
+  const customColumnsVersion = getActiveCustomColumnsVersion();
+  const surveyMappings = useMemo(() => {
+    const seen = new Map<string, SheetColumnMapping>();
+    for (const def of getActiveCustomColumns()) if (!seen.has(def.mappingId)) seen.set(def.mappingId, def.mapping);
+    return Array.from(seen.values());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- customColumnsVersion é o gatilho do registro
+  }, [customColumnsVersion]);
   const [shouldAutoplay, setShouldAutoplay] = useState(false);
   const [initialVideoTime, setInitialVideoTime] = useState<number | null>(null);
   const [retentionViewMode, setRetentionViewMode] = useState<"chart" | "metrics">("metrics");
@@ -189,9 +201,19 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
       conversions: src.conversions ?? {},
       leadscore_values: src.leadscore_values ?? null,
       leadscore_histogram: src.leadscore_histogram ?? null,
+      custom_histograms: src.custom_histograms ?? null,
       series: src.series ?? null,
     };
   }, [isDateRangeOverridden, overriddenDetails]);
+
+  // 140: histogramas das colunas vinculadas para a aba Pesquisa — do período
+  // sobrescrito quando há, senão da linha que abriu o modal (já vem da RPC do Manager),
+  // senão do detalhe por anúncio.
+  const surveyHistograms = useMemo(() => {
+    const fromOverride = isDateRangeOverridden ? (overriddenDetails as any)?.custom_histograms : undefined;
+    return (fromOverride ?? (ad as any)?.custom_histograms ?? (adDetails as any)?.custom_histograms ?? null) as Record<string, Record<string, number>> | null;
+  }, [isDateRangeOverridden, overriddenDetails, ad, adDetails]);
+  const surveySpend = Number((isDateRangeOverridden ? (overriddenDetails as any)?.spend : undefined) ?? (ad as any)?.spend ?? 0);
 
   // Buscar creative e video_ids quando a tab de vídeo estiver ativa
   // Pack compartilhado: criativo, video e imagem vivem no silo do DONO — sem este
@@ -675,7 +697,14 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as typeof activeTab)}
         variant="with-controls"
-        tabs={[{ value: "video", label: "Geral" }, { value: "copy", label: "Copy" }, { value: "history", label: "Histórico" }, ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : [])]}
+        tabs={[
+          { value: "video", label: "Geral" },
+          { value: "copy", label: "Copy" },
+          { value: "history", label: "Histórico" },
+          ...(groupByAdName ? [{ value: "variations", label: "Variações" }] : []),
+          // 140: só quando algum pack selecionado tem coluna vinculada
+          ...(surveyMappings.length > 0 ? [{ value: "survey", label: "Pesquisa" }] : []),
+        ]}
         controls={
           allConversionTypes.length > 0 ? (
             <div className="flex items-center gap-2 min-w-0">
@@ -690,6 +719,18 @@ export function AdDetailsDialog({ ad, groupByAdName, dateStart, dateStop, action
         {groupByAdName && (
           <TabbedContentItem value="variations" variant="simple" className="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ManagerChildrenTable childrenData={childrenData} isLoading={loadingChildren} actionType={localActionType} formatCurrency={formatCurrency} formatPct={formatPct} activeColumns={variationColumnPreferences.active} columnOrder={variationColumnPreferences.order} hasSheetIntegration={resolvedHasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} rules={variationColumnFilters} setRules={setVariationColumnFilters} packIds={packIds} asContent />
+          </TabbedContentItem>
+        )}
+
+        {surveyMappings.length > 0 && (
+          <TabbedContentItem value="survey" variant="simple" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <SurveyPanel
+              histograms={surveyHistograms}
+              mappings={surveyMappings}
+              spend={surveySpend}
+              isLoading={isDateRangeOverridden && loadingOverridden}
+              subjectLabel={groupByAdName ? "este criativo" : "este anúncio"}
+            />
           </TabbedContentItem>
         )}
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useCallback, useRef, Suspense } from "react";
+import { useMemo, useState, useEffect, useLayoutEffect, useCallback, useRef, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { ManagerTable } from "@/components/manager/ManagerTable";
 import { MANAGER_CELL_MODE_STORAGE_KEY, readManagerCellMode, type ManagerCellMode } from "@/components/manager/managerCellMode";
@@ -18,6 +18,8 @@ import { useStatusFocusSync } from "@/lib/hooks/useStatusFocusSync";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { useAvailableConversionTypes } from "@/lib/hooks/useAvailableConversionTypes";
 import { mapRankingRow, resolveGroupKey, type ManagerTab } from "@/lib/utils/mapRankingRow";
+import { buildCustomColumnDefs, collectPackMappings } from "@/lib/metrics/customColumns";
+import { setActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
 
 type ManagerRow = RankingsItem & { series_loading?: boolean };
 
@@ -131,6 +133,17 @@ function ManagerPageContent() {
     () => selectedPackIds.size > 0 && packs.some((p) => selectedPackIds.has(p.id) && !!p.sheet_integration),
     [packs, selectedPackIds],
   );
+  // 140: colunas vinculadas da planilha nos packs selecionados. Só com alguma é que a
+  // RPC agrega os histogramas (custo zero para quem não vincula coluna).
+  const customMappings = useMemo(() => collectPackMappings(packs, selectedPackIds), [packs, selectedPackIds]);
+  const hasCustomColumns = customMappings.length > 0;
+  const customColumns = useMemo(() => buildCustomColumnDefs(customMappings), [customMappings]);
+  // O motor de regra, a porta única de leitura de métrica e o export consultam a lista
+  // pelo registro (não recebem prop). Publicar ANTES de renderizar a tabela: layout
+  // effect, para o primeiro render com a lista já correta.
+  useLayoutEffect(() => {
+    setActiveCustomColumns(customColumns);
+  }, [customColumns]);
 
   // ── Series state ───────────────────────────────────────────────────────────
   const SERIES_WINDOW = 5;
@@ -232,12 +245,13 @@ function ManagerPageContent() {
       pack_ids: Array.from(selectedPackIds),
       include_series: false,
       include_leadscore: hasSheetIntegration,
+      include_custom: hasCustomColumns,
       series_window: SERIES_WINDOW,
       // available_conversion_types vem do metadado packs.conversion_types (union no refresh),
       // não do rankings — manter false pra não pagar o CTE extra que ~dobra o custo da query.
       include_available_conversion_types: false,
     }),
-    [dateRange.start, dateRange.end, activeGroupBy, selectedPackIds, actionType, hasSheetIntegration],
+    [dateRange.start, dateRange.end, activeGroupBy, selectedPackIds, actionType, hasSheetIntegration, hasCustomColumns],
   );
 
   const { data: managerData, isLoading: loading, error: managerError } = useAdPerformance(
@@ -380,6 +394,7 @@ function ManagerPageContent() {
           cellMode={cellMode}
           onCellModeChange={handleCellModeChange}
           hasSheetIntegration={hasSheetIntegration}
+          customColumns={customColumns}
           names={(managerData as any)?.names}
           isLoading={loading || packsLoading}
           isError={!!managerError && !loading && packsReady}

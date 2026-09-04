@@ -3,12 +3,15 @@
 import { useMemo } from "react";
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeManagerAverages, type ManagerAverages } from "@/lib/metrics";
+import type { CustomColumnDef } from "@/lib/metrics/customColumns";
 
 interface UseManagerAveragesOptions {
   ads: RankingsItem[];
   actionType?: string;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin: number | null;
+  /** 140: colunas vinculadas da planilha (médias em `custom`). */
+  customColumns?: ReadonlyArray<CustomColumnDef>;
 }
 
 /**
@@ -22,6 +25,7 @@ export function useManagerAverages({
   actionType,
   hasSheetIntegration = false,
   mqlLeadscoreMin,
+  customColumns,
 }: UseManagerAveragesOptions): ManagerAverages {
   return useMemo(
     () =>
@@ -30,7 +34,8 @@ export function useManagerAverages({
         hasSheetIntegration,
         includeScrollStop: true,
         mqlLeadscoreMin,
+        customColumns,
       }),
-    [ads, actionType, hasSheetIntegration, mqlLeadscoreMin],
+    [ads, actionType, hasSheetIntegration, mqlLeadscoreMin, customColumns],
   );
 }

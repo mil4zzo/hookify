@@ -12,6 +12,7 @@ from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_service
 from app.services.pack_access import assert_pack_role
 from app.services import pack_action_log
+from app.services import sheet_column_mappings
 from app.core.config import (
     GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET,
@@ -491,6 +492,28 @@ def list_sheet_columns(
     }
 
 
+class SheetColumnMappingInput(BaseModel):
+    """Uma coluna vinculada além do leadscore (migration 140).
+
+    `id` presente = vínculo existente (só rótulo, corte e ordem mudam; `kind` e
+    `column_index` são de mão única). Ausente = vínculo novo.
+    """
+    id: Optional[str] = None
+    column_index: int
+    column_name: str = ""
+    label: str
+    kind: str  # leadscore | number | category
+    mql_min: Optional[float] = None  # obrigatório para leadscore
+    position: Optional[int] = None
+
+
+class SheetColumnMappingPatch(BaseModel):
+    """PUT de um vínculo: campo ausente não mexe. `kind`/`column_index` não existem aqui de propósito."""
+    label: Optional[str] = None
+    mql_min: Optional[float] = None
+    position: Optional[int] = None
+
+
 class SheetIntegrationRequest(BaseModel):
     spreadsheet_id: str
     worksheet_title: str
@@ -506,6 +529,108 @@ class SheetIntegrationRequest(BaseModel):
     pack_id: Optional[str] = None
     # ID da conexão Google específica a usar para esta integração
     connection_id: Optional[str] = None
+    # 140: conjunto DESEJADO de colunas vinculadas. None = não mexe nos vínculos
+    # existentes; lista (mesmo vazia) = reconcilia: atualiza por id, cria os sem id,
+    # exclui os que ficaram de fora.
+    column_mappings: Optional[List[SheetColumnMappingInput]] = None
+
+
+def _reconcile_column_mappings(
+    sb,
+    *,
+    owner_id: str,
+    integration_id: str,
+    payload: SheetIntegrationRequest,
+) -> List[Dict[str, Any]]:
+    """Aplica `payload.column_mappings` como o conjunto desejado de vínculos.
+
+    Validação ANTES de qualquer escrita: rótulo, tipo, corte, índice único, e a
+    coluna não pode ser a de ad_id nem a de data (pode ser a de leadscore — é assim
+    que se compara o V1 com o V2 lado a lado). Erro em qualquer vínculo → 400 e
+    nada gravado.
+    """
+    wanted = payload.column_mappings or []
+    reserved: Dict[int, str] = {}
+    if payload.ad_id_column_index is not None:
+        reserved[int(payload.ad_id_column_index)] = "anúncio (ad_id)"
+    if payload.date_column_index is not None:
+        reserved[int(payload.date_column_index)] = "data"
+
+    existing_by_id: Dict[str, Dict[str, Any]] = {}
+    try:
+        res = (
+            sb.table("sheet_column_mappings")
+            .select(sheet_column_mappings.MAPPING_SELECT)
+            .eq("integration_id", integration_id)
+            .eq("owner_id", owner_id)
+            .execute()
+        )
+        existing_by_id = {str(r["id"]): r for r in (res.data or []) if isinstance(r, dict)}
+    except Exception as e:
+        logger.exception("[SHEET_COLUMNS] Erro ao listar vínculos existentes")
+        raise HTTPException(status_code=500, detail="Erro ao ler as colunas vinculadas.") from e
+
+    to_update: List[tuple[str, Dict[str, Any]]] = []
+    to_insert: List[Dict[str, Any]] = []
+    seen_index: Dict[int, str] = {}
+    keep_ids: set[str] = set()
+    for pos, item in enumerate(wanted):
+        try:
+            kind = sheet_column_mappings.clean_kind(item.kind)
+            label = sheet_column_mappings.clean_label(item.label)
+            config = sheet_column_mappings.clean_config(kind, item.mql_min)
+        except sheet_column_mappings.SheetColumnMappingError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        idx = int(item.column_index)
+        if idx < 0:
+            raise HTTPException(status_code=400, detail=f"Coluna '{label}': índice inválido.")
+        if idx in reserved:
+            raise HTTPException(status_code=400, detail=f"Coluna '{label}': é a coluna de {reserved[idx]}; escolha outra.")
+        if idx in seen_index:
+            raise HTTPException(status_code=400, detail=f"Colunas '{seen_index[idx]}' e '{label}' apontam para a mesma coluna da planilha.")
+        seen_index[idx] = label
+        position = int(item.position) if item.position is not None else pos
+        column_name = str(item.column_name or "").strip()[:200]
+
+        if item.id and str(item.id) in existing_by_id:
+            cur = existing_by_id[str(item.id)]
+            if str(cur.get("kind")) != kind:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Coluna '{label}': o tipo não pode mudar depois de criado. Exclua o vínculo e crie outro.",
+                )
+            if int(cur.get("column_index") or 0) != idx:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Coluna '{label}': a coluna da planilha não pode mudar depois de criada. Exclua o vínculo e crie outro.",
+                )
+            keep_ids.add(str(item.id))
+            to_update.append((str(item.id), {"label": label, "config": config, "position": position, "column_name": column_name or cur.get("column_name") or ""}))
+        else:
+            to_insert.append({
+                "integration_id": integration_id,
+                "owner_id": owner_id,
+                "column_index": idx,
+                "column_name": column_name,
+                "label": label,
+                "kind": kind,
+                "config": config,
+                "position": position,
+            })
+
+    to_delete = [mid for mid in existing_by_id if mid not in keep_ids]
+    try:
+        for mid in to_delete:
+            sb.table("sheet_column_mappings").delete().eq("id", mid).eq("owner_id", owner_id).execute()
+        for mid, fields in to_update:
+            sb.table("sheet_column_mappings").update(fields).eq("id", mid).eq("owner_id", owner_id).execute()
+        if to_insert:
+            sb.table("sheet_column_mappings").insert(to_insert).execute()
+    except Exception as e:
+        logger.exception("[SHEET_COLUMNS] Erro ao gravar vínculos")
+        raise HTTPException(status_code=500, detail="Erro ao gravar as colunas vinculadas.") from e
+
+    return sheet_column_mappings.list_for_integrations(sb, [integration_id]).get(str(integration_id), [])
 
 
 @router.post("/ad-sheet-integrations")
@@ -613,7 +738,16 @@ def save_ad_sheet_integration(
 
     rec = (res.data or [{}])[0]
     integration_id = rec.get("id") if isinstance(rec, dict) else None
-    
+
+    # 140: colunas vinculadas. Lista presente = conjunto desejado; None = não mexe.
+    if isinstance(rec, dict) and integration_id:
+        if payload.column_mappings is not None:
+            rec["column_mappings"] = _reconcile_column_mappings(
+                sb, owner_id=user["user_id"], integration_id=str(integration_id), payload=payload,
+            )
+        else:
+            sheet_column_mappings.attach_to_integrations(sb, [rec])
+
     # Se pack_id foi fornecido, atualizar o pack com sheet_integration_id
     if payload.pack_id and integration_id:
         try:
@@ -781,6 +915,15 @@ def get_sync_job_progress(
                         "rows_updated": details.get("rows_updated", 0),
                         "rows_skipped": details.get("rows_skipped", 0),
                         "errors": details.get("errors", []),
+                        # `rows_skipped` soma as duas ausências; a tela de resumo as
+                        # distingue ("Inválidas" x "Ignoradas") e mostrava zero nas duas.
+                        "skipped_invalid": details.get("skipped_invalid", 0),
+                        "skipped_no_match": details.get("skipped_no_match", 0),
+                        "unique_ad_date_pairs": details.get("unique_ad_date_pairs", 0),
+                        "total_update_queries": details.get("total_update_queries", 0),
+                        # 140: relatório por coluna vinculada (rótulo, tipo, valores lidos,
+                        # células puladas, motivo quando a coluna inteira foi ignorada)
+                        "custom_columns": details.get("custom_columns") or {},
                     }
         
         return progress
@@ -885,8 +1028,136 @@ def list_ad_sheet_integrations(
             integration["spreadsheet_name"] = None
 
         enriched_integrations.append(integration)
-    
+
+    # 140: colunas vinculadas dentro de cada integração
+    sheet_column_mappings.attach_to_integrations(sb, enriched_integrations)
+
     return {"integrations": enriched_integrations}
+
+
+# ---------------------------------------------------------------------------
+# 140: edição pontual de um vínculo (rótulo, corte, ordem) e exclusão.
+# Gate: dono ou editor do pack da integração (viewer → 403; sem acesso → 404),
+# o mesmo padrão do corte de MQL. Escrita por service role, porque a RLS de
+# sheet_column_mappings só enxerga o silo do dono e recusaria um editor.
+# Integração sem pack (legado global): só o dono.
+# ---------------------------------------------------------------------------
+
+def _resolve_mapping_for_write(actor_id: str, integration_id: str, mapping_id: str):
+    sb = get_supabase_service()
+    try:
+        integ_res = (
+            sb.table("ad_sheet_integrations")
+            .select("id, owner_id, pack_id")
+            .eq("id", integration_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        logger.exception("[SHEET_COLUMNS] Erro ao ler integração %s", integration_id)
+        raise HTTPException(status_code=500, detail="Erro ao verificar a integração.") from e
+    integ = (integ_res.data or [None])[0]
+    if not isinstance(integ, dict):
+        raise HTTPException(status_code=404, detail="Integração não encontrada")
+
+    pack_id = integ.get("pack_id")
+    if pack_id:
+        access = assert_pack_role(actor_id, str(pack_id))  # dono|editor; viewer -> 403
+        role, owner_id = access.role, access.owner_id
+    else:
+        if str(integ.get("owner_id")) != str(actor_id):
+            raise HTTPException(status_code=404, detail="Integração não encontrada")
+        role, owner_id = "dono", str(actor_id)
+
+    try:
+        row_res = (
+            sb.table("sheet_column_mappings")
+            .select(sheet_column_mappings.MAPPING_SELECT)
+            .eq("id", mapping_id)
+            .eq("integration_id", integration_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as e:
+        logger.exception("[SHEET_COLUMNS] Erro ao ler vínculo %s", mapping_id)
+        raise HTTPException(status_code=500, detail="Erro ao verificar a coluna vinculada.") from e
+    row = (row_res.data or [None])[0]
+    if not isinstance(row, dict):
+        raise HTTPException(status_code=404, detail="Coluna vinculada não encontrada")
+    return sb, row, role, owner_id, (str(pack_id) if pack_id else None)
+
+
+@router.put("/ad-sheet-integrations/{integration_id}/columns/{mapping_id}")
+def update_sheet_column_mapping(
+    integration_id: str,
+    mapping_id: str,
+    payload: SheetColumnMappingPatch = Body(...),
+    user=Depends(get_current_user),
+):
+    """Edita rótulo, corte de MQL (leadscore) e ordem de um vínculo. Tipo e coluna
+    não mudam (exclua e crie outro). Escrevem dono e editor."""
+    sb, row, role, owner_id, pack_id = _resolve_mapping_for_write(user["user_id"], integration_id, mapping_id)
+    fields = payload.model_dump(exclude_unset=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="Nenhum campo enviado")
+
+    update: Dict[str, Any] = {}
+    try:
+        if "label" in fields:
+            update["label"] = sheet_column_mappings.clean_label(fields["label"])
+        if "mql_min" in fields:
+            if str(row.get("kind")) != sheet_column_mappings.KIND_LEADSCORE:
+                raise HTTPException(status_code=400, detail="Só uma coluna do tipo leadscore tem corte de MQL.")
+            update["config"] = sheet_column_mappings.clean_config(sheet_column_mappings.KIND_LEADSCORE, fields["mql_min"])
+        if "position" in fields and fields["position"] is not None:
+            update["position"] = int(fields["position"])
+    except sheet_column_mappings.SheetColumnMappingError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not update:
+        raise HTTPException(status_code=400, detail="Nenhum campo válido enviado")
+
+    try:
+        sb.table("sheet_column_mappings").update(update).eq("id", mapping_id).execute()
+        res = sb.table("sheet_column_mappings").select(sheet_column_mappings.MAPPING_SELECT).eq("id", mapping_id).limit(1).execute()
+    except Exception as e:
+        logger.exception("[SHEET_COLUMNS] Erro ao atualizar vínculo %s", mapping_id)
+        raise HTTPException(status_code=500, detail="Erro ao atualizar a coluna vinculada.") from e
+
+    if pack_id:
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_SHEET_COLUMNS,
+            actor_id=str(user["user_id"]), actor_role=role, owner_id=owner_id,
+            pack_ids=[pack_id], target_type="sheet_column", target_ids=[mapping_id],
+            detail={"op": "update", "fields": sorted(update.keys()), "label": update.get("label", row.get("label"))},
+        )
+    updated = (res.data or [row])[0]
+    return {"mapping": sheet_column_mappings.serialize(updated)}
+
+
+@router.delete("/ad-sheet-integrations/{integration_id}/columns/{mapping_id}")
+def delete_sheet_column_mapping(
+    integration_id: str,
+    mapping_id: str,
+    user=Depends(get_current_user),
+):
+    """Exclui um vínculo. O dado já importado fica em ad_metrics até o próximo sync
+    reescrever a linha (sem purge, decisão 11 do plano); a UI só conhece vínculos
+    existentes, então a coluna some na hora. Escrevem dono e editor."""
+    sb, row, role, owner_id, pack_id = _resolve_mapping_for_write(user["user_id"], integration_id, mapping_id)
+    try:
+        sb.table("sheet_column_mappings").delete().eq("id", mapping_id).execute()
+    except Exception as e:
+        logger.exception("[SHEET_COLUMNS] Erro ao excluir vínculo %s", mapping_id)
+        raise HTTPException(status_code=500, detail="Erro ao excluir a coluna vinculada.") from e
+
+    if pack_id:
+        pack_action_log.log_pack_action(
+            action=pack_action_log.ACTION_PACK_SHEET_COLUMNS,
+            actor_id=str(user["user_id"]), actor_role=role, owner_id=owner_id,
+            pack_ids=[pack_id], target_type="sheet_column", target_ids=[mapping_id],
+            detail={"op": "delete", "label": row.get("label"), "kind": row.get("kind")},
+        )
+    return {"success": True, "mapping_id": mapping_id}
 
 
 @router.delete("/ad-sheet-integrations/{integration_id}")

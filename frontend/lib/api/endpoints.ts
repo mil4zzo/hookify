@@ -1,4 +1,5 @@
 import { apiClient } from './client'
+import { getActiveCustomColumns } from '@/lib/metrics/customColumnsRegistry'
 import {
   GetMeResponse,
   GetAdsRequest,
@@ -27,6 +28,7 @@ import {
   SheetIntegrationRequest,
   SaveSheetIntegrationResponse,
   SheetSyncJobProgress,
+  SheetColumnMapping,
   UpdateEntityStatusResponse,
   UpdateEntityBudgetResponse,
   BatchStatusResponse,
@@ -70,6 +72,15 @@ export interface InitialSettingsRequest {
 
 export interface SuccessResponse {
   success: boolean
+}
+
+/**
+ * 140: `include_custom=true` nas rotas de detalhe/filhos quando algum pack selecionado
+ * tem coluna vinculada (registro ativo publicado pela página). Sem vínculo, nada é
+ * pedido e a RPC não agrega histograma nenhum.
+ */
+function appendIncludeCustom(qs: URLSearchParams): void {
+  if (getActiveCustomColumns().length > 0) qs.append('include_custom', 'true')
 }
 
 export const api = {
@@ -288,6 +299,9 @@ export const api = {
       apiClient.post('/analytics/rankings/series', params, { signal: options?.signal }),
     getRankingsRetention: (params: RankingsRetentionRequest, options?: { signal?: AbortSignal }): Promise<RankingsRetentionResponse> =>
       apiClient.post('/analytics/rankings/retention', params, { signal: options?.signal }),
+    // 140: rotas de detalhe/filhos só agregam os histogramas das colunas vinculadas
+    // quando pedido — e só há o que pedir quando algum pack selecionado tem vínculo
+    // (o registro ativo é publicado pela página que conhece os packs).
     getRankingsChildren: (
       adName: string,
       params: { date_start: string; date_stop: string; order_by?: string; pack_ids?: string[] },
@@ -300,6 +314,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
+      appendIncludeCustom(qs)
       return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/children?${qs.toString()}`, { signal: options?.signal })
     },
     getAdDetails: (
@@ -313,6 +328,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
+      appendIncludeCustom(qs)
       return apiClient.get(`/analytics/rankings/ad-id/${encodeURIComponent(adId)}?${qs.toString()}`, { signal: options?.signal })
     },
     getAdCreative: (adId: string, options?: { signal?: AbortSignal; packIds?: string[] }): Promise<AdCreativeResponse> =>
@@ -345,6 +361,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
+      appendIncludeCustom(qs)
       return apiClient.get(`/analytics/rankings/ad-name/${encodeURIComponent(adName)}/details?${qs.toString()}`, { signal: options?.signal })
     },
     getAdNameHistory: (
@@ -384,6 +401,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
+      appendIncludeCustom(qs)
       return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}?${qs.toString()}`, { signal: options?.signal })
     },
     getAdsetChildren: (
@@ -398,6 +416,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
+      appendIncludeCustom(qs)
       return apiClient.get(`/analytics/rankings/adset-id/${encodeURIComponent(adsetId)}/children?${qs.toString()}`, { signal: options?.signal })
     },
     getCampaignChildren: (
@@ -413,6 +432,7 @@ export const api = {
       params.pack_ids?.forEach((packId) => {
         if (packId) qs.append('pack_ids', packId)
       })
+      appendIncludeCustom(qs)
       const query = qs.toString()
       return apiClient.get(`/analytics/rankings/campaign-id/${encodeURIComponent(campaignId)}/children${query ? `?${query}` : ''}`, { signal: options?.signal })
     },
@@ -662,6 +682,22 @@ export const api = {
 
       deleteSheetIntegration: (integrationId: string): Promise<{ success: boolean }> =>
         apiClient.delete(`/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}`),
+
+      // 140: colunas vinculadas além do leadscore. Tipo e coluna não mudam (exclua e crie outro).
+      updateSheetColumnMapping: (
+        integrationId: string,
+        mappingId: string,
+        patch: { label?: string; mql_min?: number | null; position?: number },
+      ): Promise<{ mapping: SheetColumnMapping }> =>
+        apiClient.put(
+          `/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}/columns/${encodeURIComponent(mappingId)}`,
+          patch,
+        ),
+
+      deleteSheetColumnMapping: (integrationId: string, mappingId: string): Promise<{ success: boolean; mapping_id: string }> =>
+        apiClient.delete(
+          `/integrations/google/ad-sheet-integrations/${encodeURIComponent(integrationId)}/columns/${encodeURIComponent(mappingId)}`,
+        ),
     },
   },
 

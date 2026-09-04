@@ -1,6 +1,8 @@
 import type { MetricQualityTone } from "@/lib/utils/metricQuality";
 import { getMetricNumericValueOrNull, type MetricValueContext, type MetricValueSource } from "./calculations";
-import { METRIC_DEFINITIONS } from "./definitions";
+import { getCustomTopValue, isCustomColumnKey } from "./customColumns";
+import { getActiveCustomColumn } from "./customColumnsRegistry";
+import { METRIC_DEFINITIONS, type MetricFormatKind } from "./definitions";
 import { formatMetricValueByKind } from "./formatMetricValueCore";
 import type { ManagerAverages, ManagerMetricKey } from "./manager";
 
@@ -16,7 +18,7 @@ export interface ManagerMetricDeltaPresentation {
   tone?: MetricQualityTone;
 }
 
-export type ManagerChildSortColumn = ManagerMetricKey | "status" | "ad_id" | "adset_name";
+export type ManagerChildSortColumn = ManagerMetricKey | "status" | "ad_id" | "adset_name" | `custom:${string}`;
 export type ManagerSortDirection = "asc" | "desc";
 
 export interface GetManagerMetricPresentationOptions extends MetricValueContext {
@@ -24,12 +26,23 @@ export interface GetManagerMetricPresentationOptions extends MetricValueContext 
   currencyFormatter?: (value: number) => string;
 }
 
-function isInverseManagerMetric(metric: ManagerMetricKey): boolean {
-  return METRIC_DEFINITIONS[metric].polarity === "lower";
+function isInverseManagerMetric(metric: ManagerMetricKey | string): boolean {
+  // 140: coluna vinculada — polaridade da faceta (CPMQL de um leadscore é "menor é melhor").
+  if (isCustomColumnKey(metric)) return getActiveCustomColumn(metric)?.polarity === "lower";
+  return METRIC_DEFINITIONS[metric as ManagerMetricKey]?.polarity === "lower";
 }
 
-function requiresSheetIntegration(metric: ManagerMetricKey): boolean {
-  return METRIC_DEFINITIONS[metric].requiresSheetIntegration === true;
+function requiresSheetIntegration(metric: ManagerMetricKey | string): boolean {
+  if (isCustomColumnKey(metric)) return false; // a coluna só existe com o vínculo; o gate é outro
+  return METRIC_DEFINITIONS[metric as ManagerMetricKey]?.requiresSheetIntegration === true;
+}
+
+function metricFormatKind(metric: ManagerMetricKey | string): MetricFormatKind {
+  if (isCustomColumnKey(metric)) {
+    const kind = getActiveCustomColumn(metric)?.formatKind;
+    return kind && kind !== "text" ? kind : "decimal";
+  }
+  return METRIC_DEFINITIONS[metric as ManagerMetricKey]?.formatKind ?? "decimal";
 }
 
 /**
@@ -65,7 +78,7 @@ export function getManagerMetricEmptyKind(
   const value = getMetricNumericValueOrNull(source, metric, options);
   if (value != null && Number.isFinite(value)) return null;
 
-  const isVideoMetric = METRIC_DEFINITIONS[metric]?.requiresVideo === true;
+  const isVideoMetric = !isCustomColumnKey(metric) && METRIC_DEFINITIONS[metric]?.requiresVideo === true;
   const mediaType = (source as { media_type?: string | null }).media_type;
   if (isVideoMetric && mediaType === "image") return "format";
 
@@ -77,7 +90,13 @@ function formatManagerMetricValueLocal(
   value: number,
   options: { currencyFormatter?: (value: number) => string } = {},
 ): string {
-  return formatMetricValueByKind(value, METRIC_DEFINITIONS[metric].formatKind, options);
+  return formatMetricValueByKind(value, metricFormatKind(metric), options);
+}
+
+/** Média de referência de uma métrica — fixa no objeto, vinculada (140) em `custom`. */
+function averageOf(averages: ManagerAverages, metric: ManagerMetricKey | string): number | null | undefined {
+  if (isCustomColumnKey(metric)) return averages.custom?.[metric];
+  return averages[metric as ManagerMetricKey] as number | null | undefined;
 }
 
 export function getManagerMetricTrendPresentation(
@@ -85,7 +104,7 @@ export function getManagerMetricTrendPresentation(
   averages: ManagerAverages,
 ): ManagerMetricTrendPresentation {
   const useTrendMode = metric === "spend";
-  const rawAverage = averages[metric];
+  const rawAverage = averageOf(averages, metric);
   const packAverage = useTrendMode || rawAverage == null || !Number.isFinite(rawAverage) ? null : rawAverage;
 
   return {
@@ -113,7 +132,7 @@ export function getManagerMetricDeltaPresentation(
   averages: ManagerAverages,
   options: GetManagerMetricPresentationOptions = {},
 ): ManagerMetricDeltaPresentation {
-  const avgValue = averages[metric];
+  const avgValue = averageOf(averages, metric);
   if (avgValue == null || !Number.isFinite(avgValue)) {
     return { kind: "hidden" };
   }
@@ -211,6 +230,20 @@ export function compareManagerChildRows(
     const aValue = String(a[column] || "");
     const bValue = String(b[column] || "");
     return direction === "asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+  }
+
+  // 140: coluna vinculada não vive na linha computada — lê pelo histograma. Categoria
+  // ordena pela fatia da resposta majoritária.
+  if (isCustomColumnKey(column)) {
+    const def = getActiveCustomColumn(column);
+    const valueOf = (row: MetricValueSource): number => {
+      if (!def) return 0;
+      if (def.facet === "top") return getCustomTopValue(row as { custom_histograms?: Record<string, Record<string, number>> }, def.mappingId)?.share ?? 0;
+      return getMetricNumericValueOrNull(row, column) ?? 0;
+    };
+    const aValue = valueOf(a);
+    const bValue = valueOf(b);
+    return direction === "asc" ? aValue - bValue : bValue - aValue;
   }
 
   const aValue = Number(a[column] || 0);

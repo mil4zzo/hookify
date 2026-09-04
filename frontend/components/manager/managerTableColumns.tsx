@@ -6,6 +6,7 @@ import type { RankingsItem } from "@/lib/api/schemas";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import type { ManagerCellMode } from "@/components/manager/managerCellMode";
 import type { GroupedMetricSeriesByKey, ManagerAverages } from "@/lib/metrics";
+import type { CustomColumnDef } from "@/lib/metrics/customColumns";
 import type { SettingsTab } from "@/lib/store/settingsModal";
 import { IconFilter } from "@tabler/icons-react";
 import { buildMetricColumns, SortIcon } from "@/components/manager/managerTableMetricColumns";
@@ -78,6 +79,8 @@ export type CreateManagerTableColumnsParams = {
   viewMode: ViewMode;
   /** Quando true, colore o número de cada métrica pela distância da média (escala de 5 tons). */
   colorMetricValue: boolean;
+  /** 140: colunas vinculadas da planilha nos packs selecionados (anexadas após as fixas). */
+  customColumns?: ReadonlyArray<CustomColumnDef>;
   /** Índice id→nome de packs/contas. Alimenta os accessors das colunas Pack/Conta — e portanto
    *  ordenação, filtro de texto e CSV. (As células resolvem de novo via hook: ver ProvenanceCell.) */
   provenanceIndex: ProvenanceIndex;

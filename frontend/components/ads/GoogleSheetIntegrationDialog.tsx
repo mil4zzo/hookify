@@ -18,7 +18,8 @@ import { useGoogleConnections } from "./googleSheetsDialog/hooks/useGoogleConnec
 import { useGoogleSyncJob } from "./googleSheetsDialog/hooks/useGoogleSyncJob";
 import { ConnectStep } from "./googleSheetsDialog/steps/ConnectStep";
 import { SelectSheetStep } from "./googleSheetsDialog/steps/SelectSheetStep";
-import { SelectColumnsStep, ColumnWithIndex } from "./googleSheetsDialog/steps/SelectColumnsStep";
+import { SelectColumnsStep, ColumnWithIndex, extraColumnProblem, resolveColumnIndex, type ExtraColumnDraft } from "./googleSheetsDialog/steps/SelectColumnsStep";
+import type { SheetColumnKind, SheetColumnMapping } from "@/lib/api/schemas";
 import { SummaryStep } from "./googleSheetsDialog/steps/SummaryStep";
 
 export interface GoogleSheetIntegrationDialogProps {
@@ -52,6 +53,11 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
   // O corte de MQL e definido AQUI, junto da planilha: e ela que da a escala do
   // leadscore. Definir isso fora deste contexto seria adivinhar.
   const [mqlLeadscoreMin, setMqlLeadscoreMin] = useState("");
+  // 140: colunas adicionais vinculadas. `extraColumnsReady` = a lista reflete o servidor
+  // (integração nova, ou vínculos existentes carregados): só então o save manda
+  // `column_mappings` — mandar [] sem ter carregado apagaria vínculos existentes.
+  const [extraColumns, setExtraColumns] = useState<ExtraColumnDraft[]>([]);
+  const [extraColumnsReady, setExtraColumnsReady] = useState(true);
 
   const [integrationId, setIntegrationId] = useState<string | null>(null);
   const [, setLoadedIntegrationData] = useState<{ spreadsheetId: string; worksheetTitle: string } | null>(null);
@@ -86,8 +92,29 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     if (isOpen && packId) {
       const loadExistingIntegration = async () => {
         skipClearCountRef.current = 2;
+        setExtraColumnsReady(false);
         try {
           const res = await api.integrations.google.listSheetIntegrations(packId);
+          if (res.integrations && res.integrations.length > 0) {
+            const integration = res.integrations[0];
+            // 140: vínculos existentes entram travados (tipo e coluna de mão única)
+            const mappings = Array.isArray(integration.column_mappings) ? (integration.column_mappings as SheetColumnMapping[]) : [];
+            setExtraColumns(
+              mappings.map((m) => ({
+                key: `server_${m.id}`,
+                serverId: m.id,
+                columnValue: m.column_name || "",
+                columnIndex: m.column_index,
+                label: m.label,
+                kind: m.kind,
+                mqlMin: m.config?.mql_min != null ? String(m.config.mql_min) : "",
+              })),
+            );
+            setExtraColumnsReady(true);
+          } else {
+            setExtraColumns([]);
+            setExtraColumnsReady(true);
+          }
           if (res.integrations && res.integrations.length > 0) {
             const integration = res.integrations[0];
             const integrationWithConnection = integration as {
@@ -239,6 +266,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     setAdIdColumn("");
     setDateColumn("");
     setLeadscoreColumn("");
+    // 140: outra planilha/aba = outras colunas; os vínculos gravados são excluídos no save
+    setExtraColumns([]);
   }, [selectedSpreadsheetId]);
 
   // Limpar colunas quando a aba mudar (não quando vier do carregamento da integração existente)
@@ -254,6 +283,8 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
     setAdIdColumn("");
     setDateColumn("");
     setLeadscoreColumn("");
+    // 140: outra planilha/aba = outras colunas; os vínculos gravados são excluídos no save
+    setExtraColumns([]);
   }, [worksheetTitle]);
 
   const canLoadColumns = useMemo(() => !!selectedSpreadsheetId && !!worksheetTitle, [selectedSpreadsheetId, worksheetTitle]);
@@ -267,9 +298,20 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
 
   // Integrar planilha sem definir o corte deixaria o pack com leadscore e sem
   // como qualificar — MQL e CPMQL nasceriam indisponiveis. Por isso e exigido.
+  // 140: toda coluna adicional precisa estar completa (coluna, tipo aceito pela amostra,
+  // rótulo, corte se leadscore) — a mesma validação do backend, antes de sair daqui.
+  const extraColumnsValid = useMemo(() => {
+    const reserved = new Set<number>();
+    for (const value of [adIdColumn, dateColumn]) {
+      const idx = resolveColumnIndex(value, columnsWithIndices);
+      if (idx != null) reserved.add(idx);
+    }
+    return extraColumns.every((draft) => extraColumnProblem(draft, sampleRows, reserved) === null);
+  }, [extraColumns, adIdColumn, dateColumn, columnsWithIndices, sampleRows]);
+
   const canImport = useMemo(
-    () => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!leadscoreColumn && parsedMqlLeadscoreMin !== null,
-    [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, leadscoreColumn, parsedMqlLeadscoreMin]
+    () => !!selectedSpreadsheetId && !!worksheetTitle && !!adIdColumn && !!dateColumn && !!leadscoreColumn && parsedMqlLeadscoreMin !== null && extraColumnsValid,
+    [selectedSpreadsheetId, worksheetTitle, adIdColumn, dateColumn, leadscoreColumn, parsedMqlLeadscoreMin, extraColumnsValid]
   );
 
   const handleConnectGoogle = async () => {
@@ -448,6 +490,17 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         leadscore_column_index: ls.index ?? null,
         pack_id: packId || null,
         connection_id: selectedConnectionId || null,
+        // 140: conjunto desejado de colunas adicionais (só quando a lista reflete o servidor)
+        column_mappings: extraColumnsReady
+          ? extraColumns.map((draft) => ({
+              id: draft.serverId ?? null,
+              column_index: draft.columnIndex ?? resolveColumnIndex(draft.columnValue, columnsWithIndices) ?? -1,
+              column_name: draft.columnValue.includes("|") ? draft.columnValue.slice(0, draft.columnValue.lastIndexOf("|")) : draft.columnValue,
+              label: draft.label.trim(),
+              kind: (draft.kind || "number") as SheetColumnKind,
+              mql_min: draft.kind === "leadscore" ? Number(draft.mqlMin) : null,
+            }))
+          : null,
       };
 
       const saveRes = await api.integrations.google.saveSheetIntegration(payload);
@@ -574,7 +627,7 @@ export function GoogleSheetIntegrationDialog({ isOpen, onClose, packId }: Google
         {/* Step 3: Selecionar colunas ou Summary */}
         {isGoogleConnected && selectedSpreadsheetId && worksheetTitle && (
           <section className={cn("space-y-4", step !== "select-columns" && step !== "summary" && "hidden")}>
-            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
+            {step === "summary" && lastSyncStats ? <SummaryStep stats={lastSyncStats} isImporting={isImporting} onSyncAgain={handleSyncAgain} onClose={handleClose} /> : <SelectColumnsStep columns={columns} columnsWithIndices={columnsWithIndices} duplicates={duplicates} sampleRows={sampleRows} adIdColumn={adIdColumn} dateColumn={dateColumn} dateFormat={dateFormat} leadscoreColumn={leadscoreColumn} mqlLeadscoreMin={mqlLeadscoreMin} isSaving={isSaving} isImporting={isImporting} importStep={importStep} importProgress={importProgress} canImport={canImport} onAdIdColumnChange={setAdIdColumn} onDateColumnChange={setDateColumn} onDateFormatChange={setDateFormat} onLeadscoreColumnChange={setLeadscoreColumn} onMqlLeadscoreMinChange={setMqlLeadscoreMin} extraColumns={extraColumns} onExtraColumnsChange={setExtraColumns} onBack={() => setStep("select-sheet")} onImport={handleImport} />}
           </section>
         )}
       </div>

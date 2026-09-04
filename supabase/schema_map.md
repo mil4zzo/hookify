@@ -85,6 +85,7 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | hook_rate | numeric |  |
 | scroll_stop_rate | numeric |  |
 | video_watched_p75 | integer |  |
+| custom_hist | jsonb |  |
 
 ---
 
@@ -117,6 +118,7 @@ Métricas diárias de performance de cada anúncio, importadas da Meta API.
 | frequency | numeric | NOT NULL, DEFAULT |
 | hook_value | numeric | NOT NULL, DEFAULT |
 | scroll_stop_value | numeric | NOT NULL, DEFAULT |
+| custom_hist | jsonb |  |
 
 ---
 
@@ -484,6 +486,24 @@ Agrupamentos de anúncios definidos pelo usuário para análise comparativa.
 | effective_status | text |  |
 | updated_at | timestamp | NOT NULL, DEFAULT |
 | ads_count | integer |  |
+
+---
+
+### sheet_column_mappings
+
+| Coluna | Tipo | Flags |
+|--------|------|-------|
+| id | uuid | NOT NULL, DEFAULT |
+| integration_id | uuid | NOT NULL |
+| owner_id | uuid | NOT NULL |
+| column_index | integer | NOT NULL |
+| column_name | text | NOT NULL, DEFAULT |
+| label | text | NOT NULL |
+| kind | text | NOT NULL |
+| config | jsonb | NOT NULL, DEFAULT |
+| "position" | integer | NOT NULL, DEFAULT |
+| created_at | timestamp | NOT NULL, DEFAULT |
+| updated_at | timestamp | NOT NULL, DEFAULT |
 
 ---
 

@@ -72,7 +72,12 @@ migração quando o P1 voltar.
 
 ## P1 — Integração de planilhas flexível
 
-**Status:** `ADIADO` — retomar depois de P3, com conversa própria sobre atribuição de data
+**Status:** `PARCIALMENTE COBERTO` (2026-09-03) — os **atributos de pesquisa** (idade,
+renda, pergunta fechada, segundo leadscore) entraram pela migration 140, ver
+`documentation/plano-planilha-flexivel.md`: eles vivem na mesma linha e na mesma data do
+lead, então a atribuição é a do leadscore e o dilema abaixo não se aplica. O que continua
+**adiado** é exatamente o caso deste P1: eventos de funil comercial (reunião marcada,
+executada, fechada) que acontecem depois da captura.
 
 ### Por que foi adiado
 

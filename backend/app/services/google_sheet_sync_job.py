@@ -120,8 +120,14 @@ def process_sync_job(
             "rows_processed": stats.get("processed_rows", 0),
             "rows_updated": stats.get("updated_rows", 0),
             "rows_skipped": stats.get("skipped_invalid", 0) + stats.get("skipped_no_match", 0),
+            # As duas parcelas separadas: a tela de resumo distingue "Inválidas" (linha da
+            # planilha sem ad_id/data/leadscore) de "Ignoradas" (par (ad_id, data) sem match).
+            "skipped_invalid": stats.get("skipped_invalid", 0),
+            "skipped_no_match": stats.get("skipped_no_match", 0),
             "unique_ad_date_pairs": stats.get("unique_ad_date_pairs", 0),
             "total_update_queries": stats.get("total_update_queries", 0),
+            # 140: relatório por coluna vinculada (rótulo, tipo, valores, puladas, motivo)
+            "custom_columns": stats.get("custom_columns") or {},
         })
 
         logger.info(f"[GoogleSheetSyncJob] Job {job_id} concluido. Atualizados: {result_count}")

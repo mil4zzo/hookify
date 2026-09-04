@@ -21,6 +21,7 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
   const unicas = stats.matched_unique_pairs ?? stats.updated_rows;
 
   const pct = (v: number) => (total > 0 ? ((v / total) * 100).toFixed(1) : "0.0");
+  const customColumns = Object.entries(stats.custom_columns ?? {});
 
   return (
     <div className="border border-success-30 bg-success-10 rounded-lg p-6">
@@ -135,6 +136,29 @@ export function SummaryStep({ stats, isImporting, onSyncAgain, onClose }: Summar
             </div>
           </TooltipProvider>
         </div>
+
+        {/* 140: o que o sync fez com cada coluna vinculada */}
+        {customColumns.length > 0 && (
+          <div className="rounded-md border border-border bg-background-80 p-3 space-y-1.5">
+            <div className="text-xs font-medium text-muted-foreground">Colunas adicionais</div>
+            {customColumns.map(([id, report]) => (
+              <div key={id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="truncate">
+                  {report.label || id}
+                  <span className="text-2xs text-muted-foreground"> · {report.kind === "leadscore" ? "leadscore" : report.kind === "category" ? "categoria" : "número"}</span>
+                </span>
+                {report.invalid_reason ? (
+                  <span className="shrink-0 text-2xs text-warning">ignorada: {report.invalid_reason}</span>
+                ) : (
+                  <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
+                    {(report.values ?? 0).toLocaleString()} valores
+                    {report.skipped ? ` · ${report.skipped.toLocaleString()} célula(s) inválida(s) pulada(s)` : ""}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2 pt-4">
           <Button type="button" variant="outline" onClick={onSyncAgain} disabled={isImporting} className="flex items-center gap-2">
             <IconRefresh className="w-4 h-4" />

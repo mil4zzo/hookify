@@ -166,6 +166,12 @@ class RankingsRequest(BaseModel):
     pack_ids: Optional[List[str]] = Field(default=None, description="Lista de pack IDs para filtrar mÃ©tricas. Se vazio/None, nÃ£o retorna dados.")
     include_series: bool = Field(default=True, description="Se False, omite series (sparklines) da resposta para economizar memÃ³ria/payload")
     include_leadscore: bool = Field(default=True, description="Se False, omite leadscore_values/leadscore_histogram da resposta")
+    include_custom: bool = Field(
+        # DEFAULT FALSE (migration 140): so agrega os histogramas das colunas vinculadas
+        # da planilha quando algum pack selecionado tem vinculo. Quem nao tem, nao paga.
+        default=False,
+        description="Se True, cada linha traz custom_histograms ({mapping_id: {valor: qtd}}) das colunas vinculadas da planilha.",
+    )
     series_window: Optional[int] = Field(default=None, description="Limitar series aos Ãºltimos N dias do range. Se None, usa range completo.")
     offset: int = Field(default=0, ge=0, description="Offset para paginaÃ§Ã£o server-side")
     include_available_conversion_types: bool = Field(
@@ -485,6 +491,7 @@ def _get_rankings_core_v2_rpc(req: RankingsRequest, user: Dict[str, Any], sb) ->
         "p_campaign_id": f.campaign_id,
         "p_action_type": req.action_type,
         "p_include_leadscore": bool(req.include_leadscore),
+        "p_include_custom": bool(req.include_custom),
         "p_include_available_conversion_types": bool(req.include_available_conversion_types),
         "p_limit": max(1, int(req.limit or 500)),
         "p_offset": max(0, int(req.offset or 0)),
@@ -1221,6 +1228,8 @@ def _entity_child_item(
         "frequency": d["frequency"],
         "conversions": t["conversions"],
         "leadscore_values": t["leadscore_values"] if include_leadscore else [],
+        # 140: histogramas das colunas vinculadas ({} quando a rota não pediu)
+        "custom_histograms": t["custom_histograms"],
         "thumbnail": _entity_thumbnail(group),
         "series": None if (series_null_when_empty and not has_axis_days) else EP.series_of(group, axis, mql),
     }
@@ -1242,14 +1251,18 @@ def get_ad_name_details(
     date_stop: str,
     include_leadscore: bool = True,
     pack_ids: Optional[List[str]] = Query(default=None),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
+    # 140: por ÚLTIMO de propósito — os testes chamam as rotas por posição.
+    include_custom: bool = False,
 ):
     """Detalhe agregado de todos os ad_ids com o mesmo ad_name no período (read model,
-    migration 133). Com `pack_ids`, só as métricas dos packs selecionados."""
+    migration 133). Com `pack_ids`, só as métricas dos packs selecionados.
+    `include_custom` (140): traz custom_histograms das colunas vinculadas da planilha."""
     axis = _axis_5_days(date_stop)
     payload = _entity_payload(
         user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
         pack_ids=pack_ids, group_by="entity", include_curve=True, series_days=5,
+        include_custom=include_custom,
     )
     g = EP.single_group(payload)
     if g is None:
@@ -1281,6 +1294,7 @@ def get_ad_name_details(
         "frequency": d["frequency"],
         "conversions": t["conversions"],
         "leadscore_values": t["leadscore_values"] if include_leadscore else [],
+        "custom_histograms": t["custom_histograms"],
         "thumbnail": _entity_thumbnail(g),
         "video_play_curve_actions": EP.curve_of(g),
         "ad_count": int(g.get("ad_count") or 0),
@@ -1296,7 +1310,8 @@ def get_rankings_children(
     order_by: Optional[str] = None,
     include_leadscore: bool = True,
     pack_ids: Optional[List[str]] = Query(default=None),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
+    include_custom: bool = False,
 ):
     """Linhas-filhas (um anúncio por ad_id) de um ad_name no período, com série de 5
     dias (read model, migration 133). Com `pack_ids`, só os packs selecionados."""
@@ -1304,6 +1319,7 @@ def get_rankings_children(
     payload = _entity_payload(
         user, date_start=date_start, date_stop=date_stop, entity="ad_name", entity_id=ad_name,
         pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=5,
+        include_custom=include_custom,
     )
     mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
@@ -1325,6 +1341,7 @@ def get_campaign_children(
     include_leadscore: bool = True,
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
+    include_custom: bool = False,
 ):
     """Retorna linhas-filhas agregadas por adset_id para um campaign_id no perÃ­odo.
     Inclui sÃ©ries de 5 dias (hook, spend, ctr, connect_rate, lpv, impressions, conversions).
@@ -1341,6 +1358,7 @@ def get_campaign_children(
         pack_ids=pack_ids,
         include_series=False,
         include_leadscore=include_leadscore,
+        include_custom=include_custom,
         include_available_conversion_types=False,
     )
     sb = get_supabase_for_user(user["token"])
@@ -1368,6 +1386,7 @@ def get_adset_children(
     include_leadscore: bool = True,
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
+    include_custom: bool = False,
 ):
     """Linhas-filhas (um anúncio por ad_id) de um adset_id no período, com série de 5
     dias (read model, migration 133). Com `pack_ids`, só os packs selecionados."""
@@ -1375,6 +1394,7 @@ def get_adset_children(
     payload = _entity_payload(
         user, date_start=date_start, date_stop=date_stop, entity="adset_id", entity_id=adset_id,
         pack_ids=pack_ids, group_by="ad_id", include_curve=False, series_days=5,
+        include_custom=include_custom,
     )
     mql = payload["mql_leadscore_min"]
     items: List[Dict[str, Any]] = []
@@ -1401,6 +1421,7 @@ def get_adset_details(
     date_stop: str,
     pack_ids: Optional[List[str]] = Query(default=None),
     user=Depends(get_current_user),
+    include_custom: bool = False,
 ):
     """Detalhe de um adset_id no período, com série de 5 dias (read model, migration
     133). `conversions` aqui SEM prefixo e só as conversões da Meta — contrato
@@ -1409,6 +1430,7 @@ def get_adset_details(
     payload = _entity_payload(
         user, date_start=date_start, date_stop=date_stop, entity="adset_id", entity_id=adset_id,
         pack_ids=pack_ids, group_by="entity", include_curve=False, series_days=5,
+        include_custom=include_custom,
     )
     g = EP.single_group(payload)
     if g is None:
@@ -1438,6 +1460,7 @@ def get_adset_details(
         "cpm": d["cpm"],
         "website_ctr": d["website_ctr"],
         "leadscore_values": t["leadscore_values"],
+        "custom_histograms": t["custom_histograms"],
         "conversions": EP.plain_conversions_of((g.get("totals") or {}).get("conversions")),
         "ad_count": int(g.get("ad_count") or 0),
         "thumbnail": None,
@@ -1451,7 +1474,8 @@ def get_ad_details(
     date_start: str,
     date_stop: str,
     pack_ids: Optional[List[str]] = Query(default=None),
-    user=Depends(get_current_user)
+    user=Depends(get_current_user),
+    include_custom: bool = False,
 ):
     """Detalhe de um ad_id no período, com série de 5 dias e curva de retenção (read
     model, migration 133). Com `pack_ids`, só os packs selecionados."""
@@ -1459,6 +1483,7 @@ def get_ad_details(
     payload = _entity_payload(
         user, date_start=date_start, date_stop=date_stop, entity="ad_id", entity_id=ad_id,
         pack_ids=pack_ids, group_by="entity", include_curve=True, series_days=5,
+        include_custom=include_custom,
     )
     g = EP.single_group(payload)
     if g is None:
@@ -1491,6 +1516,7 @@ def get_ad_details(
         "frequency": d["frequency"],
         "conversions": t["conversions"],
         "leadscore_values": t["leadscore_values"],
+        "custom_histograms": t["custom_histograms"],
         "thumbnail": _entity_thumbnail(g),
         "video_play_curve_actions": EP.curve_of(g),
         "series": EP.series_of(g, axis, mql),

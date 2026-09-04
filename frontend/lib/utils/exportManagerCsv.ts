@@ -5,6 +5,7 @@ import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter"
 import { getRowAccountNames, getRowPackNames, type ProvenanceIndex } from "@/lib/manager/provenance"
 import { metaCreatedLocalDate } from "@/lib/utils/dateFilters"
 import { getMetricNumericValueOrNull, type MetricValueContext } from "@/lib/metrics/calculations"
+import { getCustomTopValue, isCustomColumnKey, parseCustomColumnKey, type CustomColumnDef } from "@/lib/metrics/customColumns"
 import { api } from "@/lib/api/endpoints"
 import type { MediaSourceUrlsBatchResponse } from "@/lib/api/schemas"
 
@@ -18,6 +19,13 @@ function formatValue(colId: ManagerColumnType, value: unknown): string {
   const num = typeof value === "number" ? value : parseFloat(String(value))
   if (isNaN(num) || !isFinite(num)) return ""
 
+  // 140: facetas das colunas vinculadas — % MQL é razão 0-1, MQLs é contagem.
+  if (isCustomColumnKey(colId)) {
+    const facet = parseCustomColumnKey(colId)?.facet
+    if (facet === "mql_rate") return num.toFixed(4).replace(".", ",")
+    if (facet === "mqls") return Math.round(num).toString()
+    return num.toFixed(2).replace(".", ",")
+  }
   if (RATIO_COLUMNS.has(colId)) return num.toFixed(4).replace(".", ",")
   if (INTEGER_COLUMNS.has(colId)) return Math.round(num).toString()
   return num.toFixed(2).replace(".", ",")
@@ -160,6 +168,7 @@ export async function exportManagerToCsv({
   metricContext,
   provenanceIndex,
   packIds,
+  customColumns = [],
 }: {
   table: Table<RankingsItem>
   activeColumns: Set<ManagerColumnType>
@@ -184,6 +193,8 @@ export async function exportManagerToCsv({
   /** Contexto das métricas (actionType p/ results/CPR, mqlLeadscoreMin p/ MQL) — necessário
    * para calcular colunas que NÃO estão ativas na tabela (sem accessor no TanStack). */
   metricContext?: MetricValueContext
+  /** 140: colunas vinculadas da planilha nos packs selecionados. */
+  customColumns?: ReadonlyArray<CustomColumnDef>
 }): Promise<void> {
   const rows = rowsSnapshot ?? table.getSortedRowModel().rows
   // Colunas realmente construídas na tabela: só nessas row.getValue() é válido —
@@ -194,7 +205,7 @@ export async function exportManagerToCsv({
   const showMediaType = TABS_WITH_MEDIA_TYPE.has(currentTab)
   const showMediaUrls = withMediaUrls && TABS_WITH_MEDIA_URLS.has(currentTab)
 
-  const visibleMetricColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration })
+  const visibleMetricColumns = getVisibleManagerColumns({ activeColumns, columnOrder, hasSheetIntegration, customColumns })
 
   // Buscar transcrições em batch se necessário
   let transcriptionMap: Record<string, string> = {}
@@ -240,6 +251,13 @@ export async function exportManagerToCsv({
     for (const col of visibleMetricColumns) {
       // Nome de pack/conta é texto livre (o usuário nomeia o pack) → anti formula-injection.
       // Métricas nunca passam por aqui: podem ser negativas e o apóstrofo as corromperia.
+      // 140: categoria da planilha é TEXTO vindo da planilha (resposta majoritária +
+      // fatia) → anti formula-injection, como nome de pack.
+      if (col.custom?.facet === "top") {
+        const top = getCustomTopValue(row.original, col.custom.mappingId)
+        cells.push(neutralizeFormula(top ? `${top.value} (${Math.round(top.share * 100)}%)` : ""))
+        continue
+      }
       if (col.isDimension) {
         cells.push(neutralizeFormula(dimensionValue(col.id, row.original, provenanceIndex)))
         continue

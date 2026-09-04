@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from app.core.client_disconnect import abort_if_client_gone
 from app.core.supabase_retry import with_postgrest_retry
 
-RPC_NAME = "fetch_entity_performance_v134"
+RPC_NAME = "fetch_entity_performance_v135"
 
 # Campos inteiros e somas ponderadas que a RPC devolve em `totals` e em cada dia.
 INT_FIELDS = ("impressions", "clicks", "inline_link_clicks", "lpv", "plays", "thruplays", "reach")
@@ -96,8 +96,13 @@ def fetch_entity_performance(
     group_by: str = "entity",
     include_curve: bool = False,
     series_days: Optional[int] = None,
+    include_custom: bool = False,
 ) -> Dict[str, Any]:
     """Uma chamada à RPC; devolve {"mql_leadscore_min": float|None, "groups": [...]}.
+
+    `include_custom` (migration 140): liga `totals.custom_histograms` — os histogramas
+    das colunas vinculadas da planilha, somados no período. Desligado, a RPC nem os
+    agrega (custo zero para quem não vincula coluna).
 
     `entity`: ad_id | ad_name | adset_id. `group_by`: 'entity' (um grupo) ou 'ad_id'
     (um grupo por anúncio — telas de filhos). `series_days`: quantos dias, contados
@@ -113,6 +118,7 @@ def fetch_entity_performance(
         "p_group_by": group_by,
         "p_include_curve": bool(include_curve),
         "p_series_days": series_days,
+        "p_include_custom": bool(include_custom),
     }
 
     # Leitura pura: quem já desligou não ocupa o banco.
@@ -262,6 +268,8 @@ def totals_of(group: Dict[str, Any]) -> Dict[str, Any]:
     out["conversions"] = conversions_of(t.get("conversions"))
     out["leads"] = t.get("leads") if isinstance(t.get("leads"), dict) else {}
     out["leadscore_values"] = expand_leads(out["leads"])
+    # 140: {"<mapping_id>": {"<valor>": qtd}} — {} quando não pedido ou sem dado
+    out["custom_histograms"] = t.get("custom_histograms") if isinstance(t.get("custom_histograms"), dict) else {}
     return out
 
 

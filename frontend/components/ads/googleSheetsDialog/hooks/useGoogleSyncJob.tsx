@@ -175,8 +175,14 @@ export function useGoogleSyncJob() {
             setLastSyncStats({
               processed_rows: stats.rows_processed || 0,
               updated_rows: stats.rows_updated || 0,
-              skipped_no_match: 0,
-              skipped_invalid: 0,
+              // Vinham zerados porque o job só carregava a soma (`rows_skipped`); agora as
+              // duas parcelas viajam separadas, que é como o resumo as apresenta.
+              skipped_no_match: stats.skipped_no_match || 0,
+              skipped_invalid: stats.skipped_invalid || 0,
+              matched_unique_pairs: stats.unique_ad_date_pairs,
+              total_update_queries: stats.total_update_queries,
+              // 140: relatório por coluna vinculada
+              custom_columns: stats.custom_columns,
             });
           },
           onSuccessInvalidate: async (_pId) => {

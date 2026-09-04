@@ -25,6 +25,7 @@
 
 import { MANAGER_METRIC_KEYS, getManagerMetricLabel, type ManagerMetricKey } from "@/lib/metrics";
 import { METRIC_DEFINITIONS } from "@/lib/metrics/definitions";
+import { getActiveCustomRuleFields, resolveCustomRuleField } from "./customFields";
 import { TAG_FILTER_OPERATORS } from "@/lib/tags/filter";
 
 /**
@@ -34,7 +35,7 @@ import { TAG_FILTER_OPERATORS } from "@/lib/tags/filter";
  */
 export type RuleFieldKind = "metric" | "count" | "text" | "tags" | "status" | "date" | "multiselect";
 
-export type RuleFieldGroup = "Tags" | "Criativo" | "Procedência" | "Métricas";
+export type RuleFieldGroup = "Tags" | "Criativo" | "Procedência" | "Métricas" | "Planilha";
 
 /**
  * Onde o campo é oferecido no seletor.
@@ -276,7 +277,9 @@ export const RULE_FIELDS: RuleField[] = [...DIMENSION_FIELDS, ...MANAGER_METRIC_
 const RULE_FIELDS_BY_ID = new Map(RULE_FIELDS.map((field) => [field.id, field]));
 
 export function getRuleField(fieldId: string): RuleField | undefined {
-  return RULE_FIELDS_BY_ID.get(fieldId);
+  // 140: colunas vinculadas da planilha (`custom:<id>:<faceta>`) vêm do registro
+  // ativo, ou viram "Coluna excluída" quando a regra cita um vínculo que já não existe.
+  return RULE_FIELDS_BY_ID.get(fieldId) ?? resolveCustomRuleField(fieldId);
 }
 
 /** Campos que resolvem ids pelo dicionário de nomes do contexto. */
@@ -305,7 +308,10 @@ export function getAvailableRuleFields({
   context,
   tab,
 }: RuleFieldAvailability = {}): RuleField[] {
-  return RULE_FIELDS.filter((field) => {
+  // 140: as colunas vinculadas dos packs selecionados entram no vocabulário. Só
+  // existem no registro quando algum pack tem vínculo, então nunca são "campo
+  // oferecido que não responde".
+  return [...RULE_FIELDS, ...getActiveCustomRuleFields()].filter((field) => {
     if (field.requiresSheetIntegration && !hasSheetIntegration) return false;
     if (context && field.availableIn && !field.availableIn.includes(context)) return false;
     if (tab && field.availableTabs && !field.availableTabs.includes(tab)) return false;
@@ -332,8 +338,13 @@ export function getDefaultRuleValue(fieldId: string): import("./types").RuleCond
 
 /** Métricas oferecidas para ordenar dentro do grupo. */
 export function getRuleSortMetrics({ hasSheetIntegration = false }: RuleFieldAvailability = {}): { value: string; label: string }[] {
-  return MANAGER_METRIC_KEYS.filter((key) => !METRIC_DEFINITIONS[key]?.requiresSheetIntegration || hasSheetIntegration).map((key) => ({
+  const base = MANAGER_METRIC_KEYS.filter((key) => !METRIC_DEFINITIONS[key]?.requiresSheetIntegration || hasSheetIntegration).map((key) => ({
     value: key,
     label: getManagerMetricLabel(key),
   }));
+  // 140: facetas numéricas das colunas vinculadas (categoria não ordena).
+  const custom = getActiveCustomRuleFields()
+    .filter((field) => field.kind === "metric")
+    .map((field) => ({ value: field.id, label: field.label }));
+  return [...base, ...custom];
 }

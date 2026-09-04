@@ -10,6 +10,8 @@ import type { RankingsItem } from "@/lib/api/schemas";
 import type { CreateManagerTableColumnsParams } from "@/components/manager/managerTableColumns";
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { formatMetricValue, getManagerMetricLabel, getMetricNumericValue, getMetricNumericValueOrNull, type ManagerMetricKey } from "@/lib/metrics";
+import { getCustomTopValue } from "@/lib/metrics/customColumns";
+import { histogramEntries } from "@/lib/utils/customHistogram";
 import { isManagerMetricColumnVisible } from "@/components/manager/managerColumnPreferences";
 
 export const SortIcon = ({
@@ -45,9 +47,10 @@ const ActiveFilterIcon = ({ onReveal, field }: { onReveal: (fieldId: string) => 
 );
 
 export function buildMetricColumns(params: CreateManagerTableColumnsParams): ColumnDef<RankingsItem, unknown>[] {
-  const { columnHelper, activeColumns, byKey, endDate, cellMode, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, selectionAveragesRef, formatSelectionAverageRef, formatCurrencyRef, formatPct, globalFilterRef, filteredFieldIdsRef, onRevealField, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, actionTypeRef, getRowKey, openSettings } = params;
+  const { columnHelper, activeColumns, byKey, endDate, cellMode, averagesRef, formatAverageRef, filteredAveragesRef, formatFilteredAverageRef, selectionAveragesRef, formatSelectionAverageRef, formatCurrencyRef, formatPct, globalFilterRef, filteredFieldIdsRef, onRevealField, viewMode, colorMetricValue, hasSheetIntegration, mqlLeadscoreMin, actionTypeRef, getRowKey, openSettings, customColumns } = params;
 
-  const shouldShow = (id: ManagerColumnType) => isManagerMetricColumnVisible(id, { activeColumns, hasSheetIntegration });
+  const customColumnIds = new Set<string>((customColumns ?? []).map((def) => def.key));
+  const shouldShow = (id: ManagerColumnType) => isManagerMetricColumnVisible(id, { activeColumns, hasSheetIntegration, customColumnIds });
 
   const isMinimal = viewMode === "minimal";
 
@@ -490,6 +493,73 @@ export function buildMetricColumns(params: CreateManagerTableColumnsParams): Col
 
   // % de MQLs (taxa de qualificação) — ratioPercent, escala 0-1, logo percentageFilter
   pushStandardMetricColumn("mql_rate", { percentageFilter: true, nullable: true });
+
+  // ── Colunas vinculadas da planilha (migration 140) ─────────────────────────
+  // Anexadas após as fixas, desligadas por padrão. Sem sparkline nem tendência no v1
+  // (não há série por dia); a célula mostra o número e, no modo de cores, a distância
+  // da média do pack como as demais. Categoria mostra a resposta majoritária e a
+  // fatia, com a distribuição inteira no tooltip; ordena pela fatia.
+  for (const def of customColumns ?? []) {
+    if (!shouldShow(def.key)) continue;
+    if (def.facet === "top") {
+      cols.push(
+        columnHelper.accessor(
+          (row) => getCustomTopValue(row as RankingsItem, def.mappingId)?.share ?? null,
+          {
+            id: def.key,
+            header: ({ column }) => renderMetricHeader(def.key, def.label, column),
+            sortingFn: "auto",
+            cell: (info) => {
+              const row = info.row.original as RankingsItem;
+              const hist = row.custom_histograms?.[def.mappingId];
+              const top = getCustomTopValue(row, def.mappingId);
+              if (!top) return <span className="text-center inline-block w-full text-muted-foreground">—</span>;
+              const entries = histogramEntries(hist, false);
+              const total = entries.reduce((acc, [, qty]) => acc + qty, 0);
+              return (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className={`text-center inline-block w-full cursor-help ${isMinimal ? "text-xs" : ""}`}>
+                        <span className="font-medium">{top.value}</span>
+                        <span className="text-muted-foreground"> · {Math.round(top.share * 100)}%</span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      <div className="text-xs space-y-0.5">
+                        <p className="font-medium">{def.mapping.label} · {total} respostas</p>
+                        {entries.map(([value, qty]) => (
+                          <p key={value}>
+                            {value}: {qty} ({total > 0 ? Math.round((qty / total) * 100) : 0}%)
+                          </p>
+                        ))}
+                      </div>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              );
+            },
+          },
+        ) as any,
+      );
+      continue;
+    }
+    cols.push(
+      columnHelper.accessor(
+        // A porta única de leitura resolve `custom:` pelo registro ativo (null = sem dado)
+        (row) => getMetricValueOrNull(row as RankingsItem, def.key),
+        {
+          id: def.key,
+          header: ({ column }) => renderMetricHeader(def.key, def.label, column),
+          sortingFn: "auto",
+          cell: (info) => {
+            const value = info.getValue() as number | null;
+            return <MetricCell row={info.row.original} value={<span className="text-center inline-block w-full">{formatMetricCellValue(def.key, value)}</span>} metric={def.key as unknown as ManagerMetricKey} getRowKey={getRowKey} byKey={byKey} endDate={endDate} cellMode="value" averages={averagesRef.current} formatCurrency={formatCurrencyRef.current} actionType={actionTypeRef.current} hasSheetIntegration={hasSheetIntegration} mqlLeadscoreMin={mqlLeadscoreMin} minimal={isMinimal} colorMetricValue={colorMetricValue} lightweight />;
+          },
+        },
+      ) as any,
+    );
+  }
 
   // Page Conversion
   if (shouldShow("page_conv")) {

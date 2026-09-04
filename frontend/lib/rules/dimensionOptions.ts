@@ -22,6 +22,7 @@
  */
 
 import type { RuleDimensionOption } from "@/components/rules/RuleBuilder";
+import { getActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
 import type { RuleNameDictionary } from "./evaluate";
 
 /**
@@ -96,10 +97,27 @@ export function buildRuleDimensionOptions(
   }
 
   const toOptions = (m: Map<string, string>) => ordenar(Array.from(m, ([value, label]) => ({ value, label })));
-  return {
+  const out: RuleDimensionOptions = {
     pack_ids: toOptions(packs),
     account_ids: toOptions(accounts),
     campaign_ids: toOptions(campaigns),
     adset_ids: toOptions(adsets),
   };
+
+  // 140: colunas de CATEGORIA da planilha. As opções são todas as respostas vistas nos
+  // histogramas das linhas na tela — a pergunta é "a resposta majoritária é X", e X
+  // precisa existir no recorte para a lista não abrir vazia.
+  for (const def of getActiveCustomColumns()) {
+    if (def.facet !== "top") continue;
+    const answers = new Set<string>();
+    for (const row of rows) {
+      const hist = row?.custom_histograms?.[def.mappingId];
+      if (!hist || typeof hist !== "object") continue;
+      for (const [value, qty] of Object.entries(hist as Record<string, unknown>)) {
+        if (Number(qty) > 0) answers.add(value);
+      }
+    }
+    out[def.key] = ordenar(Array.from(answers, (value) => ({ value, label: value })));
+  }
+  return out;
 }

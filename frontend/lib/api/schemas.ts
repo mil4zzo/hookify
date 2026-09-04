@@ -328,6 +328,42 @@ export const SheetColumnsResponseSchema = z.object({
   columnsWithIndices: z.array(ColumnWithIndexSchema).optional().default([]),
 })
 
+// ── Colunas vinculadas da planilha além do leadscore (migration 140) ─────────
+// Um VÍNCULO = "a coluna N desta planilha entra no app com este rótulo e este
+// tipo". O `id` é a chave estável da coluna no app (`custom:<id>:<faceta>`):
+// renomear o cabeçalho na planilha não quebra regra, preferência nem Board.
+// `kind` é decisão de mão única (errou: exclui e cria outro).
+export const SheetColumnKindSchema = z.enum(["leadscore", "number", "category"])
+export type SheetColumnKind = z.infer<typeof SheetColumnKindSchema>
+
+export const SheetColumnMappingSchema = z.object({
+  id: z.string(),
+  integration_id: z.string(),
+  column_index: z.number(),
+  column_name: z.string().optional().default(""),
+  label: z.string(),
+  kind: SheetColumnKindSchema,
+  // leadscore: { mql_min: number }. Demais: {}
+  config: z.object({ mql_min: z.number().nullable().optional() }).passthrough().optional().default({}),
+  position: z.number().optional().default(0),
+  created_at: z.string().nullable().optional(),
+  updated_at: z.string().nullable().optional(),
+})
+export type SheetColumnMapping = z.infer<typeof SheetColumnMappingSchema>
+
+// Entrada de um vínculo no save da integração: `id` presente = editar (só rótulo,
+// corte e ordem); ausente = criar.
+export const SheetColumnMappingInputSchema = z.object({
+  id: z.string().optional().nullable(),
+  column_index: z.number(),
+  column_name: z.string().optional(),
+  label: z.string(),
+  kind: SheetColumnKindSchema,
+  mql_min: z.number().optional().nullable(),
+  position: z.number().optional().nullable(),
+})
+export type SheetColumnMappingInput = z.infer<typeof SheetColumnMappingInputSchema>
+
 export const SheetIntegrationRequestSchema = z.object({
   spreadsheet_id: z.string(),
   worksheet_title: z.string(),
@@ -343,6 +379,9 @@ export const SheetIntegrationRequestSchema = z.object({
   pack_id: z.string().optional().nullable(),
   // ID da conexão Google específica a usar para esta integração
   connection_id: z.string().optional().nullable(),
+  // 140: conjunto DESEJADO de colunas vinculadas. Ausente = não mexe; lista (mesmo
+  // vazia) = reconcilia (atualiza por id, cria os sem id, exclui os que ficaram fora).
+  column_mappings: z.array(SheetColumnMappingInputSchema).optional().nullable(),
 })
 
 export const SheetIntegrationSchema = z.object({
@@ -359,11 +398,24 @@ export const SheetIntegrationSchema = z.object({
   last_synced_at: z.string().nullable().optional(),
   last_sync_status: z.string().nullable().optional(),
   last_successful_sync_at: z.string().nullable().optional(),
+  // 140: colunas vinculadas (lista vazia quando não há)
+  column_mappings: z.array(SheetColumnMappingSchema).optional(),
 }).passthrough()
 
 export const SaveSheetIntegrationResponseSchema = z.object({
   integration: SheetIntegrationSchema,
 })
+
+// 140: o que o sync fez com cada coluna vinculada (valores lidos, células puladas,
+// motivo quando a coluna inteira foi ignorada, ex.: categoria acima do teto)
+export const SheetSyncCustomColumnReportSchema = z.object({
+  label: z.string().nullable().optional(),
+  kind: z.string().nullable().optional(),
+  values: z.number().optional().default(0),
+  skipped: z.number().optional().default(0),
+  invalid_reason: z.string().nullable().optional(),
+})
+export type SheetSyncCustomColumnReport = z.infer<typeof SheetSyncCustomColumnReportSchema>
 
 export const SheetSyncStatsSchema = z.object({
   processed_rows: z.number(),
@@ -377,6 +429,8 @@ export const SheetSyncStatsSchema = z.object({
   ids_out_of_pack_count: z.number().optional(),
   total_update_queries: z.number().optional(),
   integration_status_updated: z.boolean().optional(),
+  // 140: relatório por coluna vinculada
+  custom_columns: z.record(z.string(), SheetSyncCustomColumnReportSchema).optional(),
 })
 
 export const SheetSyncJobProgressSchema = z.object({
@@ -391,6 +445,10 @@ export const SheetSyncJobProgressSchema = z.object({
     rows_skipped: z.number().optional(),
     unique_ad_date_pairs: z.number().optional(),
     total_update_queries: z.number().optional(),
+    // Parcelas separadas de rows_skipped (o resumo as distingue)
+    skipped_invalid: z.number().optional(),
+    skipped_no_match: z.number().optional(),
+    custom_columns: z.record(z.string(), SheetSyncCustomColumnReportSchema).optional(),
   }).optional(),
   result_count: z.number().optional(),
 })
@@ -439,6 +497,8 @@ export const RankingsRequestSchema = z.object({
   pack_ids: z.array(z.string()).optional(),
   include_series: z.boolean().optional(),
   include_leadscore: z.boolean().optional(),
+  // 140: liga custom_histograms nas linhas. Só quando algum pack selecionado tem vínculo.
+  include_custom: z.boolean().optional(),
   series_window: z.number().optional(),
   offset: z.number().int().nonnegative().optional(),
   include_available_conversion_types: z.boolean().optional(),
@@ -598,6 +658,9 @@ export const RankingsItemSchema = z.object({
   frequency: z.number().nullable().optional(),
   leadscore_values: z.array(z.number()).optional(), // Array agregado (telas de detalhe; ad_metrics cru)
   leadscore_histogram: z.record(z.string(), z.number()).optional(), // {score: quantidade} — RPC do Manager (migration 130); expandido em normalizeLeadscoreValues
+  // 140: {mapping_id: {valor: quantidade}} das colunas vinculadas da planilha.
+  // {} quando o request não pediu (include_custom=false) ou o grupo não tem dado.
+  custom_histograms: z.record(z.string(), z.record(z.string(), z.number())).optional(),
   conversions: z.record(z.string(), z.number()), // {action_type: total_value} para calcular results/cpr/page_conv no frontend
   ad_count: z.number(),
   thumbnail: z.string().nullable().optional(),
@@ -754,6 +817,7 @@ export const RankingsChildrenItemSchema = z.object({
   frequency: z.number().nullable().optional(),
   leadscore_values: z.array(z.number()).optional(), // Array agregado de leadscore_values para calcular MQLs/leadscore médio
   leadscore_histogram: z.record(z.string(), z.number()).optional(),
+  custom_histograms: z.record(z.string(), z.record(z.string(), z.number())).optional(), // 140
   conversions: z.record(z.string(), z.number()),
   thumbnail: z.string().nullable().optional(),
   video_play_curve_actions: z.array(z.number()).nullable().optional(),
@@ -1186,6 +1250,7 @@ export type PackActionVerb =
   | 'pack.transcribe'
   | 'pack.sheet_sync'
   | 'pack.sheet_relink'
+  | 'pack.sheet_columns'
   | 'job.cancel'
   | 'pack.judgment'
   | 'pack.auto_refresh'

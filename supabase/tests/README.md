@@ -68,3 +68,16 @@ LAB_URL=postgresql://postgres@127.0.0.1:5433/hookify_lab backend/venv/Scripts/py
 
 O cabeçalho de cada script lista o que é exato e o que é tolerado (e por quê). Critério
 de saída: zero divergências não classificadas.
+
+## Migration 140 (planilha flexível)
+
+```bash
+psql -d hookify_lab -X -v ON_ERROR_STOP=1 -f supabase/tests/140_planilha_flexivel.test.sql
+# → "OK: 26 asserções" (~3 min: a C1 roda a checagem de consistência real do usuário inteiro)
+```
+
+Sabotagens provadas em 2026-09-03 (o teste TEM de falhar com cada uma):
+- `ALTER TABLE public.ad_metrics DISABLE TRIGGER ad_metrics_rollup_sync_upd;` após o BEGIN → falha em A2;
+- `ad_performance_rollup_consistency_check` com `NULL::jsonb` no lugar de `d.custom_hist` no CTE `stored` → falha em C1
+  (a função da 128 nem roda: `EXCEPT` com número de colunas diferente da `derive_row` nova);
+- `fetch_manager_performance_base_v140` com `max(v.value::bigint)` em vez de `sum(...)` no `custom_by_group` → falha em D1.

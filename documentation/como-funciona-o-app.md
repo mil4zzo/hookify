@@ -86,6 +86,13 @@ Enriquecer os dados dos anúncios com informações de **leadscore** e **CPR má
      - **Formato de Data**: DD/MM/YYYY ou MM/DD/YYYY
      - **Coluna de Leadscore** (opcional): Valores de leadscore por lead
      - **Coluna de CPR Max** (opcional): Valor máximo de CPR aceitável
+     - **Colunas adicionais** (opcional, migration 140): outras colunas da mesma linha do lead,
+       cada uma com um tipo de mão única — **número** (idade, renda: vira média no Manager e
+       mín/máx/mediana no modal), **categoria** (pergunta fechada com até 20 respostas: vira a
+       resposta majoritária no Manager e a distribuição no modal) ou **leadscore** (um segundo
+       leadscore com corte de MQL próprio: rende média, MQLs, % MQL e CPMQL como o primeiro).
+       O app guarda só o histograma `{valor: quantidade}` por anúncio-dia, nunca o valor por
+       lead; texto livre não é aceito. Ver `documentation/plano-planilha-flexivel.md`.
 
 2. **Salvamento da Configuração**
    - A configuração é salva na tabela `ad_sheet_integrations`

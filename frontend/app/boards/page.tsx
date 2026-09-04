@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { IconLayoutBoard } from "@tabler/icons-react";
 
 import { AppDialog } from "@/components/common/AppDialog";
@@ -37,6 +37,8 @@ import { useFilters } from "@/lib/hooks/useFilters";
 import { useMqlLeadscore } from "@/lib/hooks/useMqlLeadscore";
 import { usePacksLoading } from "@/components/layout/PacksLoader";
 import { mapRankingRow } from "@/lib/utils/mapRankingRow";
+import { buildCustomColumnDefs, collectPackMappings } from "@/lib/metrics/customColumns";
+import { setActiveCustomColumns } from "@/lib/metrics/customColumnsRegistry";
 import { formatLocaleInteger } from "@/lib/utils/currency";
 import { logger } from "@/lib/utils/logger";
 import { toast } from "sonner";
@@ -70,6 +72,14 @@ export default function BoardsPage() {
     () => selectedPackIds.size > 0 && packs.some((pack) => selectedPackIds.has(pack.id) && !!pack.sheet_integration),
     [packs, selectedPackIds],
   );
+  // 140: colunas vinculadas da planilha — regras de grupo podem citá-las, então a
+  // RPC precisa mandar os histogramas e o registro precisa conhecê-las.
+  const customMappings = useMemo(() => collectPackMappings(packs, selectedPackIds), [packs, selectedPackIds]);
+  const customColumns = useMemo(() => buildCustomColumnDefs(customMappings), [customMappings]);
+  const hasCustomColumns = customColumns.length > 0;
+  useLayoutEffect(() => {
+    setActiveCustomColumns(customColumns);
+  }, [customColumns]);
 
   // ── Boards ─────────────────────────────────────────────────────────────────
   const { data: boardsData, isLoading: boardsLoading } = useBoards(isAuthorized);
@@ -154,9 +164,10 @@ export default function BoardsPage() {
       pack_ids: Array.from(selectedPackIds),
       include_series: false,
       include_leadscore: hasSheetIntegration,
+      include_custom: hasCustomColumns,
       include_available_conversion_types: false,
     }),
-    [dateRange.start, dateRange.end, actionType, selectedPackIds, hasSheetIntegration],
+    [dateRange.start, dateRange.end, actionType, selectedPackIds, hasSheetIntegration, hasCustomColumns],
   );
 
   const {

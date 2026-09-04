@@ -1,11 +1,18 @@
 import type { ManagerColumnType } from "@/components/common/ManagerColumnFilter";
 import { getManagerMetricLabel, type ManagerMetricKey } from "@/lib/metrics";
+import type { CustomColumnDef } from "@/lib/metrics/customColumns";
 
 export type ManagerColumnOption = {
   id: ManagerColumnType;
   name: string;
   /** Se true, a coluna é visível por padrão (sem preferência salva do usuário) */
   defaultVisible?: boolean;
+  /**
+   * Coluna vinculada da planilha (migration 140). Presente = a coluna não está em
+   * MANAGER_COLUMNS: nasce dos vínculos dos packs selecionados. Categoria (`facet ===
+   * "top"`) é texto na célula, como uma dimensão; as demais facetas são métricas.
+   */
+  custom?: CustomColumnDef;
   /**
    * Dimensão, não métrica. Muda o tratamento em toda a cadeia: não tem média no header,
    * não filtra por número, sai do CSV resolvida a partir de `row.original`
@@ -102,3 +109,30 @@ export const DEFAULT_MANAGER_COLUMNS: readonly ManagerColumnType[] = MANAGER_COL
 
 /** Ordem de renderização (todos os ids) */
 export const MANAGER_COLUMN_RENDER_ORDER: readonly ManagerColumnType[] = MANAGER_COLUMNS.map((c) => c.id);
+
+// ── Colunas vinculadas da planilha (migration 140) ───────────────────────────
+// Não entram em MANAGER_COLUMNS (que é fixa): nascem dos vínculos dos packs
+// selecionados e são anexadas ao fim, desligadas por padrão.
+
+/** Opções de coluna para as definições vinculadas ativas. */
+export function buildCustomColumnOptions(customColumns: ReadonlyArray<CustomColumnDef>): ManagerColumnOption[] {
+  return customColumns.map((def) => ({
+    id: def.key,
+    name: def.label,
+    defaultVisible: false,
+    custom: def,
+    // Categoria mostra texto (resposta majoritária): trata-se como dimensão onde só
+    // métrica faz sentido (média no header, tabela de variações).
+    isDimension: def.facet === "top" ? true : undefined,
+  }));
+}
+
+/** Fixas + vinculadas, na ordem de renderização padrão. */
+export function getManagerColumnOptions(customColumns: ReadonlyArray<CustomColumnDef> = []): ManagerColumnOption[] {
+  return customColumns.length > 0 ? [...MANAGER_COLUMNS, ...buildCustomColumnOptions(customColumns)] : [...MANAGER_COLUMNS];
+}
+
+/** Ids de todas as colunas conhecidas nesta seleção de packs. */
+export function getManagerColumnRenderOrder(customColumns: ReadonlyArray<CustomColumnDef> = []): ManagerColumnType[] {
+  return getManagerColumnOptions(customColumns).map((c) => c.id);
+}

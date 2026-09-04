@@ -35,6 +35,7 @@
  */
 
 import { getMetricNumericValueOrNull } from "@/lib/metrics";
+import { getCustomTopValue, isCustomColumnKey, parseCustomColumnKey } from "@/lib/metrics/customColumns";
 import { rowMatchesTagFilter, type TagFilterOperator } from "@/lib/tags/filter";
 import { getRuleField, NAME_LOOKUP_FIELDS } from "./fields";
 import { isEmptyRuleTree, type RuleConditionLeaf, type RuleConditionValue, type RuleNode, type RuleTree } from "./types";
@@ -308,7 +309,11 @@ function evaluateLeaf(condition: RuleConditionLeaf, row: RuleRow, context: RuleE
   }
 
   if (field.kind === "multiselect") {
-    const raw = row[field.id] ?? (field.rowKeyFallback ? row[field.rowKeyFallback] : undefined);
+    // 140: coluna de categoria da planilha — o valor da linha é a resposta MAJORITÁRIA
+    // (calculada do histograma). Sem histograma na linha, a lista é vazia e não casa.
+    const raw = isCustomColumnKey(field.id)
+      ? (getCustomTopValue(row, parseCustomColumnKey(field.id)?.mappingId ?? "")?.value ?? undefined)
+      : row[field.id] ?? (field.rowKeyFallback ? row[field.rowKeyFallback] : undefined);
     return matchesMultiSelect(raw, value, operator);
   }
 

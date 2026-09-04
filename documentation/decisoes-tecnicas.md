@@ -3910,3 +3910,58 @@ a um criativo específico que pudesse decidir por ela. A leitura continua multi-
 por prop: a célula de tags é renderizada dentro da fábrica de colunas do TanStack, e
 passar por prop obrigaria a atravessar o comparador do memo da tabela — o caminho que
 já causou célula sem re-render neste projeto.
+
+## Planilha flexível: colunas vinculadas além do leadscore (migration 140, 2026-09-03)
+
+Plano completo, com status por tarefa e medições: `documentation/plano-planilha-flexivel.md`.
+O que fica aqui é o que mudaria uma decisão futura.
+
+**O que é.** Um *vínculo* (`sheet_column_mappings`) diz "a coluna N desta planilha entra
+no app com este rótulo e este tipo". Três tipos, decisão de mão única: `leadscore`
+(número com corte de MQL próprio, rende as mesmas quatro métricas do leadscore V1),
+`number` (média, mín, máx, mediana) e `category` (distribuição, até 20 respostas).
+Texto livre ficou **fora**: LGPD (a próxima coluna seria e-mail), custo no read model e
+valor só de leitura.
+
+**Histograma, não valor por lead.** O importer agrega `{valor: quantidade}` por
+anúncio-dia e vínculo em `ad_metrics.custom_hist`; o rollup (128) copia. É sem perda para
+tudo que o v1 mostra e não guarda identidade de lead. O importer manda o objeto COMPLETO
+por anúncio-dia em todo sync (`{}` grava NULL): vínculo excluído some da linha sozinho,
+sem purge (que seria um UPDATE em massa passando pelo trigger do rollup).
+
+**Custo medido no laboratório** (pior caso sintético: 3 vínculos, histogramas de 27/48/4
+chaves em 100% dos anúncio-dias com leads): `p_include_custom` desligado custa o mesmo
+que a v139; ligado, +120 ms na aba "Por anúncio" (0,49 → 0,61 s) e ~15% nas abas pesadas;
+detalhe sem diferença. O frontend só liga quando algum pack selecionado tem vínculo.
+A alternativa (tabela lateral) foi descartada por não comprar nada contra +120 ms.
+
+**Leadscore V1 intocado, de propósito.** O V2 é um vínculo do tipo `leadscore` com corte
+em `config.mql_min`. Dois caminhos convivem, usando as MESMAS funções de
+`lib/utils/mqlMetrics.ts` (diferencial em `customHistogram.test.ts`, seis cortes).
+Prazo para decidir a unificação: 2026-10-15. Caminho conhecido: migration que cria um
+vínculo leadscore por integração existente e copia `leadscore_values` para
+`custom_hist`, com diferencial pelo harness do rollup antes do cutover.
+
+**Frontend: registro ativo, não parâmetro novo.** `lib/metrics/customColumnsRegistry.ts`
+guarda a lista ativa (publicada pela página em `useLayoutEffect` quando os packs
+selecionados mudam). A porta única de leitura de métrica (`getMetricNumericValueOrNull`)
+resolve `custom:<id>:<faceta>` por ela, e com isso avaliador de regra, export, tabelas de
+filhos, ordenação de Board e endpoints funcionam sem assinatura nova. Chave fora do
+registro = "sem dado", nunca zero; regra que cita vínculo excluído mostra "Coluna
+excluída (planilha)" e não casa — nunca some nem zera a tela.
+
+**Preferência de coluna preserva chaves de outra seleção.** Abrir o Manager com um pack
+sem planilha não pode apagar as colunas vinculadas ligadas para o pack da planilha:
+`saveManagerColumnPreferences` carrega adiante as chaves `custom:` que a seleção atual
+não conhece.
+
+**Armadilha registrada:** `ad_metrics.id` (`{date}-{ad_id}`) NÃO é único entre
+usuários — contas que compartilham as mesmas contas de anúncio repetem ids. Um seed no
+laboratório sem `user_id` no WHERE atingiu 12.897 linhas em vez de 3.998 (três silos
+vizinhos). O RPC de produção já filtra por `user_id`; qualquer script sobre `ad_metrics`
+precisa da chave `(user_id, id)`.
+
+**Sabotagens provadas** (teste SQL da 140): trigger de UPDATE desligado → falha em A2;
+checagem de consistência cega para `custom_hist` → falha em C1; v140 somando com `max`
+→ falha em D1. Frontend: mediana errada e merge que sobrescreve → falham em
+`customHistogram.test.ts`.

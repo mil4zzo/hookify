@@ -5,6 +5,7 @@ import type { Table } from "@tanstack/react-table";
 import type { ColumnFiltersState } from "@tanstack/react-table";
 import { RankingsItem } from "@/lib/api/schemas";
 import { computeManagerAverages, type ManagerAverages } from "@/lib/metrics";
+import type { CustomColumnDef } from "@/lib/metrics/customColumns";
 
 interface UseFilteredAveragesOptions {
   table: Table<RankingsItem>;
@@ -14,6 +15,8 @@ interface UseFilteredAveragesOptions {
   actionType?: string;
   hasSheetIntegration?: boolean;
   mqlLeadscoreMin: number | null;
+  /** 140: colunas vinculadas da planilha (médias em `custom`). */
+  customColumns?: ReadonlyArray<CustomColumnDef>;
 }
 
 /**
@@ -28,6 +31,7 @@ export function useFilteredAverages({
   actionType,
   hasSheetIntegration = false,
   mqlLeadscoreMin,
+  customColumns,
 }: UseFilteredAveragesOptions): ManagerAverages | null {
   return useMemo(() => {
     const filteredRows = table.getFilteredRowModel().rows;
@@ -41,6 +45,7 @@ export function useFilteredAverages({
       hasSheetIntegration,
       includeScrollStop: false,
       mqlLeadscoreMin,
+      customColumns,
     });
-  }, [table, dataLength, columnFilters, globalFilter, actionType, hasSheetIntegration, mqlLeadscoreMin]);
+  }, [table, dataLength, columnFilters, globalFilter, actionType, hasSheetIntegration, mqlLeadscoreMin, customColumns]);
 }

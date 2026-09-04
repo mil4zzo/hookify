@@ -68,6 +68,9 @@ ACTION_PACK_JUDGMENT = "pack.judgment"
 ACTION_PACK_AUTO_REFRESH = "pack.auto_refresh"
 ACTION_PACK_RENAME = "pack.rename"
 ACTION_PACK_DELETE = "pack.delete"
+# 140: vínculo de coluna da planilha editado/excluído (rótulo, corte de MQL, ordem).
+# Muda o que o time inteiro lê numa coluna do Manager, como o julgamento.
+ACTION_PACK_SHEET_COLUMNS = "pack.sheet_columns"
 
 # Compartilhamento
 ACTION_SHARE_GRANT = "share.grant"
@@ -81,7 +84,7 @@ _KNOWN_ACTIONS = frozenset({
     ACTION_PACK_REFRESH, ACTION_PACK_TRANSCRIBE,
     ACTION_PACK_SHEET_SYNC, ACTION_PACK_SHEET_RELINK, ACTION_JOB_CANCEL,
     ACTION_PACK_JUDGMENT, ACTION_PACK_AUTO_REFRESH,
-    ACTION_PACK_RENAME, ACTION_PACK_DELETE,
+    ACTION_PACK_RENAME, ACTION_PACK_DELETE, ACTION_PACK_SHEET_COLUMNS,
     ACTION_SHARE_GRANT, ACTION_SHARE_ROLE, ACTION_SHARE_REVOKE, ACTION_SHARE_LEAVE,
 })
 

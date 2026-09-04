@@ -38,6 +38,7 @@ const VERB_LABEL: Record<PackActionVerb, string> = {
   "pack.transcribe": "iniciou a transcrição dos vídeos",
   "pack.sheet_sync": "sincronizou a planilha",
   "pack.sheet_relink": "reconectou a conta Google",
+  "pack.sheet_columns": "alterou uma coluna vinculada da planilha",
   "job.cancel": "cancelou um processamento em andamento",
   "pack.judgment": "mudou os critérios de julgamento",
   "pack.auto_refresh": "mudou a atualização automática",
@@ -118,6 +119,10 @@ function describeDetail(entry: PackActivityEntry): string | null {
   }
   if (entry.action === "pack.sheet_relink") {
     return typeof d.google_email === "string" ? d.google_email : null;
+  }
+  if (entry.action === "pack.sheet_columns") {
+    const op = d.op === "delete" ? "excluiu" : "editou";
+    return typeof d.label === "string" ? `${op} "${d.label}"` : op;
   }
   return null;
 }

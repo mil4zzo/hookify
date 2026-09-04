@@ -25,7 +25,28 @@ import {
 } from "@/lib/utils/googleAuthError";
 import { AppError, normalizeJobErrorMessage } from "@/lib/utils/errors";
 import { logger } from "@/lib/utils/logger";
+import type { SheetSyncCustomColumnReport } from "@/lib/api/schemas";
 import React from "react";
+
+/**
+ * O que o job de sync devolve ao terminar (`stats` do progresso). Nasce em
+ * `run_ad_metrics_sheet_import`, é gravado no job por `google_sheet_sync_job` e
+ * remontado pela rota de progresso — os três lugares precisam da mesma chave para o
+ * número chegar à tela de resumo.
+ */
+export type SheetSyncJobStats = {
+  rows_read?: number;
+  rows_processed?: number;
+  rows_updated?: number;
+  rows_skipped?: number;
+  /** As duas parcelas de `rows_skipped`, que o resumo mostra separadas. */
+  skipped_invalid?: number;
+  skipped_no_match?: number;
+  unique_ad_date_pairs?: number;
+  total_update_queries?: number;
+  /** 140: por coluna vinculada. */
+  custom_columns?: Record<string, SheetSyncCustomColumnReport>;
+};
 import { GoogleSheetsIcon } from "@/components/icons/GoogleSheetsIcon";
 
 const sheetsToastIcon = React.createElement(GoogleSheetsIcon, { className: "h-5 w-5 flex-shrink-0" });
@@ -54,7 +75,7 @@ export interface PollSheetsSyncJobConfig {
   canReconnect?: boolean;
   ownerName?: string | null;
   /** Chamado ao concluir com sucesso (para atualizar lastSyncStats etc.) */
-  onCompleted?: (stats: { rows_updated?: number; rows_processed?: number }) => void;
+  onCompleted?: (stats: SheetSyncJobStats) => void;
   /** Chamado ao concluir para disparar evento pack-integration-updated */
   onPackIntegrationUpdated?: (packId: string) => void;
   /**
@@ -71,7 +92,7 @@ export type PollSheetsSyncJobResult = {
   error?: string;
   paused?: boolean;
   needsGoogleReconnect?: boolean;
-  stats?: { rows_updated?: number; rows_processed?: number };
+  stats?: SheetSyncJobStats;
 };
 
 export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promise<PollSheetsSyncJobResult> {
@@ -198,10 +219,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
           { durationSeconds: 5, context: "sheets", packName }
         );
 
-        onCompleted?.({
-          rows_updated: updatedRows,
-          rows_processed: stats.rows_processed,
-        });
+        onCompleted?.({ ...stats, rows_updated: updatedRows });
 
         try {
           const maybe = onSuccessInvalidate?.(packId);
@@ -216,7 +234,7 @@ export async function pollSheetsSyncJob(config: PollSheetsSyncJobConfig): Promis
 
         onPackIntegrationUpdated?.(packId);
 
-        return { done: true, result: { success: true, stats: { rows_updated: updatedRows, rows_processed: stats.rows_processed } } };
+        return { done: true, result: { success: true, stats: { ...stats, rows_updated: updatedRows } } };
       }
 
       if (progress.status === "cancelled") {
