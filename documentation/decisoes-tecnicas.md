@@ -3965,3 +3965,64 @@ precisa da chave `(user_id, id)`.
 checagem de consistência cega para `custom_hist` → falha em C1; v140 somando com `max`
 → falha em D1. Frontend: mediana errada e merge que sobrescreve → falham em
 `customHistogram.test.ts`.
+
+## Link de compartilhamento quebrado: três camadas de mascaramento (2026-09-04)
+
+Usuário reportou que **nenhum** link público de criativo era gerado — o toast dizia só
+"Não foi possível gerar o link / Tente novamente em instantes." Não era intermitente:
+todo `POST /shares` falhava desde 01/09.
+
+**A causa, em uma linha.** O commit `e407067` (o fix do silo no export de mídia) removeu
+o parâmetro `api` da rota `/media-source-urls/batch`, porque `Depends(get_graph_api)`
+exige conexão Meta **do ator** e levanta 403 antes do corpo — excluindo justamente o
+convidado de um pack compartilhado. Só que essa rota também é chamada como **função
+Python normal** por `routes/shares.py`, e lá a chamada continuou passando `api=api`.
+Resultado: `TypeError`, 500, criação de link morta.
+
+**Lição de método:** ao mexer na assinatura de uma rota, `grep` pelo **nome da função**
+no repo inteiro, não só pelo path HTTP. Rota do FastAPI é função comum; o roteador não é
+o único chamador.
+
+### Por que os testes não pegaram
+
+`@patch("...get_media_source_urls_batch", return_value=X)` devolve um `MagicMock`, que
+aceita **qualquer** argumento. Os testes de `create_share` continuaram verdes enquanto a
+função real mudava de assinatura — um teste que **não podia** falhar. Agora usam
+`autospec=True` (o dublê herda a assinatura real) mais um teste sem mock algum, que só
+faz `inspect.signature(...).bind(...)` da chamada verdadeira. Sabotagem provada:
+reintroduzir `api=` faz 4 testes falharem com o mesmo `TypeError` de produção.
+
+### Por que o erro chegou ilegível na tela — e não era o CORS
+
+A suspeita inicial era o gap de CORS no 500 (5xx sai por fora do `CORSMiddleware`).
+**Estava errada:** esse fix já está no lugar em `main.py` e funcionando — o backend
+respondeu `{"detail": "Internal Server Error"}` com os headers certos.
+
+O mascaramento era do **cliente**. O interceptor do `apiClient` termina com
+`Promise.reject(parseError(error))`: o que chega ao `catch` é um `AppError`
+(`{status, message, details, code}`), **objeto puro**, nunca o `AxiosError`. O dialog
+testava `error.response.data.detail` (formato do axios → sempre `undefined`) e
+`error instanceof Error` (`AppError` não herda de `Error` → sempre `false`), e caía no
+texto genérico em 100% das falhas — inclusive nas que o backend explicava. **A mensagem
+está em `error.message`.** Extraído para `lib/share/errorMessage.ts` com 6 testes e
+sabotagem provada. Varredura confirmou que era o único callsite com a leitura errada
+(o outro `.response.data.detail` vive dentro do interceptor, antes do `parseError` —
+uso legítimo).
+
+### De quebra: o mesmo bug de silo do export, ainda vivo no share
+
+`create_share` provava ownership com `get_ads_media_summary_by_names` lendo **sempre o
+silo de quem pediu**. Num pack compartilhado os anúncios moram no silo do dono: o
+convidado levaria um 422 falso ("Criativos não encontrados na sua conta"). Corrigido na
+mesma passada, espelhando `e407067` — `resolve_media_summary()` resolve silo a silo com
+a credencial do dono, `pack_ids` viajam do Manager até o backend, e a rota perdeu o
+`Depends(get_graph_api)`.
+
+### 13 testes que ninguém rodava
+
+`app/services/thumbnail_cache_repair_checks.py` e `transcription_worker_checks.py`
+moravam fora de `tests/` e sem o prefixo `test_` — o pytest **nunca** os coletava.
+Passaram para `tests/` (13 testes recuperados, suíte de 528 → 541). Três deles já
+apontavam para `_select_storage_thumbnail_for_group`, que saiu do analytics no rollup e
+só existe no `.backup`: classe removida. Um teste que não roda não é rede de segurança,
+é arquivo.
