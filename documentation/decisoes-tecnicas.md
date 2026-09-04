@@ -4026,3 +4026,33 @@ Passaram para `tests/` (13 testes recuperados, suíte de 528 → 541). Três del
 apontavam para `_select_storage_thumbnail_for_group`, que saiu do analytics no rollup e
 só existe no `.backup`: classe removida. Um teste que não roda não é rede de segurança,
 é arquivo.
+
+## Conteúdo portalado do Radix entra no DOM um commit depois de `open`
+
+**2026-09-04.** A roda do mouse não rolava a lista do combobox dentro de um diálogo.
+Duas correções foram ao ar e falharam: `stopPropagation` no container e, depois, mover
+o `scrollTop` à mão com `preventDefault`. As duas eram **código morto** — o listener
+nunca chegou a ser preso uma única vez.
+
+O `Popover.Content` do Radix é embrulhado num `Presence` que só manda `MOUNT` no layout
+effect dele: o conteúdo entra no DOM **um commit depois** de `open` virar `true`. O
+`useEffect(..., [open, ref])` do combobox roda no primeiro commit, com `ref.current`
+ainda `null`, sai pelo `return` antecipado — e como `open` já não muda mais, nunca é
+reexecutado. Sem erro, sem aviso, com o `return` parecendo defensivo.
+
+A correção é não depender de ordem de efeito: **`ref` de callback**, que o React chama
+com o nó no instante em que ele entra no DOM e com `null` quando sai. Vale para qualquer
+coisa que dependa do nó de conteúdo portalado (Popover, Select, Tooltip, Dialog): prender
+listener, medir, observar resize.
+
+Duas lições de método:
+
+- Quando **duas correções de mecanismos diferentes falham de forma idêntica**, o errado é
+  a premissa que elas compartilham — aqui, "o listener roda". Insistir num terceiro
+  mecanismo seria o terceiro tiro no escuro.
+- O que encerrou a discussão foi **medir**: uma página de laboratório numa rota pública,
+  sem login, com `EventTarget.prototype.addEventListener` instrumentado antes de qualquer
+  código do app. A lista de quem escuta o evento respondeu de uma vez, sem teoria no meio.
+
+Custo em unidades que se sentem: dois deploys e alguns dias de um combobox que só rolava
+arrastando a barra; o diagnóstico com medição levou menos de uma hora.
