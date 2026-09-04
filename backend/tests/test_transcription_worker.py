@@ -1,3 +1,9 @@
+"""Testes do worker de transcrição.
+
+Vivia em `app/services/transcription_worker_checks.py` — fora de `tests/` e sem
+o prefixo `test_`, então o pytest nunca o coletava. Passavam, mas ninguém saberia
+se parassem de passar.
+"""
 import unittest
 from unittest.mock import Mock, patch
 

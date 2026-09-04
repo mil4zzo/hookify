@@ -1,3 +1,11 @@
+"""Testes da cache/reparo de thumbnails (Storage-only).
+
+Vivia em `app/services/thumbnail_cache_repair_checks.py` — fora de `tests/` e
+sem o prefixo `test_`, então o pytest NUNCA o coletava. Eram 10 testes que
+ninguém rodava: 3 já apontavam para `_select_storage_thumbnail_for_group`, que
+saiu do analytics e só existe no `.backup` — a classe foi removida aqui. Um
+teste que não roda não é uma rede de segurança, é um arquivo.
+"""
 import unittest
 from unittest.mock import Mock, patch
 
@@ -98,45 +106,6 @@ class TestBackgroundCachedThumbClassification(unittest.TestCase):
         )
 
         self.assertEqual(result, "validation_error")
-
-
-class TestAnalyticsStorageThumbnailSelection(unittest.TestCase):
-    def test_prefers_representative_storage_thumbnail(self) -> None:
-        from app.routes.analytics import _select_storage_thumbnail_for_group
-
-        thumbnail, source_ad_id = _select_storage_thumbnail_for_group(
-            "ad-1",
-            {"ad-1", "ad-2"},
-            {
-                "ad-1": "https://example.supabase.co/storage/v1/object/public/ad-thumbs/ad-1.webp",
-                "ad-2": "https://example.supabase.co/storage/v1/object/public/ad-thumbs/ad-2.webp",
-            },
-        )
-
-        self.assertEqual(thumbnail, "https://example.supabase.co/storage/v1/object/public/ad-thumbs/ad-1.webp")
-        self.assertEqual(source_ad_id, "ad-1")
-
-    def test_uses_sibling_storage_thumbnail_when_representative_is_missing(self) -> None:
-        from app.routes.analytics import _select_storage_thumbnail_for_group
-
-        thumbnail, source_ad_id = _select_storage_thumbnail_for_group(
-            "ad-1",
-            {"ad-1", "ad-2"},
-            {
-                "ad-2": "https://example.supabase.co/storage/v1/object/public/ad-thumbs/ad-2.webp",
-            },
-        )
-
-        self.assertEqual(thumbnail, "https://example.supabase.co/storage/v1/object/public/ad-thumbs/ad-2.webp")
-        self.assertEqual(source_ad_id, "ad-2")
-
-    def test_returns_empty_when_group_has_no_storage_thumbnail(self) -> None:
-        from app.routes.analytics import _select_storage_thumbnail_for_group
-
-        thumbnail, source_ad_id = _select_storage_thumbnail_for_group("ad-1", {"ad-1", "ad-2"}, {})
-
-        self.assertIsNone(thumbnail)
-        self.assertIsNone(source_ad_id)
 
 
 if __name__ == "__main__":
