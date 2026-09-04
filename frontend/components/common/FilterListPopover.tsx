@@ -101,7 +101,7 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const listRef = useRef<HTMLDivElement>(null);
-  usePopoverWheelScroll(open, listRef);
+  const listWheelRef = usePopoverWheelScroll(listRef);
 
   // Reseta a busca ao fechar o popover
   useEffect(() => {
@@ -318,7 +318,7 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
           </div>
         )}
         {/* ref: devolve a roda do mouse quando este popover abre sobre um diálogo */}
-        <div ref={listRef} className="max-h-[320px] overflow-y-auto">{renderList()}</div>
+        <div ref={listWheelRef} className="max-h-[320px] overflow-y-auto">{renderList()}</div>
       </PopoverContent>
     </Popover>
   );

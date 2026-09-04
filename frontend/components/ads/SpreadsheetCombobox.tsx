@@ -31,7 +31,7 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
   const [error, setError] = useState<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Roda do mouse dentro de dialogo: ver o hook. Reusa o ref da rolagem infinita.
-  usePopoverWheelScroll(open, scrollContainerRef);
+  const scrollWheelRef = usePopoverWheelScroll(scrollContainerRef);
 
   // Debounce para busca
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -178,7 +178,7 @@ export function SpreadsheetCombobox({ value, valueLabel, onValueChange, onValueL
               autoFocus
             />
           </div>
-          <div ref={scrollContainerRef} className="max-h-[300px] overflow-y-auto" onScroll={handleScroll}>
+          <div ref={scrollWheelRef} className="max-h-[300px] overflow-y-auto" onScroll={handleScroll}>
             {error ? (
               <div className="py-6 px-4 text-center">
                 <p className="text-sm text-destructive mb-2">{error}</p>

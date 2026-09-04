@@ -62,7 +62,7 @@ export function TagCombobox({
   const [open, setOpen] = useState(false);
   // Roda do mouse dentro de dialogo (BulkTagDialog): ver o hook.
   const listRef = useRef<HTMLDivElement>(null);
-  usePopoverWheelScroll(open, listRef);
+  const listWheelRef = usePopoverWheelScroll(listRef);
   const [query, setQuery] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -171,7 +171,7 @@ export function TagCombobox({
           />
         </div>
 
-        <div ref={listRef} className="max-h-56 overflow-y-auto p-1">
+        <div ref={listWheelRef} className="max-h-56 overflow-y-auto p-1">
           {canOfferCreate && (
             <button
               type="button"

@@ -353,3 +353,27 @@ existente, copia `leadscore_values` para `custom_hist` sob esse id, e as RPCs pa
     Regra que fica: ao abrir um registry fechado para chaves dinâmicas, **procurar todas as
     portas** — a que lê o valor e a que o descreve. Provado por sabotagem em
     `customColumns.test.ts` ("as DUAS portas conhecem custom").
+
+11. **2026-09-04, o scroll do popover: duas correções que nunca rodaram.** O sintoma
+    (roda do mouse não rola a lista do combobox dentro do diálogo) resistiu a duas
+    correções — `stopPropagation` no container e, depois, mover o `scrollTop` à mão com
+    `preventDefault`. As duas falharam de forma **idêntica**, e isso era a pista: quando
+    dois mecanismos diferentes falham igual, o errado é a premissa que eles compartilham.
+    A premissa comum era "o listener roda".
+
+    Medido no navegador, numa página de laboratório isolada (`/pv/wheel-lab`, pública,
+    sem login) com `EventTarget.prototype.addEventListener` instrumentado antes de
+    qualquer código do app: o efeito rodava com `{open: true, temElemento: false}` e
+    **nenhum** listener de `wheel` aparecia no elemento da lista. As duas correções eram
+    código morto.
+
+    Causa raiz: o Radix monta o conteúdo do popover **um commit depois** de `open` virar
+    true — o `Presence` só manda `MOUNT` no layout effect dele. O `useEffect([open, ref])`
+    do combobox roda no primeiro commit, quando `ref.current` ainda é `null`; como `open`
+    não muda mais, o efeito nunca é reexecutado.
+
+    Regra que fica: **para conteúdo que vive em portal/`Presence` (Radix Popover, Select,
+    Tooltip, Dialog), `useEffect` gateado em `open` não é lugar de prender listener — use
+    `ref` de callback**, que o React chama no instante em que o nó entra no DOM e com
+    `null` quando sai. Provado por sabotagem em `usePopoverWheelScroll.test.ts` ("prender
+    o listener acontece DENTRO da chamada do ref").

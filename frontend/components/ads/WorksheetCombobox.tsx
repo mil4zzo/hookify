@@ -28,7 +28,7 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
   const [open, setOpen] = useState(false);
   // Roda do mouse dentro de dialogo: ver o hook.
   const listRef = useRef<HTMLDivElement>(null);
-  usePopoverWheelScroll(open, listRef);
+  const listWheelRef = usePopoverWheelScroll(listRef);
   const [search, setSearch] = useState("");
   const {
     data,
@@ -131,7 +131,7 @@ export function WorksheetCombobox({ spreadsheetId, value, onValueChange, placeho
               autoFocus
             />
           </div>
-          <div ref={listRef} className="max-h-[300px] overflow-y-auto">
+          <div ref={listWheelRef} className="max-h-[300px] overflow-y-auto">
             {queryError ? (
               <div className="py-6 px-4 text-center">
                 <p className="text-sm text-destructive mb-2">{(queryError as any)?.message || "Erro ao carregar abas. Tente novamente."}</p>
