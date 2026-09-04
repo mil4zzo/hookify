@@ -1375,7 +1375,7 @@ def get_ads_video_fields_by_names(
 
 
 def get_ads_media_summary_by_names(
-    user_jwt: str,
+    user_jwt: Optional[str],
     user_id: str,
     ad_names: List[str],
 ) -> List[Dict[str, Any]]:
@@ -1383,12 +1383,16 @@ def get_ads_media_summary_by_names(
 
     Usado pela criação de share (/shares) para thumbnail do Storage e
     classificação vídeo/imagem do representante — e, de quebra, como prova de
-    ownership: nome sem linha aqui não pertence ao usuário (RLS)."""
+    ownership: nome sem linha aqui não pertence AO SILO consultado.
+
+    `user_jwt=None` => service role, para ler o silo do DONO de um pack
+    compartilhado (mesmo contrato de get_ads_video_fields_by_names). `user_id` é
+    sempre o dono dos DADOS, não quem pediu."""
     names = sorted({str(n).strip() for n in ad_names if str(n or "").strip()})
     if not names:
         return []
 
-    sb = get_supabase_for_user(user_jwt)
+    sb = _sb_or_service(user_jwt)
     batch_size = 200
     rows: List[Dict[str, Any]] = []
     for i in range(0, len(names), batch_size):

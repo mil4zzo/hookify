@@ -23,9 +23,9 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.core.auth import get_current_user
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
-from app.routes.facebook import get_graph_api, get_media_source_urls_batch
+from app.routes.facebook import get_media_source_urls_batch
 from app.services import supabase_repo
-from app.services.graph_api import GraphAPI
+from app.services.pack_access import resolve_entity_pack_groups
 from app.services.thumbnail_cache import DEFAULT_BUCKET, build_public_storage_url
 from app.services.video_source_cache import _parse_iso
 
@@ -181,6 +181,39 @@ def summarize_media_rows(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]
     return summary
 
 
+def resolve_media_summary(
+    user: Dict[str, Any],
+    names: List[str],
+    pack_ids: List[str],
+) -> Dict[str, Dict[str, Any]]:
+    """Resumo de mídia (thumb + tipo) dos representantes — POR SILO.
+
+    Mesmo motivo do export de mídia (ver docstring de /media-source-urls/batch):
+    num pack COMPARTILHADO os anúncios moram no silo do DONO. Ler sempre o silo
+    de quem pediu faria o convidado receber "criativos não encontrados na sua
+    conta" para tudo o que não fosse dele — o 422 seria falso.
+
+    Sem `pack_ids` (nenhum pack selecionado) cai no caminho histórico: silo do
+    próprio ator, com o JWT dele (RLS)."""
+    groups = resolve_entity_pack_groups(user["user_id"], "adname", names, pack_ids) if pack_ids else []
+
+    if not groups:
+        rows = supabase_repo.get_ads_media_summary_by_names(user["token"], user["user_id"], names)
+        return summarize_media_rows(rows)
+
+    # Os grupos particionam os nomes (um id que exista em dois silos fica com o
+    # do ator), então o update não sobrescreve resultado de outro dono.
+    summary: Dict[str, Dict[str, Any]] = {}
+    for group in groups:
+        rows = supabase_repo.get_ads_media_summary_by_names(
+            None if group.is_guest else user["token"],
+            group.owner_id,
+            list(group.allowed_ids),
+        )
+        summary.update(summarize_media_rows(rows))
+    return summary
+
+
 def build_share_items(
     items: List[Dict[str, Any]],
     media_summary: Dict[str, Dict[str, Any]],
@@ -244,19 +277,24 @@ def public_share_payload(row: Dict[str, Any]) -> Dict[str, Any]:
 @router.post("")
 def create_share(
     body: Dict[str, Any] = Body(...),
-    api: GraphAPI = Depends(get_graph_api),
     user: Dict[str, Any] = Depends(get_current_user),
 ):
     """Cria um link público de compartilhamento a partir de ad_names + snapshot.
 
-    Ownership: nome sem linha em ads (client RLS) → 422. Mídia: reusa a máquina
-    do export (cache-first, EXPORT_MIN_TTL_S) — falha pontual degrada o slide
-    para thumbnail; token da Meta expirado propaga 401 (frontend reconecta)."""
+    Ownership: nome sem linha em ads no silo correspondente → 422. Mídia: reusa
+    a máquina do export (cache-first, EXPORT_MIN_TTL_S) — falha pontual degrada
+    o slide para thumbnail; token da Meta expirado propaga 401 (frontend
+    reconecta).
+
+    NÃO usa `Depends(get_graph_api)`: exigiria conexão Meta DO ATOR e levantaria
+    403 antes do corpo, excluindo o convidado de um pack compartilhado. A
+    credencial é sempre a do DONO, resolvida silo a silo lá dentro (a mesma
+    razão pela qual a rota de lote perdeu a dependência em e407067)."""
     payload = validate_share_payload(body)
     names = [item["ad_name"] for item in payload["items"]]
+    pack_ids = [str(x).strip() for x in (body.get("pack_ids") or []) if str(x or "").strip()]
 
-    rows = supabase_repo.get_ads_media_summary_by_names(user["token"], user["user_id"], names)
-    media_summary = summarize_media_rows(rows)
+    media_summary = resolve_media_summary(user, names, pack_ids)
     unknown = [n for n in names if n not in media_summary]
     if unknown:
         raise HTTPException(
@@ -265,7 +303,7 @@ def create_share(
         )
 
     media_results = get_media_source_urls_batch(
-        body={"ad_names": names}, api=api, user=user
+        body={"ad_names": names, "pack_ids": pack_ids}, user=user
     ).get("results", {})
 
     slides = build_share_items(payload["items"], media_summary, media_results)

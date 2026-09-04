@@ -1431,6 +1431,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
         actionType={actionType}
         mqlLeadscoreMin={mqlLeadscoreMin}
         averages={averages}
+        packIds={packCtxIds}
       />
     </TagScopeProvider>
   );

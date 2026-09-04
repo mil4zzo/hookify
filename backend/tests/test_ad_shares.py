@@ -15,6 +15,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import HTTPException
 
@@ -27,6 +29,7 @@ from app.routes.shares import (
     get_share_public,
     is_share_viewable,
     public_share_payload,
+    resolve_media_summary,
     revoke_share,
     sanitize_metrics,
     summarize_media_rows,
@@ -285,7 +288,7 @@ _MEDIA_BATCH_OK = {
 
 class TestCreateShare:
     @patch("app.routes.shares.get_supabase_for_user")
-    @patch("app.routes.shares.get_media_source_urls_batch", return_value=_MEDIA_BATCH_OK)
+    @patch("app.routes.shares.get_media_source_urls_batch", autospec=True, return_value=_MEDIA_BATCH_OK)
     @patch("app.services.supabase_repo.get_ads_media_summary_by_names")
     def test_happy_path(self, get_rows, _batch, get_sb):
         get_rows.return_value = [
@@ -295,7 +298,7 @@ class TestCreateShare:
         sb = _fake_sb_insert([MagicMock(data=[{"id": "uuid-1"}])])
         get_sb.return_value = sb
 
-        result = create_share(body=_valid_body(), api=MagicMock(), user=dict(_USER))
+        result = create_share(body=_valid_body(), user=dict(_USER))
 
         assert result["id"] == "uuid-1"
         assert len(result["token"]) == 10
@@ -309,16 +312,16 @@ class TestCreateShare:
         assert inserted["items"][1]["media"]["video_url"] is None
 
     @patch("app.routes.shares.get_supabase_for_user")
-    @patch("app.routes.shares.get_media_source_urls_batch", return_value=_MEDIA_BATCH_OK)
+    @patch("app.routes.shares.get_media_source_urls_batch", autospec=True, return_value=_MEDIA_BATCH_OK)
     @patch("app.services.supabase_repo.get_ads_media_summary_by_names", return_value=[])
     def test_unknown_ad_name_422(self, *_mocks):
         with pytest.raises(HTTPException) as exc:
-            create_share(body=_valid_body(), api=MagicMock(), user=dict(_USER))
+            create_share(body=_valid_body(), user=dict(_USER))
         assert exc.value.status_code == 422
         assert "não encontrados" in str(exc.value.detail)
 
     @patch("app.routes.shares.get_supabase_for_user")
-    @patch("app.routes.shares.get_media_source_urls_batch", return_value=_MEDIA_BATCH_OK)
+    @patch("app.routes.shares.get_media_source_urls_batch", autospec=True, return_value=_MEDIA_BATCH_OK)
     @patch("app.services.supabase_repo.get_ads_media_summary_by_names")
     def test_token_collision_retries(self, get_rows, _batch, get_sb):
         get_rows.return_value = [
@@ -331,7 +334,7 @@ class TestCreateShare:
         ])
         get_sb.return_value = sb
 
-        result = create_share(body=_valid_body(), api=MagicMock(), user=dict(_USER))
+        result = create_share(body=_valid_body(), user=dict(_USER))
 
         assert result["id"] == "uuid-2"
         first = sb.table.return_value.insert.call_args_list[0][0][0]
@@ -339,7 +342,7 @@ class TestCreateShare:
         assert first["token"] != second["token"]
 
     @patch("app.routes.shares.get_supabase_for_user")
-    @patch("app.routes.shares.get_media_source_urls_batch", return_value=_MEDIA_BATCH_OK)
+    @patch("app.routes.shares.get_media_source_urls_batch", autospec=True, return_value=_MEDIA_BATCH_OK)
     @patch("app.services.supabase_repo.get_ads_media_summary_by_names")
     def test_non_collision_error_propagates(self, get_rows, _batch, get_sb):
         get_rows.return_value = [
@@ -349,7 +352,97 @@ class TestCreateShare:
         get_sb.return_value = _fake_sb_insert([Exception("statement timeout")])
 
         with pytest.raises(Exception, match="statement timeout"):
-            create_share(body=_valid_body(), api=MagicMock(), user=dict(_USER))
+            create_share(body=_valid_body(), user=dict(_USER))
+
+
+class TestCreateShareContract:
+    """Guardas do acoplamento entre /shares e a rota de lote de mídia.
+
+    Em 2026-09-01 o lote perdeu o parâmetro `api` (e407067, para não exigir
+    conexão Meta do ator). shares.py continuou chamando com `api=api`: TypeError
+    → 500 sem CORS → o frontend só via "Tente novamente em instantes". Os testes
+    não pegaram porque o MagicMock aceitava qualquer kwarg — daí o autospec."""
+
+    def test_batch_call_binds_to_real_signature(self):
+        """A chamada real precisa CASAR com a assinatura real (sem mock nenhum)."""
+        import inspect
+        from app.routes.facebook import get_media_source_urls_batch
+
+        sig = inspect.signature(get_media_source_urls_batch)
+        sig.bind(body={"ad_names": ["A"], "pack_ids": []}, user=dict(_USER))
+        assert "api" not in sig.parameters
+
+    def test_create_share_has_no_graph_api_dependency(self):
+        """`Depends(get_graph_api)` levantaria 403 antes do corpo para quem não
+        tem conexão Meta própria — o convidado de um pack compartilhado."""
+        import inspect
+
+        assert "api" not in inspect.signature(create_share).parameters
+
+    @patch("app.routes.shares.get_supabase_for_user")
+    @patch("app.routes.shares.get_media_source_urls_batch", autospec=True, return_value=_MEDIA_BATCH_OK)
+    @patch("app.services.supabase_repo.get_ads_media_summary_by_names")
+    def test_pack_ids_forwarded_to_media_batch(self, get_rows, batch, get_sb):
+        get_rows.return_value = [
+            {"ad_name": "Criativo A", "media_type": "video", "thumb_storage_path": ""},
+            {"ad_name": "Criativo B", "media_type": "image", "thumb_storage_path": ""},
+        ]
+        get_sb.return_value = _fake_sb_insert([MagicMock(data=[{"id": "uuid-3"}])])
+
+        body = _valid_body()
+        body["pack_ids"] = ["pack-1"]
+        with patch("app.routes.shares.resolve_entity_pack_groups", return_value=[]):
+            create_share(body=body, user=dict(_USER))
+
+        assert batch.call_args.kwargs["body"]["pack_ids"] == ["pack-1"]
+
+
+class TestResolveMediaSummarySilo:
+    """Pack compartilhado: os anúncios estão no silo do DONO. Ler o silo do ator
+    faria o convidado receber um 422 falso ("criativos não encontrados")."""
+
+    @patch("app.services.supabase_repo.get_ads_media_summary_by_names")
+    def test_no_pack_ids_reads_actor_silo_with_jwt(self, get_rows):
+        get_rows.return_value = [{"ad_name": "A", "media_type": "video", "thumb_storage_path": ""}]
+
+        summary = resolve_media_summary(dict(_USER), ["A"], [])
+
+        assert summary["A"]["is_video"] is True
+        assert get_rows.call_args[0][0] == "jwt-1"
+        assert get_rows.call_args[0][1] == "user-1"
+
+    @patch("app.services.supabase_repo.get_ads_media_summary_by_names")
+    @patch("app.routes.shares.resolve_entity_pack_groups")
+    def test_guest_silo_reads_owner_with_service_role(self, resolve, get_rows):
+        resolve.return_value = [
+            SimpleNamespace(owner_id="owner-9", is_guest=True, role="viewer", allowed_ids=("A",)),
+        ]
+        get_rows.return_value = [{"ad_name": "A", "media_type": "image", "thumb_storage_path": ""}]
+
+        summary = resolve_media_summary(dict(_USER), ["A"], ["pack-1"])
+
+        assert "A" in summary
+        # user_jwt=None => service role; user_id é o DONO, não quem pediu
+        assert get_rows.call_args[0][0] is None
+        assert get_rows.call_args[0][1] == "owner-9"
+
+    @patch("app.services.supabase_repo.get_ads_media_summary_by_names")
+    @patch("app.routes.shares.resolve_entity_pack_groups")
+    def test_mixed_owners_merge_without_losing_names(self, resolve, get_rows):
+        resolve.return_value = [
+            SimpleNamespace(owner_id="user-1", is_guest=False, role="dono", allowed_ids=("A",)),
+            SimpleNamespace(owner_id="owner-9", is_guest=True, role="editor", allowed_ids=("B",)),
+        ]
+        get_rows.side_effect = [
+            [{"ad_name": "A", "media_type": "video", "thumb_storage_path": ""}],
+            [{"ad_name": "B", "media_type": "image", "thumb_storage_path": ""}],
+        ]
+
+        summary = resolve_media_summary(dict(_USER), ["A", "B"], ["pack-1", "pack-2"])
+
+        assert set(summary) == {"A", "B"}
+        assert get_rows.call_args_list[0][0][0] == "jwt-1"
+        assert get_rows.call_args_list[1][0][0] is None
 
 
 # ── get_share_public / revoke_share (endpoint, mocks) ────────────────────────

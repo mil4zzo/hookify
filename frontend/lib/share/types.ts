@@ -91,6 +91,8 @@ export interface CreateSharePayload {
   items: Array<{ ad_name: string; metrics: ShareItemMetrics }>;
   averages?: ShareItemMetrics;
   highlight_metrics?: ShareMetricKey[];
+  /** Packs em contexto — o backend resolve a mídia no silo do DONO de cada um. */
+  pack_ids?: string[];
 }
 
 export interface CreateShareResponse {

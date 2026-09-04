@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils/cn";
 import { api } from "@/lib/api/endpoints";
 import { buildShareAverages, buildShareMetricsFromRow } from "@/lib/share/buildShareItem";
 import { MAX_HIGHLIGHT_METRICS, MAX_SHARE_ITEMS, SHARE_HIGHLIGHT_OPTIONS, buildShareUrl } from "@/lib/share/types";
+import { extractErrorDetail } from "@/lib/share/errorMessage";
 import type { ShareMetricKey } from "@/lib/share/types";
 import { useFormatCurrency } from "@/lib/utils/currency";
 import { useSettings } from "@/lib/store/settings";
@@ -32,6 +33,12 @@ export interface ShareCreateDialogProps {
   mqlLeadscoreMin: number | null;
   /** Médias do conjunto — congeladas no snapshot para colorir o viewer público. */
   averages?: ManagerAverages | null;
+  /**
+   * Packs selecionados. Sem eles o backend procura os anúncios sempre no silo de
+   * quem pediu — num pack COMPARTILHADO eles estão no silo do dono, e o convidado
+   * receberia "criativos não encontrados na sua conta".
+   */
+  packIds?: string[];
 }
 
 function formatDatePt(iso: string): string {
@@ -40,20 +47,13 @@ function formatDatePt(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString("pt-BR");
 }
 
-function extractErrorDetail(error: unknown): string {
-  const detail = (error as any)?.response?.data?.detail;
-  if (typeof detail === "string" && detail) return detail;
-  if (error instanceof Error && error.message) return error.message;
-  return "Tente novamente em instantes.";
-}
-
 /**
  * Dialog de criação de link compartilhável (aba Criativos). O usuário revisa a
  * lista (pode remover itens), gera o link e copia. As métricas enviadas são o
  * snapshot da própria linha do Manager (mesmos valores do modal de detalhamento);
  * a mídia é resolvida no backend na criação.
  */
-export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, actionType, mqlLeadscoreMin, averages }: ShareCreateDialogProps) {
+export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, actionType, mqlLeadscoreMin, averages, packIds }: ShareCreateDialogProps) {
   const formatCurrency = useFormatCurrency();
   const { settings } = useSettings();
 
@@ -112,6 +112,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
         })),
         averages: buildShareAverages(averages),
         highlight_metrics: highlights,
+        pack_ids: packIds ?? [],
       };
       const res = await api.shares.create(payload);
       setResult({ token: res.token, expires_at: res.expires_at });
@@ -120,7 +121,7 @@ export function ShareCreateDialog({ isOpen, onClose, rows, dateStart, dateStop, 
     } finally {
       setIsCreating(false);
     }
-  }, [items, isCreating, dateStart, dateStop, settings.currency, actionType, mqlLeadscoreMin, averages, highlights]);
+  }, [items, isCreating, dateStart, dateStop, settings.currency, actionType, mqlLeadscoreMin, averages, highlights, packIds]);
 
   return (
     <AppDialog isOpen={isOpen} onClose={onClose} title="Compartilhar criativos" size="lg" padding="md">
