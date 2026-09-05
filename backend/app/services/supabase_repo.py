@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import time
 import random
-from typing import Any, Callable, Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta, date, timezone
 
 from app.core.supabase_client import get_supabase_for_user, get_supabase_service
@@ -81,6 +81,30 @@ def _is_pack_name_unique_violation(error: Exception) -> bool:
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# TTL do carimbo `packs.refresh_lock_until`. Ele existe porque `refresh_status`
+# sozinho MENTE: o status vira 'running' na largada, mas ha caminhos que nunca
+# escrevem o status final — job que morre no processor (mark_failed) e cancelamento
+# em lote (logout no meio do refresh). Sem prazo de validade, um pack ficaria
+# 'running' para sempre e todo membro veria "Atualizando..." eternamente.
+# 15 min = a propria paciencia do cliente que dispara (pollJob maxAttempts 450 x 2 s
+# em usePackRefresh): passou disso, nem quem iniciou esta mais olhando.
+REFRESH_LOCK_TTL_MINUTES = 15
+
+
+def _refresh_lock_until_iso() -> str:
+    """Expiracao do lock de refresh, em UTC *naive*.
+
+    A coluna e `timestamp` SEM timezone (migration 004): um offset enviado aqui
+    seria descartado em silencio pelo Postgres. Gravamos ja sem offset, de modo
+    que o valor guardado seja inequivocamente UTC — o frontend reanexa o "Z" ao ler.
+    """
+    return (
+        (datetime.now(timezone.utc) + timedelta(minutes=REFRESH_LOCK_TTL_MINUTES))
+        .replace(tzinfo=None)
+        .isoformat(timespec="seconds")
+    )
 
 
 def _hook_at_3_from_curve(curve: Any) -> float:
@@ -2951,6 +2975,7 @@ def update_pack_refresh_status(
     refresh_status: str = "success",
     date_stop: Optional[str] = None,
     *,
+    actor_id: Optional[str] = None,
     sb_client: Optional["Client"] = None,
 ) -> None:
     """Atualiza o status de refresh de um pack no Supabase.
@@ -2962,6 +2987,9 @@ def update_pack_refresh_status(
         last_refreshed_at: Data de último refresh no formato YYYY-MM-DD (None = hoje)
         refresh_status: Status do refresh ('success', 'failed', 'running', etc.)
         date_stop: Data final do pack no formato YYYY-MM-DD (opcional, atualiza date_stop do pack)
+        actor_id: QUEM disparou. Num pack compartilhado difere do dono — é o que
+            permite a tela dizer "Atualizando por Fulano". Só faz sentido com
+            'running'; nos status terminais o campo é limpo junto com o prazo.
     """
     if not user_id or not pack_id:
         logger.warning("[UPDATE_REFRESH_STATUS] Skipped: missing user_id or pack_id")
@@ -2972,6 +3000,17 @@ def update_pack_refresh_status(
     update_data = {
         "refresh_status": refresh_status,
     }
+
+    # Carimbo de validade do "está atualizando". É o que torna o status legível por
+    # OUTROS membros de um pack compartilhado: eles não têm o estado local de quem
+    # disparou, então leem `refresh_status` do banco — e precisam saber se ele ainda
+    # vale. 'running' carimba, qualquer status terminal limpa.
+    if refresh_status == "running":
+        update_data["refresh_lock_until"] = _refresh_lock_until_iso()
+        update_data["refresh_actor_id"] = str(actor_id) if actor_id else None
+    else:
+        update_data["refresh_lock_until"] = None
+        update_data["refresh_actor_id"] = None
 
     # Só atualizar last_refreshed_at e updated_at quando o refresh completar com sucesso.
     # Atualizar em "running"/"failed"/"cancelled" corrompe o cálculo de since_last_refresh.
@@ -2999,6 +3038,80 @@ def update_pack_refresh_status(
     except Exception as e:
         logger.exception(f"[UPDATE_REFRESH_STATUS] ✗ Erro ao atualizar pack {pack_id}: {e}")
         raise
+
+
+def clear_pack_refresh_if_running(owner_id: str, pack_ids: Iterable[str]) -> int:
+    """Derruba o "está atualizando" dos packs cujo refresh acabou de ser cancelado.
+
+    Cancelar o job zera o job, mas `packs.refresh_status` continuaria 'running' e
+    outro membro veria selo de atualização fantasma até o lock expirar.
+
+    O `.eq("refresh_status", "running")` é essencial: sem ele, um job que já tinha
+    concluído (e portanto não foi de fato cancelado) teria seu 'success' sobrescrito
+    por 'canceled'. Service role — o pack vive no silo do DONO, e quem cancela pode
+    ser um convidado.
+    """
+    cleared = 0
+    for pack_id in pack_ids:
+        if not pack_id or not owner_id:
+            continue
+        try:
+            res = (
+                get_supabase_service()
+                .table("packs")
+                .update({"refresh_status": "canceled", "refresh_lock_until": None, "refresh_actor_id": None})
+                .eq("id", pack_id)
+                .eq("user_id", owner_id)
+                .eq("refresh_status", "running")
+                .execute()
+            )
+            cleared += len(res.data or [])
+        except Exception as e:
+            # Best-effort: o lock expira sozinho em REFRESH_LOCK_TTL_MINUTES.
+            logger.warning(f"[CLEAR_PACK_REFRESH] Falha no pack {pack_id}: {e}")
+    return cleared
+
+
+def attach_refresh_actor_names(packs: List[Dict[str, Any]], viewer_id: str) -> None:
+    """Resolve o NOME de quem disparou o refresh em andamento, in-place.
+
+    Custo zero no caso comum: se nenhum pack esta atualizando, nao ha ida ao banco.
+    Esta lista e carregada em TODA pagina do app — uma RPC incondicional aqui seria
+    imposto permanente para um dado que quase sempre nao existe.
+
+    O ator sai do payload como NOME, nunca como uuid: o id nao serve para nada na
+    tela e nao ha razao para vazar identificador de outra conta. Quando o ator e o
+    proprio leitor, o nome fica nulo de proposito — a tela dele ja diz "Atualizando"
+    pelo estado local, e "Atualizando por <voce mesmo>" seria ruido.
+    """
+    pendentes: Dict[str, List[Dict[str, Any]]] = {}
+    for pack in packs:
+        if not isinstance(pack, dict):
+            continue
+        ator = str(pack.pop("refresh_actor_id", "") or "").strip()
+        pack["refresh_actor_name"] = None
+        if not ator or pack.get("refresh_status") != "running":
+            continue
+        if ator == str(viewer_id):
+            continue
+        pendentes.setdefault(ator, []).append(pack)
+
+    if not pendentes:
+        return
+
+    try:
+        res = get_supabase_service().rpc(
+            "lookup_users_by_ids", {"p_user_ids": sorted(pendentes.keys())}
+        ).execute()
+        for row in (res.data or []):
+            if not isinstance(row, dict) or not row.get("user_id"):
+                continue
+            nome = row.get("display_name") or None
+            for pack in pendentes.get(str(row["user_id"]), []):
+                pack["refresh_actor_name"] = nome
+    except Exception as e:
+        # Best-effort: sem o nome a tela cai em "Atualizando..." generico.
+        logger.warning(f"[REFRESH_ACTOR] Falha ao resolver nomes dos atores: {e}")
 
 
 def update_pack_auto_refresh(

@@ -1759,6 +1759,11 @@ def list_packs(user=Depends(get_current_user), include_ads: bool = Query(default
         if shared:
             packs = packs + shared
 
+        # Quem esta atualizando cada pack, resolvido em NOME. Fica aqui (e nao no
+        # repo) para cobrir proprios e compartilhados numa passada so. Sem pack
+        # atualizando, nao custa nada.
+        supabase_repo.attach_refresh_actor_names(packs, user["user_id"])
+
         # Se solicitado, buscar ads para cada pack
         if include_ads:
             packs_with_ads = []
@@ -1852,7 +1857,11 @@ def get_pack(pack_id: str, user=Depends(get_current_user), include_ads: bool = Q
             else:
                 ads = supabase_repo.get_ads_for_pack(user["token"], pack, user["user_id"])
             pack["ads"] = ads
-        
+
+        # Mesmo tratamento da listagem: o uuid do ator nao vai para o cliente, so
+        # o nome — e nulo quando o ator e o proprio leitor.
+        supabase_repo.attach_refresh_actor_names([pack], user["user_id"])
+
         return {"success": True, "pack": pack}
     except HTTPException:
         raise

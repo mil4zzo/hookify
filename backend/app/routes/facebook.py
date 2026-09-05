@@ -4403,6 +4403,7 @@ def refresh_pack(
             pack_id,
             owner_id,
             refresh_status="running",
+            actor_id=str(user["user_id"]),
             sb_client=sb,
         )
 
@@ -4710,12 +4711,26 @@ def cancel_jobs_batch(
     Request body:
     {
         "job_ids": ["job_id_1", "job_id_2", ...],
-        "reason": "Cancelado durante logout" (opcional)
+        "reason": "Cancelado durante logout" (opcional),
+        "skip_refresh": true (opcional) — preserva refresh de pack e a cadeia de
+            planilha colada nele. O logout manda isto; o botao de cancelar, nao.
     }
+
+    POR QUE O LOGOUT PRESERVA O REFRESH (2026-09-05)
+    ------------------------------------------------
+    Cancelar nunca foi necessidade tecnica: o job roda com service role e token do
+    Meta guardado no servidor, entao sobrevive ao fim da sessao sem problema.
+    Cancelar era escolha — e era incoerente: FECHAR A ABA deixava o refresh terminar
+    e os dados chegarem; dar LOGOUT matava. Da cabeca do usuario as duas coisas sao
+    "terminei por hoje". Pior: a parte cara ja foi paga (a Meta processa o job de
+    insights do lado dela), entao cancelar depois disso joga fora cota consumida, e
+    num pack compartilhado o logout de um membro matava o refresh que o outro estava
+    esperando ver.
     """
     try:
         job_ids = request.get("job_ids", [])
         reason = request.get("reason", "Cancelado durante logout")
+        skip_refresh = bool(request.get("skip_refresh", False))
         
         if not job_ids:
             return {"cancelled_count": 0, "total_requested": 0, "message": "Nenhum job para cancelar"}
@@ -4743,10 +4758,33 @@ def cancel_jobs_batch(
             logger.warning("[CANCEL_JOBS_BATCH] Falha ao resolver silo dos jobs: %s", e)
             rows = []
 
+        # Jobs que o logout NAO deve matar: o refresh do pack e o sync de planilha
+        # encadeado nele. O encadeado e identificado pelo `chained_sync_job_id` que o
+        # proprio job de refresh carrega no payload — assim um sync AVULSO, que o
+        # usuario disparou sozinho, continua sendo cancelado como antes.
+        preservados: set = set()
+        if skip_refresh:
+            for row in rows:
+                payload = row.get("payload") or {}
+                if not payload.get("is_refresh"):
+                    continue
+                preservados.add(str(row.get("id") or ""))
+                encadeado = str(payload.get("chained_sync_job_id") or "").strip()
+                if encadeado:
+                    preservados.add(encadeado)
+            preservados.discard("")
+            if preservados:
+                logger.info(
+                    f"[CANCEL_JOBS_BATCH] {len(preservados)} job(s) de refresh preservados "
+                    f"(logout nao interrompe atualizacao de pack)"
+                )
+
         for row in rows:
             jid = str(row.get("id") or "")
             silo = str(row.get("user_id") or "")
             if not jid or not silo:
+                continue
+            if jid in preservados:
                 continue
             if silo == actor_id:
                 by_silo.setdefault(actor_id, []).append(jid)
@@ -4769,6 +4807,27 @@ def cancel_jobs_batch(
             pack_by_job[jid] = job_pack_id
             role_by_silo[silo] = _cancel_access.role
 
+        # Packs cujo selo de "atualizando" precisa cair junto. Cancelar o job zera o
+        # JOB; `packs.refresh_status` continuaria 'running' e os OUTROS membros — que
+        # leem o banco, nao o estado local de quem disparou — veriam atualizacao
+        # fantasma ate o lock expirar. O caso comum e o logout no meio do refresh.
+        authorized_ids = {jid for ids in by_silo.values() for jid in ids}
+        refresh_packs_by_silo: Dict[str, List[str]] = {}
+        for row in rows:
+            jid = str(row.get("id") or "")
+            if jid not in authorized_ids:
+                continue
+            payload = row.get("payload") or {}
+            if not payload.get("is_refresh"):
+                continue
+            silo = str(row.get("user_id") or "")
+            job_pack_id = str(payload.get("pack_id") or "").strip()
+            if not silo or not job_pack_id:
+                continue
+            bucket = refresh_packs_by_silo.setdefault(silo, [])
+            if job_pack_id not in bucket:
+                bucket.append(job_pack_id)
+
         cancelled_count = 0
         for silo, ids in by_silo.items():
             is_guest = silo != actor_id
@@ -4777,6 +4836,9 @@ def cancel_jobs_batch(
             )
             cancelled = tracker.cancel_jobs_batch(ids, reason)
             cancelled_count += cancelled
+
+            if cancelled and refresh_packs_by_silo.get(silo):
+                supabase_repo.clear_pack_refresh_if_running(silo, refresh_packs_by_silo[silo])
 
             # Autoria (P3.5) SO em silo alheio. O caso comum aqui e o logout
             # cancelando os proprios jobs — registrar isso encheria o feed de
@@ -4801,6 +4863,7 @@ def cancel_jobs_batch(
         return {
             "cancelled_count": cancelled_count,
             "total_requested": len(job_ids),
+            "preserved_count": len(preservados),
             "message": f"{cancelled_count} job(s) cancelado(s)"
         }
     except HTTPException:

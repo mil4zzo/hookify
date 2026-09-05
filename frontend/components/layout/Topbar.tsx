@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils/cn";
 import { getFacebookAvatarUrl } from "@/lib/utils/facebookAvatar";
 import { readAvatarCache, writeAvatarCache, clearAvatarCache, type AvatarCacheEntry } from "@/lib/utils/avatarCache";
 import { APP_PAGE_SHELL_X } from "@/lib/constants/pageLayout";
+import { isPackRefreshingOnServer } from "@/lib/utils/packRefreshState";
 
 export default function Topbar() {
   // TODOS OS HOOKS DEVEM SER CHAMADOS ANTES DE QUALQUER EARLY RETURN
@@ -461,8 +462,10 @@ export default function Topbar() {
   const renderUpdateDataButton = () => {
     if (!isAuthenticated || !hasFacebookConnection || packs.length === 0) return null;
 
-    // Se está atualizando, mostra botão desabilitado
-    if (refreshingPackIds.length > 0) {
+    // Se está atualizando, mostra botão desabilitado. Vale também quando quem
+    // atualiza é OUTRO membro de um pack compartilhado: sem isso o botão convida
+    // a um clique que o backend recusa com 409 (REFRESH_ALREADY_RUNNING).
+    if (refreshingPackIds.length > 0 || packs.some((p) => isPackRefreshingOnServer(p))) {
       return (
         <Button variant="outline" size="icon" className="shrink-0" disabled aria-label="Atualizando dados">
           <IconLoader2 className="h-4 w-4 animate-spin" />

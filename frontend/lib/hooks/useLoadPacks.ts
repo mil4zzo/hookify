@@ -114,6 +114,11 @@ export function useLoadPacks() {
                 created_at: pack.created_at,
                 updated_at: pack.updated_at,
                 last_refreshed_at: pack.last_refreshed_at || undefined, // Incluir last_refreshed_at se disponível
+                // Refresh em andamento visível entre membros de um pack compartilhado.
+                // Sempre os DOIS: o status sozinho não diz se ainda é verdade.
+                refresh_status: pack.refresh_status ?? null,
+                refresh_lock_until: pack.refresh_lock_until ?? null,
+                refresh_actor_name: pack.refresh_actor_name ?? null,
                 sheet_integration: pack.sheet_integration || undefined, // Incluir dados de integração se disponível
                 conversion_types: Array.isArray(pack.conversion_types) ? pack.conversion_types : [], // Metadado materializado (dropdown de eventos)
                 // Critério de julgamento do pack (migration 110) — null preservado:
@@ -139,6 +144,18 @@ export function useLoadPacks() {
               if (pack.name !== existing.name) patch.name = pack.name
               if (pack.auto_refresh !== existing.auto_refresh) patch.auto_refresh = pack.auto_refresh
               if (pack.last_refreshed_at !== (existing as any).last_refreshed_at) patch.last_refreshed_at = pack.last_refreshed_at
+              // Refresh alheio em andamento: campo dos mais mutáveis que existem.
+              // Sem entrar no patch, o store persistido reidrata um 'running' velho
+              // e o pack fica com selo de atualização eterno após um reload.
+              if ((pack.refresh_status ?? null) !== ((existing as any).refresh_status ?? null)) {
+                patch.refresh_status = pack.refresh_status ?? null
+              }
+              if ((pack.refresh_lock_until ?? null) !== ((existing as any).refresh_lock_until ?? null)) {
+                patch.refresh_lock_until = pack.refresh_lock_until ?? null
+              }
+              if ((pack.refresh_actor_name ?? null) !== ((existing as any).refresh_actor_name ?? null)) {
+                patch.refresh_actor_name = pack.refresh_actor_name ?? null
+              }
               // Campos objeto — JSON.stringify
               if (pack.stats && (!existing.stats || JSON.stringify(existing.stats) !== JSON.stringify(pack.stats))) {
                 patch.stats = pack.stats

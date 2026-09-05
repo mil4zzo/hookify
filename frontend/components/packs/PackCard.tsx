@@ -51,6 +51,8 @@ export interface PackCardProps {
   isSelected?: boolean;
   // Estados de loading
   isUpdating: boolean;
+  /** Nome de quem disparou o refresh, quando não foi você. Nulo => selo genérico. */
+  updatingByName?: string | null;
   isTogglingAutoRefresh: string | null;
   packToDisableAutoRefresh: { id: string; name: string } | null;
 }
@@ -65,7 +67,7 @@ export interface PackCardProps {
  * - Métricas: Campanhas, Adsets, Anúncios (grid de 3 colunas)
  * - Footer: Última atualização (esquerda) + Atualização automática (direita)
  */
-export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onTranscribeAds, isSelected = false, isUpdating, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
+export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRefresh, onRemove, onToggleAutoRefresh, onSetSheetIntegration, onEditSheetIntegration, onDeleteSheetIntegration, onEditJudgment, onTranscribeAds, isSelected = false, isUpdating, updatingByName, isTogglingAutoRefresh, packToDisableAutoRefresh }: PackCardProps) {
   const stats = pack.stats;
   // Conta de anúncio de origem: prefere o nome resolvido; cai para o id cru (act_...) se ainda não carregou/não resolveu.
   const adAccountLabel = adAccountName || pack.adaccount_id;
@@ -285,7 +287,7 @@ export function PackCard({ pack, adAccountName, formatCurrency, formatDate, onRe
                 {/* Badge no topo direito */}
                 <div className="absolute top-3 right-3 bg-primary text-primary-foreground px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 z-[20] shadow-elevation-overlay">
                   <IconLoader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Atualizando...</span>
+                  <span>{updatingByName ? `Atualizando por ${updatingByName}...` : "Atualizando..."}</span>
                 </div>
               </>
             )}

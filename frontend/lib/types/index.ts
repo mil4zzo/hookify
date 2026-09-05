@@ -22,6 +22,16 @@ export interface AdsPack {
     spreadsheet_name?: string // Adicionado pelo backend ao buscar nomes das planilhas
   }
   last_refreshed_at?: string // Data do último refresh no formato YYYY-MM-DD
+  // ── Refresh em andamento, legível por QUALQUER membro (pack compartilhado) ──
+  // O estado local (`updatingPacks`) só conhece o refresh disparado nesta aba.
+  // Estes dois campos vêm do banco e são do pack, não de quem disparou.
+  // `refresh_lock_until` é o prazo de validade do 'running' — sempre leia os dois
+  // juntos, via `isPackRefreshingOnServer()`, nunca o status sozinho.
+  refresh_status?: 'idle' | 'queued' | 'running' | 'cancel_requested' | 'canceled' | 'success' | 'failed' | null
+  refresh_lock_until?: string | null
+  // Nome de quem disparou. NULO quando é você mesmo (o backend omite de propósito:
+  // "Atualizando por <você>" é ruído) ou quando o nome não pôde ser resolvido.
+  refresh_actor_name?: string | null
   // Lista materializada (union incremental no refresh) dos conversion types do pack.
   // Chaves: 'conversion:<type>' / 'action:<type>'. Fonte do dropdown de eventos no Manager.
   conversion_types?: string[]

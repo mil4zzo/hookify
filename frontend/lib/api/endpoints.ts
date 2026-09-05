@@ -178,8 +178,15 @@ export const api = {
     getActiveJobs: (): Promise<{ jobs: Array<{ job_id: string; status: string; progress: number; message: string | null; type: string | null; pack_id: string | null; pack_name: string | null; integration_id: string | null; updated_at: string }> }> =>
       apiClient.get('/facebook/jobs/active'),
 
-    cancelJobsBatch: (jobIds: string[], reason?: string): Promise<{ cancelled_count: number; total_requested: number; message: string }> =>
-      apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout' }),
+    /**
+     * `skipRefresh`: preserva o refresh de pack (e o sync de planilha encadeado nele).
+     * O logout manda true — atualização de pack é trabalho que o usuário PEDIU e que
+     * grava dado; matá-la no logout era incoerente com fechar a aba, que deixa
+     * terminar. O botão de cancelar explícito não manda, porque ali o usuário está
+     * dizendo exatamente "pare isso".
+     */
+    cancelJobsBatch: (jobIds: string[], reason?: string, skipRefresh?: boolean): Promise<{ cancelled_count: number; total_requested: number; preserved_count?: number; message: string }> =>
+      apiClient.post('/facebook/jobs/cancel-batch', { job_ids: jobIds, reason: reason || 'Cancelado durante logout', skip_refresh: !!skipRefresh }),
 
     updateAdStatus: (adId: string, status: "PAUSED" | "ACTIVE", packIds?: string[]): Promise<UpdateEntityStatusResponse> =>
       // Contexto de pack: o backend so o usa p/ PROPOR silo (exige papel + entidade no pack).

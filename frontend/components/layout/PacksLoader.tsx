@@ -1,6 +1,7 @@
 "use client"
 
 import { useLoadPacks } from '@/lib/hooks/useLoadPacks'
+import { usePackRefreshSync } from '@/lib/hooks/usePackRefreshSync'
 import { createContext, useContext, ReactNode } from 'react'
 
 /**
@@ -18,6 +19,9 @@ export function usePacksLoading() {
  */
 export function PacksLoader({ children }: { children: ReactNode }) {
   const { isLoading } = useLoadPacks()
+  // useLoadPacks lê os packs uma vez por carregamento de página; isto mantém vivo
+  // o "outro membro está atualizando" sem reler o resto do pack.
+  usePackRefreshSync()
   return <PacksLoadingContext.Provider value={{ isLoading }}>{children}</PacksLoadingContext.Provider>
 }
 

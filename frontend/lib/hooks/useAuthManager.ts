@@ -48,7 +48,10 @@ export const useAuthManager = () => {
       const jobIdsArray = Array.from(activeJobIds)
       if (jobIdsArray.length > 0) {
         try {
-          await api.facebook.cancelJobsBatch(jobIdsArray, 'Cancelado durante logout')
+          // skipRefresh: o refresh do pack sobrevive ao logout. Ele roda no servidor
+          // com credencial própria, a cota da Meta já foi paga, e num pack
+          // compartilhado matá-lo derrubaria a atualização que o colega espera.
+          await api.facebook.cancelJobsBatch(jobIdsArray, 'Cancelado durante logout', true)
           logger.debug(`[LOGOUT] ${jobIdsArray.length} job(s) cancelado(s)`)
         } catch (error) {
           logger.error('[LOGOUT] Erro ao cancelar jobs (continuando logout):', error)
