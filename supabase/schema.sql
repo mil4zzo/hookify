@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict VmGXkhXSLXGxYXAP1aorrOGcKNvq0MFdf0i5dq8ArSteHwJ95eCkMlTAxh4ym1s
+\restrict NfMkYTFlnFogFqU5orjmtgmjzAlZIuDD9ztJDULpFv54RSj6vivhivYarVch6Di
 
 -- Dumped from database version 17.6
 -- Dumped by pg_dump version 17.6
@@ -12851,6 +12851,45 @@ $$;
 ALTER FUNCTION public.set_updated_at() OWNER TO postgres;
 
 --
+-- Name: sweep_stale_pack_refresh(); Type: FUNCTION; Schema: public; Owner: postgres
+--
+
+CREATE FUNCTION public.sweep_stale_pack_refresh() RETURNS integer
+    LANGUAGE plpgsql SECURITY DEFINER
+    SET search_path TO 'public'
+    AS $$
+DECLARE
+  afetados integer;
+BEGIN
+  -- `refresh_lock_until` e `timestamp` SEM timezone e guarda UTC. Comparar direto
+  -- com `now()` (timestamptz) faria o Postgres interpretar a coluna no fuso da
+  -- SESSAO: correto hoje (o banco esta em UTC), silenciosamente errado no dia em
+  -- que alguem mudar isso. `now() at time zone 'utc'` torna a comparacao
+  -- naive-contra-naive e imune ao fuso da sessao.
+  UPDATE public.packs
+     SET refresh_status = 'failed',
+         refresh_lock_until = NULL,
+         refresh_actor_id = NULL
+   WHERE refresh_status = 'running'
+     AND refresh_lock_until IS NOT NULL
+     AND refresh_lock_until < (now() AT TIME ZONE 'utc');
+
+  GET DIAGNOSTICS afetados = ROW_COUNT;
+  RETURN afetados;
+END;
+$$;
+
+
+ALTER FUNCTION public.sweep_stale_pack_refresh() OWNER TO postgres;
+
+--
+-- Name: FUNCTION sweep_stale_pack_refresh(); Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON FUNCTION public.sweep_stale_pack_refresh() IS 'Marca como failed os packs presos em refresh_status=running cujo prazo (refresh_lock_until) venceu — job que morreu sem escrever o status final. Agendada por pg_cron; chamavel manualmente se o agendamento nao existir.';
+
+
+--
 -- Name: ad_accounts; Type: TABLE; Schema: public; Owner: postgres
 --
 
@@ -13667,7 +13706,6 @@ CREATE TABLE public.packs (
     refresh_status text DEFAULT 'idle'::text,
     last_prompted_at date,
     refresh_lock_until timestamp without time zone,
-    refresh_progress_json jsonb,
     ad_ids text[] DEFAULT '{}'::text[],
     sheet_integration_id uuid,
     conversion_types text[] DEFAULT '{}'::text[] NOT NULL,
@@ -13675,6 +13713,7 @@ CREATE TABLE public.packs (
     target_cpr jsonb,
     diagnostic_cost_metric text,
     last_status_sync_at timestamp with time zone,
+    refresh_actor_id uuid,
     CONSTRAINT packs_diagnostic_cost_metric_check CHECK (((diagnostic_cost_metric IS NULL) OR (diagnostic_cost_metric = ANY (ARRAY['cpr'::text, 'cpmql'::text])))),
     CONSTRAINT packs_level_check CHECK ((level = ANY (ARRAY['campaign'::text, 'adset'::text, 'ad'::text]))),
     CONSTRAINT packs_mql_leadscore_min_check CHECK (((mql_leadscore_min IS NULL) OR (mql_leadscore_min >= (0)::numeric))),
@@ -13724,6 +13763,13 @@ COMMENT ON COLUMN public.packs.diagnostic_cost_metric IS 'Override da metrica de
 --
 
 COMMENT ON COLUMN public.packs.last_status_sync_at IS 'Instante do ultimo sync de status on-focus deste pack (TTL de 5 min). Fonte de verdade COMPARTILHADA entre os 4 workers do uvicorn -- antes vivia num dict de processo e o TTL era anulado pela quantidade de workers (migration 127). NULL = nunca sincronizado ou slot liberado apos falha, para permitir retry.';
+
+
+--
+-- Name: COLUMN packs.refresh_actor_id; Type: COMMENT; Schema: public; Owner: postgres
+--
+
+COMMENT ON COLUMN public.packs.refresh_actor_id IS 'Ator do refresh em andamento (quem disparou; num pack compartilhado difere do dono). Escrito junto com refresh_status=running, limpo em qualquer status terminal. Le-se sempre com refresh_status + refresh_lock_until, nunca sozinho.';
 
 
 --
@@ -14639,13 +14685,6 @@ CREATE INDEX pack_shares_owner_idx ON public.pack_shares USING btree (owner_id);
 --
 
 CREATE INDEX pack_shares_pack_idx ON public.pack_shares USING btree (pack_id);
-
-
---
--- Name: packs_refresh_lock_idx; Type: INDEX; Schema: public; Owner: postgres
---
-
-CREATE INDEX packs_refresh_lock_idx ON public.packs USING btree (auto_refresh, refresh_status, refresh_lock_until) WHERE (refresh_lock_until IS NOT NULL);
 
 
 --
@@ -15714,6 +15753,14 @@ GRANT ALL ON FUNCTION public.set_updated_at() TO service_role;
 
 
 --
+-- Name: FUNCTION sweep_stale_pack_refresh(); Type: ACL; Schema: public; Owner: postgres
+--
+
+REVOKE ALL ON FUNCTION public.sweep_stale_pack_refresh() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.sweep_stale_pack_refresh() TO service_role;
+
+
+--
 -- Name: TABLE ad_accounts; Type: ACL; Schema: public; Owner: postgres
 --
 
@@ -16009,5 +16056,5 @@ ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public GRANT ALL ON T
 -- PostgreSQL database dump complete
 --
 
-\unrestrict VmGXkhXSLXGxYXAP1aorrOGcKNvq0MFdf0i5dq8ArSteHwJ95eCkMlTAxh4ym1s
+\unrestrict NfMkYTFlnFogFqU5orjmtgmjzAlZIuDD9ztJDULpFv54RSj6vivhivYarVch6Di
 
