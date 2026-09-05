@@ -616,8 +616,12 @@ saíram do pós-MVP e viraram P3.6. Só o token do convidado ficou para depois.
   mesmos anúncios — que é justamente o cenário atual. Dedup por `(ad_id, date)` na
   CTE base.
 
-- **Rate limit concentra no dono.** `packs.refresh_lock_until` já existe e serializa
-  o refresh; falta expor na UI. `meta_api_usage` precisa registrar ator **e** dono.
+- **Rate limit concentra no dono.** `packs.refresh_lock_until` existe como COLUNA
+  desde a migration 004, mas nunca serializou nada: até 2026-09-04 nenhum código
+  jamais a escreveu (42 packs em produção, zero com valor). Quem serializa o
+  refresh é o guard 409 em `refresh_pack`, via `jobs`. A coluna passou a ser usada
+  em 2026-09-04, como prazo de validade do `refresh_status` para que outros membros
+  vejam o refresh alheio. `meta_api_usage` precisa registrar ator **e** dono.
 
 - **Conexão do dono degradada bloqueia o time inteiro.** Precisa de mensagem
   específica para o convidado ("o dono precisa reconectar"), não 403 genérico.

@@ -4056,3 +4056,58 @@ Duas lições de método:
 
 Custo em unidades que se sentem: dois deploys e alguns dias de um combobox que só rolava
 arrastando a barra; o diagnóstico com medição levou menos de uma hora.
+
+---
+
+## Logout deixa de cancelar o refresh do pack — e o `refresh_status` só é legível com prazo
+
+**2026-09-05 · status: implementado (migration 141 aplicada em produção; falta deploy do código)**
+
+Até aqui o "este pack está atualizando" só existia dentro do navegador de quem clicou.
+Num pack compartilhado isso deixava os outros membros cegos: o colega atualizava e eles
+viam o pack parado, liam números sendo reescritos e podiam disparar um refresh
+concorrente. `packs.refresh_status` é do **pack**, não de quem disparou — é o único sinal
+que atravessa contas — e já era gravado desde sempre. Ninguém lia.
+
+**`refresh_status` sozinho mente.** Três caminhos põem o pack em `running` e nunca
+escrevem o status final: o job que morre no processor (`mark_failed`), o cancelamento em
+lote e a queda de processo. Prova em produção: dois packs estavam presos em `running` há
+**16 e 17 dias** (limpos à mão em 2026-09-04). Ler o status cru teria acendido selo de
+atualização permanente para todo mundo já no primeiro dia — pior que não mostrar nada,
+porque aviso que nunca sai ensina a ignorar o aviso.
+
+Por isso o par **status + `refresh_lock_until`**. A coluna existia desde a migration 004
+e **nunca tinha sido escrita por nenhuma linha de código em toda a história do projeto**
+(varredura do git + 42 packs em produção, zero com valor) — não houve decisão de
+desligá-la; ela nasceu órfã. Um documento de roadmap chegou a afirmar que ela "já existe
+e serializa o refresh"; era falso, e foi corrigido. Quem serializa é o guard 409 em
+`refresh_pack`, via `jobs`.
+
+**A decisão que mais tende a ser revertida: o logout NÃO cancela mais o refresh.**
+Cancelar nunca foi necessidade técnica — o job roda com service role e token do Meta
+guardado no servidor, então sobrevive ao fim da sessão. Era escolha, e errada por três
+motivos:
+
+- **Incoerente com fechar a aba.** Fechar deixava o refresh terminar e os dados chegarem;
+  logout matava. Da cabeça do usuário as duas coisas são "terminei por hoje".
+- **Joga fora trabalho já pago.** A parte cara é a Meta processar o job de insights do
+  lado dela. Cancelar depois disso queima cota e obriga a pagar de novo na próxima sessão.
+- **Com pack compartilhado, vira dano ao outro.** O logout de um membro matava o refresh
+  que o outro estava esperando — e, com o selo novo, isso ficou visível do pior jeito:
+  "Atualizando...", some, nada atualizado.
+
+O sync de planilha **encadeado** no refresh é preservado junto (identificado pelo
+`chained_sync_job_id` no payload do job pai); um sync **avulso** continua sendo cancelado.
+O botão de cancelar explícito não mudou — ali o usuário está dizendo "pare isso".
+
+**O prazo protege a tela, não o dado.** A linha continua `running` no banco para sempre;
+a tela apenas deixa de acreditar nela. Isso não é problema de espaço (é uma coluna numa
+tabela pequena), é de confiança: daqui a meses uma pergunta legítima ("quais packs
+falharam ao atualizar?") encontraria `running` que na verdade morreram. Daí a varredura
+`sweep_stale_pack_refresh()` no `pg_cron` (04:37 UTC), que só julga linhas **com** prazo —
+e é o mesmo campo pagando duas contas.
+
+**Regra derivada:** nunca ler `packs.refresh_status` sozinho — sempre com
+`refresh_lock_until`, via `isPackRefreshingOnServer()` no frontend. E, antes de "consertar"
+trabalho órfão cancelando no logout: perguntar se o trabalho grava dado que o usuário
+pediu. Se grava, deixe terminar. Memória: `pack_refresh_cross_member_visibility.md`.
