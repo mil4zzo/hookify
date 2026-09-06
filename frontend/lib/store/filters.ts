@@ -3,8 +3,37 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { DateRange, formatDateLocal } from '@/lib/utils/dateFilters'
 import { logger } from '@/lib/utils/logger'
 
-const STORAGE_KEY = 'hookify-filters'
+const BASE_STORAGE_KEY = 'hookify-filters'
 const STORAGE_VERSION = 1
+
+/**
+ * A seleção de packs é POR USUÁRIO, mas mora no navegador (não há coluna para
+ * ela em `user_preferences`). Com uma chave única, trocar de conta no mesmo
+ * navegador fazia o mapa do usuário anterior ser lido pelo seguinte: os ids não
+ * batiam, `syncPacksOnLoad` reconstruía tudo e o default de pack desconhecido é
+ * `true` — daí o "voltei e está tudo marcado". Pior, num pack COMPARTILHADO os
+ * ids batem, e a desmarcação de um vazava para o outro.
+ */
+function storageKeyForUser(userId: string): string {
+  return `${BASE_STORAGE_KEY}:${userId}`
+}
+
+/**
+ * Conteúdo da chave global (era pré-escopo), lido no import — antes de qualquer
+ * gravação desta sessão. Ler aqui, e não dentro de `bindFiltersToUser`, evita
+ * que uma escrita ocorrida entre o boot e o login sobrescreva a seleção que
+ * ainda estava esperando para ser adotada.
+ */
+let legacyGlobalSnapshot: string | null = readLegacyGlobalSnapshot()
+
+function readLegacyGlobalSnapshot(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return localStorage.getItem(BASE_STORAGE_KEY)
+  } catch {
+    return null
+  }
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -19,6 +48,12 @@ interface FiltersState {
   actionType: string
   usePackDates: boolean
   actionTypeOptions: string[] // transient — NOT persisted
+  /**
+   * Usuário cujo mapa já foi lido do localStorage. `null` = ainda não amarrado;
+   * nesse estado o que está em memória é o default, não a preferência do
+   * usuário — quem grava precisa esperar. transient — NOT persisted.
+   */
+  boundUserId: string | null
 }
 
 interface FiltersActions {
@@ -123,6 +158,7 @@ export const useFiltersStore = create<FiltersStore>()(
       actionType: '',
       usePackDates: false,
       actionTypeOptions: [],
+      boundUserId: null,
 
       togglePack: (packId) => {
         const { packPreferences } = get()
@@ -199,7 +235,7 @@ export const useFiltersStore = create<FiltersStore>()(
       },
     }),
     {
-      name: STORAGE_KEY,
+      name: BASE_STORAGE_KEY, // reamarrado ao usuário em bindFiltersToUser()
       version: STORAGE_VERSION,
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
@@ -223,7 +259,18 @@ export const useFiltersStore = create<FiltersStore>()(
               actionTypeOptions: [],
             }
           }
-          return { ...currentState, dateRange: getDefaultDateRange(), actionTypeOptions: [] }
+          // Nada persistido para ESTA chave → zerar todo filtro. Antes daqui
+          // saía `...currentState` puro: inofensivo no boot (estado já vazio),
+          // mas no rehydrate da troca de usuário preservava o mapa de packs do
+          // usuário anterior — exatamente o vazamento que o escopo corrige.
+          return {
+            ...currentState,
+            packPreferences: {},
+            dateRange: getDefaultDateRange(),
+            actionType: '',
+            usePackDates: false,
+            actionTypeOptions: [],
+          }
         }
 
         const ps = persistedState as Partial<FiltersState>
@@ -247,3 +294,45 @@ export const useSelectedPackIds = () =>
   useFiltersStore((s) =>
     new Set(Object.entries(s.packPreferences).filter(([, v]) => v).map(([k]) => k))
   )
+
+// ── Escopo por usuário ─────────────────────────────────────────────────────────
+
+let boundKeyUserId: string | null = null
+
+/**
+ * Amarra o store persistido ao usuário logado (`hookify-filters:<user_id>`) e
+ * relê o localStorage nessa chave.
+ *
+ * Chamado uma vez por carregamento de página, assim que a sessão do Supabase
+ * resolve (ver `useFiltersUserScope`). Enquanto não roda, `boundUserId` é null e
+ * `useFilters` segura o `syncPacksOnLoad` — sem isso a sincronização gravaria
+ * "tudo marcado" por cima da seleção que ainda não foi lida.
+ *
+ * O `rehydrate()` é assíncrono na assinatura, mas o storage é o localStorage
+ * (síncrono): a leitura acontece no mesmo tick, não há janela de pisca.
+ */
+export async function bindFiltersToUser(userId: string): Promise<void> {
+  if (typeof window === 'undefined' || !userId) return
+  if (boundKeyUserId === userId) return
+  boundKeyUserId = userId
+
+  const key = storageKeyForUser(userId)
+
+  try {
+    // Adoção única do mapa global: o primeiro usuário a logar depois deste
+    // deploy herda a seleção que já existia, em vez de recomeçar com tudo
+    // marcado. Depois disso a chave global deixa de existir e o próximo usuário
+    // não tem o que herdar.
+    if (legacyGlobalSnapshot !== null && localStorage.getItem(key) === null) {
+      localStorage.setItem(key, legacyGlobalSnapshot)
+    }
+    legacyGlobalSnapshot = null
+    localStorage.removeItem(BASE_STORAGE_KEY)
+  } catch (e) {
+    logger.error('Erro ao migrar filtros para a chave por usuário:', e)
+  }
+
+  useFiltersStore.persist.setOptions({ name: key })
+  await useFiltersStore.persist.rehydrate()
+  useFiltersStore.setState({ boundUserId: userId })
+}

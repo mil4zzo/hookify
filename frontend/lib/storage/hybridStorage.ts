@@ -5,9 +5,42 @@
 
 import { StateStorage } from 'zustand/middleware'
 import * as indexedDB from './indexedDB'
+import { REACT_QUERY_PERSIST_KEY } from './reactQueryPersistKeys'
 
 const LOCAL_STORAGE_KEY = 'hookify-session'
 const PACK_IDS_KEY = 'hookify-pack-ids' // Lista de IDs de packs grandes
+
+/**
+ * Último recurso quando o localStorage estoura a cota, na hora de salvar ao
+ * menos o token.
+ *
+ * Aqui havia um `localStorage.clear()`. Ele resolvia o sintoma levando junto
+ * tudo o que NÃO tinha culpa no estouro e que o app não sabe reconstruir: a
+ * seleção de packs, o período e o tipo de conversão do Topbar
+ * (`hookify-filters*`) — e também o token de sessão do Supabase, ou seja,
+ * derrubava o login que estava tentando salvar. Removemos só o que é pesado E
+ * regenerável (tudo isto volta do backend/IndexedDB no próximo carregamento).
+ *
+ * Se a cota estiver tomada por algo fora desta lista, a gravação seguinte falha
+ * de novo — e aí o chamador apenas loga, sem quebrar o fluxo. Preferimos falhar
+ * a salvar do que apagar o que o usuário escolheu.
+ */
+export function clearHeavyLocalStorageKeys(): void {
+  const regenerableKeys = [
+    LOCAL_STORAGE_KEY,        // sessão serializada (é o que carrega os packs)
+    PACK_IDS_KEY,             // lista de ids movidos para o IndexedDB
+    REACT_QUERY_PERSIST_KEY,  // blob síncrono do React Query
+    'hookify_packs',          // caches legados, anteriores ao storage híbrido
+    'hookify_adaccounts',
+  ]
+  for (const key of regenerableKeys) {
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      // Storage bloqueado pelo navegador: não há o que limpar nem o que quebrar.
+    }
+  }
+}
 
 interface SessionData {
   accessToken?: string | null
@@ -172,7 +205,7 @@ export const hybridStorage: StateStorage = {
               console.error('Erro crítico: localStorage completamente cheio')
               // Tenta limpar dados antigos e salvar apenas token
               try {
-                localStorage.clear()
+                clearHeavyLocalStorageKeys()
                 const minimalData: SessionData = {
                   accessToken: state.accessToken,
                   user: state.user,
@@ -237,7 +270,7 @@ export const hybridStorage: StateStorage = {
               console.error('Erro crítico: localStorage completamente cheio')
               // Tenta limpar e salvar mínimo
               try {
-                localStorage.clear()
+                clearHeavyLocalStorageKeys()
                 const minimalData: SessionData = {
                   accessToken: state.accessToken,
                   user: state.user,

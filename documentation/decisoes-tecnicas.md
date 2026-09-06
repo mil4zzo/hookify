@@ -4111,3 +4111,60 @@ e é o mesmo campo pagando duas contas.
 `refresh_lock_until`, via `isPackRefreshingOnServer()` no frontend. E, antes de "consertar"
 trabalho órfão cancelando no logout: perguntar se o trabalho grava dado que o usuário
 pediu. Se grava, deixe terminar. Memória: `pack_refresh_cross_member_visibility.md`.
+
+---
+
+## Preferência que mora no navegador precisa de dono — e `localStorage.clear()` nunca é a saída para cota (2026-09-05)
+
+**Data:** 2026-09-05 · status: **implementado** (`lib/store/filters.ts`, `lib/hooks/useFiltersUserScope.ts`, `lib/storage/hybridStorage.ts`)
+
+**Sintoma relatado:** "deslogo, logo de novo e o Manager vem com todos os packs marcados —
+será que as preferências somem no logout?"
+
+**O que estava acontecendo.** Não somem: o logout limpa o localStorage **chave a chave** e
+`hookify-filters` nunca esteve na lista. O problema era o contrário — a chave era **única
+para o navegador**, sem dono. Trocar de conta fazia o mapa de um usuário ser lido pelo
+outro; como os ids de pack não batiam, `syncPacksOnLoad` reconstruía o mapa e o default de
+pack desconhecido é `true`. Daí o "está tudo marcado". Em **pack compartilhado** o efeito
+era pior e silencioso: aí os ids batem, e a desmarcação de um vazava de verdade para o
+outro.
+
+O logout limpar chave a chave é deliberado, não descuido: o token de sessão do Supabase
+mora no mesmo storage, e um `clear()` derrubaria o login. A consequência é que **escopar
+por usuário é obrigação de quem persiste**, não capricho — a mesma lição que o cache de
+avatar já tinha aprendido (`hookify_avatar_url` guarda `uid` junto da URL).
+
+**Decisões:**
+- Chave passa a ser `hookify-filters:<user_id>`, reamarrada com `persist.setOptions()` +
+  `persist.rehydrate()` assim que a sessão do Supabase resolve (`useFiltersUserScope`, no
+  `PacksLoader`, que embrulha toda rota autenticada). Voltar para a conta anterior
+  restaura a seleção dela, em vez de descartá-la.
+- **Adoção única** do mapa global: o primeiro usuário a logar depois do deploy herda a
+  seleção que já existia. O snapshot é lido **no import do módulo**, antes de qualquer
+  gravação da sessão — senão uma escrita entre o boot e o login sobrescreveria justamente
+  o que ia ser adotado.
+- O `merge` do `persist` passa a **zerar** os filtros quando não há nada persistido para a
+  chave. `{ ...currentState }` puro parecia inofensivo (no boot o estado já é vazio) mas
+  no rehydrate da troca de usuário preservava o mapa do usuário anterior — era o vazamento
+  com outro nome.
+- `syncPacksOnLoad` fica **gateado** em `boundUserId`. Sem o gate, a sincronização rodaria
+  sobre o mapa default e gravaria "tudo marcado" por cima da preferência que ainda estava
+  no disco esperando para ser lida.
+- No fallback de `QuotaExceededError` do `hybridStorage`, o `localStorage.clear()` vira
+  remoção seletiva do que é pesado **e** regenerável (sessão serializada, ids de packs
+  grandes, blob do React Query, caches legados). O `clear()` salvava o token derrubando a
+  escolha do usuário — e, ironia, apagava também o token do Supabase, ou seja, o login que
+  estava tentando salvar. Se a cota estiver tomada por outra coisa, a gravação falha e o
+  chamador apenas loga: melhor falhar a salvar do que apagar escolha de usuário.
+
+**Testes** (`lib/store/__tests__/filters.test.ts`, `lib/storage/__tests__/hybridStorage.test.ts`),
+sabotados de propósito antes de valer: reverter o reset do `merge` derruba só o teste de
+não-herança entre usuários; reverter a adoção derruba só o teste de migração; voltar o
+`localStorage.clear()` derruba exatamente os dois testes de preservação (seleção de packs
+e token do Supabase).
+
+**Regra derivada:** toda preferência nova persistida no cliente nasce escopada pelo
+`user_id`, e nenhum caminho de recuperação de espaço pode chamar `localStorage.clear()`.
+O que ainda **não** é durável: a seleção continua no navegador, então não segue o usuário
+entre máquinas. Levá-la para `user_preferences` é um passo separado, não feito aqui.
+Memória: `client_persisted_prefs_must_be_user_scoped.md`.

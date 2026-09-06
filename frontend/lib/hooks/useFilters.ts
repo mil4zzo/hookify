@@ -74,10 +74,15 @@ export function useFilters() {
   }, [store.usePackDates, store.packPreferences, calculateDateRangeFromPacks]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Effect: sync pack preferences when packs list changes ─────────────────
+  // Gate em `boundUserId`: enquanto o store não foi reamarrado à chave do
+  // usuário, o que está em memória é o default (mapa vazio). Sincronizar aí
+  // marcaria todos os packs e gravaria isso por cima da seleção real, que ainda
+  // estava no localStorage esperando para ser lida.
   useEffect(() => {
+    if (!store.boundUserId) return
     if (!packsClient || packs.length === 0) return
     store.syncPacksOnLoad(packs.map((p) => p.id))
-  }, [packsClient, packs.length]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [store.boundUserId, packsClient, packs.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     // State
