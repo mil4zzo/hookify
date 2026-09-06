@@ -82,6 +82,9 @@ const TABS_WITH_MEDIA_URLS = new Set<ManagerTab>(["por-anuncio", "individual"])
 // Limite do endpoint batch de URLs (backend rejeita acima disso) — fatiar
 const MEDIA_URL_BATCH_CHUNK = 500
 
+/** Marcador da coluna Transcrição para vídeo sem áudio detectável (falha permanente). */
+const NO_AUDIO_CELL = "[SEM ÁUDIO DETECTÁVEL]"
+
 export type MediaUrlMap = MediaSourceUrlsBatchResponse["results"]
 
 export interface MediaUrlFetchResult {
@@ -268,8 +271,16 @@ export async function exportManagerToCsv({
       cells.push(formatValue(col.id, raw))
     }
     if (showTranscriptions) {
+      // Célula vazia é ambígua: some "ainda não transcrito", "é imagem" e "não tem
+      // áudio". O marcador resolve a única das três que o usuário não consegue
+      // deduzir da coluna Media type — e segue a convenção do "ERRO: <motivo>" da
+      // coluna de URL, para quem consome a planilha (IA inclusive) não ler o
+      // marcador como fala. Custo zero: a flag já vem na linha (RPC v142).
       const adName = String(row.original.ad_name ?? "")
-      cells.push(neutralizeFormula(transcriptionMap[adName] ?? ""))
+      const text = transcriptionMap[adName] ?? ""
+      cells.push(neutralizeFormula(
+        text || (row.original.transcription_no_audio ? NO_AUDIO_CELL : "")
+      ))
     }
     if (showMediaUrls) {
       // Vídeo e imagem saem do mesmo mapa (imagem em ALTA via permalink, não a thumb

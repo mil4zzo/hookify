@@ -12,7 +12,9 @@ import { ToggleSwitch } from "@/components/common/ToggleSwitch";
 import { exportManagerToCsv, fetchMediaUrls, getMediaAdNames, type MediaUrlFetchResult, type MediaUrlMap } from "@/lib/utils/exportManagerCsv";
 import type { MetricValueContext } from "@/lib/metrics/calculations";
 import { useProvenanceIndex } from "@/lib/manager/provenance";
-import { IconPlus, IconX, IconFileText, IconLoader2, IconDownload, IconVideo, IconAlertTriangle, IconRefresh } from "@tabler/icons-react";
+import { useSessionStore } from "@/lib/store/session";
+import { usePackRefresh } from "@/lib/hooks/usePackRefresh";
+import { IconPlus, IconX, IconFileText, IconLoader2, IconDownload, IconVideo, IconAlertTriangle, IconRefresh, IconMicrophone } from "@tabler/icons-react";
 import { showError } from "@/lib/utils/toast";
 import { logger } from "@/lib/utils/logger";
 
@@ -43,6 +45,8 @@ interface ManagerExportDialogProps {
 
 export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, columnOrder, hasSheetIntegration, currentTab, dateStart, dateStop, metricContext, packIds, customColumns = [] }: ManagerExportDialogProps) {
   const provenanceIndex = useProvenanceIndex();
+  const packs = useSessionStore((state) => state.packs);
+  const { startTranscriptionOnly } = usePackRefresh();
 
   // Colunas exportáveis, na ordem da tabela (exclui as métricas de planilha — cpmql/mqls/leadscore_avg/mql_rate — quando não há integração; o export as descarta de qualquer forma)
   const availableColumns = useMemo(() => {
@@ -82,27 +86,82 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
   const showTranscriptionToggle = TABS_WITH_TRANSCRIPTION.has(currentTab);
   const showMediaUrlsToggle = TABS_WITH_MEDIA_URLS.has(currentTab);
 
-  // Quantos ads (filtrados+ordenados, o mesmo conjunto que o export percorre) têm transcrição disponível
-  const transcriptionStats = useMemo(() => {
-    if (!isOpen || !showTranscriptionToggle) return { withT: 0, total: 0 };
-    const rows = table.getSortedRowModel().rows;
-    let withT = 0;
-    for (const r of rows) if (r.original.has_transcription) withT++;
-    return { withT, total: rows.length };
-  }, [isOpen, showTranscriptionToggle, table]);
-
-  // Quantos ads/criativos (mesmo conjunto que o export percorre) têm mídia — alvo das URLs
-  const mediaUrlStats = useMemo(() => {
-    if (!isOpen || !showMediaUrlsToggle) return { videos: 0, images: 0, total: 0 };
+  // Composição do recorte que o export percorre (filtrado+ordenado, as MESMAS linhas
+  // que virarão o CSV). Uma varredura só alimenta a linha de composição do card, o
+  // rótulo das transcrições e o das URLs — antes eram duas contagens separadas, cada
+  // uma com um denominador diferente, e cabia ao usuário conferir se batiam.
+  //
+  // O denominador da transcrição é o total de VÍDEOS, não o de criativos: imagem não
+  // tem áudio e nunca será transcrita, então incluí-la no "de N" fazia um pack 100%
+  // transcrito parecer incompleto (o caso real: "172 de 257", sendo 172/172 vídeos).
+  //
+  // 142: o vídeo não transcrito se divide em dois, e a diferença é o que separa um
+  // botão que funciona de um que mente. "Sem áudio detectável" é falha PERMANENTE — o
+  // backend recusa transcrever — então esses ficam fora de `pendingVideoRows` e fora
+  // da conta do botão; entram no rótulo, para o número fechar aos olhos do usuário.
+  const creativeStats = useMemo(() => {
+    if (!isOpen || !(showTranscriptionToggle || showMediaUrlsToggle)) return null;
     const rows = table.getSortedRowModel().rows;
     let videos = 0;
     let images = 0;
+    let unknown = 0;
+    let videosTranscribed = 0;
+    let videosNoAudio = 0;
+    let transcribedTotal = 0;
+    const pendingVideoRows: Row<RankingsItem>[] = [];
     for (const r of rows) {
-      if (r.original.media_type === "video") videos++;
-      else if (r.original.media_type === "image") images++;
+      const hasTranscription = !!r.original.has_transcription;
+      if (hasTranscription) transcribedTotal++;
+      const mediaType = r.original.media_type;
+      if (mediaType === "video") {
+        videos++;
+        if (hasTranscription) videosTranscribed++;
+        else if (r.original.transcription_no_audio) videosNoAudio++;
+        else pendingVideoRows.push(r);
+      } else if (mediaType === "image") {
+        images++;
+      } else {
+        unknown++;
+      }
     }
-    return { videos, images, total: rows.length };
-  }, [isOpen, showMediaUrlsToggle, table]);
+    return { total: rows.length, videos, images, unknown, videosTranscribed, videosNoAudio, transcribedTotal, pendingVideoRows };
+  }, [isOpen, showTranscriptionToggle, showMediaUrlsToggle, table]);
+
+  // Vídeos ainda sem transcrição, agrupados pelo pack de onde a linha veio — a rota de
+  // transcrição é POR PACK (`/packs/{id}/transcribe`), então o dialog precisa saber a
+  // qual pack cada ad_name pertence. Pack em que o usuário é `viewer` fica de fora: o
+  // backend recusa (transcrição gasta o saldo de AssemblyAI do dono).
+  //
+  // Cuidado com o pack escolhido: a rota, ao filtrar por `ad_names` e não achar nenhum,
+  // cai de volta para "transcrever o pack inteiro". Só entram pares (pack, ad_name) em
+  // que a própria linha declara o pack, o que garante o filtro não-vazio.
+  const transcribePlan = useMemo(() => {
+    if (!creativeStats || creativeStats.pendingVideoRows.length === 0) return null;
+    const writablePacks = new Map<string, string>();
+    for (const p of packs ?? []) {
+      if (p?.id && p.shared_role !== "viewer") writablePacks.set(String(p.id), String(p.name || p.id));
+    }
+    const byPack = new Map<string, { name: string; adNames: string[] }>();
+    const claimed = new Set<string>();
+    let unreachable = 0;
+    for (const r of creativeStats.pendingVideoRows) {
+      const adName = String(r.original.ad_name ?? "").trim();
+      if (!adName || claimed.has(adName)) continue;
+      const packId = (r.original.pack_ids ?? []).map(String).find((id) => writablePacks.has(id));
+      if (!packId) {
+        unreachable++;
+        continue;
+      }
+      claimed.add(adName);
+      const entry = byPack.get(packId) ?? { name: writablePacks.get(packId)!, adNames: [] };
+      entry.adNames.push(adName);
+      byPack.set(packId, entry);
+    }
+    // `count === 0` com `unreachable > 0` ainda vale render: o usuário precisa saber
+    // POR QUE não há botão para os vídeos que ele vê como não transcritos.
+    if (claimed.size === 0 && unreachable === 0) return null;
+    return { byPack, count: claimed.size, unreachable };
+  }, [creativeStats, packs]);
 
   const activeList = availableColumns.filter((c) => selected.has(c.id));
   const inactiveList = availableColumns.filter((c) => !selected.has(c.id));
@@ -116,7 +175,24 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     });
   };
 
+  const allSelected = availableColumns.length > 0 && selected.size === availableColumns.length;
+  const toggleAllColumns = () => {
+    setSelected(allSelected ? new Set() : new Set(availableColumns.map((c) => c.id)));
+  };
+
   const itemLabel = currentTab === "individual" ? "anúncios" : "criativos";
+
+  // Transcrever daqui evita o desvio "sair do export → /packs → transcrever → voltar".
+  // Um job (e um toast) por pack, como se o usuário tivesse clicado em cada card;
+  // ao terminar, o polling invalida os rankings e a contagem daqui já sobe sozinha.
+  const handleTranscribePending = async () => {
+    if (!transcribePlan) return;
+    const jobs = Array.from(transcribePlan.byPack.entries());
+    onClose();
+    for (const [packId, { name, adNames }] of jobs) {
+      await startTranscriptionOnly(packId, name, adNames);
+    }
+  };
 
   const doExport = async (mediaUrlMap?: MediaUrlMap) => {
     await exportManagerToCsv({
@@ -145,7 +221,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
     try {
       // Com URLs de mídia: resolve ANTES de baixar — se houver falhas, abre a
       // fase de revisão (retentar / exportar assim mesmo) em vez de baixar direto
-      if (withMediaUrls && showMediaUrlsToggle && mediaUrlStats.videos + mediaUrlStats.images > 0) {
+      if (withMediaUrls && showMediaUrlsToggle && (creativeStats?.videos ?? 0) + (creativeStats?.images ?? 0) > 0) {
         const result = await fetchMediaUrls(getMediaAdNames(exportRowsRef.current), {}, packIds);
         if (result.failedNames.length > 0) {
           setMediaUrlReview(result);
@@ -260,11 +336,29 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
         <div className="space-y-1">
           <h2 className="text-lg font-semibold text-text">Exportar CSV</h2>
           <p className="text-sm text-muted-foreground">Escolha as colunas e as opções do arquivo. Nome e Status entram sempre.</p>
+          {/* Composição do recorte, UMA vez e no topo: é contexto do arquivo inteiro,
+              não de um toggle. Antes vivia dentro do card de URLs, obrigando a somar
+              de cabeça para conferir o total. */}
+          {creativeStats && (
+            <p className="text-xs text-muted-foreground">
+              {creativeStats.total} {itemLabel} no recorte
+              {creativeStats.videos > 0 && ` · ${creativeStats.videos} de vídeo`}
+              {creativeStats.images > 0 && ` · ${creativeStats.images} de imagem`}
+              {creativeStats.unknown > 0 && ` · ${creativeStats.unknown} sem mídia identificada`}
+            </p>
+          )}
         </div>
 
         {/* Colunas incluídas */}
         <div className="space-y-2">
-          <span className="text-sm font-medium text-text">Colunas incluídas ({activeList.length})</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium text-text">Colunas incluídas ({activeList.length})</span>
+            {availableColumns.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={toggleAllColumns}>
+                {allSelected ? "Desmarcar todas" : "Marcar todas"}
+              </Button>
+            )}
+          </div>
           {activeList.length === 0 ? (
             <p className="text-xs text-muted-foreground">Nenhuma coluna selecionada — adicione abaixo.</p>
           ) : (
@@ -307,37 +401,63 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
         )}
 
         {/* Transcrições */}
-        {showTranscriptionToggle && (
-          <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <IconFileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-              <div className="flex min-w-0 flex-col">
-                <span className="text-sm text-text">Incluir transcrições</span>
-                <span className="text-xs text-muted-foreground">
-                  {transcriptionStats.withT} de {transcriptionStats.total} {itemLabel} têm transcrição
-                </span>
+        {showTranscriptionToggle && creativeStats && (
+          <div className="flex flex-col gap-2.5 rounded-md border border-border bg-background px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <IconFileText className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                <div className="flex min-w-0 flex-col">
+                  <span className="text-sm text-text">Incluir transcrições</span>
+                  <span className="text-xs text-muted-foreground">
+                    {creativeStats.videos === 0
+                      ? "Nenhum criativo de vídeo neste recorte"
+                      : creativeStats.videosTranscribed === creativeStats.videos
+                        ? `Todos os ${creativeStats.videos} vídeos estão transcritos`
+                        : `${creativeStats.videosTranscribed} de ${creativeStats.videos} vídeos transcritos`}
+                    {/* O "sem áudio" é o que faz a conta fechar: sem ele, 160 de 172 com
+                        botão de "Transcrever 0" pareceria bug. */}
+                    {creativeStats.videosNoAudio > 0 &&
+                      ` · ${creativeStats.videosNoAudio} sem áudio detectável`}
+                  </span>
+                </div>
               </div>
+              <ToggleSwitch
+                id="export-transcriptions"
+                checked={withTranscriptions}
+                onCheckedChange={setWithTranscriptions}
+                variant="minimal"
+                ariaLabel="Incluir transcrições"
+                disabled={creativeStats.transcribedTotal === 0}
+              />
             </div>
-            <ToggleSwitch
-              id="export-transcriptions"
-              checked={withTranscriptions}
-              onCheckedChange={setWithTranscriptions}
-              variant="minimal"
-              ariaLabel="Incluir transcrições"
-              disabled={transcriptionStats.withT === 0}
-            />
+
+            {transcribePlan && (
+              <div className="flex items-center justify-between gap-3 border-t border-border pt-2.5">
+                <p className="min-w-0 text-xs text-muted-foreground">
+                  {transcribePlan.count > 0 && "Transcreva sem sair daqui — a contagem acima sobe sozinha quando terminar. "}
+                  {transcribePlan.unreachable > 0 &&
+                    `${transcribePlan.unreachable} ${transcribePlan.unreachable === 1 ? "vídeo está" : "vídeos estão"} em pack compartilhado só para leitura — só o dono pode transcrever.`}
+                </p>
+                {transcribePlan.count > 0 && (
+                  <Button variant="outline" size="sm" onClick={handleTranscribePending} disabled={isExporting}>
+                    <IconMicrophone className="h-4 w-4" />
+                    Transcrever {transcribePlan.count}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
         {/* URLs das mídias */}
-        {showMediaUrlsToggle && (
+        {showMediaUrlsToggle && creativeStats && (
           <div className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2.5">
             <div className="flex items-center gap-2 min-w-0">
               <IconVideo className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
               <div className="flex min-w-0 flex-col">
                 <span className="text-sm text-text">Incluir URLs das mídias</span>
                 <span className="text-xs text-muted-foreground">
-                  {mediaUrlStats.videos} vídeos e {mediaUrlStats.images} imagens de {mediaUrlStats.total} {itemLabel} — validade de cada link na coluna do CSV
+                  Link direto de cada vídeo e imagem, com a validade na coluna ao lado
                 </span>
               </div>
             </div>
@@ -347,7 +467,7 @@ export function ManagerExportDialog({ isOpen, onClose, table, activeColumns, col
               onCheckedChange={setWithMediaUrls}
               variant="minimal"
               ariaLabel="Incluir URLs das mídias"
-              disabled={mediaUrlStats.videos + mediaUrlStats.images === 0}
+              disabled={creativeStats.videos + creativeStats.images === 0}
             />
           </div>
         )}
