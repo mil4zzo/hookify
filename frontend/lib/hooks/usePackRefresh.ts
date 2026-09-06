@@ -227,7 +227,7 @@ const TRANSCRIPTION_TOAST_TOTAL_STEPS = 2;
 export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshReturn {
   // === HOOKS ===
   const { updatePack } = useClientPacks();
-  const { invalidatePackAds, invalidateAdPerformance } = useInvalidatePackAds();
+  const { invalidatePackAds, invalidateAdPerformance, invalidateRankingsRows } = useInvalidatePackAds();
   const updatingPackIds = useUpdatingPacksStore((state) => state.updatingPackIds);
   const refreshingPackIds = Array.from(updatingPackIds);
   const { addActiveJob, removeActiveJob } = useActiveJobsStore();
@@ -371,6 +371,14 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
               summary,
               { durationSeconds: 5, context: "transcription", packName }
             );
+
+            // `has_transcription` viaja NA LINHA do Manager (RPC v132). Sem invalidar,
+            // o cache de rankings segue dizendo "sem transcrição" até o próximo refetch
+            // — foi assim que o dialog de export mostrou 30 de 257 depois de transcrever
+            // tudo em /packs. Só quando algo de fato foi transcrito: um lote 100%
+            // sem-áudio não muda a flag e não paga a RPC (~2,6 s quente).
+            if (successCount > 0) invalidateRankingsRows();
+
             return { done: true, result: { success: true } };
           }
 
@@ -441,7 +449,7 @@ export function usePackRefresh(options?: PackRefreshOptions): UsePackRefreshRetu
         },
       });
     },
-    []
+    [invalidateRankingsRows]
   );
 
   // ============================================================================

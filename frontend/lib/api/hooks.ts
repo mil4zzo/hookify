@@ -762,6 +762,30 @@ export const useInvalidateUserData = () => {
 }
 
 /**
+ * Terceiro segmento das chaves de DETALHE que compartilham o prefixo
+ * ['analytics','rankings'] com a tabela do Manager. Espelha `queryKeys` acima —
+ * chave de detalhe nova entra aqui tambem, ou passa a ser invalidada junto com a
+ * tabela sem motivo.
+ */
+const RANKINGS_DETAIL_MARKERS = new Set([
+  'children',
+  'ad-details',
+  'ad-creative',
+  'ad-history',
+  'ad-name-details',
+  'ad-name-history',
+  'campaign-children',
+  'adset-children',
+])
+
+/** True so para a chave da TABELA do Manager. Exportada para teste. */
+export const isManagerRowsQueryKey = (k: unknown): boolean => {
+  if (!Array.isArray(k) || k[0] !== 'analytics' || k[1] !== 'rankings') return false
+  // Na chave da tabela, k[2] e a data inicial; nas de detalhe, um marcador fixo.
+  return !RANKINGS_DETAIL_MARKERS.has(String(k[2]))
+}
+
+/**
  * Hook utilitário para invalidar cache de ads de um pack
  * Útil quando um pack é atualizado, refresh ou deletado
  */
@@ -790,6 +814,25 @@ export const useInvalidatePackAds = () => {
     invalidateAdPerformance: () => {
       queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings'], refetchType: 'active' })
       queryClient.invalidateQueries({ queryKey: ['analytics', 'rankings-series'], refetchType: 'active' })
+    },
+    /**
+     * So as LINHAS da tabela do Manager. Para mudancas que alteram um campo da linha e
+     * nada mais — o caso concreto e `has_transcription`/`transcription_no_audio`, que
+     * vem na linha (RPC v142).
+     *
+     * Nao usa `queryKey: ['analytics','rankings']` porque esse prefixo NAO e so a
+     * tabela: as oito consultas de detalhe (adVariations, adDetails, adCreative,
+     * adHistory, adName*, *Children) vivem debaixo dele e vem de outra RPC
+     * (fetch_entity_performance_*), que nem devolve o estado da transcricao. Invalidar
+     * por prefixo jogava fora, entre outras, a `ad-creative` — que se reconstroi com
+     * chamada a Meta. A serie diaria (`rankings-series`) tambem fica de fora: ~0,33 s
+     * de RPC para reescrever dado identico.
+     */
+    invalidateRankingsRows: () => {
+      queryClient.invalidateQueries({
+        predicate: (query) => isManagerRowsQueryKey(query.queryKey),
+        refetchType: 'active',
+      })
     },
   }
 }
