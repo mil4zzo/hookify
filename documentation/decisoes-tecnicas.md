@@ -1373,6 +1373,16 @@ Cores padrão (white, black, gray, slate, zinc, red, blue, green, yellow, amber,
 
 **Lição:** `Job Failed 0%` sem `error` é três coisas em ordem de probabilidade — quota/throttle, payload inválido, e **scope OAuth faltando**. Antes de assumir as duas primeiras, testar o mesmo payload no Explorer com app igual + token regenerado. Se Explorer funciona e backend não, o token salvo é o suspeito — mas pode ser scope, não expiração.
 
+**Adendo (2026-09-06) — a mesma mensagem tem uma SEGUNDA causa, e ela é intermitente.** Com `business_management` **granted** (`facebook_connections.scopes` do usuário confirma), quatro refreshes falharam em ~1h com exatamente o mesmo `(#3) AdAccount must pass GK: plr_beta_gk_existing_feature`, morrendo em percentuais aleatórios (0%, 22%, 46%, 61%). Não é scope: o pack `EI.31 - CA4 Cap (BM1)` (`act_375919623592885`) falhou às 13:45 e **completou às 13:49 com 2853 anúncios** — mesmo token, mesmo payload, 4 minutos depois. Histórico no `jobs`: 46 ocorrências desde julho/2026 (~4% dos refreshes), espalhadas pelos 7 ad accounts, sempre intercaladas com sucessos nas mesmas contas.
+
+O campo suspeito de disparar o GK é `video_play_curve_actions` (curva de retenção; "plr" ≈ *play retention*), pedido em `meta_job_client.start_job` e em `graph_api`. A Meta usa o mesmo Gate Keeper interno para "você não tem direito a esse dado" (causa A, permanente) e para "não consegui servir esse dado agora" (causa B, transitória).
+
+**Consequências no código (estado em 2026-09-06, ainda não corrigido):**
+- `isMetaScopeError` (`frontend/lib/hooks/usePackRefresh.ts`) trata `code=3` + "gk" como scope faltando e manda o usuário em "Configurações → Conexões → Atualizar permissões" — que não conserta a causa B.
+- Não existe retry: o ramo `meta_job_status == "failed"` em `facebook.py` mata o job de vez, e o caminho de falha deixa `packs.refresh_status='running'` até o `refresh_lock_until` (15 min) expirar.
+
+**Como distinguir na prática:** tente de novo. Se a mesma conta completou um refresh nos últimos minutos/horas, é causa B (instabilidade). Se nenhuma tentativa naquele act jamais passou, é causa A (scope).
+
 ---
 
 ## Landing de waitlist `/waitlist` e o padrão de rota pública de 3 pontos
@@ -4168,3 +4178,45 @@ e token do Supabase).
 O que ainda **não** é durável: a seleção continua no navegador, então não segue o usuário
 entre máquinas. Levá-la para `user_preferences` é um passo separado, não feito aqui.
 Memória: `client_persisted_prefs_must_be_user_scoped.md`.
+
+---
+
+## Busca do Manager filtrava e a tabela não mudava — `globalFilter` fora do comparator (2026-09-06)
+
+**Sintoma:** digitar na busca do `/manager` atualizava o rótulo "Exibindo 0 de 397 anúncios",
+mas todas as linhas continuavam na tela. O filtro por regra (botão Filtros) funcionava
+normalmente.
+
+**Diagnóstico.** O filtro nunca esteve quebrado: `getFilteredRowModel()` já devolvia o
+recorte certo — daí o rótulo (calculado em `ManagerTable`, fora do memo) acertar. O que não
+acontecia era o **redesenho**. `TableContent` é `React.memo` com comparator manual
+(`areTableContentPropsEqual`), e a busca viaja para a tabela **dentro** do filtro sintético
+`__rules` (`{ rules, search }`) — não como prop. O comparator tentava detectá-la assim:
+
+```ts
+const prevState = prev.table.getState();
+const nextState = next.table.getState();
+if (prevState.columnFilters !== nextState.columnFilters && JSON.stringify(...) !== ...) return false;
+```
+
+Armadilha: `prev.table` e `next.table` são a **mesma instância mutável** do TanStack, logo os
+dois `getState()` devolvem literalmente o mesmo objeto e a comparação nunca acusa diferença.
+Essa checagem de `columnFilters` era **código morto e enganoso** — parecia cobrir filtros e
+não cobria nada. O filtro por regra escapava só porque `rules` já era prop explícita. O
+`rows` useMemo lá dentro tinha `table.getState().columnFilters` nas deps e teria recomputado,
+mas o componente nunca re-renderizava, então o memo nem era reavaliado.
+
+**Fix:** `globalFilter: string` como prop-espelho (`SharedTableContentProps` +
+`tableContentProps` + `prev.globalFilter !== next.globalFilter` no comparator + deps do `rows`
+useMemo). Custo de performance: zero — o comparator continua saindo cedo em resize de coluna
+e hover; só passou a acusar diferença quando o texto muda de verdade.
+
+**Terceira instância do mesmo padrão** (depois de `colorMetricValue` e `rowSelection`), e a
+mais grave: as duas primeiras **atrasavam** a tela, esta a fazia **mentir**. Regra que fecha o
+padrão: no comparator, nunca derive o sinal de `prev.table`/`next.table` — a instância é
+estável e as duas leituras são idênticas por construção. Todo estado da tabela que afeta o que
+aparece (dados, filtros, busca, sorting, seleção, ordem de colunas) precisa de prop-espelho
+vinda do state do React. Sintoma que identifica a família: **um número/rótulo fora do memo
+concorda com a verdade e a tabela discorda dele.**
+
+Memória: `manager_table_memo_signal_prop_for_cell_rerender.md` (atualizada, não duplicada).

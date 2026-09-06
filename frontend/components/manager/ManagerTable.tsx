@@ -35,7 +35,8 @@ import { buildManagerBulkActions } from "@/components/manager/managerBulkActions
 import { BulkTagDialog } from "@/components/manager/BulkTagDialog";
 import { TagScopeProvider } from "@/components/manager/TagScopeProvider";
 import { ManagerColumnFilter, type ManagerColumnType } from "@/components/common/ManagerColumnFilter";
-import { MANAGER_COLUMN_RENDER_ORDER, getManagerColumnOptions } from "@/components/manager/managerColumns";
+import { MANAGER_COLUMN_RENDER_ORDER } from "@/components/manager/managerColumns";
+import { deselectVisible, selectVisible } from "@/components/common/filterListBulk";
 import { isCustomColumnKey, type CustomColumnDef } from "@/lib/metrics/customColumns";
 import { TableContent } from "@/components/manager/TableContent";
 import { ManagerDrillModal } from "@/components/manager/ManagerDrillModal";
@@ -327,14 +328,17 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
     [setActiveColumns],
   );
 
-  // Bulk: seleciona todas as colunas habilitadas (ex: cpmql/mqls ficam de fora sem planilha)
-  const handleSelectAllColumns = useCallback(() => {
-    setActiveColumns(() => new Set<ManagerColumnType>(getManagerColumnOptions(customColumns).filter((column) => isColumnEnabled(column.id)).map((column) => column.id)));
-  }, [isColumnEnabled, setActiveColumns, customColumns]);
+  // Bulk: marca as colunas habilitadas entre as VISÍVEIS na lista (a busca do popover já
+  // filtrou; com busca vazia são todas). União com o que já estava marcado — coluna fora
+  // da busca não é tocada. As desabilitadas continuam de fora (ex: cpmql/mqls sem planilha).
+  const handleSelectAllColumns = useCallback((visibleIds: string[]) => {
+    const enabled = visibleIds.filter((id) => isColumnEnabled(id as ManagerColumnType)) as ManagerColumnType[];
+    setActiveColumns((prev) => selectVisible(prev, enabled));
+  }, [isColumnEnabled, setActiveColumns]);
 
-  // Bulk: limpa a seleção (mesmo padrão do PackFilter — 0 é um estado válido)
-  const handleDeselectAllColumns = useCallback(() => {
-    setActiveColumns(() => new Set<ManagerColumnType>());
+  // Bulk: desmarca só as VISÍVEIS (subtração; ver acima). 0 é um estado válido.
+  const handleDeselectAllColumns = useCallback((visibleIds: string[]) => {
+    setActiveColumns((prev) => deselectVisible(prev, visibleIds as ManagerColumnType[]));
   }, [setActiveColumns]);
   const handleTabChange = (value: string) => {
     const next = value as ManagerTab;
@@ -1220,6 +1224,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       formatPct,
       rules,
       setRules,
+      globalFilter: deferredGlobalFilter,
       activeColumns,
       columnOrder,
       hasSheetIntegration,
@@ -1235,7 +1240,7 @@ export function ManagerTable({ ads, groupByAdName = true, activeTab, onTabChange
       isError: isError && currentTab === "por-anuncio",
       onOpenDrill: handleOpenDrill,
     }),
-    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, rules, setRules, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, pinSelectionToTop, data, adsEffectiveRaw, cellMode, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
+    [table, isLoadingEffective, isError, getRowKey, groupByAdNameEffective, currentTab, handleSelectAd, handleSelectAdset, dateStart, dateStop, selectedPackIds, actionType, formatCurrency, formatPct, rules, setRules, deferredGlobalFilter, activeColumns, columnOrder, hasSheetIntegration, mqlLeadscoreMin, sorting, rowSelection, pinSelectionToTop, data, adsEffectiveRaw, cellMode, colorMetricValue, handleVisibleRowKeysChange, handleOpenDrill],
   );
 
   // Na aba Criativos a seleção existe para compartilhar, não para mexer em status — daí o

@@ -49,9 +49,21 @@ export interface FilterListPopoverProps {
   searchable?: boolean;
   searchPlaceholder?: string;
   emptyMessage?: string;
-  /** Bulk (só multi): mostram a barra "Selecionar todos · Limpar  N/M" */
-  onSelectAll?: () => void;
-  onDeselectAll?: () => void;
+  /**
+   * Bulk (só multi): mostram a barra "Selecionar todos · Limpar  N/M".
+   *
+   * Recebem os ids VISÍVEIS no momento do clique (a lista já filtrada pela busca) — com a
+   * busca vazia, são todos. O contrato é de UNIÃO/SUBTRAÇÃO, não de substituição: o handler
+   * deve acrescentar/remover esses ids da seleção atual e NÃO tocar no que está fora da
+   * busca. Buscar "EI.31", ver 7 resultados e clicar em "Selecionar todos" precisa marcar
+   * esses 7 — marcar os 37 contradiz o que está na tela.
+   *
+   * Assimetria proposital: `onSelectAll` recebe só as opções HABILITADAS (marcar em massa
+   * não pode fazer o que o clique individual recusa), enquanto `onDeselectAll` recebe todas
+   * as visíveis — uma opção desabilitada que JÁ está marcada continua desmarcável.
+   */
+  onSelectAll?: (visibleIds: string[]) => void;
+  onDeselectAll?: (visibleIds: string[]) => void;
   /**
    * Só multi e sem `groups`: cada opção ganha uma alça de arrastar e a lista vira reordenável.
    * Fica suspenso enquanto há busca ativa — a lista filtrada não representa a ordem real.
@@ -117,6 +129,23 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
   const selectedCount = selectedIds.size;
   const totalCount = options.length;
   const showBulkActions = mode === "multi" && totalCount > 1 && (!!onSelectAll || !!onDeselectAll);
+
+  // Alvo dos atalhos bulk: o que está na tela agora. Com busca vazia é a lista inteira,
+  // então o comportamento histórico ("selecionar todos" = todos) fica intacto.
+  const visibleIds = useMemo(() => filteredOptions.map((option) => option.id), [filteredOptions]);
+  // Marcar em massa respeita o mesmo veto do clique individual (ver doc de onSelectAll).
+  const selectableVisibleIds = useMemo(() => filteredOptions.filter((option) => !option.disabled).map((option) => option.id), [filteredOptions]);
+  const hasSelectableLeft = useMemo(() => filteredOptions.some((option) => !option.disabled && !selectedIds.has(option.id)), [filteredOptions, selectedIds]);
+
+  // Enquanto há busca, a barra inteira passa a falar do recorte: contador e estado
+  // desabilitado dos botões seguem o alvo real do clique. Sem isso, "Selecionar todos"
+  // apareceria habilitado com os 7 visíveis já marcados (porque 7 ≠ 37) e não faria nada.
+  const isSearching = normalizedSearch !== "";
+  const visibleSelectedCount = useMemo(
+    () => (isSearching ? filteredOptions.reduce((count, option) => (selectedIds.has(option.id) ? count + 1 : count), 0) : selectedCount),
+    [isSearching, filteredOptions, selectedIds, selectedCount],
+  );
+  const bulkTotalCount = isSearching ? filteredOptions.length : totalCount;
 
   const handleOpenChange = (nextOpen: boolean) => {
     setOpen(nextOpen);
@@ -301,19 +330,19 @@ export function FilterListPopover({ options, groups, mode = "multi", selectedIds
           <div className="flex items-center justify-between gap-2 border-b border-border px-2 py-1.5">
             <div className="flex items-center gap-2">
               {onSelectAll && (
-                <button type="button" onClick={onSelectAll} disabled={selectedCount === totalCount} className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40">
+                <button type="button" onClick={() => onSelectAll(selectableVisibleIds)} disabled={!hasSelectableLeft} className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40">
                   Selecionar todos
                 </button>
               )}
               {onSelectAll && onDeselectAll && <span className="text-xs text-muted-foreground">·</span>}
               {onDeselectAll && (
-                <button type="button" onClick={onDeselectAll} disabled={selectedCount === 0} className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40">
+                <button type="button" onClick={() => onDeselectAll(visibleIds)} disabled={visibleSelectedCount === 0} className="text-xs font-medium text-text hover:underline disabled:pointer-events-none disabled:opacity-40">
                   Limpar
                 </button>
               )}
             </div>
             <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {selectedCount}/{totalCount}
+              {visibleSelectedCount}/{bulkTotalCount}
             </span>
           </div>
         )}

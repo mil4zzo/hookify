@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { IconX } from "@tabler/icons-react";
 
 import { FilterListPopover } from "@/components/common/FilterListPopover";
+import { deselectVisibleOrdered, selectVisibleOrdered } from "@/components/common/filterListBulk";
 import { FilterSelectButton } from "@/components/common/FilterSelectButton";
 import { cn } from "@/lib/utils/cn";
 
@@ -66,8 +67,8 @@ export function MultiSelectChipsField({
         searchable={options.length > 5}
         searchPlaceholder={searchPlaceholder}
         emptyMessage={emptyMessage}
-        onSelectAll={() => onChange(options.map((option) => option.value))}
-        onDeselectAll={() => onChange([])}
+        onSelectAll={(visibleIds) => onChange(selectVisibleOrdered(selectedIds, visibleIds))}
+        onDeselectAll={(visibleIds) => onChange(deselectVisibleOrdered(selectedIds, visibleIds))}
         disablePortal={disablePortal}
         disabled={disabled}
         contentClassName="w-[240px]"

@@ -43,8 +43,9 @@ interface PackFilterProps {
   onGroupByPacksChange?: (checked: boolean) => void; // Handler para mudança do switch
   showGroupByPacksSwitch?: boolean; // Se true, mostra o switch "Agrupar por packs" dentro do popup
   singleSelect?: boolean; // Se true, usa estilo single-select (sem checkboxes, como ActionTypeFilter)
-  onSelectAll?: () => void; // Bulk: seleciona todos os packs (mostra atalho "Selecionar todos")
-  onDeselectAll?: () => void; // Bulk: limpa a seleção (mostra atalho "Limpar")
+  // Bulk: recebem os ids visíveis (lista já filtrada pela busca) — ver FilterListPopover.
+  onSelectAll?: (visibleIds: string[]) => void; // atalho "Selecionar todos"
+  onDeselectAll?: (visibleIds: string[]) => void; // atalho "Limpar"
   /**
    * Grafo de conflito cross-silo (usePackConflicts): packId -> packs com que ele
    * conflita. Pack NÃO selecionado que conflita com algum selecionado fica

@@ -38,6 +38,11 @@ export interface SharedTableContentProps {
   formatPct: (v: number) => string;
   rules: RuleTree;
   setRules: React.Dispatch<React.SetStateAction<RuleTree>>;
+  /** Texto da busca. Ele já viaja para a tabela dentro do filtro sintético `__rules`, mas precisa
+   * ser prop explícita: `table` é instância mutável estável, então prev.table.getState() e
+   * next.table.getState() leem o MESMO objeto no comparador do React.memo e nunca diferem —
+   * sem esta prop, digitar na busca atualizava a contagem e não as linhas. */
+  globalFilter: string;
   activeColumns: Set<ManagerColumnType>;
   /** Ordem das colunas de métrica. Não é lida no render (a tabela já vem ordenada por state.columnOrder),
    * mas precisa ser prop explícita: `table` é instância mutável estável e o React.memo não veria o reorder. */

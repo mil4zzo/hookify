@@ -54,10 +54,10 @@ interface ManagerColumnFilterProps {
   onReorderColumns: (columnOrder: ManagerColumnType[]) => void;
   /** Se true, a coluna não pode ser habilitada (mas pode ser desabilitada se já estiver selecionada) */
   isColumnDisabled?: (columnId: ManagerColumnType) => boolean;
-  /** Bulk: seleciona todas as colunas habilitadas (mostra atalho "Selecionar todos") */
-  onSelectAll?: () => void;
-  /** Bulk: limpa a seleção (mostra atalho "Limpar") */
-  onDeselectAll?: () => void;
+  /** Bulk: marca as colunas habilitadas entre as VISÍVEIS (ids da lista já filtrada pela busca). */
+  onSelectAll?: (visibleIds: string[]) => void;
+  /** Bulk: desmarca as VISÍVEIS (atalho "Limpar"). */
+  onDeselectAll?: (visibleIds: string[]) => void;
   className?: string;
 }
 

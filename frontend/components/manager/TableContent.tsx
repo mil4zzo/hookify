@@ -108,14 +108,8 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
     return false;
   }
 
-  // Comparar filtros e sorting (que afetam quais rows são mostradas)
-  const prevState = prev.table.getState();
-  const nextState = next.table.getState();
-
-  // Comparar filtros (referência primeiro, stringify só se necessário)
-  if (prevState.columnFilters !== nextState.columnFilters && JSON.stringify(prevState.columnFilters) !== JSON.stringify(nextState.columnFilters)) {
-    return false;
-  }
+  // Os filtros NÃO podem ser lidos de `table.getState()` aqui — ver a nota em (4) abaixo.
+  // Cada filtro chega como prop própria: `rules` (regras) e `globalFilter` (busca).
 
   // Comparar sorting (referência primeiro, stringify só se necessário)
   if (prev.sorting !== next.sorting && JSON.stringify(prev.sorting) !== JSON.stringify(next.sorting)) {
@@ -139,7 +133,20 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   // 3. O TanStack Table já atualiza o DOM diretamente via CSS (width das colunas)
   // 4. Comparar columnSizing aqui causaria re-renders desnecessários durante resize
 
-  // 4. A regra de filtro. Referência primeiro: `setRules` só cria árvore nova
+  // 4. A busca. REGRA GERAL DESTE COMPARATOR: nunca derive um sinal de `prev.table`/
+  // `next.table` — é a MESMA instância mutável do TanStack (useReactTable devolve sempre
+  // o mesmo objeto), então `prev.table.getState()` e `next.table.getState()` leem o mesmo
+  // objeto e qualquer comparação entre eles é `x !== x`, sempre falsa. Todo estado que
+  // muda o que aparece precisa de prop-espelho vinda do state do React. Já custou 3 bugs:
+  // colorMetricValue, rowSelection e esta busca — que atualizava a contagem
+  // ("Exibindo X de Y") e deixava todas as linhas na tela.
+  // (Nas DEPS de um useMemo a leitura via getState() é legítima: lá o React guarda o valor
+  //  do render anterior, então a comparação é entre momentos diferentes — ver `rows` abaixo.)
+  if (prev.globalFilter !== next.globalFilter) {
+    return false;
+  }
+
+  // 5. A regra de filtro. Referência primeiro: `setRules` só cria árvore nova
   // quando algo mudou de verdade (ver managerRules), então o caso comum sai daqui
   // sem serializar nada. O stringify é o desempate de uma árvore reconstruída
   // com o mesmo conteúdo — bem menor que o array por coluna de antes.
@@ -151,7 +158,7 @@ function areTableContentPropsEqual(prev: TableContentProps, next: TableContentPr
   return true;
 }
 
-export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, variant = "detailed" }: TableContentProps) {
+export const TableContent = React.memo(function TableContent({ table, isLoadingEffective, isError, currentTab, setSelectedAd, sorting, rowSelection, pinSelectionToTop = false, onVisibleRowKeysChange, onOpenDrill, globalFilter, variant = "detailed" }: TableContentProps) {
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const styles = VARIANT_STYLES[variant];
 
@@ -165,7 +172,7 @@ export const TableContent = React.memo(function TableContent({ table, isLoadingE
     const base = table.getRowModel().rows;
     if (!pinSelectionToTop) return base;
     return orderSelectedFirst(base, (row) => row.getIsSelected()) as typeof base;
-  }, [table.options.data, table.getState().columnFilters, sorting, rowSelection, pinSelectionToTop]);
+  }, [table.options.data, table.getState().columnFilters, globalFilter, sorting, rowSelection, pinSelectionToTop]);
 
   // Ligar o pin com a tabela rolada colocaria a seleção no topo FORA da vista — o usuário
   // pediu justamente para vê-las juntas. Só ao LIGAR: rolar a cada linha marcada depois
